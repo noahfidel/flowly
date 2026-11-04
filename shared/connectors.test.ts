@@ -224,3 +224,33 @@ test("linkedCardCounts counts each card once per connection, by connection id or
     { taskId: "c", target: "https://github.com/o/r/pull/4" },
   ])).toEqual({ gh: 2, jira: 0 });
 });
+
+describe("Linear keys and links (CONNECTORS-SPEC §14)", () => {
+  const linear = { id: "lin", provider: "linear" as const, baseUrl: "https://linear.app/acme" };
+  test("issue links below the workspace, with slugs, subpages and anchors; other workspaces and pages are not issues", () => {
+    expect(recognizeUrl("https://linear.app/acme/issue/ENG-42", linear)).toEqual({ itemType: "issue", key: "ENG-42" });
+    expect(recognizeUrl("https://linear.app/acme/issue/eng-42/fix-the-login-retry", linear)).toEqual({ itemType: "issue", key: "ENG-42" });
+    expect(recognizeUrl("https://linear.app/acme/issue/ENG-42/fix-login#comment-1a2b3c", linear)).toEqual({ itemType: "issue", key: "ENG-42" });
+    expect(recognizeUrl("https://linear.app/other/issue/ENG-42/fix-login", linear)).toBeNull();
+    expect(recognizeUrl("https://linear.app/acme/project/checkout-0c7f", linear)).toBeNull();
+    expect(recognizeUrl("https://linear.app/acme/team/ENG/active", linear)).toBeNull();
+    expect(recognizeUrl("https://linear.app/acme/issue/not-a-key", linear)).toBeNull();
+  });
+  test("keys, picker queries, urls, face keys and labels", () => {
+    expect(parseKey("eng-42", "linear")).toEqual({ itemType: "issue", key: "ENG-42" });
+    expect(parseKey("42", "linear")).toBeNull();
+    expect(classifyQuery("ENG-42", linear)).toEqual({ kind: "key", itemType: "issue", key: "ENG-42" });
+    expect(classifyQuery("https://linear.app/acme/issue/ENG-42/x", linear)).toEqual({ kind: "key", itemType: "issue", key: "ENG-42" });
+    // Numbers repeat across teams, so a bare number is a number search, as in Jira.
+    expect(classifyQuery("42", linear)).toEqual({ kind: "number", number: "42" });
+    expect(classifyQuery("login retry", linear)).toEqual({ kind: "text", text: "login retry" });
+    expect(itemUrl(linear, "issue", "ENG-42")).toBe("https://linear.app/acme/issue/ENG-42");
+    expect(faceKey({ key: "ENG-42", itemType: "issue" })).toBe("ENG-42");
+    expect(itemLabel("linear", "issue")).toBe("Linear issue");
+  });
+  test("a bare key is ambiguous next to a Jira connection; a link is not", () => {
+    expect(externalTarget("ENG-42", [linear])).toMatchObject({ connectionId: "lin", key: "ENG-42" });
+    expect(externalTarget("ENG-42", [linear, dc])).toBeNull();
+    expect(externalTarget("https://linear.app/acme/issue/ENG-42", [dc, linear])).toMatchObject({ connectionId: "lin", key: "ENG-42" });
+  });
+});

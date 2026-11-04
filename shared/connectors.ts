@@ -7,10 +7,10 @@ import { z } from "zod";
  * picker searches. Nothing here talks to a service.
  */
 
-export const connectorFamilies = ["jira", "confluence", "github", "gitlab", "azure"] as const;
+export const connectorFamilies = ["jira", "confluence", "github", "gitlab", "azure", "linear"] as const;
 export type ConnectorFamily = (typeof connectorFamilies)[number];
 
-export const connectorProviders = ["jira-dc", "jira-cloud", "confluence-dc", "confluence-cloud", "github", "gitlab", "azure-devops"] as const;
+export const connectorProviders = ["jira-dc", "jira-cloud", "confluence-dc", "confluence-cloud", "github", "gitlab", "azure-devops", "linear"] as const;
 export type ConnectorProvider = (typeof connectorProviders)[number];
 export const connectorProviderSchema = z.enum(connectorProviders);
 
@@ -21,7 +21,13 @@ export const itemTypeSchema = z.enum(itemTypes);
 /** What a provider needs to connect (CONNECTORS-SPEC §4.1). */
 export const providerInfo: Record<
   ConnectorProvider,
-  { family: ConnectorFamily; email: boolean; defaultBaseUrl?: string }
+  {
+    family: ConnectorFamily;
+    email: boolean;
+    defaultBaseUrl?: string;
+    /** The API address is fixed and the user enters none; the account check reports the workspace address (Linear, CONNECTORS-SPEC §14). */
+    noAddress?: boolean;
+  }
 > = {
   "jira-dc": { family: "jira", email: false },
   "jira-cloud": { family: "jira", email: true },
@@ -30,6 +36,7 @@ export const providerInfo: Record<
   github: { family: "github", email: false, defaultBaseUrl: "https://github.com" },
   gitlab: { family: "gitlab", email: false, defaultBaseUrl: "https://gitlab.com" },
   "azure-devops": { family: "azure", email: false },
+  linear: { family: "linear", email: false, defaultBaseUrl: "https://linear.app", noAddress: true },
 };
 export const familyOf = (provider: ConnectorProvider) => providerInfo[provider].family;
 export const familyProviders = (family: ConnectorFamily) => connectorProviders.filter((p) => providerInfo[p].family === family);
@@ -333,6 +340,22 @@ export const azureItemUrl = (baseUrl: string, key: string) => {
   return id ? `${baseUrl}/_workitems/edit/${id}` : "";
 };
 
+/* ---------- Linear ---------- */
+
+/** /issue/ENG-123 below the workspace address (https://linear.app/<urlKey>), with any title slug or subpage. */
+export function linearFromUrl(value: string, baseUrl: string): { itemType: "issue"; key: string } | null {
+  const at = below(value, baseUrl);
+  if (!at) return null;
+  const match = /^\/issue\/([^/?#]+)(?:\/[^?#]*)?$/.exec(at.rest);
+  const key = match ? issueKey(decode(match[1]!)) : null;
+  return key ? { itemType: "issue", key } : null;
+}
+
+export const linearItemUrl = (baseUrl: string, key: string) => {
+  const valid = issueKey(key);
+  return valid ? `${baseUrl}/issue/${valid}` : "";
+};
+
 /* ---------- Dispatch ---------- */
 
 /** The item a link of `connection` points at; null when it is not one. Display-name page links need a lookup. */
@@ -352,6 +375,7 @@ export function recognizeUrl(
   }
   if (family === "github") return githubFromUrl(value, connection.baseUrl);
   if (family === "azure") return azureFromUrl(value, connection.baseUrl);
+  if (family === "linear") return linearFromUrl(value, connection.baseUrl);
   return gitlabFromUrl(value, connection.baseUrl);
 }
 
@@ -374,7 +398,8 @@ export function linkedCardCounts(
 export function parseKey(value: string, provider: ConnectorProvider): { itemType: ItemType; key: string } | null {
   const family = familyOf(provider);
   const text = value.trim();
-  if (family === "jira") {
+  if (family === "jira" || family === "linear") {
+    // Linear identifiers (ENG-123) are written like Jira keys.
     const key = issueKey(text);
     return key ? { itemType: "issue", key } : null;
   }
@@ -396,6 +421,7 @@ export function itemUrl(connection: Pick<Connection, "provider" | "baseUrl">, it
   if (family === "confluence") return pageUrl(connection.baseUrl, key);
   if (family === "github") return githubItemUrl(connection.baseUrl, key, itemType);
   if (family === "azure") return azureItemUrl(connection.baseUrl, key);
+  if (family === "linear") return linearItemUrl(connection.baseUrl, key);
   return gitlabItemUrl(connection.baseUrl, key, itemType);
 }
 
@@ -464,6 +490,7 @@ export function itemLabel(provider: ConnectorProvider, itemType: ItemType) {
   if (family === "jira") return "Jira ticket";
   if (family === "confluence") return "Confluence page";
   if (family === "azure") return "Azure DevOps work item";
+  if (family === "linear") return "Linear issue";
   const name = family === "github" ? "GitHub" : "GitLab";
   return `${name} ${itemType === "pull" ? "pull request" : itemType === "merge_request" ? "merge request" : "issue"}`;
 }

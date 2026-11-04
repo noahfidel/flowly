@@ -25,8 +25,11 @@ export type SearchScope = {
 export interface ConnectorAdapter {
   /** The API's display name in messages. */
   readonly label: string;
-  /** Checks the token: the account name and (GitHub/GitLab) the username. */
-  verify(connection: StoredConnection, fetchImpl: Fetch): Promise<{ account: string; login: string }>;
+  /**
+   * Checks the token: the account name and (GitHub/GitLab) the username. A provider with
+   * `noAddress` (Linear) also reports the workspace address, which becomes the connection's baseUrl.
+   */
+  verify(connection: StoredConnection, fetchImpl: Fetch): Promise<{ account: string; login: string; baseUrl?: string }>;
   /** Picker rows for a query (see shared classifyQuery). */
   search(connection: StoredConnection, fetchImpl: Fetch, query: string, scope: SearchScope): Promise<Fetched[]>;
   /** One item; `full` adds what Markdown and fingerprints need. */

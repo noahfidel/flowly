@@ -189,15 +189,16 @@ export class ConnectorService {
     const input = connectionInput.parse(raw);
     const info = providerInfo[input.provider];
     const adapter = adapterFor(input.provider);
-    const baseUrl = normalizeBaseUrl(info.defaultBaseUrl && !input.baseUrl ? info.defaultBaseUrl : input.baseUrl);
+    // A fixed API (Linear) takes no address from the user; the account check reports the workspace address below.
+    const baseUrl = normalizeBaseUrl(info.noAddress || (info.defaultBaseUrl && !input.baseUrl) ? info.defaultBaseUrl! : input.baseUrl);
     if (!baseUrl) throw new Error(`Enter the ${adapter.label} address, e.g. ${info.defaultBaseUrl || `https://${familyOf(input.provider)}.example.com`}.`);
     // Tokens never travel in clear text, except to this machine (local mirrors, tests).
     const url = new URL(baseUrl);
     if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
       throw new Error(`Use an https address for ${adapter.label}; tokens are not sent over plain http.`);
     const previous = input.id ? await this.connections.get(input.id) : undefined;
-    // A stored token only goes back to the address and service it was entered for.
-    const same = !!previous && previous.provider === input.provider && previous.baseUrl === baseUrl;
+    // A stored token only goes back to the address and service it was entered for. A fixed API has one address.
+    const same = !!previous && previous.provider === input.provider && (!!info.noAddress || previous.baseUrl === baseUrl);
     const secret = input.secret || (same ? previous.secret : "");
     const email = input.email || (same ? previous.email : "");
     if (previous && !same && !input.secret) throw new Error("The address or type changed: enter the token again.");
@@ -220,6 +221,12 @@ export class ConnectorService {
     });
     candidate.account = me.account;
     candidate.login = me.login;
+    if (info.noAddress) {
+      const workspace = me.baseUrl ? normalizeBaseUrl(me.baseUrl) : null;
+      if (!workspace || new URL(workspace).host !== new URL(baseUrl).host) throw new Error(`${adapter.label} did not report a workspace address for this key.`);
+      candidate.baseUrl = workspace;
+      if (!input.name) candidate.name = workspace.replace(/^https?:\/\//, "");
+    }
     candidate.verifiedAt = new Date(this.clock()).toISOString();
     return candidate;
   }

@@ -1142,4 +1142,5 @@ export function pruneIdeas(board: Board, taskId: string) {
 }
 
 /** "GitLab", for agent-facing messages. */
-const serviceName = (provider: Parameters<typeof familyOf>[0]) => ({ jira: "Jira", confluence: "Confluence", github: "GitHub", gitlab: "GitLab", azure: "Azure DevOps" })[familyOf(provider)];
+const serviceName = (provider: Parameters<typeof familyOf>[0]) =>
+  ({ jira: "Jira", confluence: "Confluence", github: "GitHub", gitlab: "GitLab", azure: "Azure DevOps", linear: "Linear" })[familyOf(provider)];

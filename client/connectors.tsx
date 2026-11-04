@@ -42,7 +42,7 @@ export function useConnections(enabled = true) {
 }
 
 /** Service names are brands: shown as written in every language. */
-export const familyNames: Record<ConnectorFamily, string> = { jira: "Jira", confluence: "Confluence", github: "GitHub", gitlab: "GitLab", azure: "Azure DevOps" };
+export const familyNames: Record<ConnectorFamily, string> = { jira: "Jira", confluence: "Confluence", github: "GitHub", gitlab: "GitLab", azure: "Azure DevOps", linear: "Linear" };
 
 /** The row icon of an item: its kind, not its service. */
 export function itemIcon(provider: ConnectorProvider, itemType: ItemType) {
@@ -71,6 +71,7 @@ export const linkTitles: Record<ConnectorFamily, string> = {
   github: msg("GitHub issue or pull request"),
   gitlab: msg("GitLab issue or merge request"),
   azure: msg("Azure DevOps work item"),
+  linear: msg("Linear issue"),
 };
 
 const searchHints: Record<ConnectorFamily, string> = {
@@ -79,6 +80,7 @@ const searchHints: Record<ConnectorFamily, string> = {
   github: msg("owner/repo#12, #12, a link or words from the title"),
   gitlab: msg("group/project!34, #12, !34, a link or words from the title"),
   azure: msg("Work item number, AB#123, a link or words from the title"),
+  linear: msg("ENG-123, a link or words from the title"),
 };
 
 const recentTitles: Record<ConnectorFamily, string> = {
@@ -87,6 +89,7 @@ const recentTitles: Record<ConnectorFamily, string> = {
   github: msg("Open issues and pull requests I'm involved in"),
   gitlab: msg("Open issues and merge requests assigned to me or awaiting my review"),
   azure: msg("Open work items assigned to me"),
+  linear: msg("Open issues assigned to me"),
 };
 
 const emptyRecent: Record<ConnectorFamily, string> = {
@@ -95,6 +98,7 @@ const emptyRecent: Record<ConnectorFamily, string> = {
   github: msg("No open issues or pull requests involve you."),
   gitlab: msg("Nothing open is assigned to you or awaiting your review."),
   azure: msg("No open work items are assigned to you."),
+  linear: msg("No open issues are assigned to you."),
 };
 
 /** Identity of an item across connections of one service: keys repeat between services (team/app#12 on GitHub and GitLab). */
@@ -432,6 +436,7 @@ const providerLabels: Record<ConnectorProvider, string> = {
   github: "GitHub",
   gitlab: "GitLab",
   "azure-devops": "Azure DevOps",
+  linear: "Linear",
 };
 
 const addTitles: Record<ConnectorFamily, string> = {
@@ -440,6 +445,7 @@ const addTitles: Record<ConnectorFamily, string> = {
   github: msg("Add a GitHub connection"),
   gitlab: msg("Add a GitLab connection"),
   azure: msg("Add an Azure DevOps connection"),
+  linear: msg("Add a Linear connection"),
 };
 
 /**
@@ -494,6 +500,8 @@ function tokenHint(provider: ConnectorProvider, hosted: boolean) {
         : t("Create one in GitHub → Settings → Developer settings → Personal access tokens, with read access to issues and pull requests.");
     case "azure-devops":
       return t("Create one in Azure DevOps → User settings → Personal access tokens, with the Work Items (Read) scope.");
+    case "linear":
+      return t("Create one in Linear → Settings → Security & access → Personal API keys. Read access is enough.");
     default:
       return t("Create one in GitLab → Preferences → Access tokens with the read_api scope.");
   }
@@ -507,6 +515,7 @@ const addressPlaceholders: Record<ConnectorProvider, string> = {
   github: "https://github.example.com",
   gitlab: "https://gitlab.example.com",
   "azure-devops": "https://dev.azure.com/your-organization",
+  linear: "https://linear.app",
 };
 
 function ConnectionEditor({ family, connection, onClose }: { family: ConnectorFamily; connection: Connection | null; onClose(): void }) {
@@ -523,8 +532,8 @@ function ConnectionEditor({ family, connection, onClose }: { family: ConnectorFa
   const [provider, setProvider] = useState<ConnectorProvider>(connection?.provider ?? providers[0]!);
   const info = providerInfo[provider];
   const defaultBase = info.defaultBaseUrl || "";
-  // GitHub/GitLab: the hosted service, or a self-hosted address.
-  const [hosted, setHosted] = useState(() => !!defaultBase && (!connection || connection.baseUrl === defaultBase));
+  // GitHub/GitLab: the hosted service, or a self-hosted address. Linear has no address to choose.
+  const [hosted, setHosted] = useState(() => !!info.noAddress || (!!defaultBase && (!connection || connection.baseUrl === defaultBase)));
   const [baseUrl, setBaseUrl] = useState(connection && connection.baseUrl !== defaultBase ? connection.baseUrl : "");
   const [name, setName] = useState(connection?.name ?? "");
   const [email, setEmail] = useState("");
@@ -603,14 +612,14 @@ function ConnectionEditor({ family, connection, onClose }: { family: ConnectorFa
       </View>
       {!!error && <Notice>{error}</Notice>}
       {providers.length > 1 && <Choices title={t("{service} type", { service })} value={provider} options={typeOptions} onChange={setProvider} />}
-      {!!defaultBase && <Choices title={t("Where")} value={hosted ? "hosted" : "self"} options={hostedOptions} onChange={(v) => setHosted(v === "hosted")} />}
+      {!!defaultBase && !info.noAddress && <Choices title={t("Where")} value={hosted ? "hosted" : "self"} options={hostedOptions} onChange={(v) => setHosted(v === "hosted")} />}
       {!hosted && (
         <Field title={t("{service} address", { service })} value={baseUrl} onChange={setBaseUrl} placeholder={addressPlaceholders[provider]} />
       )}
       <Field title={t("Name")} value={name} onChange={setName} placeholder={t("Defaults to the address")} />
       {info.email && <Field title={t("Account email")} value={email} onChange={setEmail} placeholder={connection ? t("Unchanged") : "you@example.com"} />}
       <Field
-        title={info.email ? t("API token") : t("Personal access token")}
+        title={info.email ? t("API token") : family === "linear" ? t("API key") : t("Personal access token")}
         value={secret}
         onChange={setSecret}
         placeholder={connection ? t("Unchanged") : ""}
