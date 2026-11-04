@@ -7,6 +7,7 @@ import { IdeasPopover, OutsideIdeasPopover } from "./client/native-popovers";
 import { NativeNextMovesItem } from "./client/next-move-card";
 import { nextRowKind, nextRowSchema, nextRowVersion, summaryRowKind, summaryRowSchema, summaryRowVersion } from "./shared/native-session";
 import { SidebarEntry } from "./client/sidebar";
+import { LinearSidebarEntry, linearScreen } from "./client/linear-board";
 import { intentParams, type BoardIntent } from "./client/shortcuts";
 import { deviceLocale, msg, setLocale, t } from "./shared/i18n";
 import { loadCatalog } from "./client/catalog";
@@ -74,6 +75,17 @@ export default function contribute(client: PluginClientContext) {
     id: "board",
     title: "Flowly",
     Component: SidebarEntry,
+  });
+  // The Linear board in the main bar (LINEAR-BOARD-SPEC §2); its row shows only with a Linear connection.
+  client.addScreen({
+    id: "linear",
+    title: "Linear",
+    Component: linearScreen((input) => client.openScreen(input)),
+  });
+  client.addSidebarHeaderItem({
+    id: "linear",
+    title: "Linear",
+    Component: LinearSidebarEntry,
   });
   client.addWorkspacePanel({
     id: "board",

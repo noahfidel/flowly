@@ -1483,5 +1483,18 @@ const catalog: Catalog = {
   "Invalid Open card link. Open the card again from the Linear board.": "「カードを開く」のリンクが無効です。Linear ボードからもう一度カードを開いてください。",
   "Create a project first, then start the card again.": "先にプロジェクトを作成してから、もう一度カードを開始してください。",
   "{key} could not be found in Linear.": "Linear で {key} が見つかりませんでした。",
+  "Canceled": "キャンセル",
+  "Add a Linear connection in Flowly → Settings → Connections.": "Flowly → 設定 → 接続 で Linear の接続を追加してください。",
+  "Assigned to me": "自分に割り当て",
+  "Scope: {scope}": "範囲: {scope}",
+  "List": "リスト",
+  "No issues in this view.": "このビューに issue はありません。",
+  "Showing the {n} most recently updated issues.": "最近更新された {n} 件の issue を表示しています。",
+  "Start card": "カードを開始",
+  "Preview {key}: {title}": "{key} のプレビュー: {title}",
+  "Open card {title}": "カード {title} を開く",
+  "Start card from {key}": "{key} からカードを開始",
+  "Linear board": "Linear ボード",
+  "With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens New task with the issue attached and the agent ready.": "Linear に接続すると、サイドバーの Linear に自分の issue が状態別に表示されます。「カードを開始」で issue を添付し、エージェントの準備ができた状態で新しいタスクが開きます。",
 };
 export default catalog;

@@ -1483,5 +1483,18 @@ const catalog: Catalog = {
   "Invalid Open card link. Open the card again from the Linear board.": "“打开卡片”链接无效。请从 Linear 看板重新打开该卡片。",
   "Create a project first, then start the card again.": "请先创建项目，然后重新开始该卡片。",
   "{key} could not be found in Linear.": "在 Linear 中找不到 {key}。",
+  "Canceled": "已取消",
+  "Add a Linear connection in Flowly → Settings → Connections.": "请在 Flowly → 设置 → 连接 中添加 Linear 连接。",
+  "Assigned to me": "分配给我",
+  "Scope: {scope}": "范围：{scope}",
+  "List": "列表",
+  "No issues in this view.": "此视图中没有 issue。",
+  "Showing the {n} most recently updated issues.": "显示最近更新的 {n} 个 issue。",
+  "Start card": "开始卡片",
+  "Preview {key}: {title}": "预览 {key}：{title}",
+  "Open card {title}": "打开卡片 {title}",
+  "Start card from {key}": "从 {key} 开始卡片",
+  "Linear board": "Linear 看板",
+  "With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens New task with the issue attached and the agent ready.": "连接 Linear 后，侧栏中的 Linear 会按状态显示你的 issue。“开始卡片”会打开新建任务，附上该 issue 并准备好 agent。",
 };
 export default catalog;

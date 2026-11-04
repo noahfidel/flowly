@@ -44,6 +44,10 @@ export const boardViewSettings = defineSettings({
     drawerOrder: z.array(z.string().max(40)).max(20).catch([]).default([]),
     /** Card sidebar sections that start open (true) or closed (false) unlike their default (DRAWER-SPEC, Section order). */
     drawerOpen: z.record(z.string().max(40), z.boolean()).catch({}).default({}),
+    /** The Linear board's layout; auto = list on compact layouts, board otherwise (LINEAR-BOARD-SPEC §4). */
+    linearLayout: z.enum(["auto", "board", "list"]).catch("auto").default("auto"),
+    /** The Linear board's scope: "me" (Assigned to me) or a team id. */
+    linearScope: z.string().max(200).catch("me").default("me"),
     /** Card sidebar width as last dragged, as a share of the Flowly area; 0 = never dragged, opens at half (UI-UX-SPEC, drawer width). */
     drawerShare: z.number().min(0).max(1).catch(0).default(0),
   }),

@@ -61,3 +61,8 @@ export const FlowlyMark = memo(function FlowlyMark({ surface, size = 20 }: { sur
     />
   );
 });
+
+/** The Linear mark for the sidebar row (LINEAR-BOARD-SPEC §2); the host passes a size and color, the brand color stays. */
+export const LinearMark = memo(function LinearMark({ size }: { size: number; color: string }) {
+  return <Image source={logos.linear} accessibilityIgnoresInvertColors style={{ width: size, height: size }} resizeMode="contain" />;
+});

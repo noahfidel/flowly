@@ -1483,5 +1483,18 @@ const catalog: Catalog = {
   "Invalid Open card link. Open the card again from the Linear board.": "Недействительная ссылка «Открыть карточку». Откройте карточку снова с доски Linear.",
   "Create a project first, then start the card again.": "Сначала создайте проект, затем снова начните карточку.",
   "{key} could not be found in Linear.": "{key} не найден в Linear.",
+  "Canceled": "Отменено",
+  "Add a Linear connection in Flowly → Settings → Connections.": "Добавьте подключение Linear в Flowly → Настройки → Подключения.",
+  "Assigned to me": "Назначенные мне",
+  "Scope: {scope}": "Область: {scope}",
+  "List": "Список",
+  "No issues in this view.": "В этом представлении нет задач.",
+  "Showing the {n} most recently updated issues.": "Показаны {n} недавно обновлённых задач.",
+  "Start card": "Начать карточку",
+  "Preview {key}: {title}": "Просмотр {key}: {title}",
+  "Open card {title}": "Открыть карточку {title}",
+  "Start card from {key}": "Начать карточку из {key}",
+  "Linear board": "Доска Linear",
+  "With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens New task with the issue attached and the agent ready.": "С подключением Linear пункт Linear на боковой панели показывает ваши задачи по состояниям. «Начать карточку» открывает новую задачу с прикреплённой задачей Linear и готовым агентом.",
 };
 export default catalog;

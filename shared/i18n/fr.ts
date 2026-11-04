@@ -1483,5 +1483,18 @@ const catalog: Catalog = {
   "Invalid Open card link. Open the card again from the Linear board.": "Lien « Ouvrir la carte » invalide. Rouvrez la carte depuis le tableau Linear.",
   "Create a project first, then start the card again.": "Créez d’abord un projet, puis redémarrez la carte.",
   "{key} could not be found in Linear.": "{key} est introuvable dans Linear.",
+  "Canceled": "Annulé",
+  "Add a Linear connection in Flowly → Settings → Connections.": "Ajoutez une connexion Linear dans Flowly → Réglages → Connexions.",
+  "Assigned to me": "Qui me sont assignés",
+  "Scope: {scope}": "Portée : {scope}",
+  "List": "Liste",
+  "No issues in this view.": "Aucun ticket dans cette vue.",
+  "Showing the {n} most recently updated issues.": "Affichage des {n} tickets mis à jour le plus récemment.",
+  "Start card": "Démarrer la carte",
+  "Preview {key}: {title}": "Aperçu de {key} : {title}",
+  "Open card {title}": "Ouvrir la carte {title}",
+  "Start card from {key}": "Démarrer une carte depuis {key}",
+  "Linear board": "Tableau Linear",
+  "With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens New task with the issue attached and the agent ready.": "Avec une connexion Linear, Linear dans la barre latérale affiche vos tickets par état. « Démarrer la carte » ouvre Nouvelle tâche avec le ticket joint et l’agent prêt.",
 };
 export default catalog;

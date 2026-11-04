@@ -2,8 +2,8 @@ import { expect, test } from "vitest";
 import { boardViewValues, statusSettingsValues } from "./settings";
 
 test("older stored settings get defaults for newer fields; invalid values fall back", () => {
-  expect(boardViewValues({ lastProjectId: "p" })).toEqual({ lastProjectId: "p", sendBehavior: "steer", startAgentOnCreate: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, drawerShare: 0 });
-  expect(boardViewValues(undefined)).toEqual({ lastProjectId: "", sendBehavior: "steer", startAgentOnCreate: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, drawerShare: 0 });
+  expect(boardViewValues({ lastProjectId: "p" })).toEqual({ lastProjectId: "p", sendBehavior: "steer", startAgentOnCreate: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, linearLayout: "auto", linearScope: "me", drawerShare: 0 });
+  expect(boardViewValues(undefined)).toEqual({ lastProjectId: "", sendBehavior: "steer", startAgentOnCreate: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, linearLayout: "auto", linearScope: "me", drawerShare: 0 });
   expect(boardViewValues({ sendBehavior: "bogus" }).sendBehavior).toBe("steer");
   expect(boardViewValues({ sendBehavior: "queue", startAgentOnCreate: false })).toMatchObject({ sendBehavior: "queue", startAgentOnCreate: false });
 });
@@ -46,9 +46,11 @@ test("card display options default to auto and all shown; a bad value does not r
   expect(boardViewValues({ drawerOrder: ["sessions", "future"] }).drawerOrder).toEqual(["sessions", "future"]);
   expect(boardViewValues({ boardSort: "priority", drawerOrder: "sessions" })).toMatchObject({ boardSort: "priority", drawerOrder: [] });
   expect(boardViewValues({ drawerOpen: { workpad: false } }).drawerOpen).toEqual({ workpad: false });
-  expect(boardViewValues({ boardSort: "priority", drawerOpen: { workpad: "no" } })).toMatchObject({ boardSort: "priority", drawerOpen: {}, drawerShare: 0 });
+  expect(boardViewValues({ boardSort: "priority", drawerOpen: { workpad: "no" } })).toMatchObject({ boardSort: "priority", drawerOpen: {}, linearLayout: "auto", linearScope: "me", drawerShare: 0 });
   // The sidebar width is a share of the Flowly area; the earlier point value is dropped.
   expect(boardViewValues({ drawerShare: 0.62 }).drawerShare).toBe(0.62);
+  // The Linear board's layout and scope (LINEAR-BOARD-SPEC §4): an unknown layout falls back to auto.
+  expect(boardViewValues({ linearLayout: "grid", linearScope: "team-1" })).toMatchObject({ linearLayout: "auto", linearScope: "team-1" });
   expect(boardViewValues({ boardSort: "priority", drawerShare: 1.5 })).toMatchObject({ boardSort: "priority", drawerShare: 0 });
   expect(boardViewValues({ drawerWidth: 1290 })).not.toHaveProperty("drawerWidth");
 });

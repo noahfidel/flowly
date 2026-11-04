@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Linking, View } from "react-native";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
@@ -379,33 +379,67 @@ export function LinkExternal({
 
 /** Read-only view of an external input (EXTERNAL-TRACKER-SPEC §6). */
 export function ExternalPreview({ artifact, onClose }: { artifact: Artifact; onClose(): void }) {
+  const read = useRpc(rpc.readExternal);
+  return (
+    <ItemPreview
+      title={artifact.title}
+      family={artifact.external ? familyOf(artifact.external.provider) : "jira"}
+      url={artifact.target}
+      note={artifact.note}
+      queryKey={artifact.id}
+      read={(refresh) => read({ artifactId: artifact.id, refresh })}
+      onClose={onClose}
+    />
+  );
+}
+
+/** The same view for an item that is not a card input, e.g. an issue on the Linear board (LINEAR-BOARD-SPEC §5). */
+export function ItemPreview({
+  title,
+  family,
+  url,
+  note,
+  queryKey,
+  read,
+  actions,
+  onClose,
+}: {
+  title: string;
+  family: ConnectorFamily;
+  url: string;
+  note?: string;
+  queryKey: string;
+  read(refresh: boolean): Promise<{ markdown: string; stale: boolean; fetchedAt: string }>;
+  /** Buttons after Open and Refresh. */
+  actions?: ReactNode;
+  onClose(): void;
+}) {
   const theme = useTheme();
   const toast = useToast();
-  const read = useRpc(rpc.readExternal);
   const [refresh, setRefresh] = useState(0);
-  const family = artifact.external ? familyOf(artifact.external.provider) : "jira";
   const preview = useQuery({
-    queryKey: ["flowly", "external-preview", artifact.id, refresh],
-    queryFn: () => read({ artifactId: artifact.id, refresh: refresh > 0 }),
+    queryKey: ["flowly", "external-preview", queryKey, refresh],
+    queryFn: () => read(refresh > 0),
     staleTime: 0,
     gcTime: 0,
     retry: false,
   });
   const data = preview.data;
   return (
-    <Modal open title={artifact.title} icon={<BrandIcon family={family} size={18} />} onOpenChange={(open) => !open && onClose()}>
+    <Modal open title={title} icon={<BrandIcon family={family} size={18} />} onOpenChange={(open) => !open && onClose()}>
       <Modal.Content>
         <Theme.Provider value={theme}>
           <View style={{ gap: space[2] }}>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[2] }}>
-              <Button small icon="ExternalLink" onPress={() => void Linking.openURL(artifact.target).catch(() => toast.show(t("Could not open the link."), { variant: "error" }))}>
+              {actions}
+              <Button small icon="ExternalLink" onPress={() => void Linking.openURL(url).catch(() => toast.show(t("Could not open the link."), { variant: "error" }))}>
                 {t("Open in {service}", { service: familyNames[family] })}
               </Button>
               <Button small icon="RefreshCw" disabled={preview.isFetching} onPress={() => setRefresh((n) => n + 1)}>
                 {t("Refresh")}
               </Button>
             </View>
-            {!!artifact.note && <Label size={font.sm} selectable>{artifact.note}</Label>}
+            {!!note && <Label size={font.sm} selectable>{note}</Label>}
             {preview.isPending ? (
               <Label muted>{t("Loading…")}</Label>
             ) : preview.error ? (
