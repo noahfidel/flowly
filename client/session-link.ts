@@ -31,6 +31,7 @@ import {
 import { listAgents } from "./resources";
 import { readBoardDelta, type Board } from "./board-read";
 import { t } from "../shared/i18n";
+import { isLinearLink } from "./linear-start";
 
 const id = z.string().min(1).max(200);
 const linkSchema = z.object({
@@ -49,8 +50,9 @@ export function parseSessionLink(
 ): CardSessionLink | null {
   if (
     !params ||
-    // An idea link ("Start a new task" from the Ideas chip) also carries a requestId.
+    // An idea link ("Start a new task" from the Ideas chip) and the Linear board's links also carry a requestId.
     "ideaId" in params ||
+    isLinearLink(params) ||
     !["taskId", "sessionId", "workspaceId", "requestId"].some(
       (key) => key in params,
     )

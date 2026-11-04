@@ -1479,5 +1479,9 @@ const catalog: Catalog = {
   "Folder": "Pasta",
   "Show all ({n})": "Mostrar tudo ({n})",
   "Showing {shown} of {total}.": "Mostrando {shown} de {total}.",
+  "Invalid Start card link. Start the card again from the Linear board.": "Link de “Iniciar cartão” inválido. Inicie o cartão novamente pelo quadro do Linear.",
+  "Invalid Open card link. Open the card again from the Linear board.": "Link de “Abrir cartão” inválido. Abra o cartão novamente pelo quadro do Linear.",
+  "Create a project first, then start the card again.": "Crie um projeto primeiro e depois inicie o cartão novamente.",
+  "{key} could not be found in Linear.": "{key} não foi encontrado no Linear.",
 };
 export default catalog;

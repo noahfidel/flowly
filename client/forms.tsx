@@ -416,6 +416,10 @@ export type TaskSeed = {
   type?: TaskType;
   priority?: Task["priority"];
   tags?: string[];
+  /** Items attached from a service, e.g. Start card on the Linear board (LINEAR-BOARD-SPEC §5). */
+  externals?: { item: ExternalSummary; provider: ConnectorProvider }[];
+  /** Start an agent now for this form only; the remembered on/off setting stays as it is. */
+  startAgent?: boolean;
 };
 
 export function TaskForm({
@@ -473,10 +477,10 @@ export function TaskForm({
   const resources = useResourcesQuery({ enabled: ready && !task && mode === "existing" });
   const connections = useConnections(ready && !task);
   const byFamily = useMemo(() => connectionsByFamily(connections.data?.connections || []), [connections.data]);
-  const [externals, setExternals] = useState<{ item: ExternalSummary; provider: ConnectorProvider }[]>([]),
+  const [externals, setExternals] = useState<{ item: ExternalSummary; provider: ConnectorProvider }[]>(() => (task ? [] : seed?.externals || [])),
     [picking, setPicking] = useState<ConnectorFamily | null>(null);
   // The title the last pick filled in: a later pick may replace it only while it is unchanged.
-  const prefilled = useRef("");
+  const prefilled = useRef(!task && seed?.externals?.length ? seed.title : "");
   const pickExternal = useStableCallback((item: ExternalSummary, provider: ConnectorProvider) => {
     const id = pickKey(familyOf(provider), item.key);
     setExternals((current) => (current.some((x) => pickKey(familyOf(x.provider), x.item.key) === id) ? current : [...current, { item, provider }]));
@@ -500,7 +504,7 @@ export function TaskForm({
   );
   // Optional first agent for a new task (remembered on/off choice).
   const view = useBoardView();
-  const [startAgent, setStartAgentState] = useState<boolean | null>(null);
+  const [startAgent, setStartAgentState] = useState<boolean | null>(seed?.startAgent ?? null);
   const startChosen = !task && (startAgent ?? view.values?.startAgentOnCreate ?? true);
   const setStartAgent = (next: boolean) => {
     setStartAgentState(next);

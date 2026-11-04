@@ -1479,5 +1479,9 @@ const catalog: Catalog = {
   "Folder": "文件夹",
   "Show all ({n})": "全部显示（{n}）",
   "Showing {shown} of {total}.": "显示 {total} 项中的 {shown} 项。",
+  "Invalid Start card link. Start the card again from the Linear board.": "“开始卡片”链接无效。请从 Linear 看板重新开始该卡片。",
+  "Invalid Open card link. Open the card again from the Linear board.": "“打开卡片”链接无效。请从 Linear 看板重新打开该卡片。",
+  "Create a project first, then start the card again.": "请先创建项目，然后重新开始该卡片。",
+  "{key} could not be found in Linear.": "在 Linear 中找不到 {key}。",
 };
 export default catalog;

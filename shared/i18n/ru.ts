@@ -1479,5 +1479,9 @@ const catalog: Catalog = {
   "Folder": "Папка",
   "Show all ({n})": "Показать все ({n})",
   "Showing {shown} of {total}.": "Показано {shown} из {total}.",
+  "Invalid Start card link. Start the card again from the Linear board.": "Недействительная ссылка «Начать карточку». Начните карточку снова с доски Linear.",
+  "Invalid Open card link. Open the card again from the Linear board.": "Недействительная ссылка «Открыть карточку». Откройте карточку снова с доски Linear.",
+  "Create a project first, then start the card again.": "Сначала создайте проект, затем снова начните карточку.",
+  "{key} could not be found in Linear.": "{key} не найден в Linear.",
 };
 export default catalog;

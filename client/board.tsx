@@ -73,7 +73,8 @@ import { perfConfigure, perfMark, usePerfRender } from "./perf";
 import { laneRows, sameRows } from "./lane-rows";
 import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
 import { openNativeWorkspace } from "./session-state";
-import { useConnections } from "./connectors";
+import { externalError, useConnections } from "./connectors";
+import { linearSeed, parseLinearOpen, parseLinearStart } from "./linear-start";
 import { cardProgress, useSummaries } from "./task-progress";
 import { LocaleRoot } from "./i18n";
 import { agentModelFromValues, effectiveAgentModel, startingAgent } from "../shared/agent-defaults";
@@ -1081,6 +1082,51 @@ function BoardContent(
     setProject(card.projectId);
     setTask(card.taskId);
   });
+  // LINEAR-BOARD-SPEC §5: Start card (New task with the issue attached) and Open card from the Linear board, each applied once.
+  const linearInput = useMemo(() => {
+    try {
+      return { start: parseLinearStart(props.params), open: parseLinearOpen(props.params), error: "" };
+    } catch (error) {
+      return { start: null, open: null, error: message(error) };
+    }
+  }, [props.params?.linearIssue, props.params?.openTaskId, props.params?.requestId]);
+  const appliedLinear = useRef("");
+  const searchLinear = useRpc(rpc.searchExternal);
+  useEffect(() => {
+    if (linearInput.error) return setError(linearInput.error);
+    const open = linearInput.open;
+    if (open) {
+      if (appliedLinear.current === open.requestId) return;
+      appliedLinear.current = open.requestId;
+      setError("");
+      setPage(null);
+      // As a search result opens its card: switch project first.
+      ignoredLink.current = linkKey;
+      setDrawerFocus(null);
+      setDetailTarget({ id: open.taskId, workspaceId: open.workspaceId, projectId: open.projectId });
+      setProject(open.projectId);
+      setTask(open.taskId);
+      return;
+    }
+    const start = linearInput.start;
+    if (!start || !board || appliedLinear.current === start.requestId) return;
+    appliedLinear.current = start.requestId;
+    if (!project) return setError(t("Create a project first, then start the card again."));
+    void (async () => {
+      try {
+        const found = (await searchLinear({ connectionId: start.connectionId, query: start.key })).results.find((r) => r.key === start.key);
+        // A newer link arrived meanwhile: it owns the board now.
+        if (appliedLinear.current !== start.requestId) return;
+        if (!found) return setError(t("{key} could not be found in Linear.", { key: start.key }));
+        setError("");
+        setPage(null);
+        setTask("");
+        setTaskForm({ status: "todo", seed: linearSeed(found) });
+      } catch (e) {
+        if (appliedLinear.current === start.requestId) setError(externalError(e, "linear"));
+      }
+    })();
+  }, [linearInput, !!board, !!project]);
   const openSearchMemory = useStableCallback((hit: SearchMemoryHit) => {
     ignoredLink.current = linkKey;
     setProject(hit.projectId);
@@ -2474,7 +2520,7 @@ function BoardContent(
         )}
         {taskForm && project && (
           <TaskForm
-            key={taskForm.task?.id || taskForm.seed?.ideaId || taskForm.seed?.insightFindingId || taskForm.seed?.followUpOf || taskForm.status}
+            key={taskForm.task?.id || taskForm.seed?.ideaId || taskForm.seed?.insightFindingId || taskForm.seed?.followUpOf || taskForm.seed?.externals?.[0]?.item.key || taskForm.status}
             hostId={props.host.id}
             boardTasks={board?.tasks || noTasks}
             project={project}
