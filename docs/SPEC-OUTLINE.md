@@ -305,3 +305,5 @@ releases from validated version tags. [Spec](CI-CD-SPEC.md),
 - [Motion smoothness](MOBILE-SMOOTHNESS-SPEC.md): fixed Samsung baseline/static-dot/candidate/reverse windows; shared sweep clock yields to existing height lease, no visual geometry/fresh/modal rewrite. Scoped frame observations and remaining long frames are reported separately.
 
 2026-11-03 Linear connector：第六个只读 provider 族，issue 用 `ENG-123` key，GraphQL 只发 query；连接不填地址，workspace 地址由账户校验得到。见 [spec](CONNECTORS-SPEC.md) §14。
+
+2026-11-04 Linear board：主栏 Linear 入口，按状态类型分列的 issue 看板与列表，Start card 打开 New task 并附上该 issue。见 [spec](LINEAR-BOARD-SPEC.md)。
