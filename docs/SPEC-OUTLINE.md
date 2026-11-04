@@ -303,3 +303,5 @@ releases from validated version tags. [Spec](CI-CD-SPEC.md),
 2026-10-24：统一紧凑布局性能路径，保留独立Overview/CardDetail、fresh授权、连续动画与450ms交接；按可用宽度760分界，移除性能门控的平台特化，清理旧CardBoardContext/Proxy。见[统一规范](RESPONSIVE-PERFORMANCE-SPEC.md)、[两阶段读模型](NATIVE-OVERVIEW-SPEC.md)和[瘦身规范](CARD-QUERY-SLIM-SPEC.md)。验证结果见[交付记录](verification/responsive-ship-2026-10-24/README.md)。
 
 - [Motion smoothness](MOBILE-SMOOTHNESS-SPEC.md): fixed Samsung baseline/static-dot/candidate/reverse windows; shared sweep clock yields to existing height lease, no visual geometry/fresh/modal rewrite. Scoped frame observations and remaining long frames are reported separately.
+
+2026-11-03 Linear connector：第六个只读 provider 族，issue 用 `ENG-123` key，GraphQL 只发 query；连接不填地址，workspace 地址由账户校验得到。见 [spec](CONNECTORS-SPEC.md) §14。

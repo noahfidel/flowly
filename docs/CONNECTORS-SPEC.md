@@ -26,7 +26,7 @@
 | Artifacts 统一 + 菜单；New task 的 From Jira 泛化为 From…；设置 Connections 页四个分组 | 后台轮询、webhook、OAuth、读取 `gh`/`glab`/sra 等其他工具的凭据 |
 | agent 通过 `flowly_read_external` 读任意 connector 条目；内容变化标 unread | agent 访问卡片未引用的条目，或执行任意搜索 |
 
-Linear 仍是 EXTERNAL-TRACKER-SPEC 的 P2，可以作为本框架的第五个 provider 后续接入，本卡不做。
+Linear 当时是 EXTERNAL-TRACKER-SPEC 的 P2，本卡不做；后来作为第六个 provider 族接入，见 §14。
 
 ## 2. 条目类型
 
@@ -316,3 +316,26 @@ GitLab issue 或 MR…     （有 GitLab 连接时）
 - **界面**：品牌图标按 §8.3 的做法，用 Simple Icons 的 Azure DevOps 路径（CC0）渲染成 48 px PNG，颜色 #0078D4，以 data URI 打包（约 0.8 KB）。设置 → Connections 增加第五个分组。
 - **测试**：`server/connectors/azure.test.ts`（mock fetch：Basic 头、登录页、链接/AB# 识别、WIQL 与引号转义、Markdown、指纹、403、只有 WIQL 一个 POST）、`shared/connectors.test.ts`（链接、Server/旧域名、key、查询分类）。**未做**：真实组织联调（需要用户的组织地址和 PAT）。
 - onboarding：更新欢迎页功能行、`jira-connect` tip 文案和 README；不新增 tip id（连接与使用方式没有变化，已有 tip 覆盖）。
+
+## 14. Linear（2026-11-03，分支 `feat/linear-connector`）
+
+第六个 provider 族 `linear`（provider id `linear`），实现 EXTERNAL-TRACKER-SPEC 的 P2，沿用本 spec 的全部规则：只读、外部状态不驱动卡片、默认 input、令牌只在 daemon。范围只有 **issue**；project、cycle、document、initiative、子 issue 批量导入不做。New task 的 **From Linear** 与 Artifacts 的 + 菜单都会出现这个服务。
+
+- **连接**：Linear 只有云端，API 地址固定为 `https://api.linear.app/graphql`，由 adapter 以常量持有。设置页**没有地址字段**（注册表 `noAddress: true`）：用户只填名称和 personal API key。请求头 `Authorization: <key>`，不加 `Bearer`。校验查询 `viewer { name displayName email organization { name urlKey } }`：账户显示 `名字 (email)`，login 取 email。校验成功后连接的 `baseUrl` 取 **workspace 地址** `https://linear.app/<urlKey>`（adapter 的 `verify` 可以返回 `baseUrl`，只有 `noAddress` 的 provider 才采用）；它只用来识别链接和拼条目链接，令牌永远只发往固定的 API 地址。所以编辑连接时 `baseUrl` 变化不算“地址改了”，留空令牌照样沿用已存的令牌。名称留空时默认 `linear.app/<urlKey>`。
+- **条目类型与 key**：`itemType` 为 `issue`，key 是 Linear 的 identifier `ENG-123`（团队 key + 编号，大写），卡片面显示 `ENG-123`，agent 上下文写 “Linear issue”。`remoteId` 是 issue 的 UUID。issue 换团队后 identifier 会变，Linear 仍接受旧 identifier；读取返回新 key 时按 §4.2 的规则缓存在卡片存的 key 之下。
+- **裸 key**：`ENG-123` 与 Jira key 写法相同。只有一个连接接受它时直接使用（EXTERNAL-TRACKER-SPEC §3.1）；同时有 Jira 和 Linear 连接时，裸 key 有歧义，Artifacts 表单不自动识别，用户粘贴链接或用选择器。选择器只搜当前连接，没有歧义。
+- **识别**：workspace 地址之下的 `/issue/<KEY>`，带不带标题 slug、子路径、查询或锚点（`#comment-…`）都可以。其他 workspace 的链接不匹配（`urlKey` 是 `baseUrl` 的一部分）。project、view、cycle 链接不识别。条目链接为 `<baseUrl>/issue/<KEY>`，读取时优先用 API 返回的 `url`。
+- **我的最近**：`issues(filter: { assignee: { isMe: { eq: true } }, state: { type: { nin: ["completed", "canceled"] } } }, orderBy: updatedAt, first: 10)`，在 daemon 再按 `updatedAt` 倒序排一次。
+- **搜索**：选择器里 `ENG-123` 或链接按 key 读取（找不到时结果为空）；裸数字按编号查所有团队（`number: { eq }`，可能多条，按更新时间倒序，最多 20 条）；其他文字按标题词搜索：每个词一个 `title: { containsIgnoreCase }`，用 `and` 连接（最多 8 个词），按 `updatedAt` 倒序取 20 条。用户文字只经 GraphQL 变量传入，查询文本是代码里的常量，不拼接任何用户输入。
+- **读取**：`issue(id: "<KEY>")`，一次请求读全部内容：标题、描述（本身就是 Markdown，不做转换）、状态、优先级、负责人、创建人、标签、团队、项目、父 issue（key 与标题）、链接、最近 20 条评论（`comments(first: 20, orderBy: createdAt)`，按创建时间正序显示）。
+- **Markdown**：`# KEY 标题`、链接，然后元数据（State、Priority、Assignee、Created by、Team、Project、Labels、Parent、Updated），然后 `## Description`（空时 `(empty)`），然后 `## Comments (latest N)`，每条 `### 名字 · 时间`。
+- **批量摘要**：`getMany` 用 GraphQL 别名把多个 `issue(id:)` 合成一个请求（每请求最多 25 个）；看不到或不存在的 issue 在结果里为 null，直接略过。
+- **summary 映射**：`status` = 状态名；`statusCategory` 由状态 `type` 得到：triage/backlog/unstarted → new，started → indeterminate，completed/canceled → done；`priority` = `priorityLabel`（“No priority” 记为空）；`type` 为空（Linear 没有 issue 类型）；`container` = 团队名；`assignee` = 负责人显示名。
+- **指纹**：标题、描述、每条评论的 id 加 `updatedAt`；状态、负责人、优先级、标签不算（§3.2）。新评论是否推进 issue 的 `updatedAt` 不确定，所以 `updatedCoversContent: false`（与 Confluence、Azure DevOps 相同）。
+- **只读保证**：GraphQL 只有 POST，所以 `/graphql` 是 `queryEndpoints` 里唯一的路径（与 Azure DevOps 的 WIQL 同理），GET 白名单为空。adapter 发出的每个文档都必须以 `query` 开头，否则在发送前拒绝；代码里不存在 mutation。
+- **错误**：HTTP 401 或 GraphQL 错误码 `AUTHENTICATION_ERROR` → AUTH（连接标记 `authFailed`）；`FORBIDDEN` 与“Entity not found”类错误 → NOT_FOUND（看不到的 issue 不让整个连接失效）；限流（HTTP 400 或 429，错误码 `RATELIMITED`）→ UNAVAILABLE，等待时间取 `Retry-After`，没有时取 `X-RateLimit-Requests-Reset`（UTC 毫秒时间戳）；5xx → UNAVAILABLE；其他 GraphQL 错误 → INVALID，带第一条错误信息。错误信息里不出现令牌或请求头。
+- **界面**：品牌图标按 §8.3 的做法，用 Simple Icons 的 Linear 路径（CC0）渲染成 48 px PNG，颜色 #5E6AD2，以 data URI 打包（约 2 KB）。设置 → Connections 增加第六个分组；编辑页没有类型和地址选择，令牌字段名为 “API key”，提示在 Linear → Settings → Security & access → Personal API keys 创建，Read 权限即可。
+- **验收**：Test connection 显示账户；保存后连接地址是 workspace 地址；粘贴 issue 链接（带 slug 或锚点）和在选择器里输入 `ENG-123`、编号、标题词都能找到；**From Linear** 列出分配给自己的未完成 issue；agent 用 `flowly_read_external` 读到上面列出的字段与评论；改描述或加评论会让指纹变化，只改状态不会；令牌被拒时连接标记 `authFailed`，限流时退避且不丢缓存；所有请求都是发往 `https://api.linear.app/graphql` 的 POST，文档都以 `query` 开头。
+- **测试**：`server/connectors/linear.test.ts`（mock fetch，录制形状的 GraphQL 响应：Authorization 头不带 Bearer、workspace 地址、编辑时沿用令牌、链接与 key 识别、最近/编号/文字查询的变量、Markdown、指纹、AUTH/NOT_FOUND/限流、批量别名、只有 `query` 文档）、`shared/connectors.test.ts`（链接、key、查询分类、条目链接、卡片面 key）。没有真实 API 联调。
+- onboarding：更新欢迎页功能行、`jira-connect` tip 文案和 README；不新增 tip id（连接与使用方式没有变化，已有 tip 覆盖）。不加 What's new（1.8.0 尚未定稿，由发布时决定）。
+- 遥测：不加心跳字段（与 Shortcut 的理由相同：TELEMETRY-SPEC §4.6 不发送 connector 类型）。

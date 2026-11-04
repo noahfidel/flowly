@@ -64,7 +64,7 @@ worktree 分支名、commit message 带工单 key 会让 Jira 的 GitLab 开发�
 
 - 人或 agent 添加 url 类型的 artifact 时，daemon 用已配置连接的 base URL 匹配：
   - Jira：`<base>/browse/KEY-123`，以及带 `selectedIssue=KEY-123` 参数的看板链接；
-  - Linear（P2）：`linear.app/<workspace>/issue/ENG-42/...`。
+  - Linear：`linear.app/<workspace>/issue/ENG-42/...`（已实现，规则见 [CONNECTORS-SPEC §14](CONNECTORS-SPEC.md)）。
 - 主要入口是 §5 的工单选择器。Artifacts 添加表单里也可以直接粘贴链接或只填 key（`SHOPSR-123`）：只有一个 Jira 连接时直接拼成 URL，有多个时选择连接。
 - 匹配成功即为**工单 input**：`role` 固定为 input（工单不能作为 output），`title` 默认用 `KEY summary`。匹配失败仍是普通链接，与现在一样。
 
@@ -211,7 +211,7 @@ daemon 只在有人需要时拉取，同一工单 60 秒内复用缓存：
 | 期 | 内容 |
 | --- | --- |
 | **P1** | Jira DC + Cloud 连接；工单选择器（我的最近工单、key/链接/数字/文字搜索）；New task → From Jira（标题预填、原子创建）；Link Jira ticket；工单 input 识别与快照；`get_task.ticket` 与 unread；`flowly_read_ticket` / CLI；侧栏工单预览；卡片 key 徽标；skill、tip、i18n |
-| **P2** | Linear provider（GraphQL，按 `updatedAt` 查询，限流以 HTTP 400 `RATELIMITED` 返回）；按 JQL 批量导入；新工单收件箱（与 Ideas 收件箱同一模式）；从工单的关联工单中一键加为 input |
+| **P2** | ~~Linear provider~~（已实现：GraphQL，按 `updatedAt` 排序；限流现在以 HTTP 429、错误码 `RATELIMITED` 返回，旧形式是 HTTP 400，两者都按限流处理；见 [CONNECTORS-SPEC §14](CONNECTORS-SPEC.md)）；按 JQL 批量导入；新工单收件箱（与 Ideas 收件箱同一模式）；从工单的关联工单中一键加为 input |
 
 ## 8.1 实现记录（P1，2026-10-19）
 
@@ -238,7 +238,7 @@ daemon 只在有人需要时拉取，同一工单 60 秒内复用缓存：
   - 卡片 key 行（`client/card.tsx`，`client/board.tsx` 计算）；
   - tip `first-ticket` / `jira-connect`、欢迎页功能行、README；
   - 9 个语言目录各 49 条新文案。
-- Linear 尚未加入 provider 枚举（P2）。
+- Linear 当时尚未加入 provider 枚举；2026-11-03 作为 connector 族 `linear` 加入（CONNECTORS-SPEC §14）。
 
 ## 9. 测试要点
 
