@@ -84,6 +84,8 @@ function http(connection: StoredConnection, fetchImpl: Fetch) {
     label: "Linear",
     fetchImpl,
     failure(response, body) {
+      // A server failure is UNAVAILABLE whatever its body says (the cache then answers); the shared mapping handles it.
+      if (response.status >= 500) return undefined;
       const reply = parse(body);
       if (reply?.errors?.length) return graphqlError(reply.errors, response.headers);
       if (response.status === 400) return new ExternalError("EXTERNAL_INVALID", "Linear rejected the request (HTTP 400).");

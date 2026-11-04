@@ -56,7 +56,7 @@ function linear(issues: Issue[], options: () => Options = () => ({})) {
     const request = JSON.parse(body || "{}") as Request;
     requests.push(request);
     const o = options();
-    if (o.status || o.errors) return { status: o.status ?? 200, body: { errors: o.errors || [] }, headers: o.headers };
+    if (o.status || o.errors) return { status: o.status ?? 200, body: { data: null, errors: o.errors || [] }, headers: o.headers };
     const { query, variables } = request;
     if (query.startsWith("query Viewer")) return { body: { data: { viewer: { name: "Ada Lovelace", displayName: "ada", email: "ada@acme.test", organization: { name: "Acme", urlKey: "acme" } } } } };
     if (query.startsWith("query Issue(")) {
@@ -216,6 +216,22 @@ describe("Linear (CONNECTORS-SPEC §14)", () => {
     expect(x.requests.length - before).toBe(1);
     expect(x.requests.at(-1)!.variables).toEqual({ k0: "ENG-1", k1: "OPS-2", k2: "ENG-404" });
     expect([...badges.values()].map((b) => b.summary.key).sort()).toEqual(["ENG-1", "OPS-2"]);
+  });
+
+  test("a server failure is unavailable whatever its body says, so the cached copy answers", async () => {
+    let options: Options = {};
+    let now = 1_000_000;
+    const fake = linear([{ key: "ENG-1", title: "A" }], () => options);
+    const service = await env.service(fake.fetchImpl, () => now);
+    const c = await service.save({ provider: "linear", secret: "k" });
+    const cached = await service.detail(ref(c.id, "ENG-1"));
+    options = { status: 503, errors: [{ message: "Internal server error", extensions: { code: "INTERNAL_SERVER_ERROR" } }] };
+    await expect(service.search({ connectionId: c.id, query: "" })).rejects.toMatchObject({ code: "EXTERNAL_UNAVAILABLE" });
+    now += 301_000;
+    options = { status: 500, errors: [{ message: "Entity not found: Team", extensions: { code: "INTERNAL_SERVER_ERROR" } }] };
+    const stale = await service.detail(ref(c.id, "ENG-1"), true);
+    expect(stale).toMatchObject({ stale: true, markdown: cached.markdown });
+    expect((await service.list())[0]!.authFailed).toBe(false);
   });
 
   test("rate limits back off; a hidden issue is not found without disabling the connection; a refused key does", async () => {
