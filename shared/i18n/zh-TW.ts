@@ -320,6 +320,7 @@ const catalog: Catalog = {
   "Start an agent now": "立即啟動智慧體",
   "Instruction": "指令",
   "What should the agent do first?": "智慧體應該先做什麼？",
+  "Optional: the agent starts with the attached items": "選填：agent 會從附加的項目開始",
   "Starting…": "啟動中…",
   "Save task": "儲存任務",
   "Create and start": "建立並啟動",

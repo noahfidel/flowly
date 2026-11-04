@@ -219,6 +219,8 @@ GitLab issue 或 MR…     （有 GitLab 连接时）
 
 `From Jira` 按钮改为 **From…**：每个已连接的服务一个按钮（“From Jira”、“From GitLab” 等，换行排列）。实现时没有用菜单：New task 表单本身在 Modal 里，看板的上下文菜单画在 Modal 下层，按钮行更可靠，也少一次点击。条目条（chip）显示族图标。标题预填规则不变（标题为空才预填，换选只替换未改过的预填值）：issue/PR/MR 用标题，Confluence 页用页面标题。每张卡建卡时最多 5 个条目，与现在一致。
 
+用户决定（2026-11-04）：选了至少一个条目并且 Start an agent now 开启时，Instruction 变为可选（占位文字 “Optional: the agent starts with the attached items”）；留空时发给 agent 的首条消息是 `Start on this card: read its inputs, including <条目 key，用 ", " 连接>, then begin.`。用户输入了文字就原样发送，不附加默认句。规则见 UI-REFRESH-SPEC §7s。
+
 ### 8.3 侧栏行与预览
 
 - 品牌图标（用户要求，2026-10-20）：每个服务用自己的 logo（`client/brand-icons.tsx` 的 `BrandIcon`），出现在 Artifacts 行与 + 菜单、卡片正面的条目 key、New task 的 From 按钮、选择器与预览标题、设置 Connections 的分组行与编辑页标题。宿主 `Icon` 只认 Lucide 名、插件不能引 SVG 模块，所以 logo 是 Simple Icons（CC0）的路径预渲染成 48px PNG、以 data URI 交给 RN `Image`（每个约 0.6–0.8 KB，冷启动影响可忽略）。颜色：Jira #0052CC、Confluence #1868DB（Simple Icons 的 #172B4D 在深色主题下看不清）、GitLab #FC6D26；GitHub 黑色 logo 在深色主题下换浅色版本，按 `colors.surface0` 的亮度选择。

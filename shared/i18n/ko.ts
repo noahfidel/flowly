@@ -320,6 +320,7 @@ const catalog: Catalog = {
   "Start an agent now": "지금 에이전트 시작",
   "Instruction": "지시",
   "What should the agent do first?": "에이전트가 먼저 무엇을 해야 하나요?",
+  "Optional: the agent starts with the attached items": "선택 사항: 에이전트가 첨부한 항목부터 시작합니다",
   "Starting…": "시작하는 중…",
   "Save task": "작업 저장",
   "Create and start": "만들고 시작",

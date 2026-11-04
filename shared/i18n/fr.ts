@@ -320,6 +320,7 @@ const catalog: Catalog = {
   "Start an agent now": "Démarrer un agent maintenant",
   "Instruction": "Instruction",
   "What should the agent do first?": "Que doit faire l’agent en premier ?",
+  "Optional: the agent starts with the attached items": "Facultatif : l'agent commence par les éléments joints",
   "Starting…": "Démarrage…",
   "Save task": "Enregistrer la tâche",
   "Create and start": "Créer et démarrer",

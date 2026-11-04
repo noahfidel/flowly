@@ -320,6 +320,7 @@ const catalog: Catalog = {
   "Start an agent now": "今すぐエージェントを開始",
   "Instruction": "指示",
   "What should the agent do first?": "エージェントに最初に何をさせますか？",
+  "Optional: the agent starts with the attached items": "任意：エージェントは添付した項目から始めます",
   "Starting…": "開始中…",
   "Save task": "タスクを保存",
   "Create and start": "作成して開始",

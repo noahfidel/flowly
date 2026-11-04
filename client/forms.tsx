@@ -38,6 +38,7 @@ import { TagEditor } from "./tag-input";
 import { useStableCallback } from "./stable";
 import { ExternalChip, ExternalPicker, connectionsByFamily, familyNames, pickKey, useConnections } from "./connectors";
 import { BrandIcon } from "./brand-icons";
+import { firstMessage } from "./first-message";
 import { connectorFamilies, connectorLimits, familyOf, type ConnectorFamily, type ConnectorProvider, type ExternalSummary } from "../shared/connectors";
 
 const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
@@ -512,8 +513,10 @@ export function TaskForm({
   const statusChoices = task
     ? lanes.includes(task.status) ? lanes : [...lanes, task.status]
     : lanes.filter((s) => (s !== "done" && s !== "cancelled") || s === defaultStatus);
-  // The agent's first message; required, never prefilled (title and description already reach it as context).
+  // The agent's first message; never prefilled (title and description already reach it as context). Required
+  // unless items from a service are attached: then an empty box sends a default that points at them (UI-REFRESH-SPEC §7s).
   const [prompt, setPrompt] = useState("");
+  const firstText = firstMessage(prompt, externals.map((x) => x.item));
   // Images with the agent's first message (web: paste, drop or Add images).
   const attachments = useImageAttachments();
   const [firstMessageId] = useState(newMessageId);
@@ -574,7 +577,7 @@ export function TaskForm({
           mode: choice.chosenMode,
           thinking: choice.chosenThinking,
           ...(choice.featureValues ? { featureValues: choice.featureValues } : {}),
-          prompt: prompt.trim(),
+          prompt: firstText ?? "",
           ...(attachments.attachments.length ? { images: attachments.images(), clientMessageId: firstMessageId } : {}),
           operationId: `first-session-${operationId}`,
         });
@@ -595,7 +598,7 @@ export function TaskForm({
     !pending &&
     !!title.trim() &&
     !(!task && mode === "existing" && !workspaceId) &&
-    !(startChosen && (!choice.ready || !prompt.trim()));
+    !(startChosen && (!choice.ready || firstText === null));
   // Enter submits, Shift+Enter is a new line.
   const submit = canSave ? () => void save() : undefined;
   return (
@@ -792,7 +795,7 @@ export function TaskForm({
                       value={prompt}
                       onChange={setPrompt}
                       multiline
-                      placeholder={t("What should the agent do first?")}
+                      placeholder={externals.length ? t("Optional: the agent starts with the attached items") : t("What should the agent do first?")}
                       onSubmit={submit}                    />
                   </ImageAttachments>
                 </>

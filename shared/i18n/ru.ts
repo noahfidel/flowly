@@ -320,6 +320,7 @@ const catalog: Catalog = {
   "Start an agent now": "Сразу запустить агента",
   "Instruction": "Инструкция",
   "What should the agent do first?": "Что агент должен сделать в первую очередь?",
+  "Optional: the agent starts with the attached items": "Необязательно: агент начнёт с прикреплённых элементов",
   "Starting…": "Запускаем…",
   "Save task": "Сохранить задачу",
   "Create and start": "Создать и запустить",

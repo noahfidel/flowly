@@ -1,5 +1,10 @@
 # Implementation progress
 
+## Optional first instruction when New task has attached items (user decision) — 2026-11-04
+
+- New task → Start an agent now: with at least one item picked with **From …** (any service), an empty Instruction no longer blocks Create and start. The placeholder reads "Optional: the agent starts with the attached items", and the agent gets `Start on this card: read its inputs, including <keys>, then begin.` (agent-facing, English). Typed text is sent as before, without the default; without an attached item the instruction stays required. [UI-REFRESH-SPEC §7s](UI-REFRESH-SPEC.md), [CONNECTORS-SPEC §8.2](CONNECTORS-SPEC.md)
+- `client/first-message.ts` (pure) decides the message and whether Create can proceed; `client/first-message.test.ts` (4). One new string in all catalogs. Onboarding: no tip or tour change (the placeholder says it). Telemetry: none.
+
 ## Linear connector (branch `feat/linear-connector`) — 2026-11-03
 
 - Sixth connector family `linear` (provider `linear`): Linear issues as read-only card inputs, with **From Linear** in New task, a Linear entry in the Artifacts +, and a Linear group in Settings → Connections. [CONNECTORS-SPEC §14](CONNECTORS-SPEC.md)
