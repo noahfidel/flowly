@@ -22,7 +22,7 @@ type Issue = {
   comments?: { id: string; body: string; at: string; updated?: string }[];
 };
 type Request = { query: string; variables: Record<string, unknown> };
-type Options = { status?: number; errors?: { message: string; extensions?: { code: string } }[]; headers?: Record<string, string> };
+type Options = { status?: number; errors?: { message: string; extensions?: { code: string } }[]; headers?: Record<string, string>; aliasNulls?: boolean };
 
 const uuid = (key: string) => `uuid-${key.toLowerCase()}`;
 
@@ -81,6 +81,8 @@ function linear(issues: Issue[], options: () => Options = () => ({})) {
         data[name.replace("k", "i")] = found ? summary(found) : null;
         if (!found) errors.push({ ...notFound, path: [name.replace("k", "i")] });
       }
+      // issue(id:) is Issue! (non-null): one failing alias nulls the whole data, unless a test asks for per-alias nulls.
+      if (errors.length && !o.aliasNulls) return { body: { data: null, errors } };
       return { body: { data, ...(errors.length ? { errors } : {}) } };
     }
     return { status: 400, body: { errors: [{ message: "Unknown operation", extensions: { code: "GRAPHQL_VALIDATION_FAILED" } }] } };
@@ -206,16 +208,41 @@ describe("Linear (CONNECTORS-SPEC §14)", () => {
     expect((await x.service.detail(ref(x.connection.id, "ENG-3"))).markdown).toContain("## Description\n\n(empty)");
   });
 
-  test("summaries for several cards come from one aliased request; missing issues are left out", async () => {
+  test("summaries for several cards come from one aliased request", async () => {
     const x = await connected([
       { key: "ENG-1", title: "A" },
       { key: "OPS-2", title: "B" },
     ]);
     const before = x.requests.length;
-    const badges = await x.service.badges([ref(x.connection.id, "ENG-1"), ref(x.connection.id, "OPS-2"), ref(x.connection.id, "ENG-404")], true);
+    const badges = await x.service.badges([ref(x.connection.id, "ENG-1"), ref(x.connection.id, "OPS-2")], true);
     expect(x.requests.length - before).toBe(1);
-    expect(x.requests.at(-1)!.variables).toEqual({ k0: "ENG-1", k1: "OPS-2", k2: "ENG-404" });
-    expect([...badges.values()].map((b) => b.summary.key).sort()).toEqual(["ENG-1", "OPS-2"]);
+    expect(x.requests.at(-1)!.variables).toEqual({ k0: "ENG-1", k1: "OPS-2" });
+    expect([...badges.values()].map((b) => ({ key: b.summary.key, stale: b.stale }))).toEqual([
+      { key: "ENG-1", stale: false },
+      { key: "OPS-2", stale: false },
+    ]);
+  });
+
+  test("one deleted or hidden issue doesn't stop the others' summaries, whichever way Linear nulls it", async () => {
+    const x = await connected([
+      { key: "ENG-1", title: "A" },
+      { key: "OPS-2", title: "B" },
+    ]);
+    const refs = [ref(x.connection.id, "ENG-1"), ref(x.connection.id, "ENG-404"), ref(x.connection.id, "OPS-2")];
+    // Schema-correct reply (data: null): the chunk is read again one issue at a time.
+    const before = x.requests.length;
+    const badges = await x.service.badges(refs, true);
+    expect(x.requests.slice(before).map((r) => r.query.split("(")[0])).toEqual(["query Batch", "query Issue", "query Issue", "query Issue"]);
+    expect([...badges.values()].map((b) => ({ key: b.summary.key, stale: b.stale }))).toEqual([
+      { key: "ENG-1", stale: false },
+      { key: "OPS-2", stale: false },
+    ]);
+    // Per-alias nulls: the missing alias is left out without more requests.
+    const nulls = await connected([{ key: "ENG-1", title: "A" }], () => ({ aliasNulls: true }));
+    const start = nulls.requests.length;
+    const kept = await nulls.service.badges([ref(nulls.connection.id, "ENG-1"), ref(nulls.connection.id, "ENG-404")], true);
+    expect(nulls.requests.length - start).toBe(1);
+    expect([...kept.values()].map((b) => b.summary.key)).toEqual(["ENG-1"]);
   });
 
   test("a server failure is unavailable whatever its body says, so the cached copy answers", async () => {

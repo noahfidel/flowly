@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { classifyQuery, connectorLimits, issueKey, linearItemUrl, type ExternalSummary } from "../../shared/connectors";
-import { ExternalError, ReadOnlyHttp, cut, retryAfter, type Fetch, type StoredConnection } from "./http";
+import { ExternalError, ReadOnlyHttp, cut, mapLimit, retryAfter, type Fetch, type StoredConnection } from "./http";
 import { withDiscussion } from "./fingerprint";
 import type { ConnectorAdapter, Fetched, ItemRef } from "./types";
 
@@ -216,9 +216,23 @@ export const linearAdapter: ConnectorAdapter = {
       const chunk = keys.slice(start, start + BATCH);
       const variables = Object.fromEntries(chunk.map((key, i) => [`k${i}`, key]));
       const { data, errors, headers } = await graphql<Record<string, LinearIssue | null>>(connection, fetchImpl, batchQuery(chunk.length), variables);
-      // Missing or hidden issues come back as null next to an error; a refused key or a rate limit fails the batch.
+      // A refused key or a rate limit fails the batch.
       const fatal = errors.find((e) => ["RATELIMITED", "AUTHENTICATION_ERROR"].includes((e.extensions?.code || "").toUpperCase()));
-      if (fatal || (!data && errors.length)) throw graphqlError(fatal ? [fatal] : errors, headers);
+      if (fatal) throw graphqlError([fatal], headers);
+      if (!data && errors.length) {
+        // issue(id:) is non-null (Issue!), so one missing or hidden issue nulls the whole reply. When that is all
+        // that went wrong, read the chunk one by one and leave out only the issues that can't be found.
+        if (!errors.every((e) => graphqlError([e]).code === "EXTERNAL_NOT_FOUND")) throw graphqlError(errors, headers);
+        const each = await mapLimit(chunk, 4, (key) =>
+          item(connection, fetchImpl, { itemType: "issue", key }, false).catch((error) => {
+            if (notFound(error)) return null;
+            throw error;
+          }),
+        );
+        out.push(...each.filter((f): f is Fetched => !!f));
+        continue;
+      }
+      // Should Linear ever answer with per-alias nulls instead, those issues are simply left out.
       chunk.forEach((_, i) => {
         const issue = data?.[`i${i}`];
         if (issue && issue.identifier) out.push({ summary: linearSummary(connection, issue) });

@@ -329,7 +329,7 @@ GitLab issue 或 MR…     （有 GitLab 连接时）
 - **搜索**：选择器里 `ENG-123` 或链接按 key 读取（找不到时结果为空）；裸数字按编号查所有团队（`number: { eq }`，可能多条，按更新时间倒序，最多 20 条）；其他文字按标题词搜索：每个词一个 `title: { containsIgnoreCase }`，用 `and` 连接（最多 8 个词），按 `updatedAt` 倒序取 20 条。用户文字只经 GraphQL 变量传入，查询文本是代码里的常量，不拼接任何用户输入。
 - **读取**：`issue(id: "<KEY>")`，一次请求读全部内容：标题、描述（本身就是 Markdown，不做转换）、状态、优先级、负责人、创建人、标签、团队、项目、父 issue（key 与标题）、链接、最近 20 条评论（`comments(first: 20, orderBy: createdAt)`，按创建时间正序显示）。
 - **Markdown**：`# KEY 标题`、链接，然后元数据（State、Priority、Assignee、Created by、Team、Project、Labels、Parent、Updated），然后 `## Description`（空时 `(empty)`），然后 `## Comments (latest N)`，每条 `### 名字 · 时间`。
-- **批量摘要**：`getMany` 用 GraphQL 别名把多个 `issue(id:)` 合成一个请求（每请求最多 25 个）；看不到或不存在的 issue 在结果里为 null，直接略过。
+- **批量摘要**：`getMany` 用 GraphQL 别名把多个 `issue(id:)` 合成一个请求（每请求最多 25 个）。`issue(id:)` 的类型是非空的 `Issue!`，所以只要有一个 issue 不存在或看不到，整个 `data` 就是 null：这时如果所有错误都是“找不到”，就逐个重新读取这一批（并发 4），只略过找不到的；限流或令牌被拒仍让整批失败。若 Linear 改为只把该别名置 null，也直接略过它。一个被删除的 issue 不会让同一连接的其他条目停止刷新。
 - **summary 映射**：`status` = 状态名；`statusCategory` 由状态 `type` 得到：triage/backlog/unstarted → new，started → indeterminate，completed/canceled → done；`priority` = `priorityLabel`（“No priority” 记为空）；`type` 为空（Linear 没有 issue 类型）；`container` = 团队名；`assignee` = 负责人显示名。
 - **指纹**：标题、描述、每条评论的 id 加 `updatedAt`；状态、负责人、优先级、标签不算（§3.2）。新评论是否推进 issue 的 `updatedAt` 不确定，所以 `updatedCoversContent: false`（与 Confluence、Azure DevOps 相同）。
 - **只读保证**：GraphQL 只有 POST，所以 `/graphql` 是 `queryEndpoints` 里唯一的路径（与 Azure DevOps 的 WIQL 同理），GET 白名单为空。adapter 发出的每个文档都必须以 `query` 开头，否则在发送前拒绝；代码里不存在 mutation。
