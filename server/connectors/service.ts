@@ -25,6 +25,7 @@ import { ExternalError, storedConnection, type Fetch, type StoredConnection } fr
 import { adapterFor } from "./index";
 import type { Fetched, ItemRef, SearchScope } from "./types";
 import { logFailure } from "../error-report";
+import { listScope, listTeams } from "./linear";
 
 /**
  * External items as read-only card inputs (CONNECTORS-SPEC, EXTERNAL-TRACKER-SPEC).
@@ -462,6 +463,25 @@ export class ConnectorService {
     const adapter = adapterFor(entry.provider);
     const { markdown, truncated } = adapter.markdown(entry.summary, entry.full!.data, adapter.readBytes);
     return { summary: entry.summary, markdown, truncated, fingerprint: entry.fingerprint, stale, fetchedAt: new Date(entry.full!.at).toISOString() };
+  }
+
+  /** A Linear connection, or EXTERNAL_INVALID (LINEAR-BOARD-SPEC §3.1). */
+  private async linear(connectionId: string) {
+    const connection = await this.connections.get(connectionId);
+    if (familyOf(connection.provider) !== "linear") throw new ExternalError("EXTERNAL_INVALID", "This connection is not a Linear connection.");
+    return connection;
+  }
+
+  /** The Linear board's issues: mine, or a team's; finished ones only when updated after `since`. */
+  async linearBoard(input: { connectionId: string; teamId?: string; since?: string }) {
+    const connection = await this.linear(input.connectionId);
+    return this.call(connection.id, (c) => listScope(c, this.fetchImpl, { teamId: input.teamId }, { since: input.since }));
+  }
+
+  /** The teams a Linear connection's key can see. */
+  async linearTeams(input: { connectionId: string }) {
+    const connection = await this.linear(input.connectionId);
+    return { teams: await this.call(connection.id, (c) => listTeams(c, this.fetchImpl)) };
   }
 
   /** Last known summary without any request (titles while offline). */

@@ -3,6 +3,7 @@ import { classifyQuery, connectorLimits, issueKey, linearItemUrl, type ExternalS
 import { ExternalError, ReadOnlyHttp, cut, mapLimit, retryAfter, type Fetch, type StoredConnection } from "./http";
 import { withDiscussion } from "./fingerprint";
 import type { ConnectorAdapter, Fetched, ItemRef } from "./types";
+import type { LinearIssueRow, LinearTeam } from "../../shared/linear-board";
 
 /**
  * Linear issues (CONNECTORS-SPEC §14): linear.app only, GraphQL, personal API key.
@@ -46,6 +47,11 @@ const issueQuery = (full: boolean) => `query Issue($id: String!) { issue(id: $id
 const issuesQuery = `query Issues($filter: IssueFilter, $first: Int) { issues(filter: $filter, first: $first, orderBy: updatedAt) { nodes { ${summaryFields} } } }`;
 const batchQuery = (count: number) =>
   `query Batch(${Array.from({ length: count }, (_, i) => `$k${i}: String!`).join(", ")}) { ${Array.from({ length: count }, (_, i) => `i${i}: issue(id: $k${i}) { ${summaryFields} }`).join(" ")} }`;
+
+/** The Linear board (LINEAR-BOARD-SPEC §3.1): a scope's issues page by page, and the teams the key sees. */
+const rowFields = "id identifier title url updatedAt priority priorityLabel state { name type position } assignee { name displayName } team { key name }";
+const scopeQuery = `query Scope($filter: IssueFilter, $first: Int, $after: String) { issues(filter: $filter, first: $first, after: $after, orderBy: updatedAt) { nodes { ${rowFields} } pageInfo { hasNextPage endCursor } } }`;
+const teamsQuery = "query Teams($first: Int) { teams(first: $first) { nodes { id key name } } }";
 
 /** Seconds to wait: Retry-After, else the request window's reset (UTC epoch milliseconds). */
 function waitFor(headers: Headers) {
@@ -166,6 +172,74 @@ export const titleFilter = (words: string) => ({
     .slice(0, MAX_WORDS)
     .map((word) => ({ title: { containsIgnoreCase: word } })),
 });
+
+/** My issues or a team's; finished ones only when updated after `since` (LINEAR-BOARD-SPEC §3.1). */
+export function scopeFilter(scope: { teamId?: string }, since: string | undefined) {
+  const part = scope.teamId ? { team: { id: { eq: scope.teamId } } } : { assignee: { isMe: { eq: true } } };
+  const recent = since ? [{ or: [{ state: { type: { nin: ["completed", "canceled"] } } }, { updatedAt: { gt: since } }] }] : [];
+  return { and: [part, ...recent] };
+}
+
+type BoardIssue = LinearIssue & { priority?: number | null; state?: { name?: string; type?: string; position?: number } | null };
+
+function issueRow(connection: Pick<StoredConnection, "id" | "baseUrl">, issue: BoardIssue): LinearIssueRow {
+  const summary = linearSummary(connection, issue);
+  const priority = Number(issue.priority);
+  return {
+    key: summary.key,
+    remoteId: summary.remoteId,
+    title: summary.summary,
+    url: summary.url,
+    updated: summary.updated,
+    priority: Number.isInteger(priority) && priority >= 0 && priority <= 4 ? priority : 0,
+    priorityLabel: summary.priority,
+    stateName: summary.status,
+    stateType: text(issue.state?.type).toLowerCase(),
+    statePosition: Number.isFinite(issue.state?.position) ? Number(issue.state?.position) : 0,
+    assignee: summary.assignee,
+    teamKey: text(issue.team?.key),
+    teamName: summary.container,
+  };
+}
+
+/** A scope's issues, `pageSize` per request, at most `maxPages` requests; `truncated` when more remained. */
+export async function listScope(
+  connection: StoredConnection,
+  fetchImpl: Fetch,
+  scope: { teamId?: string },
+  { since, pageSize = 50, maxPages = 4 }: { since?: string; pageSize?: number; maxPages?: number } = {},
+): Promise<{ issues: LinearIssueRow[]; truncated: boolean }> {
+  const filter = scopeFilter(scope, since);
+  const seen = new Set<string>();
+  const issues: LinearIssueRow[] = [];
+  let after: string | null = null;
+  for (let page = 0; page < maxPages; page++) {
+    type Page = { issues?: { nodes?: BoardIssue[]; pageInfo?: { hasNextPage?: boolean; endCursor?: string | null } } | null };
+    const reply: { data: Page | null; errors: GraphqlError[]; headers: Headers } = await graphql<Page>(connection, fetchImpl, scopeQuery, { filter, first: pageSize, after });
+    if (!reply.data?.issues) throw reply.errors.length ? graphqlError(reply.errors, reply.headers) : new ExternalError("EXTERNAL_INVALID", "Linear rejected the request.");
+    for (const node of reply.data.issues.nodes || []) {
+      if (!node?.identifier) continue;
+      const row = issueRow(connection, node);
+      if (seen.has(row.key)) continue;
+      seen.add(row.key);
+      issues.push(row);
+    }
+    const info = reply.data.issues.pageInfo;
+    if (!info?.hasNextPage || !info.endCursor) return { issues, truncated: false };
+    after = info.endCursor;
+  }
+  return { issues, truncated: true };
+}
+
+/** The teams this key can see, by name. */
+export async function listTeams(connection: StoredConnection, fetchImpl: Fetch): Promise<LinearTeam[]> {
+  const { data, errors, headers } = await graphql<{ teams?: { nodes?: { id?: string; key?: string; name?: string }[] } | null }>(connection, fetchImpl, teamsQuery, { first: 100 });
+  if (!data?.teams) throw errors.length ? graphqlError(errors, headers) : new ExternalError("EXTERNAL_INVALID", "Linear rejected the request.");
+  return (data.teams.nodes || [])
+    .filter((t) => t?.id)
+    .map((t) => ({ id: text(t.id), key: text(t.key), name: text(t.name) || text(t.key) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
 
