@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Linear board in the main bar (branch `feat/linear-board`) — 2026-11-04
+
+- A **Linear** row in Paseo's sidebar (only with a Linear connection) opens a board of Linear issues: Assigned to me or any team the key sees, columns by state type (Backlog, Todo, In progress, Done, Canceled; custom states by type), finished issues limited to the last `hideFinishedAfterDays` days, a remembered Board/List toggle (list on compact layouts by default) and a connection switch with several Linear connections. Pressing an issue opens the existing item preview; **Start card** opens New task in the board's current project with the issue attached, its title, Start agent on and the instruction optional; an issue already on a card shows a Card marker and **Open card**. Read-only: two new `query` documents (`Scope`, paged by cursor, at most 4 × 50; `Teams`). [LINEAR-BOARD-SPEC](LINEAR-BOARD-SPEC.md)
+- New RPCs `connectors.linear-board`, `connectors.linear-teams`, `connectors.read-item`; board-view settings gain `linearLayout` and `linearScope` (no board data change). `ExternalPreview` now wraps a shared `ItemPreview`.
+- 17 new strings in all catalogs. Onboarding: a **Linear board** row under More features; no new tip id; no What's new entry. Telemetry: no heartbeat field.
+- Checks: `server/connectors/linear-scope.test.ts` (5), `shared/linear-board.test.ts` (3), `client/linear-start.test.ts` (4), `shared/settings.test.ts` (extended). Not run: the live Linear API, the installed plugin, the phone.
+
 ## Optional first instruction when New task has attached items (user decision) — 2026-11-04
 
 - New task → Start an agent now: with at least one item picked with **From …** (any service), an empty Instruction no longer blocks Create and start. The placeholder reads "Optional: the agent starts with the attached items", and the agent gets `Start on this card: read its inputs, including <keys>, then begin.` (agent-facing, English). Typed text is sent as before, without the default; without an attached item the instruction stays required. [UI-REFRESH-SPEC §7s](UI-REFRESH-SPEC.md), [CONNECTORS-SPEC §8.2](CONNECTORS-SPEC.md)

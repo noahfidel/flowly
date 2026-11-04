@@ -42,7 +42,7 @@ Uses the plugin `Modal` (host-owned open/close; content has the shared rise from
 
 The old footer "card status and session status are separate" is dropped; the strip's accent Done makes the same point with less text.
 
-**Page 2 to 4**: see ONBOARDING-SETUP-SPEC §3. A new user-visible feature normally gets a line under **More features** on the Ready page (listed, not collapsed) (Workpad, Inputs and outputs, Tickets, docs and PRs as inputs, Search, Cards from your agents, Tags, Switch to a worktree, Saved with your project, Backups); a built-in or advanced AI feature with a switch gets its block on page 2, 3 or 4.
+**Page 2 to 4**: see ONBOARDING-SETUP-SPEC §3. A new user-visible feature normally gets a line under **More features** on the Ready page (listed, not collapsed) (Workpad, Inputs and outputs, Tickets, docs and PRs as inputs, Linear board, Search, Cards from your agents, Tags, Switch to a worktree, Saved with your project, Backups); a built-in or advanced AI feature with a switch gets its block on page 2, 3 or 4.
 
 **Page 5: Ready when you are**
 

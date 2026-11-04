@@ -81,6 +81,6 @@ Compact layouts default to List (`auto`). Rows are memoized; the list is one scr
 - An issue already on a card shows the marker and Open card, which opens that card.
 - Every new GraphQL document is a plain `query`; the read-only guard test still passes.
 
-Tests: `server/connectors/linear.test.ts` (scope filter, paging over fake replies, teams, guard), `shared/linear-board.test.ts` (columns, ordering, markers), `client/linear-start.test.ts` (link parsing, seed, project choice, optional first message), `client/session-chips.test.ts` (session links ignore the new params).
+Tests: `server/connectors/linear-scope.test.ts` (scope filter, paging over fake replies, teams, guard; the existing guard test in `linear.test.ts` is unchanged), `shared/linear-board.test.ts` (columns, ordering, markers), `client/linear-start.test.ts` (link parsing, seed, project choice, optional first message), `shared/settings.test.ts` (layout and scope defaults); `client/linear-start.test.ts` also checks that session and idea links ignore the new params.
 
 Onboarding: a More features row on the tour's last page. No new tip id and no What's new entry (decided at release). Telemetry: no heartbeat field (TELEMETRY-SPEC §4.6 does not send connector types).
