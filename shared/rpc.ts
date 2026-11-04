@@ -42,7 +42,8 @@ import {
   planSnapshotSchema,
 } from "./model";
 import { healthSchema, preparationSchema } from "./tools";
-import { connectionInput, connectionSchema, externalSummarySchema } from "./connectors";
+import { connectionInput, connectionSchema, externalSummarySchema, itemTypeSchema } from "./connectors";
+import { linearBoardRowSchema, linearTeamSchema } from "./linear-board";
 import { composerStateSchema, composerTarget, maxImages, outgoingImageSchema, queuedMessageSchema } from "./composer";
 import {
   sessionReadStateSchema,
@@ -330,6 +331,23 @@ export const readExternal = defineRpc({
   name: "connectors.read",
   input: z.strictObject({ artifactId: z.string().min(1), refresh: z.boolean().optional() }),
   output: z.object({ summary: externalSummarySchema, markdown: z.string(), truncated: z.boolean(), stale: z.boolean(), fetchedAt: z.string() }),
+});
+/** The preview of an item that is not a card input (yet): the Linear board's issues (LINEAR-BOARD-SPEC §5). */
+export const readExternalItem = defineRpc({
+  name: "connectors.read-item",
+  input: z.strictObject({ connectionId: z.string().min(1), key: z.string().min(1).max(300), itemType: itemTypeSchema.optional(), refresh: z.boolean().optional() }),
+  output: z.object({ summary: externalSummarySchema, markdown: z.string(), truncated: z.boolean(), stale: z.boolean(), fetchedAt: z.string() }),
+});
+/** The Linear board (LINEAR-BOARD-SPEC §3.4): my issues, or a team's; finished ones only from the last `recentDays` (0 = all). */
+export const linearBoard = defineRpc({
+  name: "connectors.linear-board",
+  input: z.strictObject({ connectionId: z.string().min(1), teamId: z.string().min(1).max(200).optional(), recentDays: z.number().int().min(0).max(365) }),
+  output: z.object({ issues: z.array(linearBoardRowSchema), truncated: z.boolean() }),
+});
+export const linearTeams = defineRpc({
+  name: "connectors.linear-teams",
+  input: z.strictObject({ connectionId: z.string().min(1) }),
+  output: z.object({ teams: z.array(linearTeamSchema) }),
 });
 /** Card artifacts: references to files and links (CARD-ARTIFACTS-SPEC §3). */
 export const createArtifact = defineRpc({

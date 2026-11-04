@@ -33,6 +33,7 @@ import { WorkpadService } from "./server/workpad";
 import { ConnectorService, migrateTicketDirectory, refKey } from "./server/connectors/service";
 import { projectRepos } from "./server/connectors/repos";
 import { linkedCardCounts } from "./shared/connectors";
+import { linearCardsByKey } from "./shared/linear-board";
 import { join } from "node:path";
 import { SessionSettingsService } from "./server/session-settings";
 import { applyTurnEnded, applyTurnStarted, recordLifecycle } from "./server/progress-rules";
@@ -523,6 +524,18 @@ export default function contribute(host: PluginServerContext) {
     const { summary, markdown, truncated, stale, fetchedAt } = await connectors.detail(ref, input.refresh);
     return { summary, markdown, truncated, stale, fetchedAt };
   });
+  server.handle(rpc.readExternalItem, async (input) => {
+    const { summary, markdown, truncated, stale, fetchedAt } = await connectors.detail({ connectionId: input.connectionId, key: input.key, itemType: input.itemType }, input.refresh);
+    return { summary, markdown, truncated, stale, fetchedAt };
+  });
+  // LINEAR-BOARD-SPEC §3: the scope's issues, each with the card that already references it.
+  server.handle(rpc.linearBoard, async (input) => {
+    const since = input.recentDays ? new Date(Date.now() - input.recentDays * 86_400_000).toISOString() : undefined;
+    const [found, data] = await Promise.all([connectors.linearBoard({ connectionId: input.connectionId, teamId: input.teamId, since }), store.read()]);
+    const cards = linearCardsByKey(data.tasks, data.artifacts);
+    return { truncated: found.truncated, issues: found.issues.map((issue) => ({ ...issue, card: cards.get(issue.key.toUpperCase()) ?? null })) };
+  });
+  server.handle(rpc.linearTeams, (input) => connectors.linearTeams(input));
   server.handle(rpc.createArtifact, (input, { paseo }) => artifacts.create(input, paseo));
   server.handle(rpc.updateArtifact, (input) => artifacts.update(input));
   server.handle(rpc.deleteArtifact, (input) => artifacts.delete(input));
