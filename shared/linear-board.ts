@@ -49,6 +49,11 @@ export function groupIssues<T extends LinearIssueRow>(issues: readonly T[]): { c
   return linearColumns.map((column) => ({ column, issues: groups.get(column)!.sort(byPriority) }));
 }
 
+/** The columns the status filter leaves shown, in order. */
+export function visibleGroups<G extends { column: LinearColumn }>(groups: readonly G[], hidden: readonly LinearColumn[]): G[] {
+  return groups.filter((g) => !hidden.includes(g.column));
+}
+
 type MarkerTask = { id: string; projectId: string; workspaceId: string; title: string; archivedAt: string | null; updatedAt: string };
 type MarkerArtifact = { taskId: string; external?: { provider: string; key: string } };
 

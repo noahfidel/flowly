@@ -6,7 +6,7 @@ import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { familyOf } from "../shared/connectors";
-import { groupIssues, type LinearBoardRow, type LinearColumn } from "../shared/linear-board";
+import { groupIssues, linearColumns, visibleGroups, type LinearBoardRow, type LinearColumn } from "../shared/linear-board";
 import { LocaleRoot } from "./i18n";
 import { MotionProvider } from "./motion";
 import { useBoardView } from "./board-view";
@@ -98,7 +98,11 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
     refetchOnWindowFocus: false,
     retry: false,
   });
-  const groups = useMemo(() => groupIssues(board.data?.issues || []), [board.data]);
+  const hidden = view.values?.linearHidden || noColumns;
+  const allGroups = useMemo(() => groupIssues(board.data?.issues || []), [board.data]);
+  // Settings are parsed again on every render: compare the hidden list by content.
+  const hiddenKey = hidden.join(",");
+  const groups = useMemo(() => visibleGroups(allGroups, hidden), [allGroups, hiddenKey]);
   const layoutChoice = view.values?.linearLayout || "auto";
   const layout = layoutChoice === "auto" ? (compact ? "list" : "board") : layoutChoice;
   const [scopeOpen, setScopeOpen] = useState(false);
@@ -123,6 +127,8 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
   const chooseConnection = (id: string) => {
     if (view.values && id !== remembered) void view.update({ lastConnections: { ...view.values.lastConnections, linear: id } });
   };
+  const toggleColumn = (column: LinearColumn) =>
+    void view.update({ linearHidden: hidden.includes(column) ? hidden.filter((c) => c !== column) : [...hidden, column] });
   const refresh = () => {
     void board.refetch();
     void teams.refetch();
@@ -142,6 +148,7 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
   const team = teamId ? teams.data?.teams.find((x) => x.id === teamId) : undefined;
   const scopeLabel = team ? `${team.key} · ${team.name}` : t("Assigned to me");
   const total = board.data?.issues.length ?? 0;
+  const shown = groups.reduce((n, g) => n + g.issues.length, 0);
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: space[4], gap: space[3] }}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space[2] }}>
@@ -170,11 +177,16 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
           )}
         </View>
       )}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[1.5] }}>
+        {linearColumns.map((column) => (
+          <FilterChip key={column} column={column} on={!hidden.includes(column)} onToggle={toggleColumn} />
+        ))}
+      </View>
       {board.isPending ? (
         <Label muted>{t("Loading…")}</Label>
       ) : board.error ? (
         <Notice tone="warning">{externalError(board.error, "linear")}</Notice>
-      ) : total === 0 ? (
+      ) : shown === 0 ? (
         <Label muted>{t("No issues in this view.")}</Label>
       ) : layout === "board" ? (
         <ScrollView horizontal contentContainerStyle={{ gap: space[3], alignItems: "flex-start" }}>
@@ -222,6 +234,34 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
         />
       )}
     </ScrollView>
+  );
+}
+
+const noColumns: readonly LinearColumn[] = [];
+
+/** A status filter chip: pressed shows or hides its column (LINEAR-BOARD-SPEC §4). */
+function FilterChip({ column, on, onToggle }: { column: LinearColumn; on: boolean; onToggle(column: LinearColumn): void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: on }}
+      accessibilityLabel={t(columnTitles[column])}
+      onPress={() => onToggle(column)}
+      style={[
+        noFocusRing,
+        {
+          paddingHorizontal: space[2],
+          paddingVertical: space[1],
+          borderRadius: radius.full,
+          borderWidth: 1,
+          borderColor: on ? colors.accent : colors.border,
+          backgroundColor: on ? colors.surface1 : "transparent",
+        },
+      ]}
+    >
+      <Label size={font.sm} muted={!on} selectable={false}>{t(columnTitles[column])}</Label>
+    </Pressable>
   );
 }
 

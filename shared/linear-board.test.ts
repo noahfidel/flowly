@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { columnOf, groupIssues, linearCardsByKey, type LinearIssueRow } from "./linear-board";
+import { columnOf, groupIssues, linearCardsByKey, visibleGroups, type LinearIssueRow } from "./linear-board";
 
 const row = (key: string, stateType: string, extra: Partial<LinearIssueRow> = {}): LinearIssueRow => ({
   key,
@@ -50,6 +50,18 @@ describe("Linear board columns (LINEAR-BOARD-SPEC §4)", () => {
       ["completed", ["ENG-5"]],
       ["canceled", []],
     ]);
+  });
+});
+
+describe("status filter (LINEAR-BOARD-SPEC §4)", () => {
+  test("hidden columns drop out in order; the rest keep their issues", () => {
+    const groups = groupIssues([row("ENG-1", "started"), row("ENG-2", "completed"), row("ENG-3", "canceled")]);
+    expect(visibleGroups(groups, ["completed", "canceled"]).map((g) => [g.column, g.issues.length])).toEqual([
+      ["backlog", 0],
+      ["unstarted", 0],
+      ["started", 1],
+    ]);
+    expect(visibleGroups(groups, [])).toHaveLength(5);
   });
 });
 

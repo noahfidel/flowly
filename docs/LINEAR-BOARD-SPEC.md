@@ -50,6 +50,7 @@ Client caching: react-query, 60 s stale time, no polling, refetch only on open o
 - Columns by **state type**, in order: Backlog (`backlog`, `triage`, and any unknown type), Todo (`unstarted`), In progress (`started`), Done (`completed`), Canceled (`canceled`/`cancelled`). A team's custom state names land in the column of their type; the card shows the state name when it differs from the column title.
 - Inside a column: by priority (urgent first, no priority last), then most recently updated.
 - Toolbar: connection switch (only with more than one Linear connection), scope (Assigned to me, then each team as `KEY · Name`), Board / List toggle, Refresh.
+- Status filter (user request 2026-11-04): one chip per column under the toolbar, pressed to hide or show that column in both layouts. Hidden columns are remembered (`linearHidden`, board-view settings, default none hidden). Hiding is client-side; the query does not change. When every column with issues is hidden, the board says "No issues in this view."
 - Card face: key, title (two lines), priority label when set, assignee, and a "Card" marker when 3.3 found one.
 - **List**: the same issues as one list, grouped by column with a count per header, same rows and actions.
 - Remembered (board-view settings, host scope): `linearLayout` (`auto` | `board` | `list`; `auto` = list on compact layouts, board otherwise), `linearScope` (`me` or a team id; a team the key no longer sees falls back to `me`), and the connection in `lastConnections.linear` (shared with the New task picker).

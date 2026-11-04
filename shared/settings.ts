@@ -5,6 +5,7 @@ import { priorities, statusSchema, taskTypes } from "./model";
 import { languageChoices, localeCodes } from "./i18n";
 import { aiLanguageChoices } from "./ai-language";
 import { cardActivityModes } from "./card-display";
+import { linearColumns } from "./linear-board";
 
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
@@ -48,6 +49,8 @@ export const boardViewSettings = defineSettings({
     linearLayout: z.enum(["auto", "board", "list"]).catch("auto").default("auto"),
     /** The Linear board's scope: "me" (Assigned to me) or a team id. */
     linearScope: z.string().max(200).catch("me").default("me"),
+    /** Status columns the Linear board's filter hides. */
+    linearHidden: z.array(z.enum(linearColumns)).max(5).catch([]).default([]),
     /** Card sidebar width as last dragged, as a share of the Flowly area; 0 = never dragged, opens at half (UI-UX-SPEC, drawer width). */
     drawerShare: z.number().min(0).max(1).catch(0).default(0),
   }),
