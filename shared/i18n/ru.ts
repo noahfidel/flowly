@@ -1506,5 +1506,10 @@ const catalog: Catalog = {
   "When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.": "Если к карточке не привязана задача Linear, агент сначала ищет в Linear, создаёт тикет, если подходящего нет, и привязывает его к карточке. Он использует свои инструменты Linear; Flowly никогда не пишет в Linear.",
   "Linear team": "Команда Linear",
   "Team name or key (optional)": "Название или ключ команды (необязательно)",
+  "Show All projects tab": "Показывать вкладку «Все проекты»",
+  "Manage projects": "Управление проектами",
+  "{lane} is not a lane in {project}.": "{lane} — не колонка в {project}.",
+  "Each project keeps its own order. Open the project to reorder its cards.": "У каждого проекта свой порядок. Откройте проект, чтобы изменить порядок его карточек.",
+  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "«Все проекты» показывает карточки всех проектов на одной доске. Отключается в Настройки → Рабочий процесс.",
 };
 export default catalog;

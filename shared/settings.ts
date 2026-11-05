@@ -26,6 +26,8 @@ export const boardViewSettings = defineSettings({
     quickTaskMode: z.enum(["worktree", "directory"]).catch("worktree").default("worktree"),
     /** The project the last quick task was created in. */
     lastQuickProjectId: z.string().max(200).catch("").default(""),
+    /** The All projects tab / switcher entry (ALL-PROJECTS-SPEC §1). */
+    allProjectsTab: z.boolean().catch(true).default(true),
     /** Order of cards inside each column. */
     boardSort: z.enum(boardSorts).default("manual"),
     /** Desktop columns shown as a narrow strip. */

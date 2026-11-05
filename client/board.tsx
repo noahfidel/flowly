@@ -108,13 +108,14 @@ import { SearchPage } from "./search-page";
 import { focusOfHit, type DrawerFocus } from "./drawer-focus";
 import { searchSources as allSearchSources, type SearchCard, type SearchHit, type SearchMemoryHit } from "../shared/search";
 import { MemoryPage } from "./memory";
-import { lastViewedProject, pickProject, rememberViewedProject } from "./project-memory";
+import { lastViewedProject, pickView, rememberViewedProject } from "./project-memory";
+import { ALL_PROJECTS, allProjectsAvailable, allQuickProject, allStatuses, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { ProjectTabs } from "./project-tabs";
 import { RemoveProjectDialog } from "./project-remove";
 import { boardOverview } from "./overview";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import { boardSortText, boardSorts, sortTasks, turnEndActivity, type BoardSort } from "../shared/sort";
-import { projectTagStats, tagPrefixes, taskMatchesSearch, taskMatchesTagFilter } from "../shared/tags";
+import { projectTagStats, tagPrefixes } from "../shared/tags";
 import {
   parseIdeaLink,
   parseSessionLink,
@@ -158,6 +159,7 @@ const tipText: Record<TipId, () => string> = {
   "jira-connect": () => t("Work from Jira, Confluence, GitHub, GitLab, Azure DevOps or Linear: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them."),
   connectors: () => t("The Artifacts + now adds Confluence pages and GitHub or GitLab issues and pull requests too, besides files, links and Jira tickets. Connect services in Settings → Connections."),
   "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
+  "all-projects": () => t("All projects shows every project's cards on one board. Settings → Workflow turns it off."),
   subagents: () => t("When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo."),
   "summary-models": () => t("Choose summary models and their fallback order in Settings → Models. The default is Haiku, then Luna."),
   "ai-language": () => t("AI-written text follows Settings → AI features → AI output language. It starts as your interface language."),
@@ -351,7 +353,8 @@ function BoardContent(
     [removing, setRemoving] = useState<Project | null>(null),
     [deleting, setDeleting] = useState<Task | null>(null),
     [linking, setLinking] = useState<Task | null>(null),
-    [taskForm, setTaskFormState] = useState<{ task?: Task; status: Status; seed?: TaskSeed } | null>(
+    // `projectId`: the project a new card goes to when it is not the board's (All projects, ALL-PROJECTS-SPEC §3).
+    [taskForm, setTaskFormState] = useState<{ task?: Task; status: Status; seed?: TaskSeed; projectId?: string } | null>(
       null,
     ),
     // Quick task (QUICK-TASK-SPEC): `projectId` when the entry point belongs to one project (a lane, a tab, the empty-board hint).
@@ -547,16 +550,44 @@ function BoardContent(
     if (!view.values || next === boardSort) return;
     void view.update({ boardSort: next });
   };
-  const project = pickProject(projects, projectId, lastViewedProject());
-  // Returning to the board in this app run reopens the project viewed last; a cold start opens the first.
-  useEffect(() => rememberViewedProject(project?.id), [project?.id]);
+  // All projects (ALL-PROJECTS-SPEC): every live project's cards on one board, while the setting is on and 2+ projects are live.
+  const liveProjects = useMemo(() => includedProjects(board?.projects || []), [board?.projects]);
+  const allOk = allProjectsAvailable(board?.projects || [], view.values?.allProjectsTab ?? true);
+  const shown = pickView(projects, projectId, lastViewedProject(), { id: ALL_PROJECTS, ok: allOk });
+  const allView = shown.all;
+  // `project` is the board's one project; undefined on the All board, where each card uses its own (projectOf).
+  const project = shown.project;
+  const viewKey = allView ? ALL_PROJECTS : project?.id || "";
+  // Returning to the board in this app run reopens the view (a project or All) seen last; a cold start opens the first project.
+  useEffect(() => rememberViewedProject(viewKey || undefined), [viewKey]);
   const chooseProject = (id: string) => { ignoredLink.current = linkKey; setProject(id); };
+  const chooseAll = () => {
+    chooseProject(ALL_PROJECTS);
+    setPage(null);
+  };
+  const projectById = useMemo(() => new Map((board?.projects || []).map((p) => [p.id, p])), [board?.projects]);
+  const projectOf = (card: { projectId: string }) => projectById.get(card.projectId);
+  const includedIds = useMemo(() => new Set(liveProjects.map((p) => p.id)), [liveProjects]);
+  const projectRank = useMemo(() => new Map(liveProjects.map((p, i) => [p.id, i])), [liveProjects]);
+  const inView = (id: string) => (allView ? includedIds.has(id) : id === project?.id);
+  // Opening a card keeps the All board when it shows the card's project; otherwise switch to that project first.
+  const focusProject = (id: string) => {
+    if (!(allView && includedIds.has(id))) chooseProject(id);
+  };
   useEffect(() => {
     setActionTask(null);
-  }, [project?.id]);
-  const task = currentDetail?.task.id === taskId && currentDetail.task.projectId === project?.id ? currentDetail.task : board?.tasks.find(
-    (t) => t.id === taskId && t.projectId === project?.id,
+  }, [viewKey]);
+  // Project pages (Insights, Ideas, Memory) need one project; Search works across all of them.
+  useEffect(() => {
+    if (allView) setPage((current) => (current === "search" ? current : null));
+  }, [allView]);
+  const task = currentDetail?.task.id === taskId && inView(currentDetail.task.projectId) ? currentDetail.task : board?.tasks.find(
+    (t) => t.id === taskId && inView(t.projectId),
   );
+  // The open card's own project (the board's on a project board).
+  const taskProject = task ? (currentDetail?.task.id === task.id ? currentDetail.project : projectOf(task)) : undefined;
+  // The project of an open task form: a new card's chosen project, an edited card's own, else the board's.
+  const formProject = taskForm ? projectById.get(taskForm.projectId ?? taskForm.task?.projectId ?? project?.id ?? "") : undefined;
   // Phone with a card open: the board stays mounted and laid out under the
   // card's opaque overlay, so Back shows it at once with its scroll position
   // and neither direction re-lays it out (PERFORMANCE-SPEC §2).
@@ -566,10 +597,10 @@ function BoardContent(
     accessibilityElementsHidden: boardHidden,
     importantForAccessibility: boardHidden ? ("no-hide-descendants" as const) : ("auto" as const),
   };
-  const drawerTarget = useMemo(() => task && project && !detailUnavailable(detailData.error) ? {
-    task, project: currentDetail?.task.id === task.id ? currentDetail.project : project,
+  const drawerTarget = useMemo(() => task && taskProject && !detailUnavailable(detailData.error) ? {
+    task, project: taskProject,
     events: currentDetail?.events || noEvents,
-  } : undefined, [task, project, currentDetail, detailData.error]);
+  } : undefined, [task, taskProject, currentDetail, detailData.error]);
   const drawer = useMotionPresence(drawerTarget, drawerTarget ? `${drawerTarget.project.id}|${drawerTarget.task.id}` : "");
   // Desktop: the open card's lane is centred in the board left of the drawer when the drawer would hide it, on
   // opening, on moving to another lane, and on coming back to the board from a page (DRAWER-SPEC). Only the last:
@@ -582,19 +613,18 @@ function BoardContent(
     if (compact || page || !task) return;
     setReveal((r) => (sameCard && !r.center && Date.now() - r.at < 300 ? r : { status: task.status, n: r.n + 1, at: Date.now(), center: true, taskId: task.id }));
   }, [compact, page, task?.id, task?.status]);
-  const tasks = (board?.tasks || []).filter(
-    (t) => t.projectId === project?.id && (archived || !t.archivedAt),
+  const tasks = scopeTasks(
+    board?.tasks || [],
+    allView ? { all: true, projectIds: includedIds } : { all: false, projectId: project?.id || "" },
+    archived,
   );
-  const visible = tasks.filter(
-    (t) =>
-      taskMatchesSearch(t, search) &&
-      (priority === "all" || t.priority === priority) &&
-      (taskType === "all" || t.type === taskType) &&
-      taskMatchesTagFilter(t, tagFilter),
-  );
-  // The project's lanes are its workflow: enabled lanes in their configured order.
-  const shownStatuses = enabledStatuses(project);
-  const nameOf = (status: Status) => laneName(project, status);
+  const visible = tasks.filter((t) => matchesFilters(t, { search, priority, taskType, tags: tagFilter }));
+  // The project's lanes are its workflow: enabled lanes in their configured order. All: the union, default names.
+  const shownStatuses = allView ? allStatuses(liveProjects) : enabledStatuses(project);
+  const nameOf = (status: Status) => laneName(allView ? null : project, status);
+  // A card's own lanes and lane names (its project's), for its menus and toasts.
+  const cardStatuses = (card: Task) => enabledStatuses(projectOf(card));
+  const cardLaneName = (card: Task, status: Status) => laneName(projectOf(card), status);
   const wrapPromptTask = wrapPrompt
     ? board?.tasks.find((t) => t.id === wrapPrompt && !t.archivedAt)
     : undefined;
@@ -603,12 +633,12 @@ function BoardContent(
   // project; a linked card or the user's own tab choice wins afterwards).
   const autoLane = useRef("");
   useEffect(() => {
-    if (!board || !project || autoLane.current === project.id) return;
-    autoLane.current = project.id;
+    if (!board || !viewKey || autoLane.current === viewKey) return;
+    autoLane.current = viewKey;
     if (taskId) return;
     const first = shownStatuses.find((s) => visible.some((t) => t.status === s));
     if (first) setMobileStatus(first);
-  }, [board, project?.id]);
+  }, [board, viewKey]);
   useEffect(() => {
     if (!shownStatuses.includes(mobileStatus)) setMobileStatus(shownStatuses.includes("todo") ? "todo" : shownStatuses[0]);
   }, [shownStatuses.join(","), mobileStatus]);
@@ -635,20 +665,20 @@ function BoardContent(
   const older = useMemo(
     () =>
       olderFinishedFromDates(
-        (board?.tasks || []).filter(t => t.projectId === project?.id),
+        (board?.tasks || []).filter(t => inView(t.projectId)),
         new Map((projected?.cards || []).map(c => [c.taskId, c.finishedAt])),
         hideFinishedDays, Date.now(), taskId,
       ),
-    [board?.tasks, projected?.cards, project?.id, hideFinishedDays, taskId],
+    [board?.tasks, projected?.cards, viewKey, includedIds, hideFinishedDays, taskId],
   );
   const [olderShown, setOlderShown] = useState<Status[]>([]);
-  useEffect(() => setOlderShown([]), [project?.id]);
+  useEffect(() => setOlderShown([]), [viewKey]);
   const toggleOlder = (status: Status) =>
-    setOlderShown((shown) => (shown.includes(status) ? shown.filter((s) => s !== status) : [...shown, status]));
+    setOlderShown((lanes) => (lanes.includes(status) ? lanes.filter((s) => s !== status) : [...lanes, status]));
   const onScreen = visible.filter((t) => !older.has(t.id) || olderShown.includes(t.status));
-  // Within a lane the older cards always come last, under their toggle.
+  // Within a lane the older cards always come last, under their toggle. All orders across projects (ALL-PROJECTS-SPEC §4).
   const sortColumn = (column: Task[]) => {
-    const sorted = sortTasks(column, boardSort, taskActivity);
+    const sorted = allView ? sortAllColumn(column, boardSort, taskActivity, projectRank) : sortTasks(column, boardSort, taskActivity);
     return older.size ? [...sorted.filter((t) => !older.has(t.id)), ...sorted.filter((t) => older.has(t.id))] : sorted;
   };
   const laneAll = sortColumn(visible.filter((t) => t.status === mobileStatus));
@@ -708,7 +738,8 @@ function BoardContent(
   // The project's default model wins over the global one; with neither, the latest session's settings (MODEL-DEFAULTS-SPEC).
   const modelPrefs = useSettings(modelSettings);
   const globalModel = agentModelFromValues(modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null);
-  const defaultModel = effectiveAgentModel(project, globalModel)?.model ?? null;
+  // The open form's or card's own project first: on the All board there is no board project.
+  const defaultModel = effectiveAgentModel(formProject ?? taskProject ?? project, globalModel)?.model ?? null;
   const defaultModelKey = JSON.stringify(defaultModel);
   const sessionDefaults = useMemo(
     () =>
@@ -729,10 +760,12 @@ function BoardContent(
     ),
   );
   // New task: Quick task unless the user turned that off (QUICK-TASK-SPEC §5), in the board's project unless pinned.
-  const openNewTask = (status: Status, pinned?: string) => {
-    const projectId = pinned ?? project?.id;
-    if (view.values?.quickTaskDefault ?? true) setQuickTask({ status, ...(projectId ? { projectId } : {}) });
-    else setTaskForm({ status });
+  // All projects: always Quick task, in the last quick-task project (ALL-PROJECTS-SPEC §5). `inAll` is false when
+  // the caller switches to a project in the same moment (a project tab's New task).
+  const openNewTask = (status: Status, pinned?: string, inAll = allView) => {
+    const next = newTaskOpen({ all: inAll, quickDefault: view.values?.quickTaskDefault ?? true, status, pinned, current: project?.id });
+    if (next.kind === "form") setTaskForm({ status: next.status });
+    else setQuickTask({ status: next.status, ...(next.projectId ? { projectId: next.projectId } : {}), ...(next.recent ? { recent: true } : {}) });
   };
   // Desktop: Attention drops down under the header bell; phones keep the sheet.
   const rootRef = useRef<View>(null),
@@ -767,7 +800,7 @@ function BoardContent(
   const openAttention = (item: AttentionItem) => {
     setMenu(null);
     const go = () => {
-      setProject(item.project.id);
+      focusProject(item.project.id);
       setTask(item.task.id);
       setMobileStatus(item.task.status);
       if (item.sessionId)
@@ -780,11 +813,11 @@ function BoardContent(
     if (compact) afterModalClose(go);
     else go();
   };
-  // The project's tag vocabulary, plus prefix options for hierarchical tags (CARD-TAGS-SPEC §6.4).
-  const projectTags = useMemo(
-    () => (project ? projectTagStats(board?.tasks || [], project.id).map((x) => x.tag) : []),
-    [board?.tasks, project?.id],
-  );
+  // The project's tag vocabulary, plus prefix options for hierarchical tags (CARD-TAGS-SPEC §6.4). All: the union.
+  const projectTags = useMemo(() => {
+    const ids = allView ? liveProjects.map((p) => p.id) : project ? [project.id] : [];
+    return [...new Set(ids.flatMap((id) => projectTagStats(board?.tasks || [], id).map((x) => x.tag)))];
+  }, [board?.tasks, viewKey, liveProjects]);
   const tagFilterOptions = useMemo(() => {
     const all = [...new Set([...tagPrefixes(projectTags), ...projectTags, ...tagFilter])];
     return all;
@@ -839,18 +872,25 @@ function BoardContent(
     ];
   };
   const move = (input: { id: string; revision: number; status: Status }) => {
-    const from = data.data?.tasks.find((t) => t.id === input.id)?.status;
+    const card = data.data?.tasks.find((t) => t.id === input.id);
+    const from = card?.status;
     void doAction(
       () => updateTask(input),
-      t("Moved to {name}", { name: nameOf(input.status) }),
+      t("Moved to {name}", { name: card ? cardLaneName(card, input.status) : nameOf(input.status) }),
       () => askWrapup(input.id, from, input.status),
     );
   };
   const place = (input: Placement) => {
-    const from = data.data?.tasks.find((t) => t.id === input.id)?.status;
+    const card = data.data?.tasks.find((t) => t.id === input.id);
+    const from = card?.status;
+    // All projects: a column the card's own project has no lane for refuses the drop (ALL-PROJECTS-SPEC §4).
+    if (allView && card && !dropAllowed(projectOf(card), input.status)) {
+      toast.show(t("{lane} is not a lane in {project}.", { lane: nameOf(input.status), project: projectOf(card)?.title ?? "" }), { variant: "info" });
+      return;
+    }
     void doAction(
       () => placeTask(input),
-      from === input.status ? "" : t("Moved to {name}", { name: nameOf(input.status) }),
+      from === input.status ? "" : t("Moved to {name}", { name: card ? cardLaneName(card, input.status) : nameOf(input.status) }),
       () => askWrapup(input.id, from, input.status),
     );
   };
@@ -864,7 +904,8 @@ function BoardContent(
       : [];
   const switchMenuEntry = (card: Task) => {
     const kind = cardIndex.workspaceKinds.get(card.workspaceId);
-    if (!kind || pending || project?.archivedAt || card.archivedAt || finished(card.status) || (kind === "local" && project?.links?.length)) return [];
+    const own = projectOf(card);
+    if (!kind || pending || own?.archivedAt || card.archivedAt || finished(card.status) || (kind === "local" && own?.links?.length)) return [];
     const direction: SwitchDirection = kind === "worktree" ? "to_local" : "to_worktree";
     return [
       {
@@ -876,7 +917,8 @@ function BoardContent(
     ];
   };
   const cardMenu = (card: Task): MenuEntry[] => {
-    const locked = pending || !!project?.archivedAt || !!card.archivedAt;
+    const ownArchived = !!projectOf(card)?.archivedAt;
+    const locked = pending || ownArchived || !!card.archivedAt;
     return [
       { id: "open", label: t("Open details"), icon: "PanelRightOpen", onPress: () => setTask(card.id) },
       ...workspaceMenuEntry(card),
@@ -896,37 +938,42 @@ function BoardContent(
       ...attentionMenuEntry(card),
       { kind: "separator", id: "s1" },
       { kind: "label", id: "move", label: t("Move to") },
-      ...shownStatuses.map((status) => ({
+      ...cardStatuses(card).map((status) => ({
         id: `status-${status}`,
-        label: nameOf(status),
+        label: cardLaneName(card, status),
         checked: status === card.status,
         disabled: locked,
         onPress: () => {
           if (status !== card.status) move({ id: card.id, revision: card.revision, status });
         },
       })),
-      { kind: "separator", id: "s2" },
-      {
-        id: "up",
-        label: t("Move up"),
-        icon: "ArrowUp",
-        disabled: locked,
-        onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "up" })),
-      },
-      {
-        id: "down",
-        label: t("Move down"),
-        icon: "ArrowDown",
-        disabled: locked,
-        onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "down" })),
-      },
+      // Order is per project: no Move up/down on the All board (ALL-PROJECTS-SPEC §4).
+      ...(allView
+        ? []
+        : ([
+            { kind: "separator", id: "s2" },
+            {
+              id: "up",
+              label: t("Move up"),
+              icon: "ArrowUp",
+              disabled: locked,
+              onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "up" })),
+            },
+            {
+              id: "down",
+              label: t("Move down"),
+              icon: "ArrowDown",
+              disabled: locked,
+              onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "down" })),
+            },
+          ] as MenuEntry[])),
       { kind: "separator", id: "s3" },
       {
         id: "archive",
         label: card.archivedAt ? t("Restore card") : t("Archive card"),
         icon: card.archivedAt ? "ArchiveRestore" : "Archive",
         danger: !card.archivedAt,
-        disabled: pending || !!project?.archivedAt,
+        disabled: pending || ownArchived,
         onPress: () =>
           void doAction(
             () => updateTask({ id: card.id, revision: card.revision, archived: !card.archivedAt }),
@@ -938,7 +985,7 @@ function BoardContent(
         label: t("Delete permanently…"),
         icon: "Trash2",
         danger: true,
-        disabled: pending || !!project?.archivedAt,
+        disabled: pending || ownArchived,
         onPress: () => setDeleting(card),
       },
     ];
@@ -996,6 +1043,7 @@ function BoardContent(
   const createFromIdea = useStableCallback((idea: Idea) =>
     setTaskForm({
       status: "todo",
+      projectId: idea.projectId,
       seed: {
         ideaId: idea.id,
         title: idea.title,
@@ -1074,6 +1122,7 @@ function BoardContent(
   const followUp = useStableCallback((source: Task) =>
     setTaskForm({
       status: "todo",
+      projectId: source.projectId,
       seed: { followUpOf: source.id, followUpTitle: source.title, title: "", description: "", type: source.type, priority: source.priority },
     }),
   );
@@ -1081,7 +1130,7 @@ function BoardContent(
   const openTaskById = useStableCallback((id: string) => {
     setDrawerFocus(null);
     const target = currentDetail?.relatedTasks.find(t => t.id === id) ?? board?.tasks.find(t => t.id === id);
-    if (target) { setDetailTarget(target); setProject(target.projectId); }
+    if (target) { setDetailTarget(target); focusProject(target.projectId); }
     setTask(id);
   });
   const togglePage = (next: "insights" | "ideas" | "memory" | "search") => {
@@ -1091,14 +1140,19 @@ function BoardContent(
     setPage((current) => (current === next ? null : next));
   };
   const closePage = useStableCallback(() => setPage(null));
-  const openMemoryPage = useStableCallback(() => { ignoredLink.current = linkKey; setPage("memory"); });
+  const openMemoryPage = useStableCallback(() => {
+    ignoredLink.current = linkKey;
+    // Memory is per project: from the All board, switch to the open card's project first.
+    if (allView && task) setProject(task.projectId);
+    setPage("memory");
+  });
   // SEARCH-SPEC §5.3: a result opens its card, switching project first; the Search page stays open.
   const openSearchCard = useStableCallback((card: SearchCard, hit?: SearchHit) => {
     ignoredLink.current = linkKey;
     const focus = hit ? focusOfHit(hit) : null;
     setDrawerFocus(focus ? { ...focus, key: `${card.taskId}:${Date.now()}`, taskId: card.taskId } : null);
     setDetailTarget({ id: card.taskId, workspaceId: card.workspaceId, projectId: card.projectId });
-    setProject(card.projectId);
+    focusProject(card.projectId);
     setTask(card.taskId);
   });
   // LINEAR-BOARD-SPEC §5: Start card (Quick task with the issue attached) and Open card from the Linear board, each applied once.
@@ -1130,7 +1184,7 @@ function BoardContent(
     const start = linearInput.start;
     if (!start || !board || appliedLinear.current === start.requestId) return;
     appliedLinear.current = start.requestId;
-    if (!project) return setError(t("Create a project first, then start the card again."));
+    if (!project && !allView) return setError(t("Create a project first, then start the card again."));
     void (async () => {
       try {
         const found = (await searchLinear({ connectionId: start.connectionId, query: start.key })).results.find((r) => r.key === start.key);
@@ -1141,13 +1195,14 @@ function BoardContent(
         setPage(null);
         setTask("");
         setTaskForm(null);
-        // Quick task in the board's current project, with the issue attached (LINEAR-BOARD-SPEC §5).
-        setQuickTask({ status: "todo", projectId: project.id, seed: linearQuickSeed(found) });
+        // Quick task in the board's current project, with the issue attached (LINEAR-BOARD-SPEC §5);
+        // on the All board in the last quick-task project (ALL-PROJECTS-SPEC §5).
+        setQuickTask({ status: "todo", ...(project ? { projectId: project.id } : { recent: true }), seed: linearQuickSeed(found) });
       } catch (e) {
         if (appliedLinear.current === start.requestId) setError(externalError(e, "linear"));
       }
     })();
-  }, [linearInput, !!board, !!project]);
+  }, [linearInput, !!board, !!project, allView]);
   const openSearchMemory = useStableCallback((hit: SearchMemoryHit) => {
     ignoredLink.current = linkKey;
     setProject(hit.projectId);
@@ -1171,6 +1226,9 @@ function BoardContent(
     if (!features.insights) setPage((current) => (current === "insights" ? null : current));
   }, [features.insights]);
   const showCardIdeas = useStableCallback((id: string) => {
+    // Ideas is per project: from the All board, switch to the card's project first.
+    const source = board?.tasks.find((x) => x.id === id);
+    if (allView && source) setProject(source.projectId);
     setIdeaCard(id);
     setPage("ideas");
     setTask("");
@@ -1297,6 +1355,7 @@ function BoardContent(
           cardOpen: !!task,
           noConnection: !task && projectTasks.some((x) => !x.archivedAt) && connections.data?.connections.length === 0,
           projectTabs: !task && !compact && projects.length > 1,
+          allProjects: !task && allOk,
           hasWorkpad: !task && workpadEnabled(project) && projectTasks.some(x => factsByTask.get(x.id)?.hasWorkpad),
           busyBoard: !task && projectTasks.filter((x) => !x.archivedAt).length >= 6,
           hasSubagent: projectHasSubagent,
@@ -1315,7 +1374,7 @@ function BoardContent(
     if (id === "first-done") setMovedToFinished(false);
     void onboarding.markTipSeen(id);
   };
-  const emptyProjectHint = !!board && !!project && !project.archivedAt && !page && !welcomeOpen && projectTasks.length === 0;
+  const emptyProjectHint = !!board && (allView || (!!project && !project.archivedAt)) && !page && !welcomeOpen && !(board.tasks || []).some((x) => inView(x.projectId));
   const deleteDrawerTask = useStableCallback(() => drawer.item && setDeleting(drawer.item.task));
   const drawerStatusChanged = useStableCallback((from: Status | undefined, to: Status) =>
     drawer.item && askWrapup(drawer.item.task.id, from, to),
@@ -1350,16 +1409,18 @@ function BoardContent(
   // card of the lane in the same frame as its animation.
   const cardDerived = useMemo(
     () => new WeakMap<Task, Omit<LiveTaskCardProps, "selected" | "flash" | "drag" | "dragging" | "disabled" | "display" | "onOpen" | "onActions" | "menuFor">>(),
-    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, project, waitingIndex, factsByTask, sessionFacts],
+    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, projectById, allView, waitingIndex, factsByTask, sessionFacts],
   );
   const derivedFor = (t: Task) => {
     let derived = cardDerived.get(t);
     if (derived) return derived;
     const sessions = cardIndex.agentsByWorkspace.get(t.workspaceId) || noAgents;
     const facts = factsByTask.get(t.id);
+    // The card's own project, also on the All board (ALL-PROJECTS-SPEC §3).
+    const own = projectOf(t);
     derived = {
       task: t,
-      legacy: !!project && isLegacyScope(t, project),
+      legacy: !!own && isLegacyScope(t, own),
       available: cardIndex.workspaceIds.has(t.workspaceId),
       workspace: cardIndex.workspaceKinds.get(t.workspaceId) ?? null,
       wrapped: (t.status === "done" || t.status === "cancelled") && !!facts?.wrapped,
@@ -1374,9 +1435,10 @@ function BoardContent(
       ideas: openIdeaCount.get(t.id) || 0,
       externalKey: externalKeys.get(t.id)?.text,
       externalFamily: externalKeys.get(t.id)?.family,
-      workpad: project && workpadEnabled(project) ? facts?.workpad ?? null : null,
+      workpad: own && workpadEnabled(own) ? facts?.workpad ?? null : null,
       waiting: waitingIndex.get(t.id)?.count || 0,
       waitingTitles: waitingIndex.get(t.id)?.titles || "",
+      projectLabel: allView ? own?.title : undefined,
     };
     cardDerived.set(t, derived);
     return derived;
@@ -1390,7 +1452,7 @@ function BoardContent(
       flash={flashing.has(t.id)}
       drag={drag}
       dragging={dragging}
-      disabled={pending || !!project?.archivedAt || !!t.archivedAt}
+      disabled={pending || !!projectOf(t)?.archivedAt || !!t.archivedAt}
       onOpen={openCard}
       onActions={openCardActions}
       onOpenWorkspace={canOpenWorkspace ? openCardWorkspace : undefined}
@@ -1425,7 +1487,7 @@ function BoardContent(
     };
     return [
       { id: "settings", label: t("Project settings"), icon: "SlidersHorizontal", onPress: () => openIn(() => setProjectForm("edit")) },
-      { id: "new-task", label: t("New task"), icon: "Plus", disabled: !!p.archivedAt, onPress: () => openIn(() => openNewTask("todo", p.id)) },
+      { id: "new-task", label: t("New task"), icon: "Plus", disabled: !!p.archivedAt, onPress: () => openIn(() => openNewTask("todo", p.id, false)) },
       { kind: "separator", id: "pages" },
       ...(features.insights ? [{ id: "insights", label: t("Insights"), icon: "Activity", onPress: () => openIn(() => setPage("insights")) }] : []),
       ...(ideasOn
@@ -1453,7 +1515,7 @@ function BoardContent(
     }
     switch (intent) {
       case "new-task":
-        if (!project || project.archivedAt) return false;
+        if (!allView && (!project || project.archivedAt)) return false;
         openNewTask("todo");
         return true;
       case "quick-task":
@@ -1462,7 +1524,7 @@ function BoardContent(
         setQuickTask({ status: "todo", recent: true });
         return true;
       case "filters":
-        if (!project) return false;
+        if (!project && !allView) return false;
         setMenu("filters");
         return true;
       case "attention":
@@ -1489,7 +1551,7 @@ function BoardContent(
         togglePage("memory");
         return true;
       case "search":
-        if (!project) return false;
+        if (!project && !allView) return false;
         if (page === "search") setPage(null);
         else openSearch("");
         return true;
@@ -1502,13 +1564,14 @@ function BoardContent(
         setEscapeRequest({ taskId: task.id, key: `escape-${Date.now()}` });
         return true;
       case "edit":
-        if (!task || task.archivedAt || project?.archivedAt) return false;
+        if (!task || task.archivedAt || taskProject?.archivedAt) return false;
         setTaskForm({ task, status: task.status });
         return true;
       case "move-left":
       case "move-right": {
-        if (!task || task.archivedAt || project?.archivedAt || pending) return false;
-        const target = adjacentStatus(shownStatuses, task.status, intent);
+        if (!task || task.archivedAt || taskProject?.archivedAt || pending) return false;
+        // The card's own lanes: on the All board they can differ from the columns.
+        const target = adjacentStatus(cardStatuses(task), task.status, intent);
         if (!target) return false;
         move({ id: task.id, revision: task.revision, status: target });
         return true;
@@ -1759,7 +1822,7 @@ function BoardContent(
           >
             {compact || projects.length === 0 ? (
               <ProjectSwitcher
-                title={project?.title || t("Projects")}
+                title={allView ? t("All projects") : project?.title || t("Projects")}
                 archived={!!project?.archivedAt}
                 shortcut={shortcutsOn ? "P" : ""}
                 onPress={() => setMenu("projects")}
@@ -1767,9 +1830,10 @@ function BoardContent(
             ) : (
               <ProjectTabs
                 projects={projects}
-                activeId={project?.id || ""}
+                activeId={allView ? "" : project?.id || ""}
                 shortcut={shortcutsOn ? "P" : ""}
                 onSelect={chooseProject}
+                all={allOk ? { active: allView, onSelect: chooseAll } : undefined}
                 onManage={() => setMenu("projects")}
                 onCreate={() => setProjectForm("new")}
                 menuFor={projectTabMenu}
@@ -1777,7 +1841,7 @@ function BoardContent(
                 reorderDisabled={pending}
               />
             )}
-            {!compact && !!project && filterCount > 0 && (
+            {!compact && (!!project || allView) && filterCount > 0 && (
               // The overview counts the whole project; with filters on, say how many are shown.
               <Label muted size={font.sm} selectable={false}>
                 {t("{n} shown", { n: visible.length })}
@@ -1837,7 +1901,7 @@ function BoardContent(
                 ])
               }
             />
-            {project && (
+            {(!!project || allView) && (
               <IconButton icon="Search" label={withKey(t("Search"), "S")} active={page === "search"} onPress={() => (page === "search" ? setPage(null) : openSearch(""))} />
             )}
             <FilterButton
@@ -1846,12 +1910,12 @@ function BoardContent(
               shortcut={shortcutsOn ? "/" : ""}
               onPress={() => setMenu("filters")}
             />
-            {project && (
+            {(!!project || allView) && (
               <Button
                 primary
                 icon="Plus"
                 label={withKey(t("New task"), "N")}
-                disabled={!!project.archivedAt}
+                disabled={!!project?.archivedAt}
                 onPress={() => openNewTask("todo")}
               >
                 {compact ? "" : t("New task")}
@@ -1891,7 +1955,7 @@ function BoardContent(
           <GuideBanner
             text={t("Add your first task. It gets its own workspace and sessions.")}
             actionLabel={t("New task")}
-            onAction={() => openNewTask("todo", project?.id)}
+            onAction={() => openNewTask("todo", allView ? undefined : project?.id)}
           />
         )}
         {!emptyProjectHint && !!tip && (
@@ -1937,7 +2001,7 @@ function BoardContent(
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
             <Label muted>{t("Loading board…")}</Label>
           </View>
-        ) : !project ? (
+        ) : !project && !allView ? (
           <View
             style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: space[6] }}
           >
@@ -1960,7 +2024,7 @@ function BoardContent(
           <View style={{ flex: 1, minHeight: 0, flexDirection: "row", ...(resizing ? { userSelect: "none" } : null) } as never}>
             {(
               <MotionReveal
-                transitionKey={`${project.id}|${page || (compact ? mobileStatus : "columns")}`}
+                transitionKey={`${viewKey}|${page || (compact ? mobileStatus : "columns")}`}
                 direction={-1}
                 distance={compact ? 0 : 18}
                 {...covered}
@@ -1970,9 +2034,9 @@ function BoardContent(
                     : { width: resizingFrom, flexGrow: 0, flexShrink: 0, minHeight: 0, overflow: "hidden" }
                 }
               >
-                {page === "ideas" && (!projectIdeasData.data || projectIdeasData.error) ? (
+                {page === "ideas" && project && (!projectIdeasData.data || projectIdeasData.error) ? (
                   <View style={{ padding: space[4] }}>{projectIdeasData.error ? <><Notice>{message(projectIdeasData.error)}</Notice><Button quiet onPress={() => void projectIdeasData.refetch()}>{t("Retry")}</Button></> : <Label muted>{t("Loading cards…")}</Label>}</View>
-                ) : page === "insights" && board ? (
+                ) : page === "insights" && board && project ? (
                   <InsightsPage
                     project={project}
                     tasks={projectTasks}
@@ -1985,7 +2049,7 @@ function BoardContent(
                     onCreateFromFinding={createFromFinding}
                     onOpenSettings={openAiSettings}
                   />
-                ) : page === "ideas" && ideasOn && board ? (
+                ) : page === "ideas" && ideasOn && board && project ? (
                   <IdeasPage
                     project={project}
                     tasks={projectTasks}
@@ -2003,7 +2067,7 @@ function BoardContent(
                 ) : page === "search" && board ? (
                   <SearchPage
                     key={searchSeed.key}
-                    projectId={project.id}
+                    projectId={project?.id ?? null}
                     seed={searchSeed.text}
                     compact={compact}
                     sources={searchSources}
@@ -2012,7 +2076,7 @@ function BoardContent(
                     onOpenMemory={openSearchMemory}
                     onBack={closePage}
                   />
-                ) : page === "memory" && board ? (
+                ) : page === "memory" && board && project ? (
                   <MemoryPage project={project} tasks={projectTasks} compact={compact} nameOf={nameOf} onOpenTask={openTaskById} onBack={closePage} />
                 ) : compact ? (
                   <>
@@ -2052,8 +2116,8 @@ function BoardContent(
                             </Label>
                             <Button
                               icon="Plus"
-                              disabled={!!project.archivedAt}
-                              onPress={() => openNewTask(mobileStatus, project.id)}
+                              disabled={!!project?.archivedAt}
+                              onPress={() => openNewTask(mobileStatus, allView ? undefined : project?.id)}
                             >
                               {t("Add task")}</Button>
                           </View>
@@ -2065,10 +2129,10 @@ function BoardContent(
                   <DesktopColumns
                     statuses={shownStatuses}
                     tasks={visible}
-                    disabled={pending || !!project.archivedAt}
-                    cancelKey={`${project.id}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}|${!!quickTask}`}
+                    disabled={pending || !!project?.archivedAt}
+                    cancelKey={`${viewKey}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}|${!!quickTask}`}
                     sortColumn={sortColumn}
-                    manualOrder={boardSort === "manual"}
+                    manualOrder={reorderAllowed(allView, boardSort)}
                     collapsed={collapsedColumns}
                     older={older}
                     olderShown={olderShown}
@@ -2077,10 +2141,12 @@ function BoardContent(
                     nameOf={nameOf}
                     onToggleCollapse={toggleCollapse}
                     onReorderBlocked={() =>
-                      toast.show(t("Sorted by {sort}. Drop on another lane to change status; switch to Manual to reorder within a column.", { sort: t(boardSortText[boardSort].label) }), { variant: "info" })
+                      allView
+                        ? toast.show(t("Each project keeps its own order. Open the project to reorder its cards."), { variant: "info" })
+                        : toast.show(t("Sorted by {sort}. Drop on another lane to change status; switch to Manual to reorder within a column.", { sort: t(boardSortText[boardSort].label) }), { variant: "info" })
                     }
                     renderCard={renderCard}
-                    onAdd={(status) => openNewTask(status, project.id)}
+                    onAdd={(status) => openNewTask(status, allView ? undefined : project?.id)}
                     onDrop={place}
                   />
                 )}
@@ -2099,6 +2165,22 @@ function BoardContent(
         >
           <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
             <Theme.Provider value={props.theme}>
+              {allOk && (
+                // All projects (ALL-PROJECTS-SPEC §1): the phone's way in, above the projects.
+                <>
+                  <Row
+                    title={t("All projects")}
+                    icon="SquareKanban"
+                    selected={allView}
+                    onPress={() => {
+                      chooseAll();
+                      setTask("");
+                      projectMenuClose();
+                    }}
+                  />
+                  <Divider style={{ marginVertical: space[1] }} />
+                </>
+              )}
               <SortableList
                 items={projects}
                 gap={space[1]}
@@ -2382,7 +2464,7 @@ function BoardContent(
                   <Row
                     title={t("Start session")}
                     icon="Play"
-                    disabled={!!project?.archivedAt || !!actionTask.archivedAt}
+                    disabled={!!projectOf(actionTask)?.archivedAt || !!actionTask.archivedAt}
                     onPress={() => {
                       setTask(actionTask.id);
                       setStartRequest({ taskId: actionTask.id, key: `start-${Date.now()}` });
@@ -2392,7 +2474,7 @@ function BoardContent(
                   <Row
                     title={t("Link to a card…")}
                     icon="Link"
-                    disabled={!!project?.archivedAt || !!actionTask.archivedAt}
+                    disabled={!!projectOf(actionTask)?.archivedAt || !!actionTask.archivedAt}
                     onPress={() => {
                       setLinking(actionTask);
                       setActionTask(null);
@@ -2401,7 +2483,7 @@ function BoardContent(
                   <Row
                     title={t("New follow-up task")}
                     icon="CornerDownRight"
-                    disabled={!!project?.archivedAt || !!actionTask.archivedAt}
+                    disabled={!!projectOf(actionTask)?.archivedAt || !!actionTask.archivedAt}
                     onPress={() => {
                       followUp(actionTask);
                       setActionTask(null);
@@ -2419,14 +2501,15 @@ function BoardContent(
                       }}
                     />
                   ))}
-                  {(["up", "down"] as const).map((direction) => (
+                  {/* Order is per project: no Move up/down on the All board (ALL-PROJECTS-SPEC §4). */}
+                  {!allView && (["up", "down"] as const).map((direction) => (
                     <Row
                       key={direction}
                       title={direction === "up" ? t("Move up") : t("Move down")}
                       icon={direction === "up" ? "ArrowUp" : "ArrowDown"}
                       disabled={
                         pending ||
-                        !!project?.archivedAt ||
+                        !!projectOf(actionTask)?.archivedAt ||
                         !!actionTask.archivedAt
                       }
                       onPress={() => {
@@ -2447,16 +2530,16 @@ function BoardContent(
                     <Label medium muted size={font.sm} selectable={false}>
                       {t("Move to")}</Label>
                   </View>
-                  {shownStatuses.map((s) => (
+                  {cardStatuses(actionTask).map((s) => (
                     <Row
                       key={s}
-                      title={nameOf(s)}
-                      label={t("Move to: {name}", { name: nameOf(s) })}
+                      title={cardLaneName(actionTask, s)}
+                      label={t("Move to: {name}", { name: cardLaneName(actionTask, s) })}
                       leading={<StatusIcon status={s} size={16} />}
                       selected={s === actionTask.status}
                       disabled={
                         pending ||
-                        !!project?.archivedAt ||
+                        !!projectOf(actionTask)?.archivedAt ||
                         !!actionTask.archivedAt
                       }
                       onPress={() => {
@@ -2527,7 +2610,7 @@ function BoardContent(
             key={projectForm}
             project={projectForm === "edit" ? project : undefined}
             laneCounts={Object.fromEntries(
-              shownStatuses.map((s) => [s, tasks.filter((t) => t.status === s && !t.archivedAt).length]),
+              shownStatuses.map((s) => [s, tasks.filter((t) => t.projectId === project?.id && t.status === s && !t.archivedAt).length]),
             )}
             showArchived={archived}
             onShowArchived={setArchived}
@@ -2540,12 +2623,12 @@ function BoardContent(
             }}
           />
         )}
-        {taskForm && project && (
+        {taskForm && formProject && (
           <TaskForm
             key={taskForm.task?.id || taskForm.seed?.ideaId || taskForm.seed?.insightFindingId || taskForm.seed?.followUpOf || taskForm.seed?.externals?.[0]?.item.key || taskForm.status}
             hostId={props.host.id}
             boardTasks={board?.tasks || noTasks}
-            project={project}
+            project={formProject}
             task={taskForm.task}
             seed={taskForm.seed}
             defaultStatus={taskForm.status}
@@ -2558,7 +2641,7 @@ function BoardContent(
               if (launch?.sessionId) toast.show(t("Task created and its agent started"), { variant: "success" });
               else if (launch?.error) toast.error(t("Task created, but the agent did not start: {error}. Start it from the task.", { error: launch.error }));
               // The suggestion now shows "Card created".
-              if (taskForm.seed?.insightFindingId) void queryClient.invalidateQueries({ queryKey: ["flowly", "workflow-insights", project.id] });
+              if (taskForm.seed?.insightFindingId) void queryClient.invalidateQueries({ queryKey: ["flowly", "workflow-insights", formProject.id] });
               refresh();
             }}
           />
@@ -2568,19 +2651,24 @@ function BoardContent(
             key={quickTask.seed?.externals[0]?.item.key || "quick"}
             seed={quickTask.seed}
             projects={projects.filter((p) => !p.archivedAt)}
-            initialProjectId={quickProject(projects, { pinned: quickTask.projectId, last: quickTask.recent ? view.values?.lastQuickProjectId : undefined, current: project?.id || "" })?.id || ""}
+            initialProjectId={
+              (allView && !quickTask.projectId
+                ? allQuickProject(projects, view.values?.lastQuickProjectId ?? "")
+                : quickProject(projects, { pinned: quickTask.projectId, last: quickTask.recent ? view.values?.lastQuickProjectId : undefined, current: project?.id || "" })
+              )?.id || ""
+            }
             defaultStatus={quickTask.status}
             agentDefaultsFor={agentDefaultsFor}
             onClose={() => setQuickTask(null)}
             onMore={(more) => {
               // The full form opens once this dialog has closed: two Modals in one frame freeze Paseo.
               setQuickTask(null);
-              chooseProject(more.projectId);
-              afterModalClose(() => setTaskForm({ status: more.status, seed: more.seed }));
+              focusProject(more.projectId);
+              afterModalClose(() => setTaskForm({ status: more.status, seed: more.seed, projectId: more.projectId }));
             }}
             onSaved={(projectId, id, launch) => {
               setQuickTask(null);
-              chooseProject(projectId);
+              focusProject(projectId);
               setTask(id);
               if (launch.sessionId) toast.show(t("Task created and its agent started"), { variant: "success" });
               else if (launch.error) toast.error(t("Task created, but the agent did not start: {error}. Start it from the task.", { error: launch.error }));
@@ -2588,12 +2676,12 @@ function BoardContent(
             }}
           />
         )}
-        {linking && project && (
+        {linking && projectOf(linking) && (
           <CardDetailProvider hostId={props.host.id} task={linking} active>
           <LinkPicker
             key={linking.id}
             task={linking}
-            project={project}
+            project={projectOf(linking)!}
             onClose={() => setLinking(null)}
           />
           </CardDetailProvider>

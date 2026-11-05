@@ -1506,5 +1506,10 @@ const catalog: Catalog = {
   "When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.": "Si una tarjeta no tiene una incidencia de Linear vinculada, su agente busca primero en Linear, crea un ticket si ninguno encaja y lo vincula a la tarjeta. Usa sus propias herramientas de Linear; Flowly nunca escribe en Linear.",
   "Linear team": "Equipo de Linear",
   "Team name or key (optional)": "Nombre o clave del equipo (opcional)",
+  "Show All projects tab": "Mostrar la pestaña Todos los proyectos",
+  "Manage projects": "Gestionar proyectos",
+  "{lane} is not a lane in {project}.": "{lane} no es un carril de {project}.",
+  "Each project keeps its own order. Open the project to reorder its cards.": "Cada proyecto mantiene su propio orden. Abre el proyecto para reordenar sus tarjetas.",
+  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "Todos los proyectos muestra las tarjetas de todos los proyectos en un solo tablero. Se desactiva en Ajustes → Flujo de trabajo.",
 };
 export default catalog;

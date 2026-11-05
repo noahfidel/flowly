@@ -29,7 +29,7 @@ export function welcomeDecision(input: {
   return input.blocked ? "wait" : "show";
 }
 
-export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents", "card-display", "first-workflow-insight", "attention-dismiss", "sidebar-order", "connectors", "session-history", "ai-language", "summary-models", "first-skill-draft", "first-memory-candidate", "search", "quick-task", "settings-entry"] as const;
+export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents", "card-display", "first-workflow-insight", "attention-dismiss", "sidebar-order", "connectors", "session-history", "ai-language", "summary-models", "first-skill-draft", "first-memory-candidate", "search", "quick-task", "all-projects", "settings-entry"] as const;
 export type TipId = (typeof tipIds)[number];
 
 export interface TipFacts {
@@ -59,6 +59,8 @@ export interface TipFacts {
   cardOpen: boolean;
   /** Desktop project tabs show two or more projects and no card is open (PROJECT-TABS-SPEC). */
   projectTabs: boolean;
+  /** The All projects tab or switcher entry is available and no card is open (ALL-PROJECTS-SPEC §1). */
+  allProjects: boolean;
   /** A card of the current project has a workpad (WORKPAD-SPEC §8). */
   hasWorkpad: boolean;
   /** A session of the current project has a live Paseo child agent (SUBAGENTS-SPEC §7). */
@@ -98,6 +100,7 @@ const tipFact: Record<Exclude<TipId, "settings-entry">, keyof TipFacts> = {
   "first-ticket": "hasTicket",
   "jira-connect": "noConnection",
   "project-menu": "projectTabs",
+  "all-projects": "allProjects",
   "first-workpad": "hasWorkpad",
   subagents: "hasSubagent",
   "card-display": "busyBoard",
@@ -118,7 +121,7 @@ const tipFact: Record<Exclude<TipId, "settings-entry">, keyof TipFacts> = {
 export function nextTip(input: { tipsSeen: readonly string[]; facts: TipFacts; blocked: boolean }): TipId | null {
   if (input.blocked) return null;
   // Waiting for the user outranks introductions; the answer-in-session tip is the more specific one.
-  const order: Exclude<TipId, "settings-entry">[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "first-workpad", "subagents", "first-idea", "first-memory-candidate", "first-skill-draft", "first-workflow-insight", "ai-language", "summary-models", "first-artifact", "first-ticket", "first-tag", "first-card", "card-display", "search", "connectors", "session-history", "sidebar-order", "project-menu", "jira-connect", "quick-task"];
+  const order: Exclude<TipId, "settings-entry">[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "first-workpad", "subagents", "first-idea", "first-memory-candidate", "first-skill-draft", "first-workflow-insight", "ai-language", "summary-models", "first-artifact", "first-ticket", "first-tag", "first-card", "card-display", "search", "connectors", "session-history", "sidebar-order", "project-menu", "all-projects", "jira-connect", "quick-task"];
   return order.find((id) => input.facts[tipFact[id]] && !input.tipsSeen.includes(id)) ?? null;
 }
 

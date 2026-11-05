@@ -52,6 +52,9 @@ Create task form stays one tap away.
   their own project. Only **Q** and Command Center **Flowly: Quick task** open with the last project used for
   a quick task, when it is still live, else the board's project. Either way the first live project is the last
   fallback, and the Project picker can change it.
+- **All projects board** (ALL-PROJECTS-SPEC §5): there is no board project, so New task, **N**, a lane's Add
+  task and the empty-board hint open Quick task (even with *Quick task for New task* off) with the last quick-task
+  project, else the first live one.
 - **Workspace mode**: the *Workspace mode for quick tasks* setting (worktree by default); a project with
   links always uses directory.
 - **Status**: the lane of the entry point (a lane's Add task), else Todo; resolved against the project's

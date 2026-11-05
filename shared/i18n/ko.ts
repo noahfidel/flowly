@@ -1506,5 +1506,10 @@ const catalog: Catalog = {
   "When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.": "카드에 연결된 Linear 이슈가 없으면 에이전트가 먼저 Linear를 검색하고, 맞는 것이 없으면 티켓을 만들어 카드에 연결합니다. 에이전트 자신의 Linear 도구를 사용하며 Flowly는 Linear에 쓰지 않습니다.",
   "Linear team": "Linear 팀",
   "Team name or key (optional)": "팀 이름 또는 키(선택)",
+  "Show All projects tab": "'모든 프로젝트' 탭 표시",
+  "Manage projects": "프로젝트 관리",
+  "{lane} is not a lane in {project}.": "{lane}은(는) {project}의 레인이 아닙니다.",
+  "Each project keeps its own order. Open the project to reorder its cards.": "각 프로젝트는 자체 순서를 유지합니다. 카드 순서를 바꾸려면 해당 프로젝트를 여세요.",
+  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "'모든 프로젝트'는 모든 프로젝트의 카드를 한 보드에 표시합니다. 설정 → 워크플로에서 끌 수 있습니다.",
 };
 export default catalog;

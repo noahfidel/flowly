@@ -292,6 +292,14 @@ export function WorkflowPage() {
   return (
     <SettingsPage title={t("Workflow")}>
       <Problem text={status.problem || wrapup.problem || view.problem} />
+      <SettingsGroup title={t("Board")}>
+        <SettingSwitch
+          title={t("Show All projects tab")}
+          value={view.values?.allProjectsTab ?? true}
+          disabled={view.busy}
+          onChange={(allProjectsTab) => view.save({ allProjectsTab })}
+        />
+      </SettingsGroup>
       <SettingsGroup title={t("Moving cards")}>
         <SettingSwitch
           title={t("Auto-update status from sessions")}

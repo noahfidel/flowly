@@ -106,6 +106,7 @@ export function TaskCard({
   waiting = 0,
   waitingTitles = "",
   attentionDismissed = false,
+  projectLabel = "",
   display = defaultCardDisplay,
   flash = false,
   dragging,
@@ -146,6 +147,8 @@ export function TaskCard({
   waitingTitles?: string;
   /** Dismissed from Attention; its signals still show (ATTENTION-DISMISS-SPEC §3.3). */
   attentionDismissed?: boolean;
+  /** The card's project name, shown only on the All projects board (ALL-PROJECTS-SPEC §3). */
+  projectLabel?: string;
   /** Which fields show (CARD-DISPLAY-SPEC); the accessibility label always lists everything. */
   display?: CardDisplay;
   /** Briefly emphasize a card whose status just changed (often an automatic move). */
@@ -282,6 +285,7 @@ export function TaskCard({
         accessibilityRole="button"
         accessibilityLabel={[
           t("Open task {title}", { title: task.title }),
+          projectLabel ? t("Project {title}", { title: projectLabel }) : "",
           questions ? tn(questions, "Needs you: {n} open question", "Needs you: {n} open questions") : "",
           ideas ? tn(ideas, "{n} idea", "{n} ideas") : "",
           waiting ? tn(waiting, "Waiting on {n} card: {waitingTitles}", "Waiting on {n} cards: {waitingTitles}", { waitingTitles }) : "",
@@ -320,7 +324,7 @@ export function TaskCard({
           outlineStyle: "none",
         }) as never}
       >
-        <CardMeta task={task} externalKey={externalKey} externalFamily={externalFamily} workspace={workspace} display={display} />
+        <CardMeta task={task} project={projectLabel} externalKey={externalKey} externalFamily={externalFamily} workspace={workspace} display={display} />
         <Label medium size={font.base} lines={3} selectable={false}>
           {task.title}
         </Label>
@@ -555,7 +559,7 @@ function CardSignals({
  * What the card is: workspace, priority, type, ticket and tags as one quiet row above the
  * title (CARD-DISPLAY-SPEC §2). Plain text with icons; only Urgent/High keep colour.
  */
-function CardMeta({ task, externalKey, externalFamily, workspace, display }: { task: Task; externalKey: string; externalFamily?: ConnectorFamily; workspace: CardWorkspace | null; display: CardDisplay }) {
+function CardMeta({ task, project, externalKey, externalFamily, workspace, display }: { task: Task; project: string; externalKey: string; externalFamily?: ConnectorFamily; workspace: CardWorkspace | null; display: CardDisplay }) {
   const { colors } = useTheme();
   const priority = display.priority && task.priority !== "normal";
   const accent = priorityAccent(colors, task.priority);
@@ -563,9 +567,18 @@ function CardMeta({ task, externalKey, externalFamily, workspace, display }: { t
   const ticket = display.external && !!externalKey;
   const place = display.workspace ? workspace : null;
   const tags = display.tags ? task.tags || [] : [];
-  if (!priority && !type && !ticket && !place && !tags.length) return null;
+  if (!project && !priority && !type && !ticket && !place && !tags.length) return null;
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space[2]+2, rowGap: 2, minWidth: 0 }}>
+      {!!project && (
+        // All projects board only (ALL-PROJECTS-SPEC §3): the card's project, truncated so it never crowds the row.
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 3, flexShrink: 1, minWidth: 0, maxWidth: 140 }}>
+          <Icon name="Folder" size={12} color={colors.foregroundMuted} />
+          <View style={{ flexShrink: 1, minWidth: 0 }}>
+            <Label size={font.xs} muted lines={1} selectable={false}>{project}</Label>
+          </View>
+        </View>
+      )}
       {place && <Meta label={workspaceLabel(place)} icon={<WorkspaceIcon workspace={place} size={12} />} text={workspaceLabels[place]} />}
       {priority && (
         <Meta label={t("{priority} priority", { priority: priorityLabels[task.priority] })} icon={<PriorityIcon priority={task.priority} size={12} />} text={priorityLabels[task.priority]} color={accent} />

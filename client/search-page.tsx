@@ -195,7 +195,8 @@ export const SearchPage = memo(function SearchPage({
   onOpenMemory,
   onBack,
 }: {
-  projectId: string;
+  /** null on the All projects board: always all projects, no scope choice (ALL-PROJECTS-SPEC §6). */
+  projectId: string | null;
   /** Text to start with (Search everywhere from the board filter). */
   seed: string;
   compact: boolean;
@@ -212,7 +213,7 @@ export const SearchPage = memo(function SearchPage({
   const [scope, setScope] = useState<"project" | "all">("project");
   const [chosen, setChosen] = useState<ReadonlySet<SearchSource>>(() => new Set());
   const picked = searchSources.filter((s) => chosen.has(s) && allowed.includes(s));
-  const result = useSearchQuery(query, scope === "all" ? null : projectId, picked.length ? picked : allowed, true);
+  const result = useSearchQuery(query, scope === "all" || !projectId ? null : projectId, picked.length ? picked : allowed, true);
   const data = query.trim() ? result.data : undefined;
   // While a new query runs the previous results stay, dimmed; each new response rises in (SEARCH-SPEC §5.2).
   const dim = useMotionValue(!!query.trim() && result.isFetching ? 0.5 : 1);
@@ -253,7 +254,7 @@ export const SearchPage = memo(function SearchPage({
                 style={{ height: touch ? 40 : 32, paddingHorizontal: space[3], borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, color: colors.foreground, fontSize: font.base }}
               />
             </View>
-            <Choices
+            {!!projectId && <Choices
               title={t("Search in")}
               hideTitle
               value={scope}
@@ -262,7 +263,7 @@ export const SearchPage = memo(function SearchPage({
                 { value: "all", label: t("All projects") },
               ]}
               onChange={setScope}
-            />
+            />}
           </View>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[1.5] }}>
             {allowed.map((source) => (

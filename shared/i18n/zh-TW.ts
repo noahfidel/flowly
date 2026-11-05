@@ -1506,5 +1506,10 @@ const catalog: Catalog = {
   "When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.": "卡片沒有連結 Linear 問題時，它的代理會先在 Linear 中搜尋，沒有合適的就建立一個工單並連結到卡片。代理使用自己的 Linear 工具；Flowly 從不寫入 Linear。",
   "Linear team": "Linear 團隊",
   "Team name or key (optional)": "團隊名稱或鍵（選填）",
+  "Show All projects tab": "顯示「所有專案」分頁",
+  "Manage projects": "管理專案",
+  "{lane} is not a lane in {project}.": "{lane} 不是 {project} 中的泳道。",
+  "Each project keeps its own order. Open the project to reorder its cards.": "每個專案保留自己的順序。開啟該專案即可調整其卡片的順序。",
+  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "「所有專案」在一個看板上顯示所有專案的卡片。可在 設定 → 工作流程 中關閉。",
 };
 export default catalog;

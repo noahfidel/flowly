@@ -23,6 +23,7 @@ export function ProjectTabs({
   menuFor,
   onMove,
   reorderDisabled,
+  all,
 }: {
   projects: readonly Project[];
   activeId: string;
@@ -35,6 +36,8 @@ export function ProjectTabs({
   /** Drop a dragged tab at `to`, an index in `projects`. */
   onMove(id: string, to: number): void;
   reorderDisabled: boolean;
+  /** The All tab before the project tabs, while available (ALL-PROJECTS-SPEC §1); not draggable, no menu. */
+  all?: { active: boolean; onSelect(): void };
 }) {
   const openMenu = useMenuOpener();
   const scroll = useRef<RNScrollView>(null);
@@ -52,6 +55,9 @@ export function ProjectTabs({
   useEffect(() => reveal(activeId), [activeId]);
   return (
     <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[1] }}>
+      {all && (
+        <Tab title={t("All")} label={t("All projects")} archived={false} active={all.active} menu={noMenu} onPress={all.onSelect} />
+      )}
       <ScrollView
         ref={scroll as never}
         horizontal
@@ -74,7 +80,9 @@ export function ProjectTabs({
           }}
           renderItem={(p, index, pressable) => (
             <Tab
-              project={p}
+              title={p.title}
+              label={t("Project {title}", { title: p.title })}
+              archived={!!p.archivedAt}
               active={p.id === activeId}
               menu={menuHandlers(openMenu, p.title, () => menuFor(p, index))}
               // The release that ends a drag is not a click.
@@ -86,20 +94,26 @@ export function ProjectTabs({
       <IconButton icon="Plus" label={t("New project")} onPress={onCreate} />
       <IconButton
         icon="ChevronsUpDown"
-        label={`${t("All projects")}${shortcut ? ` (${shortcut})` : ""}`}
+        label={`${t("Manage projects")}${shortcut ? ` (${shortcut})` : ""}`}
         onPress={onManage}
       />
     </View>
   );
 }
 
+const noMenu = {};
+
 function Tab({
-  project,
+  title,
+  label,
+  archived,
   active,
   menu,
   onPress,
 }: {
-  project: Project;
+  title: string;
+  label: string;
+  archived: boolean;
   active: boolean;
   menu: object;
   onPress(): void;
@@ -108,7 +122,7 @@ function Tab({
   return (
     <Pressable
       accessibilityRole="tab"
-      accessibilityLabel={t("Project {title}", { title: project.title })}
+      accessibilityLabel={label}
       accessibilityState={{ selected: active }}
       {...({ "aria-selected": active } as object)}
       {...menu}
@@ -130,7 +144,7 @@ function Tab({
         };
       }}
     >
-      {!!project.archivedAt && <Icon name="Archive" size={13} color={colors.foregroundMuted} />}
+      {archived && <Icon name="Archive" size={13} color={colors.foregroundMuted} />}
       <View style={{ flexShrink: 1, minWidth: 0 }}>
         <Label
           lines={1}
@@ -139,7 +153,7 @@ function Tab({
           medium
           color={active ? colors.foreground : colors.foregroundMuted}
         >
-          {project.title}
+          {title}
         </Label>
       </View>
     </Pressable>
