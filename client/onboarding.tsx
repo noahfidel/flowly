@@ -403,7 +403,7 @@ function MoreFeatures() {
     { icon: "ListChecks", title: t("Workpad"), text: t("Agents set the card's type and tags and write a workpad before they start: acceptance criteria, checks marked passed, failed or not run on a named commit, and what confused them. Delivering without them needs a note.") },
     { icon: "Package", title: t("Inputs and outputs"), text: t("Each card lists the files and links it worked from and delivered, added by agents or by you.") },
     { icon: "Ticket", title: t("Tickets, docs and PRs as inputs"), text: t("Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, or Linear issue, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.") },
-    { icon: "Columns3", title: t("Linear board"), text: t("With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens New task with the issue attached and the agent ready.") },
+    { icon: "Columns3", title: t("Linear board"), text: t("With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens Quick task with the issue attached: press Enter to start the agent.") },
     { icon: "Search", title: t("Search"), text: t("Search past cards, summaries, notes and deliverables.") },
     { icon: "SquarePlus", title: t("Cards from your agents"), text: t("Ask an agent to create or edit cards. New cards land in Backlog or Todo; you start them.") },
     { icon: "Tags", title: t("Tags"), text: t("Tag cards by module or direction. Agents tag their own cards too; filter and search by #tag.") },

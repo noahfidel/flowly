@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { ExternalSummary } from "../shared/connectors";
 import { firstMessage } from "./first-message";
-import { linearOpenParams, linearSeed, linearStartParams, parseLinearOpen, parseLinearStart, startProject } from "./linear-start";
+import { linearOpenParams, linearQuickSeed, linearStartParams, parseLinearOpen, parseLinearStart, startProject } from "./linear-start";
 import { parseIdeaLink, parseSessionLink } from "./session-link";
 
 const issue: ExternalSummary = {
@@ -44,13 +44,13 @@ describe("Start card / Open card links (LINEAR-BOARD-SPEC §5)", () => {
 });
 
 describe("Start card prefill (LINEAR-BOARD-SPEC §5)", () => {
-  test("the issue is attached, the title comes from it, the agent starts, and no instruction is needed", () => {
-    const seed = linearSeed(issue);
-    expect(seed).toEqual({ title: "Login retry loops", description: "", externals: [{ item: issue, provider: "linear" }], startAgent: true });
-    // The form's Create waits for an instruction only without attached items.
-    expect(firstMessage("", seed.externals!.map((x) => x.item))).not.toBeNull();
-    // An issue without a title falls back to its key.
-    expect(linearSeed({ ...issue, summary: "" }).title).toBe("ENG-42");
+  test("Quick task opens seeded with the issue as an external and the KEY: title card title (LINEAR-BOARD-SPEC §5)", () => {
+    const seed = linearQuickSeed(issue);
+    expect(seed).toEqual({ title: "ENG-42: Login retry loops", externals: [{ item: issue, provider: "linear" }] });
+    // An issue without a title is named by its key alone.
+    expect(linearQuickSeed({ ...issue, summary: "" }).title).toBe("ENG-42");
+    // The Quick task's empty text sends the default that points at the attached issue.
+    expect(firstMessage("", seed.externals.map((x) => x.item))).toContain("ENG-42");
   });
 
   test("the card goes to the board's current project: the one viewed last, else the first", () => {

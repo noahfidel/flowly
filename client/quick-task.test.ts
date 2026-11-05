@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { quickMode, quickProject, startStatus } from "./quick-task";
+import { quickCard, quickMode, quickProject, quickPrompt, startStatus } from "./quick-task";
+import { defaultFirstMessage } from "./first-message";
 import { statuses, type Project } from "../shared/model";
 
 const project = (id: string, over: Partial<Project> = {}): Project =>
@@ -63,5 +64,28 @@ describe("startStatus", () => {
       lanes: statuses.map((status) => ({ status, enabled: status !== "backlog" && status !== "todo" })),
     });
     expect(startStatus(lanes, "todo")).toBe(statuses.find((s) => s !== "backlog" && s !== "todo"));
+  });
+});
+
+describe("a Quick task seeded from a Linear issue (LINEAR-BOARD-SPEC §5, QUICK-TASK-SPEC §1)", () => {
+  const item = { connectionId: "c1", itemType: "issue", key: "ENG-42", remoteId: "u", url: "https://linear.app/a/issue/ENG-42", summary: "Login retry loops", status: "Todo", statusCategory: "new", type: "", priority: "", assignee: "", container: "", updated: "" } as const;
+  const seed = { title: "ENG-42: Login retry loops", externals: [{ item, provider: "linear" as const }] };
+  const items = seed.externals.map((x) => x.item);
+
+  test("the card is titled by the issue and no AI title is asked for", () => {
+    expect(quickCard("fix it first", seed, items.length)).toEqual({ title: "ENG-42: Login retry loops", aiTitle: false });
+  });
+  test("without a seed, or once the issue chip is removed, it is an ordinary quick task", () => {
+    expect(quickCard("Fix the login redirect", undefined, 0)).toEqual({ title: "Fix the login redirect", aiTitle: true });
+    expect(quickCard("Fix the login redirect", seed, 0)).toEqual({ title: "Fix the login redirect", aiTitle: true });
+  });
+  test("an empty text with an issue attached sends the default message; typed text is sent as typed", () => {
+    expect(quickPrompt("", items)).toBe(defaultFirstMessage(items));
+    expect(quickPrompt("  ", items)).toContain("ENG-42");
+    expect(quickPrompt("  only the retry part ", items)).toBe("only the retry part");
+  });
+  test("an empty text without an issue still cannot be sent", () => {
+    expect(quickPrompt("", [])).toBeNull();
+    expect(quickPrompt("do it", [])).toBe("do it");
   });
 });

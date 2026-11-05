@@ -1,5 +1,8 @@
 import { enabledStatuses } from "../shared/lanes";
 import type { Project, Status } from "../shared/model";
+import type { ConnectorProvider, ExternalSummary } from "../shared/connectors";
+import { provisionalTitle } from "../shared/quick-task";
+import { firstMessage } from "./first-message";
 
 /** Quick task defaults (docs/QUICK-TASK-SPEC.md §3). Pure, so the dialog and the board agree. */
 export type QuickMode = "worktree" | "directory";
@@ -29,3 +32,21 @@ export function startStatus(project: Project, requested: Status): Status {
   if (lanes.includes(requested)) return requested;
   return lanes.find((s) => s !== "done" && s !== "cancelled") ?? lanes[0];
 }
+
+/** What Quick task opens with when it starts from an external item, e.g. Linear's Start card (LINEAR-BOARD-SPEC §5). */
+export type QuickTaskSeed = {
+  /** The card's title while the items stay attached. */
+  title: string;
+  externals: { item: ExternalSummary; provider: ConnectorProvider }[];
+};
+
+/**
+ * The card's title and whether the AI may retitle it: an attached seed item already names the card, so no AI title
+ * runs; without one (or once its chip is removed) the provisional title from the text applies (QUICK-TASK-SPEC §2).
+ */
+export function quickCard(text: string, seed: Pick<QuickTaskSeed, "title"> | undefined, attached: number): { title: string; aiTitle: boolean } {
+  return seed && attached > 0 ? { title: seed.title, aiTitle: false } : { title: provisionalTitle(text), aiTitle: true };
+}
+
+/** The agent's first message: the typed text, else the default that points at the attached items, else null (cannot send). */
+export const quickPrompt = (text: string, items: Parameters<typeof firstMessage>[1]) => firstMessage(text, items);

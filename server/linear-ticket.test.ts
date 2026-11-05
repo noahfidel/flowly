@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "vitest";
 import { rm } from "node:fs/promises";
 import { agentFixture } from "./agent-fixture";
 import { BoardService } from "./service";
+import { putArtifact } from "./artifacts";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -51,4 +52,30 @@ test("the project setting is saved and the first-session context follows it (LIN
   // Off keeps the team for next time.
   const off = await x.store.updateProject({ id: "p", revision: 3, linearTicket: false, linearTeam: "ENG" });
   expect(off).toMatchObject({ linearTicket: false, linearTeam: "ENG" });
+});
+
+test("a card started from a Linear issue (Start card, LINEAR-BOARD-SPEC §5) never gets the ticket block", async () => {
+  const x = await agentFixture();
+  roots.push(x.root);
+  await x.store.updateProject({ id: "p", revision: 1, linearTicket: true });
+  const context = async () => (await new BoardService(x.store).context("t", x.paseo)).context;
+  expect(await context()).toContain("Linear ticket:");
+  // The input `tasks.create` writes for an attached Linear item: a connector item, even behind a custom domain.
+  await x.store.mutate((board) => {
+    putArtifact(
+      x.store,
+      board,
+      {
+        taskId: "t",
+        role: "input",
+        kind: "url",
+        target: "https://tracker.example.com/ENG-42",
+        title: "Login retry loops",
+        createdBy: "human",
+        external: { connectionId: "c1", provider: "linear", key: "ENG-42", remoteId: "uuid-eng-42", itemType: "issue" },
+      },
+      new Date().toISOString(),
+    );
+  });
+  expect(await context()).not.toContain("Linear ticket:");
 });

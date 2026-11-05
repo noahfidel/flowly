@@ -4,7 +4,7 @@ Status: accepted 2026-11-04 (plan `2026-11-04-flowly-linear-board`). Builds on t
 
 ## 1. Goal
 
-A **Linear** entry in Paseo's main bar opens a board of the user's Linear issues. From any issue, **Start card** opens Flowly's New task form with the issue attached and Start agent on, so Start card → Create starts a card session. An issue a Flowly card already references offers **Open card** instead.
+A **Linear** entry in Paseo's main bar opens a board of the user's Linear issues. From any issue, **Start card** opens Flowly's Quick task dialog (QUICK-TASK-SPEC §9) with the issue attached, so Start card → Enter starts a card session. An issue a Flowly card already references offers **Open card** instead.
 
 Out of scope: writing to Linear (status, comments, assignment, new issues), background polling or webhooks, other services on this board, replacing Flowly's board or the New task picker.
 
@@ -60,12 +60,11 @@ Client caching: react-query, 60 s stale time, no polling, refetch only on open o
 
 - Pressing an issue opens the existing external preview (the same view as an attached input's preview: Open in Linear, Refresh, the item's Markdown) reading through `connectors.read-item`.
 - The preview adds **Start card**, or **Open card** when the row has a card.
-- **Start card** opens the Flowly board screen with params `{ linearIssue: <key>, connectionId, requestId }`. The board, once its overview is loaded, reads the issue's summary through `connectors.search` (query = the key), then opens New task in the board's current project (the project viewed last; the first project on a cold start) with:
-  - the issue attached as a From Linear item,
-  - the title prefilled from the issue title (the existing rule: a later pick may replace it while unchanged),
-  - Start an agent now on for this form (the remembered on/off setting is not changed),
-  - the first instruction optional (UI-REFRESH-SPEC §7s: an empty box sends the default that points at the attached item).
-  Nothing else about the form changes. Each `requestId` is applied once. With no project: "Create a project first, then start the card again." An issue that cannot be read shows the connector's error on the board.
+- **Start card** opens the Flowly board screen with params `{ linearIssue: <key>, connectionId, requestId }`. The board, once its overview is loaded, reads the issue's summary through `connectors.search` (query = the key), then opens Quick task in the board's current project (the project viewed last; the first project on a cold start), whatever the *Quick task for New task* setting says, with:
+  - the issue attached as a From Linear item, shown as a removable chip, exactly as the full form attaches it, so it becomes a Linear artifact on the card (the per-project Linear ticket block, LINEAR-TICKET-SPEC §2, is therefore never added);
+  - the card titled `<KEY>: <issue title>` (the key alone when the issue has no title); no AI title run for it;
+  - the text box optional (UI-REFRESH-SPEC §7s: an empty box sends the default that points at the attached item; typed text is sent as typed).
+  The agent, workspace and **More options…** behave as in Quick task; More options… opens the full form with the issue still attached. Each `requestId` is applied once. With no project: "Create a project first, then start the card again." An issue that cannot be read shows the connector's error on the board.
 - **Open card** opens the board screen with `{ openTaskId, projectId, workspaceId, requestId }`; the board switches to that project and opens the card's sidebar (as a search result does).
 - Session-link parsing ignores both param sets.
 
@@ -78,10 +77,10 @@ Compact layouts default to List (`auto`). Rows are memoized; the list is one scr
 - Linear row appears in the main bar with a Linear connection, and not without.
 - The board shows Assigned to me by state type; custom state names map by type; Done/Canceled show only recently updated issues.
 - Scope switch to a team, list toggle (remembered), connection switch with two connections.
-- Start card → Create starts a card session with the issue attached and no typed instruction.
+- Start card → Enter (empty box) starts a card session titled `KEY: title` with the issue attached and the default first message; no `tasks.quick-title` call is made.
 - An issue already on a card shows the marker and Open card, which opens that card.
 - Every new GraphQL document is a plain `query`; the read-only guard test still passes.
 
-Tests: `server/connectors/linear-scope.test.ts` (scope filter, paging over fake replies, teams, guard; the existing guard test in `linear.test.ts` is unchanged), `shared/linear-board.test.ts` (columns, ordering, markers), `client/linear-start.test.ts` (link parsing, seed, project choice, optional first message), `shared/settings.test.ts` (layout and scope defaults); `client/linear-start.test.ts` also checks that session and idea links ignore the new params.
+Tests: `server/connectors/linear-scope.test.ts` (scope filter, paging over fake replies, teams, guard; the existing guard test in `linear.test.ts` is unchanged), `shared/linear-board.test.ts` (columns, ordering, markers), `client/linear-start.test.ts` (link parsing, Quick task seed, project choice), `client/quick-task.test.ts` (seeded title, no AI title, default message), `server/linear-ticket.test.ts` (no ticket block for a Linear-seeded card), `shared/settings.test.ts` (layout and scope defaults); `client/linear-start.test.ts` also checks that session and idea links ignore the new params.
 
 Onboarding: a More features row on the tour's last page. No new tip id and no What's new entry (decided at release). Telemetry: no heartbeat field (TELEMETRY-SPEC §4.6 does not send connector types).

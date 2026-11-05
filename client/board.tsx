@@ -60,7 +60,7 @@ import { Chevron, Collapse } from "./disclosure";
 import { IdeaRow, useExitList, useHeld } from "./task-ideas";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
 import { QuickTaskForm } from "./quick-task-form";
-import { quickProject } from "./quick-task";
+import { quickProject, type QuickTaskSeed } from "./quick-task";
 import { ideaDescription } from "../shared/ideas";
 import { waitingOn } from "../shared/links";
 import { LinkPicker } from "./task-links";
@@ -76,7 +76,7 @@ import { laneRows, sameRows } from "./lane-rows";
 import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
 import { openNativeWorkspace } from "./session-state";
 import { externalError, useConnections } from "./connectors";
-import { linearSeed, parseLinearOpen, parseLinearStart } from "./linear-start";
+import { linearQuickSeed, parseLinearOpen, parseLinearStart } from "./linear-start";
 import { cardProgress, useSummaries } from "./task-progress";
 import { LocaleRoot } from "./i18n";
 import { agentModelFromValues, effectiveAgentModel, startingAgent } from "../shared/agent-defaults";
@@ -356,7 +356,7 @@ function BoardContent(
     ),
     // Quick task (QUICK-TASK-SPEC): `projectId` when the entry point belongs to one project (a lane, a tab, the empty-board hint).
     // `recent`: Q and the Command Center open in the last quick-task project (QUICK-TASK-SPEC §3).
-    [quickTask, setQuickTask] = useState<{ status: Status; projectId?: string; recent?: boolean } | null>(null),
+    [quickTask, setQuickTask] = useState<{ status: Status; projectId?: string; recent?: boolean; seed?: QuickTaskSeed } | null>(null),
     [error, setError] = useState(""),
     [pending, setPending] = useState(false),
     [preferredShare, setPreferredShare] = useState(defaultDrawerShare);
@@ -1101,7 +1101,7 @@ function BoardContent(
     setProject(card.projectId);
     setTask(card.taskId);
   });
-  // LINEAR-BOARD-SPEC §5: Start card (New task with the issue attached) and Open card from the Linear board, each applied once.
+  // LINEAR-BOARD-SPEC §5: Start card (Quick task with the issue attached) and Open card from the Linear board, each applied once.
   const linearInput = useMemo(() => {
     try {
       return { start: parseLinearStart(props.params), open: parseLinearOpen(props.params), error: "" };
@@ -1140,7 +1140,9 @@ function BoardContent(
         setError("");
         setPage(null);
         setTask("");
-        setTaskForm({ status: "todo", seed: linearSeed(found) });
+        setTaskForm(null);
+        // Quick task in the board's current project, with the issue attached (LINEAR-BOARD-SPEC §5).
+        setQuickTask({ status: "todo", projectId: project.id, seed: linearQuickSeed(found) });
       } catch (e) {
         if (appliedLinear.current === start.requestId) setError(externalError(e, "linear"));
       }
@@ -2563,6 +2565,8 @@ function BoardContent(
         )}
         {quickTask && board && (
           <QuickTaskForm
+            key={quickTask.seed?.externals[0]?.item.key || "quick"}
+            seed={quickTask.seed}
             projects={projects.filter((p) => !p.archivedAt)}
             initialProjectId={quickProject(projects, { pinned: quickTask.projectId, last: quickTask.recent ? view.values?.lastQuickProjectId : undefined, current: project?.id || "" })?.id || ""}
             defaultStatus={quickTask.status}

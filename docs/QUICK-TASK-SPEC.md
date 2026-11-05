@@ -88,7 +88,7 @@ tags are left to the agent's own setup step (CARD-SETUP-SPEC).
   the same choice, with that lane's status and project.
 - **Q** on the board (desktop shortcut): always Quick task.
 - Command Center **Flowly: Quick task**: opens the board and Quick task with the last quick-task project (§3).
-- Edit, follow-up, from-idea, from-suggestion and Linear Start card keep the full form.
+- Edit, follow-up, from-idea and from-suggestion keep the full form. The Linear board's **Start card** opens Quick task (§9).
 
 ## 6. Settings
 
@@ -120,3 +120,13 @@ stay valid as screen params and keyboard shortcuts, but have no Command Center i
 - A linked project gets a directory workspace.
 - Pure logic covered by tests: provisional title, default project and mode resolution, the AI-result
   merge, output parsing; the daemon apply path with a fake model.
+
+## 9. Seeded from an external item (Linear Start card)
+
+Quick task can open with an external item attached (LINEAR-BOARD-SPEC §5). Only the Linear board's Start card does so today; it opens Quick task whatever *Quick task for New task* says.
+
+- The item shows under the box as a removable chip (the full form's chip). The card is created with it through `tasks.create` `externals`, so it becomes an input artifact, as in the full form.
+- **Title**: the seed's title, `<KEY>: <issue title>`, replaces the provisional title, and **no `tasks.quick-title` call is made** (§4), since the issue already names the card. Removing the chip turns it back into an ordinary quick task: provisional title from the text, AI title per the setting.
+- **Text** is optional while an item is attached: empty sends the same default first message as the full form (`firstMessage`, UI-REFRESH-SPEC §7s, which names the attached item); typed text is sent as typed. Enter submits either way. Without an attached item the text is required (§1).
+- Agent, workspace, project and **More options…** work as in §1; More options… hands the item, the title and the typed text to the full form.
+- Tests: `client/quick-task.test.ts` (`quickCard`, `quickPrompt`), `client/linear-start.test.ts` (`linearQuickSeed`).

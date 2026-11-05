@@ -4,7 +4,8 @@ import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc";
 import type { Project, Status } from "../shared/model";
 import { t } from "../shared/i18n";
-import { provisionalTitle, quickTitleText } from "../shared/quick-task";
+import { quickTitleText } from "../shared/quick-task";
+import type { ConnectorProvider, ExternalSummary } from "../shared/connectors";
 import { Modal } from "./modal";
 import { Theme, useTheme, Button, Field, Notice, Actions, message, space } from "./ui";
 import { PickerGroup, PickerRow } from "./picker";
@@ -13,7 +14,8 @@ import { launchKanbanSession } from "./session";
 import { ImageAttachments, useImageAttachments } from "./image-attach";
 import { newMessageId, rememberSentImages } from "./sent-images";
 import { useBoardView } from "./board-view";
-import { quickMode, startStatus, type QuickMode } from "./quick-task";
+import { quickCard, quickMode, quickPrompt, startStatus, type QuickMode, type QuickTaskSeed } from "./quick-task";
+import { ExternalChip } from "./connectors";
 import type { TaskSeed } from "./forms";
 
 /** What More options… hands to the full Create task form (QUICK-TASK-SPEC §1). */
@@ -30,6 +32,7 @@ export function QuickTaskForm({
   projects,
   initialProjectId,
   defaultStatus = "todo",
+  seed,
   agentDefaultsFor,
   onClose,
   onMore,
@@ -39,6 +42,8 @@ export function QuickTaskForm({
   projects: readonly Project[];
   initialProjectId: string;
   defaultStatus?: Status;
+  /** Opened from an external item (Linear's Start card): attached, titled by it, and the text is optional. */
+  seed?: QuickTaskSeed;
   /** The agent the full form would start with in that project (MODEL-DEFAULTS-SPEC). */
   agentDefaultsFor: (project: Project) => AgentDefaults;
   onClose: () => void;
@@ -54,6 +59,7 @@ export function QuickTaskForm({
     paseo = usePaseo();
   const [projectId, setProjectId] = useState(initialProjectId),
     [text, setText] = useState(""),
+    [externals, setExternals] = useState<{ item: ExternalSummary; provider: ConnectorProvider }[]>(() => seed?.externals || []),
     [modeChoice, setModeChoice] = useState<QuickMode | null>(null),
     [open, setOpen] = useState<"project" | "agent" | null>(null),
     [pending, setPending] = useState(false),
@@ -72,6 +78,8 @@ export function QuickTaskForm({
     // The agent follows the new project's defaults (QUICK-TASK-SPEC §1).
     if (next) choice.reset(quickDefaults(agentDefaultsFor(next)));
   };
+  const items = externals.map((x) => x.item);
+  const firstText = quickPrompt(text, items);
   const modelName = (choice.models.data?.models || []).find((m) => m.id === choice.chosenModel)?.label || choice.chosenModel;
   const modeLabel = choice.chosenMode ? (choice.modes.data?.modes || []).find((m) => m.id === choice.chosenMode)?.label || choice.chosenMode : "";
   const agentText = [choice.provider, modelName, modeLabel].filter(Boolean).join(" · ");
@@ -79,7 +87,7 @@ export function QuickTaskForm({
     if (!project) return;
     setPending(true);
     setError("");
-    const title = provisionalTitle(text);
+    const { title, aiTitle } = quickCard(text, seed, externals.length);
     try {
       const created = await create({
         projectId: project.id,
@@ -91,11 +99,13 @@ export function QuickTaskForm({
         mode,
         baseRef: "",
         branchName: "",
+        ...(externals.length ? { externals: items.map((x) => ({ connectionId: x.connectionId, key: x.key, itemType: x.itemType })) } : {}),
       });
       if (view.values && view.values.lastQuickProjectId !== project.id) void view.update({ lastQuickProjectId: project.id });
       // Not awaited: the provisional title stays if this fails or the setting is off (§4). The run reads at most
       // QUICK_TEXT_MAX characters, so a longer paste is cut here rather than refused by the RPC's input limit.
-      if (view.values?.quickTaskAiTitle ?? true) void quickTitle({ taskId: created.id, text: quickTitleText(text), provisionalTitle: title }).catch(() => undefined);
+      // An attached issue already names the card, so no AI title runs for it.
+      if (aiTitle && (view.values?.quickTaskAiTitle ?? true)) void quickTitle({ taskId: created.id, text: quickTitleText(text), provisionalTitle: title }).catch(() => undefined);
       try {
         const session = await launchKanbanSession({ paseo, contextRead, prepare }, created, {
           provider: choice.provider,
@@ -103,7 +113,7 @@ export function QuickTaskForm({
           mode: choice.chosenMode,
           thinking: choice.chosenThinking,
           ...(choice.featureValues ? { featureValues: choice.featureValues } : {}),
-          prompt: text,
+          prompt: firstText ?? "",
           ...(attachments.attachments.length ? { images: attachments.images(), clientMessageId: firstMessageId } : {}),
           operationId: `first-session-${operationId}`,
         });
@@ -119,17 +129,18 @@ export function QuickTaskForm({
       setPending(false);
     }
   }
-  const canSave = !!project && !pending && !!text.trim() && choice.ready;
+  const canSave = !!project && !pending && firstText !== null && choice.ready;
   // Enter submits, Shift+Enter is a new line.
   const submit = canSave ? () => void save() : undefined;
-  const more = () =>
-    project &&
+  const more = () => {
+    if (!project) return;
     onMore({
       projectId: project.id,
       status: defaultStatus,
       seed: {
-        title: provisionalTitle(text),
+        title: quickCard(text, seed, externals.length).title,
         description: "",
+        ...(externals.length ? { externals } : {}),
         prompt: text,
         startAgent: true,
         mode,
@@ -137,6 +148,7 @@ export function QuickTaskForm({
         agent: { provider: choice.provider, model: choice.chosenModel, mode: choice.chosenMode, thinking: choice.chosenThinking, speed: choice.chosenSpeed },
       },
     });
+  };
   return (
     <Modal
       open
@@ -149,8 +161,24 @@ export function QuickTaskForm({
         <Theme.Provider value={theme}>
           <View style={{ gap: space[4] }}>
             <ImageAttachments state={attachments} disabled={pending}>
-              <Field title={t("What do you want done?")} value={text} onChange={setText} multiline autoFocus onSubmit={submit} />
+              <Field
+                title={t("What do you want done?")}
+                value={text}
+                onChange={setText}
+                multiline
+                autoFocus
+                placeholder={externals.length ? t("Optional: the agent starts with the attached issue") : ""}
+                onSubmit={submit}
+              />
             </ImageAttachments>
+            {externals.map((x) => (
+              <ExternalChip
+                key={`${x.item.connectionId}:${x.item.key}`}
+                item={x.item}
+                provider={x.provider}
+                onRemove={() => !pending && setExternals((current) => current.filter((y) => y !== x))}
+              />
+            ))}
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[2] }}>
               <Button small icon="Folder" label={`${t("Project")}: ${project?.title || ""}`} disabled={pending || projects.length < 2} onPress={() => setOpen(open === "project" ? null : "project")}>
                 {project?.title || ""}

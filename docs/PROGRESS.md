@@ -1,5 +1,11 @@
 # Implementation progress
 
+## Linear Start card opens Quick task (branch `feat/linear-start-quick-task`) — 2026-11-05
+
+- **Start card** on the Linear board now opens Quick task (not the full New task form) in the board's current project, with the issue attached as a removable chip and an external input (so the project's Linear ticket block never applies). Card title `KEY: issue title`; no AI title run for it; an empty text sends the full form's default first message, typed text is sent as typed. Removing the chip makes it an ordinary quick task. Open card is unchanged. Specs: LINEAR-BOARD-SPEC §5, QUICK-TASK-SPEC §9.
+- Start card opens Quick task even when *Quick task for New task* is off (a design call: the setting is about the New task button).
+- Strings: new placeholder and the onboarding Linear-board row reworded, in all catalogs. Onboarding: row updated; no new tip, no What's new entry. Telemetry: none.
+
 ## Quick task plan mode (branch `feat/quick-task-plan-mode`) — 2026-11-05
 
 - Quick task defaults to the **plan** permission mode when the provider offers it (`quickTaskMode`, `useAgentChoice({ planFirst })`); no plan mode keeps the usual suggestion; a picked mode wins; project/provider switches re-apply it. The Agent chip now reads `provider · model · mode label`, one line. Other forms unchanged. [QUICK-TASK-SPEC](QUICK-TASK-SPEC.md)
@@ -25,7 +31,7 @@
 
 ## Linear board in the main bar (branch `feat/linear-board`) — 2026-11-04
 
-- A **Linear** row in Paseo's sidebar (only with a Linear connection) opens a board of Linear issues: Assigned to me or any team the key sees, columns by state type (Backlog, Todo, In progress, Done, Canceled; custom states by type), finished issues limited to the last `hideFinishedAfterDays` days, a remembered Board/List toggle (list on compact layouts by default) and a connection switch with several Linear connections. Pressing an issue opens the existing item preview; **Start card** opens New task in the board's current project with the issue attached, its title, Start agent on and the instruction optional; an issue already on a card shows a Card marker and **Open card**. Read-only: two new `query` documents (`Scope`, paged by cursor, at most 4 × 50; `Teams`). [LINEAR-BOARD-SPEC](LINEAR-BOARD-SPEC.md)
+- A **Linear** row in Paseo's sidebar (only with a Linear connection) opens a board of Linear issues: Assigned to me or any team the key sees, columns by state type (Backlog, Todo, In progress, Done, Canceled; custom states by type), finished issues limited to the last `hideFinishedAfterDays` days, a remembered Board/List toggle (list on compact layouts by default) and a connection switch with several Linear connections. Pressing an issue opens the existing item preview; **Start card** opens Quick task in the board's current project with the issue attached, the card titled `KEY: title` and the text optional; an issue already on a card shows a Card marker and **Open card**. Read-only: two new `query` documents (`Scope`, paged by cursor, at most 4 × 50; `Teams`). [LINEAR-BOARD-SPEC](LINEAR-BOARD-SPEC.md)
 - Status filter (user request): a chip per column hides or shows it in both layouts, remembered as `linearHidden`; client-side only. Tests in `shared/linear-board.test.ts` and `shared/settings.test.ts`; no new strings (chips reuse the column titles).
 - New RPCs `connectors.linear-board`, `connectors.linear-teams`, `connectors.read-item`; board-view settings gain `linearLayout` and `linearScope` (no board data change). `ExternalPreview` now wraps a shared `ItemPreview`.
 - 17 new strings in all catalogs. Onboarding: a **Linear board** row under More features; no new tip id; no What's new entry. Telemetry: no heartbeat field.

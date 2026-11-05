@@ -4,6 +4,7 @@ import type { ConnectorProvider, ExternalSummary } from "../shared/connectors";
 import type { LinearCard } from "../shared/linear-board";
 import { pickProject } from "./project-memory";
 import { t } from "../shared/i18n";
+import type { QuickTaskSeed } from "./quick-task";
 
 /**
  * From the Linear board to Flowly's board (LINEAR-BOARD-SPEC §5): Start card opens New task with the
@@ -46,14 +47,9 @@ export function parseLinearOpen(params?: PluginScreenParams): LinearOpen | null 
 /** Params of these links are not session links. */
 export const isLinearLink = (params: PluginScreenParams) => "linearIssue" in params || "openTaskId" in params;
 
-/** What New task opens with: the issue attached, its title, the agent on; the first instruction is then optional. */
-export function linearSeed(item: ExternalSummary, provider: ConnectorProvider = "linear") {
-  return {
-    title: item.summary || item.key,
-    description: "",
-    externals: [{ item, provider }],
-    startAgent: true,
-  };
+/** What Quick task opens with: the issue attached and the card titled `KEY: title` (LINEAR-BOARD-SPEC §5). */
+export function linearQuickSeed(item: ExternalSummary, provider: ConnectorProvider = "linear"): QuickTaskSeed {
+  return { title: item.summary ? `${item.key}: ${item.summary}` : item.key, externals: [{ item, provider }] };
 }
 
 /** The board's current project: the chosen one, else the one viewed last, else the first. */
