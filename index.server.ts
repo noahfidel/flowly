@@ -421,8 +421,8 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.createTask, (input, { paseo }) =>
     service.createTask(input, paseo),
   );
-  server.handle(rpc.taskContext, (input, { paseo }) =>
-    service.context(input.id, paseo),
+  server.handle(rpc.taskContext, async (input, { paseo }) =>
+    service.context(input.id, paseo, undefined, { artifactsOn: await tools.agents.artifactsOn() }),
   );
   // With auto wrap-up on, moving a card into Done/Cancelled archives its own
   // workspace in the background when the preflight is clean; the status write

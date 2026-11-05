@@ -22,15 +22,16 @@ describe("whether a card has a Linear item (LINEAR-TICKET-SPEC §2)", () => {
 });
 
 describe("the Linear ticket block (LINEAR-TICKET-SPEC §3)", () => {
+  const link = { title: "Fix login", canLink: true };
   test("off adds nothing", () => {
-    expect(linearTicketLines(project(), [])).toEqual([]);
-    expect(linearTicketLines(project({ linearTicket: false, linearTeam: "ENG" }), [])).toEqual([]);
+    expect(linearTicketLines(project(), [], link)).toEqual([]);
+    expect(linearTicketLines(project({ linearTicket: false, linearTeam: "ENG" }), [], link)).toEqual([]);
   });
   test("on with a ticket linked adds nothing", () => {
-    expect(linearTicketLines(project({ linearTicket: true }), [artifact({ target: "https://linear.app/chord/issue/ENG-12" })])).toEqual([]);
+    expect(linearTicketLines(project({ linearTicket: true }), [artifact({ target: "https://linear.app/chord/issue/ENG-12" })], link)).toEqual([]);
   });
   test("on without one asks the agent to find, create and link a ticket in the configured team", () => {
-    const text = linearTicketLines(project({ linearTicket: true, linearTeam: "Platform" }), []).join("\n");
+    const text = linearTicketLines(project({ linearTicket: true, linearTeam: "Platform" }), [], link).join("\n");
     expect(text).toMatch(/^Linear ticket:/);
     expect(text).toContain("list_issues");
     expect(text).toContain('Linear team "Platform"');
@@ -41,13 +42,21 @@ describe("the Linear ticket block (LINEAR-TICKET-SPEC §3)", () => {
     expect(text).not.toContain("ask the user once");
   });
   test("without a team the agent infers it or asks once", () => {
-    const text = linearTicketLines(project({ linearTicket: true }), []).join("\n");
+    const text = linearTicketLines(project({ linearTicket: true }), [], link).join("\n");
     expect(text).toContain("ask the user once");
     expect(text).not.toContain('Linear team "');
   });
+  test("with agent artifacts off it does not ask to link, and later sessions look for the card's title first", () => {
+    const text = linearTicketLines(project({ linearTicket: true }), [], { title: "Fix  login", canLink: false }).join("\n");
+    expect(text).not.toContain("flowly_add_artifact");
+    expect(text).toContain('starting with its title "Fix login"');
+    expect(text).toContain("Reuse it");
+    expect(text).toMatch(/1\. Search Linear[\s\S]*2\. If none fits, create one/);
+    expect(text).toContain("first progress report");
+  });
   test("the block sits after the card's inputs in the session context and never in the description", () => {
     const task = { id: "t", title: "Fix login", description: "Steps", repoPaths: [] } as unknown as Task;
-    const lines = linearTicketLines(project({ linearTicket: true }), []);
+    const lines = linearTicketLines(project({ linearTicket: true }), [], link);
     const ctx = sessionContext(task, project(), [{ repo: "/r", directory: "/r" }], "/r", [], ["Inputs:", "- [user] Doc: ./a.md"], "", [], lines);
     expect(ctx).toContain(`Steps\nInputs:\n- [user] Doc: ./a.md\n${lines.join("\n")}\nProject: P`);
     expect(sessionContext(task, project(), [{ repo: "/r", directory: "/r" }], "/r")).not.toContain("Linear ticket");

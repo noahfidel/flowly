@@ -25,20 +25,30 @@ export function hasLinearItem(artifacts: readonly Pick<Artifact, "kind" | "targe
   return artifacts.some((a) => a.external?.provider === "linear" || (a.kind === "url" && onLinearApp(a.target)));
 }
 
-/** The block for the card's session context, or [] when the project does not ask for it or a ticket is linked (§2, §3). */
+/**
+ * The block for the card's session context, or [] when the project does not ask for it or a ticket is linked (§2, §3).
+ * `canLink` is false while agent artifacts are turned off: the agent cannot link the ticket, so later sessions find it
+ * again by the card's title instead of creating a second one.
+ */
 export function linearTicketLines(
   project: Pick<Project, "linearTicket" | "linearTeam">,
   artifacts: readonly Pick<Artifact, "kind" | "target" | "external">[],
+  card: { title: string; canLink: boolean },
 ): string[] {
   if (project.linearTicket !== true || hasLinearItem(artifacts)) return [];
   const team = linearTeamValue(project.linearTeam ?? "");
+  const title = card.title.replace(/\s+/g, " ").trim();
   return [
     "Linear ticket: this project wants every card tracked by a Linear ticket, and none is linked to this card yet. Before you start the work:",
-    "1. Search Linear with your Linear tools (for example list_issues) for an existing ticket that matches this card.",
+    card.canLink
+      ? "1. Search Linear with your Linear tools (for example list_issues) for an existing ticket that matches this card."
+      : `1. Search Linear with your Linear tools (for example list_issues) for an existing ticket that matches this card, starting with its title ${JSON.stringify(title)}: an earlier session of this card may already have created one. Reuse it when it fits.`,
     team
       ? `2. If none fits, create one in the Linear team "${team}". Follow the eng-conventions:linear-tickets skill when it is available.`
       : "2. If none fits, create one in the team the card, the repository or Linear makes clear; when you can't tell, ask the user once which team. Follow the eng-conventions:linear-tickets skill when it is available.",
-    "3. Link the ticket to this card with flowly_add_artifact role=input and the ticket URL as target, and name the ticket ID in your first progress report.",
+    card.canLink
+      ? "3. Link the ticket to this card with flowly_add_artifact role=input and the ticket URL as target, and name the ticket ID in your first progress report."
+      : "3. Agent artifacts are turned off in Flowly, so you can't link the ticket to the card: title a new ticket like this card where you can, and name the ticket ID and URL in your first progress report.",
     "If you have no Linear tools, say so in one line and carry on with the card.",
   ];
 }

@@ -641,7 +641,7 @@ export class ToolServer {
       const board = await this.store.read(),
         task = board.tasks.find((t) => t.id === taskId);
       if (!task) throw new ToolError("RESOURCE_UNAVAILABLE", "Task not found.");
-      const ctx = await new BoardService(this.store).context(taskId, paseo);
+      const ctx = await new BoardService(this.store).context(taskId, paseo, undefined, { artifactsOn: await this.agents.artifactsOn() });
       if (!ctx.available)
         throw new ToolError("RESOURCE_UNAVAILABLE", ctx.reason);
       const identity = await this.secrets.prepared(
@@ -678,7 +678,7 @@ export class ToolServer {
     const current = await this.agents.get(identity, false);
     if (current.task.archivedAt || current.project.archivedAt)
       throw new ToolError("ARCHIVED", "Task/project is archived.");
-    const ctx = await new BoardService(this.store).context(taskId, paseo);
+    const ctx = await new BoardService(this.store).context(taskId, paseo, undefined, { artifactsOn: await this.agents.artifactsOn() });
     void this.agents.memory?.markUsed(ctx.memoryIds, taskId).catch(() => undefined);
     return this.prepare(identity, ctx.context, "cli");
   }

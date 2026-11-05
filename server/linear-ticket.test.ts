@@ -24,6 +24,11 @@ test("the project setting is saved and the first-session context follows it (LIN
   expect(cleared.linearTicket).toBe(true);
   expect("linearTeam" in cleared).toBe(false);
   expect(await context()).toContain("ask the user once");
+  // Agent artifacts off: no link step; later sessions look for the card's title instead.
+  const unlinkable = (await new BoardService(x.store).context("t", x.paseo, undefined, { artifactsOn: false })).context;
+  expect(unlinkable).toContain("Linear ticket:");
+  expect(unlinkable).not.toContain("flowly_add_artifact");
+  expect(unlinkable).toContain("starting with its title");
 
   // A linked Linear issue removes the block.
   await x.store.mutate((board) => {

@@ -658,7 +658,8 @@ export class BoardService {
     const located = await this.connectors.locate(list).catch(() => new Map<string, null>());
     return new Set(list.filter((a) => located.has(a.id) && !located.get(a.id)).map((a) => a.id));
   }
-  async context(id: string, paseo: PaseoApi, snapshot?: Board) {
+  /** `artifactsOn`: whether agents may add artifacts now (Settings → AI features); decides how the Linear block links (LINEAR-TICKET-SPEC §3). */
+  async context(id: string, paseo: PaseoApi, snapshot?: Board, options: { artifactsOn?: boolean } = {}) {
     const board = snapshot || (await this.store.read());
     const task = board.tasks.find((t) => t.id === id);
     const project = board.projects.find((p) => p.id === task?.projectId);
@@ -700,7 +701,7 @@ export class BoardService {
         artifactContextLines(artifactsOf(board.artifacts, task.id), 10, await this.unreadableExternals(board, task.id)),
         setupContextLine(setupMissing(task, workpadOf(board.workpads, task.id), workpadEnabled(project))),
         memory.lines,
-        linearTicketLines(project, artifactsOf(board.artifacts, task.id)),
+        linearTicketLines(project, artifactsOf(board.artifacts, task.id), { title: task.title, canLink: options.artifactsOn ?? true }),
       ),
       memoryIds: memory.ids,
       directories,

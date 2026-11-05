@@ -22,9 +22,10 @@ On the project (project form, next to **Card workpad** and the other per-project
 
 ## 2. When the block is added
 
-The block is part of the card's session context (`sessionContext`, the text Flowly builds for a new session's
-first instructions, for **Send Kanban work instructions**, and in `flowly_get_task`). It is added only when all of
-these hold:
+The block is part of the card's session context (`sessionContext`): the text Flowly builds for a new session's
+first instructions (`tools.prepare-session`, every session started from a card), for **Send Kanban work
+instructions** (`tools.prepare-existing`) and for `tasks.context`. `flowly_get_task` does not return this text,
+so the block reaches the agent at session start. It is added only when all of these hold:
 
 1. the project has `linearTicket: true`;
 2. none of the card's artifacts (inputs or outputs) is a Linear item: an artifact whose `external.provider` is
@@ -44,6 +45,10 @@ starts the work:
    `eng-conventions:linear-tickets` skill when it is available;
 3. link the ticket to the card with `flowly_add_artifact` (role `input`, target the ticket URL), and name the
    ticket ID in its first progress report;
+   - while agent artifacts are turned off (Settings → AI features; the tool would return `ARTIFACTS_DISABLED`),
+     the block does not ask for the link. Instead step 1 starts the search with the card's title, since an
+     earlier session of the card may have created a ticket it could not link, and says to reuse it; a new
+     ticket is titled like the card where possible, and its ID and URL go in the first progress report;
 4. if it has no Linear tools, say so in one line and carry on with the card. The block never blocks the work.
 
 ## 4. Acceptance
@@ -52,5 +57,7 @@ starts the work:
 - On with a Linear item linked (by connector or by `linear.app` URL): no block.
 - On without one: the block appears in the session context, after the card's inputs/outputs; it names the team
   when one is set and the ask-once rule when not.
+- With agent artifacts off: no `flowly_add_artifact` step; the search starts with the card's title and reuses
+  a match. Search before create holds in both cases.
 - The project form saves and reloads both fields; an unchanged form sends neither.
 - Flowly's daemon gains no Linear write call.
