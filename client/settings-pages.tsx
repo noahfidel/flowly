@@ -20,6 +20,8 @@ import {
   languageSettingsValues,
   modelSettings,
   modelSettingsValues,
+  prReviewSettings,
+  prReviewSettingsValues,
   statusSettings,
   statusSettingsValues,
   telemetrySettings,
@@ -284,6 +286,7 @@ export function WorkflowPage() {
   const status = useStored(useSettings(statusSettings), statusSettingsValues);
   const wrapup = useStored(useSettings(wrapupSettings), wrapupSettingsValues);
   const view = useStored(useSettings(boardViewSettings), boardViewValues);
+  const prReview = useStored(useSettings(prReviewSettings), prReviewSettingsValues);
   const hideAfter = view.values?.hideFinishedAfterDays ?? 14;
   const dayLabel = (days: number) => (days ? tn(days, "After {n} day", "After {n} days") : t("Never"));
   const hideOptions = [...new Set<number>([...hideFinishedChoices, hideAfter])]
@@ -291,13 +294,19 @@ export function WorkflowPage() {
     .map((days) => ({ value: String(days), label: dayLabel(days) }));
   return (
     <SettingsPage title={t("Workflow")}>
-      <Problem text={status.problem || wrapup.problem || view.problem} />
+      <Problem text={status.problem || wrapup.problem || view.problem || prReview.problem} />
       <SettingsGroup title={t("Board")}>
         <SettingSwitch
           title={t("Show All projects tab")}
           value={view.values?.allProjectsTab ?? true}
           disabled={view.busy}
           onChange={(allProjectsTab) => view.save({ allProjectsTab })}
+        />
+        <SettingSwitch
+          title={t("Make cards for PR review agents")}
+          value={prReview.values?.prReviewCards ?? true}
+          disabled={prReview.busy}
+          onChange={(prReviewCards) => prReview.save({ prReviewCards })}
         />
       </SettingsGroup>
       <SettingsGroup title={t("Moving cards")}>

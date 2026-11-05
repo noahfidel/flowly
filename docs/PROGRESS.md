@@ -1,5 +1,13 @@
 # Implementation progress
 
+## PR review cards (branch `feat/pr-review-cards`) — 2026-11-05
+
+- New agents labelled `pr-review-watch` (from Noah's launchd `paseo run` job) become cards bound to their existing workspace through the New card *existing* mode (`server/pr-review-cards.ts`, `shared/pr-review.ts`): In review (else To do, else the first open lane), tag `pr-review`, operation id `pr-review:<agent id>`.
+- Mechanism: the `agent.created` hook, plus `agent.turn_started` for agents created during a reload; the agent record is read once per run for its labels (the hook event has none). No backfill: agents over 30 minutes old or archived are skipped.
+- Linear ticket block left out of a PR review card's context. New host setting *Make cards for PR review agents* (on), 1 new string in all catalogs.
+- Onboarding: no tour row or tip (an opt-out automation for a personal job, nothing to point at in the UI). Telemetry: no field (off in this fork). Product note: v1 lists PR automation as out of scope; this is a user-requested exception that only mirrors an outside agent as a card.
+- Checks: `server/pr-review-cards.test.ts`. Unrun: live check with a real labelled agent in a hidden worktree.
+
 ## All projects board (branch `feat/all-projects-tab`) — 2026-11-05
 
 - **All** tab before the project tabs (desktop) and an **All projects** row at the top of the chooser (compact/phone; the switcher title reads *All projects*), shown while *Show All projects tab* is on (Settings → Workflow → Board, `board-view.allProjectsTab`, default on) and 2+ projects are live. The chooser button is now *Manage projects*. [ALL-PROJECTS-SPEC](ALL-PROJECTS-SPEC.md)

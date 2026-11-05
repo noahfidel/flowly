@@ -19,6 +19,7 @@ import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEd
 import { effectiveRepos, sessionContext } from "../shared/scope";
 import { setupContextLine, setupMissing } from "../shared/card-setup";
 import { linearTicketLines } from "../shared/linear-ticket";
+import { isPrReviewCard } from "../shared/pr-review";
 import { workpadEnabled, workpadOf } from "../shared/workpad";
 import { normalizeTags } from "../shared/tags";
 import { tagLimits } from "../shared/model";
@@ -701,7 +702,8 @@ export class BoardService {
         artifactContextLines(artifactsOf(board.artifacts, task.id), 10, await this.unreadableExternals(board, task.id)),
         setupContextLine(setupMissing(task, workpadOf(board.workpads, task.id), workpadEnabled(project))),
         memory.lines,
-        linearTicketLines(project, artifactsOf(board.artifacts, task.id), { title: task.title, canLink: options.artifactsOn ?? true }),
+        // A PR review card reviews someone else's PR; it is never asked for a Linear ticket (PR-REVIEW-CARDS-SPEC §5).
+        isPrReviewCard(task) ? [] : linearTicketLines(project, artifactsOf(board.artifacts, task.id), { title: task.title, canLink: options.artifactsOn ?? true }),
       ),
       memoryIds: memory.ids,
       directories,

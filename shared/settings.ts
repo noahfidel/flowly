@@ -94,6 +94,21 @@ export function wrapupSettingsValues(values: unknown): WrapupSettings {
   return parsed.success ? parsed.data : wrapupSettings.schema.parse({});
 }
 
+/** PR review cards (PR-REVIEW-CARDS-SPEC §6): a new agent labelled `pr-review-watch` gets a card in its own workspace. */
+export const prReviewSettings = defineSettings({
+  id: "pr-review-cards",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    prReviewCards: z.boolean().default(true),
+  }),
+});
+export type PrReviewSettings = z.infer<typeof prReviewSettings.schema>;
+export function prReviewSettingsValues(values: unknown): PrReviewSettings {
+  const parsed = prReviewSettings.schema.safeParse(values ?? {});
+  return parsed.success ? parsed.data : prReviewSettings.schema.parse({});
+}
+
 /** Whether session lifecycle rules may move cards between lanes (AUTO-STATUS-SPEC). */
 export const statusSettings = defineSettings({
   id: "auto-status",

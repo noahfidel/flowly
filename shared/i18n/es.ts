@@ -1507,6 +1507,7 @@ const catalog: Catalog = {
   "Linear team": "Equipo de Linear",
   "Team name or key (optional)": "Nombre o clave del equipo (opcional)",
   "Show All projects tab": "Mostrar la pestaña Todos los proyectos",
+  "Make cards for PR review agents": "Crear tarjetas para agentes de revisión de PR",
   "Manage projects": "Gestionar proyectos",
   "{lane} is not a lane in {project}.": "{lane} no es un carril de {project}.",
   "Each project keeps its own order. Open the project to reorder its cards.": "Cada proyecto mantiene su propio orden. Abre el proyecto para reordenar sus tarjetas.",

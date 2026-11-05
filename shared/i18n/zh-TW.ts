@@ -1507,6 +1507,7 @@ const catalog: Catalog = {
   "Linear team": "Linear 團隊",
   "Team name or key (optional)": "團隊名稱或鍵（選填）",
   "Show All projects tab": "顯示「所有專案」分頁",
+  "Make cards for PR review agents": "為 PR 審查代理建立卡片",
   "Manage projects": "管理專案",
   "{lane} is not a lane in {project}.": "{lane} 不是 {project} 中的泳道。",
   "Each project keeps its own order. Open the project to reorder its cards.": "每個專案保留自己的順序。開啟該專案即可調整其卡片的順序。",

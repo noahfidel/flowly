@@ -6,7 +6,7 @@ import { BoardService, dataDirectory, migrateLegacyPluginData, paseoHome } from 
 import { readPaseoVersion } from "./server/paseo-version";
 import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./server/directories";
 import * as rpc from "./shared/rpc";
-import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues } from "./shared/settings";
+import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues, prReviewSettings, prReviewSettingsValues } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService, daemonNativeAttention } from "./server/session-reads";
 import { readAttentionCount } from "./server/attention-count";
@@ -55,6 +55,7 @@ import { turnTimeline } from "./server/turn-timeline";
 import { MemoryService, setMemoryEverywhere, memoryOn } from "./server/memory";
 import { SearchService } from "./server/search";
 import { QuickTitleService } from "./server/quick-title";
+import { PrReviewCards } from "./server/pr-review-cards";
 import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
 import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
@@ -76,6 +77,7 @@ export default function contribute(host: PluginServerContext) {
   const perfPrefs = server.registerSettings(performanceSettings);
   const telemetryPrefs = server.registerSettings(telemetrySettings);
   const developerPrefs = server.registerSettings(developerSettings);
+  const prReviewPrefs = server.registerSettings(prReviewSettings);
   // Project memory and Insights as a whole (ONBOARDING-SETUP-SPEC §6); unreadable settings keep the defaults (on).
   const featurePrefs = server.registerSettings(featureSettings);
   const featureValues = async () => {
@@ -312,6 +314,17 @@ export default function contribute(host: PluginServerContext) {
     const state = await ideasPrefs.read().catch(() => null);
     return ideasSettingsValues(state?.status === "ready" ? state.values : {}).agentCards;
   };
+  // A card for each new PR review agent, in its own workspace (PR-REVIEW-CARDS-SPEC); unreadable settings keep the default (on).
+  const prReviews = new PrReviewCards(service);
+  prReviews.enabled = async () => {
+    const state = await prReviewPrefs.read().catch(() => null);
+    return prReviewSettingsValues(state?.status === "ready" ? state.values : {}).prReviewCards;
+  };
+  const watchPrReview = (agentId: string, paseo: PaseoApi) =>
+    void prReviews.observe(agentId, paseo).catch((e) => logFailure("Flowly PR review card not made:", e, agentId));
+  server.on("agent.created", (event, { paseo }) => watchPrReview(event.agent.id, paseo));
+  // An agent created while the plugin was reloading has no created event here; its first turn catches it.
+  server.on("agent.turn_started", (event, { paseo }) => watchPrReview(event.agent.id, paseo));
   // Search (SEARCH-SPEC): a scan of the board, the latest summaries and project memory.
   const search = new SearchService({
     board: () => store.read(),
