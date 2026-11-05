@@ -108,9 +108,10 @@ The AI titles row shows the run's estimated cost (shared/ai-cost.ts).
 
 ## 7. Command Center
 
-Flowly registers exactly three Command Center items: **Open Flowly**, **Flowly: Needs attention** and
-**Flowly: Quick task**. The other board intents (new task, projects, search, filters, shortcuts, welcome)
-stay valid as screen params and keyboard shortcuts, but have no Command Center item.
+Flowly registers exactly two Command Center items, in this order: **Flowly: View board** (id `open-board`,
+opens the board) and **Flowly: Quick task**. The host ranks a plugin's items in the order they are registered
+(`client/command-items.ts`). The other board intents (attention, new task, projects, search, filters,
+shortcuts, welcome) stay valid as screen params and keyboard shortcuts, but have no Command Center item.
 
 ## 8. Acceptance
 

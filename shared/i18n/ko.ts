@@ -720,7 +720,7 @@ const catalog: Catalog = {
   "Urgent first, then manual order": "긴급이 먼저, 그다음은 수동 순서",
   "Most recently created first": "최근에 만든 것부터",
   "A to Z": "가나다순",
-  "Flowly: Needs attention": "Flowly: 확인 필요",
+  "Flowly: View board": "Flowly: 보드 보기",
   "Open Flowly": "Flowly 열기",
   "Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary.": "카드는 에이전트가 작업하는 대로 자동으로 이동합니다. 언제든 열어 세션, 출력, 요약을 확인하세요.",
   "A card is waiting for you. Reply goes straight to the session.": "당신을 기다리는 카드가 있습니다. 답장은 해당 세션으로 바로 전달됩니다.",

@@ -720,7 +720,7 @@ const catalog: Catalog = {
   "Urgent first, then manual order": "Dringende zuerst, dann manuelle Reihenfolge",
   "Most recently created first": "Zuletzt erstellte zuerst",
   "A to Z": "A bis Z",
-  "Flowly: Needs attention": "Flowly: Aufmerksamkeit nötig",
+  "Flowly: View board": "Flowly: Board anzeigen",
   "Open Flowly": "Flowly öffnen",
   "Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary.": "Die Karte bewegt sich von selbst, während der Agent arbeitet. Öffne sie jederzeit, um Sitzungen, Ausgabe und Zusammenfassung zu sehen.",
   "A card is waiting for you. Reply goes straight to the session.": "Eine Karte wartet auf dich. Deine Antwort geht direkt an die Sitzung.",

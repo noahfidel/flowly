@@ -8,42 +8,28 @@ import { NativeNextMovesItem } from "./client/next-move-card";
 import { nextRowKind, nextRowSchema, nextRowVersion, summaryRowKind, summaryRowSchema, summaryRowVersion } from "./shared/native-session";
 import { SidebarEntry } from "./client/sidebar";
 import { LinearSidebarEntry, linearScreen } from "./client/linear-board";
-import { intentParams, type BoardIntent } from "./client/shortcuts";
-import { deviceLocale, msg, setLocale, t } from "./shared/i18n";
+import { intentParams } from "./client/shortcuts";
+import { commandItems } from "./client/command-items";
+import { deviceLocale, setLocale, t } from "./shared/i18n";
 import { loadCatalog } from "./client/catalog";
 import { perfEarly, perfNow } from "./client/perf";
 import { i18nCatalog } from "./shared/rpc";
 
-// Flowly's Command Center items are Open Flowly plus these two (QUICK-TASK-SPEC §7). The other board intents
-// (new task, projects, search, filters, shortcuts, welcome) stay reachable on the board and as screen params.
-const intentItems: { intent: BoardIntent; title: string; icon: string; keywords: string[] }[] = [
-  { intent: "attention", title: msg("Flowly: Needs attention"), icon: "Bell", keywords: ["kanban", "attention", "unread", "approval"] },
-  { intent: "quick-task", title: msg("Flowly: Quick task"), icon: "Zap", keywords: ["kanban", "card", "create", "task", "agent", "quick"] },
-];
-
 /** The Command Center entries; their titles follow the device language, so they are built again when its catalog arrives. */
 function registerCommandItems(client: PluginClientContext) {
   const cleanups: (() => void)[] = [];
-  cleanups.push(
-    client.addCommandCenterItem({
-      id: "open-board",
-      title: t("Open Flowly"),
-      icon: "PanelsTopLeft",
-      context: "global",
-      onSelect: ({ openScreen }) => openScreen({ screenId: "board" }),
-    }),
-  );
-  // forEach, not a for loop: Hermes gives a loop's `const` one binding, so every onSelect would see the last item.
-  intentItems.forEach((item) =>
+  // In list order: the host ranks a plugin's items by registration order. forEach, not a for loop: Hermes gives a
+  // loop's `const` one binding, so every onSelect would see the last item.
+  commandItems.forEach((item) =>
     cleanups.push(
       client.addCommandCenterItem({
-        id: `board-${item.intent}`,
+        id: item.id,
         title: t(item.title),
         icon: item.icon,
         keywords: item.keywords,
         context: "global",
         onSelect: ({ openScreen }) =>
-          openScreen({ screenId: "board", params: intentParams(item.intent) }),
+          openScreen(item.intent ? { screenId: "board", params: intentParams(item.intent) } : { screenId: "board" }),
       }),
     ),
   );

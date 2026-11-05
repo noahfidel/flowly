@@ -720,7 +720,7 @@ const catalog: Catalog = {
   "Urgent first, then manual order": "緊急的在前，其餘按手動順序",
   "Most recently created first": "最近建立的在前",
   "A to Z": "A 到 Z",
-  "Flowly: Needs attention": "Flowly：需要關注",
+  "Flowly: View board": "Flowly：檢視看板",
   "Open Flowly": "開啟 Flowly",
   "Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary.": "卡片會隨 agent 的工作自動移動。隨時開啟它，可查看工作階段、輸出和摘要。",
   "A card is waiting for you. Reply goes straight to the session.": "有卡片在等你。回覆會直接傳送到對應的工作階段。",

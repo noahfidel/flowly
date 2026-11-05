@@ -720,7 +720,7 @@ const catalog: Catalog = {
   "Urgent first, then manual order": "Сначала срочные, затем ручной порядок",
   "Most recently created first": "Сначала недавно созданные",
   "A to Z": "От А до Я",
-  "Flowly: Needs attention": "Flowly: Требует внимания",
+  "Flowly: View board": "Flowly: Показать доску",
   "Open Flowly": "Открыть Flowly",
   "Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary.": "Карточка перемещается сама, пока агент работает. Откройте её в любой момент, чтобы увидеть сессии, вывод и сводку.",
   "A card is waiting for you. Reply goes straight to the session.": "Карточка ждёт вашего ответа. Ответ уходит прямо в сессию.",

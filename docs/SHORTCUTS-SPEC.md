@@ -49,18 +49,17 @@
 
 ### 2.3 可发现性
 
-- 桌面头部新增“Keyboard shortcuts”图标按钮（`Keyboard` 图标），点击或按 `?` 打开帮助弹层，列出所有按键和说明，并说明“焦点需在看板内”，以及在 Command Center 搜索 “Flowly” 可到达上面三个条目。
+- 桌面头部新增“Keyboard shortcuts”图标按钮（`Keyboard` 图标），点击或按 `?` 打开帮助弹层，列出所有按键和说明，并说明“焦点需在看板内”，以及在 Command Center 搜索 “Flowly” 可到达 §2.4 的条目。
 - 桌面头部 Projects / Attention / Filter / New task / 帮助按钮的无障碍标签附带快捷键（如 `New task (N)`、`Task filters (/)`）。不使用 RN-Web 专有的 `accessibilityKeyShortcuts`，因为 React Native 类型未声明它。
 
 ### 2.4 Command Center 条目（全局）
 
 | 条目 | 行为 |
 | --- | --- |
-| `Open Flowly` | 打开看板 |
-| `Flowly: Needs attention` | 打开看板并打开 Attention（intent `attention`） |
+| `Flowly: View board` | 打开看板（id `open-board`） |
 | `Flowly: Quick task` | 打开看板并打开 Quick task（intent `quick-task`，QUICK-TASK-SPEC §5） |
 
-Flowly 只注册这三个条目（QUICK-TASK-SPEC §7），不注册工作区上下文的条目。其余 intent（`new-task`、`projects`、`filters`、`search`、`shortcuts`、`welcome`）没有 Command Center 条目，但作为 screen params 仍然有效，看板上的按钮和快捷键照旧。
+Flowly 只注册这两个条目，按此顺序（QUICK-TASK-SPEC §7），不注册工作区上下文的条目。其余 intent（`attention`、`new-task`、`projects`、`filters`、`search`、`shortcuts`、`welcome`）没有 Command Center 条目，但作为 screen params 仍然有效，看板上的按钮和快捷键照旧。
 
 数据契约：`openScreen({ screenId: "board", params: { intent, at } })`。
 
