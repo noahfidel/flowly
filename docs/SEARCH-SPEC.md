@@ -100,7 +100,7 @@ output = {
 - 打开方式：
   - 桌面头部新增搜索图标按钮（`Search` 图标，无障碍标签 `Search (S)`），放在筛选按钮旁边。
   - 快捷键 `S`（SHORTCUTS-SPEC §2.1 的屏蔽条件照旧）。不用 `⌘K`：带 Cmd/Ctrl 的组合按约定留给宿主。
-  - Command Center 新增 `Flowly: Search`，intent 为 `search`（SHORTCUTS-SPEC §2.4 的契约）。
+  - 没有 Command Center 条目（QUICK-TASK-SPEC §7）；intent `search` 作为 screen param 仍然有效（SHORTCUTS-SPEC §2.4 的契约）。
   - 手机：同一个头部搜索图标（紧凑布局的头部本来就有筛选按钮，放在它旁边）。
   - 看板筛选弹层里输入了文字时，多一行 **Search everywhere**，点了打开 Search 页并带上这段文字。
 - 再按一次图标或 `Esc` 关闭，回到看板。
@@ -217,6 +217,6 @@ output = {
 9. 性能：在把用户数据规模放大 10 倍的合成数据上（约 5 万条事件），daemon 单次搜索不超过 50 ms。
 10. 新提示的规则在 `client/onboarding-logic.test.ts` 中覆盖；i18n 测试通过。
 
-**UI 实测**（按 AGENTS.md 用 `docs/promo/shot-lib.mjs`，在 Tinylink 演示项目上）：桌面和紧凑布局打开 Search 页、输入、切范围、筛来源、点开卡片（含跨项目）、`S` 快捷键和 Command Center 入口、Esc 关闭。证据写入 `docs/verification/search-<日期>/`。
+**UI 实测**（按 AGENTS.md 用 `docs/promo/shot-lib.mjs`，在 Tinylink 演示项目上）：桌面和紧凑布局打开 Search 页、输入、切范围、筛来源、点开卡片（含跨项目）、`S` 快捷键、Esc 关闭。证据写入 `docs/verification/search-<日期>/`。
 
 **里程碑独立验收**（合并前，由未写代码的 `claude/claude-haiku-5-5` 会话执行）：在实现提交上复跑以上检查。

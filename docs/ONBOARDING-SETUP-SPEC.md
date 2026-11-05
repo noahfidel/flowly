@@ -113,7 +113,7 @@ Status: **已实现，用户 2026-10-22 确认设计**（卡片“重设计onboa
 - **语言、Summary model、Memory、Insights 及其子项**：在导览里改了就立刻存（与 Settings 页相同的读写方式），首次和手动打开都一样。它们的默认值本来就是“开”，所以没碰过就等于默认。
 - **外部 session 三个子开关**（D3）：
   - 首次导览（自动弹出的那次）：显示为本地草稿，初始全开；导览**以任何方式关闭**（Skip、Esc、点遮罩、Done、Create project）时，与 `welcomeSeen=true` 一起写入：`outsideProgress/NextMoves/Ideas = 草稿`，`outside = 三者任一为开`。关闭前任何时刻都未写入，所以中途退出 app 不会生效，下次空看板时导览会再弹。
-  - 手动打开（Settings、Command Center、帮助图标、空看板链接）：显示存储值（`outside && outsideX`），改了立刻存，`outside` 同样取三者之一。手动打开的 Skip 不写任何东西。
+  - 手动打开（Settings、帮助图标、空看板链接）：显示存储值（`outside && outsideX`），改了立刻存，`outside` 同样取三者之一。手动打开的 Skip 不写任何东西。
 - Skip 只是关闭；用户在 Skip 前改过的项保留其选择（D5 的“默认配置”指没改过的项）。
 
 ## 5. 设置入口高亮（D6）
@@ -127,7 +127,7 @@ Status: **已实现，用户 2026-10-22 确认设计**（卡片“重设计onboa
 
 - 新 host 设置 `features`（`shared/settings.ts`）：`{ memory: boolean = true, insights: boolean = true }`，经 `featureSettingsValues()` 读取。
   - **memory=false**：所有项目视同 `Project.memory === false`（PROJECT-MEMORY-SPEC §9）：不注入、`flowly_remember` 返回 `MEMORY_DISABLED`、不复盘、Memory 页只读；项目自己的开关保留。daemon 的 `memoryOn(project)` 增加 host 条件。
-  - **insights=false**：隐藏 Insights 入口（项目菜单、Command Center、概览栏），不生成 daily digest，不跑 Workflow insights，相关 tip（`insights-redesign`、`first-workflow-insight`）不出。flow 事件照常记录（便宜，且重新打开时历史还在）。
+  - **insights=false**：隐藏 Insights 入口（项目菜单、概览栏），不生成 daily digest，不跑 Workflow insights，相关 tip（`insights-redesign`、`first-workflow-insight`）不出。flow 事件照常记录（便宜，且重新打开时历史还在）。
 - `native-session` 设置结构不变；默认值仍是 `outside=false`（D3：未完成导览的人保持关），由首次导览写入开。
 - `onboarding` 设置结构不变；`settings-entry` 进 `tipIds`。
 - Settings → AI features：新增 **Project memory** 开关组（把 “Find memories in finished cards” 移到其下）和 **Insights** 开关组（把 “Daily digest” 和 Workflow insights 组移到其下）。其余开关不动（D8）。

@@ -14,15 +14,11 @@ import { loadCatalog } from "./client/catalog";
 import { perfEarly, perfNow } from "./client/perf";
 import { i18nCatalog } from "./shared/rpc";
 
+// Flowly's Command Center items are Open Flowly plus these two (QUICK-TASK-SPEC §7). The other board intents
+// (new task, projects, search, filters, shortcuts, welcome) stay reachable on the board and as screen params.
 const intentItems: { intent: BoardIntent; title: string; icon: string; keywords: string[] }[] = [
-  { intent: "new-task", title: msg("Flowly: New task"), icon: "Plus", keywords: ["kanban", "card", "create"] },
-  { intent: "quick-task", title: msg("Flowly: Quick task"), icon: "Zap", keywords: ["kanban", "card", "create", "task", "agent", "quick"] },
-  { intent: "projects", title: msg("Flowly: Switch project"), icon: "Folder", keywords: ["kanban", "project"] },
-  { intent: "search", title: msg("Flowly: Search"), icon: "Search", keywords: ["kanban", "search", "find", "history"] },
-  { intent: "filters", title: msg("Flowly: Search and filter tasks"), icon: "ListFilter", keywords: ["kanban", "search", "filter"] },
   { intent: "attention", title: msg("Flowly: Needs attention"), icon: "Bell", keywords: ["kanban", "attention", "unread", "approval"] },
-  { intent: "shortcuts", title: msg("Flowly: Keyboard shortcuts"), icon: "Keyboard", keywords: ["kanban", "keyboard", "hotkey", "help"] },
-  { intent: "welcome", title: msg("Flowly: Welcome tour"), icon: "CircleHelp", keywords: ["kanban", "welcome", "tour", "onboarding", "help", "guide"] },
+  { intent: "quick-task", title: msg("Flowly: Quick task"), icon: "Zap", keywords: ["kanban", "card", "create", "task", "agent", "quick"] },
 ];
 
 /** The Command Center entries; their titles follow the device language, so they are built again when its catalog arrives. */
@@ -50,15 +46,6 @@ function registerCommandItems(client: PluginClientContext) {
           openScreen({ screenId: "board", params: intentParams(item.intent) }),
       }),
     ),
-  );
-  cleanups.push(
-    client.addCommandCenterItem({
-      id: "workspace-board",
-      title: t("Open workspace card"),
-      icon: "PanelsTopLeft",
-      context: "workspace",
-      onSelect: ({ openPanel }) => openPanel("board"),
-    }),
   );
   return () => cleanups.forEach((cleanup) => cleanup());
 }

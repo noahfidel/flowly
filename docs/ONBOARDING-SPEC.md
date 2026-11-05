@@ -56,7 +56,7 @@ Title with detail "Your first three steps." (plus "Nothing is created until you 
 
 ### 4. Re-entry
 
-- There is no board overflow menu, so the entries are: a **Welcome tour** help icon in the board header (desktop/tablet layout), **Settings → Welcome tour → Show welcome tour** (every layout, including phones), the empty-board **Take the tour** link, and Command Center "Ultra Kanban: Welcome tour". Opening it manually ignores `welcomeSeen` and does not change it. The tour only opens in the full board screen, not in the workspace panel.
+- There is no board overflow menu, so the entries are: a **Welcome tour** help icon in the board header (desktop/tablet layout), **Settings → Welcome tour → Show welcome tour** (every layout, including phones) and the empty-board **Take the tour** link. There is no Command Center item for it (QUICK-TASK-SPEC §7); the `welcome` board intent still works as a screen param. Opening it manually ignores `welcomeSeen` and does not change it. The tour only opens in the full board screen, not in the workspace panel.
 - Settings → Welcome tour also has **Show tips again**: clears `tipsSeen` only (the tour itself is reopened by hand; clearing `welcomeSeen` would make the board silently mark existing users again). Opening the tour from Settings closes Settings first and opens the tour 450 ms later. Settings is a React Native `Modal` and the tour a host `Modal`; swapping two modals in one tick is the suspected cause of a reported whole-app freeze (not reproduced; unverified).
 
 ### 5. One-time contextual tips (small, non-modal)
