@@ -1495,7 +1495,7 @@ const catalog: Catalog = {
   "Flowly: Quick task": "Flowly: クイックタスク",
   "Quick task for New task": "新規タスクでクイックタスクを使う",
   "AI titles for quick tasks": "クイックタスクの AI タイトル",
-  "The summary model names the card and suggests its type and tags. Spends tokens.": "要約モデルがカードに名前を付け、種類とタグを提案します。トークンを消費します。",
+  "The summary model names the card. Spends tokens.": "要約モデルがカードに名前を付けます。トークンを消費します。",
   "Workspace for quick tasks": "クイックタスクのワークスペース",
   "About {tokens} tokens per quick task: {cost} with {model} at API prices.": "クイックタスク 1 件あたり約 {tokens} トークン：{model} の API 価格で {cost}。",
   "About {tokens} tokens per quick task.": "クイックタスク 1 件あたり約 {tokens} トークン。",

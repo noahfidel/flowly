@@ -36,7 +36,8 @@ Create task form stays one tap away.
    provider, model, mode, reasoning and speed, and the **full text** as its first message (plus images).
    If the session fails, the card stays and the same error toast as the full form shows.
 4. When *AI titles for quick tasks* is on, the client asks the daemon for an AI title (§4) and does not
-   wait for it.
+   wait for it. It sends at most the first 4000 characters of the text (what the run reads), so a longer paste
+   cannot exceed the RPC's input limit.
 
 ## 3. Defaults
 
@@ -50,28 +51,26 @@ Create task form stays one tap away.
 - **Status**: the lane of the entry point (a lane's Add task), else Todo; resolved against the project's
   lanes as the full form does.
 
-## 4. AI title, type and tags
+## 4. AI title
 
 RPC `tasks.quick-title` `{ taskId, text, provisionalTitle }` → `{ started: boolean }`. It returns at once;
-the daemon runs the rest in the background.
+the daemon runs the rest in the background. The AI sets the **title only** (user ruling 2026-11-05): type and
+tags are left to the agent's own setup step (CARD-SETUP-SPEC).
 
 - Model: the summary model list (Settings → AI features, SUMMARY-MODELS-SPEC), with its fallbacks.
 - It runs as a temporary session in the project's Flowly background workspace
   (BACKGROUND-WORKSPACE-SPEC) and is hard-deleted when done, like the memory review.
-- Prompt: the text (at most 4000 characters), the six task types and up to 50 of the project's existing
-  tags; output JSON `{ title, type, tags }`: a title of at most 80 characters, one task type or none, at
-  most 3 tags, preferring existing tags. Output language follows the AI output language
-  (AI-LANGUAGE-SPEC).
-- Applied in one board transaction, against the card as it is then:
-  - **title** only while the card's title still equals the provisional title (a user edit wins), and only
-    when the suggestion is not empty and differs;
-  - **type** only while the card has no type;
-  - **tags** are added as agent tags (`by: "agent"`, no agent id), skipping ones the card has, invalid ones
-    and any beyond the card's tag limit. A tag the user removed in the meantime is not re-added only if it
-    is still on the card; the AI never removes a tag.
-  - Nothing is applied to an archived, deleted or finished card.
-  - The card's revision increases once; one `edited` event (actor `system`, note "AI title") and, when tags
-    were added, one `tags_changed` event.
+- Prompt: the text (at most 4000 characters); output JSON `{ title }`, at most 80 characters. Output
+  language follows the AI output language (AI-LANGUAGE-SPEC).
+- Applied in one board transaction, against the card as it is then: the title changes only while it still
+  equals the provisional title (a user edit wins), and only when the suggestion is not empty and differs.
+  Nothing is applied to an archived, deleted or finished card. The card's revision increases once, with one
+  `edited` event (actor `system`, rule `ai-title`, note "AI title") whose time is the card's new `updatedAt`.
+- A draft opened before the AI title landed (the edit form, a drawer field) is still saved: when the card is
+  exactly one revision ahead of the draft and that revision is the AI title (its event time equals the card's
+  `updatedAt`), `tasks.update` applies the draft instead of reporting a revision conflict. The edit form sends
+  the title only when the user changed it, so an untouched title keeps the AI title and a typed one wins. Any
+  other change in between is still a conflict.
 - Errors (no model, timeout, invalid output, card gone) are logged with `logFailure` and leave the card
   as it is. The user sees nothing.
 
@@ -108,8 +107,8 @@ stay valid as screen params and keyboard shortcuts, but have no Command Center i
 
 - Typing one sentence and pressing Enter creates a card with the provisional title and starts a session
   with the full text as its first message, in a worktree by default.
-- A user title edit made before the AI title arrives is kept; a type set meanwhile is kept; AI tags show
-  as agent tags.
+- A user title edit made before the AI title arrives is kept; the AI changes no type or tags; an edit
+  form opened before the AI title arrives still saves.
 - With *AI titles for quick tasks* off, no `tasks.quick-title` call is made.
 - More options… opens the full form prefilled and creates nothing by itself.
 - A linked project gets a directory workspace.

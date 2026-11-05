@@ -1495,7 +1495,7 @@ const catalog: Catalog = {
   "Flowly: Quick task": "Flowly: Schnelle Aufgabe",
   "Quick task for New task": "Schnelle Aufgabe für Neue Aufgabe",
   "AI titles for quick tasks": "KI-Titel für schnelle Aufgaben",
-  "The summary model names the card and suggests its type and tags. Spends tokens.": "Das Zusammenfassungsmodell benennt die Karte und schlägt Typ und Tags vor. Verbraucht Tokens.",
+  "The summary model names the card. Spends tokens.": "Das Zusammenfassungsmodell benennt die Karte. Verbraucht Tokens.",
   "Workspace for quick tasks": "Workspace für schnelle Aufgaben",
   "About {tokens} tokens per quick task: {cost} with {model} at API prices.": "Etwa {tokens} Tokens pro schneller Aufgabe: {cost} mit {model} zu API-Preisen.",
   "About {tokens} tokens per quick task.": "Etwa {tokens} Tokens pro schneller Aufgabe.",

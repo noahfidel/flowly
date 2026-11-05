@@ -1495,7 +1495,7 @@ const catalog: Catalog = {
   "Flowly: Quick task": "Flowly: Быстрая задача",
   "Quick task for New task": "Быстрая задача для «Новая задача»",
   "AI titles for quick tasks": "ИИ-названия для быстрых задач",
-  "The summary model names the card and suggests its type and tags. Spends tokens.": "Модель сводок называет карточку и предлагает её тип и теги. Тратит токены.",
+  "The summary model names the card. Spends tokens.": "Модель сводок называет карточку. Расходует токены.",
   "Workspace for quick tasks": "Workspace для быстрых задач",
   "About {tokens} tokens per quick task: {cost} with {model} at API prices.": "Около {tokens} токенов на быструю задачу: {cost} с {model} по ценам API.",
   "About {tokens} tokens per quick task.": "Около {tokens} токенов на быструю задачу.",

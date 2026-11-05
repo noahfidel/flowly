@@ -3,7 +3,7 @@
  * Each run is a short Claude Code child session, so most of its tokens are that session's system
  * prompt written to the cache. The token mix is the median of 2026-10 runs on Haiku 5.5 (workflow
  * insights: Sonnet 5.5) read from the local logs; outside-session runs are shaped like Progress runs. A quick task title
- * (QUICK-TASK-SPEC §4) is an estimate, not measured: the same system prompt, a short request and a few words out.
+ * (QUICK-TASK-SPEC §4) is an estimate, not measured: the same system prompt, a short request and a title out.
  */
 export type AiRun = "progress" | "outside" | "memoryReview" | "digest" | "workflow" | "quickTitle";
 
@@ -14,7 +14,7 @@ const runMix: Record<AiRun, Mix> = {
   memoryReview: { cacheWrite: 31_400, cacheRead: 28_800, output: 1_100 },
   digest: { cacheWrite: 23_500, cacheRead: 22_500, output: 1_700 },
   workflow: { cacheWrite: 107_400, cacheRead: 13_200, output: 4_600 },
-  quickTitle: { cacheWrite: 39_200, cacheRead: 14_900, output: 200 },
+  quickTitle: { cacheWrite: 39_200, cacheRead: 14_900, output: 80 },
 };
 
 /** Anthropic API list prices in $ per million tokens (input, output); a cache write costs 1.25× input, a read 0.1×. */

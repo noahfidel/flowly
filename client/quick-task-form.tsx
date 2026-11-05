@@ -4,7 +4,7 @@ import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc";
 import type { Project, Status } from "../shared/model";
 import { t } from "../shared/i18n";
-import { provisionalTitle } from "../shared/quick-task";
+import { provisionalTitle, quickTitleText } from "../shared/quick-task";
 import { Modal } from "./modal";
 import { Theme, useTheme, Button, Field, Notice, Actions, message, space } from "./ui";
 import { PickerGroup, PickerRow } from "./picker";
@@ -88,8 +88,9 @@ export function QuickTaskForm({
         branchName: "",
       });
       if (view.values && view.values.lastQuickProjectId !== project.id) void view.update({ lastQuickProjectId: project.id });
-      // Not awaited: the provisional title stays if this fails or the setting is off (§4).
-      if (view.values?.quickTaskAiTitle ?? true) void quickTitle({ taskId: created.id, text, provisionalTitle: title }).catch(() => undefined);
+      // Not awaited: the provisional title stays if this fails or the setting is off (§4). The run reads at most
+      // QUICK_TEXT_MAX characters, so a longer paste is cut here rather than refused by the RPC's input limit.
+      if (view.values?.quickTaskAiTitle ?? true) void quickTitle({ taskId: created.id, text: quickTitleText(text), provisionalTitle: title }).catch(() => undefined);
       try {
         const session = await launchKanbanSession({ paseo, contextRead, prepare }, created, {
           provider: choice.provider,

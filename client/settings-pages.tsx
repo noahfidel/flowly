@@ -347,7 +347,7 @@ function QuickTaskGroup() {
       />
       <SettingSwitch
         title={t("AI titles for quick tasks")}
-        detail={`${t("The summary model names the card and suggests its type and tags. Spends tokens.")} ${aiCostText("quickTitle", summaryModelOf(summary.values))}`}
+        detail={`${t("The summary model names the card. Spends tokens.")} ${aiCostText("quickTitle", summaryModelOf(summary.values))}`}
         value={view.values?.quickTaskAiTitle ?? true}
         disabled={!view.values}
         onChange={(quickTaskAiTitle) => void view.update({ quickTaskAiTitle })}

@@ -1495,7 +1495,7 @@ const catalog: Catalog = {
   "Flowly: Quick task": "Flowly: 빠른 작업",
   "Quick task for New task": "새 작업에 빠른 작업 사용",
   "AI titles for quick tasks": "빠른 작업의 AI 제목",
-  "The summary model names the card and suggests its type and tags. Spends tokens.": "요약 모델이 카드 이름을 정하고 유형과 태그를 제안합니다. 토큰을 사용합니다.",
+  "The summary model names the card. Spends tokens.": "요약 모델이 카드 이름을 정합니다. 토큰을 사용합니다.",
   "Workspace for quick tasks": "빠른 작업의 워크스페이스",
   "About {tokens} tokens per quick task: {cost} with {model} at API prices.": "빠른 작업당 약 {tokens} 토큰: {model} API 가격으로 {cost}.",
   "About {tokens} tokens per quick task.": "빠른 작업당 약 {tokens} 토큰.",

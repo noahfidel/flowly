@@ -3,9 +3,7 @@ import type { LocaleCode } from "../shared/i18n";
 import type { Project } from "../shared/model";
 import { SUMMARIZER_LABELS, summaryModelsOf, type SummarySettings } from "../shared/summary";
 import { mergeQuickTitle, parseQuickTitle, quickTitleJsonSchema, quickTitlePrompt, type QuickTitle } from "../shared/quick-task";
-import { projectTagStats, tagChangeNote } from "../shared/tags";
-import type { BoardStore } from "./store";
-import { setTags } from "./store";
+import { AI_TITLE_RULE, type BoardStore } from "./store";
 import { runSummaryModels } from "./summary-models";
 import { backgroundWorkspaces, type BackgroundWorkspaces } from "./background-workspace";
 import { daemonRemoveAgent, type RemoveAgent } from "./summarizer-remove";
@@ -18,7 +16,7 @@ export const QUICK_TITLE_TIMEOUT_MS = 90_000;
 export type QuickTitleModel = (project: Project, prompt: string, taskId: string, paseo: PaseoApi) => Promise<QuickTitle>;
 
 /**
- * The AI title, type and tags of a quick task (QUICK-TASK-SPEC §4). `start` returns at once; the run and the
+ * The AI title of a quick task (QUICK-TASK-SPEC §4); type and tags are left to the agent's own setup. `start` returns at once; the run and the
  * merge happen in the background, and a failure only leaves the provisional title.
  */
 export class QuickTitleService {
@@ -66,9 +64,8 @@ export class QuickTitleService {
     const task = board.tasks.find((t) => t.id === input.taskId);
     const project = task && board.projects.find((p) => p.id === task.projectId);
     if (!task || !project || task.archivedAt || project.archivedAt) return { started: false };
-    const tags = projectTagStats(board.tasks, project.id).map((s) => s.tag);
     const run: Promise<void> = (async () => {
-      const prompt = quickTitlePrompt({ text: input.text, tags, language: await this.language() });
+      const prompt = quickTitlePrompt({ text: input.text, language: await this.language() });
       const suggestion = await this.model(project, prompt, task.id, paseo);
       await this.apply(task.id, input.provisionalTitle, suggestion);
     })()
@@ -78,30 +75,21 @@ export class QuickTitleService {
     return { started: true };
   }
 
-  /** One transaction against the card as it is now; nothing when it changed in every field the AI may touch. */
+  /**
+   * One transaction against the card as it is now. The event's time is the card's `updatedAt`, so a draft saved
+   * against the revision just before can be rebased onto the AI title (`BoardStore.editTask`, QUICK-TASK-SPEC §4).
+   */
   apply(taskId: string, provisional: string, suggestion: QuickTitle) {
     return this.store.transaction((board) => {
       const task = board.tasks.find((t) => t.id === taskId);
       const project = task && board.projects.find((p) => p.id === task.projectId);
       if (!task || !project || project.archivedAt) return { value: false, changed: false };
-      const at = new Date().toISOString();
-      const merge = mergeQuickTitle(task, provisional, suggestion, at);
+      const merge = mergeQuickTitle(task, provisional, suggestion);
       if (!merge) return { value: false, changed: false };
-      const fields: string[] = [];
-      if (merge.title !== undefined) {
-        task.title = merge.title;
-        fields.push("title");
-      }
-      if (merge.type !== undefined) {
-        task.type = merge.type;
-        fields.push("type");
-      }
-      if (merge.tags) setTags(task, merge.tags);
+      task.title = merge.title;
       task.revision++;
-      task.updatedAt = at;
-      if (fields.length) this.store.event(board, { taskId, actor: "system", action: "edited", note: `AI title: changed ${fields.join(", ")}` });
-      if (merge.addedTags?.length)
-        this.store.event(board, { taskId, actor: "system", action: "tags_changed", note: tagChangeNote({ added: merge.addedTags, removed: [] }) });
+      const event = this.store.event(board, { taskId, actor: "system", action: "edited", rule: AI_TITLE_RULE, note: "AI title" });
+      task.updatedAt = event.at;
       return { value: true, changed: true };
     });
   }

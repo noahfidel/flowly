@@ -563,7 +563,8 @@ export function TaskForm({
         ? await update({
             id: task.id,
             revision: task.revision,
-            title,
+            // Only a changed title: an untouched one must not undo a quick task's AI title (QUICK-TASK-SPEC §4).
+            ...(title !== task.title ? { title } : {}),
             description,
             status,
             priority,

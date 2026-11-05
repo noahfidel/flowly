@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { mergeQuickTitle, parseQuickTitle, provisionalTitle, quickTitlePrompt, QUICK_TITLE_MAX } from "./quick-task";
-import type { TaskTag } from "./model";
+import { mergeQuickTitle, parseQuickTitle, provisionalTitle, quickTitlePrompt, quickTitleText, QUICK_TEXT_MAX, QUICK_TITLE_MAX } from "./quick-task";
+import { quickTaskTitle } from "./rpc";
 
 describe("provisionalTitle (QUICK-TASK-SPEC §2)", () => {
   test("first non-empty line, whitespace collapsed", () => {
@@ -37,21 +37,16 @@ describe("provisionalTitle (QUICK-TASK-SPEC §2)", () => {
 });
 
 describe("parseQuickTitle", () => {
-  test("reads title, type and tags", () => {
-    expect(parseQuickTitle('{"title":"Fix login","type":"bugfix","tags":["auth","Login Page"]}')).toEqual({
-      title: "Fix login",
-      type: "bugfix",
-      tags: ["auth", "Login Page"],
-    });
+  test("reads the title only", () => {
+    expect(parseQuickTitle('{"title":"Fix login","type":"bugfix","tags":["auth"]}')).toEqual({ title: "Fix login" });
   });
-  test("tolerates a code fence and unknown or missing fields", () => {
-    expect(parseQuickTitle('```json\n{"title":" Fix ","type":"nonsense"}\n```')).toEqual({ title: "Fix", type: null, tags: [] });
+  test("tolerates a code fence and a missing title", () => {
+    expect(parseQuickTitle('```json\n{"title":" Fix "}\n```')).toEqual({ title: "Fix" });
+    expect(parseQuickTitle("{}")).toEqual({ title: "" });
   });
-  test("limits tags to three and the title length", () => {
-    const out = parseQuickTitle(JSON.stringify({ title: "t".repeat(300), type: "", tags: ["a", "b", "c", "d"] }));
+  test("limits the title length", () => {
+    const out = parseQuickTitle(JSON.stringify({ title: "t".repeat(300) }));
     expect([...out.title].length).toBeLessThanOrEqual(QUICK_TITLE_MAX + 1);
-    expect(out.tags).toEqual(["a", "b", "c"]);
-    expect(out.type).toBeNull();
   });
   test("invalid output throws", () => {
     expect(() => parseQuickTitle("not json")).toThrow();
@@ -60,65 +55,43 @@ describe("parseQuickTitle", () => {
 });
 
 describe("mergeQuickTitle (QUICK-TASK-SPEC §4)", () => {
-  const at = "2026-11-05T00:00:00.000Z";
-  const card = (over: Partial<{ title: string; type: "feature"; tags: TaskTag[]; status: "todo" | "done"; archivedAt: string | null }> = {}) => ({
+  const card = (over: Partial<{ title: string; status: "todo" | "done"; archivedAt: string | null }> = {}) => ({
     title: "Fix the login bug",
-    tags: [] as TaskTag[],
     status: "todo" as const,
     archivedAt: null,
     ...over,
   });
-  const suggestion = { title: "Fix login redirect loop", type: "bugfix" as const, tags: ["auth", "Login Page", "bad tag!"] };
+  const suggestion = { title: "Fix login redirect loop" };
 
-  test("applies title, type and agent tags to an untouched card", () => {
-    const merged = mergeQuickTitle(card(), "Fix the login bug", suggestion, at);
-    expect(merged).toEqual({
-      title: "Fix login redirect loop",
-      type: "bugfix",
-      tags: [
-        { tag: "auth", by: "agent", at },
-        { tag: "login-page", by: "agent", at },
-      ],
-      addedTags: ["auth", "login-page"],
-    });
+  test("sets the title of an untouched card, and nothing else", () => {
+    expect(mergeQuickTitle(card(), "Fix the login bug", suggestion)).toEqual({ title: "Fix login redirect loop" });
   });
   test("never overwrites a title the user edited", () => {
-    const merged = mergeQuickTitle(card({ title: "My own title" }), "Fix the login bug", suggestion, at);
-    expect(merged?.title).toBeUndefined();
-    expect(merged?.type).toBe("bugfix");
+    expect(mergeQuickTitle(card({ title: "My own title" }), "Fix the login bug", suggestion)).toBeNull();
   });
-  test("never overrides a type that is set", () => {
-    const merged = mergeQuickTitle(card({ type: "feature" }), "Fix the login bug", suggestion, at);
-    expect(merged?.type).toBeUndefined();
-  });
-  test("keeps existing tags and their origin, adds only new ones", () => {
-    const human: TaskTag = { tag: "auth", by: "human", at };
-    const merged = mergeQuickTitle(card({ tags: [human] }), "Fix the login bug", suggestion, at);
-    expect(merged?.tags).toEqual([human, { tag: "login-page", by: "agent", at }]);
-    expect(merged?.addedTags).toEqual(["login-page"]);
-  });
-  test("stops at the card's tag limit", () => {
-    const full = Array.from({ length: 11 }, (_, i): TaskTag => ({ tag: `t${i}`, by: "human", at }));
-    const merged = mergeQuickTitle(card({ tags: full }), "Fix the login bug", suggestion, at);
-    expect(merged?.addedTags).toEqual(["auth"]);
-    expect(merged?.tags).toHaveLength(12);
-  });
-  test("nothing to change returns null", () => {
-    expect(mergeQuickTitle(card({ title: "Mine", type: "feature" }), "Fix the login bug", { title: "x", type: "bugfix", tags: [] }, at)).toBeNull();
-    expect(mergeQuickTitle(card(), "Fix the login bug", { title: "Fix the login bug", type: null, tags: [] }, at)).toBeNull();
-    expect(mergeQuickTitle(card(), "Fix the login bug", { title: "", type: null, tags: [] }, at)).toBeNull();
+  test("an empty or identical suggestion changes nothing", () => {
+    expect(mergeQuickTitle(card(), "Fix the login bug", { title: "Fix the login bug" })).toBeNull();
+    expect(mergeQuickTitle(card(), "Fix the login bug", { title: "" })).toBeNull();
   });
   test("finished or archived cards are left alone", () => {
-    expect(mergeQuickTitle(card({ status: "done" }), "Fix the login bug", suggestion, at)).toBeNull();
-    expect(mergeQuickTitle(card({ archivedAt: at }), "Fix the login bug", suggestion, at)).toBeNull();
+    expect(mergeQuickTitle(card({ status: "done" }), "Fix the login bug", suggestion)).toBeNull();
+    expect(mergeQuickTitle(card({ archivedAt: "2026-11-05T00:00:00.000Z" }), "Fix the login bug", suggestion)).toBeNull();
   });
 });
 
-test("quickTitlePrompt names the text, types, tags and language", () => {
-  const prompt = quickTitlePrompt({ text: "Make the login page faster", tags: ["auth", "perf"], language: "en" });
+test("quickTitlePrompt asks for a title only, in the output language", () => {
+  const prompt = quickTitlePrompt({ text: "Make the login page faster", language: "en" });
   expect(prompt).toContain("Make the login page faster");
-  expect(prompt).toContain("bugfix");
-  expect(prompt).toContain("auth, perf");
-  const long = quickTitlePrompt({ text: "z".repeat(10_000), tags: [], language: "en" });
+  expect(prompt).toContain('{"title": ...}');
+  expect(prompt).not.toMatch(/bugfix|tags/);
+  const long = quickTitlePrompt({ text: "z".repeat(10_000), language: "en" });
   expect(long.length).toBeLessThan(6_000);
+});
+
+test("quickTitleText keeps at most QUICK_TEXT_MAX characters, so a long paste still fits the RPC (§4)", () => {
+  expect(quickTitleText("short")).toBe("short");
+  const long = quickTitleText("😀".repeat(30_000));
+  expect([...long]).toHaveLength(QUICK_TEXT_MAX);
+  // tasks.quick-title accepts at most 20,000 UTF-16 units; 4,000 characters never exceed it.
+  expect(quickTaskTitle.input.safeParse({ taskId: "t", text: long, provisionalTitle: "x" }).success).toBe(true);
 });

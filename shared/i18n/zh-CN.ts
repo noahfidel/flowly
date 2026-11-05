@@ -1495,7 +1495,7 @@ const catalog: Catalog = {
   "Flowly: Quick task": "Flowly：快速任务",
   "Quick task for New task": "新建任务使用快速任务",
   "AI titles for quick tasks": "快速任务的 AI 标题",
-  "The summary model names the card and suggests its type and tags. Spends tokens.": "摘要模型为卡片命名，并建议类型和标签。会消耗 token。",
+  "The summary model names the card. Spends tokens.": "摘要模型为卡片命名。会消耗 token。",
   "Workspace for quick tasks": "快速任务的工作区",
   "About {tokens} tokens per quick task: {cost} with {model} at API prices.": "每个快速任务约 {tokens} token：使用 {model} 按 API 价格约 {cost}。",
   "About {tokens} tokens per quick task.": "每个快速任务约 {tokens} token。",

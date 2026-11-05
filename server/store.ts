@@ -56,6 +56,20 @@ export function setTags(task: Task, tags: Task["tags"]) {
   else delete task.tags;
 }
 
+/** `rule` of the quick task's AI title event (QUICK-TASK-SPEC §4). */
+export const AI_TITLE_RULE = "ai-title";
+
+/**
+ * Whether the only change since `revision` is the quick task's AI title: exactly one revision later, and the newest
+ * AI title event carries the card's current `updatedAt` (every revision bump sets it). A draft from that revision
+ * may then be saved: it cannot undo anything but the AI title, and a title the user typed wins over it.
+ */
+export function onlyAiTitleSince(board: Board, task: Task, revision: number) {
+  if (revision !== task.revision - 1) return false;
+  const last = board.events.findLast((e) => e.taskId === task.id && e.rule === AI_TITLE_RULE);
+  return !!last && last.at === task.updatedAt;
+}
+
 export class BoardStore {
   private tail: Promise<unknown> = Promise.resolve();
   /** Events created by the running transaction; appended to the flow log once it commits. */
@@ -169,7 +183,7 @@ export class BoardStore {
     return this.mutate((board) => {
       const task = board.tasks.find((t) => t.id === input.id);
       if (!task) throw new Error("Task not found.");
-      if (task.revision !== input.revision)
+      if (task.revision !== input.revision && !onlyAiTitleSince(board, task, input.revision))
         throw new Error(
           "Revision conflict: this card changed. Reload before saving your draft.",
         );
