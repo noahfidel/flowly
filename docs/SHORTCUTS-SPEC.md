@@ -21,7 +21,7 @@
 | 按键 | 动作 | 前提 |
 | --- | --- | --- |
 | `N` | 打开“新建任务”：*Quick task for New task* 开启（默认）时为 Quick task，否则为完整表单（默认 Todo；QUICK-TASK-SPEC §5） | 存在当前项目且未归档 |
-| `Q` | 打开 Quick task（QUICK-TASK-SPEC） | 至少有一个未归档项目 |
+| `Q` | 打开 Quick task，项目默认为上次 Quick task 用的项目，否则当前项目（QUICK-TASK-SPEC §3） | 至少有一个未归档项目 |
 | `P` | 打开项目切换弹层 | — |
 | `/` 或 `F` | 打开筛选/搜索弹层 | 存在当前项目 |
 | `S` | 打开 / 关闭 Search 页（SEARCH-SPEC §5） | 存在当前项目 |

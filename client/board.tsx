@@ -355,7 +355,8 @@ function BoardContent(
       null,
     ),
     // Quick task (QUICK-TASK-SPEC): `projectId` when the entry point belongs to one project (a lane, a tab, the empty-board hint).
-    [quickTask, setQuickTask] = useState<{ status: Status; projectId?: string } | null>(null),
+    // `recent`: Q and the Command Center open in the last quick-task project (QUICK-TASK-SPEC §3).
+    [quickTask, setQuickTask] = useState<{ status: Status; projectId?: string; recent?: boolean } | null>(null),
     [error, setError] = useState(""),
     [pending, setPending] = useState(false),
     [preferredShare, setPreferredShare] = useState(defaultDrawerShare);
@@ -727,9 +728,10 @@ function BoardContent(
       effectiveAgentModel(p, globalModel)?.model ?? null,
     ),
   );
-  // New task: Quick task unless the user turned that off (QUICK-TASK-SPEC §5).
+  // New task: Quick task unless the user turned that off (QUICK-TASK-SPEC §5), in the board's project unless pinned.
   const openNewTask = (status: Status, pinned?: string) => {
-    if (view.values?.quickTaskDefault ?? true) setQuickTask({ status, ...(pinned ? { projectId: pinned } : {}) });
+    const projectId = pinned ?? project?.id;
+    if (view.values?.quickTaskDefault ?? true) setQuickTask({ status, ...(projectId ? { projectId } : {}) });
     else setTaskForm({ status });
   };
   // Desktop: Attention drops down under the header bell; phones keep the sheet.
@@ -1455,7 +1457,7 @@ function BoardContent(
       case "quick-task":
         if (!board?.projects.some((p) => !p.archivedAt)) return false;
         setPage(null);
-        setQuickTask({ status: "todo" });
+        setQuickTask({ status: "todo", recent: true });
         return true;
       case "filters":
         if (!project) return false;
@@ -2562,7 +2564,7 @@ function BoardContent(
         {quickTask && board && (
           <QuickTaskForm
             projects={projects.filter((p) => !p.archivedAt)}
-            initialProjectId={quickProject(projects, { pinned: quickTask.projectId, last: view.values?.lastQuickProjectId || "", current: project?.id || "" })?.id || ""}
+            initialProjectId={quickProject(projects, { pinned: quickTask.projectId, last: quickTask.recent ? view.values?.lastQuickProjectId : undefined, current: project?.id || "" })?.id || ""}
             defaultStatus={quickTask.status}
             agentDefaultsFor={agentDefaultsFor}
             onClose={() => setQuickTask(null)}

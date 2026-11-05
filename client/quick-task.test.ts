@@ -24,8 +24,12 @@ describe("quickProject (QUICK-TASK-SPEC §3)", () => {
   test("the pinned project wins when it is live", () => {
     expect(quickProject([a, b], { pinned: "b", last: "a", current: "a" })?.id).toBe("b");
   });
-  test("the last quick-task project when it is live", () => {
+  test("the last quick-task project when it is live (Q and the Command Center)", () => {
     expect(quickProject([a, b], { last: "b", current: "a" })?.id).toBe("b");
+  });
+  test("without a last project (\"+\", N, phone add, empty-board hint) the board's project wins", () => {
+    expect(quickProject([a, b], { current: "b" })?.id).toBe("b");
+    expect(quickProject([a, b], { pinned: "b", current: "a" })?.id).toBe("b");
   });
   test("falls back to the board's project when the last one is archived or gone", () => {
     expect(quickProject([a, b, gone], { last: "gone", current: "b" })?.id).toBe("b");

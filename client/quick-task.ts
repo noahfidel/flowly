@@ -5,12 +5,13 @@ import type { Project, Status } from "../shared/model";
 export type QuickMode = "worktree" | "directory";
 
 /**
- * The project a quick task opens with: `pinned` (an entry point tied to one project), else the last quick-task
- * project, else the board's, else the first live one. Archived projects never qualify.
+ * The project a quick task opens with: `pinned` (an entry point tied to one project), else `last` (only Q and
+ * the Command Center pass the last quick-task project), else the board's, else the first live one. Archived
+ * projects never qualify.
  */
 export function quickProject(
   projects: readonly Project[],
-  ids: { pinned?: string; last: string; current: string },
+  ids: { pinned?: string; last?: string; current: string },
 ): Project | null {
   const live = projects.filter((p) => !p.archivedAt);
   const find = (id?: string) => (id ? live.find((p) => p.id === id) : undefined);

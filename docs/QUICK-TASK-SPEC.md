@@ -40,9 +40,11 @@ Create task form stays one tap away.
 
 ## 3. Defaults
 
-- **Project**: the last project used for a quick task, when it is still live; else the project the board
-  shows; else the first live project. Entry points tied to one project (a lane's Add task, a project tab's
-  New task, the empty-board hint) open with that project instead.
+- **Project** (user ruling 2026-11-05): the board's New task button, **N**, the phone lane's Add task and the
+  empty-board hint open with the project the board shows; a lane's Add task and a project tab's New task with
+  their own project. Only **Q** and Command Center **Flowly: Quick task** open with the last project used for
+  a quick task, when it is still live, else the board's project. Either way the first live project is the last
+  fallback, and the Project picker can change it.
 - **Workspace mode**: the *Workspace mode for quick tasks* setting (worktree by default); a project with
   links always uses directory.
 - **Status**: the lane of the entry point (a lane's Add task), else Todo; resolved against the project's
@@ -80,7 +82,7 @@ the daemon runs the rest in the background.
 - A lane's **Add task**, the phone lane's Add task, a project tab's **New task** and the empty-board hint:
   the same choice, with that lane's status and project.
 - **Q** on the board (desktop shortcut): always Quick task.
-- Command Center **Flowly: Quick task**: opens the board and Quick task with its default project.
+- Command Center **Flowly: Quick task**: opens the board and Quick task with the last quick-task project (§3).
 - Edit, follow-up, from-idea, from-suggestion and Linear Start card keep the full form.
 
 ## 6. Settings
