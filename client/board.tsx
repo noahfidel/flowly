@@ -108,7 +108,7 @@ import { SearchPage } from "./search-page";
 import { focusOfHit, type DrawerFocus } from "./drawer-focus";
 import { searchSources as allSearchSources, type SearchCard, type SearchHit, type SearchMemoryHit } from "../shared/search";
 import { MemoryPage } from "./memory";
-import { lastViewedProject, pickView, rememberViewedProject } from "./project-memory";
+import { lastViewedProject, pickView, rememberViewedProject, staleAllChoice } from "./project-memory";
 import { ALL_PROJECTS, allProjectsAvailable, allQuickProject, allStatuses, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { ProjectTabs } from "./project-tabs";
 import { RemoveProjectDialog } from "./project-remove";
@@ -560,6 +560,12 @@ function BoardContent(
   const viewKey = allView ? ALL_PROJECTS : project?.id || "";
   // Returning to the board in this app run reopens the view (a project or All) seen last; a cold start opens the first project.
   useEffect(() => rememberViewedProject(viewKey || undefined), [viewKey]);
+  // An All choice the board fell back from is replaced by the project shown, so All does not return by itself.
+  // Only with the full overview: a cold direct link's board holds just the card's project.
+  const choiceStale = staleAllChoice(projectId, { id: ALL_PROJECTS, ok: allOk }, !!overviewData.data && !!view.values);
+  useEffect(() => {
+    if (choiceStale) setProject(project?.id ?? "");
+  }, [choiceStale, project?.id]);
   const chooseProject = (id: string) => { ignoredLink.current = linkKey; setProject(id); };
   const chooseAll = () => {
     chooseProject(ALL_PROJECTS);
@@ -2664,6 +2670,9 @@ function BoardContent(
               // The full form opens once this dialog has closed: two Modals in one frame freeze Paseo.
               setQuickTask(null);
               focusProject(more.projectId);
+              // On All the board stays; a drawer for another project's card would sit behind the form and share its
+              // session defaults (formProject), so close it.
+              if (task && task.projectId !== more.projectId) setTask("");
               afterModalClose(() => setTaskForm({ status: more.status, seed: more.seed, projectId: more.projectId }));
             }}
             onSaved={(projectId, id, launch) => {

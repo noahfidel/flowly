@@ -281,7 +281,7 @@ export const SearchPage = memo(function SearchPage({
             </View>
           )}
           {data?.cards.map((card) => (
-            <CardResult key={card.taskId} card={card} showProject={scope === "all"} nameOf={nameOf} onOpen={onOpenCard} />
+            <CardResult key={card.taskId} card={card} showProject={scope === "all" || !projectId} nameOf={nameOf} onOpen={onOpenCard} />
           ))}
           {!!data?.memory.length && (
             <View style={{ gap: space[2], paddingTop: space[2] }}>

@@ -62,7 +62,8 @@ order or projects, and every write still goes through the card's own project.
   (`quickProject` with no pinned or current project). The Project picker can change it. A lane's Add task
   passes that lane's status (resolved against the chosen project's lanes by `startStatus`).
 - **Q**, the Command Center and Linear's *Start card* behave the same in All (they never need a board
-  project). More options… opens the full form for the picked project and keeps the board on All.
+  project). More options… opens the full form for the picked project and keeps the board on All; an open
+  drawer for a card of another project closes first.
 - The empty-board hint shows in All when no included project has a card.
 
 ## 6. Filters, tags and search
@@ -70,7 +71,7 @@ order or projects, and every write still goes through the card's own project.
 - The filter search, Type, Priority and Tags filters apply to all included cards. Tag suggestions are the
   union of the included projects' tags. "{n} shown" counts the filtered cards.
 - The Search page (button, **S**, *Search everywhere*) searches all projects in All; its This project / All
-  projects choice is hidden there.
+  projects choice is hidden there and each result shows its project.
 
 ## 7. Hidden in All
 
@@ -83,7 +84,9 @@ order or projects, and every write still goes through the card's own project.
 
 - The PROJECT-TABS-SPEC rule with All as one more choice: an explicit choice in this board instance → the
   choice last viewed during this app run (a project or All) → the first project. All only counts while it is
-  available (§1); otherwise the next rule applies.
+  available (§1); otherwise the next rule applies. When the board falls back from an explicit All choice
+  because All is no longer available, that choice is replaced by the project shown, so the board does not
+  jump back to All when it becomes available again (decided once the full board and settings have loaded).
 - Opening the board from a linked workspace or session, a session chip, Linear's *Open card*, an idea link or
   a memory search hit still selects that card's project.
 
@@ -100,7 +103,7 @@ Unit (`client/all-projects.test.ts`, `client/project-memory.test.ts`):
 - Reorder: disabled in All for every sort; on a project board only with Manual.
 - Drop guard: a status disabled in the card's project is refused.
 - Last viewed: All restored when available; falls back to the first project when it is not; an explicit
-  project choice wins.
+  project choice wins; an All choice the board fell back from is dropped (`client/project-memory.test.ts`).
 - New task in All: Quick task with the last quick-task project, else the first live one; lane status kept.
 - Tip `all-projects` follows `project-menu` and needs All to be available (`client/onboarding-logic.test.ts`).
 - Setting `allProjectsTab` defaults to on and a bad stored value falls back to on (`shared/settings.test.ts`).

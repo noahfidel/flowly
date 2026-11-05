@@ -29,3 +29,12 @@ export function pickView<T extends { id: string }>(
   if (picked === "all") return { all: true };
   return { all: false, project: picked || projects[0] };
 }
+
+/**
+ * An explicit All choice the board had to fall back from (setting off, fewer than two live projects) is
+ * dropped, so the board does not jump back to All when it becomes available again (ALL-PROJECTS-SPEC §8).
+ * Only decide once the projects and settings are loaded (`ready`): an empty list while loading is not a fallback.
+ */
+export function staleAllChoice(chosen: string, all: { id: string; ok: boolean }, ready: boolean): boolean {
+  return ready && chosen === all.id && !all.ok;
+}
