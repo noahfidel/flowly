@@ -1501,5 +1501,9 @@ const catalog: Catalog = {
   "About {tokens} tokens per quick task.": "每个快速任务约 {tokens} token。",
   "New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.": "新建任务只问你想完成什么。按 Enter 即创建卡片、在新的 worktree 中启动 agent，并由 AI 命名；“更多选项”打开完整表单。",
   "New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off.": "新建任务现在打开快速任务：说出你想完成什么并按 Enter。“更多选项”打开完整表单；可在 设置 → 工作流 中关闭。",
+  "Make sure there's a Linear ticket": "确保有 Linear 工单",
+  "When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.": "卡片没有关联 Linear 问题时，它的代理会先在 Linear 中搜索，没有合适的就创建一个工单并关联到卡片。代理使用自己的 Linear 工具；Flowly 从不写入 Linear。",
+  "Linear team": "Linear 团队",
+  "Team name or key (optional)": "团队名称或键（可选）",
 };
 export default catalog;

@@ -1,3 +1,4 @@
+import { linearTeamValue } from "../shared/linear-ticket";
 import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
 import { useBoardView } from "./board-view";
@@ -84,6 +85,8 @@ export function ProjectForm({
     [workpad, setWorkpad] = useState(project?.workpad !== false),
     [workflowInsights, setWorkflowInsights] = useState(project?.workflowInsights !== false),
     [memory, setMemory] = useState(project?.memory !== false),
+    [linearTicket, setLinearTicket] = useState(project?.linearTicket === true),
+    [linearTeam, setLinearTeam] = useState(project?.linearTeam ?? ""),
     [agentModel, setAgentModel] = useState<AgentModel | null>(project?.agentModel ?? null),
     [archivedShown, setArchivedShown] = useState(!!showArchived),
     [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
@@ -121,6 +124,8 @@ export function ProjectForm({
           ...(workpad !== (project.workpad !== false) ? { workpad } : {}),
           ...(workflowInsights !== (project.workflowInsights !== false) ? { workflowInsights } : {}),
           ...(memory !== (project.memory !== false) ? { memory } : {}),
+          ...(linearTicket !== (project.linearTicket === true) ? { linearTicket } : {}),
+          ...(linearTeamValue(linearTeam) !== (project.linearTeam ?? "") ? { linearTeam: linearTeamValue(linearTeam) } : {}),
           ...(JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
           ...(JSON.stringify(agentModel) !== JSON.stringify(project.agentModel ?? null) ? { agentModel } : {}),
         });
@@ -282,6 +287,17 @@ export function ProjectForm({
               value={workpad}
               onChange={setWorkpad}
             />
+          )}
+          {project && (
+            <Toggle
+              title={t("Make sure there's a Linear ticket")}
+              detail={t("When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.")}
+              value={linearTicket}
+              onChange={setLinearTicket}
+            />
+          )}
+          {project && linearTicket && (
+            <Field title={t("Linear team")} value={linearTeam} onChange={setLinearTeam} placeholder={t("Team name or key (optional)")} />
           )}
           {project && (
             <Toggle

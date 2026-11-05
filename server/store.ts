@@ -10,6 +10,7 @@ import { otherEnd, relationLabels, relationOf, touches } from "../shared/links";
 import { changeTags, mergeTagEdit, normalizeTags, tagChangeNote } from "../shared/tags";
 import { attentionDismissLimits, dismissalSignals, type AttentionDismissInput, type AttentionRestoreInput } from "../shared/attention-dismiss";
 import type { FlowLog } from "./flow-log";
+import { linearTeamValue } from "../shared/linear-ticket";
 import type { ProjectSnapshot } from "./project-folder";
 import {
   boardSchema,
@@ -323,6 +324,12 @@ export class BoardStore {
       if (input.workpad !== undefined) p.workpad = input.workpad;
       if (input.workflowInsights !== undefined) p.workflowInsights = input.workflowInsights;
       if (input.memory !== undefined) p.memory = input.memory;
+      if (input.linearTicket !== undefined) p.linearTicket = input.linearTicket;
+      if (input.linearTeam !== undefined) {
+        const team = linearTeamValue(input.linearTeam);
+        if (team) p.linearTeam = team;
+        else delete p.linearTeam;
+      }
       if (input.agentModel !== undefined) {
         if (input.agentModel) p.agentModel = input.agentModel;
         else delete p.agentModel;

@@ -1501,5 +1501,9 @@ const catalog: Catalog = {
   "About {tokens} tokens per quick task.": "クイックタスク 1 件あたり約 {tokens} トークン。",
   "New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.": "新規タスクでは、してほしいことだけを入力します。Enter でカードを作成し、新しい worktree でエージェントを開始し、AI が名前を付けます。「その他のオプション」で完全なフォームを開きます。",
   "New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off.": "新規タスクはクイックタスクを開くようになりました：してほしいことを書いて Enter を押してください。「その他のオプション」で完全なフォームを開けます。設定 → ワークフローでオフにできます。",
+  "Make sure there's a Linear ticket": "Linear チケットを必ず用意する",
+  "When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.": "カードに Linear の課題がリンクされていないと、エージェントがまず Linear を検索し、合うものがなければチケットを作成してカードにリンクします。エージェント自身の Linear ツールを使い、Flowly が Linear に書き込むことはありません。",
+  "Linear team": "Linear チーム",
+  "Team name or key (optional)": "チーム名またはキー（任意）",
 };
 export default catalog;

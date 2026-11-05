@@ -1501,5 +1501,9 @@ const catalog: Catalog = {
   "About {tokens} tokens per quick task.": "Около {tokens} токенов на быструю задачу.",
   "New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.": "«Новая задача» спрашивает только, что нужно сделать. Enter создаёт карточку, запускает её агента в новом worktree и даёт ИИ назвать её; «Другие параметры» открывают полную форму.",
   "New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off.": "«Новая задача» теперь открывает быструю задачу: напишите, что нужно сделать, и нажмите Enter. «Другие параметры» открывают полную форму; отключить можно в Настройки → Рабочий процесс.",
+  "Make sure there's a Linear ticket": "Проверять тикет в Linear",
+  "When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.": "Если к карточке не привязана задача Linear, агент сначала ищет в Linear, создаёт тикет, если подходящего нет, и привязывает его к карточке. Он использует свои инструменты Linear; Flowly никогда не пишет в Linear.",
+  "Linear team": "Команда Linear",
+  "Team name or key (optional)": "Название или ключ команды (необязательно)",
 };
 export default catalog;

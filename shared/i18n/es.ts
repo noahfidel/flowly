@@ -1501,5 +1501,9 @@ const catalog: Catalog = {
   "About {tokens} tokens per quick task.": "Unos {tokens} tokens por tarea rápida.",
   "New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.": "Nueva tarea solo pregunta qué quieres que se haga. Enter crea la tarjeta, inicia su agente en un worktree nuevo y deja que la IA la nombre; Más opciones abre el formulario completo.",
   "New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off.": "Nueva tarea ahora abre Tarea rápida: di qué quieres que se haga y pulsa Enter. Más opciones abre el formulario completo; se desactiva en Ajustes → Flujo de trabajo.",
+  "Make sure there's a Linear ticket": "Asegurar un ticket de Linear",
+  "When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.": "Si una tarjeta no tiene una incidencia de Linear vinculada, su agente busca primero en Linear, crea un ticket si ninguno encaja y lo vincula a la tarjeta. Usa sus propias herramientas de Linear; Flowly nunca escribe en Linear.",
+  "Linear team": "Equipo de Linear",
+  "Team name or key (optional)": "Nombre o clave del equipo (opcional)",
 };
 export default catalog;

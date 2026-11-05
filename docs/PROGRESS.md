@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Linear ticket per card (branch `feat/quick-task`) — 2026-11-05
+
+- Project form: **Make sure there's a Linear ticket** switch (`project.linearTicket`, absent = off) and, while on, a **Linear team** field (`project.linearTeam`, trimmed to one line, ≤ 80 characters, empty removes it). Both go through `projects.update` (`projectEdit`). [LINEAR-TICKET-SPEC](LINEAR-TICKET-SPEC.md)
+- `linearTicketLines` (`shared/linear-ticket.ts`) adds a block to the session context (`sessionContext`, after inputs/outputs) when the switch is on and no artifact is a Linear item (connector provider `linear` or a `linear.app` link). It covers every session started from a card (Quick task, the full form, New session), Send Kanban work instructions and `flowly_get_task`. The user's first message is unchanged. No Linear write code in the daemon.
+- 4 new strings in all catalogs; the agent text stays English. Onboarding: no tour line or tip (an opt-in per-project switch, off by default, with no moment worth a tip). No What's new entry (no release). Telemetry: no field (off in this fork).
+- Checks: `shared/linear-ticket.test.ts` (decision off / on with a ticket / on without, the generated text, its place in the context), `server/linear-ticket.test.ts` (store save, team clear, context follows the setting and a linked issue). Not run: the installed plugin and a real agent session with Linear tools.
+
 ## Quick task (branch `feat/quick-task`) — 2026-11-05
 
 - **Quick task** dialog (`client/quick-task-form.tsx`): one box, Enter submits; Project / Agent / Workspace chips and More options…. Creates the card through `tasks.create` and starts the session through `launchKanbanSession`, like the full form, with a provisional title (`shared/quick-task.ts`) and the full text as the first message. [QUICK-TASK-SPEC](QUICK-TASK-SPEC.md)

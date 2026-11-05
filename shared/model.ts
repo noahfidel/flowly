@@ -135,6 +135,10 @@ export const projectSchema = z.object({
   workflowInsights: z.boolean().optional(),
   /** Project memory (PROJECT-MEMORY-SPEC §9). Absent means on. */
   memory: z.boolean().optional(),
+  /** Ask agents to make sure the card has a Linear ticket (LINEAR-TICKET-SPEC §1). Absent means off. */
+  linearTicket: z.boolean().optional(),
+  /** The Linear team (name or key) those tickets go to; absent lets the agent infer it (LINEAR-TICKET-SPEC §1). */
+  linearTeam: z.string().max(80).optional(),
   /** Display order in the project chooser (lower first); absent sorts by creation. */
   position: z.number().optional(),
   lanes: lanesSchema.optional(),
@@ -585,6 +589,9 @@ export const projectEdit = z.strictObject({
   workpad: z.boolean().optional(),
   workflowInsights: z.boolean().optional(),
   memory: z.boolean().optional(),
+  linearTicket: z.boolean().optional(),
+  /** "" removes the team (LINEAR-TICKET-SPEC §1). */
+  linearTeam: z.string().max(200).optional(),
   lanes: lanesSchema.optional(),
   /** A model sets the project default; null removes it (the global default applies again). */
   agentModel: agentModelSchema.nullable().optional(),
