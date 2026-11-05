@@ -52,6 +52,7 @@ const costTexts: Record<AiRun, readonly [string, string]> = {
   memoryReview: [msg("About {tokens} tokens per finished card: {cost} with {model} at API prices."), msg("About {tokens} tokens per finished card.")],
   digest: [msg("About {tokens} tokens per digest: {cost} with {model} at API prices."), msg("About {tokens} tokens per digest.")],
   workflow: [msg("About {tokens} tokens per run: {cost} with {model} at API prices."), msg("About {tokens} tokens per run.")],
+  quickTitle: [msg("About {tokens} tokens per quick task: {cost} with {model} at API prices."), msg("About {tokens} tokens per quick task.")],
 };
 export function aiCostText(run: AiRun, model: string): string {
   const cost = runCost(run, model);
@@ -322,7 +323,44 @@ export function WorkflowPage() {
           onChange={(next) => view.save({ hideFinishedAfterDays: Number(next) })}
         />
       </SettingsGroup>
+      <QuickTaskGroup />
     </SettingsPage>
+  );
+}
+
+/** Quick task (QUICK-TASK-SPEC §6): what New task opens, the AI title and the workspace. */
+function QuickTaskGroup() {
+  const view = useBoardView();
+  const summary = useStored(useSettings(summarySettings), summarySettingsValues);
+  const mode = view.values?.quickTaskMode ?? "worktree";
+  const modes = [
+    { value: "worktree", label: t("New isolated worktree") },
+    { value: "directory", label: t("New in directory") },
+  ];
+  return (
+    <SettingsGroup title={t("Quick task")}>
+      <SettingSwitch
+        title={t("Quick task for New task")}
+        value={view.values?.quickTaskDefault ?? true}
+        disabled={!view.values}
+        onChange={(quickTaskDefault) => void view.update({ quickTaskDefault })}
+      />
+      <SettingSwitch
+        title={t("AI titles for quick tasks")}
+        detail={`${t("The summary model names the card and suggests its type and tags. Spends tokens.")} ${aiCostText("quickTitle", summaryModelOf(summary.values))}`}
+        value={view.values?.quickTaskAiTitle ?? true}
+        disabled={!view.values}
+        onChange={(quickTaskAiTitle) => void view.update({ quickTaskAiTitle })}
+      />
+      <SettingSelect
+        title={t("Workspace for quick tasks")}
+        value={mode}
+        placeholder={modes.find((m) => m.value === mode)!.label}
+        disabled={!view.values}
+        options={modes}
+        onChange={(next) => void view.update({ quickTaskMode: next as "worktree" | "directory" })}
+      />
+    </SettingsGroup>
   );
 }
 

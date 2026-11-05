@@ -1496,5 +1496,17 @@ const catalog: Catalog = {
   "Start card from {key}": "{key}에서 카드 시작",
   "Linear board": "Linear 보드",
   "With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens New task with the issue attached and the agent ready.": "Linear를 연결하면 사이드바의 Linear에 내 이슈가 상태별로 표시됩니다. 카드 시작을 누르면 이슈가 첨부되고 에이전트가 준비된 새 작업이 열립니다.",
+  "Quick task": "빠른 작업",
+  "What do you want done?": "무엇을 하고 싶나요?",
+  "More options…": "추가 옵션…",
+  "Flowly: Quick task": "Flowly: 빠른 작업",
+  "Quick task for New task": "새 작업에 빠른 작업 사용",
+  "AI titles for quick tasks": "빠른 작업의 AI 제목",
+  "The summary model names the card and suggests its type and tags. Spends tokens.": "요약 모델이 카드 이름을 정하고 유형과 태그를 제안합니다. 토큰을 사용합니다.",
+  "Workspace for quick tasks": "빠른 작업의 워크스페이스",
+  "About {tokens} tokens per quick task: {cost} with {model} at API prices.": "빠른 작업당 약 {tokens} 토큰: {model} API 가격으로 {cost}.",
+  "About {tokens} tokens per quick task.": "빠른 작업당 약 {tokens} 토큰.",
+  "New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.": "새 작업은 하고 싶은 일만 묻습니다. Enter를 누르면 카드를 만들고 새 worktree에서 에이전트를 시작하며 AI가 이름을 붙입니다. 추가 옵션은 전체 양식을 엽니다.",
+  "New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off.": "이제 새 작업은 빠른 작업을 엽니다: 하고 싶은 일을 적고 Enter를 누르세요. 추가 옵션은 전체 양식을 열고, 설정 → 워크플로에서 끌 수 있습니다.",
 };
 export default catalog;

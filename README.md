@@ -110,7 +110,7 @@ The interface follows your device language, or pick one in **Flowly settings →
 The first time you open Flowly, a short welcome tour explains projects, cards and sessions and sets the basics: interface and AI output language, the progress model, whether progress, next steps and ideas also apply to sessions outside Flowly (on by default; each of their turns then runs the summary model once), and whether Project memory and Insights are on. Skip keeps the defaults. Change any of it later from the gear at the bottom left.
 
 1. **New project**: pick a directory (or several repositories) to register as a native Paseo project.
-2. **New task**: describe the work; optionally start an agent together with the card.
+2. **New task** (or **Q**): say what you want done and press Enter. Quick task creates the card, starts its agent in a new worktree and lets the summary model name it; **More options…** opens the full form (status, priority, type, tags, workspace, inputs).
 3. Watch the card move. Answer **Needs you** cards, review **In review** cards, accept or dismiss **Ideas**, and open **Insights** at the end of the day.
 
 ## How it works

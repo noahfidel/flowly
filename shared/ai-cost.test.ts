@@ -19,3 +19,8 @@ test("dollars keeps one significant digit below a cent and cents above", () => {
   expect(dollars(0.56)).toBe("$0.56");
   expect(dollars(1.126)).toBe("$1.13");
 });
+
+test("a quick task title is priced like a short Progress run (QUICK-TASK-SPEC §6)", () => {
+  expect(runTokens("quickTitle")).toBeLessThan(runTokens("progress"));
+  expect(runCost("quickTitle", "claude/claude-haiku-5-5")).toBeGreaterThan(0);
+});

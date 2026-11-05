@@ -54,6 +54,7 @@ import { startedByUser, turnPick, userTexts } from "./shared/agent-habits";
 import { turnTimeline } from "./server/turn-timeline";
 import { MemoryService, setMemoryEverywhere, memoryOn } from "./server/memory";
 import { SearchService } from "./server/search";
+import { QuickTitleService } from "./server/quick-title";
 import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
 import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
@@ -395,6 +396,9 @@ export default function contribute(host: PluginServerContext) {
     const managed = (await tools.managedSessions()).filter((s) => s.taskId === input.taskId);
     return summaries.refresh(input.taskId, managed.map((s) => s.agentId), paseo);
   });
+  // Quick task (QUICK-TASK-SPEC §4): returns at once; the title run and its merge happen in the background.
+  const quickTitles = new QuickTitleService(store, summaries.settings, aiLanguage);
+  server.handle(rpc.quickTaskTitle, (input, { paseo }) => quickTitles.start(input, paseo));
   server.handle(rpc.toolsHealth, async (_, { paseo }) => {
     tools.attach(paseo);
     await tools.start().catch(() => undefined);

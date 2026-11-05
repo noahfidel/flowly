@@ -14,6 +14,7 @@ describe("board shortcut keys", () => {
   test("maps letters case-insensitively and punctuation keys", () => {
     expect(resolveShortcut({ key: "n" }, true)).toBe("new-task");
     expect(resolveShortcut({ key: "N" }, true)).toBe("new-task");
+    expect(resolveShortcut({ key: "q" }, true)).toBe("quick-task");
     expect(resolveShortcut({ key: "b" }, true)).toBe("ideas");
     expect(resolveShortcut({ key: "i" }, true)).toBe("insights");
     expect(resolveShortcut({ key: "p" }, true)).toBe("projects");
@@ -96,6 +97,7 @@ describe("Command Center board intents", () => {
       intent: "new-task",
       key: `new-task|${now}`,
     });
+    expect(parseBoardIntent(intentParams("quick-task", now), now)?.intent).toBe("quick-task");
     expect(parseBoardIntent(intentParams("attention", now), now)?.key).not.toBe(
       parseBoardIntent(intentParams("attention", now + 1), now)?.key,
     );

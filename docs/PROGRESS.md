@@ -1,5 +1,14 @@
 # Implementation progress
 
+## Quick task (branch `feat/quick-task`) — 2026-11-05
+
+- **Quick task** dialog (`client/quick-task-form.tsx`): one box, Enter submits; Project / Agent / Workspace chips and More options…. Creates the card through `tasks.create` and starts the session through `launchKanbanSession`, like the full form, with a provisional title (`shared/quick-task.ts`) and the full text as the first message. [QUICK-TASK-SPEC](QUICK-TASK-SPEC.md)
+- AI title: new RPC `tasks.quick-title` (`server/quick-title.ts`) returns at once; the summary models run in the project's background workspace and the result is merged in one transaction (title only while unchanged, type only while unset, tags added as agent tags). Its session is hard-deleted like the memory review's (AGENTS.md exceptions extended).
+- Entry points: New task button, `N`, lane Add task, phone Add task, project tab New task and the empty-board hint follow *Quick task for New task*; `Q` and Command Center **Flowly: Quick task** always open it. The full form accepts the hand-off (instruction, workspace mode, images, agent).
+- Settings (board view, host-scoped): `quickTaskDefault`, `quickTaskAiTitle`, `quickTaskMode`, `lastQuickProjectId`; Settings → Workflow → Quick task, with the run's estimated cost (`quickTitle` in `shared/ai-cost.ts`, an estimate, not measured).
+- 12 new strings in all catalogs. Onboarding: a **Quick task** row first under More features and a new tip `quick-task` (lowest priority). No What's new entry (no release in this change). Telemetry: no heartbeat field (telemetry is off in this fork).
+- Checks: `shared/quick-task.test.ts`, `client/quick-task.test.ts`, `server/quick-title.test.ts`, extended `shared/settings.test.ts`, `client/shortcuts.test.ts`, `client/onboarding-logic.test.ts`, `shared/ai-cost.test.ts`. Not run: the installed plugin, a real model run, the phone.
+
 ## Linear board in the main bar (branch `feat/linear-board`) — 2026-11-04
 
 - A **Linear** row in Paseo's sidebar (only with a Linear connection) opens a board of Linear issues: Assigned to me or any team the key sees, columns by state type (Backlog, Todo, In progress, Done, Canceled; custom states by type), finished issues limited to the last `hideFinishedAfterDays` days, a remembered Board/List toggle (list on compact layouts by default) and a connection switch with several Linear connections. Pressing an issue opens the existing item preview; **Start card** opens New task in the board's current project with the issue attached, its title, Start agent on and the instruction optional; an issue already on a card shows a Card marker and **Open card**. Read-only: two new `query` documents (`Scope`, paged by cursor, at most 4 × 50; `Teams`). [LINEAR-BOARD-SPEC](LINEAR-BOARD-SPEC.md)

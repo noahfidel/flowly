@@ -80,6 +80,12 @@ describe("tips", () => {
     expect(nextTip({ tipsSeen: ["first-idea", "first-memory-candidate"], facts, blocked: false })).toBe("first-workflow-insight");
     expect(nextTip({ tipsSeen: ["first-memory-candidate"], facts: { ...none, memoryCandidate: true }, blocked: false })).toBeNull();
   });
+  test("quick task is announced once on a board with cards, when no other tip is due (QUICK-TASK-SPEC)", () => {
+    expect(nextTip({ tipsSeen: [], facts: { ...none, hasCard: true }, blocked: false })).toBe("first-card");
+    expect(nextTip({ tipsSeen: ["first-card"], facts: { ...none, hasCard: true, busyBoard: true }, blocked: false })).toBe("card-display");
+    expect(nextTip({ tipsSeen: ["first-card", "card-display"], facts: { ...none, hasCard: true, busyBoard: true }, blocked: false })).toBe("quick-task");
+    expect(nextTip({ tipsSeen: ["first-card", "quick-task"], facts: { ...none, hasCard: true }, blocked: false })).toBeNull();
+  });
   test("search follows card display and comes before the connectors tip (SEARCH-SPEC §8)", () => {
     expect(nextTip({ tipsSeen: [], facts: { ...none, searchable: true }, blocked: false })).toBe("search");
     expect(nextTip({ tipsSeen: [], facts: { ...none, searchable: true, busyBoard: true, cardOpen: true }, blocked: false })).toBe("card-display");
@@ -145,7 +151,7 @@ describe("tips", () => {
     expect(nextTip({ tipsSeen: ["first-artifact", "first-ticket"], facts, blocked: false })).toBe("first-card");
     expect(nextTip({ tipsSeen: ["first-artifact", "first-ticket", "first-card"], facts, blocked: false })).toBe("jira-connect");
     // With a connection configured there is nothing to announce.
-    expect(nextTip({ tipsSeen: ["first-card"], facts: { ...none, hasCard: true }, blocked: false })).toBeNull();
+    expect(nextTip({ tipsSeen: ["first-card", "quick-task"], facts: { ...none, hasCard: true }, blocked: false })).toBeNull();
   });
   test("connectors: the Artifacts + is announced once a card is open, before the section order (CONNECTORS-SPEC §8.5)", () => {
     expect(nextTip({ tipsSeen: [], facts: { ...none, cardOpen: true }, blocked: false })).toBe("connectors");
@@ -161,7 +167,7 @@ describe("tips", () => {
     expect(nextTip({ tipsSeen: ["first-card"], facts, blocked: false })).toBe("project-menu");
     expect(nextTip({ tipsSeen: ["first-card", "project-menu"], facts, blocked: false })).toBe("jira-connect");
     // A single project (or the compact switcher) has no tabs to point at.
-    expect(nextTip({ tipsSeen: ["first-card"], facts: { ...none, hasCard: true }, blocked: false })).toBeNull();
+    expect(nextTip({ tipsSeen: ["first-card", "quick-task"], facts: { ...none, hasCard: true }, blocked: false })).toBeNull();
   });
   test("a crowded Attention list points to Dismiss right after the waiting-for-you tips", () => {
     const facts = { ...none, needsYou: true, crowdedAttention: true, hasCard: true };

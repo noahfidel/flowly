@@ -1496,5 +1496,17 @@ const catalog: Catalog = {
   "Start card from {key}": "Démarrer une carte depuis {key}",
   "Linear board": "Tableau Linear",
   "With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens New task with the issue attached and the agent ready.": "Avec une connexion Linear, Linear dans la barre latérale affiche vos tickets par état. « Démarrer la carte » ouvre Nouvelle tâche avec le ticket joint et l’agent prêt.",
+  "Quick task": "Tâche rapide",
+  "What do you want done?": "Que faut-il faire ?",
+  "More options…": "Plus d’options…",
+  "Flowly: Quick task": "Flowly : Tâche rapide",
+  "Quick task for New task": "Tâche rapide pour Nouvelle tâche",
+  "AI titles for quick tasks": "Titres IA pour les tâches rapides",
+  "The summary model names the card and suggests its type and tags. Spends tokens.": "Le modèle de résumé nomme la carte et propose son type et ses tags. Consomme des tokens.",
+  "Workspace for quick tasks": "Workspace des tâches rapides",
+  "About {tokens} tokens per quick task: {cost} with {model} at API prices.": "Environ {tokens} tokens par tâche rapide : {cost} avec {model} aux prix de l’API.",
+  "About {tokens} tokens per quick task.": "Environ {tokens} tokens par tâche rapide.",
+  "New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.": "Nouvelle tâche ne demande que ce qu’il faut faire. Entrée crée la carte, démarre son agent dans un nouveau worktree et laisse l’IA la nommer ; Plus d’options ouvre le formulaire complet.",
+  "New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off.": "Nouvelle tâche ouvre désormais Tâche rapide : dites ce qu’il faut faire et appuyez sur Entrée. Plus d’options ouvre le formulaire complet ; Réglages → Workflow permet de le désactiver.",
 };
 export default catalog;

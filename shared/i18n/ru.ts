@@ -1496,5 +1496,17 @@ const catalog: Catalog = {
   "Start card from {key}": "Начать карточку из {key}",
   "Linear board": "Доска Linear",
   "With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens New task with the issue attached and the agent ready.": "С подключением Linear пункт Linear на боковой панели показывает ваши задачи по состояниям. «Начать карточку» открывает новую задачу с прикреплённой задачей Linear и готовым агентом.",
+  "Quick task": "Быстрая задача",
+  "What do you want done?": "Что нужно сделать?",
+  "More options…": "Другие параметры…",
+  "Flowly: Quick task": "Flowly: Быстрая задача",
+  "Quick task for New task": "Быстрая задача для «Новая задача»",
+  "AI titles for quick tasks": "ИИ-названия для быстрых задач",
+  "The summary model names the card and suggests its type and tags. Spends tokens.": "Модель сводок называет карточку и предлагает её тип и теги. Тратит токены.",
+  "Workspace for quick tasks": "Workspace для быстрых задач",
+  "About {tokens} tokens per quick task: {cost} with {model} at API prices.": "Около {tokens} токенов на быструю задачу: {cost} с {model} по ценам API.",
+  "About {tokens} tokens per quick task.": "Около {tokens} токенов на быструю задачу.",
+  "New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.": "«Новая задача» спрашивает только, что нужно сделать. Enter создаёт карточку, запускает её агента в новом worktree и даёт ИИ назвать её; «Другие параметры» открывают полную форму.",
+  "New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off.": "«Новая задача» теперь открывает быструю задачу: напишите, что нужно сделать, и нажмите Enter. «Другие параметры» открывают полную форму; отключить можно в Настройки → Рабочий процесс.",
 };
 export default catalog;

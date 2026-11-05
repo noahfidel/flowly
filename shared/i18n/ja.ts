@@ -1496,5 +1496,17 @@ const catalog: Catalog = {
   "Start card from {key}": "{key} からカードを開始",
   "Linear board": "Linear ボード",
   "With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens New task with the issue attached and the agent ready.": "Linear に接続すると、サイドバーの Linear に自分の issue が状態別に表示されます。「カードを開始」で issue を添付し、エージェントの準備ができた状態で新しいタスクが開きます。",
+  "Quick task": "クイックタスク",
+  "What do you want done?": "何をしてほしいですか？",
+  "More options…": "その他のオプション…",
+  "Flowly: Quick task": "Flowly: クイックタスク",
+  "Quick task for New task": "新規タスクでクイックタスクを使う",
+  "AI titles for quick tasks": "クイックタスクの AI タイトル",
+  "The summary model names the card and suggests its type and tags. Spends tokens.": "要約モデルがカードに名前を付け、種類とタグを提案します。トークンを消費します。",
+  "Workspace for quick tasks": "クイックタスクのワークスペース",
+  "About {tokens} tokens per quick task: {cost} with {model} at API prices.": "クイックタスク 1 件あたり約 {tokens} トークン：{model} の API 価格で {cost}。",
+  "About {tokens} tokens per quick task.": "クイックタスク 1 件あたり約 {tokens} トークン。",
+  "New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.": "新規タスクでは、してほしいことだけを入力します。Enter でカードを作成し、新しい worktree でエージェントを開始し、AI が名前を付けます。「その他のオプション」で完全なフォームを開きます。",
+  "New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off.": "新規タスクはクイックタスクを開くようになりました：してほしいことを書いて Enter を押してください。「その他のオプション」で完全なフォームを開けます。設定 → ワークフローでオフにできます。",
 };
 export default catalog;

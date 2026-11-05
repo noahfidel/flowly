@@ -1496,5 +1496,17 @@ const catalog: Catalog = {
   "Start card from {key}": "Karte aus {key} starten",
   "Linear board": "Linear-Board",
   "With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens New task with the issue attached and the agent ready.": "Mit einer Linear-Verbindung zeigt Linear in der Seitenleiste deine Issues nach Status. „Karte starten“ öffnet „Neue Aufgabe“ mit angehängtem Issue und bereitem Agenten.",
+  "Quick task": "Schnelle Aufgabe",
+  "What do you want done?": "Was soll erledigt werden?",
+  "More options…": "Weitere Optionen…",
+  "Flowly: Quick task": "Flowly: Schnelle Aufgabe",
+  "Quick task for New task": "Schnelle Aufgabe für Neue Aufgabe",
+  "AI titles for quick tasks": "KI-Titel für schnelle Aufgaben",
+  "The summary model names the card and suggests its type and tags. Spends tokens.": "Das Zusammenfassungsmodell benennt die Karte und schlägt Typ und Tags vor. Verbraucht Tokens.",
+  "Workspace for quick tasks": "Workspace für schnelle Aufgaben",
+  "About {tokens} tokens per quick task: {cost} with {model} at API prices.": "Etwa {tokens} Tokens pro schneller Aufgabe: {cost} mit {model} zu API-Preisen.",
+  "About {tokens} tokens per quick task.": "Etwa {tokens} Tokens pro schneller Aufgabe.",
+  "New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.": "Neue Aufgabe fragt nur, was erledigt werden soll. Enter legt die Karte an, startet ihren Agenten in einem neuen Worktree und lässt die KI sie benennen; Weitere Optionen öffnet das vollständige Formular.",
+  "New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off.": "Neue Aufgabe öffnet jetzt die schnelle Aufgabe: Beschreibe, was erledigt werden soll, und drücke Enter. Weitere Optionen öffnet das vollständige Formular; unter Einstellungen → Workflow lässt es sich abschalten.",
 };
 export default catalog;

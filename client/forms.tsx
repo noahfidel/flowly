@@ -39,6 +39,8 @@ import { useStableCallback } from "./stable";
 import { ExternalChip, ExternalPicker, connectionsByFamily, familyNames, pickKey, useConnections } from "./connectors";
 import { BrandIcon } from "./brand-icons";
 import { firstMessage } from "./first-message";
+import { startStatus } from "./quick-task";
+import type { Attachment } from "./web-images";
 import { connectorFamilies, connectorLimits, familyOf, type ConnectorFamily, type ConnectorProvider, type ExternalSummary } from "../shared/connectors";
 
 const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
@@ -397,13 +399,6 @@ function LinkList({
   );
 }
 
-/** Where a new task starts: the requested lane when enabled, else the first active lane. */
-function startStatus(project: Project, requested: Status): Status {
-  const lanes = enabledStatuses(project);
-  if (lanes.includes(requested)) return requested;
-  return lanes.find((s) => s !== "done" && s !== "cancelled") ?? lanes[0];
-}
-
 /** A new task prefilled from an idea (IDEAS-SPEC §6) or following up a card (CARD-LINKS-SPEC §5.5). */
 export type TaskSeed = {
   ideaId?: string;
@@ -420,6 +415,12 @@ export type TaskSeed = {
   externals?: { item: ExternalSummary; provider: ConnectorProvider }[];
   /** Start an agent now for this form only; the remembered on/off setting stays as it is. */
   startAgent?: boolean;
+  /** From Quick task's More options (QUICK-TASK-SPEC §1): the typed text as the Instruction, its workspace mode and images. */
+  prompt?: string;
+  mode?: "directory" | "worktree";
+  images?: readonly Attachment[];
+  /** The agent chosen in Quick task, in place of the board's defaults. */
+  agent?: AgentDefaults;
 };
 
 export function TaskForm({
@@ -466,7 +467,7 @@ export function TaskForm({
     [tagsBase] = useState(() => (task ? tagValues(task) : [])),
     [tags, setTags] = useState<string[]>(() => (task ? tagValues(task) : seed?.tags || [])),
     [mode, setMode] = useState<"directory" | "worktree" | "existing">(
-      "directory",
+      () => (seed?.mode === "worktree" && !project.links ? "worktree" : "directory"),
     ),
     [workspaceId, setWorkspace] = useState(""),
     [branchName, setBranch] = useState(""),
@@ -510,19 +511,20 @@ export function TaskForm({
     setStartAgentState(next);
     if (view.values && view.values.startAgentOnCreate !== next) void view.update({ startAgentOnCreate: next });
   };
-  const choice = useAgentChoice({ enabled: ready && startChosen, cwd: project.primaryPath, defaults: agentDefaults });
+  const choice = useAgentChoice({ enabled: ready && startChosen, cwd: project.primaryPath, defaults: seed?.agent ?? agentDefaults });
   // The project's lanes. New tasks start in an active lane (finished ones only
   // when added from that lane); an edited card keeps showing its current lane.
   const lanes = enabledStatuses(project);
   const statusChoices = task
     ? lanes.includes(task.status) ? lanes : [...lanes, task.status]
     : lanes.filter((s) => (s !== "done" && s !== "cancelled") || s === defaultStatus);
-  // The agent's first message; never prefilled (title and description already reach it as context). Required
+  // The agent's first message; never prefilled from the title or description (they already reach it as context), only
+  // with the text typed in Quick task when its More options opened this form. Required
   // unless items from a service are attached: then an empty box sends a default that points at them (UI-REFRESH-SPEC §7s).
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(seed?.prompt ?? "");
   const firstText = firstMessage(prompt, externals.map((x) => x.item));
   // Images with the agent's first message (web: paste, drop or Add images).
-  const attachments = useImageAttachments();
+  const attachments = useImageAttachments(seed?.images);
   const [firstMessageId] = useState(newMessageId);
   const contextRead = useRpc(rpc.taskContext),
     prepare = useRpc(rpc.prepareSession),

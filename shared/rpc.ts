@@ -817,6 +817,12 @@ export const refreshSummary = defineRpc({
   input: z.strictObject({ taskId: z.string().min(1) }),
   output: z.object({ queued: z.boolean() }),
 });
+/** Quick task: the AI title, type and tags, applied by the daemon in the background (QUICK-TASK-SPEC §4). */
+export const quickTaskTitle = defineRpc({
+  name: "tasks.quick-title",
+  input: z.strictObject({ taskId: z.string().min(1), text: z.string().min(1).max(20000), provisionalTitle: z.string().max(200) }),
+  output: z.object({ started: z.boolean() }),
+});
 export const taskUsage = defineRpc({
   name: "usage.task",
   input: z.strictObject({ taskId: z.string().min(1) }),

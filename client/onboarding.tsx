@@ -399,6 +399,7 @@ function Hint({ icon, text }: { icon: string; text: string }) {
 function MoreFeatures() {
   const { colors } = useTheme();
   const more = [
+    { icon: "Zap", title: t("Quick task"), text: t("New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.") },
     { icon: "ListChecks", title: t("Workpad"), text: t("Agents set the card's type and tags and write a workpad before they start: acceptance criteria, checks marked passed, failed or not run on a named commit, and what confused them. Delivering without them needs a note.") },
     { icon: "Package", title: t("Inputs and outputs"), text: t("Each card lists the files and links it worked from and delivered, added by agents or by you.") },
     { icon: "Ticket", title: t("Tickets, docs and PRs as inputs"), text: t("Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, or Linear issue, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.") },

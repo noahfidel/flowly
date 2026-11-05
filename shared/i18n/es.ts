@@ -1496,5 +1496,17 @@ const catalog: Catalog = {
   "Start card from {key}": "Iniciar tarjeta desde {key}",
   "Linear board": "Tablero de Linear",
   "With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens New task with the issue attached and the agent ready.": "Con una conexión de Linear, Linear en la barra lateral muestra tus issues por estado. «Iniciar tarjeta» abre Nueva tarea con la issue adjunta y el agente listo.",
+  "Quick task": "Tarea rápida",
+  "What do you want done?": "¿Qué quieres que se haga?",
+  "More options…": "Más opciones…",
+  "Flowly: Quick task": "Flowly: Tarea rápida",
+  "Quick task for New task": "Tarea rápida para Nueva tarea",
+  "AI titles for quick tasks": "Títulos con IA para tareas rápidas",
+  "The summary model names the card and suggests its type and tags. Spends tokens.": "El modelo de resúmenes nombra la tarjeta y sugiere su tipo y etiquetas. Consume tokens.",
+  "Workspace for quick tasks": "Workspace para tareas rápidas",
+  "About {tokens} tokens per quick task: {cost} with {model} at API prices.": "Unos {tokens} tokens por tarea rápida: {cost} con {model} a precios de API.",
+  "About {tokens} tokens per quick task.": "Unos {tokens} tokens por tarea rápida.",
+  "New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.": "Nueva tarea solo pregunta qué quieres que se haga. Enter crea la tarjeta, inicia su agente en un worktree nuevo y deja que la IA la nombre; Más opciones abre el formulario completo.",
+  "New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off.": "Nueva tarea ahora abre Tarea rápida: di qué quieres que se haga y pulsa Enter. Más opciones abre el formulario completo; se desactiva en Ajustes → Flujo de trabajo.",
 };
 export default catalog;

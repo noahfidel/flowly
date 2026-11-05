@@ -1496,5 +1496,17 @@ const catalog: Catalog = {
   "Start card from {key}": "從 {key} 開始卡片",
   "Linear board": "Linear 看板",
   "With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens New task with the issue attached and the agent ready.": "連線 Linear 後，側欄中的 Linear 會依狀態顯示你的 issue。「開始卡片」會開啟新增任務，附上該 issue 並準備好 agent。",
+  "Quick task": "快速任務",
+  "What do you want done?": "你想完成什麼？",
+  "More options…": "更多選項…",
+  "Flowly: Quick task": "Flowly：快速任務",
+  "Quick task for New task": "新增任務使用快速任務",
+  "AI titles for quick tasks": "快速任務的 AI 標題",
+  "The summary model names the card and suggests its type and tags. Spends tokens.": "摘要模型為卡片命名，並建議類型與標籤。會消耗 token。",
+  "Workspace for quick tasks": "快速任務的工作區",
+  "About {tokens} tokens per quick task: {cost} with {model} at API prices.": "每個快速任務約 {tokens} token：使用 {model} 依 API 價格約 {cost}。",
+  "About {tokens} tokens per quick task.": "每個快速任務約 {tokens} token。",
+  "New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.": "新增任務只問你想完成什麼。按 Enter 即建立卡片、在新的 worktree 中啟動 agent，並由 AI 命名；「更多選項」開啟完整表單。",
+  "New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off.": "新增任務現在開啟快速任務：說出你想完成什麼並按 Enter。「更多選項」開啟完整表單；可在 設定 → 工作流程 中關閉。",
 };
 export default catalog;

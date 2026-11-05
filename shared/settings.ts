@@ -18,6 +18,14 @@ export const boardViewSettings = defineSettings({
     sendBehavior: z.enum(["steer", "queue", "interrupt"]).default("steer"),
     /** New task form: start the first agent together with the task. */
     startAgentOnCreate: z.boolean().default(true),
+    /** New task opens Quick task instead of the full form (QUICK-TASK-SPEC §6). */
+    quickTaskDefault: z.boolean().catch(true).default(true),
+    /** Quick task asks the summary model for a title, type and tags. */
+    quickTaskAiTitle: z.boolean().catch(true).default(true),
+    /** Quick task's workspace: a new worktree or a new directory workspace (linked projects always use a directory). */
+    quickTaskMode: z.enum(["worktree", "directory"]).catch("worktree").default("worktree"),
+    /** The project the last quick task was created in. */
+    lastQuickProjectId: z.string().max(200).catch("").default(""),
     /** Order of cards inside each column. */
     boardSort: z.enum(boardSorts).default("manual"),
     /** Desktop columns shown as a narrow strip. */

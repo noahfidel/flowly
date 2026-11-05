@@ -1,5 +1,7 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
+2026-11-05 Quick task (implemented): New task and **Q** open a one-box dialog: type what you want done, Enter creates the card with a provisional title and starts its agent (new worktree by default) with the text as the first message; small pickers change project, agent and workspace in place, More options… opens the full form prefilled. The summary model then names the card and suggests a type and agent tags in the project's background workspace, never overwriting a user edit. Command Center **Flowly: Quick task**; Settings → Workflow → Quick task. [spec](QUICK-TASK-SPEC.md).
+
 2026-10-29 Switch local and worktree (implemented): a local card moves to its own worktree with every uncommitted change of the main checkout copied in and a handoff (handover list, old transcripts); its session trims the worktree, *Release from main* removes exactly that diff from the main checkout (checked, backup, undo), and `flowly_integrate` lands the branch into the still-dirty main checkout before the agent sets Integrated. *Switch to local* goes back. New agent tools `flowly_handover`, `flowly_integrate`. [spec](WORKSPACE-SWITCH-SPEC.md).
 
 2026-10-29 Workspace 类型标记（已实现）：看板卡片元信息行最前面显示卡片工作位置——Paseo worktree 显示 `GitBranch` + Worktree，其余类型（local_checkout、checkout、directory）显示 `Folder` + Local；来源是 Paseo 实时 workspace 列表（`resources.list` 新增 `kind`），workspace 不可用时不显示。设置 → Cards 新增可隐藏的 Workspace 字段，默认显示。卡片侧栏的状态/优先级/类型一行最前面也显示同一标记（只读，不受该开关影响）。[spec §8](CARD-DISPLAY-SPEC.md#8-workspace-kind)、[DRAWER-SPEC](DRAWER-SPEC.md#workspace-kind)。

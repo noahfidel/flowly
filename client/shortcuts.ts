@@ -6,6 +6,7 @@ import { t, msg } from "../shared/i18n";
 /** Board-scoped desktop shortcuts. See docs/SHORTCUTS-SPEC.md. */
 export type ShortcutAction =
   | "new-task"
+  | "quick-task"
   | "projects"
   | "filters"
   | "attention"
@@ -26,11 +27,12 @@ export type ShortcutAction =
 
 export type BoardIntent = Extract<
   ShortcutAction,
-  "new-task" | "projects" | "filters" | "attention" | "shortcuts" | "welcome" | "search"
+  "new-task" | "quick-task" | "projects" | "filters" | "attention" | "shortcuts" | "welcome" | "search"
 >;
 
 export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["N"], title: msg("New task") },
+  { keys: ["Q"], title: msg("Quick task") },
   { keys: ["P"], title: msg("Switch project") },
   { keys: ["S"], title: msg("Search") },
   { keys: ["/", "F"], title: msg("Search and filter") },
@@ -49,6 +51,7 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
 
 const letters: Record<string, ShortcutAction> = {
   n: "new-task",
+  q: "quick-task",
   p: "projects",
   f: "filters",
   a: "attention",
@@ -129,6 +132,7 @@ export function navigateGrid(
 
 const intents: readonly BoardIntent[] = [
   "new-task",
+  "quick-task",
   "projects",
   "filters",
   "attention",

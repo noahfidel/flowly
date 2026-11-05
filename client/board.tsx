@@ -59,6 +59,8 @@ import { relativeTime } from "./ui";
 import { Chevron, Collapse } from "./disclosure";
 import { IdeaRow, useExitList, useHeld } from "./task-ideas";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
+import { QuickTaskForm } from "./quick-task-form";
+import { quickProject } from "./quick-task";
 import { ideaDescription } from "../shared/ideas";
 import { waitingOn } from "../shared/links";
 import { LinkPicker } from "./task-links";
@@ -161,6 +163,7 @@ const tipText: Record<TipId, () => string> = {
   "ai-language": () => t("AI-written text follows Settings → AI features → AI output language. It starts as your interface language."),
   "first-skill-draft": () => t("Insights drafted a skill from your cards. Open Insights to add it to the project."),
   search: () => t("Find past cards, notes, workpads and deliverables with the search button or S."),
+  "quick-task": () => t("New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off."),
   "first-memory-candidate": () => t("An agent suggested something to remember. Confirm it in Memory and new sessions on this project will know it; you can edit or delete it any time."),
   "first-workflow-insight": () => t("Workflow insights found repeated work worth keeping. Open Insights to turn a suggestion into a card."),
   "card-display": () => t("Cards too busy? Choose what they show in Settings → Cards, or from the Sort menu → Card display."),
@@ -351,6 +354,8 @@ function BoardContent(
     [taskForm, setTaskFormState] = useState<{ task?: Task; status: Status; seed?: TaskSeed } | null>(
       null,
     ),
+    // Quick task (QUICK-TASK-SPEC): `projectId` when the entry point belongs to one project (a lane, a tab, the empty-board hint).
+    [quickTask, setQuickTask] = useState<{ status: Status; projectId?: string } | null>(null),
     [error, setError] = useState(""),
     [pending, setPending] = useState(false),
     [preferredShare, setPreferredShare] = useState(defaultDrawerShare);
@@ -463,7 +468,7 @@ function BoardContent(
   const { colors } = props.theme;
   const compact = isCompactLayout(surfaceWidth || routeWidth);
   // Keep the compact tree/scroll position, but leave hidden work to the visible detail/page.
-  const boardActive = boardIsActive(compact, taskId, page, !!taskForm);
+  const boardActive = boardIsActive(compact, taskId, page, !!taskForm || !!quickTask);
   // Every layout reads the overview, never the whole board (LOADING-R2-SPEC §2A). A compact board under an
   // open card pauses; a wide one stays visible beside the drawer and keeps polling.
   const overviewLive = compact ? !taskId : boardActive;
@@ -715,6 +720,18 @@ function BoardContent(
       ),
     [agents.data, board?.tasks, defaultModelKey],
   );
+  // Quick task's agent in any project: the same rule as sessionDefaults (QUICK-TASK-SPEC §1).
+  const agentDefaultsFor = useStableCallback((p: Project) =>
+    startingAgent(
+      lastSessionSettings(agents.data || [], new Set((board?.tasks || []).map((t) => t.workspaceId))),
+      effectiveAgentModel(p, globalModel)?.model ?? null,
+    ),
+  );
+  // New task: Quick task unless the user turned that off (QUICK-TASK-SPEC §5).
+  const openNewTask = (status: Status, pinned?: string) => {
+    if (view.values?.quickTaskDefault ?? true) setQuickTask({ status, ...(pinned ? { projectId: pinned } : {}) });
+    else setTaskForm({ status });
+  };
   // Desktop: Attention drops down under the header bell; phones keep the sheet.
   const rootRef = useRef<View>(null),
     attentionRef = useRef<View>(null);
@@ -1190,7 +1207,7 @@ function BoardContent(
   const workflowTipDue = !!project && workflowOn && !!onboarding.values && !(onboarding.values.tipsSeen.includes("first-workflow-insight") && onboarding.values.tipsSeen.includes("first-skill-draft"));
   const workflowView = useWorkflowInsightsQuery(project?.id || "", boardActive && workflowTipDue, false);
   const inPanel = !!props.workspaceId;
-  const dialogOpen = !!menu || !!projectForm || !!taskForm || !!removing || !!deleting || !!wrapPrompt || !!linking || !!switchRequest;
+  const dialogOpen = !!menu || !!projectForm || !!taskForm || !!quickTask || !!removing || !!deleting || !!wrapPrompt || !!linking || !!switchRequest;
   const welcome = welcomeDecision({
     settingsStatus: onboarding.status,
     welcomeSeen: onboarding.values?.welcomeSeen ?? false,
@@ -1404,7 +1421,7 @@ function BoardContent(
     };
     return [
       { id: "settings", label: t("Project settings"), icon: "SlidersHorizontal", onPress: () => openIn(() => setProjectForm("edit")) },
-      { id: "new-task", label: t("New task"), icon: "Plus", disabled: !!p.archivedAt, onPress: () => openIn(() => setTaskForm({ status: "todo" })) },
+      { id: "new-task", label: t("New task"), icon: "Plus", disabled: !!p.archivedAt, onPress: () => openIn(() => openNewTask("todo", p.id)) },
       { kind: "separator", id: "pages" },
       ...(features.insights ? [{ id: "insights", label: t("Insights"), icon: "Activity", onPress: () => openIn(() => setPage("insights")) }] : []),
       ...(ideasOn
@@ -1433,7 +1450,12 @@ function BoardContent(
     switch (intent) {
       case "new-task":
         if (!project || project.archivedAt) return false;
-        setTaskForm({ status: "todo" });
+        openNewTask("todo");
+        return true;
+      case "quick-task":
+        if (!board?.projects.some((p) => !p.archivedAt)) return false;
+        setPage(null);
+        setQuickTask({ status: "todo" });
         return true;
       case "filters":
         if (!project) return false;
@@ -1826,9 +1848,7 @@ function BoardContent(
                 icon="Plus"
                 label={withKey(t("New task"), "N")}
                 disabled={!!project.archivedAt}
-                onPress={() =>
-                  setTaskForm({ status: "todo" })
-                }
+                onPress={() => openNewTask("todo")}
               >
                 {compact ? "" : t("New task")}
               </Button>
@@ -1867,7 +1887,7 @@ function BoardContent(
           <GuideBanner
             text={t("Add your first task. It gets its own workspace and sessions.")}
             actionLabel={t("New task")}
-            onAction={() => setTaskForm({ status: "todo" })}
+            onAction={() => openNewTask("todo", project?.id)}
           />
         )}
         {!emptyProjectHint && !!tip && (
@@ -2029,9 +2049,7 @@ function BoardContent(
                             <Button
                               icon="Plus"
                               disabled={!!project.archivedAt}
-                              onPress={() =>
-                                setTaskForm({ status: mobileStatus })
-                              }
+                              onPress={() => openNewTask(mobileStatus, project.id)}
                             >
                               {t("Add task")}</Button>
                           </View>
@@ -2044,7 +2062,7 @@ function BoardContent(
                     statuses={shownStatuses}
                     tasks={visible}
                     disabled={pending || !!project.archivedAt}
-                    cancelKey={`${project.id}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}`}
+                    cancelKey={`${project.id}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}|${!!quickTask}`}
                     sortColumn={sortColumn}
                     manualOrder={boardSort === "manual"}
                     collapsed={collapsedColumns}
@@ -2058,7 +2076,7 @@ function BoardContent(
                       toast.show(t("Sorted by {sort}. Drop on another lane to change status; switch to Manual to reorder within a column.", { sort: t(boardSortText[boardSort].label) }), { variant: "info" })
                     }
                     renderCard={renderCard}
-                    onAdd={(status) => setTaskForm({ status })}
+                    onAdd={(status) => openNewTask(status, project.id)}
                     onDrop={place}
                   />
                 )}
@@ -2537,6 +2555,29 @@ function BoardContent(
               else if (launch?.error) toast.error(t("Task created, but the agent did not start: {error}. Start it from the task.", { error: launch.error }));
               // The suggestion now shows "Card created".
               if (taskForm.seed?.insightFindingId) void queryClient.invalidateQueries({ queryKey: ["flowly", "workflow-insights", project.id] });
+              refresh();
+            }}
+          />
+        )}
+        {quickTask && board && (
+          <QuickTaskForm
+            projects={projects.filter((p) => !p.archivedAt)}
+            initialProjectId={quickProject(projects, { pinned: quickTask.projectId, last: view.values?.lastQuickProjectId || "", current: project?.id || "" })?.id || ""}
+            defaultStatus={quickTask.status}
+            agentDefaultsFor={agentDefaultsFor}
+            onClose={() => setQuickTask(null)}
+            onMore={(more) => {
+              // The full form opens once this dialog has closed: two Modals in one frame freeze Paseo.
+              setQuickTask(null);
+              chooseProject(more.projectId);
+              afterModalClose(() => setTaskForm({ status: more.status, seed: more.seed }));
+            }}
+            onSaved={(projectId, id, launch) => {
+              setQuickTask(null);
+              chooseProject(projectId);
+              setTask(id);
+              if (launch.sessionId) toast.show(t("Task created and its agent started"), { variant: "success" });
+              else if (launch.error) toast.error(t("Task created, but the agent did not start: {error}. Start it from the task.", { error: launch.error }));
               refresh();
             }}
           />

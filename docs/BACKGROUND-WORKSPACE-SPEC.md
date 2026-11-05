@@ -17,6 +17,7 @@ The memory review, the Insights digest and workflow insights each create a tempo
 - **After a run**: when the last run in the project ends, successful or not, the workspace is archived (`paseo.workspaces.archive`). Archiving clears its sidebar entry and tabs. An archive failure is logged and does not fail the run.
 - **Overlap**: runs in the same project share the open workspace. A per-project counter makes sure it is archived only after the last one ends; opening and closing are serialized per project.
 - Each run hard-deletes its own session when done (`server/summarizer-remove.ts`; archived if the delete fails): the memory review, and since 2026-10-23 also the digest and workflow insights.
+- The quick task title run (QUICK-TASK-SPEC §4, 2026-11-05) also runs here: its card's workspace may still be setting up, and the run belongs to the project rather than to the card's sessions. It hard-deletes its session like the others.
 - The card summarizer and session insights are unchanged: they run as child sessions in the card's own workspace.
 
 ## Code
