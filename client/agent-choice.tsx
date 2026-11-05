@@ -1,4 +1,4 @@
-import { providerBase, suggestedMode, suggestedThinking } from "../shared/agent-defaults";
+import { providerBase, quickTaskMode, suggestedMode, suggestedThinking } from "../shared/agent-defaults";
 import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { usePaseo } from "@getpaseo/plugin/client";
@@ -18,7 +18,7 @@ export type AgentDefaults = { provider: string; model: string; mode: string; thi
  * not chosen yet (undefined) gets its suggestion (MODEL-DEFAULTS-SPEC).
  * `cwd` scopes model/mode discovery.
  */
-export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; cwd?: string; defaults: AgentDefaults }) {
+export function useAgentChoice({ enabled, cwd, defaults, planFirst = false }: { enabled: boolean; cwd?: string; defaults: AgentDefaults; /** Quick task: start in `plan` when the provider offers it, unless a mode is picked. */ planFirst?: boolean }) {
   const paseo = usePaseo();
   const [provider, setProviderState] = useState(defaults?.provider || "codex"),
     [model, setModel] = useState(defaults?.model || ""),
@@ -78,7 +78,8 @@ export function useAgentChoice({ enabled, cwd, defaults }: { enabled: boolean; c
   const chosenThinking = wantedThinking && thinkingOptions.some((t) => t.id === wantedThinking) ? wantedThinking : "";
   // A custom provider (`codex-connected`, …) gets its base provider's suggestions.
   const base = providerBase(provider, modes.data?.modes?.map((m) => m.id));
-  const wantedMode = mode ?? suggestedMode(base);
+  const modeIds = modes.data?.modes?.map((m) => m.id);
+  const wantedMode = planFirst ? quickTaskMode({ provider: base, modeIds, explicit: mode }) : (mode ?? suggestedMode(base));
   const chosenMode =
     wantedMode && (!modes.isSuccess || modes.data?.modes?.some((m) => m.id === wantedMode)) ? wantedMode : "";
   // Speed: a provider feature of the chosen model (AGENT-SPEED-SPEC); "" is the provider's normal speed.

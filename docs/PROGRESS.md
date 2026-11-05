@@ -1,5 +1,11 @@
 # Implementation progress
 
+## Quick task plan mode (branch `feat/quick-task-plan-mode`) — 2026-11-05
+
+- Quick task defaults to the **plan** permission mode when the provider offers it (`quickTaskMode`, `useAgentChoice({ planFirst })`); no plan mode keeps the usual suggestion; a picked mode wins; project/provider switches re-apply it. The Agent chip now reads `provider · model · mode label`, one line. Other forms unchanged. [QUICK-TASK-SPEC](QUICK-TASK-SPEC.md)
+- No new strings. Onboarding, What's new, telemetry: none (small default change).
+- Checks: `quickTaskMode` cases in `shared/agent-defaults.test.ts`. Not run: the installed plugin UI.
+
 ## Linear ticket per card (branch `feat/quick-task`) — 2026-11-05
 
 - Project form: **Make sure there's a Linear ticket** switch (`project.linearTicket`, absent = off) and, while on, a **Linear team** field (`project.linearTeam`, trimmed to one line, ≤ 80 characters, empty removes it). Both go through `projects.update` (`projectEdit`). [LINEAR-TICKET-SPEC](LINEAR-TICKET-SPEC.md)

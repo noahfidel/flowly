@@ -9,10 +9,16 @@ Create task form stays one tap away.
   full form). On phones the return key is a new line and the button submits.
 - Under the box, a row of small pickers that can be changed in place:
   - **Project**: the live (not archived) projects. Default per §3.
-  - **Agent**: provider · model. Pressing it opens the same agent choice as New task (provider, model,
+  - **Agent**: provider · model · permission mode (its label, e.g. `claude · Opus 5.5 · Plan`; one line,
+    truncated on narrow screens). Pressing it opens the same agent choice as New task (provider, model,
     reasoning, speed, permissions) inline. Defaults are the same as the full form's: the project's default
     model, else the global one, else the latest session's settings (MODEL-DEFAULTS-SPEC). Choosing another
     project resets the agent to that project's defaults.
+    **Permission mode**: `plan` whenever the chosen provider offers a `plan` mode (`quickTaskMode`,
+    `shared/agent-defaults.ts`), instead of the remembered session mode; a provider without one (e.g. Codex)
+    keeps the usual suggestion. Switching project or provider re-applies it; a mode picked in the agent
+    picker wins for that task. Only Quick task: the full form, New session and the rest keep their defaults
+    (More options… hands the quick task's mode over like the rest of the choice).
   - **Workspace**: *Worktree* (new isolated worktree) or *Directory* (new in directory). Default per §3.
     A project with links (multiple repositories) has no worktree option, as in the full form.
 - Images can be pasted, dropped or added (web only), as in the full form's instruction.

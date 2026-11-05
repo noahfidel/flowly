@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentModelFromValues, agentModelSchema, effectiveAgentModel, providerBase, startingAgent, suggestedMode, suggestedThinking } from "./agent-defaults";
+import { agentModelFromValues, agentModelSchema, effectiveAgentModel, providerBase, quickTaskMode, startingAgent, suggestedMode, suggestedThinking } from "./agent-defaults";
 
 const claude = { provider: "claude", model: "claude-sonnet-5-5", thinking: "high" };
 const codex = { provider: "codex", model: "gpt-6-luna" };
@@ -93,5 +93,21 @@ describe("suggestedThinking", () => {
     expect(suggestedThinking(ids("low", "medium", "high", "max"))).toBe("");
     expect(suggestedThinking([])).toBe("");
     expect(suggestedThinking()).toBe("");
+  });
+});
+
+describe("quickTaskMode", () => {
+  it("defaults to plan when the provider offers it", () => {
+    expect(quickTaskMode({ provider: "claude", modeIds: ["default", "plan", "auto"] })).toBe("plan");
+    expect(quickTaskMode({ provider: "my-glm", modeIds: ["acceptEdits", "bypassPermissions", "plan"] })).toBe("plan");
+  });
+  it("keeps the usual suggestion without a plan mode, or while the modes are unknown", () => {
+    expect(quickTaskMode({ provider: "codex", modeIds: ["read-only", "auto-review"] })).toBe("auto-review");
+    expect(quickTaskMode({ provider: "claude" })).toBe("auto");
+    expect(quickTaskMode({ provider: "opencode", modeIds: ["build"] })).toBe("");
+  });
+  it("lets an explicit pick win, even a mode that is not plan", () => {
+    expect(quickTaskMode({ provider: "claude", modeIds: ["plan", "auto"], explicit: "auto" })).toBe("auto");
+    expect(quickTaskMode({ provider: "claude", modeIds: ["plan"], explicit: "" })).toBe("");
   });
 });
