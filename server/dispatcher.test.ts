@@ -1049,3 +1049,10 @@ test("the charter says plainly that only the user answers a card's asks", () => 
   expect(dispatcherCharter).toContain("You have no tool that answers them");
   expect(dispatcherCharter).toContain("buttons");
 });
+
+test("the charter forbids cards whose agent would answer another card's asks (ruling, Noah 2026-11-09)", () => {
+  // Card sessions keep Paseo's agent tools, so the rule is the instruction plus the user seeing every card it makes.
+  expect(dispatcherCharter).toContain(
+    "Never create or start a card, or word a card's description, so that its agent answers, approves or dismisses another card's questions, permission requests or blockers.",
+  );
+});
