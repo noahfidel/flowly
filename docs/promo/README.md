@@ -25,6 +25,7 @@
 
 ```
 node docs/promo/setup.mjs                         # 建 Tinylink 仓库、项目、卡片，并启动 3 个 Haiku session
+node docs/promo/setup.mjs --no-sessions           # 只建仓库、项目和卡片，不启动 session（单窗格 live 检查用）
 node docs/promo/start-session.mjs "Custom aliases" "<prompt>"   # 追加一个 session
 node docs/promo/shots.mjs board drawers ideas settings i18n  # 截图（headless Chromium，2× 分辨率，裁掉宿主侧栏）
 node docs/promo/insights-mock.mjs && node docs/promo/insights-mock.mjs docs/promo/screenshots/05-insights-dark.png dark  # Insights 用模拟数据（Tinylink 自己的数据太少）

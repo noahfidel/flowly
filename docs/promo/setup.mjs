@@ -1,13 +1,38 @@
 // Persistent test fixture (kept on purpose, not removed after use; directory: $TINYLINK_DIR or ~/Developer/personal/flowly-test/tinylink).
 // Promo fixture: a realistic "Tinylink" repo + Ultra Kanban project + cards + Haiku sessions.
+// --no-sessions: the repo, the project and the cards only (no Haiku sessions, so no asks reach the dispatcher chat or the bell).
+// Importing this file runs nothing; only `node docs/promo/setup.mjs` does.
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { DaemonClient } from '@getpaseo/client/internal/daemon-client';
 import { createPaseoApi } from '@getpaseo/client';
 
+export const setupUsage = [
+  'Usage: node docs/promo/setup.mjs [--no-sessions]',
+  '',
+  'Builds the Tinylink repo ($TINYLINK_DIR or ~/Developer/personal/flowly-test/tinylink), its Flowly project and 6 cards,',
+  'and starts 3 Haiku sessions on them. Writes the ids to docs/promo/ids.json.',
+  '',
+  '  --no-sessions   Repo, project and cards only; no Haiku sessions (use this for the single-pane live checks).',
+  '  --help          This text.',
+].join('\n');
+
+/** The options: `sessions` false with --no-sessions; any other option is refused. */
+export function setupArgs(argv) {
+  const out = { sessions: true, help: false };
+  for (const arg of argv) {
+    if (arg === '--no-sessions') out.sessions = false;
+    else if (arg === '--help' || arg === '-h') out.help = true;
+    else throw new Error(`Unknown option: ${arg}`);
+  }
+  return out;
+}
+
+async function main(opts) {
 const client = new DaemonClient({ url: 'ws://127.0.0.1:6767/ws', clientId: `promo-${randomUUID()}`, clientType: 'cli', appVersion: '0.11.2', connectTimeoutMs: 10000, reconnect: { enabled: false } });
 const api = createPaseoApi(client);
 const rpc = (m, i) => client.invokePluginRpc('flowly', m, i);
@@ -64,7 +89,7 @@ try {
     expired: common + 'Task: investigate the expired-link bug described in the card. Read the code and reproduce it, then BEFORE changing anything, ask the user ONE question with kanban_report_progress kind=question: should expired links return 410 Gone (and be deleted from the store) or 404 Not Found? Offer both options, then end your turn and wait for the answer. Do not edit files until answered.',
     stats: common + 'Task: implement the click counter and /stats/:code endpoint described in the card, with tests and a short README section. Run npm test, commit, deliver to in_review. After delivering, propose one idea with scope=new via kanban_propose_idea (e.g. a bug or refactor you noticed in src/server.js such as JSON.parse errors returning 500 on invalid bodies).'
   };
-  for (const [key, card] of Object.entries(cards)) {
+  for (const [key, card] of opts.sessions ? Object.entries(cards) : []) {
     const prep = await rpc('tools.prepare-session', { id: card.id, operationId: `promo-session-${randomUUID()}` });
     const s = await api.workspaces.ref(card.workspaceId).agents.create({
       agentId: prep.agentId, idempotencyKey: `promo:${prep.agentId}`,
@@ -76,9 +101,22 @@ try {
     });
     fx.sessions.push({ key, id: s.id, cardId: card.id }); await save();
   }
-  console.log(JSON.stringify({ status: 'started', project: fx.project.id, dir: d, sessions: fx.sessions }));
+  console.log(JSON.stringify({ status: opts.sessions ? 'started' : 'created', project: fx.project.id, dir: d, sessions: fx.sessions }));
 } catch (e) {
   fx.error = String(e?.stack ?? e).slice(0, 2000); await save(); console.error(fx.error); process.exitCode = 1;
 } finally {
   await api.dispose().catch(() => {}); await client.close().catch(() => {});
+}
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  let opts;
+  try {
+    opts = setupArgs(process.argv.slice(2));
+  } catch (e) {
+    console.error(`${e.message}\n\n${setupUsage}`);
+    process.exit(64);
+  }
+  if (opts.help) console.log(setupUsage);
+  else await main(opts);
 }

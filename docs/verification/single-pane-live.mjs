@@ -123,6 +123,8 @@ export function helpText() {
     'Usage: FLOWLY_TELEMETRY=0 node docs/verification/single-pane-live.mjs [options]',
     '',
     'Live checks for the Flowly single pane, against the running daemon with the branch build installed.',
+    'Set Tinylink up without its Haiku sessions first (node docs/promo/setup.mjs --no-sessions), so its cards put no asks',
+    'in the dispatcher chat or the bell while the checks count them.',
     'Exit 0: all selected checks pass and cleanup is verified. 1: a FAIL or a cleanup problem. 2: no FAIL, a check skipped.',
     '',
     'Checks:',
@@ -874,6 +876,17 @@ export async function cleanup(ctx, { keepDispatcher, unattended = false, yesArch
     }
     if (stillLive.length) throw new Error(`sessions still live in Paseo: ${stillLive.join(', ')}`);
     for (const dir of data.tmpDirs) if (existsSync(dir) && !blocked.has(resolve(dir)) && !blocked.has(realOr(dir))) throw new Error(`${dir} still exists`);
+  });
+  // The dispatcher chat and the bell: the bell counts exactly the chat's open asks (DISPATCHER-SPEC §9.4), and the chat
+  // leaves out the asks and answers of a card that no longer exists, so once the run's cards are deleted none of them
+  // may show. Read only, by every card id the record names as well as the live marked cards.
+  await guard('verify the dispatcher chat and the bell', async () => {
+    const runCards = new Set([...data.cards.map((c) => c.id), ...cardIds]);
+    const items = ((await rpc('dispatcher.items-changed', {})).value ?? []).filter((i) => runCards.has(i.taskId) || runCards.has(i.note?.taskId));
+    const left = items.filter((i) => i.kind === 'ask' || i.kind === 'answer');
+    if (left.length) throw new Error(`the dispatcher chat still shows this run's asks or answers: ${left.map((i) => `${i.id} (${i.kind}, card ${i.taskId})`).join(', ')}`);
+    const notes = items.filter((i) => i.kind === 'note');
+    if (notes.length) done.push(`left in place: ${notes.length} note row(s) of this run's cards in the dispatcher chat (Flowly has no way to remove them yet)`);
   });
   return { problems, done };
 }

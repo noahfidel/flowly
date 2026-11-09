@@ -42,6 +42,7 @@ function fakeContext(opts: {
   projects?: { id: string; title: string; primaryPath: string; revision: number }[];
   agents?: FakeAgent[];
   memory?: Record<string, { id: string; projectId: string; title: string; revision: number }[]>;
+  chat?: Record<string, unknown>[];
   file?: string;
 }) {
   const calls: { archived: string[]; cancelled: string[]; rpc: [string, unknown][] } = { archived: [], cancelled: [], rpc: [] };
@@ -59,6 +60,7 @@ function fakeContext(opts: {
     },
     rpc: async (method: string, input: Record<string, unknown>) => {
       calls.rpc.push([method, input]);
+      if (method === "dispatcher.items-changed") return { value: opts.chat ?? [] };
       if (method === "memory.read") return { value: { enabled: true, entries: opts.memory?.[String(input.projectId)] ?? [] } };
       if (method === "tasks.delete") {
         board.tasks = board.tasks.filter((t) => t.id !== input.id);
@@ -370,6 +372,35 @@ describe("single-pane live script", () => {
     });
   });
 
+  describe("the dispatcher chat and the bell after cleanup", () => {
+    const tasks = () => [{ id: "c1", title: `${marker} card`, projectId: "tl", workspaceId: "w1", revision: 1 }];
+    it("passes when the chat holds nothing of the run's cards", async () => {
+      const { cleanup } = await load();
+      const fake = fakeContext({ data: baseData(), tasks: tasks(), chat: [{ id: "ask-x", kind: "ask", taskId: "other", signal: "p:o:r", state: "open" }] });
+      const { problems } = await cleanup(fake.ctx, { keepDispatcher: false });
+      expect(problems).toEqual([]);
+      expect(fake.calls.rpc.some(([m]) => m === "dispatcher.items-changed")).toBe(true);
+    });
+    it("reports the run's asks and answers still in the chat (so still in the bell), by the recorded card ids", async () => {
+      const { cleanup } = await load();
+      const chat = [
+        { id: "ask-1", kind: "ask", taskId: "c1", signal: "p:s1:r", state: "open" },
+        { id: "answer-1", kind: "answer", taskId: "c-gone", signal: "q:e1" },
+      ];
+      const fake = fakeContext({ data: baseData({ cards: [...baseData().cards, { id: "c-gone", title: `${marker} gone`, projectId: "tl", workspaces: [], branches: [] }] }), tasks: tasks(), chat });
+      const { problems } = await cleanup(fake.ctx, { keepDispatcher: false });
+      expect(problems.join("\n")).toMatch(/dispatcher chat.*ask-1.*answer-1/);
+    });
+    it("lists the run's note rows left in the chat, which nothing can remove yet, without failing cleanup", async () => {
+      const { cleanup } = await load();
+      const chat = [{ id: "note-1", kind: "note", at: "2026-11-09T00:00:00Z", note: { taskId: "c1", projectId: "tl", title: "t", kind: "status", detail: "" } }];
+      const fake = fakeContext({ data: baseData(), tasks: tasks(), chat });
+      const { problems, done } = await cleanup(fake.ctx, { keepDispatcher: false });
+      expect(problems).toEqual([]);
+      expect(done.join("\n")).toContain("1 note row(s) of this run's cards");
+    });
+  });
+
   describe("memory cleanup", () => {
     const fixtureDir = () => join(tmpdir(), "single-pane-live-fixture-memtest");
     const withFixture = (memory: Record<string, unknown>[], entries: Record<string, { id: string; projectId: string; title: string; revision: number }[]>) =>
@@ -595,5 +626,6 @@ describe("single-pane live script", () => {
     const out = execFileSync(process.execPath, [scriptPath, "--help"], { encoding: "utf8", env: { ...process.env, FLOWLY_TELEMETRY: "0" } });
     expect(out).toContain("Usage:");
     for (let id = 1; id <= 7; id++) expect(out).toContain(`  ${id}. `);
+    expect(out).toContain("docs/promo/setup.mjs --no-sessions");
   });
 });
