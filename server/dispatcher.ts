@@ -1,5 +1,5 @@
-import { mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { chmod, lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import { z } from "zod";
@@ -31,8 +31,9 @@ import { ToolError } from "./tool-error";
 export const DISPATCHER_TITLE = "Flowly dispatcher";
 /**
  * The dispatcher's working folder (§2): `<Paseo home>/flowly-dispatcher/dispatcher`. It sits outside the plugin data
- * folder, in a parent of its own that holds nothing else, so neither the folder nor `..` from it holds the board, the
- * token-sealing key, the database, plugin settings or Paseo's own files. The `dispatcher` name keeps the Paseo
+ * folder, in a parent of its own that holds nothing else, so a provider that auto-allows access inside the cwd does not
+ * cover the board, the token-sealing key, the database, plugin settings or Paseo's own files. Not a sandbox: the
+ * boundary is the sealed credential and the provider's permission prompts. The `dispatcher` name keeps the Paseo
  * project's name as before.
  */
 export function dispatcherFolder(paseoHome: string) {
@@ -50,6 +51,24 @@ export function dispatcherFolderProblem(folder: string, data: string): string | 
   if (within(folder, data) || within(data, folder)) return "it is inside the plugin data folder, or holds it";
   if (within(data, dirname(folder))) return "its parent folder holds the plugin data folder";
   return null;
+}
+
+/**
+ * Where `path` resolves to before it exists: the real path of its deepest existing ancestor plus the rest. Null when
+ * an entry on the way is a link that points nowhere (it cannot be judged).
+ */
+async function projectedPath(path: string): Promise<string | null> {
+  const rest: string[] = [];
+  let at = resolve(path);
+  for (;;) {
+    const real = await realpath(at).catch(() => null);
+    if (real) return join(real, ...rest);
+    if (await lstat(at).then(() => true, () => false)) return null;
+    const up = dirname(at);
+    if (up === at) return null;
+    rest.unshift(basename(at));
+    at = up;
+  }
 }
 
 /** How many earlier dispatcher session ids the record keeps. */
@@ -332,18 +351,12 @@ export class Dispatcher {
 
   /** The stored workspace while Paseo still returns it; else a new background directory workspace (§2). Never archived. */
   private async workspace(paseo: PaseoApi, record: DispatcherRecord) {
-    const problem = dispatcherFolderProblem(this.workspacePath, this.directory);
-    if (problem) throw this.folderRefused(problem);
+    await this.prepareFolder();
     if (record.workspaceId) {
       const found = await paseo.workspaces.ref(record.workspaceId).refresh();
       // Reused only while it is in the dispatcher folder: one in the old in-data folder (or anywhere else) is left as it is.
       if (found && !found.archivingAt && (await this.inFolder(found.workspaceDirectory))) return record.workspaceId;
     }
-    await mkdir(this.workspacePath, { recursive: true, mode: 0o700 });
-    // Checked again on real paths: a link must not put the folder in or next to the data folder.
-    const [real, data] = await Promise.all([realpath(this.workspacePath), realpath(this.directory)]);
-    const linked = dispatcherFolderProblem(real, data);
-    if (linked) throw this.folderRefused(linked);
     const id = await createDirectoryWorkspace(paseo, {
       title: DISPATCHER_TITLE,
       idempotencyKey: `flowly-dispatcher-workspace:${randomUUID()}`,
@@ -354,6 +367,25 @@ export class Dispatcher {
     return id;
   }
 
+  /**
+   * Checks the folder before any use (reuse included) and makes it (§2): as given, then where its existing part really
+   * leads (so a link creates nothing in the data folder), then again on real paths once it exists. The folder and its
+   * parent end up mode 0700, also when they existed before.
+   */
+  private async prepareFolder() {
+    const problem = dispatcherFolderProblem(this.workspacePath, this.directory);
+    if (problem) throw this.folderRefused(problem);
+    const data = await realpath(this.directory).catch(() => resolve(this.directory));
+    const projected = await projectedPath(this.workspacePath);
+    if (!projected) throw this.folderRefused("a link on its path points nowhere");
+    const ahead = dispatcherFolderProblem(projected, data);
+    if (ahead) throw this.folderRefused(ahead);
+    await mkdir(this.workspacePath, { recursive: true, mode: 0o700 });
+    const linked = dispatcherFolderProblem(await realpath(this.workspacePath), data);
+    if (linked) throw this.folderRefused(linked);
+    await chmod(dirname(this.workspacePath), 0o700);
+    await chmod(this.workspacePath, 0o700);
+  }
   private async inFolder(directory: string | undefined) {
     if (!directory) return false;
     const [own, other] = await Promise.all([realpath(this.workspacePath).catch(() => null), realpath(directory).catch(() => null)]);

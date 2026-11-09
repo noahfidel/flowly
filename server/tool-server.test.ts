@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer, request } from "node:http";
@@ -10,11 +11,14 @@ import { skillText } from "./skill-source";
 import { turnChecklist } from "../shared/turn-checklist";
 import { ideasReminder, movesReminder, outputsReminder } from "./reminders";
 
+/** A dispatcher folder in the fixture's own temp Paseo home, never the real one (DISPATCHER-SPEC §2). */
+const dispatcherPath = (root: string) => join(root, "paseo-home", "flowly-dispatcher", "dispatcher");
+
 const run = promisify(execFile),
   cleanups: (() => Promise<unknown>)[] = [];
 async function setup() {
   const fixture = await agentFixture(),
-    server = new ToolServer(fixture.store);
+    server = new ToolServer(fixture.store, dispatcherPath(fixture.root));
   cleanups.push(async () => {
     await server.stop();
     await rm(fixture.root, { recursive: true, force: true });
@@ -541,7 +545,7 @@ test("same port and credentials survive cleanup/reload; cold error recovers with
   const first = (await x.api("progress", input)).result;
   await x.server.stop();
   await writeFile(x.store.directory + "/ultra-kanban.mjs", "old CLI");
-  const restored = new ToolServer(x.store);
+  const restored = new ToolServer(x.store, dispatcherPath(x.root));
   cleanups.push(() => restored.stop());
   await restored.start();
   expect(
@@ -639,7 +643,7 @@ test("port collision preserves discovery/key/board; after conflict removal liste
   cleanups.push(
     () => new Promise<void>((resolve) => blocker.close(() => resolve())),
   );
-  const restored = new ToolServer(x.store);
+  const restored = new ToolServer(x.store, dispatcherPath(x.root));
   cleanups.push(() => restored.stop());
   await expect(restored.start()).rejects.toMatchObject({
     code: "TOOLS_UNAVAILABLE",
@@ -676,7 +680,7 @@ test("only the stored dispatcher's session gets a dispatcher credential (DISPATC
   // No dispatcher yet: nobody gets one.
   expect(await x.server.dispatcherSession("current", x.paseo)).toBeNull();
   await x.server.stop();
-  const restored = new ToolServer(x.store);
+  const restored = new ToolServer(x.store, dispatcherPath(x.root));
   cleanups.push(() => restored.stop());
   await writeFile(x.store.directory + "/dispatcher.json", JSON.stringify({ version: 1, workspaceId: "dw", agentId: "current", startedAt: null }));
   const config = (await restored.dispatcherSession("current", x.paseo))!;

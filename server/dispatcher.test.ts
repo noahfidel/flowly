@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
@@ -774,6 +774,44 @@ test("a folder inside or next to the data folder is refused and nothing is creat
     expect(x.created).toEqual([]);
     expect(x.agentCreates).toEqual([]);
   }
+});
+
+test("a dispatcher folder later replaced by a link into the data folder is refused before reuse (§2)", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const x = await setup();
+  const first = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(first.agentId)!.status = "closed";
+  const inside = join(x.directory, "inside");
+  await mkdir(inside);
+  await rm(x.folder, { recursive: true });
+  await symlink(inside, x.folder);
+  await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "START_FAILED" });
+  expect(x.created).toHaveLength(1);
+  expect(x.agentCreates).toHaveLength(1);
+  expect(errors.mock.calls.some((c) => String(c[0]) === "Flowly dispatcher folder refused:")).toBe(true);
+});
+
+test("a linked flowly-dispatcher folder pointing into the data folder creates nothing (§2)", async () => {
+  for (const target of ["inside", "missing"]) {
+    const x = await setup();
+    const inside = join(x.directory, target);
+    if (target === "inside") await mkdir(inside);
+    await symlink(inside, dirname(x.folder));
+    await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "START_FAILED" });
+    expect(x.created).toEqual([]);
+    if (target === "inside") expect(await readdir(inside)).toEqual([]);
+    else await expect(stat(inside)).rejects.toThrow();
+  }
+});
+
+test("existing dispatcher folders are made private (§2)", async () => {
+  const x = await setup();
+  await mkdir(x.folder, { recursive: true, mode: 0o755 });
+  await chmod(dirname(x.folder), 0o755);
+  await chmod(x.folder, 0o755);
+  await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect((await stat(x.folder)).mode & 0o777).toBe(0o700);
+  expect((await stat(dirname(x.folder))).mode & 0o777).toBe(0o700);
 });
 
 test("a stored workspace in the old in-data folder is not reused; the old folder and workspace stay (§2)", async () => {
