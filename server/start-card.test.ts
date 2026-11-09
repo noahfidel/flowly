@@ -36,6 +36,8 @@ async function setup() {
   const createdWorkspaces: { title: string; idempotencyKey: string; source: Source }[] = [];
   const createdSessions: (Created & { workspaceId: string })[] = [];
   const archived: string[] = [];
+  /** onCreate runs after Paseo made a workspace; lostCreates drops that many create responses. */
+  const hooks: { onCreate?: () => unknown; lostCreates: number; archiveFails: boolean } = { lostCreates: 0, archiveFails: false };
   const space = (id: string, kind = "directory", directory = x.a) =>
     workspaces.set(id, { id, projectId: "native", workspaceDirectory: directory, workspaceKind: kind, archivingAt: null });
   const paseo = {
@@ -69,13 +71,24 @@ async function setup() {
       }),
       create: async (request: (typeof createdWorkspaces)[number]) => {
         const previous = createdWorkspaces.findIndex((w) => w.idempotencyKey === request.idempotencyKey);
-        if (previous >= 0) return { id: `created-${previous + 1}` };
+        if (previous >= 0) {
+          // Paseo refuses a reused key with a different request.
+          const { title, source } = createdWorkspaces[previous];
+          if (JSON.stringify({ title, source }) !== JSON.stringify({ title: request.title, source: request.source })) throw new Error("workspace_request_key_conflict");
+          return { id: `created-${previous + 1}` };
+        }
         createdWorkspaces.push(request);
         const id = `created-${createdWorkspaces.length}`;
         space(id, request.source.kind, request.source.kind === "worktree" ? join(x.root, id) : x.a);
+        await hooks.onCreate?.();
+        if (hooks.lostCreates > 0) {
+          hooks.lostCreates--;
+          throw new Error("socket closed");
+        }
         return { id };
       },
       archive: async (id: string) => {
+        if (hooks.archiveFails) throw new Error("archive refused");
         archived.push(id);
         workspaces.get(id)!.archivingAt = at;
         return { archivedAt: at };
@@ -86,16 +99,23 @@ async function setup() {
   cards.attach(paseo);
   let on = true;
   cards.on = async () => on;
-  const starter = new CardStarter(x.store, cards, {
-    // ToolServer.prepareSession without the tool service: the same prepared id per operation and workspace.
-    prepare: async (taskId, operationId) => {
-      const task = (await x.store.read()).tasks.find((t) => t.id === taskId)!;
-      const { agentId } = await x.secrets.prepared(taskId, task.workspaceId, operationId);
-      return { agentId, instructions: `INSTRUCTIONS ${taskId}`, contextFile: "/ctx.json", cliPath: "/flowly.mjs", skillPath: "/SKILL.md", mcp: { type: "http", url: "http://127.0.0.1/mcp", headers: { Authorization: "Bearer x" } } };
-    },
-    preparedFor: (operationId) => x.secrets.preparedFor(operationId),
-  });
-  starter.modelDefault = async () => ({ provider: "claude", model: "claude-sonnet-5-5" });
+  /** A starter as the plugin builds it; a second one is the same plugin after a reload (no in-memory state). */
+  const starterFor = () => {
+    const made = new CardStarter(x.store, cards, {
+      // ToolServer.prepareSession without the tool service: the same prepared id per operation and workspace.
+      prepare: async (taskId, operationId) => {
+        const task = (await x.store.read()).tasks.find((t) => t.id === taskId)!;
+        const { agentId } = await x.secrets.prepared(taskId, task.workspaceId, operationId);
+        return { agentId, instructions: `INSTRUCTIONS ${taskId}`, contextFile: "/ctx.json", cliPath: "/flowly.mjs", skillPath: "/SKILL.md", mcp: { type: "http", url: "http://127.0.0.1/mcp", headers: { Authorization: "Bearer x" } } };
+      },
+      preparedFor: (operationId) => x.secrets.preparedFor(operationId),
+      keptWorktree: (operationId) => x.secrets.keptStart(operationId),
+      keepWorktree: (operationId, request) => x.secrets.keepStart(operationId, request),
+    });
+    made.modelDefault = async () => ({ provider: "claude", model: "claude-sonnet-5-5" });
+    return made;
+  };
+  const starter = starterFor();
   const caller = { agentId: "outside", projectId: "p" };
   const card = async (id: string, fields: Partial<Task> = {}, kind = "directory") => {
     space(fields.workspaceId ?? `ws-${id}`, kind);
@@ -151,6 +171,8 @@ async function setup() {
     paseo,
     cards,
     starter,
+    starterFor,
+    hooks,
     caller,
     card,
     session,
@@ -368,4 +390,123 @@ test("a project root that is not a Git repository on a named branch needs a work
   await x.card("c", { ownsWorkspace: true });
   expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("NEEDS_WORKTREE");
   expect(x.createdWorkspaces).toEqual([]);
+});
+
+test("a session started in the directory workspace while the worktree is made keeps the card where it is", async () => {
+  const x = await setup();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  await x.card("c", { ownsWorkspace: true });
+  // The user pressed Start session in the drawer meanwhile.
+  x.hooks.onCreate = () => x.session("drawer", "ws-c");
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("CARD_HAS_SESSION");
+  // The unused worktree is archived; the card and its directory workspace are untouched.
+  expect(x.archived).toEqual(["created-1"]);
+  expect((await x.store.read()).tasks.find((t) => t.id === "c")).toMatchObject({ workspaceId: "ws-c", revision: 1 });
+  expect(x.createdSessions).toEqual([]);
+  expect(logged).toHaveBeenCalledWith("Flowly start_card worktree not used:", expect.stringContaining("created-1"), expect.any(String));
+});
+
+test("a lost worktree response converges on retry, also after a plugin reload", async () => {
+  const x = await setup();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  await x.card("c", { ownsWorkspace: true });
+  x.hooks.lostCreates = 1;
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("START_FAILED");
+  expect((await x.store.read()).tasks.find((t) => t.id === "c")!.workspaceId).toBe("ws-c");
+  expect(logged).toHaveBeenCalledWith("Flowly start_card worktree not created:", expect.stringContaining("c"), "socket closed");
+  // The plugin reloads and the card is renamed: the retry still sends the identical request.
+  await x.store.mutate((board) => {
+    board.tasks.find((t) => t.id === "c")!.title = "Renamed";
+  });
+  const started = await x.starterFor().start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(started).toMatchObject({ workspaceId: "created-1", replayed: false });
+  expect(x.createdWorkspaces).toHaveLength(1);
+  expect(x.createdSessions).toHaveLength(1);
+  expect((await x.store.read()).tasks.find((t) => t.id === "c")!.workspaceId).toBe("created-1");
+});
+
+test("a card changed while its worktree was made is not moved", async () => {
+  const x = await setup();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  await x.card("c", { ownsWorkspace: true });
+  x.hooks.onCreate = () =>
+    x.store.mutate((board) => {
+      board.tasks.find((t) => t.id === "c")!.status = "done";
+    });
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("START_FAILED");
+  expect((await x.store.read()).tasks.find((t) => t.id === "c")!.workspaceId).toBe("ws-c");
+  expect(x.archived).toEqual([]);
+  expect(x.createdSessions).toEqual([]);
+  expect(logged).toHaveBeenCalledWith("Flowly start_card card not moved:", expect.stringContaining("created-1"), expect.any(String));
+});
+
+test("the directory workspace is kept when another card refers to it or Paseo does not archive it", async () => {
+  const x = await setup();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  await x.card("c", { ownsWorkspace: true });
+  await x.card("old", { archivedAt: new Date().toISOString(), previousWorkspaces: [{ id: "ws-c", kind: "directory", directory: x.a, switchedAt: new Date().toISOString() }] }, "worktree");
+  const shared = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.archived).toEqual([]);
+  expect(shared.warnings).toEqual([expect.stringContaining("another card")]);
+  await x.card("d", { ownsWorkspace: true });
+  x.hooks.archiveFails = true;
+  const failed = await x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go" }, x.paseo);
+  expect(failed.workspaceId).toBe("created-2");
+  expect(failed.warnings).toEqual([expect.stringContaining("archive refused")]);
+  expect(logged).toHaveBeenCalledWith("Flowly start_card directory workspace not archived:", expect.stringContaining("ws-d"), "archive refused");
+});
+
+test("two starts of one card at once make one worktree and one session", async () => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true });
+  const [a, b] = await Promise.allSettled([
+    x.starter.start(x.caller, { taskId: "c", idempotencyKey: "a" }, x.paseo),
+    x.starter.start(x.caller, { taskId: "c", idempotencyKey: "b" }, x.paseo),
+  ]);
+  expect(a.status).toBe("fulfilled");
+  expect(b.status === "rejected" && toolFailure(b.reason).code).toBe("CARD_HAS_SESSION");
+  // The same key twice at once: one start, the other a replay of it.
+  await x.card("d", { ownsWorkspace: true });
+  const [c, d] = await Promise.all([
+    x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go" }, x.paseo),
+    x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go" }, x.paseo),
+  ]);
+  expect(d).toEqual({ ...c, replayed: true });
+  expect(x.createdWorkspaces).toHaveLength(2);
+  expect(x.createdSessions).toHaveLength(2);
+});
+
+test("concurrent creates and starts cannot pass the hourly limit together, and a failed start gives its slot back", async () => {
+  const x = await setup();
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  for (let i = 1; i < agentCardLimits.perHour; i++) await x.cards.create(x.caller, { title: `Card ${i}`, idempotencyKey: `k${i}` });
+  // A start that fails after its slot was taken returns it.
+  await x.card("c", { ownsWorkspace: true });
+  x.hooks.lostCreates = 1;
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("START_FAILED");
+  await x.card("d", {}, "worktree");
+  const results = await Promise.allSettled([
+    x.cards.create(x.caller, { title: "Last", idempotencyKey: "last" }),
+    x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go" }, x.paseo),
+    x.cards.create(x.caller, { title: "Later", idempotencyKey: "later" }),
+  ]);
+  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  expect(results.filter((r) => r.status === "rejected").map((r) => toolFailure((r as PromiseRejectedResult).reason).code)).toEqual(["CARD_LIMIT", "CARD_LIMIT"]);
+});
+
+test("a Linear branch that exists only on the remote is checked out as a tracking branch", async () => {
+  const x = await setup();
+  const remote = join(x.root, "remote.git");
+  execFileSync("git", ["init", "-q", "--bare", remote]);
+  git(x.a, "remote", "add", "origin", remote);
+  git(x.a, "push", "-q", "origin", "main");
+  git(x.a, "branch", "noah/zen-126-remote");
+  git(x.a, "push", "-q", "origin", "noah/zen-126-remote");
+  git(x.a, "branch", "-q", "-D", "noah/zen-126-remote");
+  x.starter.connectors = { resolve: async () => ({}) as never, cached: async () => ({ branchName: "noah/zen-126-remote" }) as never };
+  await x.card("c", { ownsWorkspace: true });
+  await x.linear("c");
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces[0].source).toMatchObject({ action: "checkout", refName: "noah/zen-126-remote" });
+  expect(git(x.a, "rev-parse", "--abbrev-ref", "noah/zen-126-remote@{upstream}").trim()).toBe("origin/noah/zen-126-remote");
 });

@@ -111,6 +111,8 @@ export class ToolServer {
     this.starter = new CardStarter(store, this.cards, {
       prepare: (taskId, operationId, paseo) => this.prepareSession(taskId, operationId, paseo),
       preparedFor: (operationId) => this.secrets.preparedFor(operationId),
+      keptWorktree: (operationId) => this.secrets.keptStart(operationId),
+      keepWorktree: (operationId, request) => this.secrets.keepStart(operationId, request),
     });
   }
   attach(paseo: PaseoApi) {

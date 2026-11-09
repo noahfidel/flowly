@@ -1,6 +1,7 @@
 import type { PaseoApi } from "@getpaseo/client";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { z } from "zod";
 import { switchLimits, type Board, type Project, type Task } from "../shared/model";
 import { effectiveAgentModel, providerBase, startingAgent, suggestedMode, type AgentModel } from "../shared/agent-defaults";
 import { lastSessionSettings } from "../shared/attention";
@@ -14,16 +15,25 @@ import type { BoardStore } from "./store";
 import { digest } from "./tool-context";
 import { ToolError } from "./tool-error";
 import { workspaceSessions } from "./workspace-switch";
+import { cardWorkspaceIds } from "../shared/workspace-switch";
 
 export { startCardInputSchema, startCardResultSchema } from "../shared/tools";
 
 const execute = promisify(execFile);
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const finished = (status: string) => status === "done" || status === "cancelled";
-/** Worktree requests kept for retries (§4.1); older ones are dropped. */
-const KEPT_SOURCES = 200;
 
-type WorktreeSource = { action: "branch-off"; refName: string; branchName: string } | { action: "checkout"; refName: string };
+/** The `workspaces.create` request a start sends; kept per operation so retries send it unchanged (§4.1). */
+const worktreeRequestSchema = z.object({
+  title: z.string(),
+  idempotencyKey: z.string(),
+  source: z.union([
+    z.object({ kind: z.literal("worktree"), cwd: z.string(), projectId: z.string(), action: z.literal("branch-off"), refName: z.string(), branchName: z.string() }),
+    z.object({ kind: z.literal("worktree"), cwd: z.string(), projectId: z.string(), action: z.literal("checkout"), refName: z.string() }),
+  ]),
+});
+type WorktreeRequest = z.infer<typeof worktreeRequestSchema>;
+type BranchSource = { action: "branch-off"; refName: string; branchName: string } | { action: "checkout"; refName: string };
 type Workspace = { workspaceKind?: string | null; workspaceDirectory?: string | null };
 
 /** Whether git accepts `name` as a branch name. */
@@ -37,9 +47,9 @@ async function validBranchName(name: string) {
   }
 }
 
-async function branchExists(root: string, name: string) {
+async function refExists(root: string, ref: string) {
   try {
-    await execute("git", ["-C", root, "show-ref", "--verify", "--quiet", `refs/heads/${name}`], { timeout: 10000 });
+    await execute("git", ["-C", root, "show-ref", "--verify", "--quiet", ref], { timeout: 10000 });
     return true;
   } catch {
     return false;
@@ -82,6 +92,10 @@ export type StarterDeps = {
   prepare: (taskId: string, operationId: string, paseo: PaseoApi) => Promise<ToolPreparation>;
   /** The identity an earlier `prepare` stored for this operation, or null. */
   preparedFor: (operationId: string) => Promise<{ agentId: string; taskId: string; workspaceId: string } | null>;
+  /** The worktree request kept for this operation (`ToolSecrets.keptStart`), or null. */
+  keptWorktree: (operationId: string) => Promise<unknown>;
+  /** Keeps it on disk, so a retry after a plugin reload sends the identical request. */
+  keepWorktree: (operationId: string, request: WorktreeRequest) => Promise<void>;
 };
 
 /**
@@ -94,7 +108,6 @@ export class CardStarter {
   /** The global default model (Settings → Models); set by the plugin entry. */
   modelDefault: () => Promise<AgentModel | null> = async () => null;
   private chain: Promise<unknown> = Promise.resolve();
-  private sources = new Map<string, WorktreeSource>();
   constructor(
     readonly store: BoardStore,
     readonly cards: AgentCards,
@@ -133,7 +146,7 @@ export class CardStarter {
       throw new ToolError("CARD_HAS_SESSION", `The card already has a live session (${live[0].id}). Send it instructions instead of starting another.`);
     // Where the session runs (§4).
     const move = workspace.workspaceKind !== "worktree" && !project.links?.length;
-    let source: WorktreeSource | null = null;
+    let request: WorktreeRequest | null = null;
     if (move) {
       const owned = task.ownsWorkspace === true && !task.previousWorkspaces?.length && !task.switch;
       if (!owned || sessions.length)
@@ -141,26 +154,37 @@ export class CardStarter {
           "NEEDS_WORKTREE",
           "The card works in a directory workspace that already had sessions or that Flowly did not create for it. Ask the user to switch the card to a worktree, then start it.",
         );
-      source = await this.worktreeSource(task, project, board, operationId);
+      request = await this.worktreeRequest(task, project, board, operationId);
     }
-    this.cards.checkLimit(caller.agentId);
-    const model = await this.model(project, board, paseo);
-    let workspaceId = task.workspaceId;
-    const warnings: string[] = [];
-    if (source) {
-      const moved = await this.toWorktree(caller, task, project, workspace, source, operationId, paseo);
-      workspaceId = moved.workspaceId;
-      warnings.push(...moved.warnings);
+    const release = this.cards.reserve(caller.agentId);
+    try {
+      const model = await this.model(project, board, paseo);
+      let workspaceId = task.workspaceId;
+      const warnings: string[] = [];
+      if (request) {
+        const moved = await this.toWorktree(caller, task, project, workspace, request, operationId, paseo);
+        workspaceId = moved.workspaceId;
+        warnings.push(...moved.warnings);
+      }
+      const agentId = await this.createSession(caller, task, workspaceId, model, input.prompt, operationId, paseo);
+      return { taskId: task.id, workspaceId, agentId, replayed: false, ...(warnings.length ? { warnings } : {}) };
+    } catch (e) {
+      release();
+      throw e;
     }
-    const agentId = await this.createSession(caller, task, workspaceId, model, input.prompt, operationId, paseo);
-    this.cards.countCreation(caller.agentId);
-    return { taskId: task.id, workspaceId, agentId, replayed: false, ...(warnings.length ? { warnings } : {}) };
   }
 
-  /** The worktree request: the Linear branch, checked out when it exists and is free, else a generated one (§4.1). */
-  private async worktreeSource(task: Task, project: Project, board: Board, operationId: string): Promise<WorktreeSource> {
-    const kept = this.sources.get(operationId);
-    if (kept) return kept;
+  /**
+   * The worktree request (§4.1): the one this operation already sent, else the Linear branch (checked
+   * out when it exists locally or only on origin and no worktree has it), else a generated one.
+   */
+  private async worktreeRequest(task: Task, project: Project, board: Board, operationId: string): Promise<WorktreeRequest> {
+    const kept = await this.deps.keptWorktree(operationId);
+    if (kept !== null) {
+      const parsed = worktreeRequestSchema.safeParse(kept);
+      if (!parsed.success) throw new ToolError("START_FAILED", "The worktree request kept for this idempotencyKey is unreadable. Use a new idempotencyKey.");
+      return parsed.data;
+    }
     const root = project.primaryPath;
     let base: string;
     try {
@@ -170,14 +194,31 @@ export class CardStarter {
     }
     const generated = generatedBranchName(task.title, operationId);
     const wanted = await linearBranchFor(task, board, this.connectors);
-    let source: WorktreeSource = { action: "branch-off", refName: base, branchName: wanted ?? generated };
-    if (wanted && (await branchExists(root, wanted))) {
-      const taken = await checkedOutBranches(root).catch(() => null);
-      source = taken && !taken.has(wanted) ? { action: "checkout", refName: wanted } : { action: "branch-off", refName: base, branchName: generated };
+    const branchOff = (branchName: string): BranchSource => ({ action: "branch-off", refName: base, branchName });
+    let source = branchOff(wanted ?? generated);
+    if (wanted) {
+      const local = await refExists(root, `refs/heads/${wanted}`);
+      if (local) {
+        const taken = await checkedOutBranches(root).catch(() => null);
+        source = taken && !taken.has(wanted) ? { action: "checkout", refName: wanted } : branchOff(generated);
+      } else if (await refExists(root, `refs/remotes/origin/${wanted}`)) {
+        // Only on the remote: a local branch tracking it, which nothing has checked out yet.
+        try {
+          await execute("git", ["-C", root, "branch", "--track", wanted, `origin/${wanted}`], { timeout: 10000 });
+          source = { action: "checkout", refName: wanted };
+        } catch (e) {
+          logFailure("Flowly start_card tracking branch not made:", e, `card ${task.id}`);
+          source = branchOff(generated);
+        }
+      }
     }
-    this.sources.set(operationId, source);
-    if (this.sources.size > KEPT_SOURCES) this.sources.delete(this.sources.keys().next().value!);
-    return source;
+    const request: WorktreeRequest = {
+      title: task.title,
+      idempotencyKey: `flowly-start:${operationId}`,
+      source: { kind: "worktree", cwd: root, projectId: project.paseoProjectId, ...source },
+    };
+    await this.deps.keepWorktree(operationId, request);
+    return request;
   }
 
   /** The New task defaults: project model, else global, else the project's latest session (§5). */
@@ -211,46 +252,76 @@ export class CardStarter {
   }
 
   /** Creates the worktree, moves the card to it, then archives the empty directory workspace (§4.1–4.3). */
-  private async toWorktree(caller: CardCaller, task: Task, project: Project, workspace: Workspace, source: WorktreeSource, operationId: string, paseo: PaseoApi) {
-    const branch = source.action === "checkout" ? source.refName : source.branchName;
+  private async toWorktree(caller: CardCaller, task: Task, project: Project, workspace: Workspace, request: WorktreeRequest, operationId: string, paseo: PaseoApi) {
+    const old = task.workspaceId;
+    const branch = request.source.action === "checkout" ? request.source.refName : request.source.branchName;
     let created: { id: string };
     try {
-      created = await paseo.workspaces.create({
-        title: task.title,
-        idempotencyKey: `flowly-start:${operationId}`,
-        source: { kind: "worktree", cwd: project.primaryPath, projectId: project.paseoProjectId, ...source },
-      });
+      created = await paseo.workspaces.create(request);
     } catch (e) {
-      throw new ToolError("START_FAILED", `Paseo did not create the worktree: ${errorText(e)}`);
+      // Paseo may have made it anyway; the same idempotencyKey sends the same request again.
+      logFailure("Flowly start_card worktree not created:", e, `card ${task.id} operation ${operationId}`);
+      throw new ToolError("START_FAILED", `Paseo did not create the worktree: ${errorText(e)}. Retry with the same idempotencyKey.`);
+    }
+    // A session started in the directory workspace meanwhile (the drawer's Start session) keeps the card there (§4.2).
+    const meanwhile = await workspaceSessions(paseo, old, true).catch((e: unknown) => e);
+    if (!Array.isArray(meanwhile)) {
+      logFailure("Flowly start_card card not moved:", meanwhile, `card ${task.id} worktree ${created.id}`);
+      throw new ToolError("START_FAILED", `Flowly could not check the card's directory workspace for sessions; the card was not moved. Retry with the same idempotencyKey.`);
+    }
+    if (meanwhile.length) {
+      const problem = await this.archive(paseo, created.id);
+      logFailure("Flowly start_card worktree not used:", new Error(`a session started in the directory workspace${problem ? `; not archived: ${problem}` : ""}`), `card ${task.id} worktree ${created.id}`);
+      throw new ToolError("CARD_HAS_SESSION", `A session started on the card meanwhile (${meanwhile[0].id}); the card stays where it is. Send that session instructions instead.`);
     }
     const now = new Date().toISOString();
-    await this.store.mutate((board) => {
-      const t = board.tasks.find((x) => x.id === task.id);
-      if (!t || t.archivedAt || finished(t.status) || t.workspaceId !== task.workspaceId)
-        throw new ToolError("START_FAILED", `The card changed while its worktree was made; it was not moved. Worktree workspace ${created.id} remains available.`);
-      if (board.tasks.some((x) => x.workspaceId === created.id))
-        throw new ToolError("START_FAILED", `Workspace ${created.id} is already bound to another card; the card was not moved.`);
-      t.previousWorkspaces = [
-        ...(t.previousWorkspaces || []),
-        { id: t.workspaceId, kind: workspace.workspaceKind || "directory", directory: workspace.workspaceDirectory || project.primaryPath, switchedAt: now },
-      ].slice(-switchLimits.previousWorkspaces);
-      t.workspaceId = created.id;
-      t.ownsWorkspace = true;
-      t.revision++;
-      t.updatedAt = now;
-      this.store.event(board, { taskId: t.id, actor: "agent", agentId: caller.agentId, action: "workspace_switched", note: `directory → worktree ${branch}` });
-    });
-    // Archived only while it still never had a session (§4.3).
+    let shared: boolean;
+    try {
+      shared = await this.store.mutate((board) => {
+        const t = board.tasks.find((x) => x.id === task.id);
+        if (!t || t.archivedAt || finished(t.status) || t.workspaceId !== old)
+          throw new ToolError("START_FAILED", `The card changed while its worktree was made; it was not moved. Worktree workspace ${created.id} remains available.`);
+        if (board.tasks.some((x) => x.workspaceId === created.id))
+          throw new ToolError("START_FAILED", `Workspace ${created.id} is already bound to another card; the card was not moved.`);
+        t.previousWorkspaces = [
+          ...(t.previousWorkspaces || []),
+          { id: old, kind: workspace.workspaceKind || "directory", directory: workspace.workspaceDirectory || project.primaryPath, switchedAt: now },
+        ].slice(-switchLimits.previousWorkspaces);
+        t.workspaceId = created.id;
+        t.ownsWorkspace = true;
+        t.revision++;
+        t.updatedAt = now;
+        this.store.event(board, { taskId: t.id, actor: "agent", agentId: caller.agentId, action: "workspace_switched", note: `directory → worktree ${branch}` });
+        // Live or archived, current or earlier: a workspace another card refers to is never archived (§4.3).
+        return board.tasks.some((x) => x.id !== t.id && cardWorkspaceIds(x).includes(old));
+      });
+    } catch (e) {
+      logFailure("Flowly start_card card not moved:", e, `card ${task.id} worktree ${created.id}`);
+      throw e;
+    }
+    // Archived only while it still never had a session and no other card refers to it (§4.3).
     const warnings: string[] = [];
-    const after = await workspaceSessions(paseo, task.workspaceId, true).catch(() => null);
-    if (!after) warnings.push(`The earlier directory workspace ${task.workspaceId} was not archived (its sessions could not be read); archive it in Paseo.`);
-    else if (after.length) warnings.push(`The earlier directory workspace ${task.workspaceId} got a session meanwhile and was kept.`);
-    else {
-      const result = await paseo.workspaces.archive(task.workspaceId).catch((e: unknown) => ({ error: errorText(e), archivedAt: null }));
-      if (result.error || !result.archivedAt)
-        warnings.push(`The earlier directory workspace ${task.workspaceId} was not archived (${result.error || "no reason given"}); archive it in Paseo.`);
+    const after = shared ? null : await workspaceSessions(paseo, old, true).catch(() => null);
+    let problem = "";
+    if (shared) warnings.push(`The earlier directory workspace ${old} was kept: another card refers to it.`);
+    else if (!after) problem = "its sessions could not be read";
+    else if (after.length) warnings.push(`The earlier directory workspace ${old} got a session meanwhile and was kept.`);
+    else problem = await this.archive(paseo, old);
+    if (problem) {
+      logFailure("Flowly start_card directory workspace not archived:", new Error(problem), `card ${task.id} workspace ${old}`);
+      warnings.push(`The earlier directory workspace ${old} was not archived (${problem}); archive it in Paseo.`);
     }
     return { workspaceId: created.id, warnings };
+  }
+
+  /** Archives a workspace; "" when Paseo archived it, else the reason. */
+  private async archive(paseo: PaseoApi, workspaceId: string) {
+    try {
+      const result = await paseo.workspaces.archive(workspaceId);
+      return result.error || (result.archivedAt ? "" : "no reason given");
+    } catch (e) {
+      return errorText(e);
+    }
   }
 
   /** The drawer's Start session from the daemon (`launchKanbanSession`); a lost response never creates a second session. */

@@ -264,6 +264,20 @@ export class ToolSecrets {
       throw e;
     }
   }
+  /** The worktree request a flowly_start_card operation sent first, or null (START-CARD-SPEC §4.1). */
+  async keptStart(operationId: string): Promise<unknown> {
+    try {
+      return JSON.parse(await readFile(join(this.directory, "starts", `${digest(operationId)}.json`), "utf8"));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw e;
+    }
+  }
+  /** Keeps that request so a retry, also after a plugin reload, sends the identical one. */
+  async keepStart(operationId: string, request: unknown) {
+    await mkdir(join(this.directory, "starts"), { recursive: true, mode: 0o700 });
+    await writePrivate(join(this.directory, "starts", `${digest(operationId)}.json`), JSON.stringify(request));
+  }
   async prepared(taskId: string, workspaceId: string, operationId: string) {
     const path = join(
       this.directory,

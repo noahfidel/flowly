@@ -63,10 +63,12 @@ export class AgentCards {
       );
   }
   /**
-   * CARD_LIMIT when this session already made `agentCardLimits.perHour` creations in the last hour;
-   * card creations and flowly_start_card sessions count together (START-CARD-SPEC §3).
+   * Takes one of this session's `agentCardLimits.perHour` hourly slots, or CARD_LIMIT; card creations
+   * and flowly_start_card sessions count together (START-CARD-SPEC §3). The slot is taken before any
+   * await, so concurrent calls cannot pass the limit together; the returned function gives it back
+   * when the creation or start failed.
    */
-  checkLimit(agentId: string) {
+  reserve(agentId: string) {
     const now = this.clock(),
       recent = (this.created.get(agentId) || []).filter((at) => now - at < hour);
     if (recent.length >= agentCardLimits.perHour)
@@ -74,12 +76,16 @@ export class AgentCards {
         "CARD_LIMIT",
         `This session already created or started ${agentCardLimits.perHour} cards in the last hour. Stop and ask the user before creating more.`,
       );
-    return recent;
-  }
-  /** Counts one creation for the hourly limit. */
-  countCreation(agentId: string) {
-    const now = this.clock();
-    this.created.set(agentId, [...(this.created.get(agentId) || []).filter((at) => now - at < hour), now]);
+    this.created.set(agentId, [...recent, now]);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const list = [...(this.created.get(agentId) || [])],
+        at = list.lastIndexOf(now);
+      if (at >= 0) list.splice(at, 1);
+      this.created.set(agentId, list);
+    };
   }
   /** A session outside cards, checked again on every call (§2.2). */
   async boardCaller(identity: BoardIdentity): Promise<CardCaller> {
@@ -197,7 +203,7 @@ export class AgentCards {
     // A linked-root project has no worktree option (START-CARD-SPEC §7).
     if (input.workspace === "worktree" && project.links?.length)
       throw new ToolError("WORKTREE_UNAVAILABLE", "This project links several repositories and has no worktree option. Create the card without workspace=worktree.");
-    this.checkLimit(caller.agentId);
+    const release = this.reserve(caller.agentId);
     let task: Task;
     try {
       task = await this.board.createTask(
@@ -218,9 +224,9 @@ export class AgentCards {
         { agentId: caller.agentId },
       );
     } catch (e) {
+      release();
       throw new ToolError("CARD_CREATE_FAILED", e instanceof Error ? e.message : String(e));
     }
-    this.countCreation(caller.agentId);
     const after = await this.store.read();
     return { card: cardView(after, this.project(after, caller), after.tasks.find((t) => t.id === task.id) ?? task), replayed: false };
   }

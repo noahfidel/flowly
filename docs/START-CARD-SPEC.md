@@ -33,7 +33,7 @@ Output (`startCardResultSchema`): `{ taskId, workspaceId, agentId, replayed, war
 5. The card's workspace exists and is not being archived (`RESOURCE_UNAVAILABLE`).
 6. It has no live (non-archived) session (`CARD_HAS_SESSION`: send that session instructions instead).
 7. Where the session runs (§4): may refuse with `NEEDS_WORKTREE`.
-8. At most 20 creations per session per hour, shared with `flowly_create_card` (`CARD_LIMIT`). A start counts once its session is created.
+8. At most 20 creations per session per hour, shared with `flowly_create_card` (`CARD_LIMIT`). The slot is taken before any further work, so concurrent creates and starts cannot pass the limit together, and given back when the start or create fails.
 9. A starting model (§5) exists (`MODEL_UNAVAILABLE`).
 
 ## 4. Where the session runs
@@ -56,16 +56,19 @@ A project root that is not a Git repository on a named branch also refuses with 
 - **Branch name:** the card's Linear branch (§6) when there is one, otherwise `generatedBranchName(card title, operationId)` (`kanban/<slug>-<6 hex>`).
 - **New branch:** `action: "branch-off"`, `refName` = the main checkout's current branch (`resolveWorktreeBaseRef`), `branchName` = the name.
 - **Linear branch already exists locally:** `action: "checkout"`, `refName` = that branch, when no worktree of the repository has it checked out (the main checkout or another card's workspace). Otherwise the generated name with `branch-off`.
+- **Linear branch exists only on the remote** (`refs/remotes/origin/<name>`, as last fetched; Flowly does not fetch): Flowly creates a local branch tracking it (`git branch --track <name> origin/<name>`) and checks it out as above. If that fails, the generated name with `branch-off`.
 
-The decision is kept in memory per `operationId`, so a retry after a lost response sends the same request (Paseo rejects a reused key with a different request).
+The whole `workspaces.create` request (title, key, source) is written to the plugin's tool data per `operationId` before it is sent, and a retry with the same key sends exactly that request, also after a plugin reload or a card rename (Paseo rejects a reused key with a different request). An unreadable kept request refuses with `START_FAILED` (use a new key).
 
 ### 4.2 Moving the card
 
-In one board write, only if the card still points at the old workspace and is still live and unfinished: the old workspace is appended to `previousWorkspaces` (read-only history, as a switch does), `workspaceId` becomes the worktree, `ownsWorkspace: true`, `revision` +1, event `workspace_switched` (`actor: "agent"`, `agentId`, note `directory → worktree <branch>`). `switch` is not set (there is nothing to release). The worktree is new, so no other card is bound to it; the write refuses if one is. When the write fails, the error names the worktree, which stays available.
+When the create fails, the error is logged and `START_FAILED` asks for a retry with the same key (Paseo may have made the worktree; the retry gets the same one). After the create, the old directory workspace's sessions are read again: when a session started there meanwhile (the drawer's Start session), the card is not moved, the just-created worktree (no work in it) is archived, the event is logged, and the call refuses with `CARD_HAS_SESSION`. When they cannot be read, `START_FAILED` and the card stays.
+
+Otherwise, in one board write, only if the card still points at the old workspace and is still live and unfinished: the old workspace is appended to `previousWorkspaces` (read-only history, as a switch does), `workspaceId` becomes the worktree, `ownsWorkspace: true`, `revision` +1, event `workspace_switched` (`actor: "agent"`, `agentId`, note `directory → worktree <branch>`). `switch` is not set (there is nothing to release). The worktree is new, so no other card is bound to it; the write refuses if one is. When the write fails, the error names the worktree, which stays available, and the failure is logged.
 
 ### 4.3 Archiving the empty directory workspace
 
-After the move, the old directory workspace is checked again; when it still has no session at all, `paseo.workspaces.archive` archives it (a directory workspace: Paseo deletes no files). A session that appeared meanwhile keeps it, with a warning; a failed archive is a warning too. This is the only Paseo resource `flowly_start_card` archives.
+After the move, the old directory workspace is archived with `paseo.workspaces.archive` (a directory workspace: Paseo deletes no files) only when no other card, live or archived, refers to it as its current or an earlier workspace, and it still has no session at all. Another card's reference or a session that appeared meanwhile keeps it, with a warning; sessions that cannot be read or a failed archive are a warning and are logged. Besides this workspace, `flowly_start_card` archives only the unused worktree of §4.2.
 
 ## 5. The session
 
@@ -91,7 +94,7 @@ New codes: `NOT_FOUND`, `PROJECT_ARCHIVED`, `CARD_FINISHED`, `CARD_HAS_SESSION`,
 
 ## 9. Acceptance
 
-- `server/start-card.test.ts` with a fake Paseo: a worktree card starts a labelled session (`flowly-task`, `flowly-started-by`, `mcpServers.flowly`, model defaults, default prompt); a retried key returns the same session (`replayed: true`, one create); an owned, session-less directory card gets a worktree, moves to it and its directory workspace is archived; an unowned or used directory card is `NEEDS_WORKTREE`; a linked-root card starts in its directory workspace; Done is `CARD_FINISHED`; a live session is `CARD_HAS_SESSION`; start and create share the hourly limit; the Linear branch is used, an existing free one is checked out, a taken one, a failed fetch or an invalid name falls back to the generated name.
+- `server/start-card.test.ts` with a fake Paseo: a worktree card starts a labelled session (`flowly-task`, `flowly-started-by`, `mcpServers.flowly`, model defaults, default prompt); a retried key returns the same session (`replayed: true`, one create); an owned, session-less directory card gets a worktree, moves to it and its directory workspace is archived; an unowned or used directory card is `NEEDS_WORKTREE`; a linked-root card starts in its directory workspace; Done is `CARD_FINISHED`; a live session is `CARD_HAS_SESSION`; start and create share the hourly limit, also when called concurrently, and a failed start gives its slot back; the Linear branch is used, an existing free one is checked out, one only on the remote becomes a tracking branch and is checked out, a taken one, a failed fetch or an invalid name falls back to the generated name; a lost create response converges on retry after a reload and a rename; a session that appears during the create keeps the card and archives the unused worktree; a card changed during the create is not moved; a directory workspace another card refers to, or one Paseo will not archive, is kept with a warning; two concurrent starts of one card make one worktree and one session.
 - `server/agent-cards.test.ts`: `workspace: "worktree"` branches off the project's base; a linked-root project refuses it.
 - `server/connectors/linear.test.ts`: the issue summary carries `branchName`.
 - `server/tool-server.test.ts`: card and board tool lists include `flowly_start_card`.
