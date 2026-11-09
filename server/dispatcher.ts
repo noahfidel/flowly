@@ -91,6 +91,15 @@ const recordSchema = z.strictObject({
   savedTools: z.literal(true).optional(),
 });
 export type DispatcherRecord = z.infer<typeof recordSchema>;
+/**
+ * Providers whose dispatcher session is saved with its tools, every one preapproved (§3). Paseo's daemon preapproves
+ * exact MCP tools only for claude, codex and opencode (provider-registry.js PROVIDER_CONTRACTS; providers derived from
+ * them, which a plugin cannot tell apart, are left out), and any tool policy turns OpenCode's auto-accept off
+ * (opencode-agent.js). Every other provider gets the tools from the open hook, unapproved.
+ */
+const preapprovingProviders: readonly string[] = ["claude", "codex"];
+export const savesTools = (provider: string) => preapprovingProviders.includes(provider.split("/")[0]);
+
 const emptyRecord = (): DispatcherRecord => ({ version: 1, workspaceId: null, agentId: null, startedAt: null });
 
 export type DispatcherMcpServer = { type: "http"; url: string; headers: Record<string, string> };
@@ -271,7 +280,8 @@ export class Dispatcher {
     // What is held now is on the board the summary reads; later notes are kept (one may repeat the summary).
     const covered = [...this.held];
     try {
-      const [mcp, summary] = await Promise.all([this.deps.mcp({ agentId, workspaceId }), this.deps.summary()]);
+      const saved = savesTools(input.provider);
+      const [mcp, summary] = await Promise.all([saved ? this.deps.mcp({ agentId, workspaceId }) : null, this.deps.summary()]);
       if (previous.agentId) await this.retire(paseo, previous.agentId);
       const now = this.deps.now?.() ?? Date.now();
       const earlier = previous.agentId
@@ -279,7 +289,15 @@ export class Dispatcher {
         : previous.previousAgentIds;
       for (const [taskId, held] of covered) if (this.held.get(taskId) === held) this.held.delete(taskId);
       // Stored first: the session's first tool calls already pass the caller check (§4).
-      await this.save((r) => ({ ...r, workspaceId, agentId, startedAt: new Date(now).toISOString(), savedTools: true, ...(earlier ? { previousAgentIds: earlier } : {}) }));
+      // Only a session saved with its tools is marked; any other gets them from the open hook (§3).
+      await this.save(({ savedTools: _, ...r }) => ({
+        ...r,
+        workspaceId,
+        agentId,
+        startedAt: new Date(now).toISOString(),
+        ...(saved ? { savedTools: true as const } : {}),
+        ...(earlier ? { previousAgentIds: earlier } : {}),
+      }));
       await this.create(paseo, { workspaceId, agentId, mcp, summary, input, previous });
     } finally {
       this.starting = null;
@@ -309,7 +327,7 @@ export class Dispatcher {
     { workspaceId, agentId, mcp, summary, input, previous }: {
       workspaceId: string;
       agentId: string;
-      mcp: DispatcherMcpServer;
+      mcp: DispatcherMcpServer | null;
       summary: string;
       input: { provider: string; modeId?: string; thinking?: string };
       previous: DispatcherRecord;
@@ -326,8 +344,12 @@ export class Dispatcher {
           systemPrompt: dispatcherCharter,
           // Saved with the session and every tool preapproved, so its own tools never prompt (they are gated by the
           // "Agents create and edit cards" switch); Paseo checks each grant's server is in this same request (§3).
-          mcpServers: { [dispatcherServerName]: mcp },
-          toolPolicy: { preapproved: dispatcherToolNames.map((tool) => ({ kind: "mcp" as const, server: dispatcherServerName, tool })) },
+          ...(mcp
+            ? {
+                mcpServers: { [dispatcherServerName]: mcp },
+                toolPolicy: { preapproved: dispatcherToolNames.map((tool) => ({ kind: "mcp" as const, server: dispatcherServerName, tool })) },
+              }
+            : {}),
         },
         title: DISPATCHER_TITLE,
         labels: { "flowly-dispatcher": "1" },
