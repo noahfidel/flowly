@@ -130,7 +130,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(skillText).toContain("Ask each question one way only");
   expect(skillText).toContain("At each delivery (in_review, committed or integrated), review what you noticed");
   // The Committed stage (COMMITTED-STAGE-SPEC §3): when to set it, in the skill, the checklist and the tool text.
-  expect(skillText).toContain("Once all of this card's changes are committed (you commit only when the user asks), set committed");
+  expect(skillText).toContain("Once all of this card's changes are committed (the card's deliveryMode is the user's standing ask to commit, or in draft_pr and ready_pr to commit, push and open the PR at delivery; anything beyond it only when the user asks), set committed");
   expect(skillText).toContain("flowly_update_status(committed) once all of the card's changes are committed");
   expect(described("flowly_update_status")).toContain("Set committed only once all of this card's changes are committed");
   // The Integrated stage (INTEGRATED-STAGE-SPEC §3): same three places.
@@ -150,11 +150,24 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   // Delivery mode and "no workspace without a card" (DELIVERY-MODE-SPEC §3-4, START-CARD-SPEC).
   expect(skillText).toContain("Follow the card's deliveryMode (flowly_get_task): branch = commit on the card's branch, no push or PR; draft_pr / ready_pr = push and open a draft / ready PR, then register its URL as an output.");
   expect(skillText).toContain("never bypass the permission prompts for git push or gh pr create; the user answers them");
-  expect(skillText).toContain("In ready_pr mode never mark a PR ready while review notes are open");
   expect(skillText).toContain("A session that starts work in a repo without a card attaches to one or creates one before changing files");
   expect(skillText).toContain('flowly_create_card with workspace="worktree"');
   expect(skillText).toContain("one card = one branch or PR");
   expect(skillText).toContain("flowly_propose_idea");
+  // Review round 1: the delivery mode is the standing ask, and every mode has a valid next move and Done condition.
+  expect(skillText).toContain("the card's deliveryMode is the user's standing ask to commit, or in draft_pr and ready_pr to commit, push and open the PR at delivery; anything beyond it only when the user asks");
+  expect(skillText).toContain("(you merge only when the user asks)");
+  expect(skillText).toContain("its changes are committed (in draft_pr or ready_pr also pushed, with the PR opened; or nothing needed committing)");
+  expect(skillText).toContain("never add it while changes are uncommitted, a draft_pr or ready_pr card's push or PR is still outstanding");
+  expect(skillText).toContain("(verify the change, review the branch, continue with the next stage");
+  expect(skillText).not.toContain("commit and push");
+  expect(described("flowly_suggest_next_moves")).toContain("review the branch");
+  expect(described("flowly_suggest_next_moves")).not.toContain("commit and push");
+  expect(JSON.stringify(listed.find((t) => t.name === "flowly_update_status")!.inputSchema)).toContain("also pushed, with the PR opened");
+  expect(skillText).toContain("In draft_pr mode leave the PR a draft. In ready_pr mode never open a PR as ready, and never mark one ready later, while review notes are open.");
+  expect(skillText).toContain('A session outside any card creates the card with flowly_create_card with workspace="worktree" and starts it with flowly_start_card');
+  expect(skillText).toContain("the work happens in that card's session");
+  expect(skillText).toContain("If this session has already changed files in the main checkout, change nothing more there: tell the user which files changed and let them decide.");
   expect(described("flowly_update_status")).toContain("SETUP_INCOMPLETE");
   expect(described("flowly_get_task")).toContain("setup.missing");
   for (const name of ["flowly_set_type", "flowly_set_tags", "flowly_update_workpad"])

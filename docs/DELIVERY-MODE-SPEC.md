@@ -32,7 +32,8 @@ How a card's work is handed over: left on its branch for the user to review, or 
 
 - Flowly itself never pushes, opens a PR or marks one ready. The card's session does, with its own tools.
 - Delivery mode never bypasses the user's permission rules for `git push` and `gh pr create`. In Draft PR and Ready PR the session still asks, and the user answers the prompt.
-- Ready PR never marks a PR ready while review notes are open.
+- Ready PR never opens a PR as ready, and never marks one ready later, while review notes are open. Draft PR leaves the PR a draft.
+- **The mode is the user's standing ask** (ruling 2026-11-08): `branch` commits at delivery; `draft_pr` and `ready_pr` commit, push and open the PR at delivery. Anything beyond that, such as merging, happens only when the user asks. "Delivered and committed" for a card therefore means committed in `branch`, and committed, pushed with the PR opened in `draft_pr` and `ready_pr`; the agent's example next moves and the Done move follow this and never assume a push.
 - `DELIVERY-CONSTRAINTS-SPEC` (outputs and `acknowledgeOpen`) is unchanged: the PR URL is registered through `outputs` of the delivery call.
 - No heartbeat field (`docs/TELEMETRY-SPEC.md` §4).
 
