@@ -100,14 +100,17 @@ export type StarterDeps = {
 
 /**
  * flowly_start_card (START-CARD-SPEC): starts a card's session in its worktree, first moving a
- * session-less directory card Flowly created into a new worktree. One start runs at a time.
+ * session-less directory card Flowly created into a new worktree. Starts in one project root run one at a time.
  */
 export class CardStarter {
   /** Linear inputs name the worktree's branch (§6); set by the plugin entry. */
   connectors?: Pick<ConnectorService, "resolve" | "cached">;
   /** The global default model (Settings → Models); set by the plugin entry. */
   modelDefault: () => Promise<AgentModel | null> = async () => null;
-  private chain: Promise<unknown> = Promise.resolve();
+  /** One queue per project root: starts in one root run one at a time; other roots do not wait. */
+  private chains = new Map<string, Promise<unknown>>();
+  /** Root lookups run in call order, so two starts join their root's queue in the order they were asked. */
+  private routing: Promise<unknown> = Promise.resolve();
   constructor(
     readonly store: BoardStore,
     readonly cards: AgentCards,
@@ -116,9 +119,19 @@ export class CardStarter {
 
   start(caller: CardCaller, raw: StartCardInput | unknown, paseo: PaseoApi): Promise<StartCardResult> {
     const input = startCardInputSchema.parse(raw);
-    const job = this.chain.then(() => this.run(caller, input, paseo));
-    this.chain = job.catch(() => undefined);
-    return job;
+    const queued = this.routing.then(async () => {
+      const project = (await this.store.read()).projects.find((p) => p.id === caller.projectId);
+      const key = project?.primaryPath ?? `project:${caller.projectId}`;
+      const job = (this.chains.get(key) ?? Promise.resolve()).then(() => this.run(caller, input, paseo));
+      const tail = job.catch(() => undefined);
+      this.chains.set(key, tail);
+      void tail.then(() => {
+        if (this.chains.get(key) === tail) this.chains.delete(key);
+      });
+      return { job };
+    });
+    this.routing = queued.catch(() => undefined);
+    return queued.then(({ job }) => job);
   }
 
   private async run(caller: CardCaller, input: ReturnType<typeof startCardInputSchema.parse>, paseo: PaseoApi): Promise<StartCardResult> {
@@ -149,7 +162,6 @@ export class CardStarter {
       throw new ToolError("CARD_HAS_SESSION", `The card already has a live session (${live[0].id}). Send it instructions instead of starting another.`);
     // Where the session runs (§4).
     const move = workspace.workspaceKind !== "worktree" && !project.links?.length;
-    let request: WorktreeRequest | null = null;
     if (move) {
       const owned = task.ownsWorkspace === true && !task.previousWorkspaces?.length && !task.switch;
       if (!owned || sessions.length)
@@ -159,14 +171,15 @@ export class CardStarter {
             ? "This card's folder already had sessions, or Flowly did not create it for the card. Use Switch to worktree on the card, then start again."
             : "The card works in a directory workspace that already had sessions or that Flowly did not create for it. Ask the user to switch the card to a worktree, then start it.",
         );
-      request = await this.worktreeRequest(task, project, board, operationId);
     }
     const release = caller.human ? () => undefined : this.cards.reserve(caller.agentId, caller.dispatcher);
     try {
       const model = await this.model(project, board, paseo);
       let workspaceId = task.workspaceId;
       const warnings: string[] = [];
-      if (request) {
+      // After the limit and the model, so a refused start makes no branch and keeps no request.
+      if (move) {
+        const request = await this.worktreeRequest(task, project, board, operationId);
         const moved = await this.toWorktree(caller, task, project, workspace, request, operationId, paseo);
         workspaceId = moved.workspaceId;
         warnings.push(...moved.warnings);
@@ -184,10 +197,20 @@ export class CardStarter {
    * out when it exists locally or only on origin and no worktree has it), else a generated one.
    */
   private async worktreeRequest(task: Task, project: Project, board: Board, operationId: string): Promise<WorktreeRequest> {
-    const kept = await this.deps.keptWorktree(operationId);
+    // An unreadable kept request is left on disk and refuses this key; it never becomes a new request.
+    const unreadable = (e: unknown) => {
+      logFailure("Flowly start_card kept worktree request unreadable:", e, `card ${task.id} operation ${operationId}`);
+      return new ToolError("START_FAILED", "The worktree request kept for this idempotencyKey is unreadable. Use a new idempotencyKey.");
+    };
+    let kept: unknown;
+    try {
+      kept = await this.deps.keptWorktree(operationId);
+    } catch (e) {
+      throw unreadable(e);
+    }
     if (kept !== null) {
       const parsed = worktreeRequestSchema.safeParse(kept);
-      if (!parsed.success) throw new ToolError("START_FAILED", "The worktree request kept for this idempotencyKey is unreadable. Use a new idempotencyKey.");
+      if (!parsed.success) throw unreadable(parsed.error);
       return parsed.data;
     }
     const root = project.primaryPath;
@@ -268,6 +291,16 @@ export class CardStarter {
       logFailure("Flowly start_card worktree not created:", e, `card ${task.id} operation ${operationId}`);
       throw new ToolError("START_FAILED", `Paseo did not create the worktree: ${errorText(e)}. Retry with the same idempotencyKey.`);
     }
+    // The same key may give back a worktree an earlier refusal archived (or one since removed): never bind it.
+    let made: Awaited<ReturnType<ReturnType<PaseoApi["workspaces"]["ref"]>["refresh"]>>;
+    try {
+      made = await paseo.workspaces.ref(created.id).refresh();
+    } catch (e) {
+      logFailure("Flowly start_card worktree not checked:", e, `card ${task.id} worktree ${created.id}`);
+      throw new ToolError("START_FAILED", `Flowly could not check worktree workspace ${created.id}; the card was not moved. Retry with the same idempotencyKey.`);
+    }
+    if (!made || made.archivingAt)
+      throw new ToolError("START_FAILED", `Paseo returned worktree workspace ${created.id} for this idempotencyKey, but it is archived or gone; the card was not moved. Use a new idempotencyKey.`);
     // A session started in the directory workspace meanwhile (the drawer's Start session) keeps the card there (§4.2).
     const meanwhile = await workspaceSessions(paseo, old, true).catch((e: unknown) => e);
     if (!Array.isArray(meanwhile)) {
@@ -280,14 +313,16 @@ export class CardStarter {
       throw new ToolError("CARD_HAS_SESSION", `A session started on the card meanwhile (${meanwhile[0].id}); the card stays where it is. Send that session instructions instead.`);
     }
     const now = new Date().toISOString();
-    let shared: boolean;
+    type Rebind = { shared: boolean } | { refused: string; referenced: boolean };
+    let rebind: Rebind;
     try {
-      shared = await this.store.mutate((board) => {
+      rebind = await this.store.transaction<Rebind>((board) => {
         const t = board.tasks.find((x) => x.id === task.id);
+        const referenced = () => board.tasks.some((x) => cardWorkspaceIds(x).includes(created.id));
         if (!t || t.archivedAt || finished(t.status) || t.workspaceId !== old)
-          throw new ToolError("START_FAILED", `The card changed while its worktree was made; it was not moved. Worktree workspace ${created.id} remains available.`);
+          return { value: { refused: "The card changed while its worktree was made; it was not moved.", referenced: referenced() }, changed: false };
         if (board.tasks.some((x) => x.workspaceId === created.id))
-          throw new ToolError("START_FAILED", `Workspace ${created.id} is already bound to another card; the card was not moved.`);
+          return { value: { refused: `Workspace ${created.id} is already bound to another card; the card was not moved.`, referenced: true }, changed: false };
         t.previousWorkspaces = [
           ...(t.previousWorkspaces || []),
           { id: old, kind: workspace.workspaceKind || "directory", directory: workspace.workspaceDirectory || project.primaryPath, switchedAt: now },
@@ -303,12 +338,23 @@ export class CardStarter {
           note: `directory → worktree ${branch}`,
         });
         // Live or archived, current or earlier: a workspace another card refers to is never archived (§4.3).
-        return board.tasks.some((x) => x.id !== t.id && cardWorkspaceIds(x).includes(old));
+        return { value: { shared: board.tasks.some((x) => x.id !== t.id && cardWorkspaceIds(x).includes(old)) }, changed: true };
       });
     } catch (e) {
       logFailure("Flowly start_card card not moved:", e, `card ${task.id} worktree ${created.id}`);
       throw e;
     }
+    if ("refused" in rebind) {
+      // The unused worktree is archived as when a session started meanwhile, unless a card refers to it or it has a session (§4.2).
+      let kept = rebind.referenced ? "a card refers to it" : "";
+      if (!kept) {
+        const used = await workspaceSessions(paseo, created.id, true).catch(() => null);
+        kept = !used ? "its sessions could not be read" : used.length ? "it has a session" : await this.archive(paseo, created.id);
+      }
+      logFailure("Flowly start_card card not moved:", new Error(`${rebind.refused}${kept ? ` Worktree kept: ${kept}.` : " Worktree archived."}`), `card ${task.id} worktree ${created.id}`);
+      throw new ToolError("START_FAILED", `${rebind.refused} ${kept ? `Worktree workspace ${created.id} was kept (${kept}).` : `The unused worktree workspace ${created.id} was archived.`}`);
+    }
+    const shared = rebind.shared;
     // Archived only while it still never had a session and no other card refers to it (§4.3).
     const warnings: string[] = [];
     const after = shared ? null : await workspaceSessions(paseo, old, true).catch(() => null);

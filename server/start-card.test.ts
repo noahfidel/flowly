@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { rm, writeFile } from "node:fs/promises";
+import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { AgentCards } from "./agent-cards";
@@ -435,9 +435,101 @@ test("a card changed while its worktree was made is not moved", async () => {
     });
   expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("START_FAILED");
   expect((await x.store.read()).tasks.find((t) => t.id === "c")!.workspaceId).toBe("ws-c");
-  expect(x.archived).toEqual([]);
+  // The unused worktree is archived, as when a session started meanwhile.
+  expect(x.archived).toEqual(["created-1"]);
   expect(x.createdSessions).toEqual([]);
   expect(logged).toHaveBeenCalledWith("Flowly start_card card not moved:", expect.stringContaining("created-1"), expect.any(String));
+  // Reopened, a retry with the same key gets that archived worktree back from Paseo and is refused.
+  x.hooks.onCreate = undefined;
+  await x.store.mutate((board) => {
+    board.tasks.find((t) => t.id === "c")!.status = "todo";
+  });
+  const retried = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo).catch((e: unknown) => toolFailure(e));
+  expect(retried).toMatchObject({ code: "START_FAILED", message: expect.stringContaining("new idempotencyKey") });
+  expect((await x.store.read()).tasks.find((t) => t.id === "c")!.workspaceId).toBe("ws-c");
+  expect(x.createdSessions).toEqual([]);
+  // A new key makes a new worktree.
+  expect(await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "again" }, x.paseo)).toMatchObject({ workspaceId: "created-2" });
+});
+
+test("a worktree another card got meanwhile is refused and not archived", async () => {
+  const x = await setup();
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  await x.card("c", { ownsWorkspace: true });
+  await x.card("other", {}, "worktree");
+  x.hooks.onCreate = () =>
+    x.store.mutate((board) => {
+      board.tasks.find((t) => t.id === "other")!.workspaceId = "created-1";
+    });
+  const refused = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo).catch((e: unknown) => toolFailure(e));
+  expect(refused).toMatchObject({ code: "START_FAILED", message: expect.stringContaining("another card") });
+  expect((await x.store.read()).tasks.find((t) => t.id === "c")!.workspaceId).toBe("ws-c");
+  expect(x.archived).toEqual([]);
+});
+
+test("a refused start makes no branch and keeps no worktree request", async () => {
+  const x = await setup();
+  const starts = async () => (await readdir(join(x.secrets.directory, "starts")).catch(() => [])).length;
+  const remote = join(x.root, "remote.git");
+  execFileSync("git", ["init", "-q", "--bare", remote]);
+  git(x.a, "remote", "add", "origin", remote);
+  git(x.a, "push", "-q", "origin", "main");
+  git(x.a, "branch", "noah/zen-126-remote");
+  git(x.a, "push", "-q", "origin", "noah/zen-126-remote");
+  git(x.a, "branch", "-q", "-D", "noah/zen-126-remote");
+  x.starter.connectors = { resolve: async () => ({}) as never, cached: async () => ({ branchName: "noah/zen-126-remote" }) as never };
+  await x.card("c", { ownsWorkspace: true });
+  await x.linear("c");
+  x.starter.modelDefault = async () => null;
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("MODEL_UNAVAILABLE");
+  expect(git(x.a, "branch", "--list", "noah/zen-126-remote").trim()).toBe("");
+  expect(await starts()).toBe(0);
+  x.starter.modelDefault = async () => ({ provider: "claude", model: "claude-sonnet-5-5" });
+  for (let i = 0; i < agentCardLimits.perHour; i++) await x.cards.create(x.caller, { title: `Card ${i}`, idempotencyKey: `k${i}` });
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("CARD_LIMIT");
+  expect(git(x.a, "branch", "--list", "noah/zen-126-remote").trim()).toBe("");
+  expect(await starts()).toBe(0);
+  expect(x.createdWorkspaces.filter((w) => w.source.kind === "worktree")).toEqual([]);
+});
+
+test("an unreadable kept worktree request refuses the start and is kept", async () => {
+  const x = await setup();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  await x.card("c", { ownsWorkspace: true });
+  x.hooks.lostCreates = 1;
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("START_FAILED");
+  const [kept] = await readdir(join(x.secrets.directory, "starts"));
+  const file = join(x.secrets.directory, "starts", kept);
+  await writeFile(file, "{");
+  const refused = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo).catch((e: unknown) => toolFailure(e));
+  expect(refused).toMatchObject({ code: "START_FAILED", message: expect.stringContaining("new idempotencyKey") });
+  expect(await readFile(file, "utf8")).toBe("{");
+  expect(x.createdWorkspaces).toHaveLength(1);
+  expect(logged).toHaveBeenCalledWith("Flowly start_card kept worktree request unreadable:", expect.any(String), expect.any(String));
+});
+
+test("a start waiting in one project does not hold up a start in another", async () => {
+  const x = await setup();
+  const at = new Date().toISOString();
+  await x.store.mutate((board) => {
+    board.projects.push({ id: "q", paseoProjectId: "native-q", title: "Other", description: "", primaryPath: x.b, repos: [x.b], revision: 1, createdAt: at, updatedAt: at, archivedAt: null });
+  });
+  await x.card("c", { ownsWorkspace: true });
+  await x.card("d", {}, "worktree");
+  await x.card("e", { projectId: "q", sourcePath: x.b, repoPaths: [x.b] }, "worktree");
+  let open: (value?: unknown) => void = () => undefined;
+  const gate = new Promise((resolve) => (open = resolve));
+  x.hooks.onCreate = () => gate;
+  const blocked = x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  const waited = (job: Promise<unknown>) => Promise.race([job.then(() => "done"), new Promise((resolve) => setTimeout(() => resolve("waiting"), 300))]);
+  // Another project starts at once; another card of the same project waits for the first.
+  const other = x.starter.start({ ...x.caller, projectId: "q" }, { taskId: "e", idempotencyKey: "go" }, x.paseo);
+  const same = x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go" }, x.paseo);
+  expect(await waited(other)).toBe("done");
+  expect(await waited(same)).toBe("waiting");
+  open();
+  expect(await blocked).toMatchObject({ workspaceId: "created-1" });
+  expect(await same).toMatchObject({ workspaceId: "ws-d" });
 });
 
 test("the directory workspace is kept when another card refers to it or Paseo does not archive it", async () => {
