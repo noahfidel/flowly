@@ -48,6 +48,7 @@
   - `shared/dispatcher.ts`: the server name and tool list moved off `userSendOptions`' doc comment.
   - Strings, onboarding, telemetry: one string (above); onboarding and telemetry unchanged.
 - What should I do? marks the changed cards seen (ruling, Noah 2026-11-09): after the message is sent, `Dispatcher.whatNext` marks the change line it sent (its `revision` and `ids`) as Mark seen does; a failed send or `DISPATCHER_DOWN` marks nothing and the chat shows the error. DISPATCHER-SPEC §9.2, §10. Checks: the new case in `server/dispatcher.test.ts` failed first (1 failed: nothing marked after a send). Strings, onboarding, telemetry: none.
+- The dispatcher chat's provider-unavailable notice no longer points to an Open in Paseo action it does not have: it says the dispatcher can't take messages and to check that provider in Paseo's settings. The card view keeps its own wording (it has Open in Paseo). Checks: copy only, no test; `npm run typecheck` and `npm test` exit 0. String: new text in all 9 catalogs; the old one is still used by the card view.
 
 ## Live verification script for the single pane (branch `feat/single-pane`, Task 12) — 2026-11-08
 

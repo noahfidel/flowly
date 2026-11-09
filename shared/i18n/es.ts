@@ -1550,6 +1550,7 @@ const catalog: Catalog = {
   "The dispatcher session ended.": "La sesión del dispatcher terminó.",
   "Starts one agent session that works across all your projects.": "Inicia una sesión de agente que trabaja en todos tus proyectos.",
   "Start dispatcher": "Iniciar dispatcher",
+  "The dispatcher's provider is unavailable, so it can't take messages. Check that provider in Paseo's settings.": "El proveedor del dispatcher no está disponible, así que no puede recibir mensajes. Revisa ese proveedor en los ajustes de Paseo.",
   "This dispatcher started before some Flowly tools existed. Archive its session in Paseo, then start a new one to use them.": "Este dispatcher se inició antes de que existieran algunas herramientas de Flowly. Archiva su sesión en Paseo y luego inicia uno nuevo para usarlas.",
   "Message the dispatcher": "Escribe al dispatcher",
   "Board summary": "Resumen del tablero",

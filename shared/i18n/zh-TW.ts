@@ -1550,6 +1550,7 @@ const catalog: Catalog = {
   "The dispatcher session ended.": "調度員工作階段已結束。",
   "Starts one agent session that works across all your projects.": "啟動一個跨你所有專案工作的智慧體工作階段。",
   "Start dispatcher": "啟動調度員",
+  "The dispatcher's provider is unavailable, so it can't take messages. Check that provider in Paseo's settings.": "調度員的供應商無法使用，因此無法接收訊息。請在 Paseo 設定中檢查該供應商。",
   "This dispatcher started before some Flowly tools existed. Archive its session in Paseo, then start a new one to use them.": "此調度員啟動時部分 Flowly 工具尚不存在。要使用它們，請在 Paseo 中封存其工作階段，然後啟動新的調度員。",
   "Message the dispatcher": "傳訊息給調度員",
   "Board summary": "看板摘要",

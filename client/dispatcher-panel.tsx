@@ -213,7 +213,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   // Saved tools are fixed when the session is created; a new dispatcher gets this build's (DISPATCHER-SPEC §3).
   if (status.data?.newTools) notices.push({ key: "new-tools", tone: "warning", text: t("This dispatcher started before some Flowly tools existed. Archive its session in Paseo, then start a new one to use them.") });
   if (agent?.providerUnavailable)
-    notices.push({ key: "provider", tone: "warning", text: t("This session's provider is unavailable. Open in Paseo to inspect its configuration.") });
+    notices.push({ key: "provider", tone: "warning", text: t("The dispatcher's provider is unavailable, so it can't take messages. Check that provider in Paseo's settings.") });
 
   return (
     <View ref={keyboard.ref} onLayout={keyboard.onLayout} style={{ flex: 1, minHeight: 0, minWidth: 0, backgroundColor: colors.surface0 }}>

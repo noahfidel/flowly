@@ -1550,6 +1550,7 @@ const catalog: Catalog = {
   "The dispatcher session ended.": "디스패처 세션이 종료되었습니다.",
   "Starts one agent session that works across all your projects.": "모든 프로젝트에 걸쳐 작업하는 에이전트 세션 하나를 시작합니다.",
   "Start dispatcher": "디스패처 시작",
+  "The dispatcher's provider is unavailable, so it can't take messages. Check that provider in Paseo's settings.": "디스패처의 제공자를 사용할 수 없어 메시지를 받을 수 없습니다. Paseo 설정에서 해당 제공자를 확인하세요.",
   "This dispatcher started before some Flowly tools existed. Archive its session in Paseo, then start a new one to use them.": "이 디스패처는 일부 Flowly 도구가 생기기 전에 시작되었습니다. 사용하려면 Paseo에서 세션을 보관한 뒤 새 디스패처를 시작하세요.",
   "Message the dispatcher": "디스패처에게 메시지",
   "Board summary": "보드 요약",
