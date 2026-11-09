@@ -1205,8 +1205,10 @@ export async function checkBell(ctx) {
   if (withTwo.chat <= afterChat.chat) throw new Error(`the open asks did not grow with the second permission (${afterChat.chat} → ${withTwo.chat}).`);
   // The bell dismisses the whole card: it sends all the card's current signals (client/board.tsx, `item.signals`),
   // and `attention.dismiss` replaces the card's set with them (ATTENTION-DISMISS-SPEC §7a). Sending only the second
-  // ask's signal would drop the first one from the set and reopen it.
-  const live = (await ctx.asksOf(card.id)).filter((a) => a.state === 'open' || a.state === 'dismissed');
+  // ask's signal would drop the first one from the set and reopen it. Those are all the card's live signals, whatever
+  // the chat shows for them (open, dismissed, or answered while the session still shows it); only a session_ended ask
+  // is never live (its session is archived or gone), so it is the one left out.
+  const live = (await ctx.asksOf(card.id)).filter((a) => a.state !== 'session_ended');
   const openOnCard = live.filter((a) => a.state === 'open').length;
   await ctx.rpc('attention.dismiss', { taskId: card.id, signals: live.map((a) => a.signal) });
   await waitFor('the card\'s asks in the chat to read dismissed', async () => {

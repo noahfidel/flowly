@@ -116,10 +116,16 @@ const load = async () => (await import(/* @vite-ignore */ scriptPath)) as Script
  * set, `attention.dismiss` replaces the set with the signals it is given (ATTENTION-DISMISS-SPEC §7a).
  */
 function fakeBellDaemon() {
-  const asks: { signal: string; taskId: string; agentId: string }[] = [{ signal: "p:other:r0", taskId: "other", agentId: "other" }];
+  // Besides the check's own asks, the card has an answered report the session still shows (live, so in the bell's
+  // signals) and an ask of an archived session (session_ended: not live, so not among them).
+  const asks: { signal: string; taskId: string; agentId: string; stored?: "answered" | "session_ended" }[] = [
+    { signal: "p:other:r0", taskId: "other", agentId: "other" },
+    { signal: "q:e-answered", taskId: "c7", agentId: "s0", stored: "answered" },
+    { signal: "p:gone:r0", taskId: "c7", agentId: "gone", stored: "session_ended" },
+  ];
   const sets = new Map<string, string[]>();
   const calls: [string, Record<string, unknown>][] = [];
-  const state = (a: (typeof asks)[number]) => (sets.get(a.taskId)?.includes(a.signal) ? "dismissed" : "open");
+  const state = (a: (typeof asks)[number]) => a.stored ?? (sets.get(a.taskId)?.includes(a.signal) ? "dismissed" : "open");
   const items = async () => asks.map((a) => ({ kind: "ask", askKind: "permission", ...a, state: state(a) }));
   let n = 0;
   const ctx = {
@@ -168,7 +174,7 @@ describe("check 7 (the bell)", () => {
       vi.useRealTimers();
     }
     const bell = calls.find(([m]) => m === "attention.dismiss")?.[1];
-    expect(bell).toEqual({ taskId: "c7", signals: ["p:s1:r0", "p:s2:r0"] });
+    expect(bell).toEqual({ taskId: "c7", signals: ["q:e-answered", "p:s1:r0", "p:s2:r0"] });
   });
 });
 
