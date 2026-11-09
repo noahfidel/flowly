@@ -9,7 +9,7 @@ export async function listAttentionAgents(paseo: PaseoApi): Promise<PaseoAgent[]
   const agents: PaseoAgent[] = [];
   let cursor: string | undefined;
   do {
-    const page = await paseo.agents.list({ filter: { includeArchived: false }, page: { limit: 200, cursor } });
+    const page = await paseo.agents.list({ filter: { includeArchived: false, includeBackground: true }, page: { limit: 200, cursor } });
     for (const { agent } of page.entries) if (!isSummarizer(agent)) agents.push(agent);
     cursor = page.pageInfo.nextCursor ?? undefined;
   } while (cursor);

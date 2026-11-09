@@ -44,7 +44,7 @@ test("all SDK pages are counted and summarizers/archived scopes are excluded", a
     .mockResolvedValueOnce({ entries: [{ agent: agent("b", { status: "error" }) }, { agent: agent("c", finished) },
       { agent: agent("a", { status: "error", labels: SUMMARIZER_LABELS }) }], pageInfo: {} });
   expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 2 });
-  expect(f.list).toHaveBeenNthCalledWith(2, { filter: { includeArchived: false }, page: { limit: 200, cursor: "next" } });
+  expect(f.list).toHaveBeenNthCalledWith(2, { filter: { includeArchived: false, includeBackground: true }, page: { limit: 200, cursor: "next" } });
   b.projects[0].archivedAt = at;
   expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 0 });
 });

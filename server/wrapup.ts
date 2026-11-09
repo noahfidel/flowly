@@ -20,7 +20,7 @@ async function workspaceSessions(paseo: PaseoApi, workspaceId: string) {
   let cursor: string | undefined;
   do {
     const page = await paseo.agents.list({
-      filter: { includeArchived: false },
+      filter: { includeArchived: false, includeBackground: true },
       page: { limit: 200, cursor },
     });
     for (const { agent } of page.entries)

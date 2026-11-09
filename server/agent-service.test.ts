@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { readFile, rm, writeFile, stat } from "node:fs/promises";
 import { AgentService } from "./agent-service";
 import { BoardStore } from "./store";
@@ -1368,4 +1368,13 @@ test("get_task returns the card's delivery mode, or the default (DELIVERY-MODE-S
     (board.tasks.find((t) => t.id === "t") as { deliveryMode?: string }).deliveryMode = "from_the_future";
   });
   expect((await x.service.get(x.identity)).deliveryMode).toBe("draft_pr");
+});
+
+test("get_task lists the card's sessions in background workspaces too", async () => {
+  const x = await setup();
+  const list = vi.fn(x.paseo.agents.list.bind(x.paseo.agents));
+  (x.paseo.agents as { list: unknown }).list = list;
+  await x.service.get(x.identity);
+  expect(list).toHaveBeenCalled();
+  for (const [input] of list.mock.calls) expect(input).toMatchObject({ filter: { includeBackground: true } });
 });

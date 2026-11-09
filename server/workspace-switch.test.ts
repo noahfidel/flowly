@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { BoardStore } from "./store";
-import { WorkspaceSwitchService } from "./workspace-switch";
+import { WorkspaceSwitchService, workspaceSessions } from "./workspace-switch";
 import { handoverPrompt } from "../shared/workspace-switch";
 
 const dirs: string[] = [];
@@ -71,10 +71,11 @@ async function fixture(options: { agentStatus?: string } = {}) {
   });
   const archive = vi.fn(async (id: string) => ({ requestId: "r", workspaceId: id, archivedAt: new Date().toISOString(), error: null }));
   const send = vi.fn(async (_id: string, _text: string) => undefined);
+  const listCalls: unknown[] = [];
   const paseo = {
     workspaces: { ref: (id: string) => ({ refresh: async () => workspaces.get(id) ?? null }), create, archive },
     agents: {
-      list: async () => ({ entries: agents.map((agent) => ({ agent })), pageInfo: { nextCursor: null } }),
+      list: async (o: unknown) => (listCalls.push(o), { entries: agents.map((agent) => ({ agent })), pageInfo: { nextCursor: null } }),
       ref: (id: string) => ({
         refresh: async () => ({ agent: agents.find((a) => a.id === id) ?? null }),
         send: (text: string) => send(id, text),
@@ -92,7 +93,7 @@ async function fixture(options: { agentStatus?: string } = {}) {
     },
   } as unknown as PaseoApi;
   const service = new WorkspaceSwitchService(store, data);
-  return { top, root, data, store, paseo, service, create, archive, send, agents, workspaces };
+  return { top, root, data, store, paseo, service, create, archive, send, agents, workspaces, listCalls };
 }
 
 const card = async (store: BoardStore) => (await store.read()).tasks[0];
@@ -385,4 +386,14 @@ test("the handover goes into the handoff; release waits while a card session run
   const check = await x.service.releaseCheck("t", x.paseo);
   expect(check.blockers).toEqual([]);
   expect(check.warnings).toEqual([]);
+});
+
+test("every session listing of a switch includes agents in background workspaces", async () => {
+  const x = await fixture();
+  await x.service.check({ id: "t", direction: "to_worktree" }, x.paseo);
+  await x.service.run({ id: "t", revision: 3, operationId: "op-bg", direction: "to_worktree", branchName: "kanban/bg" }, x.paseo);
+  expect(x.listCalls.length).toBeGreaterThan(1);
+  for (const call of x.listCalls) expect(call).toMatchObject({ filter: { includeBackground: true } });
+  expect(await workspaceSessions(x.paseo, "w-local", true)).toHaveLength(1);
+  expect(x.listCalls.at(-1)).toMatchObject({ filter: { includeArchived: true, includeBackground: true } });
 });

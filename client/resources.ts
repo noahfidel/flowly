@@ -10,7 +10,7 @@ export async function listAgents(
   let cursor: string | undefined;
   do {
     const page = await paseo.agents.list({
-      filter: { includeArchived },
+      filter: { includeArchived, includeBackground: true },
       page: { limit: 200, cursor },
     });
     agents.push(

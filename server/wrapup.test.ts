@@ -49,6 +49,7 @@ async function setup(options: {
     return { archivedAt: now };
   });
   const workspaceArchive = vi.fn(async () => ({ requestId: "r", workspaceId: "w", archivedAt: now, error: null }));
+  const listCalls: unknown[] = [];
   const paseo = {
     workspaces: {
       ref: () => ({
@@ -62,7 +63,7 @@ async function setup(options: {
       archive: workspaceArchive,
     },
     agents: {
-      list: async () => ({
+      list: async (o: unknown) => (listCalls.push(o), {
         entries: agents.map((agent) => ({ agent })),
         pageInfo: { nextCursor: null },
       }),
@@ -71,7 +72,7 @@ async function setup(options: {
   } as unknown as PaseoApi;
   const git = options.git || (async (_cwd: string, args: string[]) =>
     args[0] === "rev-parse" ? "feature/x\n" : args[0] === "status" ? "" : "0\n");
-  return { store, paseo, git, service: new WrapupService(store, git), agentArchive, workspaceArchive, root };
+  return { store, paseo, git, service: new WrapupService(store, git), agentArchive, workspaceArchive, root, listCalls };
 }
 
 test("clean worktree wraps up by archiving the workspace, then the card", async () => {
@@ -234,4 +235,11 @@ test("delete preflight allows any lane but still blocks on running sessions", as
     busy.service.run({ id: "t", revision: 3, acknowledgeWarnings: true, keepCard: true, purpose: "delete" }, busy.paseo),
   ).rejects.toThrow("Cannot archive");
   expect(busy.workspaceArchive).not.toHaveBeenCalled();
+});
+
+test("the session preflight lists agents in background workspaces too", async () => {
+  const x = await setup({});
+  await x.service.check("t", x.paseo);
+  expect(x.listCalls.length).toBeGreaterThan(0);
+  for (const call of x.listCalls) expect(call).toMatchObject({ filter: { includeArchived: false, includeBackground: true } });
 });

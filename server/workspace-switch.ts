@@ -60,7 +60,7 @@ export async function workspaceSessions(paseo: PaseoApi, workspaceId: string, in
   const sessions: Session[] = [];
   let cursor: string | undefined;
   do {
-    const page = await paseo.agents.list({ filter: { includeArchived }, page: { limit: 200, cursor } });
+    const page = await paseo.agents.list({ filter: { includeArchived, includeBackground: true }, page: { limit: 200, cursor } });
     for (const { agent } of page.entries)
       if (agent.workspaceId === workspaceId && !isSummarizer(agent))
         sessions.push({ id: agent.id, title: agent.title || agent.id.slice(0, 8), status: agent.status, updatedAt: agent.updatedAt, archived: !!agent.archivedAt });
@@ -134,7 +134,7 @@ export class WorkspaceSwitchService {
     const sessions: { id: string; card: string }[] = [];
     let cursor: string | undefined;
     do {
-      const page = await paseo.agents.list({ filter: { includeArchived: false }, page: { limit: 200, cursor } });
+      const page = await paseo.agents.list({ filter: { includeArchived: false, includeBackground: true }, page: { limit: 200, cursor } });
       for (const { agent } of page.entries)
         if (agent.workspaceId && owners.has(agent.workspaceId) && !isSummarizer(agent) && resolve(agent.cwd) === resolve(project.primaryPath))
           sessions.push({ id: agent.id, card: owners.get(agent.workspaceId)! });
@@ -300,7 +300,7 @@ export class WorkspaceSwitchService {
     let count = 0;
     let cursor: string | undefined;
     do {
-      const page = await paseo.agents.list({ filter: { includeArchived: false }, page: { limit: 200, cursor } });
+      const page = await paseo.agents.list({ filter: { includeArchived: false, includeBackground: true }, page: { limit: 200, cursor } });
       for (const { agent } of page.entries)
         if (agent.workspaceId && others.has(agent.workspaceId) && (agent.status === "running" || agent.status === "initializing") && resolve(agent.cwd) === resolve(project.primaryPath))
           count++;

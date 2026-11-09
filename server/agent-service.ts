@@ -328,7 +328,7 @@ export class AgentService {
     try {
       do {
         const page = await r.paseo.agents.list({
-          filter: { includeArchived: true },
+          filter: { includeArchived: true, includeBackground: true },
           page: { limit: 200, cursor },
         });
         scanned += page.entries.length;
