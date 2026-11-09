@@ -44,7 +44,8 @@ async function setup() {
       updatedAt: stamp,
       archivedAt,
     });
-    board.projects.push(project("q", qRoot), project("z", qRoot, stamp), project("gone", join(fixture.root, "missing")));
+    // "p" (the fixture's) is a legacy multi-repo project; "q" and "r" are single-root.
+    board.projects.push(project("q", qRoot), project("z", qRoot, stamp), project("gone", join(fixture.root, "missing")), project("r", qRoot));
     const card = (id: string, projectId: string) => ({
       id,
       projectId,
@@ -138,16 +139,17 @@ test("a dispatcher token can write to any live project", async () => {
     { projectId: "p", title: "Project", rootAvailable: true, openCards: 1 },
     { projectId: "q", title: "Project q", rootAvailable: true, openCards: 2 },
     { projectId: "gone", title: "Project gone", rootAvailable: false, openCards: 0 },
+    { projectId: "r", title: "Project r", rootAvailable: true, openCards: 0 },
   ]);
   // Cards in two different projects from the same session.
-  const inP = await d.call("flowly_create_card", { projectId: "p", title: "Work in p", idempotencyKey: "k-p" });
-  expect(code(inP)).toBeUndefined();
+  const inR = await d.call("flowly_create_card", { projectId: "r", title: "Work in r", idempotencyKey: "k-r" });
+  expect(code(inR)).toBeUndefined();
   const inQ = await d.call("flowly_create_card", { projectId: "q", title: "Work in q", idempotencyKey: "k-q" });
   expect(inQ.structuredContent.card).toMatchObject({ title: "Work in q" });
   const board = await x.store.read();
-  expect(board.tasks.find((t) => t.title === "Work in p")?.projectId).toBe("p");
+  expect(board.tasks.find((t) => t.title === "Work in r")?.projectId).toBe("r");
   expect(board.tasks.find((t) => t.title === "Work in q")?.projectId).toBe("q");
-  expect(x.createdWorkspaces.map((w) => w.source.projectId)).toEqual(["native", "native-q"]);
+  expect(x.createdWorkspaces.map((w) => w.source.projectId)).toEqual(["native-r", "native-q"]);
   const created = board.events.filter((e) => e.taskId === inQ.structuredContent.card.taskId);
   expect(created.length).toBeGreaterThan(0);
   expect(created.every((e) => e.agentId === "disp")).toBe(true);
@@ -197,7 +199,25 @@ test("an archived project is refused", async () => {
     board.projects.find((p) => p.id === "q")!.archivedAt = stamp;
   });
   expect(code(await d.call("flowly_create_card", { projectId: "q", title: "Late", idempotencyKey: "k-late" }))).toBe("PROJECT_ARCHIVED");
-  expect((await d.call("flowly_list_projects", {})).structuredContent.projects.map((p: { projectId: string }) => p.projectId)).toEqual(["p", "gone"]);
+  expect((await d.call("flowly_list_projects", {})).structuredContent.projects.map((p: { projectId: string }) => p.projectId)).toEqual(["p", "gone", "r"]);
+});
+
+test("a legacy multi-repo project is read-only to the dispatcher", async () => {
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  // Reads stay allowed.
+  expect(code(await d.call("flowly_list_cards", { projectId: "p" }))).toBeUndefined();
+  expect(code(await d.call("flowly_get_card", { projectId: "p", taskId: "t" }))).toBeUndefined();
+  const before = JSON.stringify(await x.store.read());
+  const writes: [string, Record<string, unknown>][] = [
+    ["flowly_create_card", { title: "Nope", idempotencyKey: "k-legacy" }],
+    ["flowly_update_card", { taskId: "t", revision: 1, title: "Nope" }],
+    ["flowly_start_card", { taskId: "t", idempotencyKey: "s-legacy" }],
+    ["flowly_link_cards", { taskId: "t", relation: "blocks", otherTaskId: "t" }],
+  ];
+  for (const [name, args] of writes) expect(code(await d.call(name, { projectId: "p", ...args })), name).toBe("LEGACY_PROJECT");
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+  expect(x.createdWorkspaces).toEqual([]);
 });
 
 test("a dispatcher token from a replaced dispatcher is refused", async () => {

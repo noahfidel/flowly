@@ -35,6 +35,7 @@ import {
   deliverySettingsValues,
 } from "../shared/settings";
 import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
+import { dispatcherDefaultModel } from "../shared/dispatcher";
 import { deviceLocale, formatLocale, getLocale, locales, msg, t, tn } from "../shared/i18n";
 import { hideFinishedChoices } from "./finished-cards";
 import { deliveryModeLabels, deliveryModes, type DeliveryMode } from "../shared/delivery-mode";
@@ -207,6 +208,14 @@ export function ModelsPage({ active }: { active: boolean }) {
         noneLabel={t("Automatic")}
         noneDetail={t("Start from the latest session's settings")}
         onChange={(next: AgentModel | null) => models.save({ defaultProvider: next?.provider ?? "", defaultModel: next?.model ?? "", defaultThinking: next?.thinking ?? "", defaultMode: next?.mode ?? "" })}
+      />
+      <ModelDefaultGroup
+        title={t("Dispatcher model")}
+        value={models.values?.dispatcherModel ?? null}
+        disabled={models.busy}
+        noneLabel={t("Default")}
+        noneDetail={modelLabel(`${dispatcherDefaultModel.provider}/${dispatcherDefaultModel.model}`)}
+        onChange={(next: AgentModel | null) => models.save({ dispatcherModel: next })}
       />
       <SummaryModelGroup active={active} />
     </SettingsPage>

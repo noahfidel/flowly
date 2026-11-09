@@ -540,6 +540,7 @@ const catalog: Catalog = {
   "Session title": "Sitzungstitel",
   "Save": "Speichern",
   "Default model": "Standardmodell",
+  "Dispatcher model": "Dispatcher-Modell",
   "Current model": "Aktuelles Modell",
   "Plugins cannot switch the model or features like Fast mode yet.": "Plugins können das Modell oder Funktionen wie den Fast-Modus noch nicht umschalten.",
   "Change in Paseo": "In Paseo ändern",

@@ -21,6 +21,7 @@ Status: user decisions 2026-11-08 (single-pane spec D1, D2; plan Decisions Q5, Q
 - A directory workspace on `<dataDir>/dispatcher/` (created with mode 0700 when missing), titled "Flowly dispatcher", created with `background: true` and without a Paseo project id, so Paseo files it under its own project for that directory, apart from every Flowly project.
 - Reused while Paseo still returns it and it is not being archived; otherwise a new one is created and its id replaces `workspaceId`.
 - Flowly never archives it: no archive, wrap-up, delete, switch or background-workspace path acts on it. Those paths act only on workspaces bound to a card or on the per-project `Flowly background` workspaces, and the dispatcher workspace cannot be bound to a card (New task with an existing workspace refuses it).
+- Its folder never becomes a Flowly project: the Paseo project rooted there and its workspaces are left out of the resources Add project and New task list, and Add project (and restore) with that folder is refused ("This is the Flowly dispatcher's folder; it can't be a Flowly project."). The folder is compared after resolving symlinks.
 - A host without background workspaces (`workspaces.create` throws "Update the host to use background workspaces.") makes `dispatcher.start` fail with `HOST_UNSUPPORTED` ("Update Paseo to use the dispatcher: this host has no background workspaces."). Nothing is retried and the record is not changed.
 
 ## 3. Lifecycle
@@ -35,11 +36,12 @@ Status: user decisions 2026-11-08 (single-pane spec D1, D2; plan Decisions Q5, Q
 | `running` | status `running` or `initializing` |
 | `idle` | otherwise |
 
-`start({ provider, modeId? })`:
+`start({ provider?, modeId? })`:
 
 - Refused with `DISPATCHER_RUNNING` while the state is `running` or `idle`: there is one dispatcher. Concurrent starts run one after another.
 - Opens the workspace (§2), chooses a new agent id, writes the record (new `agentId`, `startedAt` now) before Paseo creates the session, so the session's first tool calls already pass §4. If Paseo did not create it (the agent is not found after the error), the record goes back to the previous `agentId`/`startedAt` and the error is returned.
-- The session: `provider` (`provider/model`; the client passes the Dispatcher model setting, Q6, default `claude/claude-sonnet-5-5`), optional `modeId`, system prompt `dispatcherCharter` (§6), title "Flowly dispatcher", label `flowly-dispatcher=1`, MCP server `flowly-dispatcher` (§4), first message the board summary (§6).
+- The model: a passed `provider` (`provider/model`, with the passed `modeId`) wins; otherwise the **Dispatcher model** setting (Settings → Models, stored as `dispatcherModel` in the host `models` settings: provider, model, optional reasoning and permission mode); when it is empty or unreadable, the server default `claude/claude-sonnet-5-5` (plan Q6). An unreadable setting is logged.
+- The session: that model (`provider/model`, `modeId`, `thinkingOptionId` from the setting's reasoning), system prompt `dispatcherCharter` (§6), title "Flowly dispatcher", label `flowly-dispatcher=1`, MCP server `flowly-dispatcher` (§4), first message the board summary (§6).
 - When a session opens (`agent.session_open`) and its id is the stored `agentId`, Flowly adds the `flowly-dispatcher` MCP server again (a resumed session keeps its tools). No other session gets it.
 
 ## 4. Credential and caller check
@@ -48,6 +50,7 @@ Status: user decisions 2026-11-08 (single-pane spec D1, D2; plan Decisions Q5, Q
 - A dispatcher token gets the dispatcher tools (§5) only: none of the card-session tools, none of the board tools, and not the CLI endpoint (`/api` refuses it).
 - Every call checks, in order: the token's `agentId` equals the stored `agentId` and its `workspaceId` the stored `workspaceId` (else `DISPATCHER_REPLACED`); Paseo returns that agent, not archived, in that workspace (else `SESSION_MISMATCH`).
 - Every tool with a `projectId` then checks the project: unknown → `NOT_FOUND`; archived → `PROJECT_ARCHIVED`; its root (`primaryPath`) is not a readable directory → `ROOT_UNAVAILABLE`. A card id must belong to that project (`CARD_NOT_FOUND`). Refusals write nothing.
+- A legacy multi-repo project (more than one stored `repos`, SINGLE-ROOT-SPEC) is read-only to the dispatcher: `flowly_create_card`, `flowly_update_card`, `flowly_start_card` and `flowly_link_cards` there are refused with `LEGACY_PROJECT` (ruling 2026-11-08); reads stay allowed.
 
 ## 5. Tools
 
@@ -70,14 +73,21 @@ All take `projectId` explicitly, except `flowly_list_projects`. Writes are recor
 ## 7. Notes
 
 - The event bus subscriber pushes only stops (`facts.filter(isStop)`, EVENT-BUS-SPEC §2) into the note batcher, so a later non-stop fact on a card never replaces its stop. Facts caused by the dispatcher (`event.agentId` equal to the stored `agentId`) are dropped by the batcher, so the dispatcher never wakes itself. `commitHandler` builds no facts while nothing subscribes.
-- A batch is delivered by state: `idle` → one message to the dispatcher with the held notes and the batch (sent without `activeTurnBehavior`, after re-reading the state just before sending); `running` → held in memory (one per card, latest wins) until the dispatcher's `agent.turn_ended`, then delivered the same way; `none`, `ended`, `context_full` → dropped, held notes too (the next dispatcher's board summary covers them). Flowly never steers or interrupts the dispatcher's turn. A send that fails is logged (`logFailure`, fixed label) and its notes are dropped, not replayed.
-- Message: `Flowly board update (N cards):` then one line per note: `- "<title>" [<taskId>] in project <projectId>: <kind> — <detail>`.
-- On plugin unload the batcher is disposed (timer and pending notes cleared) and the subscription removed.
+- Flowly never steers or interrupts the dispatcher's turn (single-pane spec, "never steer or interrupt"). Paseo's daemon treats a send without `activeTurnBehavior` as `interrupt` and answers (clears) pending permissions, so Flowly sends only after re-reading the agent just before sending and finding it `idle` with no pending permission.
+- A batch is delivered by state:
+  - `idle`, no pending permission, send cooldown passed → one message with the held notes and the batch, sent without `activeTurnBehavior`.
+  - `running`, or `idle` with a pending permission → held in memory, one note per card, until the dispatcher's `agent.turn_ended`, then delivered the same way. When the read at that turn end still says `running` (the hook can arrive before Paseo's snapshot changes), Flowly reads once more 2 s later; if it still holds, the notes wait for the next turn end.
+  - Send cooldown: no second send within 8 s of the last one (as the composer's queue drain), so a stale `idle` read cannot double-send; a batch inside it is held and sent once it has passed, under the same checks.
+  - `none`, `ended`, `context_full` → dropped, held notes too (the next dispatcher's board summary covers them).
+- Held notes for a card merge as the batcher's do (EVENT-BUS-SPEC §3): a question or blocker is kept over a later plain status change (shown as `; then <move>`), anything else is replaced by the newer note, and the count of facts not shown carries over across batches.
+- A failed state read drops the held notes and is logged; a send that fails is logged and its notes are dropped, not replayed. Notes that reach Flowly before it has a Paseo connection are dropped and logged ("Flowly dispatcher notes dropped: no Paseo connection yet:"). All with `logFailure` under fixed labels; counts only, no note text.
+- Message: `Flowly board update (N cards):` then one line per note: `- "<title>" [<taskId>] in project <projectId>: <kind> — <detail>[; then <later>][ (+N earlier)]`.
+- On plugin unload the batcher and the dispatcher's delivery are disposed (timers and pending notes cleared, no later sends) and the subscription removed; held notes lost that way are logged ("Flowly dispatcher held notes dropped on unload:"). Held notes live in memory only.
 
 ## 8. RPCs
 
 - `dispatcher.status` `{}` → `{ state, agentId }` (§3).
-- `dispatcher.start` `{ provider, modeId? }` → `{ agentId }`; errors `DISPATCHER_RUNNING`, `HOST_UNSUPPORTED`, `START_FAILED` (Paseo did not create the session; its reason in the message), returned as the RPC error.
+- `dispatcher.start` `{ provider?, modeId? }` → `{ agentId }` (no `provider`: the Dispatcher model setting, §3); errors `DISPATCHER_RUNNING`, `HOST_UNSUPPORTED`, `START_FAILED` (Paseo did not create the session; its reason in the message), returned as the RPC error.
 
 ## 9. Acceptance
 
@@ -85,5 +95,8 @@ All take `projectId` explicitly, except `flowly_list_projects`. Writes are recor
 - Card and board tokens cannot call dispatcher tools; a dispatcher token cannot call card-session or board tools.
 - Start creates a background directory workspace once and reuses it; Flowly never archives it.
 - Context at 95% reports `context_full`.
-- Notes wait for the turn to end and never steer; notes are dropped while the dispatcher is down.
+- Notes wait for the turn to end and never steer; a pending permission holds them like a running turn; a turn end read as still running is retried once; a second send waits for the cooldown; notes are dropped while the dispatcher is down.
+- A legacy multi-repo project is read-only to the dispatcher (`LEGACY_PROJECT`).
+- The dispatcher's folder is never offered or accepted as a Flowly project.
+- Start without a provider uses the Dispatcher model setting, else `claude/claude-sonnet-5-5`.
 - A corrupt `dispatcher.json` is preserved and treated as empty.

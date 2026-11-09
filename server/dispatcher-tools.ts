@@ -16,7 +16,7 @@ import {
   updateCardInputSchema,
   updateCardResultSchema,
 } from "../shared/tools";
-import { rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
+import { assertNotLegacy, rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
 import type { Dispatcher } from "./dispatcher";
 import { addLink, linkNote } from "./links";
 import type { ProjectIdeas } from "./project-ideas";
@@ -77,9 +77,9 @@ export class DispatcherTools {
   }
 
   /** The dispatcher acting on one live project (§4). */
-  async projectCaller(identity: DispatcherIdentity, projectId: string): Promise<CardCaller> {
+  async projectCaller(identity: DispatcherIdentity, projectId: string, write = false): Promise<CardCaller> {
     const { agentId } = await this.caller(identity);
-    return this.cards.dispatcherCaller(projectId, agentId);
+    return this.cards.dispatcherCaller(projectId, agentId, write);
   }
 
   async listProjects(identity: DispatcherIdentity) {
@@ -108,11 +108,12 @@ export class DispatcherTools {
 
   async linkCards(identity: DispatcherIdentity, raw: unknown) {
     const input = dispatcherInputs.linkCards.parse(raw);
-    const caller = await this.projectCaller(identity, input.projectId);
+    const caller = await this.projectCaller(identity, input.projectId, true);
     return this.store.transaction((board) => {
       const project = board.projects.find((p) => p.id === caller.projectId);
       if (!project) throw new ToolError("NOT_FOUND", "The Flowly project was removed.");
       if (project.archivedAt) throw new ToolError("PROJECT_ARCHIVED", "The Flowly project is archived.");
+      assertNotLegacy(project);
       for (const id of [input.taskId, input.otherTaskId])
         if (!board.tasks.some((t) => t.id === id && t.projectId === project.id))
           throw new ToolError("CARD_NOT_FOUND", `No card ${id} in this project. Use ids from flowly_list_cards.`);
@@ -131,10 +132,15 @@ export class DispatcherTools {
 
   /** Registers the dispatcher tools on a dispatcher credential's MCP server; nothing else is registered there. */
   register(mcp: McpServer, identity: DispatcherIdentity) {
-    const inProject = <T extends { projectId: string }>(schema: z.ZodType<T>, raw: unknown, operation: (caller: CardCaller, input: Omit<T, "projectId">) => Promise<object>) =>
+    const inProject = <T extends { projectId: string }>(
+      schema: z.ZodType<T>,
+      raw: unknown,
+      operation: (caller: CardCaller, input: Omit<T, "projectId">) => Promise<object>,
+      write = false,
+    ) =>
       toolResult(async () => {
         const input = schema.parse(raw);
-        return operation(await this.projectCaller(identity, input.projectId), rest(input));
+        return operation(await this.projectCaller(identity, input.projectId, write), rest(input));
       });
     const read = { readOnlyHint: true, openWorldHint: false } as const;
     mcp.registerTool(
@@ -176,7 +182,7 @@ export class DispatcherTools {
         outputSchema: createCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       },
-      (raw) => inProject(dispatcherInputs.createCard, raw, (c, input) => this.cards.create(c, input)),
+      (raw) => inProject(dispatcherInputs.createCard, raw, (c, input) => this.cards.create(c, input), true),
     );
     mcp.registerTool(
       "flowly_update_card",
@@ -187,7 +193,7 @@ export class DispatcherTools {
         outputSchema: updateCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       },
-      (raw) => inProject(dispatcherInputs.updateCard, raw, (c, input) => this.cards.update(c, input)),
+      (raw) => inProject(dispatcherInputs.updateCard, raw, (c, input) => this.cards.update(c, input), true),
     );
     mcp.registerTool(
       "flowly_start_card",
@@ -198,7 +204,7 @@ export class DispatcherTools {
         outputSchema: startCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       },
-      (raw) => inProject(dispatcherInputs.startCard, raw, (c, input) => this.starter.start(c, input, this.cards.api())),
+      (raw) => inProject(dispatcherInputs.startCard, raw, (c, input) => this.starter.start(c, input, this.cards.api()), true),
     );
     mcp.registerTool(
       "flowly_propose_idea",

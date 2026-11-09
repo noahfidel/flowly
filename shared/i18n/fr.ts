@@ -540,6 +540,7 @@ const catalog: Catalog = {
   "Session title": "Titre de la session",
   "Save": "Enregistrer",
   "Default model": "Modèle par défaut",
+  "Dispatcher model": "Modèle du répartiteur",
   "Current model": "Modèle actuel",
   "Plugins cannot switch the model or features like Fast mode yet.": "Les plugins ne peuvent pas encore changer de modèle ni activer des fonctions comme le mode Fast.",
   "Change in Paseo": "Modifier dans Paseo",

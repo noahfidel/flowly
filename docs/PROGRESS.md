@@ -7,6 +7,15 @@
 - Code-shape notes: `start` is refused while the dispatcher is `running` or `idle` (`DISPATCHER_RUNNING`), and writes the record before Paseo creates the session so first-turn tool calls pass; it goes back to the previous record when Paseo did not create the agent. The replaced session is left in Paseo as it is. Dispatcher writes count against the same 20-per-hour card/start limit, keyed by the dispatcher session. Links made by the dispatcher are stored with `createdBy: "system"` (the link schema has no agent value) and logged as `linked` events with `actor: "agent"` and its agent id.
 - Strings: none (the charter and tool texts are agent-facing English). Onboarding: no tour change or tip yet — nothing user-visible until the chat panel (Task 10), which adds the `dispatcher` tip. Telemetry: no heartbeat field. AGENTS.md: dated user-requested exception for the always-on dispatcher and its background workspace.
 - Checks: new `server/dispatcher.test.ts`, `server/dispatcher-tools.test.ts`, three new tests in `server/event-bus.test.ts`; `npx vitest run server/dispatcher.test.ts server/dispatcher-tools.test.ts server/event-bus.test.ts server/tool-server.test.ts` exit 0 (42 passed); `npm run typecheck` exit 0; `npm test` exit 0 (167 files, 1507 passed, 1 skipped). Not run: a live dispatcher against the host (creation without a project id, `background: true`, session_open re-injection, a real queued delivery) — Task 12's live checks 1 and 3.
+- Review fix round 1:
+  - Delivery: a pending permission holds notes like a running turn. Paseo's daemon sends without `activeTurnBehavior` as `interrupt` with `clearPendingPermissions` (read in its `session.js`), so both would steer. An 8 s send cooldown (as the composer's drain). One re-check 2 s after a turn end that still reads `running`. Held notes merge with `mergeNotes` (shared with the batcher): a question or blocker is kept over a later plain status change, and the hidden count carries across batches as `earlier`.
+  - Dispatcher model setting: `dispatcherModel` in the host `models` settings, Settings → Models, server default `claude/claude-sonnet-5-5`. `dispatcher.start` uses it when no provider is passed.
+  - The dispatcher's Paseo project and workspace are left out of `resources()`; Add project and restore refuse its folder (`reservedRoot`, compared after resolving symlinks).
+  - A rejected record load is no longer cached.
+  - Logged drops: notes before a Paseo connection, and held notes at unload (the wiring's cleanup now disposes the dispatcher too).
+  - Rulings: legacy multi-repo projects are read-only to the dispatcher (`LEGACY_PROJECT` on create, update, start and link); start stays refused while the dispatcher is up; links stay `createdBy: "system"`.
+  - String: "Dispatcher model" in all 9 catalogs. Onboarding and tip still come with the panel (Task 10).
+  - Checks: `npm run typecheck` exit 0; `npm test` exit 0 (167 files, 1521 passed, 1 skipped).
 
 ## Event bus and dispatcher notes (branch `feat/single-pane`, Task 8) — 2026-11-08
 

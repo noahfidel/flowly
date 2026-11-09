@@ -7,6 +7,7 @@ import { aiLanguageChoices } from "./ai-language";
 import { cardActivityModes } from "./card-display";
 import { linearColumns } from "./linear-board";
 import { defaultDeliveryMode, deliveryModes } from "./delivery-mode";
+import { agentModelSchema } from "./agent-defaults";
 
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
@@ -365,6 +366,8 @@ export const modelSettings = defineSettings({
     defaultModel: z.string().max(200).default(""),
     defaultThinking: z.string().max(100).default(""),
     defaultMode: z.string().max(100).default(""),
+    /** The Dispatcher model (DISPATCHER-SPEC §3); null uses the server default, `dispatcherDefaultModel`. */
+    dispatcherModel: agentModelSchema.nullable().catch(null).default(null),
   }),
 });
 export type ModelSettings = z.infer<typeof modelSettings.schema>;

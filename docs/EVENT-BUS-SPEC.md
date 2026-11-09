@@ -35,11 +35,11 @@ False for: turn starts, status changes into `design`, `development`, `test` (inc
 
 - A fact whose `event.agentId` equals `exclude()` (the dispatcher's own session, read at push time) is dropped. `permission` and `permission_resolved` facts are not notes: asks reach the chat through DISPATCHER-SPEC, not through the dispatcher's input.
 - The batcher does not filter by `isStop`; the subscriber decides which facts to push (the dispatcher's pushes only stops, DISPATCHER-SPEC §7).
-- Per card, the last fact wins; the earlier facts' count is appended to its `detail` as ` (+N earlier)`.
+- Per card, notes merge with `mergeNotes`: the newer note wins, except that a `question` or `blocker` is kept over a later plain `status_changed`, whose detail it keeps as `later`. `earlier` counts the merged facts not shown (carried across batches by the dispatcher's held notes); the message renders it as ` (+N earlier)`.
 - The batch flushes when no fact has arrived for `windowMs` (10 s) after the latest, or `maxWaitMs` (60 s) after the first fact of the batch, whichever comes first; the 60 s are counted from the batch's first fact even when its time reads as 0. A flush with no notes does nothing. A flush callback that throws is logged (`logFailure`) and the batch is dropped.
 - `dispose()` clears the timer and the pending notes (plugin unload); a later push starts a new batch.
 
-`kind`: the report kind (`question`, `blocker`, `result`) when the event has one other than `progress`; `status_changed` for a status move; `turn_failed` for a failed turn; else the event's `action`. `detail`: the status move (`<from> → <to>`) and the event's note, when any.
+`kind`: the report kind (`question`, `blocker`, `result`) when the event has one other than `progress`; `status_changed` for a status move; `turn_failed` for a failed turn; else the event's `action`. `detail`: the status move (`<from> → <to>`) and the event's note, when any. `later` and `earlier` are set only by merging.
 
 ## 4. Acceptance
 

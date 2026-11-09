@@ -540,6 +540,7 @@ const catalog: Catalog = {
   "Session title": "セッションのタイトル",
   "Save": "保存",
   "Default model": "デフォルトのモデル",
+  "Dispatcher model": "ディスパッチャーのモデル",
   "Current model": "現在のモデル",
   "Plugins cannot switch the model or features like Fast mode yet.": "プラグインからはまだモデルや Fast モードなどの機能を切り替えられません。",
   "Change in Paseo": "Paseo で変更",

@@ -160,6 +160,8 @@ export class BoardService {
   insightFindings?: { check(projectId: string, id: string): Promise<void>; accept(projectId: string, id: string, taskId: string): Promise<void> };
   /** Workspaces no card may be bound to: the dispatcher's (DISPATCHER-SPEC §2); set by the plugin entry. */
   reservedWorkspace: (workspaceId: string) => boolean | Promise<boolean> = () => false;
+  /** Folders that never become a Flowly project: the dispatcher's (DISPATCHER-SPEC §2); set by the plugin entry. */
+  reservedRoot: (path: string) => boolean | Promise<boolean> = () => false;
   constructor(readonly store: BoardStore) {}
   private serialize<T>(action: () => Promise<T>) {
     const result = this.provision.then(action);
@@ -170,7 +172,11 @@ export class BoardService {
     return result;
   }
   async resources(paseo: PaseoApi) {
-    const projects = (await paseo.projects.list()).projects;
+    const listed = (await paseo.projects.list()).projects;
+    // The dispatcher's own Paseo project and workspace are not offered to Add project or New task.
+    const reserved = await Promise.all(listed.map((p) => this.reservedRoot(p.projectRootPath)));
+    const hidden = new Set(listed.filter((_, i) => reserved[i]).map((p) => p.projectId));
+    const projects = listed.filter((p) => !hidden.has(p.projectId));
     const board = await this.store.read();
     const match = repoMatcher([
       ...new Set(board.projects.flatMap((p) => p.repos)),
@@ -181,7 +187,7 @@ export class BoardService {
       const page = await paseo.workspaces.list({
         page: { limit: 200, cursor },
       });
-      workspaces.push(...page.entries);
+      for (const w of page.entries) if (!hidden.has(w.projectId) && !(await this.reservedWorkspace(w.id))) workspaces.push(w);
       cursor = page.pageInfo.nextCursor ?? undefined;
     } while (cursor);
     return {
@@ -359,6 +365,7 @@ export class BoardService {
   }
   /** Finds the native project at a folder, or creates it as Add project does. */
   private async nativeProject(primaryPath: string, paseo: PaseoApi, paseoProjectId?: string, onRegistered?: () => void) {
+    if (await this.reservedRoot(primaryPath)) throw new Error("This is the Flowly dispatcher's folder; it can't be a Flowly project.");
     const findNative = async () => {
       const projects = (await paseo.projects.list()).projects;
       if (paseoProjectId) return projects.find((p) => p.projectId === paseoProjectId);

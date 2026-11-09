@@ -540,6 +540,7 @@ const catalog: Catalog = {
   "Session title": "Название сессии",
   "Save": "Сохранить",
   "Default model": "Модель по умолчанию",
+  "Dispatcher model": "Модель диспетчера",
   "Current model": "Текущая модель",
   "Plugins cannot switch the model or features like Fast mode yet.": "Плагины пока не могут переключать модель или такие возможности, как режим Fast.",
   "Change in Paseo": "Изменить в Paseo",

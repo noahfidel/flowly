@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
@@ -11,7 +11,10 @@ import { dispatcherCharter, type DispatcherNote } from "../shared/dispatcher";
 import type { BoardEvent } from "../shared/model";
 
 const directories: string[] = [];
+const dispatchers: Dispatcher[] = [];
 afterEach(async () => {
+  for (const d of dispatchers.splice(0)) d.dispose();
+  vi.restoreAllMocks();
   vi.useRealTimers();
   await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true })));
 });
@@ -22,6 +25,7 @@ type Agent = {
   status: string;
   archivedAt: string | null;
   lastUsage?: { contextWindowUsedTokens?: number; contextWindowMaxTokens?: number };
+  pendingPermissions?: unknown[];
 };
 
 /** A fake Paseo that records workspace creations, archives, agent creations and sends. */
@@ -98,6 +102,7 @@ async function setup() {
     mcp: async (identity) => ({ type: "http" as const, url: "http://127.0.0.1:1/mcp", headers: { Authorization: `Bearer sealed-${identity.agentId}` } }),
     summary: async () => "Board summary",
   });
+  dispatchers.push(dispatcher);
   return { directory, dispatcher, ...fake };
 }
 
@@ -201,6 +206,7 @@ test("context at 95% reports context_full", async () => {
 });
 
 test("notes wait for the turn to end and never steer", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
   const x = await setup();
   const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   expect(x.agents.get(agentId)!.status).toBe("running");
@@ -223,7 +229,8 @@ test("notes wait for the turn to end and never steer", async () => {
   // Held notes are sent once.
   await x.dispatcher.turnEnded(agentId, x.paseo);
   expect(x.sends).toHaveLength(1);
-  // While idle a batch goes out at once.
+  // While idle (and past the send cooldown) a batch goes out at once.
+  await vi.advanceTimersByTimeAsync(8_000);
   await x.dispatcher.deliver([note("t3")], x.paseo);
   expect(x.sends).toHaveLength(2);
   expect((x.sends[1].options as { activeTurnBehavior?: unknown } | undefined)?.activeTurnBehavior).toBeUndefined();
@@ -376,4 +383,180 @@ test("NoteBatcher.dispose drops pending notes and its timer", async () => {
   batcher.dispose();
   await vi.advanceTimersByTimeAsync(120_000);
   expect(flush).not.toHaveBeenCalled();
+});
+
+test("a pending permission holds notes like a running turn", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  const agent = x.agents.get(agentId)!;
+  agent.status = "idle";
+  agent.pendingPermissions = [{ id: "perm-1" }];
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  // A send would answer (clear) the pending permission: hold instead.
+  expect(x.sends).toEqual([]);
+  agent.pendingPermissions = [];
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  expect(x.sends).toHaveLength(1);
+  expect(x.sends[0].text).toContain("[t1]");
+});
+
+test("turn_ended while the read still says running retries once shortly", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  const agent = x.agents.get(agentId)!;
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  // The hook fired before Paseo's snapshot caught up.
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  expect(x.sends).toEqual([]);
+  agent.status = "idle";
+  await vi.advanceTimersByTimeAsync(3_000);
+  expect(x.sends).toHaveLength(1);
+  // Only once: a retry that still reads running leaves the notes held for the next turn end.
+  agent.status = "running";
+  await x.dispatcher.deliver([note("t2")], x.paseo);
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  await vi.advanceTimersByTimeAsync(3_000);
+  agent.status = "idle";
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(x.sends).toHaveLength(1);
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  expect(x.sends).toHaveLength(2);
+  expect(x.sends[1].text).toContain("[t2]");
+  x.dispatcher.dispose();
+});
+
+test("a send cooldown keeps a stale idle read from double-sending", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(agentId)!.status = "idle";
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  expect(x.sends).toHaveLength(1);
+  // Paseo still reports idle right after the send: the next batch waits for the cooldown.
+  await x.dispatcher.deliver([note("t2")], x.paseo);
+  expect(x.sends).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(7_000);
+  expect(x.sends).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(1_500);
+  expect(x.sends).toHaveLength(2);
+  expect(x.sends[1].text).toContain("[t2]");
+  expect(x.sends[1].text).not.toContain("[t1]");
+  x.dispatcher.dispose();
+});
+
+test("held notes keep a question over a later status change and count across batches", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  await x.dispatcher.deliver([{ ...note("t1"), kind: "question", detail: "Which database?" }], x.paseo);
+  await x.dispatcher.deliver([note("t1", "development → in_review")], x.paseo);
+  await x.dispatcher.deliver([{ ...note("t2", "todo → blocked"), earlier: 2 }], x.paseo);
+  await x.dispatcher.deliver([{ ...note("t2", "blocked → in_review"), earlier: 1 }], x.paseo);
+  x.agents.get(agentId)!.status = "idle";
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  const text = x.sends[0].text;
+  expect(text).toContain('[t1] in project p: question — Which database?; then development → in_review');
+  expect(text).not.toMatch(/\[t1\][^\n]*earlier/);
+  // 2 + 1 hidden facts, plus the replaced note itself.
+  expect(text).toContain("[t2] in project p: status_changed — blocked → in_review (+4 earlier)");
+  x.dispatcher.dispose();
+});
+
+test("held notes are dropped when the dispatcher's context turns full", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  const agent = x.agents.get(agentId)!;
+  agent.status = "idle";
+  agent.lastUsage = { contextWindowUsedTokens: 96, contextWindowMaxTokens: 100 };
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  expect(x.sends).toEqual([]);
+  agent.lastUsage = undefined;
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  await x.dispatcher.deliver([note("t2")], x.paseo);
+  expect(x.sends).toHaveLength(1);
+  expect(x.sends[0].text).not.toContain("[t1]");
+});
+
+test("a failed status read drops the held notes and logs it", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const broken = {
+    ...x.paseo,
+    agents: { ref: () => ({ refresh: async () => Promise.reject(new Error("socket closed")), send: async () => undefined }) },
+  } as unknown as PaseoApi;
+  await x.dispatcher.turnEnded(agentId, broken);
+  expect(errors.mock.calls.some((c) => String(c[0]).includes("Flowly dispatcher state unreadable"))).toBe(true);
+  x.agents.get(agentId)!.status = "idle";
+  await x.dispatcher.deliver([note("t2")], x.paseo);
+  expect(x.sends).toHaveLength(1);
+  expect(x.sends[0].text).not.toContain("[t1]");
+});
+
+test("a record load error is not cached", async () => {
+  const x = await setup();
+  // A directory where the file should be: reading fails with EISDIR, not ENOENT.
+  await mkdir(join(x.directory, "dispatcher.json"));
+  await expect(x.dispatcher.record()).rejects.toThrow();
+  await rm(join(x.directory, "dispatcher.json"), { recursive: true });
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "dw", agentId: "a1", startedAt: null }));
+  expect(await x.dispatcher.record()).toMatchObject({ agentId: "a1" });
+});
+
+test("notes dropped before a Paseo connection and held notes lost on unload are logged", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const bus = new EventBus();
+  const deliver = vi.spyOn(x.dispatcher, "deliver");
+  const dispose = wireDispatcher(bus, x.dispatcher, () => undefined);
+  bus.publish([{ kind: "board", projectId: "p", title: "Card t1", event: { id: "e1", taskId: "t1", actor: "agent", action: "status_changed", from: "todo", to: "blocked", at: "now" } }]);
+  await vi.advanceTimersByTimeAsync(11_000);
+  expect(deliver).not.toHaveBeenCalled();
+  expect(errors.mock.calls.some((c) => String(c[0]) === "Flowly dispatcher notes dropped: no Paseo connection yet:")).toBe(true);
+  dispose();
+  // Held notes at unload: the wiring's cleanup disposes the dispatcher too.
+  const y = await setup();
+  const { agentId } = await y.dispatcher.start(y.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(y.agents.get(agentId)!.status).toBe("running");
+  await y.dispatcher.deliver([note("t2")], y.paseo);
+  errors.mockClear();
+  wireDispatcher(new EventBus(), y.dispatcher, () => y.paseo)();
+  expect(errors.mock.calls.some((c) => String(c[0]) === "Flowly dispatcher held notes dropped on unload:")).toBe(true);
+  // After dispose a late turn end or batch sends nothing.
+  y.agents.get(agentId)!.status = "idle";
+  await y.dispatcher.turnEnded(agentId, y.paseo);
+  await y.dispatcher.deliver([note("t3")], y.paseo);
+  expect(y.sends).toEqual([]);
+});
+
+test("the dispatcher's folder is recognized through symlinks", async () => {
+  const x = await setup();
+  expect(await x.dispatcher.ownsRoot(join(x.directory, "dispatcher"))).toBe(false);
+  await mkdir(join(x.directory, "dispatcher"));
+  expect(await x.dispatcher.ownsRoot(join(x.directory, "dispatcher"))).toBe(true);
+  expect(await x.dispatcher.ownsRoot(join(x.directory, "dispatcher", ".."))).toBe(false);
+  expect(await x.dispatcher.ownsRoot(x.directory)).toBe(false);
+});
+
+test("start without a provider uses the Dispatcher model setting, else the server default", async () => {
+  const x = await setup();
+  const first = await x.dispatcher.start(x.paseo, {});
+  expect(x.agentCreates[0].options.config).toMatchObject({ provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(first.agentId)!.status = "closed";
+  x.dispatcher.modelSetting = async () => ({ provider: "codex", model: "gpt-5.4", thinking: "high", mode: "full-access" });
+  const second = await x.dispatcher.start(x.paseo, {});
+  expect(x.agentCreates[1].options.config).toMatchObject({ provider: "codex/gpt-5.4", modeId: "full-access", thinkingOptionId: "high" });
+  // An explicit provider wins over the setting.
+  x.agents.get(second.agentId)!.status = "closed";
+  await x.dispatcher.start(x.paseo, { provider: "claude/claude-opus-5-5" });
+  expect(x.agentCreates[2].options.config).toMatchObject({ provider: "claude/claude-opus-5-5" });
+  expect((x.agentCreates[2].options.config as Record<string, unknown>).thinkingOptionId).toBeUndefined();
+  // An unreadable setting falls back to the default.
+  x.agents.get((JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8")) as { agentId: string }).agentId)!.status = "closed";
+  x.dispatcher.modelSetting = async () => Promise.reject(new Error("settings unreadable"));
+  await x.dispatcher.start(x.paseo, {});
+  expect(x.agentCreates[3].options.config).toMatchObject({ provider: "claude/claude-sonnet-5-5" });
 });

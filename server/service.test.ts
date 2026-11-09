@@ -386,3 +386,34 @@ test("an unknown stored mode is preserved and treated as the default", async () 
   await x.store.editTask({ id: card.id, revision: card.revision, title: "Renamed", actor: "human" });
   expect((await x.store.read()).tasks.find((t) => t.id === card.id)?.deliveryMode).toBe("from_the_future");
 });
+test("the dispatcher's own Paseo project is hidden from Add project and refused as a project (DISPATCHER-SPEC §2)", async () => {
+  const x = await setup(),
+    dispatcherRoot = join(x.root, "data", "dispatcher");
+  await mkdir(dispatcherRoot, { recursive: true });
+  const natives = [
+    { projectId: "native", projectRootPath: x.a, projectDisplayName: "Mine" },
+    { projectId: "disp-native", projectRootPath: dispatcherRoot, projectDisplayName: "dispatcher" },
+  ];
+  const paseo = {
+    projects: { list: async () => ({ projects: natives }) },
+    workspaces: {
+      list: async () => ({
+        entries: [
+          { id: "w1", projectId: "native", name: "One", workspaceDirectory: x.a, status: "done", workspaceKind: "directory" },
+          { id: "dw", projectId: "disp-native", name: "Flowly dispatcher", workspaceDirectory: dispatcherRoot, status: "done", workspaceKind: "directory" },
+        ],
+        pageInfo: { nextCursor: null },
+      }),
+    },
+  } as unknown as PaseoApi;
+  x.service.reservedRoot = async (path) => (await realpath(path).catch(() => path)) === dispatcherRoot;
+  x.service.reservedWorkspace = (id) => id === "dw";
+  const resources = await x.service.resources(paseo);
+  expect(resources.projects.map((p) => p.id)).toEqual(["native"]);
+  expect(resources.workspaces.map((w) => w.id)).toEqual(["w1"]);
+  await expect(
+    x.service.createProject({ title: "Dispatcher", description: "", primaryPath: dispatcherRoot, paseoProjectId: "disp-native" }, paseo),
+  ).rejects.toThrow("Flowly dispatcher");
+  await expect(x.service.createProject({ title: "Dispatcher", description: "", primaryPath: dispatcherRoot }, paseo)).rejects.toThrow("Flowly dispatcher");
+  expect((await x.store.read()).projects.map((p) => p.id)).toEqual(["p"]);
+});

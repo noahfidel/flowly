@@ -209,11 +209,28 @@ describe("note batching", () => {
     vi.advanceTimersByTime(1);
     expect(flushed).toHaveLength(1);
     expect(flushed[0]).toEqual([
-      { taskId: "t1", projectId: "p1", title: "Task one", kind: "status_changed", detail: "blocked → in_review: second (+1 earlier)", at: "2026-11-08T10:00:04.000Z" },
+      { taskId: "t1", projectId: "p1", title: "Task one", kind: "status_changed", detail: "blocked → in_review: second", earlier: 1, at: "2026-11-08T10:00:04.000Z" },
       { taskId: "t2", projectId: "p1", title: "Task two", kind: "question", detail: "Which one?", at: now },
     ]);
     vi.advanceTimersByTime(120_000);
     expect(flushed).toHaveLength(1);
+  });
+
+  test("a question or blocker is kept over a later plain status change on the same card", () => {
+    const b = batcher();
+    b.push([
+      fact({ action: "progress_reported", reportKind: "blocker", note: "Needs a key" }),
+      fact({ action: "status_changed", from: "development", to: "blocked" }),
+      fact({ action: "status_changed", from: "blocked", to: "in_review" }),
+      fact({ taskId: "t2", action: "progress_reported", reportKind: "question", note: "Which?" }),
+      fact({ taskId: "t2", action: "progress_reported", reportKind: "result", note: "Done" }),
+    ]);
+    vi.advanceTimersByTime(10_000);
+    expect(flushed[0]).toEqual([
+      { taskId: "t1", projectId: "p1", title: "Task one", kind: "blocker", detail: "Needs a key", later: "blocked → in_review", earlier: 1, at: now },
+      // A later report (not a plain status change) still wins.
+      { taskId: "t2", projectId: "p1", title: "Task one", kind: "result", detail: "Done", earlier: 1, at: now },
+    ]);
   });
 
   test("a steady stream flushes by maxWait", () => {

@@ -112,12 +112,13 @@ export class AgentCards {
    * The dispatcher acting on `projectId` (DISPATCHER-SPEC §4): the project must exist, be live and have a
    * readable root. The dispatcher session itself is checked by the caller first.
    */
-  async dispatcherCaller(projectId: string, agentId: string): Promise<CardCaller> {
+  async dispatcherCaller(projectId: string, agentId: string, write = false): Promise<CardCaller> {
     const project = (await this.store.read()).projects.find((p) => p.id === projectId);
     if (!project) throw new ToolError("NOT_FOUND", "No Flowly project with that projectId. Use one from flowly_list_projects.");
     if (project.archivedAt) throw new ToolError("PROJECT_ARCHIVED", "The Flowly project is archived. Tell the user instead of changing it.");
     if (!(await rootAvailable(project.primaryPath)))
       throw new ToolError("ROOT_UNAVAILABLE", "The project's folder is missing or unreadable. Tell the user before doing anything in this project.");
+    if (write) assertNotLegacy(project);
     return { agentId, projectId: project.id };
   }
   /**
@@ -313,6 +314,12 @@ export class AgentCards {
       return { value: { card: cardView(board, project, task), changed }, changed: true };
     });
   }
+}
+
+/** Legacy multi-repo projects (SINGLE-ROOT-SPEC) are read-only to the dispatcher: it refuses writes there (DISPATCHER-SPEC §4). */
+export function assertNotLegacy(project: Pick<Project, "repos">) {
+  if (project.repos.length > 1)
+    throw new ToolError("LEGACY_PROJECT", "This is a legacy multi-repo project; its cards are read-only to you. Tell the user instead of changing it.");
 }
 
 /** Whether a project root is a readable directory. */

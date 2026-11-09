@@ -347,6 +347,13 @@ export default function contribute(host: PluginServerContext) {
   tools.cards.board = service;
   // The dispatcher (DISPATCHER-SPEC): its workspace is never bound to a card, so no card archive path reaches it.
   service.reservedWorkspace = (id) => tools.dispatcher.owns(id);
+  // Its folder (and so its own Paseo project) is never offered or accepted as a Flowly project.
+  service.reservedRoot = (path) => tools.dispatcher.ownsRoot(path);
+  // The Dispatcher model setting (plan Q6); unreadable settings use the server default.
+  tools.dispatcher.modelSetting = async () => {
+    const state = await modelPrefs.read();
+    return modelSettingsValues(state?.status === "ready" ? state.values : {}).dispatcherModel;
+  };
   void tools.dispatcher.record().catch((e) => logFailure("Flowly dispatcher record not read:", e));
   // Stops reach the dispatcher as batched notes, held while it runs, dropped while it is down (§7).
   const unwireDispatcher = wireDispatcher(bus, tools.dispatcher, () => {

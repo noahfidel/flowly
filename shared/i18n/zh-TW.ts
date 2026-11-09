@@ -540,6 +540,7 @@ const catalog: Catalog = {
   "Session title": "工作階段標題",
   "Save": "儲存",
   "Default model": "預設模型",
+  "Dispatcher model": "調度器模型",
   "Current model": "當前模型",
   "Plugins cannot switch the model or features like Fast mode yet.": "外掛目前無法切換模型，也無法切換 Fast 模式等功能。",
   "Change in Paseo": "在 Paseo 中更改",

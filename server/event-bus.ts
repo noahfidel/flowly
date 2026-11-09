@@ -1,5 +1,5 @@
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
-import type { DispatcherNote } from "../shared/dispatcher";
+import { mergeNotes, type DispatcherNote } from "../shared/dispatcher";
 import type { Board, BoardEvent, Status } from "../shared/model";
 import { logFailure } from "./error-report";
 
@@ -75,7 +75,7 @@ export function isStop(fact: BusFact): boolean {
   return action === "agent.turn_ended" && outcome === "failed";
 }
 
-function noteOf(fact: Extract<BusFact, { kind: "board" }>, count: number): DispatcherNote {
+function noteOf(fact: Extract<BusFact, { kind: "board" }>): DispatcherNote {
   const { event } = fact;
   const kind =
     event.action === "agent.turn_ended" && event.outcome === "failed"
@@ -90,14 +90,14 @@ function noteOf(fact: Extract<BusFact, { kind: "board" }>, count: number): Dispa
     projectId: fact.projectId,
     title: fact.title ?? event.taskId,
     kind,
-    detail: count > 1 ? `${detail} (+${count - 1} earlier)`.trim() : detail,
+    detail,
     at: event.at,
   };
 }
 
 /** Collects board facts for a window, then hands them over as one note per card (EVENT-BUS-SPEC §3). */
 export class NoteBatcher {
-  private readonly pending = new Map<string, { fact: Extract<BusFact, { kind: "board" }>; count: number }>();
+  private readonly pending = new Map<string, DispatcherNote>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** When the pending batch's first fact arrived; null while nothing is pending. */
   private firstAt: number | null = null;
@@ -117,8 +117,10 @@ export class NoteBatcher {
     for (const fact of facts) {
       if (fact.kind !== "board") continue;
       if (own && fact.event.agentId === own) continue;
-      const key = fact.event.taskId;
-      this.pending.set(key, { fact, count: (this.pending.get(key)?.count ?? 0) + 1 });
+      const key = fact.event.taskId,
+        note = noteOf(fact),
+        prev = this.pending.get(key);
+      this.pending.set(key, prev ? mergeNotes(prev, note) : note);
       added = true;
     }
     if (!added) return;
@@ -138,7 +140,7 @@ export class NoteBatcher {
   }
 
   private release() {
-    const notes = [...this.pending.values()].map(({ fact, count }) => noteOf(fact, count));
+    const notes = [...this.pending.values()];
     this.pending.clear();
     this.timer = null;
     this.firstAt = null;

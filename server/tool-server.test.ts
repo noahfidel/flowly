@@ -671,6 +671,20 @@ test("session_open injection is limited to Kanban-managed sessions", async () =>
   expect(path).toBe(x.server.secrets.contextFile(x.identity.agentId));
   expect(JSON.parse(await readFile(path!, "utf8")).methods).toEqual(["mcp", "cli"]);
 });
+test("only the stored dispatcher's session gets a dispatcher credential (DISPATCHER-SPEC §3)", async () => {
+  const x = await setup();
+  // No dispatcher yet: nobody gets one.
+  expect(await x.server.dispatcherSession("current", x.paseo)).toBeNull();
+  await x.server.stop();
+  const restored = new ToolServer(x.store);
+  cleanups.push(() => restored.stop());
+  await writeFile(x.store.directory + "/dispatcher.json", JSON.stringify({ version: 1, workspaceId: "dw", agentId: "current", startedAt: null }));
+  const config = (await restored.dispatcherSession("current", x.paseo))!;
+  expect(config).toMatchObject({ type: "http" });
+  expect(restored.secrets.authenticateAny(config.headers.Authorization.slice(7))).toEqual({ kind: "dispatcher", identity: { agentId: "current", workspaceId: "dw" } });
+  // A replaced dispatcher's session, a card session and any other session get none.
+  for (const id of ["replaced-earlier-dispatcher", x.identity.agentId, "someone"]) expect(await restored.dispatcherSession(id, x.paseo), id).toBeNull();
+});
 test("sessions outside cards: a board credential reaches only the card tools, over MCP only (AGENT-CARDS-SPEC §2.2)", async () => {
   const x = await setup();
   x.server.attach(x.paseo);
