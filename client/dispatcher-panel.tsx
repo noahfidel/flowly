@@ -216,6 +216,8 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   if (agent?.lastError) notices.push({ key: "last-error", text: agent.lastError });
   // Saved tools are fixed when the session is created; a new dispatcher gets this build's (DISPATCHER-SPEC §3).
   if (status.data?.newTools) notices.push({ key: "new-tools", tone: "warning", text: t("This dispatcher started before some Flowly tools existed. Archive its session in Paseo, then start a new one to use them.") });
+  // Its routes are fixed at create too: one started without this build's guard keeps them (DISPATCHER-SPEC §3).
+  if (status.data?.unguarded) notices.push({ key: "unguarded", tone: "warning", text: t("This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. Archive its session in Paseo, then start a new one.") });
   if (agent?.providerUnavailable)
     notices.push({ key: "provider", tone: "warning", text: t("The dispatcher's provider is unavailable, so it can't take messages. Check that provider in Paseo's settings.") });
 

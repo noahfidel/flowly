@@ -132,6 +132,13 @@ export const dispatcherWithheldTools = [
 export const dispatcherBuiltinTools = ["Read", "Glob", "Grep", "WebSearch", "ToolSearch"] as const;
 
 /**
+ * The version of the routes a dispatcher is started without (`dispatcherWithheldTools` and `dispatcherBuiltinTools`).
+ * Raise it when either changes in a way an older session should not keep: a live dispatcher recorded with another
+ * version, or none, shows a warning to replace it (DISPATCHER-SPEC §3).
+ */
+export const dispatcherGuardVersion = 1;
+
+/**
  * Providers the dispatcher starts on: those whose sessions can be started without `dispatcherWithheldTools` (Claude's
  * `disallowedTools`). Others have no per-session way to withhold them (ruling, Noah 2026-11-09; DISPATCHER-SPEC §3).
  */
@@ -244,6 +251,8 @@ export const dispatcherStatusSchema = z.strictObject({
   agentId: z.string().nullable(),
   /** The live dispatcher was saved without a tool this build lists; a new dispatcher gets it (§3). */
   newTools: z.literal(true).optional(),
+  /** The live dispatcher was started without this build's guard, or on a provider that cannot withhold the routes to a card's asks (§3). */
+  unguarded: z.literal(true).optional(),
 });
 export type DispatcherStatus = z.infer<typeof dispatcherStatusSchema>;
 /** `dispatcher.start`: the model as `provider/model` and an optional mode; no provider uses the Dispatcher model setting (DISPATCHER-SPEC §3). */

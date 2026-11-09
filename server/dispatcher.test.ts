@@ -8,7 +8,7 @@ import { dispatcherSessionIds } from "./dispatcher-items";
 import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
 import { agentFixture } from "./agent-fixture";
-import { dispatcherBuiltinTools, dispatcherCharter, dispatcherToolNames, dispatcherWithheldTools, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
+import { dispatcherBuiltinTools, dispatcherCharter, dispatcherGuardVersion, dispatcherToolNames, dispatcherWithheldTools, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
 import type { BoardEvent } from "../shared/model";
 
 const directories: string[] = [];
@@ -945,11 +945,12 @@ test("a dispatcher saved with fewer tools than this build lists says a new one g
   const status = async (extra: Record<string, unknown>, agentStatus = "idle") => {
     const x = await setup();
     x.agents.set("old", { id: "old", workspaceId: "dw-0", status: agentStatus, archivedAt: null });
-    await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", ...extra }));
+    await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", guard, ...extra }));
     const read = await x.dispatcher.status(x.paseo);
     expect(x.created).toHaveLength(0);
     return read;
   };
+  const guard = { version: dispatcherGuardVersion, provider: "claude" };
   expect(await status({ savedTools: dispatcherToolNames.slice(0, -1) })).toEqual({ state: "idle", agentId: "old", newTools: true });
   // Saved with this build's list, or marked true (saved with the first eight, all still listed): nothing to say.
   expect(await status({ savedTools: [...dispatcherToolNames] })).toEqual({ state: "idle", agentId: "old" });
@@ -958,6 +959,40 @@ test("a dispatcher saved with fewer tools than this build lists says a new one g
   expect(await status({})).toEqual({ state: "idle", agentId: "old" });
   // An ended one says nothing: Start gives a new one anyway.
   expect(await status({ savedTools: ["flowly_list_projects"] }, "closed")).toEqual({ state: "ended", agentId: "old" });
+});
+
+test("a live dispatcher started without this build's routes withheld says to replace it; nothing restarts it (§3)", async () => {
+  const status = async (guard: unknown, agentStatus = "idle") => {
+    const x = await setup();
+    x.agents.set("old", { id: "old", workspaceId: "dw-0", status: agentStatus, archivedAt: null });
+    const record = { version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", savedTools: [...dispatcherToolNames], ...(guard ? { guard } : {}) };
+    await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(record));
+    const read = await x.dispatcher.status(x.paseo);
+    expect(x.created).toHaveLength(0);
+    expect(x.archived).toEqual([]);
+    return read;
+  };
+  // Started before the guard (no mark), with an older guard, or on a provider that cannot withhold the routes.
+  expect(await status(undefined)).toEqual({ state: "idle", agentId: "old", unguarded: true });
+  expect(await status(undefined, "running")).toEqual({ state: "running", agentId: "old", unguarded: true });
+  expect(await status({ version: dispatcherGuardVersion - 1, provider: "claude" })).toEqual({ state: "idle", agentId: "old", unguarded: true });
+  expect(await status({ version: dispatcherGuardVersion, provider: "codex" })).toEqual({ state: "idle", agentId: "old", unguarded: true });
+  expect(await status({ version: dispatcherGuardVersion, provider: "claude" })).toEqual({ state: "idle", agentId: "old" });
+  // An ended one says nothing: Start gives a new one anyway.
+  expect(await status(undefined, "closed")).toEqual({ state: "ended", agentId: "old" });
+});
+
+test("a started dispatcher records its guard; a refused create restores the earlier one (§1, §3)", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(await x.dispatcher.record()).toMatchObject({ agentId, guard: { version: dispatcherGuardVersion, provider: "claude" } });
+  expect(await x.dispatcher.status(x.paseo)).not.toHaveProperty("unguarded");
+  const y = await setup();
+  y.agents.set("old", { id: "old", workspaceId: "dw-0", status: "closed", archivedAt: null });
+  await writeFile(join(y.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z" }));
+  y.failAgentCreate(new Error("refused"));
+  await expect(y.dispatcher.start(y.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "START_FAILED" });
+  expect(await y.dispatcher.record()).not.toHaveProperty("guard");
 });
 
 test("What should I do? marks the changed cards it sent as seen, only once it was sent (ruling 2026-11-09, §9.2)", async () => {

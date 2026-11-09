@@ -7,6 +7,7 @@ import {
   dispatcherCharter,
   dispatcherWithheldTools,
   dispatcherBuiltinTools,
+  dispatcherGuardVersion,
   dispatcherProviderReason,
   dispatcherProviderSupported,
   dispatcherDefaultModel,
@@ -96,14 +97,10 @@ const recordSchema = z.strictObject({
    * saved sessions) stands for `firstSavedTools`; absent when the open hook adds the server.
    */
   savedTools: z.union([z.literal(true), z.array(z.string().min(1).max(100)).max(100)]).optional(),
+  /** The guard its session was started with (§3): `dispatcherGuardVersion` and the provider part of its model; absent before. */
+  guard: z.object({ version: z.number().int().nonnegative(), provider: z.string().min(1).max(100) }).optional(),
 });
 export type DispatcherRecord = z.infer<typeof recordSchema>;
-/**
- * Providers whose dispatcher session is saved with its tools, every one preapproved (§3). Paseo's daemon preapproves
- * exact MCP tools only for claude, codex and opencode (provider-registry.js PROVIDER_CONTRACTS; providers derived from
- * them, which a plugin cannot tell apart, are left out), and any tool policy turns OpenCode's auto-accept off
- * (opencode-agent.js). Every other provider gets the tools from the open hook, unapproved.
- */
 /** The tools a record marked `savedTools: true` was saved with. */
 const firstSavedTools: readonly string[] = [
   "flowly_list_projects",
@@ -119,6 +116,10 @@ const firstSavedTools: readonly string[] = [
 export function missesTools(record: DispatcherRecord) {
   const saved = record.savedTools === true ? firstSavedTools : record.savedTools;
   return !!saved && dispatcherToolNames.some((tool) => !saved.includes(tool));
+}
+/** Whether a dispatcher's session was started with this build's guard on a provider that keeps it (§3). */
+export function guarded(record: DispatcherRecord) {
+  return record.guard?.version === dispatcherGuardVersion && dispatcherProviderSupported(record.guard.provider);
 }
 
 const emptyRecord = (): DispatcherRecord => ({ version: 1, workspaceId: null, agentId: null, startedAt: null });
@@ -265,11 +266,14 @@ export class Dispatcher {
     const found = await paseo.agents.ref(agentId).refresh();
     const state = dispatcherState(found?.agent);
     // Saved tools are fixed at create: say so when this build lists more, never restart it (§3).
-    const newTools = (state === "running" || state === "idle") && missesTools(record);
+    const live = state === "running" || state === "idle";
+    const newTools = live && missesTools(record);
+    // Its tools are fixed at create too: one started without this build's guard keeps every route (§3).
+    const unguarded = live && !guarded(record);
     // A read that sees it idle is a chance to deliver what is held (§7).
     if (state === "idle" && this.held.size && !this.disposed)
       void this.serial(() => this.flush(paseo, false)).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
-    return { state, agentId, ...(newTools ? { newTools: true as const } : {}) };
+    return { state, agentId, ...(newTools ? { newTools: true as const } : {}), ...(unguarded ? { unguarded: true as const } : {}) };
   }
 
   /** Starts a new dispatcher session; one at a time, refused unless the stored one is dead (§3). */
@@ -318,12 +322,13 @@ export class Dispatcher {
       for (const [taskId, held] of covered) if (this.held.get(taskId) === held) this.held.delete(taskId);
       // Stored first: the session's first tool calls already pass the caller check (§4).
       // Saved with its tools (§3); a record without the mark is a dispatcher from before, served by the open hook.
-      await this.save(({ savedTools: _, ...r }) => ({
+      await this.save(({ savedTools: _, guard: __, ...r }) => ({
         ...r,
         workspaceId,
         agentId,
         startedAt: new Date(now).toISOString(),
         savedTools: [...dispatcherToolNames],
+        guard: { version: dispatcherGuardVersion, provider: input.provider.split("/")[0] },
         ...(earlier ? { previousAgentIds: earlier } : {}),
       }));
       await this.create(paseo, { workspaceId, agentId, mcp, summary, input, previous });
@@ -390,10 +395,11 @@ export class Dispatcher {
         .catch(() => false);
       if (!made) {
         await this.save((r) => {
-          const { previousAgentIds: _, savedTools: __, ...rest } = r;
+          const { previousAgentIds: _, savedTools: __, guard: ___, ...rest } = r;
           return {
             ...rest,
             ...(previous.savedTools ? { savedTools: previous.savedTools } : {}),
+            ...(previous.guard ? { guard: previous.guard } : {}),
             workspaceId,
             agentId: previous.agentId,
             startedAt: previous.startedAt,

@@ -223,6 +223,7 @@ const catalog: Catalog = {
   "Close side bar": "Закрыть боковую панель",
   "Minimize": "Свернуть",
   "Restore size": "Обычный размер",
+  "This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. Archive its session in Paseo, then start a new one.": "Этот диспетчер всё ещё может отвечать на вопросы и запросы разрешений карточек: он запущен до того, как Flowly закрыл ему эти пути, или с провайдером, отличным от Claude. Архивируйте его сессию в Paseo, затем запустите новый.",
   "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.": "Диспетчер работает только с Claude: с другими провайдерами Flowly не может запретить ему отвечать на вопросы и запросы разрешений карточек. Выберите модель Claude для диспетчера в «Настройки → Модели».",
   "Status: {lane}": "Статус: {lane}",
   "Priority: {priority}": "Приоритет: {priority}",
