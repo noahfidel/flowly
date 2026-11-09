@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   dispatcherCharter,
   dispatcherWithheldTools,
+  dispatcherBuiltinTools,
   dispatcherProviderReason,
   dispatcherProviderSupported,
   dispatcherDefaultModel,
@@ -369,9 +370,9 @@ export class Dispatcher {
           ...(input.modeId ? { modeId: input.modeId } : {}),
           ...(input.thinking ? { thinkingOptionId: input.thinking } : {}),
           systemPrompt: dispatcherCharter,
-          // No route to a card's ask: Paseo's agent tools, a shell and subagents are withheld where the provider allows it (§3).
+          // No route to a card's ask (§3): Paseo's agent tools are withheld, and the built-in tools are an allowlist.
           // The SDK's `options` is the session's `providerOptions`, validated by Claude's provider schema.
-          options: { disallowedTools: [...dispatcherWithheldTools] },
+          options: { disallowedTools: [...dispatcherWithheldTools], extraArgs: { tools: dispatcherBuiltinTools.join(",") } },
           // Saved with the session and every tool preapproved, so its own tools never prompt (they are gated by the
           // "Agents create and edit cards" switch); Paseo checks each grant's server is in this same request (§3).
           mcpServers: { [dispatcherServerName]: mcp },

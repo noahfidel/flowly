@@ -118,6 +118,20 @@ export const dispatcherWithheldTools = [
 ] as const;
 
 /**
+ * The only built-in Claude Code tools a dispatcher session has (`--tools`, through the Claude provider's
+ * `extraArgs.tools`; DISPATCHER-SPEC §3). An allowlist, because Claude Code keeps adding tools that reach other
+ * sessions or agents (2.1.319: SendMessage, ListAgents, Workflow, RemoteTrigger, Cron*, Skill), a shell, or the disk
+ * (Write, Edit), and a deny-list misses the next one. MCP servers are not affected: its eight Flowly tools and any
+ * other server's tools stay; Paseo's own server stays on `dispatcherWithheldTools`.
+ * - Read, Glob, Grep: read a project's files to write cards that point at the right code. Reading answers nothing.
+ * - WebSearch: look things up for a card. Runs on Anthropic's side, so it cannot reach the local daemon (WebFetch
+ *   could make requests to local addresses, and is left out).
+ * - ToolSearch: loads the schemas of MCP tools Claude Code defers when there are many; without it the dispatcher could
+ *   not call its own Flowly tools. It finds only tools the session already has.
+ */
+export const dispatcherBuiltinTools = ["Read", "Glob", "Grep", "WebSearch", "ToolSearch"] as const;
+
+/**
  * Providers the dispatcher starts on: those whose sessions can be started without `dispatcherWithheldTools` (Claude's
  * `disallowedTools`). Others have no per-session way to withhold them (ruling, Noah 2026-11-09; DISPATCHER-SPEC §3).
  */

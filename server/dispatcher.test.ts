@@ -8,7 +8,7 @@ import { dispatcherSessionIds } from "./dispatcher-items";
 import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
 import { agentFixture } from "./agent-fixture";
-import { dispatcherCharter, dispatcherToolNames, dispatcherWithheldTools, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
+import { dispatcherBuiltinTools, dispatcherCharter, dispatcherToolNames, dispatcherWithheldTools, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
 import type { BoardEvent } from "../shared/model";
 
 const directories: string[] = [];
@@ -995,6 +995,19 @@ test("no route to a card's ask: a Claude dispatcher starts without Paseo's tools
   expect(withheld).toEqual([...dispatcherWithheldTools]);
   // None of its own tools is withheld.
   for (const tool of dispatcherToolNames) expect(withheld).not.toContain(`mcp__flowly-dispatcher__${tool}`);
+});
+
+test("no route to a card's ask: Claude's built-in tools are an allowlist, so its own messaging and agent tools never load", async () => {
+  const x = await setup();
+  await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5", modeId: "bypassPermissions" });
+  const config = x.agentCreates[0].options.config as { options?: { extraArgs?: Record<string, string | null> } };
+  // `extraArgs.tools` becomes Claude Code's `--tools`: the built-in tools it starts with; MCP servers are not affected.
+  const tools = (config.options?.extraArgs?.tools ?? "").split(",");
+  expect(tools).toEqual(["Read", "Glob", "Grep", "WebSearch", "ToolSearch"]);
+  expect(tools).toEqual([...dispatcherBuiltinTools]);
+  // Claude Code 2.1.319's routes to another session or agent, a shell, a file write or a later turn (the reviewer's probe).
+  for (const tool of ["SendMessage", "ListAgents", "Workflow", "RemoteTrigger", "CronCreate", "ScheduleWakeup", "Skill", "Write", "Edit", "NotebookEdit", "Bash", "Task", "Agent", "WebFetch"])
+    expect(tools).not.toContain(tool);
 });
 
 test("the charter says plainly that only the user answers a card's asks", () => {
