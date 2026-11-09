@@ -7,7 +7,7 @@ import { msg, t } from "../shared/i18n";
 import type { AskKind } from "../shared/attention-dismiss";
 import type { ChatItem } from "../shared/dispatcher";
 import { Button, IconButton, Label, Notice, TextBox, font, message, noFocusRing, radius, space, touch, useTheme } from "./ui";
-import { sameItem } from "./dispatcher-panel-logic";
+import { answersWithText, sameItem } from "./dispatcher-panel-logic";
 import { markAsksAnswered } from "./answered-asks";
 import { startAgainMessage } from "./start-again";
 
@@ -122,7 +122,7 @@ function AskBody({ item, kind, onOpenCard, onChanged }: { item: AskItem; kind: A
     );
   return (
     <View style={{ gap: space[1.5] }}>
-      {kind === "question_report" || kind === "blocker_report" ? (
+      {answersWithText(item) ? (
         <TextAnswer onSend={(text) => send({ text }, text)} />
       ) : kind === "ask_user" ? (
         <QuestionAnswer item={item} onSend={send} onOpenCard={() => onOpenCard(item.taskId)} />

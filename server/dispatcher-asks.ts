@@ -246,7 +246,13 @@ export class DispatcherAsks {
     // 4. Deliver, by kind.
     let text = "";
     let choice: "allow" | "deny" | undefined;
-    if (ask.kind === "ask_user" || ask.kind === "permission") {
+    if (ask.kind === "permission" && !ask.requestId) {
+      // A permission attention with no request left (Paseo cleared it when the session closed): nothing to approve,
+      // so the user's typed text goes to the session as a message, which resumes it.
+      text = input.answer.text ?? "";
+      if (!text.trim()) throw new Error("Type an answer.");
+      await paseo.agents.ref(agentId).send(text, userSendOptions);
+    } else if (ask.kind === "ask_user" || ask.kind === "permission") {
       if (!ask.requestId) throw new Error("Open the card to answer this request.");
       const request = pendingRequests(agent).find((r) => r.id === ask.requestId);
       if (!request) return elsewhere();

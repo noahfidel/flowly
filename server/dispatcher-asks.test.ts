@@ -500,6 +500,21 @@ test("a session_ended row stored before closed sessions stayed live yields to th
   expect((await g.asks.chatItems(await g.items.list(), g.paseo)).find((i) => i.kind === "ask" && i.signal === "q:e1")).toMatchObject({ state: "session_ended" });
 });
 
+test("a closed session's permission with no request left takes a typed answer, sent to the session as typed (§9.4)", async () => {
+  // Paseo clears pending requests on close; the permission attention stays (`p:<agent>:<time>`), with nothing to approve.
+  const agents = () => [baseAgents()[0], agent("s2", "w-b", { status: "closed", pendingPermissions: [], requiresAttention: true, attentionReason: "permission", attentionTimestamp: at }), baseAgents()[2]];
+  const f = fixture(baseBoard(), agents());
+  const ask = (await f.asks.chatItems([], f.paseo)).find((i) => i.kind === "ask" && i.agentId === "s2");
+  expect(ask).toMatchObject({ signal: `p:s2:${at}`, askKind: "permission", options: [], state: "open" });
+  await expect(answer(f, `p:s2:${at}`, { text: "  " })).rejects.toThrow("Type an answer.");
+  await expect(answer(f, `p:s2:${at}`, { optionIds: ["allow"] })).rejects.toThrow("Type an answer.");
+  expect(await answer(f, `p:s2:${at}`, { text: "Go ahead and push" })).toEqual({ delivered: true, state: "answered" });
+  expect(f.send).toHaveBeenCalledWith("s2", "Go ahead and push", expect.objectContaining({ activeTurnBehavior: "steer" }));
+  expect(f.respond).not.toHaveBeenCalled();
+  expect((await f.items.list()).find((i) => i.kind === "answer")).toMatchObject({ signal: `p:s2:${at}`, text: "Go ahead and push", delivered: true });
+  expect(await f.asks.resolvedSignals(f.paseo)).toContain(`p:s2:${at}`);
+});
+
 test("a deleted card's notes disappear from the chat, as its asks and answers do (ruling, Noah 2026-11-09)", async () => {
   const f = fixture(baseBoard(), baseAgents());
   const note = (id: string, taskId: string) => ({ id, at: "2026-11-09T00:00:00.000Z", kind: "note" as const, note: { taskId, projectId: "p", title: taskId, kind: "status", detail: "", at: "2026-11-09T00:00:00.000Z" } });

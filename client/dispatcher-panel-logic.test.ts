@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { chatRows, displayRows, mergeTimeline } from "./dispatcher-panel-logic";
+import { answersWithText, chatRows, displayRows, mergeTimeline } from "./dispatcher-panel-logic";
 import type { ChatItem } from "../shared/dispatcher";
 import { lastOutputRow } from "./session-state";
 import type { TailEntry } from "../shared/session-tail";
@@ -72,4 +72,14 @@ test("the live activity is the newest output row, not a note or the change line 
   expect(lastOutputRow(shown)).toBe(shown[1]);
   expect(lastOutputRow(shown.slice(0, 1))?.kind).toBe("entry");
   expect(lastOutputRow(shown.slice(2))).toBeUndefined();
+});
+
+test("reports and a permission with no request to answer take a typed answer; a request's actions are buttons (§9.4)", () => {
+  // A closed session's requests were cleared, but its permission attention stays: a typed answer messages the session.
+  expect(answersWithText({ askKind: "permission", options: [] })).toBe(true);
+  expect(answersWithText({ askKind: "permission", options: [{ id: "allow", label: "Allow" }] })).toBe(false);
+  expect(answersWithText({ askKind: "question_report", options: [] })).toBe(true);
+  expect(answersWithText({ askKind: "blocker_report" })).toBe(true);
+  expect(answersWithText({ askKind: "ask_user", options: [] })).toBe(false);
+  expect(answersWithText({ askKind: "error", options: [] })).toBe(false);
 });
