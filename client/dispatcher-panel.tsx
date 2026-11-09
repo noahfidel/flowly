@@ -17,6 +17,7 @@ import { dispatcherItemsKey, useDispatcherItemsQuery } from "./queries";
 import { useStableCallback } from "./stable";
 import { displayRows, mergeTimeline, sameItem, type DisplayRow } from "./dispatcher-panel-logic";
 import { AnswerRow, AskRow } from "./dispatcher-asks";
+import { markAsksAnswered } from "./answered-asks";
 
 /** The dispatcher chat next to the board (DISPATCHER-SPEC §9.3). */
 
@@ -98,6 +99,10 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, 
   });
   // An answer row is addressed to its card: the title comes from the ask it answers.
   const askTitles = useMemo(() => new Map((items.data ?? []).flatMap((item) => (item.kind === "ask" ? [[item.signal, item.title] as const] : []))), [items.data]);
+  // Asks the chat lists as answered, ended or dismissed leave the bell too, until the live list drops them (§9.4).
+  useEffect(() => {
+    markAsksAnswered((items.data ?? []).flatMap((item) => (item.kind === "ask" && item.state !== "open" ? [item.signal] : [])));
+  }, [items.data]);
 
   // Follow the newest output unless the user scrolled up.
   const scroll = useRef<{ scrollToEnd(options?: { animated?: boolean }): void; scrollTo(options: { y: number; animated?: boolean }): void } | null>(null);

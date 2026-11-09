@@ -1566,5 +1566,6 @@ const catalog: Catalog = {
   "Allowed": "許可しました",
   "Denied": "拒否しました",
   "Delivered": "配信済み",
+  "Choose an option or type an answer, not both.": "選択肢を選ぶか回答を入力してください。両方は使えません。",
 };
 export default catalog;

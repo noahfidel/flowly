@@ -1,5 +1,5 @@
 import type { PaseoApi } from "@getpaseo/client";
-import { asksFrom, type Ask, type AskState } from "../shared/attention";
+import { asksFrom, openAsks, type Ask, type AskState } from "../shared/attention";
 import {
   askAnswerInputSchema,
   askDismissInputSchema,
@@ -24,14 +24,13 @@ import {
 } from "../shared/permission-question";
 import { openReport } from "../shared/progress";
 import type { SessionReadReceipt } from "../shared/session-attention";
-import { listAttentionAgents } from "./attention-count";
+import { AttentionAgents, readAttentionCount, type AgentLister } from "./attention-count";
 import { logFailure } from "./error-report";
 
 /** Asks in the dispatcher chat (DISPATCHER-SPEC §9.4): one source with the bell, answered on the daemon. */
 
 type AskItem = Extract<StoredChatItem, { kind: "ask" }>;
 type Outcome = { delivered: boolean; state: AskState };
-type Known = { taskId: string; projectId: string; title: string };
 
 export type AsksDeps = {
   store: {
@@ -40,6 +39,8 @@ export type AsksDeps = {
   };
   reads: { read(): Promise<{ receipts: readonly SessionReadReceipt[] }> };
   items: { list(): Promise<StoredChatItem[]>; put(items: readonly StoredChatItem[]): Promise<void> };
+  /** The agent list, shared with the sidebar badge for a short time (default: a 2 s `AttentionAgents`). */
+  agents?: AgentLister & { invalidate?(): void };
   now?: () => Date;
 };
 
@@ -71,56 +72,84 @@ export class DispatcherAsks {
   private chain: Promise<unknown> = Promise.resolve();
   /** Signals answered from the chat in this daemon run, in case recording the answer failed. */
   private readonly done = new Set<string>();
-  /** The card of each ask seen live, so an ask the session resolved meanwhile can still be recorded. */
-  private readonly known = new Map<string, Known>();
-  constructor(private readonly deps: AsksDeps) {}
+  /** Each ask seen live, so an ask that left the live list meanwhile can still be recorded with its card. */
+  private readonly known = new Map<string, Ask>();
+  private readonly agents: AgentLister & { invalidate?(): void };
+  constructor(private readonly deps: AsksDeps) {
+    this.agents = deps.agents ?? new AttentionAgents();
+  }
 
   private now() {
     return (this.deps.now?.() ?? new Date()).toISOString();
   }
 
-  /** The live asks, from a fresh board, agent list and read state. */
+  /** The live asks, from a fresh board, the (briefly shared) agent list and read state. */
   async live(paseo: PaseoApi): Promise<{ board: Board; asks: Ask[] }> {
     const [board, agents, receipts] = await Promise.all([
       this.deps.store.read(),
-      listAttentionAgents(paseo),
+      this.agents.list(paseo),
       this.deps.reads.read().catch(() => null),
     ]);
     const asks = asksFrom(board, agents, receipts?.receipts ?? [], board.attentionDismissals, !receipts);
     if (this.known.size > knownLimit) this.known.clear();
-    for (const ask of asks) this.known.set(ask.signal, { taskId: ask.taskId, projectId: ask.projectId, title: ask.title });
+    for (const ask of asks) this.known.set(ask.signal, ask);
     return { board, asks };
+  }
+
+  /** The signals the chat resolved: stored as answered, ended or dismissed, or answered in this daemon run. */
+  private resolved(stored: readonly StoredChatItem[]): Set<string> {
+    const signals = new Set(this.done);
+    for (const item of stored) if (item.kind === "ask" && item.state !== "open") signals.add(item.signal);
+    return signals;
+  }
+
+  /** `attention.count`: the open asks, exactly the chat's open rows (§9.4, ATTENTION-DISMISS-SPEC §7a). */
+  async count(paseo: PaseoApi): Promise<{ count: number }> {
+    const stored = await this.deps.items.list();
+    return readAttentionCount(this.deps.store, this.deps.reads, paseo, { agents: this.agents, resolved: this.resolved(stored) });
   }
 
   /**
    * The chat's items: the stored ones, without the asks and answers of cards that no longer exist, and the
-   * live asks a stored one with the same signal does not already stand for (§9.4).
+   * live asks a stored one with the same signal does not already stand for (§9.4). A live ask answered in this
+   * run whose record failed shows as answered, as the bell counts it.
    */
   async chatItems(stored: readonly StoredChatItem[], paseo: PaseoApi): Promise<ChatItem[]> {
     const { board, asks } = await this.live(paseo);
     const cards = new Set(board.tasks.map((t) => t.id));
     const kept = stored.filter((item) => (item.kind !== "ask" && item.kind !== "answer") || cards.has(item.taskId));
     const storedAsks = new Set(kept.flatMap((item) => (item.kind === "ask" ? [item.signal] : [])));
-    return [...kept, ...asks.filter((ask) => !storedAsks.has(ask.signal)).map((ask) => askItem(ask))];
+    return [
+      ...kept,
+      ...asks.filter((ask) => !storedAsks.has(ask.signal)).map((ask) => (this.done.has(ask.signal) && ask.state === "open" ? askItem(ask, "answered") : askItem(ask))),
+    ];
   }
 
   /** `asks.answer`: re-checked against the session now; delivered only when the Paseo call resolved. */
   answer(raw: unknown, paseo: PaseoApi): Promise<Outcome> {
     const input = askAnswerInputSchema.parse(raw);
-    const job = this.chain.then(() => this.run(input, paseo));
+    const job = this.chain.then(() => this.run(input, paseo)).finally(() => this.agents.invalidate?.());
     this.chain = job.catch(() => undefined);
     return job;
   }
 
-  /** `asks.dismiss`: that one signal joins its card's dismissal set (ATTENTION-DISMISS-SPEC §7a). */
+  /**
+   * `asks.dismiss`: a live ask's signal joins its card's dismissal set (ATTENTION-DISMISS-SPEC §7a); an ask
+   * whose session ended is stored as dismissed in the chat (its session is gone, so there is no live signal).
+   */
   async dismiss(raw: unknown, paseo: PaseoApi): Promise<{ taskId: string }> {
     const { signal } = askDismissInputSchema.parse(raw);
-    const { asks } = await this.live(paseo);
+    const [{ asks }, stored] = await Promise.all([this.live(paseo), this.deps.items.list()]);
+    const ended = stored.find((item): item is AskItem => item.kind === "ask" && item.signal === signal && item.state === "session_ended");
     const ask = asks.find((a) => a.signal === signal);
-    if (!ask) throw new Error("This ask is no longer open.");
-    const current = asks.filter((a) => a.taskId === ask.taskId).map((a) => a.signal);
-    await this.deps.store.dismissAttentionSignal({ taskId: ask.taskId, signal, current });
-    return { taskId: ask.taskId };
+    if (!ask && !ended) throw new Error("This ask is no longer open.");
+    if (ask) {
+      const current = asks.filter((a) => a.taskId === ask.taskId).map((a) => a.signal);
+      await this.deps.store.dismissAttentionSignal({ taskId: ask.taskId, signal, current });
+    }
+    if (ended) await this.deps.items.put([{ ...ended, state: "dismissed", resolvedAt: this.now() }]);
+    this.agents.invalidate?.();
+    return { taskId: (ask?.taskId ?? ended?.taskId)! };
   }
 
   private async record(items: StoredChatItem[]) {
@@ -148,7 +177,13 @@ export class DispatcherAsks {
       const project = board.projects.find((p) => p.id === task.projectId);
       if (task.archivedAt || !project || project.archivedAt) throw new Error("The card or its project is archived.");
       const at = this.now();
-      await this.record([{ id: `ask-${input.signal}`, at, kind: "ask", signal: input.signal, ...known, state: "answered", resolvedAt: at, elsewhere: true }]);
+      // Its session archived or gone: the ask ended with it, it was not answered.
+      const agent = known.agentId ? ((await paseo.agents.ref(known.agentId).refresh())?.agent ?? null) : null;
+      if (known.agentId && (!agent || agent.archivedAt || agent.status === "closed")) {
+        await this.record([askItem(known, "session_ended", { resolvedAt: at })]);
+        return { delivered: false, state: "session_ended" };
+      }
+      await this.record([askItem(known, "answered", { resolvedAt: at, elsewhere: true })]);
       return { delivered: false, state: "answered" };
     }
     if (ask.kind === "error" || ask.kind === "unread") throw new Error("This ask has no answer; open the card.");
@@ -183,9 +218,10 @@ export class DispatcherAsks {
         if (!questions) throw new Error("Open the card to answer this question.");
         if (input.answer.allow === false) {
           reply = dismissReply(request, questions, emptyDraft(questions));
-          choice = "deny";
+          // A form of free-text questions that accept empty answers submits empty: that is an allow.
+          choice = reply.behavior;
         } else {
-          const draft = draftFrom(questions, input.answer.optionIds ?? [], input.answer.text ?? "");
+          const draft = draftFrom(questions, input.answer);
           reply = answerReply(request, questions, draft);
           const answers = buildAnswers(questions, draft);
           text = questions.length > 1 ? Object.entries(answers).map(([header, value]) => `${header}: ${value}`).join("\n") : Object.values(answers)[0] ?? "";
@@ -219,12 +255,14 @@ export class DispatcherAsks {
 }
 
 /**
- * The form's draft from the chat's answer: option ids `q<i>o<j>` pick options, the typed text fills each
- * question that takes text and has no option picked. Every question must end up answered.
+ * The form's draft from the chat's answer: option ids `q<i>o<j>` pick options; `texts[i]` is question i's typed
+ * answer (one box per question that takes text). A single `text` is accepted only when exactly one question
+ * takes text. Typed text is never dropped: text for a question that takes none, or text plus an option on a
+ * single-choice question, is refused. Every question must end up answered.
  */
-function draftFrom(questions: readonly FormQuestion[], optionIds: readonly string[], text: string): QuestionDraft {
+function draftFrom(questions: readonly FormQuestion[], answer: AskAnswerInput["answer"]): QuestionDraft {
   const draft = emptyDraft(questions);
-  for (const id of new Set(optionIds)) {
+  for (const id of new Set(answer.optionIds ?? [])) {
     const match = /^q(\d+)o(\d+)$/.exec(id);
     const q = match ? Number(match[1]) : -1;
     const o = match ? Number(match[2]) : -1;
@@ -232,8 +270,20 @@ function draftFrom(questions: readonly FormQuestion[], optionIds: readonly strin
     draft.selected[q] = [...draft.selected[q], o].sort((a, b) => a - b);
     if (!questions[q].multiSelect && draft.selected[q].length > 1) throw new Error("Choose one option per question.");
   }
-  if (text.trim()) questions.forEach((q, i) => {
-    if (showsTextInput(q) && !draft.selected[i].length) draft.other[i] = text;
+  const takesText = questions.flatMap((q, i) => (showsTextInput(q) ? [i] : []));
+  if (answer.text !== undefined && answer.texts !== undefined) throw new Error("Send either one text or one text per question.");
+  let texts = answer.texts ?? [];
+  if (answer.text?.trim()) {
+    if (takesText.length !== 1) throw new Error(takesText.length ? "Answer each question in its own box." : "This question takes no typed answer.");
+    texts = questions.map((_, i) => (i === takesText[0] ? answer.text! : ""));
+  }
+  if (texts.length > questions.length) throw new Error("More answers than questions.");
+  texts.forEach((typed, i) => {
+    if (!typed.trim()) return;
+    const q = questions[i];
+    if (!showsTextInput(q)) throw new Error(`"${q.header}" takes no typed answer.`);
+    if (!q.multiSelect && draft.selected[i].length) throw new Error(`Choose an option or type an answer for "${q.header}", not both.`);
+    draft.other[i] = typed;
   });
   if (!allAnswered(questions, draft)) throw new Error("Answer every question.");
   return draft;

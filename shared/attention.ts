@@ -153,8 +153,18 @@ export function attentionItemsWithFacts(
 }
 
 /** The bell's count (plan Q1): open asks, each signal not in its card's dismissal set. */
-export function openAskCount(items: readonly AttentionItem[]): number {
-  return items.reduce((n, item) => n + item.parts.filter((p) => !p.dismissed).length, 0);
+export function openAskCount(items: readonly AttentionItem[], resolved: ReadonlySet<string> = noSignals): number {
+  return items.reduce((n, item) => n + item.parts.filter((p) => !p.dismissed && !resolved.has(p.key)).length, 0);
+}
+
+const noSignals: ReadonlySet<string> = new Set();
+
+/**
+ * The open asks: not dismissed, and not answered, ended or dismissed in the chat (`resolved`, the signals the
+ * chat recorded so). The bell, the sidebar badge and the chat's open rows all come from this (§9.4).
+ */
+export function openAsks(asks: readonly Ask[], resolved: ReadonlySet<string> = noSignals): Ask[] {
+  return asks.filter((a) => a.state === "open" && !resolved.has(a.signal));
 }
 
 /** One question of an AskUserQuestion form, as the chat shows it; its options are in `Ask.options` by id. */

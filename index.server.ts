@@ -9,7 +9,6 @@ import * as rpc from "./shared/rpc";
 import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, artifactSettings, artifactSettingsValues, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, modelSettingsValues, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues, prReviewSettings, prReviewSettingsValues, deliverySettings, deliverySettingsValues } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService, daemonNativeAttention } from "./server/session-reads";
-import { readAttentionCount } from "./server/attention-count";
 import { WrapupService } from "./server/wrapup";
 import { WorkspaceSwitchService } from "./server/workspace-switch";
 import { WorkspaceRestoreService } from "./server/workspace-restore";
@@ -247,7 +246,11 @@ export default function contribute(host: PluginServerContext) {
     });
   void syncReads(true);
   server.handle(rpc.readSessionReceipts, () => sessionReads.read());
-  server.handle(rpc.readAttentionCount, (_, { paseo }) => readAttentionCount(store, sessionReads, paseo));
+  // The dispatcher chat's items and asks (DISPATCHER-SPEC §9, §9.4). The sidebar badge counts the chat's open
+  // asks: one source, sharing the agent list for a short time with the chat's poll.
+  const chatItems = new DispatcherItems(store.directory);
+  const asks = new DispatcherAsks({ store, reads: sessionReads, items: chatItems });
+  server.handle(rpc.readAttentionCount, (_, { paseo }) => asks.count(paseo));
   server.handle(rpc.markSessionRead, (input, { paseo }) =>
     readService.mark(input, paseo),
   );
@@ -378,7 +381,6 @@ export default function contribute(host: PluginServerContext) {
   });
   // The chat panel (DISPATCHER-SPEC §9): note rows are what the dispatcher received; the change line is scanned
   // again only when the board, the mark or the dispatcher session changed.
-  const chatItems = new DispatcherItems(store.directory);
   tools.dispatcher.onSent = (notes, at) => {
     void chatItems.put(noteItems(notes, at)).catch((e) => logFailure("Flowly dispatcher chat notes not recorded:", e, `${notes.length} notes`));
   };
@@ -392,7 +394,6 @@ export default function contribute(host: PluginServerContext) {
     return changes.get(board, seenMark(record), record.agentId);
   };
   // Asks (DISPATCHER-SPEC §9.4): one source with the bell; answered on the daemon after a fresh check.
-  const asks = new DispatcherAsks({ store, reads: sessionReads, items: chatItems });
   server.handle(rpc.dispatcherItemsChanged, async ({ etag }, { paseo }) => {
     const [items, change] = await Promise.all([chatItems.list().then((stored) => asks.chatItems(stored, paseo)), currentChange()]);
     return ifChanged(change ? [...items, change] : items, etag);

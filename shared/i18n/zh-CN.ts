@@ -1566,5 +1566,6 @@ const catalog: Catalog = {
   "Allowed": "已允许",
   "Denied": "已拒绝",
   "Delivered": "已送达",
+  "Choose an option or type an answer, not both.": "请选择一个选项或输入回答，不能两者都用。",
 };
 export default catalog;

@@ -1566,5 +1566,6 @@ const catalog: Catalog = {
   "Allowed": "Разрешено",
   "Denied": "Отклонено",
   "Delivered": "Доставлено",
+  "Choose an option or type an answer, not both.": "Выберите вариант или введите ответ, но не то и другое.",
 };
 export default catalog;

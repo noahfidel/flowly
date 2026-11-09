@@ -1566,5 +1566,6 @@ const catalog: Catalog = {
   "Allowed": "허용함",
   "Denied": "거부함",
   "Delivered": "전달됨",
+  "Choose an option or type an answer, not both.": "옵션을 고르거나 답을 입력하세요. 둘 다는 안 됩니다.",
 };
 export default catalog;

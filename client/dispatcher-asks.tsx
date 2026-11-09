@@ -8,12 +8,13 @@ import type { AskKind } from "../shared/attention-dismiss";
 import type { ChatItem } from "../shared/dispatcher";
 import { Button, IconButton, Label, Notice, TextBox, font, message, noFocusRing, radius, space, touch, useTheme } from "./ui";
 import { sameItem } from "./dispatcher-panel-logic";
+import { markAsksAnswered } from "./answered-asks";
 
 /** Asks and answers in the dispatcher chat (DISPATCHER-SPEC §9.4). */
 
 type AskItem = Extract<ChatItem, { kind: "ask" }>;
 type AnswerItem = Extract<ChatItem, { kind: "answer" }>;
-type Answer = { optionIds?: string[]; text?: string; allow?: boolean };
+type Answer = { optionIds?: string[]; text?: string; texts?: string[]; allow?: boolean };
 
 const kindNames: Record<AskKind, string> = {
   question_report: msg("Question"),
@@ -56,7 +57,7 @@ export const AskRow = memo(function AskRow({ item, focused, onOpenCard, onChange
         <Pressable accessibilityRole="button" accessibilityLabel={t("Open {title}", { title: item.title })} onPress={() => onOpenCard(item.taskId)} style={{ ...noFocusRing, flex: 1, minWidth: 0 }}>
           <Label medium size={font.sm} lines={1} selectable={false}>{head}</Label>
         </Pressable>
-        {item.state === "open" && <DismissButton item={item} onChanged={onChanged} />}
+        {(item.state === "open" || item.state === "session_ended") && <DismissButton item={item} onChanged={onChanged} />}
       </View>
       {!!item.detail && <Label size={font.md} lines={8}>{item.detail}</Label>}
       {item.state === "open" ? (
@@ -81,7 +82,10 @@ function DismissButton({ item, onChanged }: { item: AskItem; onChanged(): void }
       onPress={() => {
         setBusy(true);
         void dismiss({ signal: item.signal })
-          .then(onChanged, () => onChanged())
+          .then(() => {
+            markAsksAnswered([item.signal]);
+            onChanged();
+          }, () => onChanged())
           .finally(() => setBusy(false));
       }}
     />
@@ -99,7 +103,11 @@ function AskBody({ item, kind, onOpenCard, onChanged }: { item: AskItem; kind: A
     setSending(shown);
     setError("");
     void answerRpc({ signal: item.signal, answer })
-      .then(onChanged, (e) => setError(message(e)))
+      .then(() => {
+        // Answered, answered in the session or ended: no longer open, so the bell drops it now (§9.4).
+        markAsksAnswered([item.signal]);
+        onChanged();
+      }, (e) => setError(message(e)))
       .finally(() => setSending(null));
   };
   if (sending !== null)
@@ -163,12 +171,16 @@ function TextAnswer({ onSend, placeholder }: { onSend(text: string): void; place
   );
 }
 
-/** An AskUserQuestion: its options (one per question unless multi-select), "Other" text, Send or Decline. */
+/**
+ * An AskUserQuestion: its options (one per question unless multi-select), a text box under each question that
+ * takes text, Send or Decline. A single-choice question takes an option or a typed answer, not both.
+ */
 function QuestionAnswer({ item, onSend, onOpenCard }: { item: AskItem; onSend(answer: Answer, shown: string): void; onOpenCard(): void }) {
   const { colors } = useTheme();
   const [picked, setPicked] = useState<string[]>([]);
-  const typed = useRef("");
-  const [hasText, setHasText] = useState(false);
+  // Question i's typed answer; `filled` only re-renders when a box turns empty or non-empty.
+  const typed = useRef<string[]>([]);
+  const [filled, setFilled] = useState<boolean[]>([]);
   const questions = item.questions ?? [];
   if (!questions.length)
     return (
@@ -183,8 +195,10 @@ function QuestionAnswer({ item, onSend, onOpenCard }: { item: AskItem; onSend(an
       const question = questions.find((q) => q.optionIds.includes(id));
       return question && !question.multiSelect ? [...current.filter((x) => !question.optionIds.includes(x)), id] : [...current, id];
     });
-  const takesText = questions.some((q) => q.allowText);
-  const answered = questions.every((q) => q.optionIds.some((id) => picked.includes(id)) || (q.allowText && hasText));
+  const chose = (index: number) => questions[index].optionIds.some((id) => picked.includes(id));
+  const answered = questions.every((q, i) => chose(i) || (q.allowText && !!filled[i]));
+  const both = questions.some((q, i) => !q.multiSelect && q.allowText && chose(i) && !!filled[i]);
+  const texts = () => questions.map((q, i) => (q.allowText ? (typed.current[i] ?? "") : ""));
   return (
     <View style={{ gap: space[1.5] }}>
       {questions.map((q, index) => (
@@ -206,30 +220,32 @@ function QuestionAnswer({ item, onSend, onOpenCard }: { item: AskItem; onSend(an
               );
             })}
           </View>
+          {q.allowText && (
+            <TextBox
+              value=""
+              multiline
+              placeholder={q.optionIds.length ? t("Other answer") : t("Type your answer")}
+              placeholderTextColor={colors.foregroundMuted}
+              onChangeText={(next) => {
+                typed.current[index] = next;
+                const now = !!next.trim();
+                setFilled((was) => (!!was[index] === now ? was : questions.map((_, i) => (i === index ? now : !!was[i]))));
+              }}
+              style={{ minHeight: touch ? 40 : 32, maxHeight: 120, paddingHorizontal: space[2], paddingVertical: space[1.5], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, color: colors.foreground, backgroundColor: colors.surface0, fontSize: font.md }}
+            />
+          )}
         </View>
       ))}
-      {takesText && (
-        <TextBox
-          value=""
-          multiline
-          placeholder={t("Other answer")}
-          placeholderTextColor={colors.foregroundMuted}
-          onChangeText={(next) => {
-            typed.current = next;
-            setHasText((was) => (was === !!next.trim() ? was : !!next.trim()));
-          }}
-          style={{ minHeight: touch ? 40 : 32, maxHeight: 120, paddingHorizontal: space[2], paddingVertical: space[1.5], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, color: colors.foreground, backgroundColor: colors.surface0, fontSize: font.md }}
-        />
-      )}
+      {both && <Notice tone="warning">{t("Choose an option or type an answer, not both.")}</Notice>}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[2] }}>
         <Button
           small
           primary
-          disabled={!answered}
+          disabled={!answered || both}
           onPress={() =>
             onSend(
-              { optionIds: picked, ...(typed.current.trim() ? { text: typed.current } : {}) },
-              [...picked.map((id) => labels.get(id) ?? ""), typed.current.trim()].filter(Boolean).join(", "),
+              { optionIds: picked, ...(texts().some((x) => x.trim()) ? { texts: texts() } : {}) },
+              [...picked.map((id) => labels.get(id) ?? ""), ...texts().map((x) => x.trim())].filter(Boolean).join(", "),
             )
           }
         >

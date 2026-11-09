@@ -31,7 +31,7 @@ Output (`startCardResultSchema`): `{ taskId, workspaceId, agentId, replayed, war
 3. The card exists in that project and is not archived (`NOT_FOUND`); it is not Done or Cancelled (`CARD_FINISHED`).
 4. **Replay:** a session this `operationId` prepared earlier that still exists in the card's workspace is returned with `replayed: true`. Nothing else happens and nothing is counted.
 5. The card's workspace exists and is not being archived (`RESOURCE_UNAVAILABLE`).
-6. It has no live (non-archived) session (`CARD_HAS_SESSION`: send that session instructions instead).
+6. It has no live (non-archived) session (`CARD_HAS_SESSION`: send that session instructions instead). For the user's **Start again** from the dispatcher chat (DISPATCHER-SPEC §9.4; a human caller, which also skips check 1 and the limit in check 8), a session whose status is `closed` does not count: a card may have several sessions, so the new one starts next to it and nothing is archived (ruling 2026-11-08). A running or idle session still refuses.
 7. Where the session runs (§4): may refuse with `NEEDS_WORKTREE`.
 8. At most 20 creations per session per hour, shared with `flowly_create_card` (`CARD_LIMIT`). The slot is taken before any further work, so concurrent creates and starts cannot pass the limit together, and given back when the start or create fails.
 9. A starting model (§5) exists (`MODEL_UNAVAILABLE`).

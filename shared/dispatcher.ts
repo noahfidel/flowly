@@ -71,6 +71,8 @@ export const askAnswerInputSchema = z.strictObject({
   answer: z.strictObject({
     optionIds: z.array(z.string().min(1).max(40)).max(100).optional(),
     text: z.string().max(20000).optional(),
+    /** An AskUserQuestion form: question i's typed answer at index i (one box per question that takes text). */
+    texts: z.array(z.string().max(20000)).max(50).optional(),
     allow: z.boolean().optional(),
   }),
 });

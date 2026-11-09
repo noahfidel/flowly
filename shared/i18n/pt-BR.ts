@@ -1566,5 +1566,6 @@ const catalog: Catalog = {
   "Allowed": "Permitido",
   "Denied": "Negado",
   "Delivered": "Entregue",
+  "Choose an option or type an answer, not both.": "Escolha uma opção ou digite uma resposta, não as duas.",
 };
 export default catalog;

@@ -1,7 +1,7 @@
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import type { BoardStore } from "./store";
-import type { SessionReadStore } from "./session-reads";
-import { attentionFromSources, openAskCount } from "../shared/attention";
+import type { SessionReadReceipt } from "../shared/session-attention";
+import { asksFrom, openAsks } from "../shared/attention";
 import { isSummarizer } from "../shared/summary";
 
 /** Every live session except Flowly's own summarizer runs, across all SDK pages. */
@@ -16,12 +16,52 @@ export async function listAttentionAgents(paseo: PaseoApi): Promise<PaseoAgent[]
   return agents;
 }
 
+export type AgentLister = { list(paseo: PaseoApi): Promise<PaseoAgent[]> };
+
+/**
+ * The agent list, shared for a short time (PERFORMANCE-SPEC): the sidebar badge and the open dispatcher chat
+ * poll every few seconds, so one listing serves both. One listing at a time; a failed one is not kept.
+ */
+export class AttentionAgents implements AgentLister {
+  private readonly ttlMs: number;
+  private readonly now: () => number;
+  private cached: { at: number; agents: Promise<PaseoAgent[]> } | null = null;
+  constructor(options: { ttlMs?: number; now?: () => number } = {}) {
+    this.ttlMs = options.ttlMs ?? 2_000;
+    this.now = options.now ?? Date.now;
+  }
+  list(paseo: PaseoApi): Promise<PaseoAgent[]> {
+    const now = this.now();
+    if (this.cached && (this.cached.at === -1 || now - this.cached.at < this.ttlMs)) return this.cached.agents;
+    const entry = { at: -1, agents: listAttentionAgents(paseo) };
+    this.cached = entry;
+    entry.agents.then(
+      () => {
+        if (this.cached === entry) entry.at = this.now();
+      },
+      () => {
+        if (this.cached === entry) this.cached = null;
+      },
+    );
+    return entry.agents;
+  }
+  /** After an answer or a dismissal, the next read lists again. */
+  invalidate() {
+    this.cached = null;
+  }
+}
+
 /**
  * Keep all board/history/agent decoding on the daemon for the native sidebar. The count is the open asks
- * (plan Q1), the same number the bell shows and the dispatcher chat lists (DISPATCHER-SPEC §9.4).
+ * (plan Q1): the asks `asksFrom` lists, less those the chat recorded as answered, ended or dismissed
+ * (`resolved`), the same number the dispatcher chat lists open (DISPATCHER-SPEC §9.4).
  */
-export async function readAttentionCount(store: Pick<BoardStore, "read">, reads: Pick<SessionReadStore, "read">, paseo: PaseoApi) {
-  const [board, agents, receipts] = await Promise.all([store.read(), listAttentionAgents(paseo), reads.read().catch(() => null)]);
-  const items = attentionFromSources({ board, agents, receipts: receipts?.receipts || [], readUnavailable: !receipts });
-  return { count: openAskCount(items!) };
+export async function readAttentionCount(
+  store: Pick<BoardStore, "read">,
+  reads: { read(): Promise<{ receipts: readonly SessionReadReceipt[] }> },
+  paseo: PaseoApi,
+  options: { agents?: AgentLister; resolved?: ReadonlySet<string> } = {},
+) {
+  const [board, agents, receipts] = await Promise.all([store.read(), options.agents ? options.agents.list(paseo) : listAttentionAgents(paseo), reads.read().catch(() => null)]);
+  return { count: openAsks(asksFrom(board, agents, receipts?.receipts || [], board.attentionDismissals, !receipts), options.resolved).length };
 }

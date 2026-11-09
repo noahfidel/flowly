@@ -50,6 +50,7 @@ import {
 import { StatusIcon, priorityLabels } from "./status";
 import { AttentionButton } from "./attention-button";
 import { DispatcherPanel } from "./dispatcher-panel";
+import { forgetAnsweredMissing, useAnsweredAsks } from "./answered-asks";
 import {
   attentionItemsWithFacts,
   attentionOpenToken,
@@ -743,7 +744,12 @@ function BoardContent(
   );
   const attention = useMemo(() => allAttention.filter((i) => !i.dismissed), [allAttention]);
   // The bell counts open asks (plan Q1), as the sidebar badge and the dispatcher chat do; rows stay per card.
-  const attentionCount = useMemo(() => openAskCount(attention), [attention]);
+  // Asks answered from the chat stay out of it until the live list drops them (DISPATCHER-SPEC §9.4).
+  const answeredAsks = useAnsweredAsks();
+  const attentionCount = useMemo(() => openAskCount(attention, answeredAsks), [attention, answeredAsks]);
+  useEffect(() => {
+    if (projected && agents.data) forgetAnsweredMissing(new Set(allAttention.flatMap((i) => i.parts.map((p) => p.key))));
+  }, [allAttention]);
   const dismissedAttention = useMemo(() => allAttention.filter((i) => i.dismissed), [allAttention]);
   const attentionByTask = useMemo(() => new Map(allAttention.map((i) => [i.task.id, i])), [allAttention]);
   const [dismissedOpen, setDismissedOpen] = useState(false);
