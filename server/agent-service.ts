@@ -1111,13 +1111,30 @@ export function manageIdea(
 ) {
   const idea = board.ideas.find((i) => i.id === input.id && i.taskId === taskId);
   if (!idea) throw new ToolError("IDEA_NOT_FOUND", `No idea ${input.id} on this card. Use an id from get_task ideas.`);
+  return changeIdea(board, idea, action, input, tags, at, record);
+}
+
+/**
+ * The edit, dismissal or removal of one idea that `manageIdea` and the dispatcher's flowly_update_idea share
+ * (DISPATCHER-SPEC §5.1). A new title is compared with the other open ideas of its group: the same card's, or the
+ * project ideas (no card) of its project.
+ */
+export function changeIdea(
+  board: Board,
+  idea: Idea,
+  action: "idea_update" | "idea_remove",
+  input: IdeaRemovalInput | Omit<IdeaUpdateInput, "expectedRevision" | "request" | "id">,
+  tags: string[] | undefined,
+  at: string,
+  record: (e: { action: string; note: string }) => { id: string; at: string },
+) {
   if (idea.status === "accepted")
     throw new ToolError("IDEA_CLOSED", "This idea was already accepted by the user; it can no longer be changed or removed.");
   if (action === "idea_remove") {
     board.ideas = board.ideas.filter((i) => i !== idea);
     return record({ action: "idea_removed", note: idea.title });
   }
-  const edit = input as IdeaUpdateInput;
+  const edit = input as Omit<IdeaUpdateInput, "expectedRevision" | "request" | "id">;
   const changes: Partial<Idea> = {};
   for (const k of ideaFields) if (edit[k] !== undefined && edit[k] !== idea[k]) Object.assign(changes, { [k]: edit[k] });
   if (tags && JSON.stringify(tags) !== JSON.stringify(idea.tags ?? [])) changes.tags = tags;
@@ -1129,8 +1146,10 @@ export function manageIdea(
   }
   if (Object.keys(changes).length && idea.status !== "open")
     throw new ToolError("IDEA_CLOSED", "Only open ideas can be edited. The user can restore a dismissed idea.");
-  if (changes.title && board.ideas.some((i) => i !== idea && i.taskId === taskId && i.status === "open" && ideaTitleKey(i.title) === ideaTitleKey(changes.title!)))
-    throw new ToolError("IDEA_DUPLICATE", "This card already has another open idea with that title.");
+  if (changes.title && board.ideas.some((i) => i !== idea && i.projectId === idea.projectId && i.taskId === idea.taskId && i.status === "open" && ideaTitleKey(i.title) === ideaTitleKey(changes.title!)))
+    throw idea.taskId
+      ? new ToolError("IDEA_DUPLICATE", "This card already has another open idea with that title.")
+      : new ToolError("DUPLICATE_IDEA", "This project already has another open idea with that title.");
   Object.assign(idea, changes);
   if (changes.tags && !changes.tags.length) delete idea.tags;
   if (dismiss) idea.status = "dismissed";

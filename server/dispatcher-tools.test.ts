@@ -20,6 +20,8 @@ const dispatcherTools = [
   "flowly_start_card",
   "flowly_propose_idea",
   "flowly_link_cards",
+  "flowly_list_ideas",
+  "flowly_update_idea",
 ];
 
 async function setup() {
@@ -393,4 +395,187 @@ test("a dispatcher token cannot call card-session tools", async () => {
   expect(x.server.secrets.authenticateAny(x.dispatcherToken)).toEqual({ kind: "dispatcher", identity: { agentId: "disp", workspaceId: "dw" } });
   expect(() => x.server.secrets.authenticate(x.dispatcherToken)).toThrow();
   expect(() => x.server.secrets.authenticateAny(x.dispatcherToken + "x")).toThrow();
+});
+
+/** Ideas of q (two project ideas and card ideas of q1), one of r, seeded with fixed times. */
+async function seedIdeas(x: Awaited<ReturnType<typeof setup>>) {
+  await x.store.mutate((board) => {
+    const idea = (id: string, projectId: string, createdAt: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      projectId,
+      title: `Idea ${id}`,
+      detail: `Detail of ${id}`,
+      rationale: "Because",
+      context: "",
+      status: "open" as const,
+      createdAt,
+      updatedAt: createdAt,
+      ...extra,
+    });
+    board.ideas.push(
+      idea("i-old", "q", "2026-11-01T00:00:00.000Z", { tags: ["perf"], type: "feature", priority: "high" }),
+      idea("i-card", "q", "2026-11-03T00:00:00.000Z", { taskId: "q1", scope: "here", tags: ["perf", "ui"] }),
+      idea("i-new", "q", "2026-11-05T00:00:00.000Z", { detail: "Cache the BOARD reads", type: "bugfix" }),
+      idea("i-tie-b", "q", "2026-11-04T00:00:00.000Z"),
+      idea("i-tie-a", "q", "2026-11-04T00:00:00.000Z"),
+      idea("i-gone", "q", "2026-11-02T00:00:00.000Z", { status: "dismissed" }),
+      idea("i-took", "q", "2026-11-02T12:00:00.000Z", { status: "accepted", acceptedTaskId: "q2" }),
+      idea("i-r", "r", "2026-11-06T00:00:00.000Z"),
+    );
+  });
+}
+const ids = (result: { structuredContent: { ideas: { id: string }[] } }) => result.structuredContent.ideas.map((i) => i.id);
+
+test("flowly_list_ideas lists a project's open ideas newest first, and filters them (DISPATCHER-SPEC §5.1)", async () => {
+  const x = await setup();
+  await seedIdeas(x);
+  const d = await x.connect(x.dispatcherToken);
+  // Open by default, card and project ideas together, newest first; a tie in time goes by id.
+  const open = await d.call("flowly_list_ideas", { projectId: "q" });
+  expect(ids(open)).toEqual(["i-new", "i-tie-a", "i-tie-b", "i-card", "i-old"]);
+  expect(open.structuredContent.truncated).toBe(false);
+  expect(open.structuredContent.ideas.find((i: { id: string }) => i.id === "i-card")).toEqual({
+    id: "i-card",
+    title: "Idea i-card",
+    detail: "Detail of i-card",
+    rationale: "Because",
+    context: "",
+    tags: ["perf", "ui"],
+    status: "open",
+    scope: "here",
+    taskId: "q1",
+    createdAt: "2026-11-03T00:00:00.000Z",
+  });
+  expect(open.structuredContent.ideas.find((i: { id: string }) => i.id === "i-old")).toMatchObject({ type: "feature", priority: "high", tags: ["perf"] });
+  expect(open.structuredContent.ideas.find((i: { id: string }) => i.id === "i-old")).not.toHaveProperty("taskId");
+  expect(ids(await d.call("flowly_list_ideas", { projectId: "q", status: "dismissed" }))).toEqual(["i-gone"]);
+  const accepted = await d.call("flowly_list_ideas", { projectId: "q", status: "accepted" });
+  expect(accepted.structuredContent.ideas).toEqual([expect.objectContaining({ id: "i-took", acceptedTaskId: "q2" })]);
+  expect(ids(await d.call("flowly_list_ideas", { projectId: "q", status: "all" }))).toEqual(["i-new", "i-tie-a", "i-tie-b", "i-card", "i-took", "i-gone", "i-old"]);
+  expect(ids(await d.call("flowly_list_ideas", { projectId: "q", tag: "PERF" }))).toEqual(["i-card", "i-old"]);
+  expect(ids(await d.call("flowly_list_ideas", { projectId: "q", type: "bugfix" }))).toEqual(["i-new"]);
+  // Title or detail, any case.
+  expect(ids(await d.call("flowly_list_ideas", { projectId: "q", query: "board" }))).toEqual(["i-new"]);
+  expect(ids(await d.call("flowly_list_ideas", { projectId: "q", query: "IDEA I-T" }))).toEqual(["i-tie-a", "i-tie-b"]);
+  expect(ids(await d.call("flowly_list_ideas", { projectId: "q", query: "because" }))).toEqual([]);
+  const cut = await d.call("flowly_list_ideas", { projectId: "q", limit: 2 });
+  expect(ids(cut)).toEqual(["i-new", "i-tie-a"]);
+  expect(cut.structuredContent.truncated).toBe(true);
+  expect((await d.call("flowly_list_ideas", { projectId: "q", limit: 201 })).isError).toBe(true);
+  expect(code(await d.call("flowly_list_ideas", { projectId: "q", tag: "not a tag!" }))).toBe("TAG_INVALID");
+  // Another project's ideas are its own.
+  expect(ids(await d.call("flowly_list_ideas", { projectId: "r" }))).toEqual(["i-r"]);
+  // A read: archived and unknown projects refused; a missing root, Ideas off and the card switch off are fine.
+  expect(code(await d.call("flowly_list_ideas", { projectId: "z" }))).toBe("PROJECT_ARCHIVED");
+  expect(code(await d.call("flowly_list_ideas", { projectId: "nope" }))).toBe("NOT_FOUND");
+  expect(code(await d.call("flowly_list_ideas", { projectId: "gone" }))).toBeUndefined();
+  x.server.agents.ideasOn = async () => false;
+  x.server.cards.on = async () => false;
+  expect(ids(await d.call("flowly_list_ideas", { projectId: "q", status: "dismissed" }))).toEqual(["i-gone"]);
+});
+
+test("flowly_update_idea edits and dismisses any idea of the project, through the card sessions' rules (DISPATCHER-SPEC §5.1)", async () => {
+  const x = await setup();
+  await seedIdeas(x);
+  const d = await x.connect(x.dispatcherToken);
+  const idea = async (id: string) => (await x.store.read()).ideas.find((i) => i.id === id)!;
+  // Fields of a project idea; no event (PROJECT-IDEAS-SPEC §3).
+  const eventsBefore = (await x.store.read()).events.length;
+  const edited = await d.call("flowly_update_idea", {
+    projectId: "q",
+    ideaId: "i-old",
+    title: "Sharper title",
+    detail: "New detail",
+    rationale: "New why",
+    context: "src/x.ts",
+    type: "refactor",
+    priority: "low",
+  });
+  expect(code(edited)).toBeUndefined();
+  expect(edited.structuredContent).toMatchObject({ changed: true, idea: { id: "i-old", title: "Sharper title", type: "refactor", priority: "low", status: "open" } });
+  expect(await idea("i-old")).toMatchObject({ title: "Sharper title", detail: "New detail", rationale: "New why", context: "src/x.ts", type: "refactor", priority: "low" });
+  expect((await x.store.read()).events.length).toBe(eventsBefore);
+  // The same values again change nothing.
+  expect((await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", title: "Sharper title" })).structuredContent.changed).toBe(false);
+  // Tags: a full set, then add/remove (adding one there and removing one missing do nothing).
+  await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", tags: ["A", "b"] });
+  expect((await idea("i-old")).tags).toEqual(["a", "b"]);
+  await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", addTags: ["c", "a"], removeTags: ["b", "missing"] });
+  expect((await idea("i-old")).tags).toEqual(["a", "c"]);
+  await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", tags: [] });
+  expect((await idea("i-old")).tags).toBeUndefined();
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", tags: ["a"], addTags: ["b"] }))).toBe("INVALID_INPUT");
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", tags: ["a"], removeTags: ["b"] }))).toBe("INVALID_INPUT");
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", addTags: ["a"], removeTags: ["a"] }))).toBe("TAG_INVALID");
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", addTags: ["bad tag!"] }))).toBe("TAG_INVALID");
+  const many = Array.from({ length: 12 }, (_, i) => `t${i}`);
+  await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", tags: many });
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", addTags: ["one-more"] }))).toBe("TAG_INVALID");
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old" }))).toBe("INVALID_INPUT");
+  // A project idea's title stays unique among the project's open ideas.
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", title: "idea i-new" }))).toBe("DUPLICATE_IDEA");
+  // A card-proposed idea: its changes are events on its card, by the dispatcher.
+  const card = await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-card", priority: "urgent", status: "dismissed" });
+  expect(card.structuredContent).toMatchObject({ changed: true, idea: { id: "i-card", priority: "urgent", status: "dismissed", taskId: "q1" } });
+  const cardEvents = (await x.store.read()).events.filter((e) => e.taskId === "q1" && e.action.startsWith("idea_"));
+  expect(cardEvents.map((e) => e.action)).toEqual(["idea_edited", "idea_dismissed"]);
+  expect(cardEvents.every((e) => e.actor === "agent" && e.agentId === "disp")).toBe(true);
+  // Dismissed: no more edits; dismissing again changes nothing. Accepted: final.
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-card", title: "Again" }))).toBe("IDEA_CLOSED");
+  expect((await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-card", status: "dismissed" })).structuredContent.changed).toBe(false);
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-took", status: "dismissed" }))).toBe("IDEA_CLOSED");
+  // A project idea dismissed.
+  expect((await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-new", status: "dismissed" })).structuredContent.idea.status).toBe("dismissed");
+  // Unknown ids and another project's ideas are not found; nothing is written.
+  const before = JSON.stringify(await x.store.read());
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "nope", title: "x" }))).toBe("IDEA_NOT_FOUND");
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-r", title: "x" }))).toBe("IDEA_NOT_FOUND");
+  expect(code(await d.call("flowly_update_idea", { projectId: "r", ideaId: "i-tie-a", title: "x" }))).toBe("IDEA_NOT_FOUND");
+  // Ideas off, the card switch off, an archived project or a missing root: refused.
+  x.server.agents.ideasOn = async () => false;
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-tie-a", title: "x" }))).toBe("IDEAS_DISABLED");
+  x.server.agents.ideasOn = async () => true;
+  expect(code(await d.call("flowly_update_idea", { projectId: "z", ideaId: "i-tie-a", title: "x" }))).toBe("PROJECT_ARCHIVED");
+  expect(code(await d.call("flowly_update_idea", { projectId: "gone", ideaId: "i-tie-a", title: "x" }))).toBe("ROOT_UNAVAILABLE");
+  x.server.cards.on = async () => false;
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-tie-a", title: "x" }))).toBe("AGENT_CARDS_DISABLED");
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+});
+
+test("flowly_create_card with ideaId takes the idea up as New card from it does (DISPATCHER-SPEC §5.1)", async () => {
+  const x = await setup();
+  await seedIdeas(x);
+  const d = await x.connect(x.dispatcherToken);
+  // A project idea: accepted with the card's id; the card records where it came from.
+  const made = await d.call("flowly_create_card", { projectId: "q", title: "From idea", idempotencyKey: "k-idea", ideaId: "i-new" });
+  expect(code(made)).toBeUndefined();
+  const taskId = made.structuredContent.card.taskId as string;
+  let board = await x.store.read();
+  expect(board.ideas.find((i) => i.id === "i-new")).toMatchObject({ status: "accepted", acceptedTaskId: taskId });
+  expect(board.tasks.find((t) => t.id === taskId)?.origin).toEqual({ ideaId: "i-new" });
+  // A retry with the same key returns the same card, not a refusal for the now-accepted idea.
+  const again = await d.call("flowly_create_card", { projectId: "q", title: "From idea", idempotencyKey: "k-idea", ideaId: "i-new" });
+  expect(again.structuredContent).toMatchObject({ replayed: true, card: { taskId } });
+  // A card idea: also the derived link to its source card and the idea_accepted event there.
+  const fromCard = await d.call("flowly_create_card", { projectId: "q", title: "From card idea", idempotencyKey: "k-card-idea", ideaId: "i-card" });
+  const second = fromCard.structuredContent.card.taskId as string;
+  board = await x.store.read();
+  expect(board.ideas.find((i) => i.id === "i-card")).toMatchObject({ status: "accepted", acceptedTaskId: second });
+  expect(board.links.some((l) => l.kind === "derived" && l.from === second && l.to === "q1" && l.ideaId === "i-card")).toBe(true);
+  expect(board.events.some((e) => e.taskId === "q1" && e.action === "idea_accepted")).toBe(true);
+  // Refused before anything is made: another project's idea, an unknown one, one not open, Ideas off.
+  const before = JSON.stringify(await x.store.read());
+  const workspaces = x.createdWorkspaces.length;
+  const attempt = (ideaId: string, key: string) => d.call("flowly_create_card", { projectId: "q", title: `Card ${key}`, idempotencyKey: key, ideaId });
+  expect(code(await attempt("i-r", "k-r"))).toBe("IDEA_NOT_FOUND");
+  expect(code(await attempt("nope", "k-nope"))).toBe("IDEA_NOT_FOUND");
+  expect(code(await attempt("i-gone", "k-gone"))).toBe("IDEA_CLOSED");
+  expect(code(await attempt("i-took", "k-took"))).toBe("IDEA_CLOSED");
+  x.server.agents.ideasOn = async () => false;
+  expect(code(await attempt("i-tie-a", "k-off"))).toBe("IDEAS_DISABLED");
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+  expect(x.createdWorkspaces.length).toBe(workspaces);
+  // Refusals took no slot of the hourly limit: 2 used, so 38 more go through.
+  for (let i = 0; i < 38; i++) x.server.cards.reserve("disp", true);
+  expect(() => x.server.cards.reserve("disp", true)).toThrow(expect.objectContaining({ code: "CARD_LIMIT" }));
 });

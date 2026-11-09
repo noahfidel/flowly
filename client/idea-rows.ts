@@ -1,5 +1,5 @@
 import type { Idea, Status, Task, priorities } from "../shared/model";
-import { continuesInCard } from "../shared/ideas";
+import { continuesInCard, ideaNewestFirst } from "../shared/ideas";
 
 type Priority = (typeof priorities)[number];
 
@@ -54,7 +54,7 @@ export function visibleIdeas(ideas: readonly Idea[], tasks: readonly Card[], lan
     if (!needle) return true;
     return [i.title, i.detail, i.rationale, card?.title || ""].some((text) => text.toLowerCase().includes(needle));
   });
-  const newest = (a: Idea, b: Idea) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id);
+  const newest = ideaNewestFirst;
   // Project ideas have no card and lead (PROJECT-IDEAS-SPEC §5).
   const cardRank = (id: string | undefined) => {
     if (!id) return [-1, 0] as const;

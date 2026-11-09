@@ -946,9 +946,13 @@ test("a dispatcher saved with fewer tools than this build lists says a new one g
   };
   const guard = { version: dispatcherGuardVersion, provider: "claude" };
   expect(await status({ savedTools: dispatcherToolNames.slice(0, -1) })).toEqual({ state: "idle", agentId: "old", newTools: true });
-  // Saved with this build's list, or marked true (saved with the first eight, all still listed): nothing to say.
+  // Saved with this build's list: nothing to say.
   expect(await status({ savedTools: [...dispatcherToolNames] })).toEqual({ state: "idle", agentId: "old" });
-  expect(await status({ savedTools: true })).toEqual({ state: "idle", agentId: "old" });
+  // Saved with the first eight, by name or marked true: the idea tools came later (§5.1), so a new session gets them.
+  const firstEight = ["flowly_list_projects", "flowly_list_cards", "flowly_get_card", "flowly_create_card", "flowly_update_card", "flowly_start_card", "flowly_propose_idea", "flowly_link_cards"];
+  expect(await status({ savedTools: firstEight })).toEqual({ state: "idle", agentId: "old", newTools: true });
+  expect(await status({ savedTools: true })).toEqual({ state: "idle", agentId: "old", newTools: true });
+  expect(dispatcherToolNames).toEqual(expect.arrayContaining([...firstEight, "flowly_list_ideas", "flowly_update_idea"]));
   // Tools from the open hook are read at each open, always this build's.
   expect(await status({})).toEqual({ state: "idle", agentId: "old" });
   // An ended one says nothing: Start gives a new one anyway.

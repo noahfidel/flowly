@@ -200,7 +200,12 @@ export class AgentCards {
         : "";
     return { card: cardView(board, project, task), editable: !reason, reason };
   }
-  async create(caller: CardCaller, raw: unknown) {
+  /**
+   * `fromIdea`: the dispatcher creating the card from an idea of the project (DISPATCHER-SPEC §5.1). A replay
+   * returns the card first; otherwise the idea is checked before a slot is taken or anything is made, and the
+   * New card path marks it accepted.
+   */
+  async create(caller: CardCaller, raw: unknown, fromIdea?: { ideaId: string; ideasOn: () => Promise<boolean> }) {
     const input = createCardInputSchema.parse(raw);
     await this.enabled();
     const board = await this.store.read(),
@@ -226,6 +231,14 @@ export class AgentCards {
     // A linked-root project has no worktree option (START-CARD-SPEC §7).
     if (input.workspace === "worktree" && project.links?.length)
       throw new ToolError("WORKTREE_UNAVAILABLE", "This project links several repositories and has no worktree option. Create the card without workspace=worktree.");
+    if (fromIdea) {
+      if (!(await fromIdea.ideasOn()))
+        throw new ToolError("IDEAS_DISABLED", "Ideas are turned off in Flowly settings. Create the card without ideaId, or tell the user.");
+      const idea = board.ideas.find((i) => i.id === fromIdea.ideaId && i.projectId === project.id);
+      if (!idea) throw new ToolError("IDEA_NOT_FOUND", `No idea ${fromIdea.ideaId} in this project. Use an id from flowly_list_ideas.`);
+      if (idea.status !== "open")
+        throw new ToolError("IDEA_CLOSED", `This idea is ${idea.status}, not open; only an open idea becomes a card.`);
+    }
     const release = this.reserve(caller.agentId, caller.dispatcher);
     let task: Task;
     try {
@@ -242,6 +255,7 @@ export class AgentCards {
           mode: input.workspace,
           baseRef: "",
           ...(caller.taskId ? { followUpOf: caller.taskId } : {}),
+          ...(fromIdea ? { ideaId: fromIdea.ideaId } : {}),
         },
         this.api(),
         { agentId: caller.agentId },
