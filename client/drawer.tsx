@@ -92,6 +92,7 @@ function TaskDrawerView({
   onEdit,
   onDelete,
   onCreateFromIdea,
+  onDiscussIdea,
   onLink,
   onFollowUp,
   onOpenTask,
@@ -126,6 +127,8 @@ function TaskDrawerView({
   onDelete?(): void;
   /** Opens the new-task form prefilled from an idea (IDEAS-SPEC §6). */
   onCreateFromIdea?(idea: Idea, other?: IdeaOther): void;
+  /** Puts a draft about an idea in the dispatcher chat (DISPATCHER-SPEC §9.5); absent: no Discuss. */
+  onDiscussIdea?(idea: Idea): void;
   /** Opens "Link to a card…" for this card (CARD-LINKS-SPEC §5.4). */
   onLink?(task: Task): void;
   /** Opens the new-task form as a follow-up of this card (CARD-LINKS-SPEC §5.5). */
@@ -868,6 +871,7 @@ function TaskDrawerView({
               // Ideas outlive the card: only an archived project makes them read-only (IDEAS-INBOX-SPEC §2.2).
               disabled={!active || !!project.archivedAt}
               onCreate={onCreateFromIdea}
+              onDiscuss={onDiscussIdea}
               onAllIdeas={onAllIdeas && (() => onAllIdeas(task.id))}
               onNewSession={(idea) => {
                 setIdeaSession(idea);

@@ -24,7 +24,7 @@ import { PulseDot, useReducedMotion } from "./motion";
 import { useKeyboardInset } from "./keyboard";
 import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery, useLiveAgents } from "./queries";
 import { useStableCallback } from "./stable";
-import { chatRows, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
+import { chatRows, discussDraft, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
 import { AnswerRow, AskRow } from "./dispatcher-asks";
 import { markAsksAnswered } from "./answered-asks";
 
@@ -56,9 +56,11 @@ type Props = {
   onToggleSize?(): void;
   /** The bell's jump to an ask (§9.4): scroll to its row and outline it; a new `key` jumps again. */
   focus?: { signal: string; key: number } | null;
+  /** Discuss on an idea (§9.5): text for the message box, after what is typed; never sent. A new `key` adds it again. */
+  fill?: { text: string; key: number } | null;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, onClose, focus, expanded = false, onToggleSize }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, onClose, focus, fill, expanded = false, onToggleSize }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -200,6 +202,16 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   );
   const box = useComposerDraft({ sessionId: "dispatcher", draft, onDraftChange: draftChange, isMounted: () => mounted.current });
   const canWrite = visible && up && !locked && !!agentId && !!agent && !agent.providerUnavailable && !sending;
+  // Discuss (§9.5): an outside change of the draft, as a picked next move is; the box remounts with it on phones.
+  const filled = useRef(0);
+  useEffect(() => {
+    if (!fill || fill.key === filled.current) return;
+    filled.current = fill.key;
+    box.flush();
+    const next = discussDraft(fill.text, box.read());
+    box.focusAfterChange();
+    setDraft(next);
+  }, [fill?.key]);
   const submit = useStableCallback(async () => {
     box.flush();
     const text = box.read();

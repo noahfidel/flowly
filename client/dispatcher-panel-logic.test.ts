@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { answersWithText, chatRows, displayRows, mergeTimeline } from "./dispatcher-panel-logic";
+import { answersWithText, chatRows, discussAvailable, discussDraft, discussIdeaText, displayRows, mergeTimeline } from "./dispatcher-panel-logic";
 import type { ChatItem } from "../shared/dispatcher";
 import { lastOutputRow } from "./session-state";
 import type { TailEntry } from "../shared/session-tail";
@@ -83,4 +83,25 @@ test("reports and a permission with no request to answer take a typed answer; a 
   expect(answersWithText({ askKind: "blocker_report" })).toBe(true);
   expect(answersWithText({ askKind: "ask_user" })).toBe(false);
   expect(answersWithText({ askKind: "error" })).toBe(false);
+});
+
+test("Discuss: the draft names the idea's id and project, then its title and detail (DISPATCHER-SPEC §9.5)", () => {
+  const idea = { id: "i1", title: "Add retry to the importer", detail: "Wrap the fetch in a retry.\n" };
+  expect(discussIdeaText(idea, "Tinylink")).toBe("Let's talk about this idea (id i1, project Tinylink): Add retry to the importer. Wrap the fetch in a retry.");
+  expect(discussIdeaText({ ...idea, detail: "  " }, "Tinylink")).toBe("Let's talk about this idea (id i1, project Tinylink): Add retry to the importer.");
+  expect(discussIdeaText({ ...idea, title: "Why does it fail?", detail: "" }, "Tinylink")).toBe("Let's talk about this idea (id i1, project Tinylink): Why does it fail?");
+});
+
+test("Discuss never replaces a draft: it goes after it, and the same draft is not added twice", () => {
+  const text = "Let's talk about this idea (id i1, project P): T.";
+  expect(discussDraft(text, "")).toBe(text);
+  expect(discussDraft(text, "   ")).toBe(text);
+  expect(discussDraft(text, "also check the logs  \n")).toBe(`also check the logs\n\n${text}`);
+  expect(discussDraft(text, `first\n\n${text}`)).toBe(`first\n\n${text}`);
+});
+
+test("Discuss shows only where the board can open the dispatcher chat", () => {
+  expect(discussAvailable({ project: true, allView: false })).toBe(true);
+  expect(discussAvailable({ project: false, allView: true })).toBe(true);
+  expect(discussAvailable({ project: false, allView: false })).toBe(false);
 });

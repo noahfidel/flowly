@@ -36,6 +36,7 @@ export const IdeasPage = memo(function IdeasPage({
   onOpenTask,
   onCreate,
   onNewSession,
+  onDiscuss,
   onBack,
 }: {
   project: Project;
@@ -52,6 +53,8 @@ export const IdeasPage = memo(function IdeasPage({
   onOpenTask(id: string): void;
   onCreate(idea: Idea, other?: IdeaOther): void;
   onNewSession(idea: Idea): void;
+  /** Puts a draft about the idea in the dispatcher chat (DISPATCHER-SPEC §9.5); absent: no Discuss. */
+  onDiscuss?(idea: Idea): void;
   onBack(): void;
 }) {
   usePerfRender("project.ideas.render");
@@ -107,6 +110,7 @@ export const IdeasPage = memo(function IdeasPage({
           source={grouped ? undefined : source(row.item.taskId)}
           onGood={actions.choose}
           onDismiss={actions.dismiss}
+          onDiscuss={onDiscuss}
         />
       </IdeaRow>
     ));

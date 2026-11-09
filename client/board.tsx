@@ -66,6 +66,7 @@ import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
 import { QuickTaskForm } from "./quick-task-form";
 import { ideaQuickSeed, quickProject, quickProjects, type QuickTaskSeed } from "./quick-task";
 import { newTaskFromIdea, type OtherOption } from "./idea-choice";
+import { discussAvailable, discussIdeaText } from "./dispatcher-panel-logic";
 import type { IdeaOther } from "./task-ideas";
 import { ideaDescription } from "../shared/ideas";
 import { waitingOn } from "../shared/links";
@@ -155,6 +156,7 @@ const tipText: Record<TipId, () => string> = {
   "first-card": () => t("Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary."),
   "needs-you": () => t("A card is waiting for you. Reply goes straight to the session."),
   "first-idea": () => t("An agent suggested follow-up work. Good idea starts a card or continues here; Dismiss removes it."),
+  "idea-discuss": () => t("Not sure about an idea? Discuss puts it in the dispatcher's message box to talk it through. Nothing is sent until you press Enter."),
   "first-done": () => t("Done cards can be wrapped up: their sessions and workspace are archived. Auto wrap up is in settings."),
   "first-artifact": () => t("Cards now collect artifacts: the files and links a task worked from and delivered. Agents add them as they work; you can add your own in the card."),
   "agent-question": () => t("An agent is asking you something. Open the card's session to answer it right there, no need to switch to Paseo."),
@@ -1200,6 +1202,21 @@ function BoardContent(
     if (compact) setChat((c) => ({ open: !c.open, mounted: true }));
     else void view.update({ chatMinimized: chatOpen });
   });
+  // Discuss on an idea (DISPATCHER-SPEC §9.5): a draft for the chat's message box; the key makes each press distinct.
+  const [chatDraft, setChatDraft] = useState<{ text: string; key: number } | null>(null);
+  const canDiscuss = discussAvailable({ project: !!project, allView });
+  const discussIdea = useStableCallback((idea: Idea) => {
+    setChatDraft({ text: discussIdeaText(idea, projectById.get(idea.projectId)?.title ?? ""), key: Date.now() });
+    // Opening the chat is acting on its tip, and pressing Discuss on the Discuss tip.
+    const seen = onboarding.values?.tipsSeen;
+    if (seen && !seen.includes("dispatcher")) void onboarding.markTipSeen("dispatcher");
+    if (seen && !seen.includes("idea-discuss")) void onboarding.markTipSeen("idea-discuss");
+    if (compact) {
+      // Phones: the chat page sits under an open card, so the card closes to show it.
+      if (task) setTask("");
+      setChat({ open: true, mounted: true });
+    } else if (!chatOpen) void view.update({ chatMinimized: false });
+  });
   const closeChat = useStableCallback(() => {
     if (compact) setChat((c) => (c.open ? { ...c, open: false } : c));
     else if (chatOpen) void view.update({ chatMinimized: true });
@@ -1226,7 +1243,7 @@ function BoardContent(
             }
       }
     >
-      <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} focus={chatFocus} onOpenCard={openTaskById} onClose={closeChat} expanded={chatExpanded} onToggleSize={toggleChatSize} />
+      <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} focus={chatFocus} fill={chatDraft} onOpenCard={openTaskById} onClose={closeChat} expanded={chatExpanded} onToggleSize={toggleChatSize} />
     </Animated.View>
   );
   const togglePage = (next: "insights" | "ideas" | "memory" | "search") => {
@@ -1465,6 +1482,7 @@ function BoardContent(
           memoryCandidate: !task && !!memoryCandidates,
           searchable: !task && projectTasks.filter((x) => !x.archivedAt).length >= 10,
           dispatcherIntro: !task && !chatOpen && projectTasks.some((x) => !x.archivedAt),
+          ideaDiscuss: ideasOn && canDiscuss && projectOpenIdeas > 0,
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen || settingsHint || whatsNewOpen || whatsNewDue === "show",
       });
@@ -1866,6 +1884,7 @@ function BoardContent(
         onFilterTag={filterByTag}
         onDelete={deleteDrawerTask}
         onCreateFromIdea={ideasOn ? createFromIdea : undefined}
+        onDiscussIdea={ideasOn && canDiscuss ? discussIdea : undefined}
         onLink={linkFrom}
         onFollowUp={followUp}
         onOpenTask={openTaskById}
@@ -2168,6 +2187,7 @@ function BoardContent(
                     onOpenTask={openTaskById}
                     onCreate={createFromIdea}
                     onNewSession={ideaInNewSession}
+                    onDiscuss={canDiscuss ? discussIdea : undefined}
                     onBack={closePage}
                   />
                 ) : page === "search" && board ? (

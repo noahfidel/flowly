@@ -37,6 +37,7 @@ export function TaskIdeas({
   disabled,
   onCreate,
   onNewSession,
+  onDiscuss,
   onOpenTask,
   onAllIdeas,
   section,
@@ -46,6 +47,8 @@ export function TaskIdeas({
   sessions: readonly IdeaSession[];
   disabled: boolean;
   onCreate(idea: Idea, other?: IdeaOther): void;
+  /** Puts a draft about the idea in the dispatcher chat (DISPATCHER-SPEC §9.5); absent: no Discuss. */
+  onDiscuss?(idea: Idea): void;
   /** Opens Start session prefilled with the idea (IDEAS-SPEC §6.3). */
   onNewSession(idea: Idea): void;
   onOpenTask(id: string): void;
@@ -91,7 +94,7 @@ export function TaskIdeas({
           {rows.map((row) => (
             <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} restored={actions.restored.has(row.item.id)}>
               <FocusTarget id={`idea:${row.item.id}`}>
-                <IdeaCard idea={row.item} disabled={disabled || row.leaving} onGood={actions.choose} onDismiss={actions.dismiss} />
+                <IdeaCard idea={row.item} disabled={disabled || row.leaving} onGood={actions.choose} onDismiss={actions.dismiss} onDiscuss={onDiscuss} />
               </FocusTarget>
             </IdeaRow>
           ))}
@@ -452,6 +455,7 @@ export const IdeaCard = memo(function IdeaCard({
   source,
   onGood,
   onDismiss,
+  onDiscuss,
   cueGood = false,
 }: {
   idea: Idea;
@@ -462,6 +466,8 @@ export const IdeaCard = memo(function IdeaCard({
   cueGood?: boolean;
   onGood(idea: Idea, at: Point): void;
   onDismiss(idea: Idea): void;
+  /** Talk it through with the dispatcher first (DISPATCHER-SPEC §9.5); absent: no Discuss. */
+  onDiscuss?(idea: Idea): void;
 }) {
   const { colors } = useTheme();
   // A search hit on this idea marks its words and opens it past Show more (DRAWER-SPEC "Focus from search" 7).
@@ -491,6 +497,10 @@ export const IdeaCard = memo(function IdeaCard({
       openWhen={mark}
       footer={
         <View style={{ flexShrink: 1, flexDirection: "row", justifyContent: "flex-end", gap: space[2] }}>
+          {onDiscuss && (
+            <Button quiet disabled={disabled} label={t("Discuss {title} with the dispatcher", { title: idea.title })} onPress={() => onDiscuss(idea)}>
+              {t("Discuss")}</Button>
+          )}
           <Button quiet disabled={disabled} label={t("Dismiss {title}", { title: idea.title })} onPress={() => onDismiss(idea)}>
             {t("Dismiss")}</Button>
           <View>
