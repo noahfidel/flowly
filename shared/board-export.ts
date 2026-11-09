@@ -1,5 +1,5 @@
 import { agentsRule, type MemoryEntry } from "./memory";
-import { isSourceNote } from "./ideas-import";
+import { isSourceNote, parseBacklog } from "./ideas-import";
 import type { Board, Idea } from "./model";
 
 /** Markdown export of a board (IDEAS-IMPORT-EXPORT-SPEC §7): open cards, open ideas and active memory per live project. */
@@ -18,7 +18,12 @@ const balanced = (text: string) => {
 /** The parenthetical after an idea title, in a form `parseBacklog` takes as the source note. */
 function ideaNote(idea: Idea, cardTitle: string | undefined) {
   let note = oneLine((idea.source || cardTitle || "").replace(/`/g, ""));
-  if (!note) return "";
+  if (!note) {
+    // No note of its own: a title that already ends in an added-style parenthetical would lose it to the parser on re-import.
+    const title = oneLine(idea.title);
+    const [row] = parseBacklog(`- [ ] ${title}`);
+    return row && (row.source !== null || row.title !== title) ? `added ${idea.createdAt.slice(0, 10)}` : "";
+  }
   if (!balanced(note)) note = oneLine(note.replace(/[()]/g, ""));
   if (!note) return "";
   return isSourceNote(note) ? note : `added ${idea.createdAt.slice(0, 10)}, ${note}`;
@@ -42,7 +47,7 @@ export function exportMarkdown(board: Board, memory: Record<string, MemoryEntry[
     if (cards.length) {
       out.push("### Open cards");
       for (const card of cards) {
-        out.push(`- [ ] ${oneLine(card.title)} (${card.status}, ${card.id})`);
+        out.push(`- ${oneLine(card.title)} (${card.status}, ${card.id})`);
         const first = card.description.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
         if (first) out.push(`  ${first}`);
       }

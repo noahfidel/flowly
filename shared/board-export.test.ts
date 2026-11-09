@@ -81,11 +81,11 @@ describe("exportMarkdown", () => {
       { p1: [memory()] },
     );
     expect(md).toContain("## Recipes\n");
-    expect(md).toContain("### Open cards\n- [ ] Scale quantities (todo, t1)\n  First line\n");
+    expect(md).toContain("### Open cards\n- Scale quantities (todo, t1)\n  First line\n");
     expect(md).toContain("### Ideas\n- [ ] Offline mode (added 2026-10-20, a-branch)\n  - note one\n  - plain line\n");
     expect(md).toContain("- [ ] From a card (added 2026-11-08, Scale quantities)");
     expect(md).toContain("### Memory\n- Use pnpm: Never npm.\n");
-    expect(md).toContain("## Planner\n\n### Open cards\n- [ ] Other (design, t2)\n");
+    expect(md).toContain("## Planner\n\n### Open cards\n- Other (design, t2)\n");
     expect(md.indexOf("## Recipes")).toBeLessThan(md.indexOf("## Planner"));
   });
 
@@ -115,14 +115,29 @@ describe("exportMarkdown", () => {
       idea({ id: "i4", title: "Free-text source", source: "Cart review (round 2" }),
       idea({ id: "i5", title: "Bare" }),
       idea({ id: "i6", title: "Multi\nline title", detail: "loose line" }),
+      idea({ id: "i7", title: "Use X (added support)" }),
+      idea({ id: "i8", title: "Use Y (added support)", source: "kept note" }),
     ];
     const md = exportMarkdown(board({ projects: [project()], tasks: [task({ title: "Scale quantities" })], ideas }), {});
     const rows = parseBacklog(md.split("### Ideas")[1]!);
-    expect(rows.map((r) => r.title)).toEqual(["Plain one", "Has (own) parens: and colon", "Card note", "Free-text source", "Bare", "Multi line title"]);
+    expect(rows.map((r) => r.title)).toEqual(["Plain one", "Has (own) parens: and colon", "Card note", "Free-text source", "Bare", "Multi line title", "Use X (added support)", "Use Y (added support)"]);
     expect(rows[0]!.detail).toBe("- first\n- second");
     expect(rows[0]!.source).toBe("added 2026-10-20, kanban/fix-x");
     expect(rows[2]!.source).toBe("added 2026-11-08, Scale quantities");
     expect(rows[5]!.detail).toBe("- loose line");
     expect(rows.every((r) => r.keep)).toBe(true);
+  });
+
+  test("pasting a whole export into Import picks up only the ideas", () => {
+    const md = exportMarkdown(
+      board({
+        projects: [project(), project({ id: "p2", title: "Planner" })],
+        tasks: [task({ description: "First line" }), task({ id: "t2", projectId: "p2", title: "Other" })],
+        ideas: [idea(), idea({ id: "i2", projectId: "p2", title: "Planner idea", detail: "a detail" })],
+      }),
+      { p1: [memory()] },
+    );
+    expect(md).toContain("Scale quantities");
+    expect(parseBacklog(md).map((r) => r.title)).toEqual(["Offline mode", "Planner idea"]);
   });
 });
