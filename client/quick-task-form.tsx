@@ -191,12 +191,12 @@ export function QuickTaskForm({
                 {t("More options…")}
               </Button>
               {!!otherOptions?.length && onOther && (
-                <Button small quiet disabled={pending} onPress={() => setOpen(open === "other" || open === "send" ? null : "other")}>
+                <Button small quiet disabled={pending || !project} onPress={() => setOpen(open === "other" || open === "send" ? null : "other")}>
                   {t("Other options…")}
                 </Button>
               )}
             </View>
-            {(open === "other" || open === "send") && otherOptions && onOther && (
+            {(open === "other" || open === "send") && !!project && otherOptions && onOther && (
               <OtherOptions options={otherOptions} sending={open === "send"} disabled={pending} onSend={() => setOpen("send")} onPick={onOther} />
             )}
             {open === "project" && (

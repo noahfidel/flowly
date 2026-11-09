@@ -496,7 +496,7 @@ export const IdeaCard = memo(function IdeaCard({
       after={source}
       openWhen={mark}
       footer={
-        <View style={{ flexShrink: 1, flexDirection: "row", justifyContent: "flex-end", gap: space[2] }}>
+        <View style={{ flexShrink: 1, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", columnGap: space[2], rowGap: space[1.5] }}>
           {onDiscuss && (
             <Button quiet disabled={disabled} label={t("Discuss {title} with the dispatcher", { title: idea.title })} onPress={() => onDiscuss(idea)}>
               {t("Discuss")}</Button>
