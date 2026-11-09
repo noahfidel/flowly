@@ -19,6 +19,8 @@ type Issue = {
   description?: string;
   updated?: string;
   priority?: string;
+  /** Linear's suggested git branch; returned only when the query asks for branchName. */
+  branch?: string;
   comments?: { id: string; body: string; at: string; updated?: string }[];
 };
 type Request = { query: string; variables: Record<string, unknown> };
@@ -38,7 +40,10 @@ function linear(issues: Issue[], options: () => Options = () => ({})) {
     state: { name: x.state || "In Progress", type: x.type || "started" },
     assignee: x.assignee === null ? null : { name: "bob", displayName: x.assignee || "Bob" },
     team: { key: x.key.split("-")[0], name: "Engineering" },
+    ...(x.branch && asked.query.includes("branchName") ? { branchName: x.branch } : {}),
   });
+  // The query being answered, so a field comes back only when the adapter asked for it.
+  const asked = { query: "" };
   const full = (x: Issue) => ({
     ...summary(x),
     description: x.description ?? "Steps:\n\n- open the app\n- sign in",
@@ -58,6 +63,7 @@ function linear(issues: Issue[], options: () => Options = () => ({})) {
     const o = options();
     if (o.status || o.errors) return { status: o.status ?? 200, body: { data: null, errors: o.errors || [] }, headers: o.headers };
     const { query, variables } = request;
+    asked.query = query;
     if (query.startsWith("query Viewer")) return { body: { data: { viewer: { name: "Ada Lovelace", displayName: "ada", email: "ada@acme.test", organization: { name: "Acme", urlKey: "acme" } } } } };
     if (query.startsWith("query Issue(")) {
       const found = issues.find((x) => x.key === variables.id);
@@ -114,6 +120,20 @@ describe("Linear (CONNECTORS-SPEC §14)", () => {
     // An address typed by hand is ignored: the key only ever goes to api.linear.app.
     await x.service.test({ provider: "linear", baseUrl: "https://evil.example.com", secret: "other" });
     expect(x.calls.every((c) => c.url.href === api)).toBe(true);
+  });
+
+  test("the issue summary carries its branch name", async () => {
+    const x = await connected([
+      { key: "ZEN-123", title: "Fix x", branch: "noah/zen-123-fix-x" },
+      { key: "ZEN-124", title: "No branch" },
+    ]);
+    await x.service.resolve(x.connection.id, "ZEN-123", "issue");
+    expect(x.requests.at(-1)!.query).toContain("branchName");
+    expect(await x.service.cached({ connectionId: x.connection.id, key: "ZEN-123", itemType: "issue" })).toMatchObject({ branchName: "noah/zen-123-fix-x" });
+    // Batched summaries carry it too; an issue without one has no field.
+    const found = await x.service.summaries([ref(x.connection.id, "ZEN-123"), ref(x.connection.id, "ZEN-124")], 0, false);
+    expect(found.get(`${x.connection.id}:issue:ZEN-123`)!.summary.branchName).toBe("noah/zen-123-fix-x");
+    expect(found.get(`${x.connection.id}:issue:ZEN-124`)!.summary).not.toHaveProperty("branchName");
   });
 
   test("a refused key is not saved: HTTP 401, or a 400 with AUTHENTICATION_ERROR", async () => {

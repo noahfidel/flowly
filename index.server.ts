@@ -6,7 +6,7 @@ import { BoardService, dataDirectory, migrateLegacyPluginData, paseoHome } from 
 import { readPaseoVersion } from "./server/paseo-version";
 import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./server/directories";
 import * as rpc from "./shared/rpc";
-import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, artifactSettings, artifactSettingsValues, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues, prReviewSettings, prReviewSettingsValues, deliverySettings, deliverySettingsValues } from "./shared/settings";
+import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, artifactSettings, artifactSettingsValues, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, modelSettingsValues, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues, prReviewSettings, prReviewSettingsValues, deliverySettings, deliverySettingsValues } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService, daemonNativeAttention } from "./server/session-reads";
 import { readAttentionCount } from "./server/attention-count";
@@ -31,6 +31,7 @@ import { createLink, deleteLink } from "./server/links";
 import { ArtifactService } from "./server/artifacts";
 import { WorkpadService } from "./server/workpad";
 import { ConnectorService, migrateTicketDirectory, refKey } from "./server/connectors/service";
+import { agentModelFromValues } from "./shared/agent-defaults";
 import { projectRepos } from "./server/connectors/repos";
 import { linkedCardCounts } from "./shared/connectors";
 import { linearCardsByKey } from "./shared/linear-board";
@@ -69,7 +70,7 @@ export default function contribute(host: PluginServerContext) {
   const languagePrefs = server.registerSettings(languageSettings);
   const aiLanguagePrefs = server.registerSettings(aiLanguageSettings);
   const devicePrefs = server.registerSettings(deviceLanguageSettings);
-  server.registerSettings(modelSettings);
+  const modelPrefs = server.registerSettings(modelSettings);
   server.registerSettings(onboardingSettings);
   const summaryPrefs = server.registerSettings(summarySettings);
   const wrapupPrefs = server.registerSettings(wrapupSettings);
@@ -282,6 +283,12 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.releaseUndo, (input) => switches.releaseUndo(input));
   const tools = new ToolServer(store);
   tools.agents.connectors = connectors;
+  // flowly_start_card (START-CARD-SPEC): Linear branch names, and the global default model the New task form uses; unreadable settings give none.
+  tools.starter.connectors = connectors;
+  tools.starter.modelDefault = async () => {
+    const state = await modelPrefs.read().catch(() => null);
+    return agentModelFromValues(modelSettingsValues(state?.status === "ready" ? state.values : {}));
+  };
   // Project memory (PROJECT-MEMORY-SPEC): confirmed knowledge shared across a project's cards.
   const memory = new MemoryService(store, summaries.store, summaries.settings, aiLanguage, (taskId) => summaries.settled(taskId));
   // Skill material: card summaries and project memory (INSIGHTS-REDESIGN-SPEC §3.2).

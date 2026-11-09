@@ -255,6 +255,15 @@ export class ToolSecrets {
     );
     return job;
   }
+  /** The identity `prepared` stored for this operation, or null; never creates one (START-CARD-SPEC §3 replay). */
+  async preparedFor(operationId: string) {
+    try {
+      return identitySchema.parse(JSON.parse(await readFile(join(this.directory, "preparations", `${digest(operationId)}.json`), "utf8")));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw e;
+    }
+  }
   async prepared(taskId: string, workspaceId: string, operationId: string) {
     const path = join(
       this.directory,

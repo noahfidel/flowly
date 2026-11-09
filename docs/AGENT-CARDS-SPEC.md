@@ -3,8 +3,10 @@
 Status: user decisions 2026-10-29, card "create cards via ai agent":
 
 - **D1 Policy.** An agent creates a card only when the user asks it to in the session ("split this into cards", "make a card for X"). Follow-up work the user did not ask for stays an idea (`flowly_propose_idea`). This amends IDEAS-SPEC §1 ("an agent never creates cards itself"); ideas remain the path for unasked suggestions.
+  - *Amended 2026-11-08 (user-requested, single-pane plan Q3):* "No workspace without a card": a session that starts repo work in a workspace with no card creates a worktree card for it and moves the work there (`flowly_create_card` + `flowly_start_card`, START-CARD-SPEC) without being asked. Unasked follow-ups that are not work the session is starting stay ideas.
 - **D2 Update scope.** An agent may edit any live card of its project, not only its own or the ones it created. The user chose this over "own card + cards an agent created" after hearing the risk that an agent can rewrite another card's requirements. The revision check, activity entries and D1 limit it.
 - **D3 New card.** Like the New card form's default: a new workspace in the project directory (`mode: "directory"`), lane Backlog or Todo, no session. The user starts the session.
+  - *Amended 2026-11-08 (user-requested, single-pane plan Q2(b)):* `workspace: "worktree"` creates the card in a new worktree instead (§3.3), and an agent may start a card's session with `flowly_start_card` (START-CARD-SPEC), which moves a session-less directory card Flowly created into a worktree first.
 - **D4 Callers.** Any Paseo session in a Flowly project's workspaces, not only card sessions. The user chose this after hearing that it needs a new project-scoped credential and injection. Delivered over MCP on hosts whose `agent.session_open` hook accepts `mcpServers` (Paseo 0.14); card sessions also get it through their existing MCP server and CLI on every host.
 
 ## 1. Goal and non-goals
@@ -13,7 +15,7 @@ An AI agent can, when asked, read the cards of its project, create a card and ed
 
 Non-goals (v1):
 
-- Starting a session on the new card, assigning it, or creating it in a worktree or another project.
+- Assigning a card or creating it in another project. (Starting a session and creating in a worktree moved to START-CARD-SPEC, 2026-11-08.)
 - Moving a card into a work stage, In review, Done or Cancelled with these tools; deleting, archiving or restoring cards; editing links, workpads, artifacts or ideas of other cards.
 - A CLI for sessions outside cards (they get MCP only). Sessions outside cards on hosts without `mcpServers` in `agent.session_open` get nothing.
 - External inputs (Jira, GitHub …) on create.
@@ -74,13 +76,14 @@ Input:
 | `priority` | `low` / `normal` / `high` / `urgent`, default `normal` |
 | `type` | optional task type |
 | `tags` | optional, normalized like `flowly_set_tags`, at most 12 on a card |
+| `workspace` | `directory` (default) or `worktree` (START-CARD-SPEC §7; a linked-root project refuses `worktree` with `WORKTREE_UNAVAILABLE`) |
 | `idempotencyKey` | 1–200 characters, chosen by the agent; the same key retries the same create |
 
 Behavior:
 
-1. Checks (no workspace is created when one fails): setting on (`AGENT_CARDS_DISABLED`), project live (`ARCHIVED`), lane allowed and enabled (`STATUS_UNAVAILABLE`), tags valid (`TAG_INVALID`), at most 20 new cards per session per hour (`CARD_LIMIT`, counted in memory, reset by a plugin reload).
+1. Checks (no workspace is created when one fails): setting on (`AGENT_CARDS_DISABLED`), project live (`ARCHIVED`), lane allowed and enabled (`STATUS_UNAVAILABLE`), tags valid (`TAG_INVALID`), at most 20 new cards per session per hour (`CARD_LIMIT`, counted in memory, reset by a plugin reload; `flowly_start_card` counts against the same limit).
 2. `operationId` = `agent-card:<sha256(caller scope + idempotencyKey)>`, scope = card id or project id plus the agent id. A card with that `operationId` already in the project returns it with `replayed: true`; a different title under the same key is `REQUEST_REUSED`.
-3. The card is created through the same path as the New card form (`BoardService.createTask`, `mode: "directory"`): a new Paseo workspace in the project directory, same position rules.
+3. The card is created through the same path as the New card form (`BoardService.createTask`, `mode: "directory"`, or `mode: "worktree"` for `workspace: "worktree"`): a new Paseo workspace in the project directory or a new worktree branched off the main checkout's current branch, same position rules.
 4. Its `created` event has `actor: "agent"` and the session's `agentId`. Tags are recorded `by: "agent"` with the `agentId`.
 5. Card sessions: the new card follows up the session's card (`derived` link, CARD-LINKS-SPEC §3), and the session's card gets an event `card_created` (`actor: "agent"`, note = the new card's title).
 

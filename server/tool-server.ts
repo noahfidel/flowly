@@ -47,6 +47,8 @@ import {
   createCardResultSchema,
   updateCardInputSchema,
   updateCardResultSchema,
+  startCardInputSchema,
+  startCardResultSchema,
   workpadInputSchema,
   progressInputSchema,
   statusInputSchema,
@@ -58,6 +60,7 @@ import {
 import { AgentService } from "./agent-service";
 import { AgentCards, type CardCaller } from "./agent-cards";
 import { ProjectIdeas } from "./project-ideas";
+import { CardStarter } from "./start-card";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
 import { ToolSecrets, writePrivate } from "./tool-context";
@@ -92,6 +95,7 @@ export class ToolServer {
   readonly agents: AgentService;
   readonly cards: AgentCards;
   readonly projectIdeas: ProjectIdeas;
+  readonly starter: CardStarter;
   private server?: Server;
   private handler?: McpHttpHandler;
   private starting?: Promise<void>;
@@ -104,6 +108,10 @@ export class ToolServer {
     this.agents = new AgentService(store, this.secrets);
     this.cards = new AgentCards(store);
     this.projectIdeas = new ProjectIdeas(store);
+    this.starter = new CardStarter(store, this.cards, {
+      prepare: (taskId, operationId, paseo) => this.prepareSession(taskId, operationId, paseo),
+      preparedFor: (operationId) => this.secrets.preparedFor(operationId),
+    });
   }
   attach(paseo: PaseoApi) {
     this.agents.attach(paseo);
@@ -190,7 +198,7 @@ export class ToolServer {
       "flowly_create_card",
       {
         description:
-          'Create a card in this Flowly project, only when the user asked you to create cards (for example "split this into cards" or "make a card for X"). Follow-up work the user did not ask for is an idea (flowly_propose_idea in a card session), not a card. The card gets its own new workspace in the project folder and lands in Backlog (default) or Todo; no session starts, the user starts it. Its agent cannot see this conversation: write the description with the goal, context, files and acceptance criteria. From a card session the new card follows up your card. Pass a unique idempotencyKey; retrying with the same key returns the same card (replayed=true). At most 20 cards per session per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off; tell them instead.',
+          'Create a card in this Flowly project when the user asked you to create cards (for example "split this into cards" or "make a card for X"), or when you are about to start repo work that has no card yet (every workspace belongs to a card). Other follow-up work the user did not ask for is an idea (flowly_propose_idea in a card session), not a card. The card gets its own new workspace in the project folder (workspace=directory, default) or a new worktree (workspace=worktree) and lands in Backlog (default) or Todo; no session starts until you call flowly_start_card or the user starts it. Its agent cannot see this conversation: write the description with the goal, context, files and acceptance criteria. From a card session the new card follows up your card. Pass a unique idempotencyKey; retrying with the same key returns the same card (replayed=true). At most 20 cards per session per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off; tell them instead.',
         inputSchema: createCardInputSchema,
         outputSchema: createCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -207,6 +215,17 @@ export class ToolServer {
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       },
       (input) => run((c) => this.cards.update(c, input)),
+    );
+    mcp.registerTool(
+      "flowly_start_card",
+      {
+        description:
+          "Start a session on a card of this Flowly project, in the card's own worktree. A card whose workspace is the empty directory workspace Flowly made for it (it never had a session) first moves to a new worktree branched off the main checkout's current branch (named after its Linear issue's branch when it has one); that empty workspace is archived. A card already in a worktree starts there; a linked multi-repo project starts in its folder. NEEDS_WORKTREE: the card's directory workspace had sessions or is not its own; ask the user to switch it to a worktree. CARD_HAS_SESSION: send that session instructions instead. The session uses the project's New task model, gets the card's tools and starts with prompt (default: the card's title and description). Done/Cancelled cards are refused (CARD_FINISHED). Pass a unique idempotencyKey; retrying with the same key returns the same session (replayed=true). Counts against the 20-per-hour limit shared with flowly_create_card (CARD_LIMIT).",
+        inputSchema: startCardInputSchema,
+        outputSchema: startCardResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      (input) => run((c) => this.starter.start(c, input, this.cards.api())),
     );
   }
   private async initialize() {

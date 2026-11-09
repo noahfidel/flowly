@@ -1,0 +1,371 @@
+import { afterEach, expect, test, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { PaseoApi } from "@getpaseo/client";
+import { AgentCards } from "./agent-cards";
+import { agentFixture } from "./agent-fixture";
+import { CardStarter } from "./start-card";
+import { ExternalError } from "./connectors/http";
+import { toolFailure } from "./tool-error";
+import { agentCardLimits } from "../shared/tools";
+import type { Task } from "../shared/model";
+
+const roots: string[] = [];
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
+});
+
+const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-C", cwd, ...args], { stdio: "pipe" }).toString();
+
+type Agent = { id: string; workspaceId: string; title: string; status: string; archivedAt: string | null; createdAt: string; provider: string; model: string | null; labels?: Record<string, string> };
+type Workspace = { id: string; projectId: string; workspaceDirectory: string; workspaceKind: string; archivingAt: string | null };
+type Source = { kind: string; cwd?: string; path?: string; projectId?: string; action?: string; refName?: string; branchName?: string };
+type Created = { agentId: string; idempotencyKey?: string; config: Record<string, unknown> & { mcpServers?: Record<string, unknown> }; env?: Record<string, string>; title?: string; labels?: Record<string, string>; prompt?: string };
+
+/** A Git repository as the project root, a fake Paseo that records workspace and session creation, and the starter on top. */
+async function setup() {
+  const x = await agentFixture();
+  roots.push(x.root);
+  git(x.a, "init", "-q", "-b", "main");
+  git(x.a, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init");
+  const at = new Date().toISOString();
+  const agents = new Map<string, Agent>();
+  const workspaces = new Map<string, Workspace>();
+  const createdWorkspaces: { title: string; idempotencyKey: string; source: Source }[] = [];
+  const createdSessions: (Created & { workspaceId: string })[] = [];
+  const archived: string[] = [];
+  const space = (id: string, kind = "directory", directory = x.a) =>
+    workspaces.set(id, { id, projectId: "native", workspaceDirectory: directory, workspaceKind: kind, archivingAt: null });
+  const paseo = {
+    agents: {
+      ref: (id: string) => ({ refresh: async () => (agents.has(id) ? { agent: agents.get(id)! } : null) }),
+      list: async (request: { filter?: { includeArchived?: boolean } }) => ({
+        entries: [...agents.values()].filter((a) => request.filter?.includeArchived || !a.archivedAt).map((agent) => ({ agent })),
+        pageInfo: { nextCursor: null },
+      }),
+    },
+    workspaces: {
+      ref: (id: string) => ({
+        refresh: async () => workspaces.get(id) ?? null,
+        agents: {
+          create: async (options: Created) => {
+            createdSessions.push({ ...options, workspaceId: id });
+            agents.set(options.agentId, {
+              id: options.agentId,
+              workspaceId: id,
+              title: options.title || "",
+              status: "running",
+              archivedAt: null,
+              createdAt: new Date().toISOString(),
+              provider: String(options.config.provider).split("/")[0],
+              model: String(options.config.provider).split("/")[1] ?? null,
+              labels: options.labels,
+            });
+            return { id: options.agentId };
+          },
+        },
+      }),
+      create: async (request: (typeof createdWorkspaces)[number]) => {
+        const previous = createdWorkspaces.findIndex((w) => w.idempotencyKey === request.idempotencyKey);
+        if (previous >= 0) return { id: `created-${previous + 1}` };
+        createdWorkspaces.push(request);
+        const id = `created-${createdWorkspaces.length}`;
+        space(id, request.source.kind, request.source.kind === "worktree" ? join(x.root, id) : x.a);
+        return { id };
+      },
+      archive: async (id: string) => {
+        archived.push(id);
+        workspaces.get(id)!.archivingAt = at;
+        return { archivedAt: at };
+      },
+    },
+  } as unknown as PaseoApi;
+  const cards = new AgentCards(x.store);
+  cards.attach(paseo);
+  let on = true;
+  cards.on = async () => on;
+  const starter = new CardStarter(x.store, cards, {
+    // ToolServer.prepareSession without the tool service: the same prepared id per operation and workspace.
+    prepare: async (taskId, operationId) => {
+      const task = (await x.store.read()).tasks.find((t) => t.id === taskId)!;
+      const { agentId } = await x.secrets.prepared(taskId, task.workspaceId, operationId);
+      return { agentId, instructions: `INSTRUCTIONS ${taskId}`, contextFile: "/ctx.json", cliPath: "/flowly.mjs", skillPath: "/SKILL.md", mcp: { type: "http", url: "http://127.0.0.1/mcp", headers: { Authorization: "Bearer x" } } };
+    },
+    preparedFor: (operationId) => x.secrets.preparedFor(operationId),
+  });
+  starter.modelDefault = async () => ({ provider: "claude", model: "claude-sonnet-5-5" });
+  const caller = { agentId: "outside", projectId: "p" };
+  const card = async (id: string, fields: Partial<Task> = {}, kind = "directory") => {
+    space(fields.workspaceId ?? `ws-${id}`, kind);
+    await x.store.mutate((board) => {
+      board.tasks.push({
+        id,
+        projectId: "p",
+        workspaceId: `ws-${id}`,
+        sourcePath: x.a,
+        repoPaths: [x.a],
+        title: `Card ${id}`,
+        description: `Do ${id}.`,
+        status: "todo",
+        priority: "normal",
+        position: board.tasks.length,
+        revision: 1,
+        operationId: `op-${id}`,
+        createdAt: at,
+        updatedAt: at,
+        archivedAt: null,
+        ...fields,
+      });
+    });
+  };
+  const session = (id: string, workspaceId: string, archivedAt: string | null = null) =>
+    agents.set(id, { id, workspaceId, title: id, status: "idle", archivedAt, createdAt: at, provider: "claude", model: "claude-opus-5-5" });
+  const failure = (promise: Promise<unknown>) =>
+    promise.then(
+      () => {
+        throw new Error("expected a refusal");
+      },
+      (e) => toolFailure(e).code,
+    );
+  const linear = (taskId: string) =>
+    x.store.mutate((board) => {
+      board.artifacts.push({
+        id: `art-${taskId}`,
+        taskId,
+        projectId: "p",
+        role: "input",
+        kind: "url",
+        target: "https://linear.app/acme/issue/ZEN-123/fix-x",
+        title: "ZEN-123 Fix x",
+        note: "",
+        createdBy: "human",
+        createdAt: at,
+        updatedAt: at,
+        external: { connectionId: "lin", provider: "linear", key: "ZEN-123", remoteId: "uuid", itemType: "issue" },
+      });
+    });
+  return {
+    ...x,
+    paseo,
+    cards,
+    starter,
+    caller,
+    card,
+    session,
+    failure,
+    linear,
+    agents,
+    workspaces,
+    createdWorkspaces,
+    createdSessions,
+    archived,
+    turn: (value: boolean) => {
+      on = value;
+    },
+  };
+}
+
+test("start_card starts a labelled session in the card's worktree", async () => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true }, "worktree");
+  const started = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(started).toMatchObject({ taskId: "c", workspaceId: "ws-c", replayed: false });
+  expect(x.createdWorkspaces).toEqual([]);
+  expect(x.createdSessions).toHaveLength(1);
+  const created = x.createdSessions[0];
+  expect(created).toMatchObject({
+    workspaceId: "ws-c",
+    agentId: started.agentId,
+    idempotencyKey: `ultra-kanban-session:${started.agentId}`,
+    title: "Card c",
+    labels: { "flowly-task": "c", "flowly-started-by": "outside" },
+    // No prompt given: the card's title and description.
+    prompt: "Card c\n\nDo c.",
+    env: { FLOWLY_CONTEXT_FILE: "/ctx.json", FLOWLY_CLI: "/flowly.mjs", FLOWLY_SKILL: "/SKILL.md" },
+  });
+  // The New task defaults: the global model, and the provider's suggested mode.
+  expect(created.config).toMatchObject({ provider: "claude/claude-sonnet-5-5", systemPrompt: "INSTRUCTIONS c", modeId: "auto" });
+  expect(created.config.mcpServers?.flowly).toMatchObject({ type: "http", url: "http://127.0.0.1/mcp" });
+  // The project's own default wins, and a given prompt is sent as is.
+  await x.store.mutate((board) => {
+    board.projects[0].agentModel = { provider: "codex", model: "gpt-6", thinking: "high", mode: "full-access" };
+  });
+  await x.card("d", { ownsWorkspace: true }, "worktree");
+  await x.starter.start(x.caller, { taskId: "d", prompt: "Only the tests.", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[1].config).toMatchObject({ provider: "codex/gpt-6", modeId: "full-access", thinkingOptionId: "high" });
+  expect(x.createdSessions[1].prompt).toBe("Only the tests.");
+  // With no default at all, the project's latest session decides, as in the New task form.
+  await x.store.mutate((board) => {
+    delete board.projects[0].agentModel;
+  });
+  x.starter.modelDefault = async () => null;
+  x.agents.get(x.createdSessions[1].agentId)!.archivedAt = new Date().toISOString();
+  x.agents.get(x.createdSessions[0].agentId)!.archivedAt = new Date().toISOString();
+  x.session("elsewhere", "ws-c");
+  await x.card("e", {}, "worktree");
+  await x.starter.start(x.caller, { taskId: "e", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[2].config).toMatchObject({ provider: "claude/claude-opus-5-5", modeId: "auto" });
+});
+
+test("a retried start_card returns the same session", async () => {
+  const x = await setup();
+  // An owned, empty directory card: the first call makes the worktree and the session.
+  await x.card("c", { ownsWorkspace: true });
+  const first = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  // The response was lost: the same key returns the same workspace and session, nothing new.
+  const again = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(again).toEqual({ taskId: "c", workspaceId: first.workspaceId, agentId: first.agentId, replayed: true });
+  expect(x.createdWorkspaces).toHaveLength(1);
+  expect(x.createdSessions).toHaveLength(1);
+  // Another key on a card with a live session is refused, not a second session.
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "other" }, x.paseo))).toBe("CARD_HAS_SESSION");
+});
+
+test("an owned card that never had a session moves to a new worktree and its directory workspace is archived", async () => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true });
+  const started = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces).toHaveLength(1);
+  const { source, title } = x.createdWorkspaces[0];
+  expect(title).toBe("Card c");
+  expect(source).toMatchObject({ kind: "worktree", cwd: x.a, projectId: "native", action: "branch-off", refName: "refs/heads/main" });
+  // Without a Linear input the branch name is generated.
+  expect(source.branchName).toMatch(/^kanban\/.+-[0-9a-f]{6}$/);
+  expect(started.workspaceId).toBe("created-1");
+  const task = (await x.store.read()).tasks.find((t) => t.id === "c")!;
+  expect(task).toMatchObject({ workspaceId: "created-1", ownsWorkspace: true, revision: 2 });
+  expect(task.previousWorkspaces).toEqual([expect.objectContaining({ id: "ws-c", kind: "directory", directory: x.a })]);
+  expect(task.switch).toBeUndefined();
+  expect((await x.store.read()).events.filter((e) => e.taskId === "c").at(-1)).toMatchObject({
+    action: "workspace_switched",
+    actor: "agent",
+    agentId: "outside",
+    note: `directory → worktree ${source.branchName}`,
+  });
+  expect(x.archived).toEqual(["ws-c"]);
+  expect(x.createdSessions[0].workspaceId).toBe("created-1");
+});
+
+test("directory cards Flowly did not create for this card, or that had a session, need a worktree first", async () => {
+  const x = await setup();
+  await x.card("old"); // no ownsWorkspace: created before the marker, or linked to an existing workspace
+  await x.card("used", { ownsWorkspace: true });
+  x.session("gone", "ws-used", new Date().toISOString());
+  await x.card("switched", { ownsWorkspace: true, previousWorkspaces: [{ id: "w0", kind: "worktree", directory: "/x", switchedAt: new Date().toISOString() }] });
+  for (const taskId of ["old", "used", "switched"])
+    expect(await x.failure(x.starter.start(x.caller, { taskId, idempotencyKey: "go" }, x.paseo)), taskId).toBe("NEEDS_WORKTREE");
+  expect(x.createdWorkspaces).toEqual([]);
+  expect(x.createdSessions).toEqual([]);
+  expect(x.archived).toEqual([]);
+});
+
+test("a linked-root project starts in its directory workspace", async () => {
+  const x = await setup();
+  await x.store.mutate((board) => {
+    board.projects[0].links = [{ name: "a", target: x.a }];
+  });
+  await x.card("c");
+  const started = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(started.workspaceId).toBe("ws-c");
+  expect(x.createdWorkspaces).toEqual([]);
+  expect(x.createdSessions[0].workspaceId).toBe("ws-c");
+});
+
+test("a Done card cannot be started; other refusals come before anything is created", async () => {
+  const x = await setup();
+  await x.card("done", { status: "done" }, "worktree");
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "done", idempotencyKey: "go" }, x.paseo))).toBe("CARD_FINISHED");
+  await x.card("archived", { archivedAt: new Date().toISOString() }, "worktree");
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "archived", idempotencyKey: "go" }, x.paseo))).toBe("NOT_FOUND");
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "missing", idempotencyKey: "go" }, x.paseo))).toBe("NOT_FOUND");
+  await x.card("busy", {}, "worktree");
+  x.session("live", "ws-busy");
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "busy", idempotencyKey: "go" }, x.paseo))).toBe("CARD_HAS_SESSION");
+  await x.card("c", {}, "worktree");
+  // Another project's card is not found from this caller.
+  expect(await x.failure(x.starter.start({ ...x.caller, projectId: "q" }, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("NOT_FOUND");
+  // No default model and no live session in the project to follow.
+  x.starter.modelDefault = async () => null;
+  x.agents.get("live")!.archivedAt = new Date().toISOString();
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("MODEL_UNAVAILABLE");
+  x.turn(false);
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("AGENT_CARDS_DISABLED");
+  x.turn(true);
+  await x.store.mutate((board) => {
+    board.projects[0].archivedAt = new Date().toISOString();
+  });
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("PROJECT_ARCHIVED");
+  expect(x.createdSessions).toEqual([]);
+});
+
+test("start_card and create_card share the hourly limit", async () => {
+  const x = await setup();
+  await x.card("c", {}, "worktree");
+  await x.card("d", {}, "worktree");
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  for (let i = 1; i < agentCardLimits.perHour; i++) await x.cards.create(x.caller, { title: `Card ${i}`, idempotencyKey: `k${i}` });
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go" }, x.paseo))).toBe("CARD_LIMIT");
+  expect(await x.failure(x.cards.create(x.caller, { title: "One too many", idempotencyKey: "over" }))).toBe("CARD_LIMIT");
+  // A replay is not a new start.
+  expect((await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo)).replayed).toBe(true);
+});
+
+test("the worktree uses the Linear issue's branch name", async () => {
+  const x = await setup();
+  let branch = "noah/zen-123-fix-x";
+  x.starter.connectors = { resolve: async () => ({}) as never, cached: async () => ({ branchName: branch }) as never };
+  await x.card("c", { ownsWorkspace: true });
+  await x.linear("c");
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces[0].source).toMatchObject({ action: "branch-off", refName: "refs/heads/main", branchName: "noah/zen-123-fix-x" });
+  // A branch that already exists and no worktree has checked out is checked out.
+  branch = "noah/zen-124-free";
+  git(x.a, "branch", branch);
+  await x.card("d", { ownsWorkspace: true });
+  await x.linear("d");
+  await x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces[1].source).toMatchObject({ action: "checkout", refName: "noah/zen-124-free" });
+  expect(x.createdWorkspaces[1].source.branchName).toBeUndefined();
+  // One another worktree has checked out falls back to the generated name.
+  branch = "noah/zen-125-taken";
+  git(x.a, "worktree", "add", "-q", "-b", branch, join(x.root, "taken"));
+  await x.card("e", { ownsWorkspace: true });
+  await x.linear("e");
+  await x.starter.start(x.caller, { taskId: "e", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces[2].source).toMatchObject({ action: "branch-off" });
+  expect(x.createdWorkspaces[2].source.branchName).toMatch(/^kanban\/card-e-[0-9a-f]{6}$/);
+});
+
+test("a failed Linear fetch or an invalid branch name falls back to the generated name", async () => {
+  const x = await setup();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  x.starter.connectors = {
+    resolve: async () => {
+      throw new ExternalError("EXTERNAL_UNAVAILABLE", "Linear is busy.");
+    },
+    cached: async () => undefined,
+  };
+  await x.card("c", { ownsWorkspace: true });
+  await x.linear("c");
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces[0].source.branchName).toMatch(/^kanban\/card-c-[0-9a-f]{6}$/);
+  expect(logged).toHaveBeenCalledWith("Flowly Linear branch name not read:", "c", "Linear is busy.");
+  for (const [id, name] of [["d", "bad..name"], ["e", ""], ["f", "-leading"]] as const) {
+    x.starter.connectors = { resolve: async () => ({}) as never, cached: async () => ({ branchName: name }) as never };
+    await x.card(id, { ownsWorkspace: true });
+    await x.linear(id);
+    await x.starter.start(x.caller, { taskId: id, idempotencyKey: "go" }, x.paseo);
+    expect(x.createdWorkspaces.at(-1)!.source.branchName, name).toMatch(new RegExp(`^kanban/card-${id}-[0-9a-f]{6}$`));
+  }
+});
+
+test("a project root that is not a Git repository on a named branch needs a worktree", async () => {
+  const x = await setup();
+  await rm(join(x.a, ".git"), { recursive: true, force: true });
+  await writeFile(join(x.a, "file.txt"), "x");
+  await x.card("c", { ownsWorkspace: true });
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("NEEDS_WORKTREE");
+  expect(x.createdWorkspaces).toEqual([]);
+});

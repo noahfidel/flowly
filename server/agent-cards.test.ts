@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { rm } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import type { PaseoApi } from "@getpaseo/client";
 import { AgentCards } from "./agent-cards";
 import { agentFixture } from "./agent-fixture";
@@ -113,6 +114,29 @@ test("a session outside cards creates a plain card: no link and nothing on anoth
   expect(stored.links).toEqual([]);
   expect(stored.events.filter((e) => e.taskId === "t")).toEqual([]);
   expect(stored.events.find((e) => e.taskId === made.card.taskId)).toMatchObject({ actor: "agent", agentId: "outside", action: "created" });
+});
+
+test("create_card with workspace=worktree branches off the project's base", async () => {
+  const x = await setup();
+  execFileSync("git", ["-C", x.a, "init", "-q", "-b", "main"]);
+  execFileSync("git", ["-C", x.a, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"]);
+  const made = await x.cards.create(x.board, { title: "In a worktree", workspace: "worktree", idempotencyKey: "wt" });
+  expect(x.workspaces).toEqual([
+    expect.objectContaining({
+      title: "In a worktree",
+      source: expect.objectContaining({ kind: "worktree", cwd: x.a, projectId: "native", action: "branch-off", refName: "refs/heads/main", branchName: expect.stringMatching(/^kanban\/in-a-worktree-[0-9a-f]{6}$/) }),
+    }),
+  ]);
+  expect((await x.store.read()).tasks.find((t) => t.id === made.card.taskId)!.ownsWorkspace).toBe(true);
+  // The default stays a directory workspace.
+  await x.cards.create(x.board, { title: "Plain", idempotencyKey: "plain" });
+  expect(x.workspaces[1].source).toEqual({ kind: "directory", path: x.a, projectId: "native" });
+  // A linked-root project has no worktree option; nothing is created.
+  await x.store.mutate((board) => {
+    board.projects[0].links = [{ name: "a", target: x.a }];
+  });
+  expect(await x.failure(x.cards.create(x.board, { title: "Linked", workspace: "worktree", idempotencyKey: "linked" }))).toBe("WORKTREE_UNAVAILABLE");
+  expect(x.workspaces).toHaveLength(2);
 });
 
 test("create refusals come before any workspace: setting, lane, tags, hourly limit", async () => {

@@ -99,6 +99,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "flowly_get_card",
     "flowly_create_card",
     "flowly_update_card",
+    "flowly_start_card",
   ]);
   // The soft delivery gate and the workpad's own revision are part of the tool schemas (WORKPAD-SPEC §3, §5.3).
   const listed = (await mcp("tools/list", {})).result.tools as { name: string; description: string; inputSchema: { properties: Record<string, unknown> } }[];
@@ -679,6 +680,7 @@ test("sessions outside cards: a board credential reaches only the card tools, ov
     "flowly_get_card",
     "flowly_create_card",
     "flowly_update_card",
+    "flowly_start_card",
     "flowly_propose_idea",
   ]);
   const proposed = await mcp("tools/call", {

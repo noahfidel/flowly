@@ -56,7 +56,7 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const withFiles = (message: string, files: string[]) => (files.length ? `${message} (${files.slice(0, 8).join(", ")}${files.length > 8 ? ", …" : ""})` : message);
 
 /** Sessions of a workspace (summarizer children left out); archived ones only when asked. */
-async function workspaceSessions(paseo: PaseoApi, workspaceId: string, includeArchived = false): Promise<Session[]> {
+export async function workspaceSessions(paseo: PaseoApi, workspaceId: string, includeArchived = false): Promise<Session[]> {
   const sessions: Session[] = [];
   let cursor: string | undefined;
   do {

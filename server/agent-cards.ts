@@ -44,7 +44,8 @@ export class AgentCards {
   attach(paseo: PaseoApi) {
     this.paseo = paseo;
   }
-  private api() {
+  /** The attached Paseo API, or PASEO_UNAVAILABLE. */
+  api() {
     if (!this.paseo)
       throw new ToolError(
         "PASEO_UNAVAILABLE",
@@ -53,12 +54,32 @@ export class AgentCards {
       );
     return this.paseo;
   }
-  private async enabled() {
+  /** AGENT_CARDS_DISABLED when the setting is off; flowly_start_card shares it (START-CARD-SPEC §1). */
+  async enabled() {
     if (!(await this.on()))
       throw new ToolError(
         "AGENT_CARDS_DISABLED",
         "Agents creating and editing cards is turned off in Flowly settings. Tell the user what you would have changed instead.",
       );
+  }
+  /**
+   * CARD_LIMIT when this session already made `agentCardLimits.perHour` creations in the last hour;
+   * card creations and flowly_start_card sessions count together (START-CARD-SPEC §3).
+   */
+  checkLimit(agentId: string) {
+    const now = this.clock(),
+      recent = (this.created.get(agentId) || []).filter((at) => now - at < hour);
+    if (recent.length >= agentCardLimits.perHour)
+      throw new ToolError(
+        "CARD_LIMIT",
+        `This session already created or started ${agentCardLimits.perHour} cards in the last hour. Stop and ask the user before creating more.`,
+      );
+    return recent;
+  }
+  /** Counts one creation for the hourly limit. */
+  countCreation(agentId: string) {
+    const now = this.clock();
+    this.created.set(agentId, [...(this.created.get(agentId) || []).filter((at) => now - at < hour), now]);
   }
   /** A session outside cards, checked again on every call (§2.2). */
   async boardCaller(identity: BoardIdentity): Promise<CardCaller> {
@@ -173,13 +194,10 @@ export class AgentCards {
       throw new ToolError("TAG_INVALID", e instanceof Error ? e.message : String(e));
     }
     if (tags.length > tagLimits.perTask) throw new ToolError("TAG_INVALID", `A card can have at most ${tagLimits.perTask} tags.`);
-    const now = this.clock(),
-      recent = (this.created.get(caller.agentId) || []).filter((at) => now - at < hour);
-    if (recent.length >= agentCardLimits.perHour)
-      throw new ToolError(
-        "CARD_LIMIT",
-        `This session already created ${agentCardLimits.perHour} cards in the last hour. Stop and ask the user before creating more.`,
-      );
+    // A linked-root project has no worktree option (START-CARD-SPEC §7).
+    if (input.workspace === "worktree" && project.links?.length)
+      throw new ToolError("WORKTREE_UNAVAILABLE", "This project links several repositories and has no worktree option. Create the card without workspace=worktree.");
+    this.checkLimit(caller.agentId);
     let task: Task;
     try {
       task = await this.board.createTask(
@@ -192,7 +210,7 @@ export class AgentCards {
           priority: input.priority,
           ...(input.type ? { type: input.type } : {}),
           ...(tags.length ? { tags } : {}),
-          mode: "directory",
+          mode: input.workspace,
           baseRef: "",
           ...(caller.taskId ? { followUpOf: caller.taskId } : {}),
         },
@@ -202,7 +220,7 @@ export class AgentCards {
     } catch (e) {
       throw new ToolError("CARD_CREATE_FAILED", e instanceof Error ? e.message : String(e));
     }
-    this.created.set(caller.agentId, [...recent, now]);
+    this.countCreation(caller.agentId);
     const after = await this.store.read();
     return { card: cardView(after, this.project(after, caller), after.tasks.find((t) => t.id === task.id) ?? task), replayed: false };
   }

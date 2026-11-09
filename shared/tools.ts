@@ -450,6 +450,10 @@ export const createCardInputSchema = z.strictObject({
   priority: prioritySchema.default("normal"),
   type: taskTypeSchema.optional(),
   tags: cardTagList.optional(),
+  workspace: z
+    .enum(["directory", "worktree"])
+    .default("directory")
+    .describe("directory: a workspace in the project folder (default). worktree: a new worktree branched off the main checkout's current branch (START-CARD-SPEC §7)."),
   idempotencyKey: z
     .string()
     .trim()
@@ -457,6 +461,26 @@ export const createCardInputSchema = z.strictObject({
     .max(200)
     .describe("A unique key you choose for this card, e.g. a slug of its title. Retrying with the same key returns the card already created instead of a second one."),
 });
+/** flowly_start_card (START-CARD-SPEC §2). */
+export const startCardInputSchema = z.strictObject({
+  taskId: z.string().min(1).describe("Card id from flowly_list_cards or flowly_create_card."),
+  prompt: z.string().max(20000).optional().describe("The session's first message; default the card's title and description."),
+  idempotencyKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .describe("A unique key you choose for this start. Retrying with the same key returns the session already started instead of a second one."),
+});
+export const startCardResultSchema = z.object({
+  taskId: z.string(),
+  workspaceId: z.string(),
+  agentId: z.string(),
+  replayed: z.boolean(),
+  warnings: z.array(z.string()).optional(),
+});
+export type StartCardInput = z.input<typeof startCardInputSchema>;
+export type StartCardResult = z.infer<typeof startCardResultSchema>;
 export const updateCardInputSchema = z.strictObject({
   taskId: z.string().min(1).describe("Card id from flowly_list_cards or flowly_get_card."),
   revision: z.number().int().positive().describe("The card's revision from flowly_list_cards or flowly_get_card."),

@@ -103,6 +103,8 @@ export const externalSummarySchema = z.object({
   /** Repository path, Confluence space or Jira project; may be empty. */
   container: z.string().default(""),
   updated: z.string(),
+  /** Linear's suggested git branch for the issue (START-CARD-SPEC §6); other providers leave it out. */
+  branchName: z.string().optional(),
 });
 export type ExternalSummary = z.infer<typeof externalSummarySchema>;
 

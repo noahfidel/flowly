@@ -28,6 +28,8 @@ export type LinearIssue = {
   state?: { name?: string; type?: string } | null;
   assignee?: Person;
   team?: { key?: string; name?: string } | null;
+  /** Linear's suggested git branch (the Linear MCP calls it gitBranchName). */
+  branchName?: string | null;
   description?: string | null;
   creator?: Person;
   project?: { name?: string } | null;
@@ -39,7 +41,7 @@ type Comment = { id?: string; body?: string | null; createdAt?: string; updatedA
 type GraphqlError = { message?: string; extensions?: { code?: string; userPresentableMessage?: string } };
 type Reply<T> = { data?: T | null; errors?: GraphqlError[] };
 
-const summaryFields = "id identifier title url updatedAt priorityLabel state { name type } assignee { name displayName } team { key name }";
+const summaryFields = "id identifier title url updatedAt priorityLabel state { name type } assignee { name displayName } team { key name } branchName";
 const fullFields = `${summaryFields} description creator { name displayName } project { name } labels { nodes { name } } parent { identifier title } comments(first: ${connectorLimits.comments}, orderBy: createdAt) { nodes { id body createdAt updatedAt user { name displayName } } }`;
 
 const viewerQuery = "query Viewer { viewer { name displayName email organization { name urlKey } } }";
@@ -120,7 +122,9 @@ const category = (type: string) => {
 export function linearSummary(connection: Pick<StoredConnection, "id" | "baseUrl">, issue: LinearIssue): ExternalSummary {
   const key = issueKey(text(issue.identifier)) || text(issue.identifier);
   const priority = text(issue.priorityLabel);
+  const branchName = text(issue.branchName).trim();
   return {
+    ...(branchName ? { branchName } : {}),
     connectionId: connection.id,
     itemType: "issue",
     key,
