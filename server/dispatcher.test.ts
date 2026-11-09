@@ -8,7 +8,7 @@ import { dispatcherSessionIds } from "./dispatcher-items";
 import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
 import { agentFixture } from "./agent-fixture";
-import { dispatcherCharter, dispatcherToolNames, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
+import { dispatcherCharter, dispatcherToolNames, dispatcherWithheldTools, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
 import type { BoardEvent } from "../shared/model";
 
 const directories: string[] = [];
@@ -974,4 +974,23 @@ test("What should I do? marks the changed cards it sent as seen, only once it wa
   await x.dispatcher.whatNext(x.paseo, "What should I do?", seen);
   expect(x.sends.at(-1)).toMatchObject({ id: agentId, text: "What should I do?" });
   expect(await x.dispatcher.record()).toMatchObject({ seenRevision: seen.revision, seenIds: seen.ids });
+});
+
+test("no route to a card's ask: a Claude dispatcher starts without Paseo's tools, a shell or subagents (ruling, Noah 2026-11-09)", async () => {
+  const x = await setup();
+  await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5", modeId: "bypassPermissions" });
+  const config = x.agentCreates[0].options.config as { providerOptions?: { disallowedTools?: string[] } };
+  const withheld = config.providerOptions?.disallowedTools ?? [];
+  // Paseo's own agent tools answer permissions (respond_to_permission), message a card's session (send_agent_prompt),
+  // or reach a shell or another agent that could; the shell reaches the paseo CLI.
+  for (const tool of ["mcp__paseo", "mcp__paseo__respond_to_permission", "mcp__paseo__send_agent_prompt", "mcp__paseo__create_agent", "mcp__paseo__send_terminal_keys", "mcp__paseo__set_agent_mode", "Bash", "Task", "Agent"])
+    expect(withheld).toContain(tool);
+  expect(withheld).toEqual([...dispatcherWithheldTools]);
+  // None of its own tools is withheld.
+  for (const tool of dispatcherToolNames) expect(withheld).not.toContain(`mcp__flowly-dispatcher__${tool}`);
+});
+
+test("the charter says plainly that only the user answers a card's asks", () => {
+  expect(dispatcherCharter).toContain("You have no tool that answers them");
+  expect(dispatcherCharter).toContain("buttons");
 });

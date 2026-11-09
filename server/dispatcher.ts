@@ -5,6 +5,7 @@ import type { PaseoApi } from "@getpaseo/client";
 import { z } from "zod";
 import {
   dispatcherCharter,
+  dispatcherWithheldTools,
   dispatcherDefaultModel,
   dispatcherServerName,
   dispatcherToolNames,
@@ -117,6 +118,8 @@ export function missesTools(record: DispatcherRecord) {
   return !!saved && dispatcherToolNames.some((tool) => !saved.includes(tool));
 }
 const preapprovingProviders: readonly string[] = ["claude", "codex"];
+/** Providers whose sessions can be started without given tools: Claude (`disallowedTools`); others have no per-session way (§3). */
+export const withholdsTools = (provider: string) => provider.split("/")[0] === "claude";
 export const savesTools = (provider: string) => preapprovingProviders.includes(provider.split("/")[0]);
 
 const emptyRecord = (): DispatcherRecord => ({ version: 1, workspaceId: null, agentId: null, startedAt: null });
@@ -364,6 +367,8 @@ export class Dispatcher {
           ...(input.modeId ? { modeId: input.modeId } : {}),
           ...(input.thinking ? { thinkingOptionId: input.thinking } : {}),
           systemPrompt: dispatcherCharter,
+          // No route to a card's ask: Paseo's agent tools, a shell and subagents are withheld where the provider allows it (§3).
+          ...(withholdsTools(input.provider) ? { providerOptions: { disallowedTools: [...dispatcherWithheldTools] } } : {}),
           // Saved with the session and every tool preapproved, so its own tools never prompt (they are gated by the
           // "Agents create and edit cards" switch); Paseo checks each grant's server is in this same request (§3).
           ...(mcp

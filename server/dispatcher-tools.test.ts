@@ -158,6 +158,8 @@ test("a dispatcher token can write to any live project", async () => {
   const x = await setup();
   const d = await x.connect(x.dispatcherToken);
   expect(await d.names()).toEqual(dispatcherTools);
+  // None of them answers a card's ask (permission, question, blocker) or messages a card's session (ruling, Noah 2026-11-09).
+  for (const name of await d.names()) expect(name).not.toMatch(/answer|respond|permission|approve|allow|deny|send|prompt|message/);
   const projects = (await d.call("flowly_list_projects", {})).structuredContent.projects;
   expect(projects).toEqual([
     { projectId: "p", title: "Project", rootAvailable: true, openCards: 1 },
