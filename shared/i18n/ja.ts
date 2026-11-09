@@ -1567,5 +1567,7 @@ const catalog: Catalog = {
   "Denied": "拒否しました",
   "Delivered": "配信済み",
   "Choose an option or type an answer, not both.": "選択肢を選ぶか回答を入力してください。両方は使えません。",
+  "This card's folder already had sessions. Switch the card to a worktree from its menu, then start again.": "このカードのフォルダーには既にセッションがありました。カードのメニューからワークツリーに切り替えてから、もう一度開始してください。",
+  "The card already has a running session. Send it a message instead.": "このカードには実行中のセッションがあります。代わりにメッセージを送ってください。",
 };
 export default catalog;

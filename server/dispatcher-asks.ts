@@ -66,6 +66,9 @@ export function askItem(ask: Ask, state: AskState = ask.state, extra: Partial<As
 
 /** Kept to bound the in-memory card lookup for asks that left the live list. */
 const knownLimit = 5000;
+const noAnswer = "This ask has no answer; open the card.";
+/** Error (`e:`) and unread (`u:`) signals (ATTENTION-DISMISS-SPEC §2.2): never answered, never stored as resolved. */
+const unanswerable = (signal: string) => signal.startsWith("e:") || signal.startsWith("u:");
 
 export class DispatcherAsks {
   /** One answer at a time, so a double press or a replay sees the first one's stored result. */
@@ -99,8 +102,16 @@ export class DispatcherAsks {
   /** The signals the chat resolved: stored as answered, ended or dismissed, or answered in this daemon run. */
   private resolved(stored: readonly StoredChatItem[]): Set<string> {
     const signals = new Set(this.done);
-    for (const item of stored) if (item.kind === "ask" && item.state !== "open") signals.add(item.signal);
+    for (const item of stored) if (item.kind === "ask" && item.state !== "open" && !unanswerable(item.signal)) signals.add(item.signal);
     return signals;
+  }
+
+  /**
+   * `asks.resolved`: the signals the chat resolved, sorted, for the board's bell, so it leaves them out as the
+   * badge does without the chat open or after a reload (§9.4).
+   */
+  async resolvedSignals(): Promise<string[]> {
+    return [...this.resolved(await this.deps.items.list())].sort();
   }
 
   /** `attention.count`: the open asks, exactly the chat's open rows (§9.4, ATTENTION-DISMISS-SPEC §7a). */
@@ -161,6 +172,9 @@ export class DispatcherAsks {
   }
 
   private async run(input: AskAnswerInput, paseo: PaseoApi): Promise<Outcome> {
+    // 0. Errors and unread turns have no answer. Their keys come back (`e:<agent>:status` for each new error), so
+    //    nothing about them is ever stored as resolved.
+    if (unanswerable(input.signal)) throw new Error(noAnswer);
     // 1. Answered or ended before: never again (a stale or replayed answer).
     if (this.done.has(input.signal)) return { delivered: false, state: "answered" };
     const prior = (await this.deps.items.list()).find((item): item is AskItem => item.kind === "ask" && item.signal === input.signal);
@@ -172,6 +186,7 @@ export class DispatcherAsks {
     if (!ask) {
       const known = this.known.get(input.signal);
       if (!known) return { delivered: false, state: "answered" };
+      if (known.kind === "error" || known.kind === "unread") throw new Error(noAnswer);
       const task = board.tasks.find((t) => t.id === known.taskId);
       if (!task) throw new Error("The card was deleted.");
       const project = board.projects.find((p) => p.id === task.projectId);
@@ -186,7 +201,7 @@ export class DispatcherAsks {
       await this.record([askItem(known, "answered", { resolvedAt: at, elsewhere: true })]);
       return { delivered: false, state: "answered" };
     }
-    if (ask.kind === "error" || ask.kind === "unread") throw new Error("This ask has no answer; open the card.");
+    if (ask.kind === "error" || ask.kind === "unread") throw new Error(noAnswer);
     const task = board.tasks.find((t) => t.id === ask.taskId)!;
 
     // 3. The session, read again: ended sessions are never restored; another workspace is never answered.

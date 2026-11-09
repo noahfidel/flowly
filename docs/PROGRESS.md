@@ -17,8 +17,13 @@
   - The agent list behind the asks and the badge is shared for 2 s (`AttentionAgents`, single flight, failures not kept, reset after an answer or dismissal).
   - Spec: DISPATCHER-SPEC §9.4 (resolved asks, shared listing, known-path ended, per-question texts, decline choice, report resend after a restart as a known limit, dismissing an ended ask, Start again next to a closed session); START-CARD-SPEC §3.
   - Checks: the new tests in `server/dispatcher-asks.test.ts`, `server/start-card.test.ts` and `client/answered-asks.test.ts` failed first (the dispatcher-asks ones all on the missing `AttentionAgents`, which masked their own assertions; the start-card ruling test was also checked failing against the old line). Then `npm run typecheck` exit 0; `npm test` exit 0 (171 files, 1558 passed, 1 skipped); `npx vitest run shared/i18n.test.ts` exit 0 (44 passed). Not run: live host.
-
-## Dispatcher chat panel (branch `feat/single-pane`, Task 10) — 2026-11-08
+- Review fix round 2:
+  - Bell and badge after a reload: new etag RPC `asks.resolved` (`DispatcherAsks.resolvedSignals`); the board polls it every 5 s while shown and counts `openAskCount(attention, bellResolved(daemon, client))`, so a closed session's answered or ended ask stays out of the bell with the chat closed and an empty client set. The panel refreshes it after an answer or dismissal.
+  - `error` and `unread` signals are refused by `asks.answer` before any stored or remembered state, and never count as resolved, so a reused key counts again.
+  - The board's forget effect depends on a derived `liveSignals` (null until the board and agents load).
+  - Start again: `NEEDS_WORKTREE` for the user is worded for the user; `tasks.start-again` sends `CODE: message` (`codedError`, since only the message crosses the RPC) and `client/start-again.ts` maps `NEEDS_WORKTREE` and `CARD_HAS_SESSION` to two new strings (all 9 catalogs).
+  - Shared agent list: the plugin host gives every RPC one `paseo` handle per daemon connection (re-created on reconnect), so it is not per client; the 2 s cache is keyed by handle anyway.
+ (branch `feat/single-pane`, Task 10) — 2026-11-08
 
 - Spec: DISPATCHER-SPEC §9 (items, the change line, the panel), §8 RPCs, §10 acceptance; record gains `seenRevision`.
 - `server/dispatcher-items.ts`: `DispatcherItems` (`<dataDir>/dispatcher-items.json`, atomic, mode 0600, corrupt file kept as `.invalid-<ms>`; replace by id; drops answered/dismissed asks after 7 days, then keeps the newest 500), `noteItems`, `seenMark`, `changeLine`, `whatNextMessage`. `server/dispatcher.ts`: `save` takes an updater so `seenRevision` survives restarts; `onSent` after a delivered note batch; `markSeen` (keeps the max); `whatNext` (refused with `DISPATCHER_DOWN` unless running or idle; steers a running turn). `server/session-tail.ts`: `dispatcherTail` reads only the stored dispatcher agent. `shared/rpc.ts`, `index.server.ts`: `dispatcher.items-changed` (etag), `dispatcher.tail`, `dispatcher.mark-seen`, `dispatcher.what-next`.

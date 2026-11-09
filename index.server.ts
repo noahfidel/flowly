@@ -52,7 +52,7 @@ import { workflowInsightsSettings, workflowSettingsValues } from "./shared/workf
 import { sessionModel } from "./server/agent-model";
 import { startedByUser, turnPick, userTexts } from "./shared/agent-habits";
 import { turnTimeline } from "./server/turn-timeline";
-import { ToolError } from "./server/tool-error";
+import { codedError, ToolError } from "./server/tool-error";
 import { exportMarkdown } from "./shared/board-export";
 import type { MemoryEntry } from "./shared/memory";
 import { MemoryService, setMemoryEverywhere, memoryOn } from "./server/memory";
@@ -400,11 +400,16 @@ export default function contribute(host: PluginServerContext) {
   });
   server.handle(rpc.asksAnswer, (input, { paseo }) => asks.answer(input, paseo));
   server.handle(rpc.asksDismiss, (input, { paseo }) => asks.dismiss(input, paseo));
+  server.handle(rpc.asksResolved, async ({ etag }) => ifChanged(await asks.resolvedSignals(), etag));
   server.handle(rpc.startAgain, async (input, { paseo }) => {
     tools.attach(paseo);
     const task = (await store.read()).tasks.find((t) => t.id === input.taskId);
     if (!task) throw new Error("Task not found.");
-    return tools.starter.start({ agentId: "user", projectId: task.projectId, human: true }, { taskId: task.id, idempotencyKey: input.idempotencyKey }, paseo);
+    return tools.starter
+      .start({ agentId: "user", projectId: task.projectId, human: true }, { taskId: task.id, idempotencyKey: input.idempotencyKey }, paseo)
+      .catch((e: unknown) => {
+        throw codedError(e);
+      });
   });
   server.handle(rpc.dispatcherTail, (input, { paseo }) => tails.dispatcherTail(input, paseo));
   server.handle(rpc.dispatcherMarkSeen, async ({ revision, ids }) => ({ seenRevision: await tools.dispatcher.markSeen(revision, ids) }));

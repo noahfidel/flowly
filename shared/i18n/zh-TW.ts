@@ -1567,5 +1567,7 @@ const catalog: Catalog = {
   "Denied": "已拒絕",
   "Delivered": "已送達",
   "Choose an option or type an answer, not both.": "請選擇一個選項或輸入回答，不能兩者都用。",
+  "This card's folder already had sessions. Switch the card to a worktree from its menu, then start again.": "這張卡片的資料夾已經有過工作階段。請從卡片選單切換到 worktree，再重新開始。",
+  "The card already has a running session. Send it a message instead.": "這張卡片已有執行中的工作階段，請改為傳訊息給它。",
 };
 export default catalog;

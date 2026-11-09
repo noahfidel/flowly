@@ -9,6 +9,7 @@ import type { ChatItem } from "../shared/dispatcher";
 import { Button, IconButton, Label, Notice, TextBox, font, message, noFocusRing, radius, space, touch, useTheme } from "./ui";
 import { sameItem } from "./dispatcher-panel-logic";
 import { markAsksAnswered } from "./answered-asks";
+import { startAgainMessage } from "./start-again";
 
 /** Asks and answers in the dispatcher chat (DISPATCHER-SPEC §9.4). */
 
@@ -287,7 +288,7 @@ function Ended({ item, onChanged }: { item: AskItem; onChanged(): void }) {
                     toast.show(t("Session started"), { variant: "success" });
                     onChanged();
                   },
-                  (e) => setError(message(e)),
+                  (e) => setError(startAgainMessage(message(e))),
                 )
                 .finally(() => setBusy(false));
             }}

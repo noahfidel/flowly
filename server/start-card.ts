@@ -155,7 +155,9 @@ export class CardStarter {
       if (!owned || sessions.length)
         throw new ToolError(
           "NEEDS_WORKTREE",
-          "The card works in a directory workspace that already had sessions or that Flowly did not create for it. Ask the user to switch the card to a worktree, then start it.",
+          caller.human
+            ? "This card's folder already had sessions, or Flowly did not create it for the card. Use Switch to worktree on the card, then start again."
+            : "The card works in a directory workspace that already had sessions or that Flowly did not create for it. Ask the user to switch the card to a worktree, then start it.",
         );
       request = await this.worktreeRequest(task, project, board, operationId);
     }

@@ -43,7 +43,7 @@ Output (`startCardResultSchema`): `{ taskId, workspaceId, agentId, replayed, war
 | a worktree | starts there |
 | a directory workspace of a linked-root project (`project.links`; no worktree option) | starts there |
 | a directory workspace Flowly created for this card (New task or `flowly_create_card`) that never had a session | a new worktree (§4.1), the card moves to it (§4.2), the empty directory workspace is archived (§4.3), the session starts in the worktree |
-| any other directory workspace (it had sessions, or the card does not own it) | `NEEDS_WORKTREE`: ask the user to switch the card to a worktree (WORKSPACE-SWITCH-SPEC) |
+| any other directory workspace (it had sessions, or the card does not own it) | `NEEDS_WORKTREE`: ask the user to switch the card to a worktree (WORKSPACE-SWITCH-SPEC); for the user's own Start again the message is written to the user (use Switch to worktree on the card) |
 
 "Flowly created it for this card" is `Task.ownsWorkspace === true` on a card that never switched workspaces (no `previousWorkspaces`, no `switch`). Cards created before `ownsWorkspace` existed have no marker and are treated as not owned. "Never had a session" counts archived sessions too (Flowly's own short-lived sessions excluded).
 

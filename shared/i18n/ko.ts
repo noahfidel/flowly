@@ -1567,5 +1567,7 @@ const catalog: Catalog = {
   "Denied": "거부함",
   "Delivered": "전달됨",
   "Choose an option or type an answer, not both.": "옵션을 고르거나 답을 입력하세요. 둘 다는 안 됩니다.",
+  "This card's folder already had sessions. Switch the card to a worktree from its menu, then start again.": "이 카드의 폴더에는 이미 세션이 있었습니다. 카드 메뉴에서 워크트리로 전환한 뒤 다시 시작하세요.",
+  "The card already has a running session. Send it a message instead.": "이 카드에는 이미 실행 중인 세션이 있습니다. 대신 메시지를 보내세요.",
 };
 export default catalog;

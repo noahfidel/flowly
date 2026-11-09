@@ -1027,6 +1027,12 @@ export const dispatcherWhatNext = defineRpc({ name: "dispatcher.what-next", inpu
 export const asksAnswer = defineRpc({ name: "asks.answer", input: askAnswerInputSchema, output: askAnswerResultSchema });
 /** Dismisses one ask: its signal joins the card's dismissal set (ATTENTION-DISMISS-SPEC §7a). */
 export const asksDismiss = defineRpc({ name: "asks.dismiss", input: askDismissInputSchema, output: z.strictObject({ taskId: z.string() }) });
+/** The signals the chat resolved (answered, ended or dismissed there), sorted, for the board's bell (DISPATCHER-SPEC §9.4). */
+export const asksResolved = defineRpc({
+  name: "asks.resolved",
+  input: etagInput,
+  output: z.object({ etag: z.string(), value: z.array(z.string().max(1000)).max(10000).optional() }),
+});
 /** Start again on an ended ask: the flowly_start_card path, started by the user (DISPATCHER-SPEC §9.4). */
 export const startAgain = defineRpc({ name: "tasks.start-again", input: startAgainInputSchema, output: startCardResultSchema });
 

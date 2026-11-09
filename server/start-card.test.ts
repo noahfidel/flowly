@@ -7,7 +7,7 @@ import { AgentCards } from "./agent-cards";
 import { agentFixture } from "./agent-fixture";
 import { CardStarter } from "./start-card";
 import { ExternalError } from "./connectors/http";
-import { toolFailure } from "./tool-error";
+import { codedError, toolFailure } from "./tool-error";
 import { agentCardLimits } from "../shared/tools";
 import type { Task } from "../shared/model";
 
@@ -525,6 +525,20 @@ test("the user's Start again takes the same path without the agent switch or lim
   expect(moved?.agentId).toBeUndefined();
   // The same refusals as an agent's start: a live session is not started twice.
   expect(await x.failure(x.starter.start(user, { taskId: "c", idempotencyKey: "again-2" }, x.paseo))).toBe("CARD_HAS_SESSION");
+});
+
+test("the user's Start again on a used directory card is told to switch to a worktree, in words for the user", async () => {
+  const x = await setup();
+  const user = { agentId: "user", projectId: x.caller.projectId, human: true as const };
+  await x.card("used", { ownsWorkspace: true });
+  x.session("gone", "ws-used", new Date().toISOString());
+  const failed = await x.starter.start(user, { taskId: "used", idempotencyKey: "again" }, x.paseo).catch((e: unknown) => e);
+  expect(toolFailure(failed).code).toBe("NEEDS_WORKTREE");
+  expect(toolFailure(failed).message).not.toMatch(/ask the user/i);
+  expect(toolFailure(failed).message).toMatch(/Switch to worktree/);
+  // Over RPC only the message travels: the code goes with it, for the client to show its own text.
+  expect((codedError(failed) as Error).message).toMatch(/^NEEDS_WORKTREE: /);
+  expect(codedError(new Error("plain"))).toEqual(new Error("plain"));
 });
 
 test("the user's Start again starts next to a closed session and archives nothing; an idle one still refuses (ruling)", async () => {

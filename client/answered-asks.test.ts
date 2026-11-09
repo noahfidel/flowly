@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { answeredAsks, forgetAnsweredMissing, markAsksAnswered, subscribeAnsweredAsks } from "./answered-asks";
+import { answeredAsks, bellResolved, forgetAnsweredMissing, markAsksAnswered, subscribeAnsweredAsks } from "./answered-asks";
+import { startAgainMessage } from "./start-again";
 import { attentionItems, openAskCount } from "./attention";
 
 const now = "2026-11-08T10:00:00.000Z";
@@ -33,4 +34,24 @@ test("an answered ask leaves the bell count until it leaves the live list", () =
   stop();
   markAsksAnswered(["p:s1:r2"]);
   expect(heard).toHaveBeenCalledTimes(2);
+});
+
+test("after a reload the bell leaves out what the daemon resolved, with an empty client set", () => {
+  const items = attentionItems({ projects: [project], tasks: [task], events: [] }, agents, [], false);
+  const fresh = new Set<string>();
+  expect(openAskCount(items, bellResolved(["p:s1:r1"], fresh))).toBe(1);
+  // Not read yet: only the client's own.
+  expect(openAskCount(items, bellResolved(undefined, new Set(["p:s1:r2"])))).toBe(1);
+  expect(openAskCount(items, bellResolved(["p:s1:r1"], new Set(["p:s1:r2"])))).toBe(0);
+  // Nothing on either side: the same set object every time, so memoized counts do not recompute.
+  expect(bellResolved(undefined, fresh)).toBe(fresh);
+});
+
+test("Start again's refusals are shown in the user's words", () => {
+  expect(startAgainMessage("NEEDS_WORKTREE: The card works in a directory workspace…")).toBe(
+    "This card's folder already had sessions. Switch the card to a worktree from its menu, then start again.",
+  );
+  expect(startAgainMessage("CARD_HAS_SESSION: The card already has a live session (s1).")).toBe("The card already has a running session. Send it a message instead.");
+  expect(startAgainMessage("CARD_FINISHED: The card is Done or Cancelled; only the user reopens it.")).toBe("The card is Done or Cancelled; only the user reopens it.");
+  expect(startAgainMessage("Network down")).toBe("Network down");
 });

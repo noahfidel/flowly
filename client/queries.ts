@@ -381,6 +381,23 @@ export function useDispatcherItemsQuery(enabled: boolean) {
     placeholderData: (previous) => previous,
   });
 }
+/**
+ * The signals the dispatcher chat resolved (DISPATCHER-SPEC §9.4), so the board's bell leaves them out as the badge
+ * does, with the chat closed and after a reload. An etag read: unchanged polls carry no list.
+ */
+export const asksResolvedKey = ["flowly", "asks-resolved"] as const;
+export function useResolvedAsksQuery(enabled: boolean) {
+  const read = useRpc(rpc.asksResolved);
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: asksResolvedKey,
+    queryFn: () => readChanged(client, asksResolvedKey, (etag) => read(etag ? { etag } : {})),
+    enabled,
+    staleTime: 0,
+    refetchInterval: enabled ? 5_000 : false,
+    placeholderData: (previous) => previous,
+  });
+}
 /** Candidates waiting per project, for the overview chip; read with the board, once a minute. */
 export const memoryCountsKey = ["flowly", "memory-counts"] as const;
 export function useMemoryCountsQuery(enabled: boolean) {

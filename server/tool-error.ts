@@ -9,6 +9,10 @@ export class ToolError extends Error {
     super(message);
   }
 }
+/** Only an error's message crosses a plugin RPC: a tool error keeps its code as a `CODE: ` prefix for the client. */
+export function codedError(error: unknown): unknown {
+  return error instanceof ToolError ? new Error(`${error.code}: ${error.message}`) : error;
+}
 export function toolFailure(error: unknown) {
   if (error instanceof ToolError)
     return {

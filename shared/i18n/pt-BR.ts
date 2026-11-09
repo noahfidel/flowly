@@ -1567,5 +1567,7 @@ const catalog: Catalog = {
   "Denied": "Negado",
   "Delivered": "Entregue",
   "Choose an option or type an answer, not both.": "Escolha uma opção ou digite uma resposta, não as duas.",
+  "This card's folder already had sessions. Switch the card to a worktree from its menu, then start again.": "A pasta deste cartão já teve sessões. Mude o cartão para um worktree pelo menu dele e comece de novo.",
+  "The card already has a running session. Send it a message instead.": "O cartão já tem uma sessão em andamento. Envie uma mensagem a ela.",
 };
 export default catalog;

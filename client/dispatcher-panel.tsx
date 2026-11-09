@@ -13,7 +13,7 @@ import { coalescedRefresh } from "./session-follow";
 import { Collapse } from "./disclosure";
 import { useReducedMotion } from "./motion";
 import { useKeyboardInset } from "./keyboard";
-import { dispatcherItemsKey, useDispatcherItemsQuery } from "./queries";
+import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery } from "./queries";
 import { useStableCallback } from "./stable";
 import { displayRows, mergeTimeline, sameItem, type DisplayRow } from "./dispatcher-panel-logic";
 import { AnswerRow, AskRow } from "./dispatcher-asks";
@@ -96,6 +96,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, 
   const refreshItems = useStableCallback(() => {
     void client.invalidateQueries({ queryKey: dispatcherItemsKey });
     void client.invalidateQueries({ queryKey: ["flowly", "attention-count"] });
+    void client.invalidateQueries({ queryKey: asksResolvedKey });
   });
   // An answer row is addressed to its card: the title comes from the ask it answers.
   const askTitles = useMemo(() => new Map((items.data ?? []).flatMap((item) => (item.kind === "ask" ? [[item.signal, item.title] as const] : []))), [items.data]);

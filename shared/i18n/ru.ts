@@ -1567,5 +1567,7 @@ const catalog: Catalog = {
   "Denied": "Отклонено",
   "Delivered": "Доставлено",
   "Choose an option or type an answer, not both.": "Выберите вариант или введите ответ, но не то и другое.",
+  "This card's folder already had sessions. Switch the card to a worktree from its menu, then start again.": "В папке этой карточки уже были сессии. Переведите карточку на worktree через её меню и запустите снова.",
+  "The card already has a running session. Send it a message instead.": "У карточки уже есть идущая сессия. Отправьте ей сообщение.",
 };
 export default catalog;

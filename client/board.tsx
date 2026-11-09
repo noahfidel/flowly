@@ -50,7 +50,7 @@ import {
 import { StatusIcon, priorityLabels } from "./status";
 import { AttentionButton } from "./attention-button";
 import { DispatcherPanel } from "./dispatcher-panel";
-import { forgetAnsweredMissing, useAnsweredAsks } from "./answered-asks";
+import { bellResolved, forgetAnsweredMissing, useAnsweredAsks } from "./answered-asks";
 import {
   attentionItemsWithFacts,
   attentionOpenToken,
@@ -70,7 +70,7 @@ import { waitingOn } from "../shared/links";
 import { LinkPicker } from "./task-links";
 import { TaskDrawer } from "./drawer";
 import { DeleteTaskDialog } from "./task-delete";
-import { dispatcherItemsKey, useOverviewQuery, useLiveAgents, useMemoryCountsQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
+import { dispatcherItemsKey, useOverviewQuery, useLiveAgents, useMemoryCountsQuery, useResolvedAsksQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
 import { projectOpenIdeaCount } from "./overview-query";
 import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
@@ -744,12 +744,21 @@ function BoardContent(
   );
   const attention = useMemo(() => allAttention.filter((i) => !i.dismissed), [allAttention]);
   // The bell counts open asks (plan Q1), as the sidebar badge and the dispatcher chat do; rows stay per card.
-  // Asks answered from the chat stay out of it until the live list drops them (DISPATCHER-SPEC §9.4).
+  // Asks resolved in the chat stay out of it until the live list drops them (DISPATCHER-SPEC §9.4): the daemon's
+  // list covers a closed chat and a reload, this client's own set the moments before that list catches up.
   const answeredAsks = useAnsweredAsks();
-  const attentionCount = useMemo(() => openAskCount(attention, answeredAsks), [attention, answeredAsks]);
+  const resolvedAsks = useResolvedAsksQuery(auxiliaryActive);
+  const attentionCount = useMemo(
+    () => openAskCount(attention, bellResolved(resolvedAsks.data, answeredAsks)),
+    [attention, resolvedAsks.data, answeredAsks],
+  );
+  const liveSignals = useMemo(
+    () => (projected && agents.data ? new Set(allAttention.flatMap((i) => i.parts.map((p) => p.key))) : null),
+    [allAttention, projected, agents.data],
+  );
   useEffect(() => {
-    if (projected && agents.data) forgetAnsweredMissing(new Set(allAttention.flatMap((i) => i.parts.map((p) => p.key))));
-  }, [allAttention]);
+    if (liveSignals) forgetAnsweredMissing(liveSignals);
+  }, [liveSignals]);
   const dismissedAttention = useMemo(() => allAttention.filter((i) => i.dismissed), [allAttention]);
   const attentionByTask = useMemo(() => new Map(allAttention.map((i) => [i.task.id, i])), [allAttention]);
   const [dismissedOpen, setDismissedOpen] = useState(false);

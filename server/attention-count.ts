@@ -21,19 +21,21 @@ export type AgentLister = { list(paseo: PaseoApi): Promise<PaseoAgent[]> };
 /**
  * The agent list, shared for a short time (PERFORMANCE-SPEC): the sidebar badge and the open dispatcher chat
  * poll every few seconds, so one listing serves both. One listing at a time; a failed one is not kept.
+ * A listing belongs to the Paseo handle it was read with: the plugin process has one handle for every client,
+ * replaced when it reconnects to the daemon, and a new handle lists again.
  */
 export class AttentionAgents implements AgentLister {
   private readonly ttlMs: number;
   private readonly now: () => number;
-  private cached: { at: number; agents: Promise<PaseoAgent[]> } | null = null;
+  private cached: { paseo: PaseoApi; at: number; agents: Promise<PaseoAgent[]> } | null = null;
   constructor(options: { ttlMs?: number; now?: () => number } = {}) {
     this.ttlMs = options.ttlMs ?? 2_000;
     this.now = options.now ?? Date.now;
   }
   list(paseo: PaseoApi): Promise<PaseoAgent[]> {
     const now = this.now();
-    if (this.cached && (this.cached.at === -1 || now - this.cached.at < this.ttlMs)) return this.cached.agents;
-    const entry = { at: -1, agents: listAttentionAgents(paseo) };
+    if (this.cached?.paseo === paseo && (this.cached.at === -1 || now - this.cached.at < this.ttlMs)) return this.cached.agents;
+    const entry = { paseo, at: -1, agents: listAttentionAgents(paseo) };
     this.cached = entry;
     entry.agents.then(
       () => {

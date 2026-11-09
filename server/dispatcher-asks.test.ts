@@ -374,6 +374,58 @@ test("a form with several text questions takes one text per question and never d
   expect(f.respond.mock.calls[0][1]).toMatchObject({ response: { behavior: "allow", updatedInput: { answers: { Branch: "feat/x", Colour: "Green", DB: "SQLite" } } } });
 });
 
+test("after a reload with the chat closed, the bell (daemon's resolved signals, empty client set) equals the badge", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  await answer(f, "p:s2:r2", { optionIds: ["a1"] });
+  // A closed session still lists its report: the ask is recorded ended, and the board still shows the signal.
+  const closed = { ...baseAgents()[0], status: "closed" as const };
+  const paseo = {
+    agents: {
+      list: async () => ({ entries: [closed, ...baseAgents().slice(1)].map((a) => ({ agent: a })), pageInfo: {} }),
+      ref: (id: string) => ({ refresh: async () => ({ agent: id === "s1" ? closed : baseAgents().find((a) => a.id === id) }) }),
+    },
+  } as unknown as PaseoApi;
+  expect(await f.asks.answer({ signal: "q:e1", answer: { text: "Postgres" } }, paseo)).toEqual({ delivered: false, state: "session_ended" });
+  // Reload: a fresh client knows nothing; it reads the daemon's resolved signals.
+  const resolved = new Set(await f.asks.resolvedSignals());
+  expect([...resolved].sort()).toEqual(["p:s2:r2", "q:e1"]);
+  const agents = [closed, ...baseAgents().slice(1)];
+  const items = attentionFromSources({ board: f.board, agents, receipts: [], readUnavailable: false })!;
+  const badge = (await f.asks.count(paseo)).count;
+  expect(openAskCount(items, resolved)).toBe(badge);
+  expect(openAskCount(items)).toBe(badge + 2);
+});
+
+test("errors and unread turns are never answered or resolved, so their reused keys keep counting", async () => {
+  const f = fixture(baseBoard(), [...baseAgents().slice(0, 2), agent("s3", "w-c", { status: "error" } as never)]);
+  await f.asks.chatItems([], f.paseo);
+  // The error cleared meanwhile: the known path must not record it.
+  f.setAgents(baseAgents());
+  await expect(answer(f, "e:s3:status", { text: "ok" })).rejects.toThrow("no answer");
+  const unread = `u:${JSON.stringify(["s1", "finished", at])}`;
+  await expect(answer(f, unread, { text: "ok" })).rejects.toThrow("no answer");
+  expect(await f.items.list()).toEqual([]);
+  expect(await f.asks.resolvedSignals()).toEqual([]);
+  // The same key again later counts.
+  f.setAgents([...baseAgents().slice(0, 2), agent("s3", "w-c", { status: "error" } as never)]);
+  expect((await f.asks.chatItems([], f.paseo)).find((i) => i.kind === "ask" && i.signal === "e:s3:status")).toMatchObject({ state: "open" });
+});
+
+test("the shared agent list belongs to the Paseo handle it was read with", async () => {
+  const cache = new AttentionAgents({ ttlMs: 60_000, now: () => 1 });
+  const handle = () => {
+    const list = vi.fn(async () => ({ entries: [], pageInfo: {} }));
+    return { list, paseo: { agents: { list } } as unknown as PaseoApi };
+  };
+  const a = handle();
+  const b = handle();
+  await cache.list(a.paseo);
+  await cache.list(a.paseo);
+  await cache.list(b.paseo);
+  expect(a.list).toHaveBeenCalledTimes(1);
+  expect(b.list).toHaveBeenCalledTimes(1);
+});
+
 test("agent lists are shared for a short time: two polls inside it list agents once", async () => {
   let clock = 1_000;
   const cache = new AttentionAgents({ ttlMs: 2_000, now: () => clock });

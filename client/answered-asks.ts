@@ -27,6 +27,15 @@ export function forgetAnsweredMissing(live: ReadonlySet<string>) {
 
 export const answeredAsks = () => answered;
 
+/**
+ * What the bell leaves out: the daemon's resolved signals (`asks.resolved`, right after a reload or with the chat
+ * closed) and this client's own answers not yet listed there. The client set itself when the daemon's adds nothing.
+ */
+export function bellResolved(daemon: readonly string[] | undefined, client: ReadonlySet<string>): ReadonlySet<string> {
+  if (!daemon?.length) return client;
+  return new Set([...daemon, ...client]);
+}
+
 export function subscribeAnsweredAsks(listener: () => void) {
   listeners.add(listener);
   return () => void listeners.delete(listener);
