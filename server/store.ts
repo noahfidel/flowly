@@ -1,3 +1,4 @@
+import { deliveryModeLocked } from "../shared/delivery-mode";
 import { laneName, laneProblem } from "../shared/lanes";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -204,6 +205,9 @@ export class BoardStore {
       }
       if ((input.tags === undefined) !== (input.tagsBase === undefined))
         throw new Error("Tags and the tags the form started from must be sent together.");
+      const deliveryChange = input.deliveryMode !== undefined && input.deliveryMode !== task.deliveryMode;
+      if (deliveryChange && deliveryModeLocked(task.status))
+        throw new Error("The delivery mode can't be changed once the card is in review, committed or integrated.");
       const tagChange =
         input.tags !== undefined
           ? mergeTagEdit(task.tags || [], normalizeTags(input.tagsBase!), normalizeTags(input.tags), new Date().toISOString())
@@ -215,6 +219,7 @@ export class BoardStore {
       if (input.type === null) delete task.type;
       else if (input.type !== undefined) task.type = input.type;
       if (input.status !== undefined) task.status = input.status;
+      if (deliveryChange) task.deliveryMode = input.deliveryMode;
       if (input.archived !== undefined)
         task.archivedAt = input.archived ? new Date().toISOString() : null;
       task.revision++;

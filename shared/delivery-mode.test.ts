@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
-import { defaultDeliveryMode, deliveryLine, deliveryModeLabels, deliveryModes, effectiveDeliveryMode } from "./delivery-mode";
+import { defaultDeliveryMode, deliveryLine, deliveryModeLabels, deliveryModeLocked, deliveryModes, effectiveDeliveryMode } from "./delivery-mode";
 import { deliverySettings, deliverySettingsValues } from "./settings";
-import { taskInput, taskSchema } from "./model";
+import { taskEdit, taskInput, taskSchema } from "./model";
 
 test("the three modes, with the branch default (DELIVERY-MODE-SPEC §1)", () => {
   expect(deliveryModes).toEqual(["branch", "draft_pr", "ready_pr"]);
@@ -42,4 +42,15 @@ test("New task accepts only the three modes; a stored card keeps any string (§5
   expect(() => taskInput.parse({ ...base, deliveryMode: "auto_merge" })).toThrow();
   const stored = { id: "t", projectId: "p", workspaceId: "w", sourcePath: "/r", repoPaths: [], title: "T", description: "", status: "todo", priority: "normal", position: 0, revision: 1, operationId: "o", createdAt: "2026-11-08T00:00:00.000Z", updatedAt: "2026-11-08T00:00:00.000Z", archivedAt: null };
   expect(taskSchema.parse({ ...stored, deliveryMode: "from_the_future" }).deliveryMode).toBe("from_the_future");
+  // No length cap on what a newer version may have stored: it still loads.
+  const long = `mode_${"x".repeat(60)}`;
+  expect(taskSchema.parse({ ...stored, deliveryMode: long }).deliveryMode).toBe(long);
+});
+
+test("Edit accepts only the three modes, and the mode is fixed once the card delivers (§2)", () => {
+  expect(taskEdit.parse({ id: "t", revision: 1, deliveryMode: "ready_pr" }).deliveryMode).toBe("ready_pr");
+  expect(taskEdit.parse({ id: "t", revision: 1 }).deliveryMode).toBeUndefined();
+  expect(() => taskEdit.parse({ id: "t", revision: 1, deliveryMode: "auto_merge" })).toThrow();
+  for (const status of ["backlog", "todo", "development", "blocked", "done", "cancelled"] as const) expect(deliveryModeLocked(status), status).toBe(false);
+  for (const status of ["in_review", "committed", "integrated"] as const) expect(deliveryModeLocked(status), status).toBe(true);
 });

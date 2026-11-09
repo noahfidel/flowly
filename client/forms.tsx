@@ -29,7 +29,7 @@ import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice"
 import { ModelDefaultGroup } from "./model-default";
 import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
 import { deliverySettings, deliverySettingsValues, modelSettings, modelSettingsValues } from "../shared/settings";
-import { deliveryModeLabels, deliveryModes, type DeliveryMode } from "../shared/delivery-mode";
+import { deliveryModeLabels, deliveryModeLocked, deliveryModes, effectiveDeliveryMode, type DeliveryMode } from "../shared/delivery-mode";
 import { launchKanbanSession } from "./session";
 import { ImageAttachments, useImageAttachments } from "./image-attach";
 import { newMessageId, rememberSentImages } from "./sent-images";
@@ -491,10 +491,14 @@ export function TaskForm({
     [baseRef, setBase] = useState(""),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
-  // The card's delivery mode, seeded from the Settings default until chosen here (DELIVERY-MODE-SPEC §2).
+  // The card's delivery mode, seeded from its stored mode, else the Settings default, until chosen here. Editable
+  // until the card delivers (in review, committed, integrated), then shown read-only (DELIVERY-MODE-SPEC §2).
   const deliveryPrefs = useSettings(deliverySettings);
   const [deliveryChoice, setDeliveryChoice] = useState<DeliveryMode | null>(null);
-  const delivery = deliveryChoice ?? (deliveryPrefs.status === "ready" ? deliverySettingsValues(deliveryPrefs.values).defaultMode : "branch");
+  const deliveryDefault = deliveryPrefs.status === "ready" ? deliverySettingsValues(deliveryPrefs.values).defaultMode : "branch";
+  const deliverySeed = effectiveDeliveryMode(task?.deliveryMode, deliveryDefault);
+  const delivery = deliveryChoice ?? deliverySeed;
+  const deliveryLocked = !!task && deliveryModeLocked(task.status);
   // From… (EXTERNAL-TRACKER-SPEC §5, CONNECTORS-SPEC §8.2): items added as inputs with the new card.
   const resources = useResourcesQuery({ enabled: ready && !task && mode === "existing" });
   const connections = useConnections(ready && !task);
@@ -575,6 +579,8 @@ export function TaskForm({
             priority,
             type: type || null,
             ...(sameList(tags, tagsBase) ? {} : { tags, tagsBase }),
+            // Only a mode the user changed here: an untouched one keeps following the Settings default.
+            ...(deliveryChoice !== null && !deliveryLocked && deliveryChoice !== deliverySeed ? { deliveryMode: deliveryChoice } : {}),
           })
         : await create({
             projectId: project.id,
@@ -701,14 +707,12 @@ export function TaskForm({
             options={priorities.map((p) => ({ value: p, label: priorityLabels[p] }))}
             onChange={setPriority}
           />
-          {!task && (
-            <Choices
-              title={t("Delivery")}
-              value={delivery}
-              options={deliveryModes.map((m) => ({ value: m, label: t(deliveryModeLabels[m]) }))}
-              onChange={setDeliveryChoice}
-            />
-          )}
+          <Choices
+            title={t("Delivery")}
+            value={delivery}
+            options={deliveryModes.map((m) => ({ value: m, label: t(deliveryModeLabels[m]), disabled: deliveryLocked }))}
+            onChange={setDeliveryChoice}
+          />
           <Choices
             title={t("Type")}
             value={type}

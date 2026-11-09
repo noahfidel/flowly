@@ -62,6 +62,30 @@ describe("board durability and business invariants", () => {
     const stored = JSON.parse(await readFile(s.path, "utf8")).tasks[0];
     expect("type" in stored).toBe(false);
   });
+  test("delivery mode is editable until the card delivers, then fixed (DELIVERY-MODE-SPEC §2)", async () => {
+    const s = await setup();
+    const board = fixture();
+    (board.tasks[0] as { deliveryMode?: string }).deliveryMode = "from_the_future";
+    await writeFile(s.path, JSON.stringify({ ...board, version: 4, agentReceipts: [] }));
+    // An edit that does not touch it keeps an unknown stored value.
+    await s.editTask({ id: "t1", revision: 1, title: "Renamed", actor: "human" });
+    expect((await s.read()).tasks[0].deliveryMode).toBe("from_the_future");
+    await s.editTask({ id: "t1", revision: 2, deliveryMode: "draft_pr", actor: "human" });
+    expect((await s.read()).tasks[0]).toMatchObject({ deliveryMode: "draft_pr", revision: 3 });
+    for (const [revision, status] of [[3, "in_review"], [5, "committed"], [7, "integrated"]] as const) {
+      await s.editTask({ id: "t1", revision, status, actor: "human" });
+      await expect(s.editTask({ id: "t1", revision: revision + 1, deliveryMode: "ready_pr", actor: "human" })).rejects.toThrow(
+        "The delivery mode can't be changed once the card is in review, committed or integrated.",
+      );
+      // Sending the stored value again is no change and passes.
+      await s.editTask({ id: "t1", revision: revision + 1, deliveryMode: "draft_pr", actor: "human" });
+    }
+    expect((await s.read()).tasks[0].deliveryMode).toBe("draft_pr");
+    // Moved back out of delivery, it can change again.
+    await s.editTask({ id: "t1", revision: 9, status: "development", actor: "human" });
+    await s.editTask({ id: "t1", revision: 10, deliveryMode: "branch", actor: "human" });
+    expect((await s.read()).tasks[0].deliveryMode).toBe("branch");
+  });
   test("v2 migration preserves selected scope/history, waits for a commit, and backs up the source", async () => {
     const s = await setup(),
       old = { ...fixture(), version: 2 };

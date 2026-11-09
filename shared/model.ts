@@ -212,7 +212,7 @@ export const taskSchema = z.object({
   /** The latest workspace switch (WORKSPACE-SWITCH-SPEC §7.1). */
   switch: switchSchema.optional(),
   /** How the card is delivered (DELIVERY-MODE-SPEC §2); a plain string so a value this version does not know still loads. Absent: the host default. */
-  deliveryMode: z.string().max(40).optional(),
+  deliveryMode: z.string().optional(),
 });
 /** A follow-up an agent proposed on its card; the user may turn it into a card (IDEAS-SPEC). */
 export const ideaStatuses = ["open", "accepted", "dismissed"] as const;
@@ -645,6 +645,8 @@ export const taskEdit = z.strictObject({
   tags: tagInputList.optional(),
   tagsBase: tagInputList.optional(),
   archived: z.boolean().optional(),
+  /** Refused once the card is in review, committed or integrated (DELIVERY-MODE-SPEC §2). */
+  deliveryMode: z.enum(deliveryModes).optional(),
   note: z.string().max(10000).optional(),
   actor: z.enum(["human", "agent"]).default("human"),
   agentId: z.string().optional(),

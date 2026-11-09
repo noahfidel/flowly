@@ -18,7 +18,7 @@ How a card's work is handed over: left on its branch for the user to review, or 
 - **Per card:** `Task.deliveryMode?` (a string; absent on every older card). New task has a "Delivery" choice seeded from the default and sends the shown value as `taskInput.deliveryMode`. Quick task and agent-created cards send none.
 - **Effective mode** = the card's stored mode when it is one of the three, otherwise the host default at the moment the context is built. A card with no stored mode therefore follows later changes of the default.
 - An unknown stored value (written by a newer version) is kept as it is and treated as the default. It is never rewritten or dropped.
-- The mode is chosen when the card is created. Card edits (`taskEdit`) do not change it.
+- **Editable until delivery** (ruling 2026-11-08): the mode is chosen when the card is created and can be changed in Edit (`taskEdit.deliveryMode`, one of the three) while the card's status is not In review, Committed or Integrated (`deliveryModeLocked`). Edit shows the card's effective mode and sends it only when the user changed it there, so a card with no stored mode keeps following the default until then. Once the card is in one of those three lanes, Edit shows the mode read-only and the daemon refuses a different value ("The delivery mode can't be changed once the card is in review, committed or integrated."); sending the stored value again is no change. The check reads the card's status before the edit. Moved back out of those lanes, the mode can change again.
 
 ## 3. Context line
 
@@ -39,7 +39,7 @@ How a card's work is handed over: left on its branch for the user to review, or 
 
 ## 5. Errors and data
 
-- `taskInput.deliveryMode` accepts only the three values; anything else is refused with the usual input error. The stored field is a plain string (max 40 characters) so that a value this version does not know still loads.
+- `taskInput.deliveryMode` and `taskEdit.deliveryMode` accept only the three values; anything else is refused with the usual input error. The stored field is a plain string with no length limit, so that a value this version does not know still loads; an edit that does not change the mode keeps it as it is.
 - `get_task` returns `deliveryMode` (effective, always one of the three).
 
 ## 6. Acceptance
@@ -48,4 +48,5 @@ How a card's work is handed over: left on its branch for the user to review, or 
 - A card with no mode uses the default; changing the default changes the line.
 - A stored unknown value is preserved in the board and treated as the default.
 - `get_task` returns `deliveryMode`.
+- Edit changes the mode before delivery; in In review, Committed and Integrated the form shows it read-only and the daemon refuses a change.
 - The draft and ready lines carry the permission and review-notes rules.

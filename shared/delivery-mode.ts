@@ -21,7 +21,15 @@ export function effectiveDeliveryMode(stored: unknown, fallback: DeliveryMode = 
   return isDeliveryMode(stored) ? stored : fallback;
 }
 
-const permission = "Pushing and opening the PR still go through the user's permission prompt, which the user answers.";
+/**
+ * Whether a card in `status` has delivered, so its mode is fixed (§2, ruling 2026-11-08): In review, Committed
+ * and Integrated (the same three as `deliveryStatuses` in `shared/model.ts`, which imports this module).
+ */
+export function deliveryModeLocked(status: string): boolean {
+  return status === "in_review" || status === "committed" || status === "integrated";
+}
+
+const permission ="Pushing and opening the PR still go through the user's permission prompt, which the user answers.";
 
 /** The agent-facing line of a mode, English (§3). */
 export function deliveryLine(mode: DeliveryMode): string {
