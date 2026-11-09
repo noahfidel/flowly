@@ -500,6 +500,25 @@ test("a session_ended row stored before closed sessions stayed live yields to th
   expect((await g.asks.chatItems(await g.items.list(), g.paseo)).find((i) => i.kind === "ask" && i.signal === "q:e1")).toMatchObject({ state: "session_ended" });
 });
 
+test("a session restored from the archive is alive again: its asks recorded as session_ended come back open (§9.4)", async () => {
+  const archived = () => [agent("s1", "w-a", { archivedAt: later }), ...baseAgents().slice(1)];
+  const f = fixture(baseBoard(), baseAgents());
+  // Seen live, then archived: answering records the ask as ended, and the chat and the bell leave it out.
+  expect((await f.asks.chatItems([], f.paseo)).find((i) => i.kind === "ask" && i.signal === "q:e1")).toMatchObject({ state: "open" });
+  f.setAgents(archived());
+  expect(await answer(f, "q:e1", { text: "Postgres" })).toEqual({ delivered: false, state: "session_ended" });
+  expect((await f.asks.chatItems(await f.items.list(), f.paseo)).find((i) => i.kind === "ask" && i.signal === "q:e1")).toMatchObject({ state: "session_ended" });
+  expect(await f.asks.resolvedSignals(f.paseo)).toContain("q:e1");
+  // Restored (archivedAt cleared, here closed as Paseo restores it): dead only when archived or missing, so it lives.
+  f.setAgents([agent("s1", "w-a", { status: "closed" }), ...baseAgents().slice(1)]);
+  const items = await f.asks.chatItems(await f.items.list(), f.paseo);
+  expect(items.filter((i) => i.kind === "ask" && i.signal === "q:e1").map((i) => i.kind === "ask" && i.state)).toEqual(["open"]);
+  expect(await f.asks.resolvedSignals(f.paseo)).not.toContain("q:e1");
+  expect((await f.asks.count(f.paseo)).count).toBe(items.filter((i) => i.kind === "ask" && i.state === "open").length);
+  expect(await answer(f, "q:e1", { text: "Postgres" })).toMatchObject({ delivered: true, state: "answered" });
+  expect(f.send).toHaveBeenCalledWith("s1", "Postgres", expect.objectContaining({ activeTurnBehavior: "steer" }));
+});
+
 test("a closed session's permission with no request left takes a typed answer, sent to the session as typed (§9.4)", async () => {
   // Paseo clears pending requests on close; the permission attention stays (`p:<agent>:<time>`), with nothing to approve.
   const agents = () => [baseAgents()[0], agent("s2", "w-b", { status: "closed", pendingPermissions: [], requiresAttention: true, attentionReason: "permission", attentionTimestamp: at }), baseAgents()[2]];

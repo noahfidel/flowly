@@ -68,6 +68,7 @@
 - Review (Medium): Replace archived the old session before the start's steps that can fail, so a failed start left no dispatcher. `run` now takes the session Replace archives and archives it after the folder, workspace, MCP server, board summary and record (a failed archive restores the record); only the create follows. A create that fails after it leaves the dispatcher ended with an error saying the old one was archived; the panel refreshes its status so Start shows with it, and the confirm dialog says so in one line. Tests red first (2 failed). Strings: 1 new, all catalogs.
 - Review (Low): the panel showed a permission's text box when it had no options, but the server takes text only when it has no request, so typed text could be thrown away. Chat ask rows now carry `requestId`, and `answersWithText` shows the box for a permission only when it has none. Tests red first (2 failed). Strings: none.
 - Review (Low): the text answer to a permission with no request now requires the session to be `closed`, as §9.4 says; a running or idle one is refused with "Open the card to answer this request." and nothing is sent or stored. Test red first (1 failed). Strings: none (daemon error).
+- Review: spec and test for e8498c6's rule: a session restored from the archive is alive again, so its asks stored as `session_ended` come back open, counted and answerable (§3, §9.4). The code already did this; the test passed on first run (no red step). Strings: none.
 
 ## Live verification script for the single pane (branch `feat/single-pane`, Task 12) — 2026-11-08
 
