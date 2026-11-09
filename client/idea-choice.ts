@@ -66,5 +66,13 @@ export function ideaOtherOptions(idea: Pick<Idea, "taskId" | "agentId" | "scope"
   return blocked ? [{ kind: "form" }, { kind: "note", blocked }] : [{ kind: "form" }, ...continueSteps(idea, sessions)];
 }
 
+/**
+ * Other options… for an idea link: as from the drawer, except that a card missing from the board's overview is not
+ * called gone (the link reads the idea fresh; the overview may lag), so it offers only the full form.
+ */
+export function ideaLinkOptions(idea: Pick<Idea, "taskId" | "agentId" | "scope">, card: Card | undefined, sessions: readonly ChoiceSession[]): OtherOption[] {
+  return idea.taskId && !card ? [{ kind: "form" }] : ideaOtherOptions(idea, card, sessions);
+}
+
 /** Where a new task from an idea opens: Quick task unless *Quick task for New task* is off. */
 export const newTaskFromIdea = (quickDefault: boolean): "quick" | "form" => (quickDefault ? "quick" : "form");

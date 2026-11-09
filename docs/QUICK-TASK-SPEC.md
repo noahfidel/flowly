@@ -166,11 +166,12 @@ The dialog then opens with:
 - **Other options…** (only when seeded from an idea), next to More options…, expands a list in the dialog (as the
   Project picker does). Each choice closes Quick task and does the following instead:
   - **Open the full form**: the full form prefilled exactly as IDEAS-SPEC §6.1 (no instruction).
-  - For an idea whose card can still continue (opened from the drawer or the Ideas page): the Good idea menu's own
+  - For an idea whose card can still continue (from the drawer, the Ideas page or an idea link): the Good idea menu's own
     card actions, with the same Suggested marks: Continue in <session>, Send to another session… (expands the
     live sessions in the list) and Do it in a new session (IDEAS-SPEC §6.2, §6.3).
   - For a finished, archived or gone card: the line saying why it cannot continue in it (no action).
-  - An idea link has only Open the full form.
-- Pure logic and tests: `client/idea-choice.ts` (`goodIdeaPlan`, `ideaOtherOptions`, `newTaskFromIdea`) and
+  - An idea link whose source card is not in the board's overview yet lists only Open the full form (the card is not
+    called gone, `ideaLinkOptions`).
+- Pure logic and tests: `client/idea-choice.ts` (`goodIdeaPlan`, `ideaOtherOptions`, `ideaLinkOptions`, `newTaskFromIdea`) and
   `client/quick-task.ts` (`ideaQuickSeed`, `ideaQuickText`, `quickProjects`, `quickCard`, `quickCreateInput`,
   `quickMoreSeed`), tested in `client/idea-choice.test.ts` and `client/quick-task.test.ts`.

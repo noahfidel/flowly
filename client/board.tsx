@@ -65,7 +65,7 @@ import { IdeaRow, useExitList, useHeld } from "./task-ideas";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
 import { QuickTaskForm } from "./quick-task-form";
 import { ideaQuickSeed, quickProject, quickProjects, type QuickTaskSeed } from "./quick-task";
-import { newTaskFromIdea, type OtherOption } from "./idea-choice";
+import { ideaLinkOptions, newTaskFromIdea, type OtherOption } from "./idea-choice";
 import { discussAvailable, discussIdeaText } from "./dispatcher-panel-logic";
 import type { IdeaOther } from "./task-ideas";
 import { ideaDescription } from "../shared/ideas";
@@ -246,7 +246,8 @@ function BoardContent(
   const routeWidth = useWindowDimensions().width;
   const { surfaceWidth, onSurfaceWidth: setSurfaceWidth } = props;
   const readCard = useRpc(rpc.readCardDetailChanged),
-    readProjectIdeas = useRpc(rpc.readProjectIdeasChanged);
+    readProjectIdeas = useRpc(rpc.readProjectIdeasChanged),
+    adoptIdea = useRpc(rpc.adoptIdea);
   const updateProject = useRpc(rpc.updateProject),
     updateTask = useRpc(rpc.updateTask),
     reorder = useRpc(rpc.moveTask),
@@ -1121,6 +1122,24 @@ function BoardContent(
       idea: { form, options: other?.options ?? [{ kind: "form" }], ...(other ? { run: other.run } : {}) },
     });
   });
+  // An idea link's Other options…: the card's own actions too, as from the drawer (QUICK-TASK-SPEC §10).
+  const linkOther = (idea: Idea): IdeaOther => {
+    const card = idea.taskId ? board?.tasks.find((t) => t.id === idea.taskId) : undefined;
+    return {
+      options: ideaLinkOptions(idea, card, idea.taskId ? ideaSessionsOf(idea.taskId) : []),
+      run: (option) => {
+        if (option.kind === "new-session") return ideaInNewSession(idea);
+        if (option.kind !== "continue") return;
+        const session = option.session;
+        void adoptIdea({ id: idea.id, agentId: session.id })
+          .then(() => invalidateCardViews(queryClient))
+          .then(
+            () => toast.show(t("Sent to {session}", { session: session.title || t("the session") }), { variant: "success" }),
+            (e) => toast.show(message(e), { variant: "error" }),
+          );
+      },
+    };
+  };
   useEffect(() => {
     if (ideaInput.error) {
       setError(ideaInput.error);
@@ -1151,7 +1170,7 @@ function BoardContent(
         setError("");
         setPage(null);
         setProject(idea.projectId);
-        createFromIdea(idea);
+        createFromIdea(idea, linkOther(idea));
         return;
       }
       if (appliedIdea.current === link.requestId) setError(t("This idea is no longer open."));

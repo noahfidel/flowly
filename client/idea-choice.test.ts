@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { goodIdeaPlan, ideaOtherOptions, newTaskFromIdea, type ChoiceSession } from "./idea-choice";
+import { goodIdeaPlan, ideaLinkOptions, ideaOtherOptions, newTaskFromIdea, type ChoiceSession } from "./idea-choice";
 import type { Idea } from "../shared/model";
 
 const idea = (over: Partial<Idea> = {}): Idea => ({
@@ -78,5 +78,18 @@ describe("newTaskFromIdea (QUICK-TASK-SPEC §10)", () => {
   test("Quick task by default, the full form when Quick task for New task is off", () => {
     expect(newTaskFromIdea(true)).toBe("quick");
     expect(newTaskFromIdea(false)).toBe("form");
+  });
+});
+
+describe("ideaLinkOptions: an idea link's Other options… (QUICK-TASK-SPEC §10)", () => {
+  test("a card that can continue offers its actions, as from the drawer", () => {
+    expect(ideaLinkOptions(idea(), live, [a1, a2])).toEqual(ideaOtherOptions(idea(), live, [a1, a2]));
+  });
+  test("a finished card shows why; a project idea only the form", () => {
+    expect(ideaLinkOptions(idea(), { ...live, status: "done" }, [a1])).toEqual([{ kind: "form" }, { kind: "note", blocked: { reason: "finished", title: "Importer" } }]);
+    expect(ideaLinkOptions(idea({ taskId: undefined }), undefined, [])).toEqual([{ kind: "form" }]);
+  });
+  test("a card the board has not read yet is not called gone: only the form", () => {
+    expect(ideaLinkOptions(idea(), undefined, [a1])).toEqual([{ kind: "form" }]);
   });
 });
