@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { Project } from "../shared/model";
 import { daemonWorkspaceRecovery, type WorkspaceRecovery } from "./workspace-restore";
 import { logFailure } from "./error-report";
+import { ToolError } from "./tool-error";
 
 export const BACKGROUND_TITLE = "Flowly background";
 
@@ -32,6 +33,29 @@ export function daemonRevive(recovery: WorkspaceRecovery = daemonWorkspaceRecove
       await daemon.close();
     }
   };
+}
+
+/**
+ * Creates a plugin-owned directory workspace; returns its id. `background: true` needs a host with
+ * background workspaces: an older host's refusal becomes HOST_UNSUPPORTED, never retried (DISPATCHER-SPEC §2).
+ */
+export async function createDirectoryWorkspace(
+  paseo: PaseoApi,
+  request: { title: string; idempotencyKey: string; path: string; projectId?: string; background?: boolean },
+): Promise<string> {
+  try {
+    const created = await paseo.workspaces.create({
+      title: request.title,
+      idempotencyKey: request.idempotencyKey,
+      ...(request.background ? { background: true } : {}),
+      source: { kind: "directory", path: request.path, ...(request.projectId ? { projectId: request.projectId } : {}) },
+    });
+    return created.id;
+  } catch (e) {
+    if (request.background && /background workspaces/i.test(e instanceof Error ? e.message : String(e)))
+      throw new ToolError("HOST_UNSUPPORTED", "Update Paseo to use the dispatcher: this host has no background workspaces.");
+    throw e;
+  }
 }
 
 const stateSchema = z.object({ version: z.literal(1), projects: z.record(z.string(), z.string()) });
@@ -90,13 +114,14 @@ export class BackgroundWorkspaces {
       });
       if (state !== "gone") return known;
     }
-    const created = await paseo.workspaces.create({
+    const id = await createDirectoryWorkspace(paseo, {
       title: BACKGROUND_TITLE,
       idempotencyKey: `flowly-background:${project.id}:${randomUUID()}`,
-      source: { kind: "directory", path: project.primaryPath, projectId: project.paseoProjectId },
+      path: project.primaryPath,
+      projectId: project.paseoProjectId,
     });
-    await this.write((state) => (state.projects[project.id] = created.id));
-    return created.id;
+    await this.write((state) => (state.projects[project.id] = id));
+    return id;
   }
 
   private locked<T>(key: string, job: () => Promise<T>): Promise<T> {

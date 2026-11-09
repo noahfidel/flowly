@@ -158,6 +158,8 @@ export class BoardService {
   connectors?: ConnectorService;
   /** Workflow-insights suggestions a card can be created from (WORKFLOW-INSIGHTS-SPEC §5.2); set by the plugin entry. */
   insightFindings?: { check(projectId: string, id: string): Promise<void>; accept(projectId: string, id: string, taskId: string): Promise<void> };
+  /** Workspaces no card may be bound to: the dispatcher's (DISPATCHER-SPEC §2); set by the plugin entry. */
+  reservedWorkspace: (workspaceId: string) => boolean | Promise<boolean> = () => false;
   constructor(readonly store: BoardStore) {}
   private serialize<T>(action: () => Promise<T>) {
     const result = this.provision.then(action);
@@ -517,6 +519,7 @@ export class BoardService {
       let workspaceId = input.workspaceId;
       if (input.mode === "existing") {
         if (!workspaceId) throw new Error("Select a workspace.");
+        if (await this.reservedWorkspace(workspaceId)) throw new Error("This is the Flowly dispatcher's workspace; a card can't use it.");
         const workspace = await paseo.workspaces.ref(workspaceId).refresh();
         const matching = workspace
           ? await repoMatcher([project.primaryPath])(

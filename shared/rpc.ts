@@ -62,6 +62,7 @@ import { localeCodes } from "./i18n";
 import { workflowOverviewSchema, workflowViewSchema } from "./workflow-insights";
 import { cardTokensSchema, insightsViewSchema } from "./workflow-stats";
 import { dayDetailSchema } from "./day-detail";
+import { dispatcherStartInputSchema, dispatcherStartResultSchema, dispatcherStatusSchema } from "./dispatcher";
 
 /** `{ etag }` in; the value is omitted when it still matches (PERFORMANCE-SPEC §3). */
 const etagInput = z.strictObject({ etag: z.string().max(200).optional() });
@@ -989,6 +990,10 @@ export const exportBoardMarkdown = defineRpc({
   output: z.strictObject({ markdown: z.string() }),
 });
 export const useSqliteStorage = defineRpc({ name: "storage.use-sqlite", input: z.strictObject({}), output: z.strictObject({}) });
+/** The dispatcher session's state (DISPATCHER-SPEC §3, §8). */
+export const dispatcherStatus = defineRpc({ name: "dispatcher.status", input: z.strictObject({}), output: dispatcherStatusSchema });
+/** Starts a new dispatcher session; refused while one is up (DISPATCHER-SPEC §3, §8). */
+export const dispatcherStart = defineRpc({ name: "dispatcher.start", input: dispatcherStartInputSchema, output: dispatcherStartResultSchema });
 
 /** Whether telemetry is forced off on the daemon's host by DO_NOT_TRACK / FLOWLY_TELEMETRY=0 / NODE_ENV=test, or by a build without a PostHog key (`builtOff`) (TELEMETRY-SPEC §5, §6). */
 export const telemetryStatus = defineRpc({ name: "telemetry.status", input: z.strictObject({}), output: z.object({ forcedOff: z.boolean(), builtOff: z.boolean().default(false) }) });

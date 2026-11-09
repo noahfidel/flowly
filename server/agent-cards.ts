@@ -1,3 +1,4 @@
+import { access, constants, stat } from "node:fs/promises";
 import type { PaseoApi } from "@getpaseo/client";
 import { laneEnabled, laneName, projectLanes } from "../shared/lanes";
 import { linksOf } from "../shared/links";
@@ -106,6 +107,18 @@ export class AgentCards {
     if (workspace.projectId !== project.paseoProjectId)
       throw new ToolError("SESSION_MISMATCH", "This workspace no longer belongs to the Flowly project.");
     return { agentId: identity.agentId, projectId: project.id };
+  }
+  /**
+   * The dispatcher acting on `projectId` (DISPATCHER-SPEC §4): the project must exist, be live and have a
+   * readable root. The dispatcher session itself is checked by the caller first.
+   */
+  async dispatcherCaller(projectId: string, agentId: string): Promise<CardCaller> {
+    const project = (await this.store.read()).projects.find((p) => p.id === projectId);
+    if (!project) throw new ToolError("NOT_FOUND", "No Flowly project with that projectId. Use one from flowly_list_projects.");
+    if (project.archivedAt) throw new ToolError("PROJECT_ARCHIVED", "The Flowly project is archived. Tell the user instead of changing it.");
+    if (!(await rootAvailable(project.primaryPath)))
+      throw new ToolError("ROOT_UNAVAILABLE", "The project's folder is missing or unreadable. Tell the user before doing anything in this project.");
+    return { agentId, projectId: project.id };
   }
   /**
    * Whether a session opening in `workspaceId` gets the project's card tools, and for which project
@@ -299,6 +312,17 @@ export class AgentCards {
         this.store.event(board, { taskId: task.id, actor: "agent", agentId: caller.agentId, action: "tags_changed", note: tagChangeNote(tagChange!) });
       return { value: { card: cardView(board, project, task), changed }, changed: true };
     });
+  }
+}
+
+/** Whether a project root is a readable directory. */
+export async function rootAvailable(path: string) {
+  try {
+    if (!(await stat(path)).isDirectory()) return false;
+    await access(path, constants.R_OK);
+    return true;
+  } catch {
+    return false;
   }
 }
 

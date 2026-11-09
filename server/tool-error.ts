@@ -40,3 +40,19 @@ export function toolFailure(error: unknown) {
     retryable: false,
   };
 }
+/** A tool's value as an MCP tool result, or its failure as an MCP tool error. */
+export async function toolResult(operation: () => Promise<object>) {
+  try {
+    const value = await operation();
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(value) }],
+      structuredContent: value as Record<string, unknown>,
+    };
+  } catch (e) {
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: JSON.stringify(toolFailure(e)) }],
+      structuredContent: { error: toolFailure(e) },
+    };
+  }
+}

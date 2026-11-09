@@ -64,6 +64,7 @@ import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
 import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
 import { EventBus, commitHandler } from "./server/event-bus";
+import { wireDispatcher } from "./server/dispatcher";
 
 export default function contribute(host: PluginServerContext) {
   const server = reportRpcErrors(host);
@@ -344,6 +345,28 @@ export default function contribute(host: PluginServerContext) {
   };
   // Agents create and edit cards through the New card path, sharing its queue (AGENT-CARDS-SPEC).
   tools.cards.board = service;
+  // The dispatcher (DISPATCHER-SPEC): its workspace is never bound to a card, so no card archive path reaches it.
+  service.reservedWorkspace = (id) => tools.dispatcher.owns(id);
+  void tools.dispatcher.record().catch((e) => logFailure("Flowly dispatcher record not read:", e));
+  // Stops reach the dispatcher as batched notes, held while it runs, dropped while it is down (§7).
+  const unwireDispatcher = wireDispatcher(bus, tools.dispatcher, () => {
+    try {
+      return tools.cards.api();
+    } catch {
+      return undefined;
+    }
+  });
+  server.on("agent.turn_ended", (event, { paseo }) => {
+    void tools.dispatcher.turnEnded(event.agent.id, paseo).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
+  });
+  server.handle(rpc.dispatcherStatus, (_, { paseo }) => {
+    tools.attach(paseo);
+    return tools.dispatcher.status(paseo);
+  });
+  server.handle(rpc.dispatcherStart, (input, { paseo }) => {
+    tools.attach(paseo);
+    return tools.dispatcher.start(paseo, input);
+  });
   tools.cards.on = async () => {
     const state = await ideasPrefs.read().catch(() => null);
     return ideasSettingsValues(state?.status === "ready" ? state.values : {}).agentCards;
@@ -812,6 +835,15 @@ export default function contribute(host: PluginServerContext) {
   server.before("agent.session_open", async ({ request }, { paseo }) => {
     tools.attach(paseo);
     if (request.purpose !== "interactive") return;
+    // The stored dispatcher gets its tools again when its session opens; no other session does (DISPATCHER-SPEC §3).
+    const opening = request as typeof request & { mcpServers?: Record<string, unknown> };
+    if (opening.mcpServers)
+      try {
+        const mcp = await tools.dispatcherSession(request.agentId, paseo);
+        if (mcp) return { ...request, mcpServers: { ...opening.mcpServers, "flowly-dispatcher": mcp } };
+      } catch (e) {
+        logFailure("Flowly dispatcher tools not added to its session:", e);
+      }
     try {
       const contextFile = await tools.sessionContext(
         request.agentId,
@@ -853,6 +885,7 @@ export default function contribute(host: PluginServerContext) {
     stopWorkflowPrefs();
     stopFeaturePrefs();
     folders.stop();
+    unwireDispatcher();
     tools.stop();
   };
 }

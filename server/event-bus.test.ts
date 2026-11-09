@@ -123,6 +123,27 @@ describe("a commit's facts", () => {
     bus.publish([fact({})]);
     expect(fn).not.toHaveBeenCalled();
   });
+
+  test("with no subscriber a commit builds no facts", () => {
+    const bus = new EventBus();
+    const schedule = vi.fn();
+    const handler = commitHandler(bus, schedule);
+    // Reading the board's cards would throw: facts are not built while nobody listens.
+    const untouchable = new Proxy(board(), {
+      get(target, key) {
+        if (key === "tasks") throw new Error("facts were built");
+        return Reflect.get(target, key);
+      },
+    });
+    expect(bus.hasSubscribers()).toBe(false);
+    expect(() => handler([event({})], untouchable)).not.toThrow();
+    expect(schedule).toHaveBeenCalledTimes(1);
+    const fn = vi.fn();
+    bus.subscribe(fn);
+    expect(bus.hasSubscribers()).toBe(true);
+    handler([event({})], board());
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("what counts as a stop", () => {
@@ -220,6 +241,32 @@ describe("note batching", () => {
     ]);
     vi.advanceTimersByTime(10_000);
     expect(flushed[0]).toEqual([{ taskId: "t1", projectId: "p1", title: "Task one", kind: "turn_failed", detail: "model error", at: now }]);
+  });
+
+  test("maxWait counts from a first fact at time zero", () => {
+    vi.setSystemTime(0);
+    const b = batcher();
+    for (let at = 0; at <= 70_000; at += 5_000) {
+      if (at > 0) vi.advanceTimersByTime(5_000);
+      if (flushed.length) break;
+      b.push([fact({ action: "status_changed", to: "blocked", note: `at ${at}` })]);
+    }
+    expect(flushed).toHaveLength(1);
+    // The batch that began at 0 went out at 60 s, not later.
+    expect(Date.now()).toBe(60_000);
+  });
+
+  test("dispose clears the timer and the pending notes", () => {
+    const b = batcher();
+    b.push([fact({ action: "status_changed", to: "blocked" })]);
+    b.dispose();
+    vi.advanceTimersByTime(120_000);
+    expect(flushed).toEqual([]);
+    // A disposed batcher can still be pushed to without leaking a timer into a later flush of old notes.
+    b.push([fact({ action: "status_changed", to: "done" })]);
+    vi.advanceTimersByTime(10_000);
+    expect(flushed).toHaveLength(1);
+    expect(flushed[0][0].detail).toBe("→ done");
   });
 
   test("a flush that throws is logged and the next batch still goes out", () => {

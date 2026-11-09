@@ -1,0 +1,379 @@
+import { afterEach, expect, test, vi } from "vitest";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { PaseoApi } from "@getpaseo/client";
+import { Dispatcher, wireDispatcher } from "./dispatcher";
+import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
+import { BoardService } from "./service";
+import { agentFixture } from "./agent-fixture";
+import { dispatcherCharter, type DispatcherNote } from "../shared/dispatcher";
+import type { BoardEvent } from "../shared/model";
+
+const directories: string[] = [];
+afterEach(async () => {
+  vi.useRealTimers();
+  await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+});
+
+type Agent = {
+  id: string;
+  workspaceId: string;
+  status: string;
+  archivedAt: string | null;
+  lastUsage?: { contextWindowUsedTokens?: number; contextWindowMaxTokens?: number };
+};
+
+/** A fake Paseo that records workspace creations, archives, agent creations and sends. */
+function fakePaseo() {
+  const agents = new Map<string, Agent>();
+  const workspaces = new Map<string, { id: string; archivingAt: string | null }>();
+  const created: Record<string, unknown>[] = [];
+  const archived: string[] = [];
+  const agentCreates: { workspaceId: string; options: Record<string, unknown> }[] = [];
+  const sends: { id: string; text: string; options: unknown }[] = [];
+  let createError: Error | null = null;
+  const paseo = {
+    workspaces: {
+      create: async (request: Record<string, unknown>) => {
+        created.push(request);
+        if (createError) throw createError;
+        const id = `dw-${created.length}`;
+        workspaces.set(id, { id, archivingAt: null });
+        return { id };
+      },
+      archive: async (id: string) => {
+        archived.push(id);
+        return { workspaceId: id, archivedAt: "now", error: null, requestId: "r" };
+      },
+      ref: (id: string) => ({
+        refresh: async () => workspaces.get(id) ?? null,
+        archive: async () => {
+          archived.push(id);
+          return { workspaceId: id, archivedAt: "now", error: null, requestId: "r" };
+        },
+        agents: {
+          create: async (options: Record<string, unknown>) => {
+            agentCreates.push({ workspaceId: id, options });
+            const agentId = options.agentId as string;
+            agents.set(agentId, { id: agentId, workspaceId: id, status: "running", archivedAt: null });
+            return { id: agentId };
+          },
+        },
+      }),
+    },
+    agents: {
+      ref: (id: string) => ({
+        refresh: async () => {
+          const agent = agents.get(id);
+          return agent ? { agent: { ...agent } } : null;
+        },
+        send: async (text: string, options?: unknown) => {
+          sends.push({ id, text, options });
+        },
+        archive: async () => {
+          archived.push(`agent:${id}`);
+          return { archivedAt: "now" };
+        },
+      }),
+    },
+  } as unknown as PaseoApi;
+  return {
+    paseo,
+    agents,
+    workspaces,
+    created,
+    archived,
+    agentCreates,
+    sends,
+    failCreate: (e: Error | null) => (createError = e),
+  };
+}
+
+async function setup() {
+  const directory = await mkdtemp(join(tmpdir(), "flowly-dispatcher-"));
+  directories.push(directory);
+  const fake = fakePaseo();
+  const dispatcher = new Dispatcher(directory, {
+    mcp: async (identity) => ({ type: "http" as const, url: "http://127.0.0.1:1/mcp", headers: { Authorization: `Bearer sealed-${identity.agentId}` } }),
+    summary: async () => "Board summary",
+  });
+  return { directory, dispatcher, ...fake };
+}
+
+const note = (taskId: string, detail = "todo → in_review"): DispatcherNote => ({
+  taskId,
+  projectId: "p",
+  title: `Card ${taskId}`,
+  kind: "status_changed",
+  detail,
+  at: "2026-11-08T10:00:00.000Z",
+});
+
+test("start creates a background directory workspace once and reuses it", async () => {
+  const x = await setup();
+  expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "none", agentId: null });
+  const first = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5", modeId: "default" });
+  expect(x.created).toHaveLength(1);
+  expect(x.created[0]).toMatchObject({
+    title: "Flowly dispatcher",
+    background: true,
+    source: { kind: "directory", path: join(x.directory, "dispatcher") },
+  });
+  expect((x.created[0].source as Record<string, unknown>).projectId).toBeUndefined();
+  expect(x.agentCreates).toHaveLength(1);
+  expect(x.agentCreates[0]).toMatchObject({
+    workspaceId: "dw-1",
+    options: {
+      agentId: first.agentId,
+      title: "Flowly dispatcher",
+      prompt: "Board summary",
+      labels: { "flowly-dispatcher": "1" },
+      config: {
+        provider: "claude/claude-sonnet-5-5",
+        modeId: "default",
+        systemPrompt: dispatcherCharter,
+        mcpServers: { "flowly-dispatcher": { type: "http", headers: { Authorization: `Bearer sealed-${first.agentId}` } } },
+      },
+    },
+  });
+  const stored = JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8"));
+  expect(stored).toMatchObject({ version: 1, workspaceId: "dw-1", agentId: first.agentId });
+  expect(typeof stored.startedAt).toBe("string");
+  expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "running", agentId: first.agentId });
+  // A second start while it runs is refused: there is one dispatcher.
+  await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "DISPATCHER_RUNNING" });
+  // Once it ended, a new one starts in the same workspace.
+  x.agents.get(first.agentId)!.archivedAt = "2026-11-08T11:00:00.000Z";
+  expect((await x.dispatcher.status(x.paseo)).state).toBe("ended");
+  const second = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(second.agentId).not.toBe(first.agentId);
+  expect(x.created).toHaveLength(1);
+  expect(x.agentCreates[1].workspaceId).toBe("dw-1");
+  // A workspace Paseo no longer returns is replaced.
+  x.workspaces.delete("dw-1");
+  x.agents.get(second.agentId)!.status = "closed";
+  await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(x.created).toHaveLength(2);
+  expect(JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8")).workspaceId).toBe("dw-2");
+});
+
+test("the workspace is never archived", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(agentId)!.status = "idle";
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  x.agents.get(agentId)!.status = "error";
+  await x.dispatcher.status(x.paseo);
+  await x.dispatcher.deliver([note("t2")], x.paseo);
+  await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(x.archived).toEqual([]);
+  expect(await x.dispatcher.owns("dw-1")).toBe(true);
+  expect(await x.dispatcher.owns("other")).toBe(false);
+  // The dispatcher workspace can never be bound to a card, so no card archive path reaches it.
+  const fixture = await agentFixture();
+  directories.push(fixture.root);
+  const service = new BoardService(fixture.store);
+  service.reservedWorkspace = (id) => x.dispatcher.owns(id);
+  await expect(
+    service.createTask(
+      { projectId: "p", operationId: "bind-dispatcher", title: "Bind", description: "", status: "todo", priority: "normal", mode: "existing", workspaceId: "dw-1", baseRef: "" },
+      fixture.paseo,
+    ),
+  ).rejects.toThrow("Flowly dispatcher");
+});
+
+test("context at 95% reports context_full", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  const agent = x.agents.get(agentId)!;
+  agent.status = "idle";
+  agent.lastUsage = { contextWindowUsedTokens: 94_000, contextWindowMaxTokens: 100_000 };
+  expect((await x.dispatcher.status(x.paseo)).state).toBe("idle");
+  agent.lastUsage = { contextWindowUsedTokens: 95_000, contextWindowMaxTokens: 100_000 };
+  expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "context_full", agentId });
+  agent.lastUsage = { contextWindowUsedTokens: 95_000, contextWindowMaxTokens: 0 };
+  expect((await x.dispatcher.status(x.paseo)).state).toBe("idle");
+  // A full dispatcher may be replaced.
+  agent.lastUsage = { contextWindowUsedTokens: 99_000, contextWindowMaxTokens: 100_000 };
+  await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).resolves.toMatchObject({ agentId: expect.any(String) });
+});
+
+test("notes wait for the turn to end and never steer", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(x.agents.get(agentId)!.status).toBe("running");
+  await x.dispatcher.deliver([note("t1", "todo → blocked")], x.paseo);
+  await x.dispatcher.deliver([note("t1", "blocked → in_review"), note("t2")], x.paseo);
+  expect(x.sends).toEqual([]);
+  // Another session's turn ending changes nothing.
+  x.agents.get(agentId)!.status = "idle";
+  await x.dispatcher.turnEnded("someone-else", x.paseo);
+  expect(x.sends).toEqual([]);
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  expect(x.sends).toHaveLength(1);
+  const sent = x.sends[0];
+  expect(sent.id).toBe(agentId);
+  expect(sent.text).toContain("Flowly board update (2 cards):");
+  expect(sent.text).toContain('- "Card t1" [t1] in project p: status_changed — blocked → in_review');
+  expect(sent.text).not.toContain("todo → blocked");
+  expect(sent.text).toContain('- "Card t2" [t2] in project p');
+  expect((sent.options as { activeTurnBehavior?: unknown } | undefined)?.activeTurnBehavior).toBeUndefined();
+  // Held notes are sent once.
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  expect(x.sends).toHaveLength(1);
+  // While idle a batch goes out at once.
+  await x.dispatcher.deliver([note("t3")], x.paseo);
+  expect(x.sends).toHaveLength(2);
+  expect((x.sends[1].options as { activeTurnBehavior?: unknown } | undefined)?.activeTurnBehavior).toBeUndefined();
+});
+
+test("notes are dropped while the dispatcher is down", async () => {
+  const x = await setup();
+  // No dispatcher yet.
+  await x.dispatcher.deliver([note("t0")], x.paseo);
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  // Held while it runs, then it fails: the held notes are dropped, not replayed.
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  x.agents.get(agentId)!.status = "error";
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  await x.dispatcher.deliver([note("t2")], x.paseo);
+  expect(x.sends).toEqual([]);
+  // Context full counts as down.
+  const next = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  const agent = x.agents.get(next.agentId)!;
+  agent.status = "idle";
+  agent.lastUsage = { contextWindowUsedTokens: 97, contextWindowMaxTokens: 100 };
+  await x.dispatcher.deliver([note("t3")], x.paseo);
+  expect(x.sends).toEqual([]);
+  // The new dispatcher hears only what arrives after it is up.
+  agent.lastUsage = undefined;
+  await x.dispatcher.deliver([note("t4")], x.paseo);
+  expect(x.sends).toHaveLength(1);
+  expect(x.sends[0].text).toContain("[t4]");
+  for (const old of ["[t0]", "[t1]", "[t2]", "[t3]"]) expect(x.sends[0].text).not.toContain(old);
+});
+
+test("a failed send is dropped, not replayed", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(agentId)!.status = "idle";
+  let fail = true;
+  const sends: string[] = [];
+  const paseo = {
+    ...x.paseo,
+    agents: {
+      ref: (id: string) => ({
+        ...x.paseo.agents.ref(id),
+        send: async (text: string) => {
+          if (fail) throw new Error("socket closed");
+          sends.push(text);
+        },
+      }),
+    },
+  } as unknown as PaseoApi;
+  await x.dispatcher.deliver([note("t1")], paseo);
+  fail = false;
+  await x.dispatcher.deliver([note("t2")], paseo);
+  expect(sends).toHaveLength(1);
+  expect(sends[0]).toContain("[t2]");
+  expect(sends[0]).not.toContain("[t1]");
+});
+
+test("a corrupt dispatcher.json is preserved and treated as empty", async () => {
+  const x = await setup();
+  await writeFile(join(x.directory, "dispatcher.json"), "{ not json");
+  expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "none", agentId: null });
+  const names = await readdir(x.directory);
+  const kept = names.find((n) => n.startsWith("dispatcher.json.invalid-"));
+  expect(kept).toBeTruthy();
+  expect(await readFile(join(x.directory, kept!), "utf8")).toBe("{ not json");
+  // A valid-JSON record with the wrong shape is kept too.
+  const other = await setup();
+  await writeFile(join(other.directory, "dispatcher.json"), JSON.stringify({ version: 2, agentId: 5 }));
+  expect((await other.dispatcher.status(other.paseo)).state).toBe("none");
+  expect((await readdir(other.directory)).some((n) => n.startsWith("dispatcher.json.invalid-"))).toBe(true);
+  // The next start writes a fresh record.
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8")).agentId).toBe(agentId);
+});
+
+test("a host without background workspaces gets a clear error and no record", async () => {
+  const x = await setup();
+  x.failCreate(new Error("Update the host to use background workspaces."));
+  await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({
+    code: "HOST_UNSUPPORTED",
+    message: expect.stringContaining("Update Paseo"),
+  });
+  expect(x.created).toHaveLength(1);
+  expect(x.agentCreates).toEqual([]);
+  expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "none", agentId: null });
+});
+
+test("a session Paseo did not create leaves the earlier record", async () => {
+  const x = await setup();
+  const first = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(first.agentId)!.status = "closed";
+  const paseo = {
+    ...x.paseo,
+    workspaces: {
+      ...x.paseo.workspaces,
+      ref: (id: string) => ({
+        ...x.paseo.workspaces.ref(id),
+        agents: {
+          create: async () => {
+            throw new Error("provider down");
+          },
+        },
+      }),
+    },
+  } as unknown as PaseoApi;
+  await expect(x.dispatcher.start(paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toThrow("provider down");
+  expect(JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8")).agentId).toBe(first.agentId);
+});
+
+test("only stops reach the batcher and the dispatcher's own facts never do", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(agentId)!.status = "idle";
+  const bus = new EventBus();
+  const delivered: (readonly DispatcherNote[])[] = [];
+  const deliver = vi.spyOn(x.dispatcher, "deliver").mockImplementation(async (notes) => {
+    delivered.push(notes);
+  });
+  const dispose = wireDispatcher(bus, x.dispatcher, () => x.paseo);
+  let seq = 0;
+  const fact = (patch: Partial<BoardEvent>): BusFact => ({
+    kind: "board",
+    projectId: "p",
+    title: `Card ${patch.taskId}`,
+    event: { id: `e${++seq}`, taskId: "t1", actor: "agent", action: "status_changed", at: "2026-11-08T10:00:00.000Z", ...patch },
+  });
+  // A stop, then a non-stop on the same card: the stop survives.
+  bus.publish([fact({ taskId: "t1", from: "development", to: "in_review" })]);
+  bus.publish([fact({ taskId: "t1", action: "agent.turn_started" }), fact({ taskId: "t1", from: "in_review", to: "development" })]);
+  // The dispatcher's own stop is not news to it.
+  bus.publish([fact({ taskId: "t2", from: "todo", to: "blocked", agentId })]);
+  await vi.advanceTimersByTimeAsync(11_000);
+  expect(deliver).toHaveBeenCalledTimes(1);
+  expect(delivered[0]).toHaveLength(1);
+  expect(delivered[0][0]).toMatchObject({ taskId: "t1", kind: "status_changed", detail: "development → in_review" });
+  // After dispose nothing is delivered and pending notes are cleared.
+  bus.publish([fact({ taskId: "t3", from: "todo", to: "blocked" })]);
+  dispose();
+  expect(bus.hasSubscribers()).toBe(false);
+  await vi.advanceTimersByTimeAsync(70_000);
+  expect(deliver).toHaveBeenCalledTimes(1);
+});
+
+test("NoteBatcher.dispose drops pending notes and its timer", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const flush = vi.fn();
+  const batcher = new NoteBatcher({ windowMs: 10_000, maxWaitMs: 60_000, exclude: () => null }, flush);
+  batcher.push([{ kind: "board", projectId: "p", title: "x", event: { id: "e", taskId: "t", actor: "agent", action: "status_changed", to: "blocked", at: "now" } }]);
+  batcher.dispose();
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(flush).not.toHaveBeenCalled();
+});

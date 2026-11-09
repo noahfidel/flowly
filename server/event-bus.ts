@@ -33,6 +33,10 @@ export class EventBus {
     this.subscribers.add(fn);
     return () => void this.subscribers.delete(fn);
   }
+  /** Whether anyone listens; publishers skip building facts otherwise. */
+  hasSubscribers() {
+    return this.subscribers.size > 0;
+  }
 }
 
 /** One fact per event a commit created; an event whose card is gone by the end of the commit is skipped. */
@@ -49,12 +53,12 @@ export function factsFromCommit(events: readonly BoardEvent[], board: Board): Bu
 
 /**
  * The store's `onCommit`: refreshes the project folder copies (as before), then publishes the commit's events.
- * The restore and export paths pass no events and no board.
+ * The restore and export paths pass no events and no board. No facts are built while nothing subscribes.
  */
 export function commitHandler(bus: EventBus, schedule: () => void) {
   return (events: BoardEvent[], board: Board | null) => {
     schedule();
-    if (board) bus.publish(factsFromCommit(events, board));
+    if (board && events.length && bus.hasSubscribers()) bus.publish(factsFromCommit(events, board));
   };
 }
 
@@ -95,7 +99,8 @@ function noteOf(fact: Extract<BusFact, { kind: "board" }>, count: number): Dispa
 export class NoteBatcher {
   private readonly pending = new Map<string, { fact: Extract<BusFact, { kind: "board" }>; count: number }>();
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private firstAt = 0;
+  /** When the pending batch's first fact arrived; null while nothing is pending. */
+  private firstAt: number | null = null;
   constructor(
     private readonly opts: {
       windowMs: number;
@@ -118,17 +123,25 @@ export class NoteBatcher {
     }
     if (!added) return;
     const now = Date.now();
-    if (!this.firstAt) this.firstAt = now;
+    if (this.firstAt === null) this.firstAt = now;
     if (this.timer) clearTimeout(this.timer);
     const wait = Math.max(0, Math.min(this.opts.windowMs, this.firstAt + this.opts.maxWaitMs - now));
     this.timer = setTimeout(() => this.release(), wait);
+  }
+
+  /** Stops the timer and forgets pending notes (plugin unload). */
+  dispose() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.pending.clear();
+    this.firstAt = null;
   }
 
   private release() {
     const notes = [...this.pending.values()].map(({ fact, count }) => noteOf(fact, count));
     this.pending.clear();
     this.timer = null;
-    this.firstAt = 0;
+    this.firstAt = null;
     if (!notes.length) return;
     try {
       this.flush(notes);

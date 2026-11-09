@@ -64,31 +64,17 @@ import { CardStarter } from "./start-card";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
 import { ToolSecrets, writePrivate } from "./tool-context";
-import { ToolError, toolFailure } from "./tool-error";
+import { ToolError, toolFailure, toolResult } from "./tool-error";
+import { Dispatcher, dispatcherSummary } from "./dispatcher";
+import { DispatcherTools } from "./dispatcher-tools";
+import type { DispatcherIdentity } from "./tool-context";
 import { cliSource } from "./cli-source";
 import { skillText, workingInstructions } from "./skill-source";
 import { logFailure } from "./error-report";
 
 const maxBody = 262144;
 
-/** A tool's value, or its failure as an MCP tool error. */
-const wrap = async (operation: () => Promise<object>) => {
-  try {
-    const value = await operation();
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify(value) }],
-      structuredContent: value as Record<string, unknown>,
-    };
-  } catch (e) {
-    return {
-      isError: true,
-      content: [
-        { type: "text" as const, text: JSON.stringify(toolFailure(e)) },
-      ],
-      structuredContent: { error: toolFailure(e) },
-    };
-  }
-};
+const wrap = toolResult;
 
 export class ToolServer {
   readonly secrets: ToolSecrets;
@@ -96,6 +82,8 @@ export class ToolServer {
   readonly cards: AgentCards;
   readonly projectIdeas: ProjectIdeas;
   readonly starter: CardStarter;
+  readonly dispatcher: Dispatcher;
+  readonly dispatcherTools: DispatcherTools;
   private server?: Server;
   private handler?: McpHttpHandler;
   private starting?: Promise<void>;
@@ -114,6 +102,27 @@ export class ToolServer {
       keptWorktree: (operationId) => this.secrets.keptStart(operationId),
       keepWorktree: (operationId, request) => this.secrets.keepStart(operationId, request),
     });
+    this.dispatcher = new Dispatcher(store.directory, {
+      mcp: (identity) => this.dispatcherServer(identity),
+      summary: async () => dispatcherSummary(await store.read()),
+    });
+    this.dispatcherTools = new DispatcherTools(store, this.cards, this.starter, this.projectIdeas, () => this.agents.ideasOn(), this.dispatcher);
+  }
+  /** The `flowly-dispatcher` MCP server entry for a dispatcher session (DISPATCHER-SPEC §4). */
+  private async dispatcherServer(identity: DispatcherIdentity) {
+    await this.start();
+    return {
+      type: "http" as const,
+      url: `${this.url}mcp`,
+      headers: { Authorization: `Bearer ${this.secrets.dispatcherCredential(identity)}` },
+    };
+  }
+  /** The dispatcher tools again when the stored dispatcher's session opens; null for every other session (§3). */
+  async dispatcherSession(agentId: string, paseo: PaseoApi) {
+    this.attach(paseo);
+    const record = await this.dispatcher.record();
+    if (!record.agentId || record.agentId !== agentId || !record.workspaceId) return null;
+    return this.dispatcherServer({ agentId, workspaceId: record.workspaceId });
   }
   attach(paseo: PaseoApi) {
     this.agents.attach(paseo);
@@ -278,6 +287,11 @@ export class ToolServer {
           name: "flowly",
           version: "0.2.0",
         });
+        // The dispatcher gets its cross-project tools and nothing else (DISPATCHER-SPEC §4).
+        if (auth.kind === "dispatcher") {
+          this.dispatcherTools.register(mcp, auth.identity);
+          return mcp;
+        }
         // A session outside cards gets only the project's card tools (AGENT-CARDS-SPEC §2.2).
         if (auth.kind === "board") {
           const board = auth.identity;

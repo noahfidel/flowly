@@ -24,6 +24,12 @@ export async function writePrivate(path: string, data: string, mode = 0o600) {
   await writeFile(tmp, data, { mode });
   await rename(tmp, path);
 }
+/** Who a dispatcher credential was sealed for (DISPATCHER-SPEC §4). */
+export const dispatcherIdentitySchema = z.strictObject({
+  agentId: z.string().min(1),
+  workspaceId: z.string().min(1),
+});
+export type DispatcherIdentity = z.infer<typeof dispatcherIdentitySchema>;
 const signedRequestSchema = identitySchema.extend({
   nonce: z.string(),
   issuedAt: z.string().datetime(),
@@ -105,14 +111,29 @@ export class ToolSecrets {
   boardCredential(identity: BoardIdentity) {
     return this.seal("board", boardIdentitySchema.parse(identity));
   }
-  /** A card session's or a board session's credential, told apart by its sealed purpose. */
-  authenticateAny(token: string): { kind: "card"; identity: ToolIdentity } | { kind: "board"; identity: BoardIdentity } {
+  /** The dispatcher's credential: the cross-project tools only (DISPATCHER-SPEC §4). */
+  dispatcherCredential(identity: DispatcherIdentity) {
+    return this.seal("dispatcher", dispatcherIdentitySchema.parse(identity));
+  }
+  /** A card session's, a board session's or the dispatcher's credential, told apart by its sealed purpose. */
+  authenticateAny(
+    token: string,
+  ):
+    | { kind: "card"; identity: ToolIdentity }
+    | { kind: "board"; identity: BoardIdentity }
+    | { kind: "dispatcher"; identity: DispatcherIdentity } {
+    const unauthorized = (e: unknown) => e instanceof ToolError && e.code === "UNAUTHORIZED";
     try {
       return { kind: "card", identity: this.authenticate(token) };
     } catch (e) {
-      if (!(e instanceof ToolError) || e.code !== "UNAUTHORIZED") throw e;
-      return { kind: "board", identity: boardIdentitySchema.parse(this.unseal("board", token)) };
+      if (!unauthorized(e)) throw e;
     }
+    try {
+      return { kind: "board", identity: boardIdentitySchema.parse(this.unseal("board", token)) };
+    } catch (e) {
+      if (!unauthorized(e)) throw e;
+    }
+    return { kind: "dispatcher", identity: dispatcherIdentitySchema.parse(this.unseal("dispatcher", token)) };
   }
   request(identity: ToolIdentity, revision: z.infer<typeof revisionSchema>) {
     const issuedAt = new Date(this.now()).toISOString();
