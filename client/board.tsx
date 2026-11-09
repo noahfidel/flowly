@@ -49,6 +49,7 @@ import {
   verticalContent, noFocusRing } from "./ui";
 import { StatusIcon, priorityLabels } from "./status";
 import { AttentionButton } from "./attention-button";
+import { DispatcherPanel } from "./dispatcher-panel";
 import {
   attentionItemsWithFacts,
   attentionOpenToken,
@@ -173,6 +174,7 @@ const tipText: Record<TipId, () => string> = {
   "sidebar-order": () => t("Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar."),
   "session-history": () => t("A session's output now starts at the beginning of its current turn. Press Load earlier at the top to read further back."),
   "settings-entry": () => t("Turn features on or off and change settings here."),
+  dispatcher: () => t("The dispatcher is one agent for all your projects. Open its chat from the toolbar, ask for work, and it makes the cards and starts them."),
   "first-workpad": () => t("This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself."),
 };
 
@@ -338,6 +340,8 @@ function BoardContent(
     [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
     // Project-level page over the board area: Insights or Ideas (IDEAS-INBOX-SPEC §3.3).
     [page, setPage] = useState<"insights" | "ideas" | "memory" | "search" | null>(null),
+    // The dispatcher chat (DISPATCHER-SPEC §9.3): mounted on first open, then hidden rather than unmounted.
+    [chat, setChat] = useState<{ open: boolean; mounted: boolean }>({ open: false, mounted: false }),
     // Search page (SEARCH-SPEC §5): the text it opens with and a key that remounts it for a new seed.
     [searchSeed, setSearchSeed] = useState({ text: "", key: 0 }),
     // A search hit for the drawer to land on (DRAWER-SPEC "Focus from search"); any other way of opening a card clears it.
@@ -1139,6 +1143,27 @@ function BoardContent(
     if (target) { setDetailTarget(target); focusProject(target.projectId); }
     setTask(id);
   });
+  const toggleChat = useStableCallback(() => {
+    // Opening the chat is acting on its tip.
+    if (!chat.open && onboarding.values && !onboarding.values.tipsSeen.includes("dispatcher")) void onboarding.markTipSeen("dispatcher");
+    setChat((c) => ({ open: !c.open, mounted: true }));
+  });
+  const closeChat = useStableCallback(() => setChat((c) => (c.open ? { ...c, open: false } : c)));
+  const chatLaneOf = useStableCallback((projectId: string, status: string) =>
+    laneName(board?.projects.find((p) => p.id === projectId) ?? null, status as Status),
+  );
+  const chatPanel = chat.mounted && (
+    <View
+      style={
+        compact
+          ? // Phone: a full-screen page under an open card's sidebar, so closing the card comes back to the chat.
+            { position: "absolute", top: 0, bottom: 0, left: 0, right: 0, zIndex: 29, display: chat.open ? "flex" : "none" }
+          : { width: 380, flexShrink: 0, minHeight: 0, borderLeftWidth: 1, borderLeftColor: colors.border, display: chat.open ? "flex" : "none" }
+      }
+    >
+      <DispatcherPanel visible={chat.open} laneOf={chatLaneOf} onOpenCard={openTaskById} onClose={closeChat} />
+    </View>
+  );
   const togglePage = (next: "insights" | "ideas" | "memory" | "search") => {
     ignoredLink.current = linkKey;
     // Opening Insights is acting on the skill-draft tip (INSIGHTS-REDESIGN-SPEC §5).
@@ -1374,6 +1399,7 @@ function BoardContent(
           skillDraft: features.insights && workflowTipDue && !!workflowView.data?.findings.some((f) => f.status === "open" && f.target === "skill" && !!f.skill),
           memoryCandidate: !task && !!memoryCandidates,
           searchable: !task && projectTasks.filter((x) => !x.archivedAt).length >= 10,
+          dispatcherIntro: !task && !chat.open && projectTasks.some((x) => !x.archivedAt),
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen || settingsHint || whatsNewOpen || whatsNewDue === "show",
       });
@@ -1873,6 +1899,9 @@ function BoardContent(
                 onPress={() => setMenu("shortcuts")}
               />
             )}
+            {(!!project || allView) && (
+              <IconButton icon="Bot" label={t("Dispatcher")} active={chat.open} onPress={toggleChat} />
+            )}
             <View ref={attentionRef} collapsable={false}>
               <AttentionButton
                 count={attention.length}
@@ -2159,6 +2188,7 @@ function BoardContent(
                 )}
               </MotionReveal>
             )}
+            {!compact && chatPanel}
             {!compact && drawerView}
           </View>
         )}
@@ -2696,8 +2726,9 @@ function BoardContent(
           />
           </CardDetailProvider>
         )}
+        {compact && chatPanel}
         {compact && drawerView}
-        {!(compact && task) && (
+        {!(compact && (task || chat.open)) && (
           <SettingsFab
             open={menu === "settings"}
             hint={settingsHint ? tipText["settings-entry"]() : undefined}

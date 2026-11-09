@@ -39,6 +39,40 @@ export function mergeNotes(prev: DispatcherNote, next: DispatcherNote): Dispatch
   return { ...base, ...(next.later ? { later: next.later } : {}), earlier: hidden + 1 + (prev.later ? 1 : 0) };
 }
 
+/** At most this many chat items are kept (DISPATCHER-SPEC §9.1). */
+export const chatItemLimit = 500;
+/** Answered or dismissed asks are kept this long (DISPATCHER-SPEC §9.1). */
+export const resolvedAskMs = 7 * 86_400_000;
+export const chatAskStates = ["open", "answered", "session_ended", "dismissed"] as const;
+const id = z.string().min(1).max(300);
+const itemBase = { id, at: z.string().min(1).max(40) };
+/** One card in "Changed since you looked" (§9.2). */
+export const changedCardSchema = z.object({ taskId: id, projectId: id, title: z.string(), status: z.string(), events: z.number().int().positive() });
+export type ChangedCard = z.infer<typeof changedCardSchema>;
+/**
+ * Flowly-rendered rows of the dispatcher chat (DISPATCHER-SPEC §9.1): notes the dispatcher received, asks and
+ * the user's answers to them (stored), and the computed change line (never stored).
+ */
+export const chatItemSchema = z.discriminatedUnion("kind", [
+  z.object({ ...itemBase, kind: z.literal("note"), note: dispatcherNoteSchema }),
+  z.object({
+    ...itemBase,
+    kind: z.literal("ask"),
+    signal: id,
+    taskId: id,
+    projectId: id,
+    title: z.string(),
+    state: z.enum(chatAskStates),
+    resolvedAt: z.string().optional(),
+  }),
+  z.object({ ...itemBase, kind: z.literal("answer"), signal: id, taskId: id, projectId: id, text: z.string(), delivered: z.boolean() }),
+  z.object({ ...itemBase, kind: z.literal("change"), revision: z.number().int().nonnegative(), cards: z.array(changedCardSchema) }),
+]);
+export type ChatItem = z.infer<typeof chatItemSchema>;
+/** What `dispatcher-items.json` holds: every kind except the computed change line. */
+export type StoredChatItem = Exclude<ChatItem, { kind: "change" }>;
+export const storedChatItemsSchema = z.strictObject({ version: z.literal(1), items: z.array(chatItemSchema) });
+
 /** The server default of the Dispatcher model setting (plan Q6): the newest Claude Sonnet. */
 export const dispatcherDefaultModel = { provider: "claude", model: "claude-sonnet-5-5" } as const;
 
@@ -56,6 +90,10 @@ export const dispatcherStartInputSchema = z.strictObject({
   modeId: z.string().trim().min(1).max(100).optional(),
 });
 export const dispatcherStartResultSchema = z.strictObject({ agentId: z.string() });
+/** The first words of a note batch message and of the board summary, as the chat recognizes them (§9.3). */
+export const noteMessagePrefix = "Flowly board update (";
+export const summaryMessagePrefix = "Flowly board summary.";
+export const whatNextText = "What should I do?";
 /** The share of the context window at which the dispatcher counts as full. */
 export const dispatcherContextLimit = 0.95;
 

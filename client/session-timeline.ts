@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRpc } from "@getpaseo/plugin/client";
-import { sessionTail } from "../shared/rpc";
+import { dispatcherTail, sessionTail } from "../shared/rpc";
 import { t } from "../shared/i18n";
 import {
   HISTORY_PAGE,
@@ -30,13 +30,25 @@ export function useSessionTimeline({
   agentId,
   enabled,
   streamReady,
+  dispatcher = false,
 }: {
   taskId: string;
   agentId: string;
   enabled: boolean;
   streamReady: boolean;
+  /** The dispatcher's session: read with `dispatcher.tail` (DISPATCHER-SPEC §9.3); `taskId` then only names the cache. */
+  dispatcher?: boolean;
 }) {
-  const read = useRpc(sessionTail);
+  const readCard = useRpc(sessionTail);
+  const readDispatcher = useRpc(dispatcherTail);
+  const read = useCallback(
+    (input: Parameters<typeof readCard>[0]) => {
+      if (!dispatcher) return readCard(input);
+      const { taskId: _, ...rest } = input;
+      return readDispatcher(rest);
+    },
+    [dispatcher, readCard, readDispatcher],
+  );
   const client = useQueryClient();
   const key = transcriptKey(taskId, agentId);
   const cached = () => client.getQueryData<TimelineWindow>(key);

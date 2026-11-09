@@ -560,3 +560,39 @@ test("start without a provider uses the Dispatcher model setting, else the serve
   await x.dispatcher.start(x.paseo, {});
   expect(x.agentCreates[3].options.config).toMatchObject({ provider: "claude/claude-sonnet-5-5" });
 });
+
+test("the chat records exactly the notes the dispatcher received", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const recorded: { notes: DispatcherNote[]; at: string }[] = [];
+  x.dispatcher.onSent = (notes, at) => void recorded.push({ notes: [...notes], at });
+  // Dropped while down: nothing recorded.
+  await x.dispatcher.deliver([note("t0")], x.paseo);
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  // Held while running: recorded only once sent.
+  await x.dispatcher.deliver([note("t1", "todo → blocked")], x.paseo);
+  await x.dispatcher.deliver([note("t1", "blocked → in_review"), note("t2")], x.paseo);
+  expect(recorded).toEqual([]);
+  x.agents.get(agentId)!.status = "idle";
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  expect(x.sends).toHaveLength(1);
+  expect(recorded).toHaveLength(1);
+  expect(recorded[0].notes.map((n) => [n.taskId, n.detail])).toEqual([["t1", "blocked → in_review"], ["t2", "todo → in_review"]]);
+  expect(recorded[0].at).toBe("2026-11-08T10:00:00.000Z");
+  // A seen mark written meanwhile survives a new start.
+  await x.dispatcher.markSeen(123);
+  x.agents.get(agentId)!.status = "closed";
+  await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect((await x.dispatcher.record()).seenRevision).toBe(123);
+});
+
+test("What should I do? reaches only a dispatcher that is up, and steers a running turn", async () => {
+  const x = await setup();
+  await expect(x.dispatcher.whatNext(x.paseo, "What should I do?")).rejects.toMatchObject({ code: "DISPATCHER_DOWN" });
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  await x.dispatcher.whatNext(x.paseo, "What should I do?");
+  expect(x.sends.at(-1)).toEqual({ id: agentId, text: "What should I do?", options: { activeTurnBehavior: "steer" } });
+  x.agents.get(agentId)!.status = "idle";
+  await x.dispatcher.whatNext(x.paseo, "What should I do?");
+  expect(x.sends.at(-1)!.options).toEqual({});
+});

@@ -10,6 +10,8 @@ import {
   dispatcherStartInputSchema,
   mergeNotes,
   noteBatching,
+  noteMessagePrefix,
+  summaryMessagePrefix,
   type DispatcherNote,
   type DispatcherState,
   type DispatcherStatus,
@@ -32,6 +34,8 @@ const recordSchema = z.strictObject({
   workspaceId: z.string().min(1).nullable(),
   agentId: z.string().min(1).nullable(),
   startedAt: z.string().nullable(),
+  /** The user's "Changed since you looked" mark, in event milliseconds (§9.2); absent in older files. */
+  seenRevision: z.number().int().nonnegative().optional(),
 });
 export type DispatcherRecord = z.infer<typeof recordSchema>;
 const emptyRecord = (): DispatcherRecord => ({ version: 1, workspaceId: null, agentId: null, startedAt: null });
@@ -71,7 +75,7 @@ export function dispatcherSummary(board: Board): string {
   const live = board.projects.filter((p) => !p.archivedAt);
   const projects = live.map((p) => `- ${p.id}: ${p.title.replace(/\s+/g, " ").trim()}`);
   return [
-    "Flowly board summary. Pass the projectId to every tool.",
+    `${summaryMessagePrefix} Pass the projectId to every tool.`,
     "",
     "Projects (projectId: title):",
     ...(projects.length ? projects : ["- none yet"]),
@@ -86,7 +90,7 @@ export function dispatcherSummary(board: Board): string {
 export function noteMessage(notes: readonly DispatcherNote[]): string {
   const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
   return [
-    `Flowly board update (${notes.length} ${notes.length === 1 ? "card" : "cards"}):`,
+    `${noteMessagePrefix}${notes.length} ${notes.length === 1 ? "card" : "cards"}):`,
     ...notes.map((n) => {
       const detail = [n.detail, n.later ? `then ${n.later}` : ""].filter(Boolean).map(oneLine).join("; ");
       return `- "${oneLine(n.title)}" [${n.taskId}] in project ${n.projectId}: ${n.kind}${detail ? ` — ${detail}` : ""}${n.earlier ? ` (+${n.earlier} earlier)` : ""}`;
@@ -109,6 +113,8 @@ export class Dispatcher {
   private disposed = false;
   /** The Dispatcher model setting (plan Q6); null uses `dispatcherDefaultModel`. Set by the plugin entry. */
   modelSetting: () => Promise<AgentModel | null> = async () => null;
+  /** The notes of a batch the dispatcher received, and when (the chat's note rows, §9.1). Set by the plugin entry. */
+  onSent: ((notes: readonly DispatcherNote[], at: string) => void) | null = null;
   constructor(
     readonly directory: string,
     private readonly deps: DispatcherDeps,
@@ -188,7 +194,7 @@ export class Dispatcher {
     const [mcp, summary] = await Promise.all([this.deps.mcp({ agentId, workspaceId }), this.deps.summary()]);
     const now = this.deps.now?.() ?? Date.now();
     // Stored first: the session's first tool calls already pass the caller check (§4).
-    await this.save({ version: 1, workspaceId, agentId, startedAt: new Date(now).toISOString() });
+    await this.save((r) => ({ ...r, workspaceId, agentId, startedAt: new Date(now).toISOString() }));
     this.held.clear();
     try {
       await paseo.workspaces.ref(workspaceId).agents.create({
@@ -212,7 +218,7 @@ export class Dispatcher {
         .then((found) => !!found?.agent)
         .catch(() => false);
       if (!made) {
-        await this.save({ ...previous, workspaceId });
+        await this.save((r) => ({ ...r, workspaceId, agentId: previous.agentId, startedAt: previous.startedAt }));
         logFailure("Flowly dispatcher not started:", e, `workspace ${workspaceId}`);
         throw new ToolError("START_FAILED", `Paseo did not start the dispatcher: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -233,7 +239,7 @@ export class Dispatcher {
       path: this.workspacePath,
       background: true,
     });
-    await this.save({ ...record, workspaceId: id });
+    await this.save((r) => ({ ...r, workspaceId: id }));
     return id;
   }
 
@@ -300,12 +306,37 @@ export class Dispatcher {
     }
     const notes = [...this.held.values()];
     this.held.clear();
+    let sentAt: number;
     try {
       await paseo.agents.ref(agentId).send(noteMessage(notes));
-      this.lastSent = this.now();
+      sentAt = this.lastSent = this.now();
     } catch (e) {
       logFailure("Flowly dispatcher notes not sent:", e, `${notes.length} notes`);
+      return;
     }
+    try {
+      this.onSent?.(notes, new Date(sentAt).toISOString());
+    } catch (e) {
+      logFailure("Flowly dispatcher chat notes not recorded:", e, `${notes.length} notes`);
+    }
+  }
+
+  /** Mark seen (§9.2): the mark only moves forward. */
+  async markSeen(revision: number): Promise<number> {
+    let seen = 0;
+    await this.save((r) => {
+      seen = Math.max(r.seenRevision ?? 0, revision);
+      return { ...r, seenRevision: seen };
+    });
+    return seen;
+  }
+
+  /** "What should I do?" (§9.2): only to a dispatcher that is up; a running turn is steered, as by the composer. */
+  async whatNext(paseo: PaseoApi, text: string): Promise<void> {
+    const { state, agentId } = await this.status(paseo);
+    if (!agentId || (state !== "running" && state !== "idle"))
+      throw new ToolError("DISPATCHER_DOWN", "The dispatcher is not running. Start it first.");
+    await paseo.agents.ref(agentId).send(text, state === "running" ? { activeTurnBehavior: "steer" } : {});
   }
 
   /** One pending re-check at a time; it never schedules another for a turn end (retry once). */
@@ -345,9 +376,10 @@ export class Dispatcher {
     }
   }
 
-  private save(record: DispatcherRecord) {
-    const value = recordSchema.parse(record);
+  /** Writes `change` of the latest record, so concurrent writes (start, Mark seen) never drop each other's fields. */
+  private save(change: (record: DispatcherRecord) => DispatcherRecord) {
     const job = this.writes.then(async () => {
+      const value = recordSchema.parse(change(await this.record()));
       await mkdir(this.directory, { recursive: true, mode: 0o700 });
       const temporary = `${this.path}.${randomUUID()}.tmp`;
       try {

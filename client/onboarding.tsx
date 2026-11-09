@@ -405,6 +405,7 @@ function MoreFeatures() {
     { icon: "Ticket", title: t("Tickets, docs and PRs as inputs"), text: t("Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, or Linear issue, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.") },
     { icon: "Columns3", title: t("Linear board"), text: t("With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens Quick task with the issue attached: press Enter to start the agent.") },
     { icon: "GitPullRequest", title: t("Delivery mode"), text: t("Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.") },
+    { icon: "Bot", title: t("Dispatcher"), text: t("One agent for all your projects, in a chat next to the board. It hears when cards stop, makes and starts cards for what you ask, and tells you what needs you.") },
     { icon: "Search", title: t("Search"), text: t("Search past cards, summaries, notes and deliverables.") },
     { icon: "SquarePlus", title: t("Cards from your agents"), text: t("Ask an agent to create or edit cards. New cards land in Backlog or Todo; you start them.") },
     { icon: "Tags", title: t("Tags"), text: t("Tag cards by module or direction. Agents tag their own cards too; filter and search by #tag.") },

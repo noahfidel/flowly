@@ -367,6 +367,20 @@ export function useMemoryQuery(projectId: string, enabled: boolean) {
     placeholderData: (previous) => previous,
   });
 }
+/** The dispatcher chat's items (DISPATCHER-SPEC §9.1): read only while the chat panel is visible. */
+export const dispatcherItemsKey = ["flowly", "dispatcher", "items"] as const;
+export function useDispatcherItemsQuery(enabled: boolean) {
+  const read = useRpc(rpc.dispatcherItemsChanged);
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: dispatcherItemsKey,
+    queryFn: () => readChanged(client, dispatcherItemsKey, (etag) => read(etag ? { etag } : {})),
+    enabled,
+    staleTime: 0,
+    refetchInterval: enabled ? 4_000 : false,
+    placeholderData: (previous) => previous,
+  });
+}
 /** Candidates waiting per project, for the overview chip; read with the board, once a minute. */
 export const memoryCountsKey = ["flowly", "memory-counts"] as const;
 export function useMemoryCountsQuery(enabled: boolean) {

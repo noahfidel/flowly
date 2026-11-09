@@ -22,12 +22,25 @@ type RawEntry = RawPage["entries"][number];
  * request and receives only the slim result.
  */
 export class SessionTailService {
+  /** The stored dispatcher session and its workspace (DISPATCHER-SPEC §9.3); null while there is none. Set by the plugin entry. */
+  dispatcher: () => Promise<{ agentId: string; workspaceId: string } | null> = async () => null;
   constructor(readonly store: BoardStore) {}
 
   async tail(input: TailInput, paseo: PaseoApi): Promise<TailPage> {
     const board = await this.store.read();
     const task = board.tasks.find((t) => t.id === input.taskId);
     if (!task) throw new Error("Task not found.");
+    return this.read(task.workspaceId, input, paseo);
+  }
+
+  /** `dispatcher.tail`: the same read, only for the stored dispatcher session in its stored workspace. */
+  async dispatcherTail(input: Omit<TailInput, "taskId">, paseo: PaseoApi): Promise<TailPage> {
+    const own = await this.dispatcher();
+    if (!own || own.agentId !== input.agentId) throw new Error("This session is not the dispatcher.");
+    return this.read(own.workspaceId, input, paseo);
+  }
+
+  private async read(workspaceId: string, input: Omit<TailInput, "taskId">, paseo: PaseoApi): Promise<TailPage> {
     const handle = paseo.agents.ref(input.agentId);
     const mode = input.mode ?? "tail";
     if ((mode === "before" || mode === "after") && !input.cursor) throw new Error("A cursor is required to page the timeline.");
@@ -41,7 +54,7 @@ export class SessionTailService {
         ? await read({ direction: "tail", limit: Math.min(HISTORY_PAGE, input.maxEntries ?? TURN_MAX_ENTRIES) })
         : await read({ direction: mode, limit: input.limit, ...(input.cursor ? { cursor: input.cursor } : {}) });
     const agent = first.agent ?? (await handle.refresh())?.agent;
-    if (!agent || agent.workspaceId !== task.workspaceId)
+    if (!agent || agent.workspaceId !== workspaceId)
       throw new Error("Session is unavailable or belongs to a different workspace.");
     if (first.reset || first.staleCursor) return { entries: [], epoch: first.epoch, reset: true };
     if (mode !== "turn") return page(first.entries, first);

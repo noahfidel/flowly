@@ -62,7 +62,7 @@ import { localeCodes } from "./i18n";
 import { workflowOverviewSchema, workflowViewSchema } from "./workflow-insights";
 import { cardTokensSchema, insightsViewSchema } from "./workflow-stats";
 import { dayDetailSchema } from "./day-detail";
-import { dispatcherStartInputSchema, dispatcherStartResultSchema, dispatcherStatusSchema } from "./dispatcher";
+import { chatItemSchema, dispatcherStartInputSchema, dispatcherStartResultSchema, dispatcherStatusSchema } from "./dispatcher";
 
 /** `{ etag }` in; the value is omitted when it still matches (PERFORMANCE-SPEC §3). */
 const etagInput = z.strictObject({ etag: z.string().max(200).optional() });
@@ -994,6 +994,22 @@ export const useSqliteStorage = defineRpc({ name: "storage.use-sqlite", input: z
 export const dispatcherStatus = defineRpc({ name: "dispatcher.status", input: z.strictObject({}), output: dispatcherStatusSchema });
 /** Starts a new dispatcher session; refused while one is up (DISPATCHER-SPEC §3, §8). */
 export const dispatcherStart = defineRpc({ name: "dispatcher.start", input: dispatcherStartInputSchema, output: dispatcherStartResultSchema });
+/** The chat's own items plus "Changed since you looked" (DISPATCHER-SPEC §9.1, §9.2). */
+export const dispatcherItemsChanged = defineRpc({
+  name: "dispatcher.items-changed",
+  input: etagInput,
+  output: z.object({ etag: z.string(), value: z.array(chatItemSchema).optional() }),
+});
+/** The dispatcher's transcript: `sessions.tail` for the stored dispatcher session only (DISPATCHER-SPEC §9.3). */
+export const dispatcherTail = defineRpc({ name: "dispatcher.tail", input: sessionTail.input.omit({ taskId: true }), output: tailPageSchema });
+/** Mark seen: the change line counts from `revision` on; never moves back (DISPATCHER-SPEC §9.2). */
+export const dispatcherMarkSeen = defineRpc({
+  name: "dispatcher.mark-seen",
+  input: z.strictObject({ revision: z.number().int().nonnegative() }),
+  output: z.strictObject({ seenRevision: z.number().int().nonnegative() }),
+});
+/** "What should I do?" with the changed cards, sent to the dispatcher (DISPATCHER-SPEC §9.2). */
+export const dispatcherWhatNext = defineRpc({ name: "dispatcher.what-next", input: z.strictObject({}), output: z.strictObject({ sent: z.literal(true) }) });
 
 /** Whether telemetry is forced off on the daemon's host by DO_NOT_TRACK / FLOWLY_TELEMETRY=0 / NODE_ENV=test, or by a build without a PostHog key (`builtOff`) (TELEMETRY-SPEC §5, §6). */
 export const telemetryStatus = defineRpc({ name: "telemetry.status", input: z.strictObject({}), output: z.object({ forcedOff: z.boolean(), builtOff: z.boolean().default(false) }) });

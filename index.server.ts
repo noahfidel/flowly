@@ -65,6 +65,7 @@ import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
 import { EventBus, commitHandler } from "./server/event-bus";
 import { wireDispatcher } from "./server/dispatcher";
+import { DispatcherItems, changeLine, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
 
 export default function contribute(host: PluginServerContext) {
   const server = reportRpcErrors(host);
@@ -373,6 +374,30 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.dispatcherStart, (input, { paseo }) => {
     tools.attach(paseo);
     return tools.dispatcher.start(paseo, input);
+  });
+  // The chat panel (DISPATCHER-SPEC §9): note rows are what the dispatcher received; the change line is computed per read.
+  const chatItems = new DispatcherItems(store.directory);
+  tools.dispatcher.onSent = (notes, at) => {
+    void chatItems.put(noteItems(notes, at)).catch((e) => logFailure("Flowly dispatcher chat notes not recorded:", e, `${notes.length} notes`));
+  };
+  tails.dispatcher = async () => {
+    const { agentId, workspaceId } = await tools.dispatcher.record();
+    return agentId && workspaceId ? { agentId, workspaceId } : null;
+  };
+  const currentChange = async () => {
+    const [board, record] = await Promise.all([store.read(), tools.dispatcher.record()]);
+    return changeLine(board, seenMark(record));
+  };
+  server.handle(rpc.dispatcherItemsChanged, async ({ etag }) => {
+    const [items, change] = await Promise.all([chatItems.list(), currentChange()]);
+    return ifChanged(change ? [...items, change] : items, etag);
+  });
+  server.handle(rpc.dispatcherTail, (input, { paseo }) => tails.dispatcherTail(input, paseo));
+  server.handle(rpc.dispatcherMarkSeen, async ({ revision }) => ({ seenRevision: await tools.dispatcher.markSeen(revision) }));
+  server.handle(rpc.dispatcherWhatNext, async (_, { paseo }) => {
+    tools.attach(paseo);
+    await tools.dispatcher.whatNext(paseo, whatNextMessage(await currentChange()));
+    return { sent: true as const };
   });
   tools.cards.on = async () => {
     const state = await ideasPrefs.read().catch(() => null);

@@ -58,6 +58,23 @@ test("refuses sessions of another workspace and unknown cards", async () => {
   await expect(z.service.tail({ taskId: "missing", agentId: "a", limit: 5 }, z.paseo)).rejects.toThrow(/Task not found/);
 });
 
+test("sessions.tail still refuses non-card agents other than the dispatcher", async () => {
+  // The card path: a session outside the card's workspace (here the dispatcher's) is refused.
+  const card = await setup("dw");
+  await expect(card.service.tail({ taskId: "t", agentId: "a", limit: 5 }, card.paseo)).rejects.toThrow(/different workspace/);
+  // The dispatcher path: only the stored dispatcher in its stored workspace.
+  const x = await setup("dw");
+  x.service.dispatcher = async () => ({ agentId: "a", workspaceId: "dw" });
+  await expect(x.service.dispatcherTail({ agentId: "a", limit: 5 }, x.paseo)).resolves.toMatchObject({ entries: [expect.anything()] });
+  await expect(x.service.dispatcherTail({ agentId: "other", limit: 5 }, x.paseo)).rejects.toThrow(/not the dispatcher/i);
+  // The stored id in another workspace (a moved or replaced session) is refused too.
+  x.service.dispatcher = async () => ({ agentId: "a", workspaceId: "elsewhere" });
+  await expect(x.service.dispatcherTail({ agentId: "a", limit: 5 }, x.paseo)).rejects.toThrow(/different workspace/);
+  // No dispatcher yet.
+  x.service.dispatcher = async () => null;
+  await expect(x.service.dispatcherTail({ agentId: "a", limit: 5 }, x.paseo)).rejects.toThrow(/not the dispatcher/i);
+});
+
 /** A fake projected timeline of `count` one-seq entries; `users` are the seqs of user messages. */
 function timeline(count: number, users: number[], epoch = "e1") {
   const all = Array.from({ length: count }, (_, i) => {
