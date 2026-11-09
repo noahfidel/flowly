@@ -1365,6 +1365,8 @@ const catalog: Catalog = {
   "The board goes back to {name} ({time}). Changes since then leave the board; the current data stays in the data folder.": "O quadro volta para {name} ({time}). As mudanças feitas depois saem do quadro; os dados atuais ficam na pasta de dados.",
   "Backup restored": "Backup restaurado",
   "Export to JSON…": "Exportar para JSON…",
+  "Export as Markdown": "Exportar como Markdown",
+  "Copied the board as Markdown": "Quadro copiado como Markdown",
   "Move the board back to SQLite": "Devolver o quadro ao SQLite",
   "The board is in SQLite again": "O quadro voltou a usar SQLite",
   "Flowly writes the board to board.json and stops using SQLite. Then you can install an earlier Flowly version, or move the board back here.": "O Flowly grava o quadro em board.json e deixa de usar SQLite. Depois você pode instalar uma versão anterior do Flowly ou devolver o quadro aqui.",

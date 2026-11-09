@@ -1,5 +1,11 @@
 # Implementation progress
 
+## Markdown export (branch `feat/single-pane`, Task 3) — 2026-11-08
+
+- Settings > Storage > **Export as Markdown** copies every live project's open cards, open ideas and active memory to the clipboard. `exportMarkdown` (`shared/board-export.ts`, pure); RPC `board.export-markdown` `{ projectId? }` (`index.server.ts`, reads the board and `MemoryService.view`). The ideas section re-imports through `parseBacklog`: a note the parser would not read as a source note is written as `added <date>, <note>`; unbalanced parentheses in a note are dropped. `isSourceNote` is now exported from `shared/ideas-import.ts`. Spec: IDEAS-IMPORT-EXPORT-SPEC §7.
+- Strings: 2 new, in all 9 catalogs. Onboarding: no tour row or tip (a utility row in Settings). Telemetry: no heartbeat field.
+- Checks: see the Task 3 report; the button was not exercised in the installed plugin (not installed per the plan's constraints), only typechecked.
+
 ## Ideas import (branch `feat/single-pane`, Task 2) — 2026-11-08
 
 - Paste a markdown backlog on the Ideas page (**Import**), review the rows, import the checked ones as project ideas. `parseBacklog` (`shared/ideas-import.ts`); `ProjectIdeas.preview/import` (`server/project-ideas.ts`: one write, duplicates and bad rows skipped with a reason, replay by `operationId` from a 50-entry in-memory cache); RPCs `ideas.import-preview` / `ideas.import`; `client/ideas-import.tsx`. [IDEAS-IMPORT-EXPORT-SPEC](IDEAS-IMPORT-EXPORT-SPEC.md)

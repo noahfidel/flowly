@@ -1,5 +1,6 @@
 # Paseo Kanban Plugin：Spec 大纲与路线图
 
+2026-11-08 Markdown export (implemented): Settings > Storage > Export as Markdown copies the live projects' open cards, open ideas (re-importable through the backlog parser) and active memory to the clipboard; RPC `board.export-markdown`. [spec](IDEAS-IMPORT-EXPORT-SPEC.md) §7.
 2026-11-08 Ideas import (implemented): paste a markdown backlog on the Ideas page, review the rows (`[x]` and already-open ones start unchecked), import the checked ones as project ideas with the `(added …)` note kept as `source`; titles cut at 120 characters on a word with the full line in the detail; RPCs `ideas.import-preview` and `ideas.import` (replay by `operationId`). The overview's Ideas count now includes project ideas (`projectIdeas`). Export is written with Task 3. [spec](IDEAS-IMPORT-EXPORT-SPEC.md).
 2026-11-08 Project-level ideas (implemented): an idea can belong to a project instead of a card (no `taskId`): agents in sessions outside cards propose them with `flowly_propose_idea` on the board credential, the user with the `ideas.create-project` RPC; no open cap, unique open title per project (`DUPLICATE_IDEA`), no board event; New card accepts one with `origin { ideaId }` and no derived link; the Ideas page shows a Project group and no Continue in card. Amends IDEAS-SPEC §1. [spec](PROJECT-IDEAS-SPEC.md).
 

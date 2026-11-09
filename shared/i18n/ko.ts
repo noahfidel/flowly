@@ -1365,6 +1365,8 @@ const catalog: Catalog = {
   "The board goes back to {name} ({time}). Changes since then leave the board; the current data stays in the data folder.": "보드를 {name}({time})으로 되돌립니다. 그 이후의 변경은 보드에서 사라지며, 현재 데이터는 데이터 폴더에 남습니다.",
   "Backup restored": "백업을 복원했습니다",
   "Export to JSON…": "JSON으로 내보내기…",
+  "Export as Markdown": "Markdown으로 내보내기",
+  "Copied the board as Markdown": "보드를 Markdown으로 복사했습니다",
   "Move the board back to SQLite": "보드를 SQLite로 되돌리기",
   "The board is in SQLite again": "보드가 다시 SQLite를 사용합니다",
   "Flowly writes the board to board.json and stops using SQLite. Then you can install an earlier Flowly version, or move the board back here.": "Flowly가 보드를 board.json에 쓰고 SQLite 사용을 멈춥니다. 그다음 이전 Flowly 버전을 설치하거나 여기서 보드를 되돌릴 수 있습니다.",

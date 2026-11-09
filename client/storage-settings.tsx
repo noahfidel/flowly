@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { View } from "react-native";
-import { useToast } from "@getpaseo/plugin/client/react-native";
+import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
@@ -31,6 +31,7 @@ export function StoragePage() {
   const restore = useRpc(rpc.restoreStorage);
   const exportJson = useRpc(rpc.exportStorage);
   const useSqlite = useRpc(rpc.useSqliteStorage);
+  const exportMarkdown = useRpc(rpc.exportBoardMarkdown);
   const status = useQuery({ queryKey: statusKey, queryFn: () => read({}), staleTime: 0, retry: false });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -43,6 +44,18 @@ export function StoragePage() {
       setConfirming(null);
       toast.show(done, { variant: "success" });
       await Promise.all([queryClient.invalidateQueries({ queryKey: statusKey }), queryClient.invalidateQueries({ queryKey: boardKey })]);
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setPending(false);
+    }
+  };
+  const copyMarkdown = async () => {
+    setPending(true);
+    setError("");
+    try {
+      await copyText((await exportMarkdown({})).markdown);
+      toast.show(t("Copied the board as Markdown"), { variant: "success" });
     } catch (e) {
       setError(message(e));
     } finally {
@@ -101,9 +114,10 @@ export function StoragePage() {
           </Actions>
         </View>
       )}
-      {value?.backend === "sqlite" && (
+      {value && (
         <SettingsGroup>
-          <SettingRow title={t("Export to JSON…")} disabled={pending} onPress={() => setConfirming({ kind: "export" })} />
+          <SettingRow title={t("Export as Markdown")} disabled={pending} onPress={() => void copyMarkdown()} />
+          {value.backend === "sqlite" && <SettingRow title={t("Export to JSON…")} disabled={pending} onPress={() => setConfirming({ kind: "export" })} />}
         </SettingsGroup>
       )}
       {value?.backend === "json" && value.reason === "exported" && (

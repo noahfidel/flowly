@@ -982,6 +982,12 @@ export const restoreStorage = defineRpc({
   output: z.strictObject({ aside: z.string().nullable() }),
 });
 export const exportStorage = defineRpc({ name: "storage.export-json", input: z.strictObject({}), output: z.strictObject({ retired: z.string().nullable() }) });
+/** The live projects (or one) as markdown: open cards, open ideas, active memory (IDEAS-IMPORT-EXPORT-SPEC §7). */
+export const exportBoardMarkdown = defineRpc({
+  name: "board.export-markdown",
+  input: z.strictObject({ projectId: z.string().min(1).optional() }),
+  output: z.strictObject({ markdown: z.string() }),
+});
 export const useSqliteStorage = defineRpc({ name: "storage.use-sqlite", input: z.strictObject({}), output: z.strictObject({}) });
 
 /** Whether telemetry is forced off on the daemon's host by DO_NOT_TRACK / FLOWLY_TELEMETRY=0 / NODE_ENV=test, or by a build without a PostHog key (`builtOff`) (TELEMETRY-SPEC §5, §6). */

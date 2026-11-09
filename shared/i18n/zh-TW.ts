@@ -1365,6 +1365,8 @@ const catalog: Catalog = {
   "The board goes back to {name} ({time}). Changes since then leave the board; the current data stays in the data folder.": "看板將回到 {name}（{time}）。之後的變更會從看板上消失；目前的資料保留在資料資料夾中。",
   "Backup restored": "備份已恢復",
   "Export to JSON…": "匯出為 JSON…",
+  "Export as Markdown": "匯出為 Markdown",
+  "Copied the board as Markdown": "已將看板複製為 Markdown",
   "Move the board back to SQLite": "把看板移回 SQLite",
   "The board is in SQLite again": "看板已重新使用 SQLite",
   "Flowly writes the board to board.json and stops using SQLite. Then you can install an earlier Flowly version, or move the board back here.": "Flowly 會把看板寫入 board.json 並停止使用 SQLite。之後你可以安裝舊版 Flowly，或在這裡把看板移回去。",

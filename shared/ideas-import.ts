@@ -57,7 +57,7 @@ function parentheticals(text: string): { start: number; end: number }[] {
   return groups;
 }
 
-const isSourceNote = (inner: string) => SOURCE_START.test(inner) || inner.includes("added ");
+export const isSourceNote =(inner: string) => SOURCE_START.test(inner) || inner.includes("added ");
 
 /** Splits the item text into title text and the last added-style parenthetical (the source). */
 function splitSource(text: string): { title: string; source: string | null } {

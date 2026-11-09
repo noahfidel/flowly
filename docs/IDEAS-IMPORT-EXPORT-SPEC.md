@@ -4,7 +4,7 @@ Status: user decisions 2026-11-08, Flowly single pane (plan Tasks 2 and 3). Buil
 
 ## 1. Goal and non-goals
 
-Bring a markdown backlog (a `- [ ] item` list with `(added …)` notes, as kept per repository in `~/.claude/backlogs/`) into a project's Ideas, after the user has reviewed every row. Export is specified in §7 (Task 3).
+Bring a markdown backlog (a `- [ ] item` list with `(added …)` notes, as kept per repository in `~/.claude/backlogs/`) into a project's Ideas, after the user has reviewed every row. Export is specified in §7.
 
 Non-goals:
 
@@ -58,4 +58,12 @@ The result shows as a toast ("Imported N ideas", plus "N skipped" when some were
 
 ## 7. Export
 
-Written with Task 3.
+RPC `board.export-markdown` `{ projectId? }` → `{ markdown }`: the live (not archived) projects, or the one named (unknown or archived: `NOT_FOUND`). Read-only. Settings > Storage has **Export as Markdown**, which copies the text to the clipboard.
+
+`exportMarkdown(board, memory)` (`shared/board-export.ts`) writes, per project in board order, `## <project title>` and then the sections below, each left out when empty:
+
+- `### Open cards`: `- [ ] <title> (<status>, <id>)`, with the first non-empty line of the description under it, indented two spaces. Open means status not `done` or `cancelled`, and not archived. Newlines in a title become spaces.
+- `### Ideas`: open ideas (not accepted, not dismissed) as `- [ ] <title> (<note>)`. The note is the idea's `source`, else the title of its card. Detail lines follow as `  - <line>` (a line already starting `- ` is kept as is). The text reads back through `parseBacklog`: a note the parser would not take as a source note (§2) is written as `added <YYYY-MM-DD>, <note>`, using the idea's creation date, so the title survives a round trip. Parentheses in the note are dropped when they would not balance.
+- `### Memory`: the project's active entries, one `agentsRule` line each (candidate, dismissed and archived entries are left out).
+
+Acceptance: open cards, open ideas and active memory are listed per project; done or cancelled and archived cards, accepted and dismissed ideas and non-active memory are not; the exported ideas section re-imports through `parseBacklog` to the same titles.

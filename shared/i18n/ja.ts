@@ -1365,6 +1365,8 @@ const catalog: Catalog = {
   "The board goes back to {name} ({time}). Changes since then leave the board; the current data stays in the data folder.": "ボードを {name}（{time}）に戻します。それ以降の変更はボードから消えます。現在のデータはデータフォルダに残ります。",
   "Backup restored": "バックアップを復元しました",
   "Export to JSON…": "JSON にエクスポート…",
+  "Export as Markdown": "Markdown としてエクスポート",
+  "Copied the board as Markdown": "ボードを Markdown としてコピーしました",
   "Move the board back to SQLite": "ボードを SQLite に戻す",
   "The board is in SQLite again": "ボードは再び SQLite を使っています",
   "Flowly writes the board to board.json and stops using SQLite. Then you can install an earlier Flowly version, or move the board back here.": "Flowly はボードを board.json に書き出し、SQLite の使用をやめます。その後、以前の Flowly をインストールするか、ここでボードを戻せます。",

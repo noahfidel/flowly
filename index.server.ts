@@ -52,6 +52,9 @@ import { workflowInsightsSettings, workflowSettingsValues } from "./shared/workf
 import { sessionModel } from "./server/agent-model";
 import { startedByUser, turnPick, userTexts } from "./shared/agent-habits";
 import { turnTimeline } from "./server/turn-timeline";
+import { ToolError } from "./server/tool-error";
+import { exportMarkdown } from "./shared/board-export";
+import type { MemoryEntry } from "./shared/memory";
 import { MemoryService, setMemoryEverywhere, memoryOn } from "./server/memory";
 import { SearchService } from "./server/search";
 import { QuickTitleService } from "./server/quick-title";
@@ -287,6 +290,14 @@ export default function contribute(host: PluginServerContext) {
   };
   tools.agents.memory = memory;
   tools.agents.switches = switches;
+  server.handle(rpc.exportBoardMarkdown, async ({ projectId }) => {
+    const board = await store.read();
+    const live = board.projects.filter((p) => !p.archivedAt && (!projectId || p.id === projectId));
+    if (projectId && !live.length) throw new ToolError("NOT_FOUND", "Project not found.");
+    const entries: Record<string, MemoryEntry[]> = {};
+    for (const p of live) entries[p.id] = (await memory.view(p.id)).entries;
+    return { markdown: exportMarkdown({ ...board, projects: live }, entries) };
+  });
   server.handle(rpc.readMemory, async ({ projectId, etag }) => ifChanged(await memory.view(projectId), etag));
   server.handle(rpc.memoryCounts, async ({ etag }) => ifChanged(await memory.counts(), etag));
   server.handle(rpc.createMemory, (input) => memory.create(input));
