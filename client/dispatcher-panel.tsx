@@ -139,11 +139,14 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   // Its permission requests, answered here as in a card's session view (never without the user's choice).
   const transcript = useRef<TranscriptHandle | null>(null);
   const [sending, setSending] = useState(false);
+  // Held from the press until the call settles: a second press before the re-render cannot send again (as the card view).
+  const lock = useRef(false);
   const [error, setError] = useState("");
   const requestsKey = JSON.stringify(agent?.pendingPermissions ?? []);
   const requests = useMemo(() => pendingRequests(agent), [requestsKey]);
   const respond = useStableCallback((request: PendingRequest, reply: PermissionReply) => {
-    if (!agentId || sending) return;
+    if (!agentId || lock.current) return;
+    lock.current = true;
     setSending(true);
     setError("");
     void (async () => {
@@ -156,7 +159,10 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
       transcript.current?.refresh();
     })()
       .catch((e) => setError(message(e)))
-      .finally(() => setSending(false));
+      .finally(() => {
+        lock.current = false;
+        setSending(false);
+      });
   });
 
   // The message box: the card session view's, with the text kept here. Sends always steer (§9.3).
@@ -171,7 +177,8 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     const text = box.read();
     const attached = box.attachmentsRef.current;
     const images = attached.map(({ data, mimeType }) => ({ data, mimeType }));
-    if (!canWrite || !agentId || (!text.trim() && !images.length)) return;
+    if (!canWrite || lock.current || !agentId || (!text.trim() && !images.length)) return;
+    lock.current = true;
     setSending(true);
     setError("");
     const messageId = newMessageId();
@@ -193,6 +200,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
       if (mounted.current) box.setAttachments([...attached, ...box.attachmentsRef.current].slice(0, maxImages));
       setError(message(e));
     } finally {
+      lock.current = false;
       setSending(false);
     }
   });
