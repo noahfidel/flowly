@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { extraFolderIgnored } from "../shared/settings";
 import { absoluteTarget, artifactNoteLine, defaultTitle, isUrlTarget, validUrl } from "../shared/artifacts";
 import { artifactLimits, type Artifact, type ArtifactEdit, type ArtifactRole, type Board, type Project, type Task } from "../shared/model";
 import { effectiveRepos } from "../shared/scope";
@@ -25,6 +26,7 @@ export function extraFolderRoots(folders: readonly string[], home = homedir()): 
   const roots = new Set<string>();
   for (const raw of folders) {
     const value = raw.trim();
+    if (extraFolderIgnored(value)) continue;
     const path = value === "~" || value.startsWith("~/") ? join(home, value.slice(1)) : value;
     if (!path || !isAbsolute(path)) continue;
     const root = resolve(path);
@@ -36,7 +38,7 @@ export function extraFolderRoots(folders: readonly string[], home = homedir()): 
 
 /**
  * The card's workspace directory (or its source path) plus its scope directories and linked repositories,
- * and the extra folders set in Settings (never validated here beyond `extraFolderRoots`).
+ * and the extra folders set in Settings (textual cleanup only: pass `resolveExtraRoots` output).
  */
 export function artifactRoots(task: Task, project: Project, workspaceDirectory?: string | null, extra: readonly string[] = []): ArtifactRoots {
   const workspace = workspaceDirectory || task.sourcePath;
@@ -48,6 +50,22 @@ export function artifactRoots(task: Task, project: Project, workspaceDirectory?:
 
 const real = (path: string) => realpath(path).catch(() => null);
 const inside = (path: string, root: string) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+
+/**
+ * `extraFolderRoots` decided on real paths, which is what `withinRoots` compares: each folder is resolved through symlinks
+ * (unresolvable ones are dropped), and a root that is `/`, the home directory or an ancestor of it is dropped, however it is spelled
+ * (a link to `/`, a case variant of home on macOS, `~/..`). Build every card's roots with this, never with the raw setting.
+ */
+export async function resolveExtraRoots(folders: readonly string[], home = homedir()): Promise<string[]> {
+  const realHome = (await real(home)) ?? resolve(home);
+  const roots = new Set<string>();
+  for (const candidate of extraFolderRoots(folders, home)) {
+    const path = await real(candidate);
+    if (!path || path === parse(path).root || inside(realHome, path)) continue;
+    roots.add(path);
+  }
+  return [...roots];
+}
 
 /** The real path of `path` when it lies within one of `roots` (after resolving symlinks), else null. */
 export async function withinRoots(path: string, roots: readonly string[]) {
@@ -272,6 +290,10 @@ export class ArtifactService {
     private extraFolders: () => Promise<readonly string[]> = async () => [],
   ) {}
 
+  private async extraRoots() {
+    return resolveExtraRoots(await this.extraFolders());
+  }
+
   /** The card's directories, from its live workspace when Paseo still knows it. */
   async where(taskId: string, paseo: Paseo, snapshot?: Board): Promise<ArtifactRoots> {
     const board = snapshot || (await this.store.read());
@@ -282,7 +304,7 @@ export class ArtifactService {
       .ref(task.workspaceId)
       .refresh()
       .catch(() => null);
-    return artifactRoots(task, project, workspace?.workspaceDirectory, await this.extraFolders());
+    return artifactRoots(task, project, workspace?.workspaceDirectory, await this.extraRoots());
   }
 
   async create(
@@ -324,7 +346,7 @@ export class ArtifactService {
   async status(input: { taskId: string }, paseo: Paseo) {
     const board = await this.store.read();
     const list = board.artifacts.filter((a) => a.taskId === input.taskId);
-    const key = [...list.map((a) => `${a.id}:${a.target}`), ...extraFolderRoots(await this.extraFolders())].join("|");
+    const key = [...list.map((a) => `${a.id}:${a.target}`), ...(await this.extraRoots())].join("|");
     const hit = this.cache.get(input.taskId);
     if (hit && hit.key === key && Date.now() - hit.at < 15000) return { missing: hit.missing };
     const missing = [...(await missingArtifacts(list, await this.where(input.taskId, paseo, board)))];

@@ -1369,6 +1369,7 @@ const catalog: Catalog = {
   "Agents can attach any file under these folders to any card.": "Agent 可以把这些文件夹下的任何文件附加到任何卡片。",
   "Add folder": "添加文件夹",
   "Remove folder": "移除文件夹",
+  "Not used: needs an absolute path or ~/…, and not / or your home folder.": "未使用：需要绝对路径或 ~/…，且不能是 / 或你的主文件夹。",
   "Export as Markdown": "导出为 Markdown",
   "Copied the board as Markdown": "已将看板复制为 Markdown",
   "Move the board back to SQLite": "把看板移回 SQLite",

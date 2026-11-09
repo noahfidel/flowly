@@ -12,7 +12,7 @@ import { turnChecklist } from "../shared/turn-checklist";
 import { changeTags, normalizeTags, projectTagStats, tagChangeNote } from "../shared/tags";
 import { setTags } from "./store";
 import { fingerprintChanged } from "./connectors/fingerprint";
-import { artifactRoots, dropArtifact, externalArtifact, missingArtifacts, normalizeTarget, putArtifact, type NewArtifact } from "./artifacts";
+import { artifactRoots, dropArtifact, externalArtifact, missingArtifacts, normalizeTarget, putArtifact, resolveExtraRoots, type NewArtifact } from "./artifacts";
 import { ArtifactReadStore } from "./artifact-reads";
 import { ExternalError } from "./connectors/http";
 import { ExternalReadStore, refKey, type ConnectorService } from "./connectors/service";
@@ -96,6 +96,7 @@ export class AgentService {
   artifactsOn: () => Promise<boolean> = async () => true;
   /** The extra artifact folders from Settings (CARD-ARTIFACTS-SPEC, extra folders). Set by the plugin entry. */
   extraArtifactFolders: () => Promise<readonly string[]> = async () => [];
+  private extraArtifactRoots = async () => resolveExtraRoots(await this.extraArtifactFolders());
   /** The AI output language (AI-LANGUAGE-SPEC §5), returned by get_task as outputLanguage. */
   aiLanguage: () => Promise<LocaleCode> = async () => "en";
   /** Reads the workspace HEAD and verifies commits for the workpad (WORKPAD-SPEC §4.2, §5.1). */
@@ -397,7 +398,7 @@ export class AgentService {
             })),
           artifacts: await (async () => {
             const list = artifactsOf(board.artifacts, r.task.id).slice(0, 100);
-            const where = artifactRoots(r.task, r.project, r.workspace.workspaceDirectory, await this.extraArtifactFolders());
+            const where = artifactRoots(r.task, r.project, r.workspace.workspaceDirectory, await this.extraArtifactRoots());
             const missing = await missingArtifacts(list, where);
             externals = await this.externalInfo(identity.agentId, list);
             return list.map((a) => ({
@@ -541,7 +542,7 @@ export class AgentService {
             if (!(e instanceof ExternalError) || !/^https?:\/\//i.test(output.target)) throw e;
             notice = "External details could not be read; no external status or content was verified.";
           }
-          const target = external ?? await normalizeTarget(output.target, artifactRoots(resources.task, resources.project, resources.workspace.workspaceDirectory, await this.extraArtifactFolders()));
+          const target = external ?? await normalizeTarget(output.target, artifactRoots(resources.task, resources.project, resources.workspace.workspaceDirectory, await this.extraArtifactRoots()));
           outputTargets.push({ ...output, ...target, title: output.title || external?.title, ...(notice ? { notice } : {}) });
         } catch (e) {
           throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
@@ -562,7 +563,7 @@ export class AgentService {
           ? { kind: externalTarget.kind, target: externalTarget.target, external: externalTarget.external, externalTitle: externalTarget.title }
           : await normalizeTarget(
               (input as ArtifactToolInput).target,
-              artifactRoots(resources.task, resources.project, resources.workspace.workspaceDirectory, await this.extraArtifactFolders()),
+              artifactRoots(resources.task, resources.project, resources.workspace.workspaceDirectory, await this.extraArtifactRoots()),
             ).catch((e) => {
               throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
             })

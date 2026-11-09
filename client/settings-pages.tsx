@@ -10,6 +10,7 @@ import {
   aiLanguageSettingsValues,
   artifactSettings,
   artifactSettingsValues,
+  extraFolderIgnored,
   boardViewSettings,
   boardViewValues,
   featureSettings,
@@ -42,7 +43,7 @@ import { SettingRow, SettingSelect, SettingSwitch, SettingsGroup, SettingsPage }
 import { useOnboarding } from "./onboarding-state";
 import { useStored } from "./stored-settings";
 import { whatsNew } from "./whats-new";
-import { Button, Field, IconButton, Notice, space, useTheme } from "./ui";
+import { Button, Field, IconButton, Label, Notice, font, space, useTheme } from "./ui";
 import { compactNumber } from "../shared/usage";
 import { dollars, roundTokens, runCost, runTokens, type AiRun } from "../shared/ai-cost";
 import * as rpc from "../shared/rpc";
@@ -407,17 +408,24 @@ function ExtraFoldersGroup() {
     <SettingsGroup title={t("Extra artifact folders")} description={t("Agents can attach any file under these folders to any card.")}>
       <Problem text={stored.problem} />
       {(rows ?? []).map((row) => (
-        <View key={row.id} style={{ flexDirection: "row", alignItems: "flex-end", gap: space[2], padding: space[2] }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Field
-              title={t("Folder")}
-              value={row.text}
-              placeholder="~/.claude/plans"
-              commitDelay={800}
-              onChange={(text) => persist(latest.current.map((r) => (r.id === row.id ? { ...r, text } : r)))}
-            />
+        <View key={row.id} style={{ gap: space[1], padding: space[2] }}>
+          <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space[2] }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Field
+                title={t("Folder")}
+                value={row.text}
+                placeholder="~/.claude/plans"
+                commitDelay={800}
+                onChange={(text) => persist(latest.current.map((r) => (r.id === row.id ? { ...r, text } : r)))}
+              />
+            </View>
+            <IconButton icon="X" label={t("Remove folder")} disabled={stored.busy} onPress={() => persist(latest.current.filter((r) => r.id !== row.id))} />
           </View>
-          <IconButton icon="X" label={t("Remove folder")} disabled={stored.busy} onPress={() => persist(latest.current.filter((r) => r.id !== row.id))} />
+          {extraFolderIgnored(row.text) && (
+            <Label muted size={font.sm}>
+              {t("Not used: needs an absolute path or ~/…, and not / or your home folder.")}
+            </Label>
+          )}
         </View>
       ))}
       {rows && rows.length < maxExtraFolders && <SettingRow title={t("Add folder")} disabled={stored.busy} onPress={() => setRows([...rows, { id: nextId.current++, text: "" }])} />}

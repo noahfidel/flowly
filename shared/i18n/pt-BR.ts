@@ -1369,6 +1369,7 @@ const catalog: Catalog = {
   "Agents can attach any file under these folders to any card.": "Os agentes podem anexar qualquer arquivo dessas pastas a qualquer cartão.",
   "Add folder": "Adicionar pasta",
   "Remove folder": "Remover pasta",
+  "Not used: needs an absolute path or ~/…, and not / or your home folder.": "Não usada: precisa de um caminho absoluto ou ~/…, e não / nem sua pasta pessoal.",
   "Export as Markdown": "Exportar como Markdown",
   "Copied the board as Markdown": "Quadro copiado como Markdown",
   "Move the board back to SQLite": "Devolver o quadro ao SQLite",

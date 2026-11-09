@@ -159,6 +159,23 @@ export const artifactSettings = defineSettings({
   }),
 });
 export type ArtifactSettings = z.infer<typeof artifactSettings.schema>;
+/**
+ * Whether the server will ignore an extra folder by its text alone: relative or `~user` entries, `/`, `~`, and `~`/`/` paths that
+ * resolve to the filesystem root, the home directory or an ancestor of it. Empty is not flagged (a row not typed yet).
+ * Symlinks and the real home directory are only known to the server (`resolveExtraRoots`).
+ */
+export function extraFolderIgnored(text: string): boolean {
+  const value = text.trim();
+  if (!value || /^[A-Za-z]:[\\/]/.test(value)) return false;
+  const home = value === "~" || value.startsWith("~/");
+  if (!home && !value.startsWith("/")) return true;
+  let depth = 0;
+  for (const part of value.slice(home ? 1 : 0).split("/")) {
+    if (!part || part === ".") continue;
+    depth = part === ".." ? (home ? depth - 1 : Math.max(depth - 1, 0)) : depth + 1;
+  }
+  return depth <= 0;
+}
 /** Stored values with empty and relative entries dropped and trailing slashes removed; `/` is never kept. */
 export function artifactSettingsValues(values: unknown): ArtifactSettings {
   const parsed = artifactSettings.schema.safeParse(values ?? {});

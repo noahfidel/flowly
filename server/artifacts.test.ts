@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { agentFixture } from "./agent-fixture";
-import { ArtifactService, artifactRoots, editArtifact, extraFolderRoots, missingArtifacts, normalizeTarget, putArtifact } from "./artifacts";
-import { artifactSettingsValues } from "../shared/settings";
+import { ArtifactService, artifactRoots, editArtifact, extraFolderRoots, missingArtifacts, normalizeTarget, putArtifact, resolveExtraRoots } from "./artifacts";
+import { artifactSettingsValues, extraFolderIgnored } from "../shared/settings";
 import { homedir } from "node:os";
 import type { Artifact } from "../shared/model";
 import { artifactContextLines } from "../shared/artifacts";
@@ -270,4 +270,38 @@ test("relative and empty extra folders are ignored", async () => {
   expect(roots).not.toContain("relative");
   await expect(normalizeTarget(join(x.extra, "a.md"), x.where(["", "/"]))).rejects.toThrow("outside this card's directories");
   await expect(normalizeTarget(join(process.cwd(), "package.json"), x.where([""]))).rejects.toThrow("outside this card's directories");
+});
+
+test("extra roots are decided on resolved paths: a link to / or to home, a case variant of home, home and its ancestors are dropped", async () => {
+  const x = await extraSetup();
+  const home = join(x.root, "home", "me");
+  await mkdir(join(home, "notes"), { recursive: true });
+  const toRoot = join(x.root, "link-root");
+  const toHome = join(x.root, "link-home");
+  await symlink("/", toRoot);
+  await symlink(home, toHome);
+  expect(await resolveExtraRoots([toRoot, "/", toHome, home, dirname(home), dirname(dirname(home)), join(home, ".."), join(x.root, "missing")], home)).toEqual([]);
+  // The home directory's own subfolders stay usable; the root is the real path.
+  expect(await resolveExtraRoots([join(home, "notes"), `${toHome}/notes`], home)).toEqual([await realpath(join(home, "notes"))]);
+  // macOS: /USERS/NOAH… names the same directory as /Users/noah…; skipped where the filesystem is case-sensitive.
+  const upper = home.toUpperCase();
+  if ((await realpath(upper).catch(() => null)) === (await realpath(home))) expect(await resolveExtraRoots([upper, dirname(upper)], home)).toEqual([]);
+  expect(await resolveExtraRoots([x.extra], home)).toEqual([await realpath(x.extra)]);
+});
+
+test("a symlink to / set as an extra folder does not open the filesystem to attachments", async () => {
+  const x = await extraSetup();
+  const toRoot = join(x.root, "link-root");
+  await symlink("/", toRoot);
+  const service = new ArtifactService(x.store, undefined, async () => [toRoot]);
+  await expect(service.create({ taskId: "t", role: "input", target: join(x.root, "outside", "secret.txt") }, x.paseo)).rejects.toThrow("outside this card's directories");
+  const ok = new ArtifactService(x.store, undefined, async () => [join(x.root, "outside")]);
+  expect(await ok.create({ taskId: "t", role: "input", target: join(x.root, "outside", "secret.txt") }, x.paseo)).toMatchObject({ kind: "file" });
+});
+
+test("the Settings note flags exactly the entries the server ignores by text", () => {
+  for (const bad of ["plans", "./plans", "../x", "~other/x", "/", "//", "~", "~/", "~/..", "~/a/..", "~/../.."]) expect(extraFolderIgnored(bad), bad).toBe(true);
+  for (const ok of ["/abs/ok", "/abs/ok/", "~/notes", "~/.claude/plans", "~/a/../b", "C:\\work\\plans", ""]) expect(extraFolderIgnored(ok), ok).toBe(false);
+  // The server drops what the note flags.
+  expect(extraFolderRoots(["plans", "~other/x", "/", "~", "~/..", "~/a/.."], "/home/me")).toEqual([]);
 });

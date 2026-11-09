@@ -1369,6 +1369,7 @@ const catalog: Catalog = {
   "Agents can attach any file under these folders to any card.": "エージェントは、これらのフォルダ内のあらゆるファイルを任意のカードに添付できます。",
   "Add folder": "フォルダを追加",
   "Remove folder": "フォルダを削除",
+  "Not used: needs an absolute path or ~/…, and not / or your home folder.": "使用されません。絶対パスまたは ~/… が必要で、/ やホームフォルダは指定できません。",
   "Export as Markdown": "Markdown としてエクスポート",
   "Copied the board as Markdown": "ボードを Markdown としてコピーしました",
   "Move the board back to SQLite": "ボードを SQLite に戻す",
