@@ -73,6 +73,7 @@ import { ToolError } from "./tool-error";
 import type { WorkspaceSwitchService } from "./workspace-switch";
 import { ideaLimits, isDeliveryStatus, isWorkStatus, legacyStatus, type Board, type Idea, type Receipt, type Status } from "../shared/model";
 import { isLegacyScope } from "../shared/scope";
+import { defaultDeliveryMode, effectiveDeliveryMode, type DeliveryMode } from "../shared/delivery-mode";
 import { MemoryError, type MemoryService } from "./memory";
 import type { SearchService } from "./search";
 import { logFailure } from "./error-report";
@@ -99,6 +100,8 @@ export class AgentService {
   private extraArtifactRoots = async () => resolveExtraRoots(await this.extraArtifactFolders());
   /** The AI output language (AI-LANGUAGE-SPEC §5), returned by get_task as outputLanguage. */
   aiLanguage: () => Promise<LocaleCode> = async () => "en";
+  /** The default delivery mode from Settings (DELIVERY-MODE-SPEC §2). Set by the plugin entry. */
+  deliveryDefault: () => Promise<DeliveryMode> = async () => defaultDeliveryMode;
   /** Reads the workspace HEAD and verifies commits for the workpad (WORKPAD-SPEC §4.2, §5.1). */
   git: Git = defaultGit;
   constructor(
@@ -356,6 +359,7 @@ export class AgentService {
       identity,
       turnChecklist: [...turnChecklist],
       task: r.task,
+      deliveryMode: effectiveDeliveryMode(r.task.deliveryMode, await this.deliveryDefault()),
       project: r.project,
       revision,
       request: this.secrets.request(identity, revision),

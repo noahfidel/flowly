@@ -1533,5 +1533,11 @@ const catalog: Catalog = {
   "Imported {n} ideas": {"one": "{n} ideia importada", "other": "{n} ideias importadas"},
   "Import {n} ideas": {"one": "Importar {n} ideia", "other": "Importar {n} ideias"},
   "Already imported.": "Já importado.",
+  "Delivery": "Entrega",
+  "Delivery mode": "Modo de entrega",
+  "Branch, I bless": "Branch, eu aprovo",
+  "Draft PR": "PR em rascunho",
+  "Ready PR": "PR pronto",
+  "Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.": "Escolha por cartão, com um padrão em Configurações → Fluxo de trabalho, se o agente deixa o trabalho em uma branch para você revisar ou o envia como PR em rascunho ou pronto. O push continua pedindo sua permissão antes.",
 };
 export default catalog;

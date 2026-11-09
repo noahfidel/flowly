@@ -1533,5 +1533,11 @@ const catalog: Catalog = {
   "Imported {n} ideas": {"one": "Импортирована {n} идея", "few": "Импортировано {n} идеи", "many": "Импортировано {n} идей", "other": "Импортировано {n} идеи"},
   "Import {n} ideas": {"one": "Импортировать {n} идею", "few": "Импортировать {n} идеи", "many": "Импортировать {n} идей", "other": "Импортировать {n} идеи"},
   "Already imported.": "Уже импортировано.",
+  "Delivery": "Доставка",
+  "Delivery mode": "Режим доставки",
+  "Branch, I bless": "Ветка, я одобряю",
+  "Draft PR": "Черновик PR",
+  "Ready PR": "PR готов к ревью",
+  "Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.": "Выбирайте для каждой карточки (значение по умолчанию — в Настройки → Рабочий процесс), оставит ли агент работу в ветке для вашей проверки или отправит её как черновик PR или PR, готовый к ревью. Перед отправкой он по-прежнему спросит у вас разрешения.",
 };
 export default catalog;

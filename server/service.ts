@@ -17,6 +17,7 @@ import { readSnapshot, SnapshotInvalidError, type ProjectSnapshot } from "./proj
 import { linkLimits } from "../shared/model";
 import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
 import { effectiveRepos, sessionContext } from "../shared/scope";
+import type { DeliveryMode } from "../shared/delivery-mode";
 import { setupContextLine, setupMissing } from "../shared/card-setup";
 import { linearTicketLines } from "../shared/linear-ticket";
 import { isPrReviewCard } from "../shared/pr-review";
@@ -595,6 +596,7 @@ export class BoardService {
             status: input.status,
             priority: input.priority,
             ...(input.type ? { type: input.type } : {}),
+            ...(input.deliveryMode ? { deliveryMode: input.deliveryMode } : {}),
             ...(tags.length
               ? { tags: tags.map((tag) => (by ? { tag, by: "agent" as const, agentId: by.agentId, at: now } : { tag, by: "human" as const, at: now })) }
               : {}),
@@ -661,7 +663,7 @@ export class BoardService {
     return new Set(list.filter((a) => located.has(a.id) && !located.get(a.id)).map((a) => a.id));
   }
   /** `artifactsOn`: whether agents may add artifacts now (Settings → AI features); decides how the Linear block links (LINEAR-TICKET-SPEC §3). */
-  async context(id: string, paseo: PaseoApi, snapshot?: Board, options: { artifactsOn?: boolean } = {}) {
+  async context(id: string, paseo: PaseoApi, snapshot?: Board, options: { artifactsOn?: boolean; deliveryDefault?: DeliveryMode } = {}) {
     const board = snapshot || (await this.store.read());
     const task = board.tasks.find((t) => t.id === id);
     const project = board.projects.find((p) => p.id === task?.projectId);
@@ -705,6 +707,7 @@ export class BoardService {
         memory.lines,
         // A PR review card reviews someone else's PR; it is never asked for a Linear ticket (PR-REVIEW-CARDS-SPEC §5).
         isPrReviewCard(task) ? [] : linearTicketLines(project, artifactsOf(board.artifacts, task.id), { title: task.title, canLink: options.artifactsOn ?? true }),
+        options.deliveryDefault,
       ),
       memoryIds: memory.ids,
       directories,

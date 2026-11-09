@@ -6,6 +6,7 @@ import { languageChoices, localeCodes } from "./i18n";
 import { aiLanguageChoices } from "./ai-language";
 import { cardActivityModes } from "./card-display";
 import { linearColumns } from "./linear-board";
+import { defaultDeliveryMode, deliveryModes } from "./delivery-mode";
 
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
@@ -92,6 +93,21 @@ export type WrapupSettings = z.infer<typeof wrapupSettings.schema>;
 export function wrapupSettingsValues(values: unknown): WrapupSettings {
   const parsed = wrapupSettings.schema.safeParse(values ?? {});
   return parsed.success ? parsed.data : wrapupSettings.schema.parse({});
+}
+
+/** How new cards are delivered unless New task says otherwise (DELIVERY-MODE-SPEC §2). */
+export const deliverySettings = defineSettings({
+  id: "delivery",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    defaultMode: z.enum(deliveryModes).default(defaultDeliveryMode),
+  }),
+});
+export type DeliverySettings = z.infer<typeof deliverySettings.schema>;
+export function deliverySettingsValues(values: unknown): DeliverySettings {
+  const parsed = deliverySettings.schema.safeParse(values ?? {});
+  return parsed.success ? parsed.data : deliverySettings.schema.parse({});
 }
 
 /** PR review cards (PR-REVIEW-CARDS-SPEC §6): a new agent labelled `pr-review-watch` gets a card in its own workspace. */

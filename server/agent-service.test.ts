@@ -1354,3 +1354,18 @@ test("handover: stored on the card without a revision change, replaced by the ne
   ctx = await x.service.get(x.identity);
   await expect(x.service.write(x.identity, "handover", { expectedRevision: ctx.revision, request: ctx.request, files: [] })).rejects.toThrow();
 });
+
+test("get_task returns the card's delivery mode, or the default (DELIVERY-MODE-SPEC §5)", async () => {
+  const x = await setup();
+  expect((await x.service.get(x.identity)).deliveryMode).toBe("branch");
+  x.service.deliveryDefault = async () => "draft_pr";
+  expect((await x.service.get(x.identity)).deliveryMode).toBe("draft_pr");
+  await x.store.mutate((board) => {
+    (board.tasks.find((t) => t.id === "t") as { deliveryMode?: string }).deliveryMode = "ready_pr";
+  });
+  expect((await x.service.get(x.identity)).deliveryMode).toBe("ready_pr");
+  await x.store.mutate((board) => {
+    (board.tasks.find((t) => t.id === "t") as { deliveryMode?: string }).deliveryMode = "from_the_future";
+  });
+  expect((await x.service.get(x.identity)).deliveryMode).toBe("draft_pr");
+});

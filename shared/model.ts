@@ -2,6 +2,7 @@ import { localizedLabels, msg, t } from "./i18n";
 import { agentModelSchema } from "./agent-defaults";
 import { connectorLimits, externalRefSchema, itemTypeSchema } from "./connectors";
 import { z } from "zod";
+import { deliveryModes } from "./delivery-mode";
 import { attentionDismissLimits, attentionDismissalSchema } from "./attention-dismiss";
 
 export const statuses = [
@@ -210,6 +211,8 @@ export const taskSchema = z.object({
   handover: handoverSchema.optional(),
   /** The latest workspace switch (WORKSPACE-SWITCH-SPEC §7.1). */
   switch: switchSchema.optional(),
+  /** How the card is delivered (DELIVERY-MODE-SPEC §2); a plain string so a value this version does not know still loads. Absent: the host default. */
+  deliveryMode: z.string().max(40).optional(),
 });
 /** A follow-up an agent proposed on its card; the user may turn it into a card (IDEAS-SPEC). */
 export const ideaStatuses = ["open", "accepted", "dismissed"] as const;
@@ -619,6 +622,8 @@ export const taskInput = z.strictObject({
   ideaId: z.string().min(1).optional(),
   /** Create as a follow-up of this card (CARD-LINKS-SPEC §3); not together with ideaId. */
   followUpOf: z.string().min(1).optional(),
+  /** How the card is delivered (DELIVERY-MODE-SPEC §2); omitted: the host default applies when the context is built. */
+  deliveryMode: z.enum(deliveryModes).optional(),
   /** Create from this open workflow-insights suggestion (WORKFLOW-INSIGHTS-SPEC §5.2). */
   insightFindingId: z.string().min(1).max(100).optional(),
   /** External items added as inputs in the same write (EXTERNAL-TRACKER-SPEC §5.4, CONNECTORS-SPEC §8.2). */

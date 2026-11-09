@@ -1533,5 +1533,11 @@ const catalog: Catalog = {
   "Imported {n} ideas": "{n} 件のアイデアをインポートしました",
   "Import {n} ideas": "{n} 件のアイデアをインポート",
   "Already imported.": "すでにインポート済みです。",
+  "Delivery": "デリバリー",
+  "Delivery mode": "デリバリーモード",
+  "Branch, I bless": "ブランチ、私が承認",
+  "Draft PR": "ドラフトPR",
+  "Ready PR": "レビュー可能なPR",
+  "Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.": "カードごとに(既定は設定 → ワークフローで指定)、エージェントが作業をブランチに残してあなたがレビューするか、ドラフトPRまたはレビュー可能なPRとしてプッシュするかを選べます。プッシュの前には必ずあなたに確認します。",
 };
 export default catalog;

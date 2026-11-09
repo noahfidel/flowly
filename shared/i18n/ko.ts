@@ -1533,5 +1533,11 @@ const catalog: Catalog = {
   "Imported {n} ideas": "아이디어 {n}개를 가져왔습니다",
   "Import {n} ideas": "아이디어 {n}개 가져오기",
   "Already imported.": "이미 가져왔습니다.",
+  "Delivery": "전달",
+  "Delivery mode": "전달 방식",
+  "Branch, I bless": "브랜치, 내가 승인",
+  "Draft PR": "초안 PR",
+  "Ready PR": "리뷰 준비 PR",
+  "Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.": "카드별로(기본값은 설정 → 워크플로) 에이전트가 작업을 브랜치에 남겨 직접 검토하게 할지, 초안 PR 또는 리뷰 준비 PR로 푸시할지 고릅니다. 푸시 전에는 항상 먼저 사용자에게 묻습니다.",
 };
 export default catalog;

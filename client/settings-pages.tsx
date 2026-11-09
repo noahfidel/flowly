@@ -31,10 +31,13 @@ import {
   telemetrySettingsValues,
   wrapupSettings,
   wrapupSettingsValues,
+  deliverySettings,
+  deliverySettingsValues,
 } from "../shared/settings";
 import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
 import { deviceLocale, formatLocale, getLocale, locales, msg, t, tn } from "../shared/i18n";
 import { hideFinishedChoices } from "./finished-cards";
+import { deliveryModeLabels, deliveryModes, type DeliveryMode } from "../shared/delivery-mode";
 import { useBoardView } from "./board-view";
 import { sendBehaviors, sendBehaviorText, type SendBehavior } from "./send-queue";
 import { modelOptions, providerOptions } from "./options";
@@ -290,6 +293,7 @@ export function WorkflowPage() {
   const wrapup = useStored(useSettings(wrapupSettings), wrapupSettingsValues);
   const view = useStored(useSettings(boardViewSettings), boardViewValues);
   const prReview = useStored(useSettings(prReviewSettings), prReviewSettingsValues);
+  const delivery = useStored(useSettings(deliverySettings), deliverySettingsValues);
   const hideAfter = view.values?.hideFinishedAfterDays ?? 14;
   const dayLabel = (days: number) => (days ? tn(days, "After {n} day", "After {n} days") : t("Never"));
   const hideOptions = [...new Set<number>([...hideFinishedChoices, hideAfter])]
@@ -297,7 +301,7 @@ export function WorkflowPage() {
     .map((days) => ({ value: String(days), label: dayLabel(days) }));
   return (
     <SettingsPage title={t("Workflow")}>
-      <Problem text={status.problem || wrapup.problem || view.problem || prReview.problem} />
+      <Problem text={status.problem || wrapup.problem || view.problem || prReview.problem || delivery.problem} />
       <SettingsGroup title={t("Board")}>
         <SettingSwitch
           title={t("Show All projects tab")}
@@ -321,6 +325,14 @@ export function WorkflowPage() {
         />
       </SettingsGroup>
       <SettingsGroup title={t("Finishing cards")}>
+        <SettingSelect
+          title={t("Delivery mode")}
+          value={delivery.values?.defaultMode ?? "branch"}
+          placeholder={t(deliveryModeLabels[delivery.values?.defaultMode ?? "branch"])}
+          disabled={delivery.busy}
+          options={deliveryModes.map((m) => ({ value: m, label: t(deliveryModeLabels[m]) }))}
+          onChange={(next) => delivery.save({ defaultMode: next as DeliveryMode })}
+        />
         <SettingSwitch
           title={t("Auto wrap up")}
           detail={t("Archive without asking when nothing blocks it: no running session, no uncommitted or unpushed work. Otherwise the card is left for manual Wrap up.")}

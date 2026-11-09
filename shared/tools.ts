@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { deliveryModes } from "./delivery-mode";
 import { relations } from "./links";
 import { setupItems } from "./card-setup";
 import { connectorProviderSchema, itemTypeSchema } from "./connectors";
@@ -525,6 +526,8 @@ export const toolContextSchema = z.object({
     })
     .optional(),
   task: taskSchema,
+  /** How this card is delivered (DELIVERY-MODE-SPEC): its own mode, else the host default. Optional for older servers. */
+  deliveryMode: z.enum(deliveryModes).optional(),
   project: projectSchema,
   revision: revisionSchema,
   request: requestSchema,

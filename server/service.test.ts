@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoardStore } from "./store";
 import { BoardService, resolveWorktreeBaseRef } from "./service";
+import { deliveryLine } from "../shared/delivery-mode";
 import {
   projectInput,
   taskInput,
@@ -349,4 +350,39 @@ test("a new card is appended after fractional or reordered positions in its colu
   const column = (await x.store.read()).tasks.sort((a, b) => a.position - b.position).map((t) => t.id);
   expect(column).toEqual([second.id, first.id, third.id]);
   expect(third.position).toBeGreaterThan(first.position);
+});
+
+test("a new card stores the delivery mode it was created with; none stored when omitted (DELIVERY-MODE-SPEC §2)", async () => {
+  const x = await setup();
+  const plain = await x.service.createTask(x.input, x.paseo);
+  expect(plain.deliveryMode).toBeUndefined();
+  x.create.mockResolvedValueOnce({ id: "workspace-2" });
+  const chosen = await x.service.createTask({ ...x.input, operationId: "op-2", deliveryMode: "draft_pr" }, x.paseo);
+  expect(chosen.deliveryMode).toBe("draft_pr");
+  expect((await x.store.read()).tasks.find((t) => t.id === chosen.id)?.deliveryMode).toBe("draft_pr");
+});
+
+test("session context carries the delivery line of the card, or the default when it has none", async () => {
+  const x = await setup();
+  const none = await x.service.createTask(x.input, x.paseo);
+  x.create.mockResolvedValueOnce({ id: "workspace-2" });
+  const ready = await x.service.createTask({ ...x.input, operationId: "op-2", deliveryMode: "ready_pr" }, x.paseo);
+  const line = (mode: "branch" | "draft_pr" | "ready_pr") => deliveryLine(mode);
+  expect((await x.service.context(none.id, x.paseo)).context).toContain(line("branch"));
+  expect((await x.service.context(none.id, x.paseo, undefined, { deliveryDefault: "draft_pr" })).context).toContain(line("draft_pr"));
+  expect((await x.service.context(ready.id, x.paseo, undefined, { deliveryDefault: "draft_pr" })).context).toContain(line("ready_pr"));
+});
+
+test("an unknown stored mode is preserved and treated as the default", async () => {
+  const x = await setup();
+  const card = await x.service.createTask(x.input, x.paseo);
+  await x.store.mutate((board) => {
+    (board.tasks.find((t) => t.id === card.id) as { deliveryMode?: string }).deliveryMode = "from_the_future";
+  });
+  const text = (await x.service.context(card.id, x.paseo, undefined, { deliveryDefault: "draft_pr" })).context;
+  expect(text).toContain(deliveryLine("draft_pr"));
+  expect((await x.store.read()).tasks.find((t) => t.id === card.id)?.deliveryMode).toBe("from_the_future");
+  // A later edit of the card does not drop it.
+  await x.store.editTask({ id: card.id, revision: card.revision, title: "Renamed", actor: "human" });
+  expect((await x.store.read()).tasks.find((t) => t.id === card.id)?.deliveryMode).toBe("from_the_future");
 });

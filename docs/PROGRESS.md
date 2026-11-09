@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Delivery mode (branch `feat/single-pane`, Task 4) — 2026-11-08
+
+- A card has a delivery mode: `branch` ("Branch, I bless", default per Q4), `draft_pr` or `ready_pr`. Host setting `delivery` (`deliverySettings`, `defaultMode`) under Settings > Workflow > Finishing cards > Delivery mode; New task has a **Delivery** choice seeded from it and sends the shown value as `taskInput.deliveryMode`. Quick task and agent-created cards send none, so they follow the default when the context is built. `Task.deliveryMode` is a plain string (max 40) so an unknown stored value loads, is kept, and is treated as the default. `shared/delivery-mode.ts` holds the modes, labels, `effectiveDeliveryMode` and `deliveryLine` (English).
+- The session context (`sessionContext`, `BoardService.context` with a `deliveryDefault` option) ends with the mode's line; `flowly_get_task` returns the effective `deliveryMode` (`AgentService.deliveryDefault`, set in `index.server.ts`). The line goes last because existing context tests pin the order of the blocks before it. Draft and ready lines state that pushing and opening the PR still go through the user's permission prompt, and Ready PR never marks a PR ready while review notes are open. Flowly never pushes. AGENTS.md has the dated 2026-11-08 exception.
+- Not done (outside the brief): the mode cannot be changed after the card is created (`taskEdit` unchanged).
+- Strings: 6 new, in all 9 catalogs. Onboarding: a "Delivery mode" row in More features; no tip (a setting with a safe default). Telemetry: no heartbeat field.
+- Checks: new `shared/delivery-mode.test.ts` (6), additions to `shared/scope.test.ts`, `server/service.test.ts`, `server/agent-service.test.ts`; `npm run typecheck` exit 0, `npm test` exit 0 (163 files, 1457 passed, 1 skipped). The New task row and the Settings select were typechecked only (plugin not installed per the plan's constraints).
+
 ## Extra artifact folders (branch `feat/single-pane`, Task 3b) — 2026-11-08
 
 - New host setting `artifacts` (`artifactSettings`, `extraFolders`: at most 20 strings) edited under Settings > AI features > Artifacts (a field per folder, add and remove). `artifactRoots(task, project, workspaceDirectory?, extra)` appends `extraFolderRoots(extra)` (`~` expanded, normalized, deduplicated; empty, relative, `/` and the home directory dropped, so even a raw `""` or `/` handed to `artifactRoots` never becomes a root). `withinRoots` and `normalizeTarget` are unchanged. `ArtifactService` takes the getter in its constructor; `AgentService.extraArtifactFolders` is set by `index.server.ts`; both read the setting at each use, and `artifacts.status` caches on the folders too. Spec: CARD-ARTIFACTS-SPEC (2026-11-08 增量).

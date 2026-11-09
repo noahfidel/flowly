@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { sessionContext } from "./scope";
+import { deliveryLine } from "./delivery-mode";
 import { setupContextLine, setupMissing } from "./card-setup";
 import type { Project, Task } from "./model";
 
@@ -28,4 +29,28 @@ test("session context names missing card setup, and only what is missing (CARD-S
   expect(sessionContext(typed, project, paths, "/r", [], [], line)).toContain(`Task type: Bug fix\n${line}\nSteps`);
   expect(setupContextLine([])).toBe("");
   expect(sessionContext(typed, project, paths, "/r", [], [], "")).not.toContain("Card setup missing");
+});
+
+test("session context names the card's delivery mode", () => {
+  const paths = [{ repo: "/r", directory: "/r" }];
+  const lineOf = (mode: string) => sessionContext({ ...task, deliveryMode: mode } as Task, project, paths, "/r").split("\n").find((l) => l.startsWith("Delivery:"));
+  expect(lineOf("branch")).toBe(deliveryLine("branch"));
+  expect(lineOf("draft_pr")).toBe(deliveryLine("draft_pr"));
+  expect(lineOf("ready_pr")).toBe(deliveryLine("ready_pr"));
+  // The last line, after the scope and permission notes.
+  expect(sessionContext({ ...task, deliveryMode: "ready_pr" } as Task, project, paths, "/r").endsWith(`\n${deliveryLine("ready_pr")}`)).toBe(true);
+});
+
+test("a card without a mode uses the default", () => {
+  const paths = [{ repo: "/r", directory: "/r" }];
+  expect(sessionContext(task, project, paths, "/r")).toContain(deliveryLine("branch"));
+  expect(sessionContext(task, project, paths, "/r", [], [], "", [], [], "draft_pr")).toContain(deliveryLine("draft_pr"));
+  expect(sessionContext({ ...task, deliveryMode: "ready_pr" } as Task, project, paths, "/r", [], [], "", [], [], "draft_pr")).toContain(deliveryLine("ready_pr"));
+});
+
+test("an unknown stored mode is treated as the default", () => {
+  const paths = [{ repo: "/r", directory: "/r" }];
+  const text = sessionContext({ ...task, deliveryMode: "from_the_future" } as unknown as Task, project, paths, "/r", [], [], "", [], [], "draft_pr");
+  expect(text).toContain(deliveryLine("draft_pr"));
+  expect(text).not.toContain("from_the_future");
 });

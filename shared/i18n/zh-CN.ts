@@ -1533,5 +1533,11 @@ const catalog: Catalog = {
   "Imported {n} ideas": "已导入 {n} 个想法",
   "Import {n} ideas": "导入 {n} 个想法",
   "Already imported.": "已导入过。",
+  "Delivery": "交付",
+  "Delivery mode": "交付方式",
+  "Branch, I bless": "分支,由我审核",
+  "Draft PR": "草稿 PR",
+  "Ready PR": "可评审 PR",
+  "Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.": "按卡片选择(默认值在设置 → 工作流中),智能体是把工作留在分支上由你审核,还是推送为草稿 PR 或可评审的 PR。推送前仍会先征求你的同意。",
 };
 export default catalog;

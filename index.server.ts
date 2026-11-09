@@ -6,7 +6,7 @@ import { BoardService, dataDirectory, migrateLegacyPluginData, paseoHome } from 
 import { readPaseoVersion } from "./server/paseo-version";
 import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./server/directories";
 import * as rpc from "./shared/rpc";
-import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, artifactSettings, artifactSettingsValues, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues, prReviewSettings, prReviewSettingsValues } from "./shared/settings";
+import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, artifactSettings, artifactSettingsValues, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues, prReviewSettings, prReviewSettingsValues, deliverySettings, deliverySettingsValues } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService, daemonNativeAttention } from "./server/session-reads";
 import { readAttentionCount } from "./server/attention-count";
@@ -82,6 +82,7 @@ export default function contribute(host: PluginServerContext) {
   const telemetryPrefs = server.registerSettings(telemetrySettings);
   const developerPrefs = server.registerSettings(developerSettings);
   const prReviewPrefs = server.registerSettings(prReviewSettings);
+  const deliveryPrefs = server.registerSettings(deliverySettings);
   // Project memory and Insights as a whole (ONBOARDING-SETUP-SPEC §6); unreadable settings keep the defaults (on).
   const featurePrefs = server.registerSettings(featureSettings);
   const featureValues = async () => {
@@ -316,6 +317,11 @@ export default function contribute(host: PluginServerContext) {
     return ideasSettingsValues(state?.status === "ready" ? state.values : {}).ideas;
   };
   tools.agents.aiLanguage = aiLanguage;
+  // The default delivery mode for cards that have none of their own (DELIVERY-MODE-SPEC §2); unreadable settings keep "branch".
+  tools.agents.deliveryDefault = async () => {
+    const state = await deliveryPrefs.read().catch(() => null);
+    return deliverySettingsValues(state?.status === "ready" ? state.values : {}).defaultMode;
+  };
   // Folders outside a card's directories that agents and people may attach files from; unreadable settings keep none.
   const extraArtifactFolders = async () => {
     const state = await artifactPrefs.read().catch(() => null);
@@ -453,7 +459,7 @@ export default function contribute(host: PluginServerContext) {
     service.createTask(input, paseo),
   );
   server.handle(rpc.taskContext, async (input, { paseo }) =>
-    service.context(input.id, paseo, undefined, { artifactsOn: await tools.agents.artifactsOn() }),
+    service.context(input.id, paseo, undefined, { artifactsOn: await tools.agents.artifactsOn(), deliveryDefault: await tools.agents.deliveryDefault() }),
   );
   // With auto wrap-up on, moving a card into Done/Cancelled archives its own
   // workspace in the background when the preflight is clean; the status write
