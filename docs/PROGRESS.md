@@ -23,7 +23,8 @@
   - The board's forget effect depends on a derived `liveSignals` (null until the board and agents load).
   - Start again: `NEEDS_WORKTREE` for the user is worded for the user; `tasks.start-again` sends `CODE: message` (`codedError`, since only the message crosses the RPC) and `client/start-again.ts` maps `NEEDS_WORKTREE` and `CARD_HAS_SESSION` to two new strings (all 9 catalogs).
   - Shared agent list: the plugin host gives every RPC one `paseo` handle per daemon connection (re-created on reconnect), so it is not per client; the 2 s cache is keyed by handle anyway.
- (branch `feat/single-pane`, Task 10) — 2026-11-08
+
+## Dispatcher chat panel (branch `feat/single-pane`, Task 10) — 2026-11-08
 
 - Spec: DISPATCHER-SPEC §9 (items, the change line, the panel), §8 RPCs, §10 acceptance; record gains `seenRevision`.
 - `server/dispatcher-items.ts`: `DispatcherItems` (`<dataDir>/dispatcher-items.json`, atomic, mode 0600, corrupt file kept as `.invalid-<ms>`; replace by id; drops answered/dismissed asks after 7 days, then keeps the newest 500), `noteItems`, `seenMark`, `changeLine`, `whatNextMessage`. `server/dispatcher.ts`: `save` takes an updater so `seenRevision` survives restarts; `onSent` after a delivered note batch; `markSeen` (keeps the max); `whatNext` (refused with `DISPATCHER_DOWN` unless running or idle; steers a running turn). `server/session-tail.ts`: `dispatcherTail` reads only the stored dispatcher agent. `shared/rpc.ts`, `index.server.ts`: `dispatcher.items-changed` (etag), `dispatcher.tail`, `dispatcher.mark-seen`, `dispatcher.what-next`.
