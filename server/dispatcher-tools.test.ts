@@ -80,6 +80,8 @@ async function setup() {
   const createdWorkspaces: { title: string; source: { kind: string; projectId?: string } }[] = [];
   /** The MCP servers each created session launched with: its saved ones plus what the plugin's open hook adds. */
   const launched: Record<string, Record<string, unknown>> = {};
+  /** The tool policy each created session was saved with. */
+  const policies: Record<string, unknown> = {};
   const paseo = {
     ...(fixture.paseo as unknown as Record<string, unknown>),
     agents: {
@@ -90,10 +92,19 @@ async function setup() {
       ref: (id: string) => ({
         refresh: async () => (id === "dw" ? { id: "dw", archivingAt: null, workspaceDirectory: dispatcherPath } : fixture.workspace()),
         agents: {
-          create: async (options: { agentId: string; config?: { mcpServers?: Record<string, unknown> } }) => {
-            // As Paseo's daemon (agent-manager.js resolveProviderLaunchConfig): a server the plugin's open hook adds
-            // (index.server.ts adds the dispatcher's through dispatcherSession) must not share a name with a saved one.
+          create: async (options: {
+            agentId: string;
+            config?: { mcpServers?: Record<string, unknown>; toolPolicy?: { preapproved: { kind: string; server: string; tool: string }[] } };
+          }) => {
+            // As Paseo's daemon (agent-manager.js validateToolPolicyServers): a preapproved tool's server must be saved
+            // in the same request.
             const saved = options.config?.mcpServers ?? {};
+            for (const grant of options.config?.toolPolicy?.preapproved ?? [])
+              if (!(grant.server in saved))
+                throw new Error(`toolPolicy preapproval '${grant.server}.${grant.tool}' requires MCP server '${grant.server}' in the same agent request`);
+            policies[options.agentId] = options.config?.toolPolicy;
+            // As resolveProviderLaunchConfig: a server the plugin's open hook adds (index.server.ts adds the
+            // dispatcher's through dispatcherSession) must not share a name with a saved one.
             const added = await server.dispatcherSession(options.agentId, paseo);
             const plugin: Record<string, unknown> = added ? { "flowly-dispatcher": added } : {};
             for (const name of Object.keys(plugin))
@@ -137,7 +148,7 @@ async function setup() {
     return { mcp, call, names };
   };
   const dispatcherToken = server.secrets.dispatcherCredential({ agentId: "disp", workspaceId: "dw" });
-  return { ...fixture, server, paseo, agents, url, createdWorkspaces, launched, connect, dispatcherToken };
+  return { ...fixture, server, paseo, agents, url, createdWorkspaces, launched, policies, connect, dispatcherToken };
 }
 
 const code = (result: { isError?: boolean; structuredContent?: { error?: { code?: string } } }) =>
@@ -269,17 +280,29 @@ test("the dispatcher has its own hourly limit of 40, apart from the card agents'
   expect(() => x.server.cards.reserve("actor")).not.toThrow();
 });
 
-test("a new dispatcher gets its tools from the open hook only, so Paseo starts it (DISPATCHER-SPEC §3)", async () => {
+test("a new dispatcher saves its tools with every one preapproved, so they never prompt (DISPATCHER-SPEC §3)", async () => {
   const x = await setup();
   x.agents.disp.status = "closed";
-  // Paseo refuses a plugin-added MCP server named like a saved one; the start must not trip it.
   const { agentId } = await x.server.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  // Saved once, with the session: the open hook adds nothing, so Paseo's name check is never tripped.
+  expect(await x.server.dispatcherSession(agentId, x.paseo)).toBeNull();
   expect(Object.keys(x.launched[agentId])).toEqual(["flowly-dispatcher"]);
-  const server = x.launched[agentId]["flowly-dispatcher"] as { headers: { Authorization: string } };
+  const server = x.launched[agentId]["flowly-dispatcher"] as { type: string; headers: { Authorization: string } };
+  expect(server.type).toBe("http");
   const fresh = await x.connect(server.headers.Authorization.replace(/^Bearer /, ""));
   expect(code(await fresh.call("flowly_list_projects", {}))).toBeUndefined();
-  // A later open (a resume, a daemon restart) gets it from the hook again.
-  expect(await x.server.dispatcherSession(agentId, x.paseo)).toMatchObject({ type: "http" });
+  // Exactly the tools that credential lists, each preapproved by name on that server; nothing else.
+  const listed = (await fresh.names()).sort();
+  const policy = x.policies[agentId] as { preapproved: { kind: string; server: string; tool: string }[] };
+  expect(policy.preapproved.map((g) => g.tool).sort()).toEqual(listed);
+  expect(policy.preapproved.every((g) => g.kind === "mcp" && g.server === "flowly-dispatcher")).toBe(true);
+});
+
+test("a dispatcher started before its tools were saved still gets them from the open hook (DISPATCHER-SPEC §3)", async () => {
+  const x = await setup();
+  // The stored "disp" record has no savedTools mark.
+  expect(await x.server.dispatcherSession("disp", x.paseo)).toMatchObject({ type: "http" });
+  expect(await x.server.dispatcherSession("actor", x.paseo)).toBeNull();
 });
 
 test("a dispatcher token from a replaced dispatcher is refused", async () => {

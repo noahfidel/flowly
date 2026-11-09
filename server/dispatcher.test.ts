@@ -8,7 +8,7 @@ import { dispatcherSessionIds } from "./dispatcher-items";
 import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
 import { agentFixture } from "./agent-fixture";
-import { dispatcherCharter, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
+import { dispatcherCharter, dispatcherToolNames, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
 import type { BoardEvent } from "../shared/model";
 
 const directories: string[] = [];
@@ -38,6 +38,7 @@ function fakePaseo() {
   const agentCreates: { workspaceId: string; options: Record<string, unknown> }[] = [];
   const sends: { id: string; text: string; options: unknown }[] = [];
   let createError: Error | null = null;
+  let agentCreateError: Error | null = null;
   const paseo = {
     workspaces: {
       create: async (request: Record<string, unknown>) => {
@@ -60,6 +61,7 @@ function fakePaseo() {
         agents: {
           create: async (options: Record<string, unknown>) => {
             agentCreates.push({ workspaceId: id, options });
+            if (agentCreateError) throw agentCreateError;
             const agentId = options.agentId as string;
             agents.set(agentId, { id: agentId, workspaceId: id, status: "running", archivedAt: null });
             return { id: agentId };
@@ -94,6 +96,7 @@ function fakePaseo() {
     agentCreates,
     sends,
     failCreate: (e: Error | null) => (createError = e),
+    failAgentCreate: (e: Error | null) => (agentCreateError = e),
   };
 }
 
@@ -109,6 +112,7 @@ async function setup(summary: () => Promise<string> = async () => "Board summary
     directory,
     {
       summary,
+      mcp: async (identity) => ({ type: "http", url: "http://127.0.0.1:1/mcp", headers: { Authorization: `Bearer ${identity.agentId}` } }),
     },
     folder,
   );
@@ -148,13 +152,14 @@ test("start creates a background directory workspace once and reuses it", async 
         provider: "claude/claude-sonnet-5-5",
         modeId: "default",
         systemPrompt: dispatcherCharter,
+        // Its tools are saved with the session, each one preapproved, so they never prompt (§3).
+        mcpServers: { "flowly-dispatcher": { type: "http", url: "http://127.0.0.1:1/mcp", headers: { Authorization: `Bearer ${first.agentId}` } } },
+        toolPolicy: { preapproved: dispatcherToolNames.map((tool) => ({ kind: "mcp", server: "flowly-dispatcher", tool })) },
       },
     },
   });
-  // Its MCP server comes from the session-open hook only: a saved one would collide with it in Paseo (§3).
-  expect((x.agentCreates[0].options.config as Record<string, unknown>).mcpServers).toBeUndefined();
   const stored = JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8"));
-  expect(stored).toMatchObject({ version: 1, workspaceId: "dw-1", agentId: first.agentId });
+  expect(stored).toMatchObject({ version: 1, workspaceId: "dw-1", agentId: first.agentId, savedTools: true });
   expect(typeof stored.startedAt).toBe("string");
   expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "running", agentId: first.agentId });
   // A second start while it runs is refused: there is one dispatcher.
@@ -912,4 +917,18 @@ test("What should I do? reaches only a dispatcher that is up, and always steers"
   await x.dispatcher.whatNext(x.paseo, "What should I do?");
   expect(x.sends.at(-1)!.options).toEqual({ activeTurnBehavior: "steer" });
   expect(userSendOptions).toEqual({ activeTurnBehavior: "steer" });
+});
+
+test("a refused session create restores the earlier record, its savedTools mark included (§3)", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const x = await setup();
+  // An earlier dispatcher from before saved tools: no mark.
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: null, agentId: "old", startedAt: "2026-11-01T00:00:00.000Z" }));
+  x.agents.set("old", { id: "old", workspaceId: "dw-0", status: "closed", archivedAt: null });
+  x.failAgentCreate(new Error("Provider 'x' cannot preapprove exact MCP tools for unattended execution; select Claude, Codex, or OpenCode"));
+  await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "START_FAILED" });
+  const stored = JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8"));
+  expect(stored.agentId).toBe("old");
+  expect(stored.savedTools).toBeUndefined();
+  expect(errors.mock.calls.some((c) => String(c[0]) === "Flowly dispatcher not started:")).toBe(true);
 });

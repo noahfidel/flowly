@@ -6,6 +6,8 @@ import { z } from "zod";
 import {
   dispatcherCharter,
   dispatcherDefaultModel,
+  dispatcherServerName,
+  dispatcherToolNames,
   dispatcherStartInputSchema,
   mergeNotes,
   noteBatching,
@@ -23,6 +25,7 @@ import type { AgentModel } from "../shared/agent-defaults";
 import { createDirectoryWorkspace } from "./background-workspace";
 import { logFailure } from "./error-report";
 import { EventBus, NoteBatcher, isStop } from "./event-bus";
+import type { DispatcherIdentity } from "./tool-context";
 import { ToolError } from "./tool-error";
 
 /** The one cross-project dispatcher session: record, workspace, lifecycle and note delivery (DISPATCHER-SPEC). */
@@ -84,11 +87,16 @@ const recordSchema = z.strictObject({
   seenIds: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional(),
   /** The earlier dispatcher sessions of this install, oldest first (their actions are not news either, §9.2). */
   previousAgentIds: z.array(z.string().min(1).max(300)).max(previousAgentIdLimit).optional(),
+  /** Its session was saved with the `flowly-dispatcher` server and every tool preapproved (§3); absent for older ones. */
+  savedTools: z.literal(true).optional(),
 });
 export type DispatcherRecord = z.infer<typeof recordSchema>;
 const emptyRecord = (): DispatcherRecord => ({ version: 1, workspaceId: null, agentId: null, startedAt: null });
 
+export type DispatcherMcpServer = { type: "http"; url: string; headers: Record<string, string> };
 export type DispatcherDeps = {
+  /** The `flowly-dispatcher` MCP server entry for this session (the tool service, sealed credential). */
+  mcp: (identity: DispatcherIdentity) => Promise<DispatcherMcpServer>;
   /** The first message: projects with their ids, open cards and ideas (§6). */
   summary: () => Promise<string>;
   now?: () => number;
@@ -263,7 +271,7 @@ export class Dispatcher {
     // What is held now is on the board the summary reads; later notes are kept (one may repeat the summary).
     const covered = [...this.held];
     try {
-      const summary = await this.deps.summary();
+      const [mcp, summary] = await Promise.all([this.deps.mcp({ agentId, workspaceId }), this.deps.summary()]);
       if (previous.agentId) await this.retire(paseo, previous.agentId);
       const now = this.deps.now?.() ?? Date.now();
       const earlier = previous.agentId
@@ -271,8 +279,8 @@ export class Dispatcher {
         : previous.previousAgentIds;
       for (const [taskId, held] of covered) if (this.held.get(taskId) === held) this.held.delete(taskId);
       // Stored first: the session's first tool calls already pass the caller check (§4).
-      await this.save((r) => ({ ...r, workspaceId, agentId, startedAt: new Date(now).toISOString(), ...(earlier ? { previousAgentIds: earlier } : {}) }));
-      await this.create(paseo, { workspaceId, agentId, summary, input, previous });
+      await this.save((r) => ({ ...r, workspaceId, agentId, startedAt: new Date(now).toISOString(), savedTools: true, ...(earlier ? { previousAgentIds: earlier } : {}) }));
+      await this.create(paseo, { workspaceId, agentId, mcp, summary, input, previous });
     } finally {
       this.starting = null;
       // Notes held meanwhile go out by the dispatcher's state now (the new one, or the one a refused start kept).
@@ -298,9 +306,10 @@ export class Dispatcher {
 
   private async create(
     paseo: PaseoApi,
-    { workspaceId, agentId, summary, input, previous }: {
+    { workspaceId, agentId, mcp, summary, input, previous }: {
       workspaceId: string;
       agentId: string;
+      mcp: DispatcherMcpServer;
       summary: string;
       input: { provider: string; modeId?: string; thinking?: string };
       previous: DispatcherRecord;
@@ -315,8 +324,10 @@ export class Dispatcher {
           ...(input.modeId ? { modeId: input.modeId } : {}),
           ...(input.thinking ? { thinkingOptionId: input.thinking } : {}),
           systemPrompt: dispatcherCharter,
-          // No saved `flowly-dispatcher` server: the plugin's session-open hook adds it at every open, the first
-          // included (the record already names this id), and Paseo refuses a hook server named like a saved one (§3).
+          // Saved with the session and every tool preapproved, so its own tools never prompt (they are gated by the
+          // "Agents create and edit cards" switch); Paseo checks each grant's server is in this same request (§3).
+          mcpServers: { [dispatcherServerName]: mcp },
+          toolPolicy: { preapproved: dispatcherToolNames.map((tool) => ({ kind: "mcp" as const, server: dispatcherServerName, tool })) },
         },
         title: DISPATCHER_TITLE,
         labels: { "flowly-dispatcher": "1" },
@@ -330,9 +341,10 @@ export class Dispatcher {
         .catch(() => false);
       if (!made) {
         await this.save((r) => {
-          const { previousAgentIds: _, ...rest } = r;
+          const { previousAgentIds: _, savedTools: __, ...rest } = r;
           return {
             ...rest,
+            ...(previous.savedTools ? { savedTools: true as const } : {}),
             workspaceId,
             agentId: previous.agentId,
             startedAt: previous.startedAt,

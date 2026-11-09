@@ -110,6 +110,7 @@ export class ToolServer {
       store.directory,
       {
         summary: async () => dispatcherSummary(await store.read()),
+        mcp: (identity) => this.dispatcherServer(identity),
       },
       dispatcherPath,
     );
@@ -128,7 +129,8 @@ export class ToolServer {
   async dispatcherSession(agentId: string, paseo: PaseoApi) {
     this.attach(paseo);
     const record = await this.dispatcher.record();
-    if (!record.agentId || record.agentId !== agentId || !record.workspaceId) return null;
+    // A dispatcher saved with its tools gets nothing here: Paseo refuses a hook server named like a saved one.
+    if (!record.agentId || record.agentId !== agentId || !record.workspaceId || record.savedTools) return null;
     return this.dispatcherServer({ agentId, workspaceId: record.workspaceId });
   }
   attach(paseo: PaseoApi) {

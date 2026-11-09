@@ -47,6 +47,19 @@ export const seenIdLimit = 500;
  * starts a normal turn for a steer on an idle agent, and a send without it interrupts a turn and clears pending
  * permissions, which a status read as idle a moment ago cannot rule out (§9.3).
  */
+/** The dispatcher's MCP server name and its tools, all preapproved when its session is created (DISPATCHER-SPEC §3–4). */
+export const dispatcherServerName = "flowly-dispatcher";
+export const dispatcherToolNames = [
+  "flowly_list_projects",
+  "flowly_list_cards",
+  "flowly_get_card",
+  "flowly_create_card",
+  "flowly_update_card",
+  "flowly_start_card",
+  "flowly_propose_idea",
+  "flowly_link_cards",
+] as const;
+
 export const userSendOptions = { activeTurnBehavior: "steer" } as const;
 /** At most this many chat items are kept (DISPATCHER-SPEC §9.1). */
 export const chatItemLimit = 500;

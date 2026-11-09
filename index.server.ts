@@ -886,7 +886,7 @@ export default function contribute(host: PluginServerContext) {
   server.before("agent.session_open", async ({ request }, { paseo }) => {
     tools.attach(paseo);
     if (request.purpose !== "interactive") return;
-    // The stored dispatcher gets its tools again when its session opens; no other session does (DISPATCHER-SPEC §3).
+    // A stored dispatcher started before its tools were saved gets them here at each open; no other session does (DISPATCHER-SPEC §3).
     const opening = request as typeof request & { mcpServers?: Record<string, unknown> };
     if (opening.mcpServers)
       try {
