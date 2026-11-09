@@ -76,10 +76,11 @@ test("the live activity is the newest output row, not a note or the change line 
 
 test("reports and a permission with no request to answer take a typed answer; a request's actions are buttons (§9.4)", () => {
   // A closed session's requests were cleared, but its permission attention stays: a typed answer messages the session.
-  expect(answersWithText({ askKind: "permission", options: [] })).toBe(true);
-  expect(answersWithText({ askKind: "permission", options: [{ id: "allow", label: "Allow" }] })).toBe(false);
-  expect(answersWithText({ askKind: "question_report", options: [] })).toBe(true);
+  expect(answersWithText({ askKind: "permission" })).toBe(true);
+  // The server's rule: a request id means a request to answer, never text, even when no options came with it.
+  expect(answersWithText({ askKind: "permission", requestId: "r1" })).toBe(false);
+  expect(answersWithText({ askKind: "question_report" })).toBe(true);
   expect(answersWithText({ askKind: "blocker_report" })).toBe(true);
-  expect(answersWithText({ askKind: "ask_user", options: [] })).toBe(false);
-  expect(answersWithText({ askKind: "error", options: [] })).toBe(false);
+  expect(answersWithText({ askKind: "ask_user" })).toBe(false);
+  expect(answersWithText({ askKind: "error" })).toBe(false);
 });

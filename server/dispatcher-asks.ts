@@ -60,6 +60,7 @@ export function askItem(ask: Ask, state: AskState = ask.state, extra: Partial<As
     detail: ask.detail,
     options: ask.options,
     ...(ask.questions ? { questions: ask.questions } : {}),
+    ...(ask.requestId ? { requestId: ask.requestId } : {}),
     ...extra,
   };
 }

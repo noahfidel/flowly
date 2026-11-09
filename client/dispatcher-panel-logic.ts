@@ -91,6 +91,6 @@ export function sameItem(a: ChatItem, b: ChatItem): boolean {
  * Whether an ask is answered with a text box: a question or blocker report, or a permission with no request
  * left to approve (a closed session's requests were cleared), whose typed answer messages the session (§9.4).
  */
-export function answersWithText(item: Pick<Extract<ChatItem, { kind: "ask" }>, "askKind" | "options">): boolean {
-  return item.askKind === "question_report" || item.askKind === "blocker_report" || (item.askKind === "permission" && !item.options?.length);
+export function answersWithText(item: Pick<Extract<ChatItem, { kind: "ask" }>, "askKind" | "requestId">): boolean {
+  return item.askKind === "question_report" || item.askKind === "blocker_report" || (item.askKind === "permission" && !item.requestId);
 }

@@ -213,6 +213,8 @@ export const chatItemSchema = z.discriminatedUnion("kind", [
     detail: z.string().max(20000).optional(),
     options: z.array(askOptionSchema).max(200).optional(),
     questions: z.array(askQuestionSchema).max(50).optional(),
+    /** The pending request it answers; none for reports and for a permission whose request is gone (§9.4). */
+    requestId: z.string().max(300).optional(),
     /** Answered in the session, not from the chat. */
     elsewhere: z.boolean().optional(),
   }),

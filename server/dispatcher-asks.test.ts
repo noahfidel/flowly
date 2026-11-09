@@ -515,6 +515,15 @@ test("a closed session's permission with no request left takes a typed answer, s
   expect(await f.asks.resolvedSignals(f.paseo)).toContain(`p:s2:${at}`);
 });
 
+test("a chat ask carries its request id, so the panel's text box follows the server's rule (§9.4)", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  const asks = (await f.asks.chatItems([], f.paseo)).filter((i) => i.kind === "ask" && i.askKind === "permission");
+  expect(asks.length).toBeGreaterThan(0);
+  for (const ask of asks) {
+    expect(ask.kind === "ask" && ask.requestId).toBe(ask.kind === "ask" && ask.signal.split(":")[2]);
+  }
+});
+
 test("a deleted card's notes disappear from the chat, as its asks and answers do (ruling, Noah 2026-11-09)", async () => {
   const f = fixture(baseBoard(), baseAgents());
   const note = (id: string, taskId: string) => ({ id, at: "2026-11-09T00:00:00.000Z", kind: "note" as const, note: { taskId, projectId: "p", title: taskId, kind: "status", detail: "", at: "2026-11-09T00:00:00.000Z" } });
