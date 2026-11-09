@@ -55,20 +55,23 @@ A stored session is **dead** when Paseo does not return it, it is archived, or i
 - The `flowly-dispatcher` server's bearer token is sealed with purpose `dispatcher` over `{ agentId, workspaceId }`. `authenticateAny` returns `kind: "dispatcher"` for it. A card (`session`) or board token is never accepted as a dispatcher token and vice versa.
 - A dispatcher token gets the dispatcher tools (§5) only: none of the card-session tools, none of the board tools, and not the CLI endpoint (`/api` refuses it).
 - Every call checks, in order: the token's `agentId` equals the stored `agentId` and its `workspaceId` the stored `workspaceId` (else `DISPATCHER_REPLACED`); Paseo returns that agent, not archived, in that workspace (else `SESSION_MISMATCH`).
-- Every tool with a `projectId` then checks the project: unknown → `NOT_FOUND`; archived → `PROJECT_ARCHIVED`; its root (`primaryPath`) is not a readable directory → `ROOT_UNAVAILABLE`. A card id must belong to that project (`CARD_NOT_FOUND`). Refusals write nothing.
-- A legacy multi-repo project (more than one stored `repos`, SINGLE-ROOT-SPEC) is read-only to the dispatcher: `flowly_create_card`, `flowly_update_card`, `flowly_start_card` and `flowly_link_cards` there are refused with `LEGACY_PROJECT` (ruling 2026-11-08); reads stay allowed.
+- Every write (`flowly_create_card`, `flowly_update_card`, `flowly_start_card`, `flowly_link_cards`, `flowly_propose_idea`) is refused with `AGENT_CARDS_DISABLED` while the **Agents create and edit cards** setting is off; reads stay allowed.
+- Every tool with a `projectId` then checks the project: unknown → `NOT_FOUND`; archived → `PROJECT_ARCHIVED`. A write also needs its root (`primaryPath`) to be a readable directory, else `ROOT_UNAVAILABLE`; reads (`flowly_list_cards`, `flowly_get_card`) of a project whose root is missing are allowed. A card id must belong to that project (`CARD_NOT_FOUND`). Refusals write nothing.
+- A legacy multi-repo project (more than one stored `repos`, SINGLE-ROOT-SPEC) follows the same rules as the card agents' tools there: its cards can be created, edited, linked and started, and ideas proposed (SINGLE-ROOT-SPEC §21 lets users edit legacy cards; the read-only rule covers its scope data).
 
 ## 5. Tools
 
 All take `projectId` explicitly, except `flowly_list_projects`. Writes are recorded with `actor: "agent"` and the dispatcher's `agentId`.
 
+Hourly limit (a runaway brake): the dispatcher's card creations and `flowly_start_card` starts count together, at most 40 in the last hour per dispatcher session, else `CARD_LIMIT`. This bucket is the dispatcher's own: it neither uses nor fills the card agents' 20 per session (AGENT-CARDS-SPEC §3.3). A plugin reload resets it.
+
 | Tool | Does |
 |---|---|
 | `flowly_list_projects` | Live projects: `projectId`, `title`, `rootAvailable`, `openCards` (not archived, not Done/Cancelled). |
 | `flowly_list_cards`, `flowly_get_card` | As the card tools (AGENT-CARDS-SPEC §3), for that project. |
-| `flowly_create_card`, `flowly_update_card` | As the card tools, for that project; the Agents create and edit cards setting and the hourly limit apply (the limit counts per dispatcher session, shared with starts). |
+| `flowly_create_card`, `flowly_update_card` | As the card tools, for that project; the Agents create and edit cards setting applies. |
 | `flowly_start_card` | As START-CARD-SPEC, for that project's card. |
-| `flowly_propose_idea` | A project-level idea (PROJECT-IDEAS-SPEC); `IDEAS_DISABLED` when Ideas are off. |
+| `flowly_propose_idea` | A project-level idea (PROJECT-IDEAS-SPEC); a write, so the Agents create and edit cards setting applies, and `IDEAS_DISABLED` when Ideas are off. |
 | `flowly_link_cards` | `taskId`, `relation` (`blocks`: `taskId` blocks `otherTaskId`; `follow_up`: `otherTaskId` follows up `taskId`), `otherTaskId`, both in that project, through the card links rules (CARD-LINKS-SPEC §2.3); refusals are `LINK_REFUSED` with the reason. An identical existing link is returned with `created: false`. |
 
 ## 6. Charter and board summary
@@ -125,7 +128,7 @@ On every write the list is pruned: asks answered or dismissed more than 7 days a
 ### 9.2 Changed since you looked
 
 - An event's revision is its time in epoch milliseconds (`Date.parse(event.at)`). The user's mark is `seenRevision` with `seenIds` (the ids of the events at exactly that millisecond already seen) in `dispatcher.json` (§1; absent in older files). While it is absent the dispatcher's `startedAt` is the mark, with no ids; with neither there is no change line.
-- The change line counts the cards with an event after the mark (a later millisecond, or the mark's own millisecond with an id not in `seenIds`), by an agent or the system, whose card is not archived and whose project is live. The user's own changes are not news to them, and the dispatcher's own actions (events whose `agentId` is the stored dispatcher session) are not news either: it made them. Its `revision` is the newest such event's millisecond, `ids` the ids of the counted events at that millisecond, its `at` that time, and it lists each card (`taskId`, `projectId`, `title`, `status`, number of events), newest first.
+- The change line counts the cards with an event after the mark (a later millisecond, or the mark's own millisecond with an id not in `seenIds`), by an agent or the system, whose card is not archived and whose project is live. The user's own changes are not news to them, and the dispatcher's own actions (events whose `agentId` is the stored dispatcher session or one of its `previousAgentIds`, §1) are not news either: a dispatcher made them. Its `revision` is the newest such event's millisecond, `ids` the ids of the counted events at that millisecond, its `at` that time, and it lists each card (`taskId`, `projectId`, `title`, `status`, number of events), newest first.
 - **Mark seen** (`dispatcher.mark-seen { revision, ids }`, the line's own values) first clamps `revision` to the daemon's clock (a clamped mark keeps no ids). A later millisecond replaces the mark, the same millisecond adds the ids, an earlier one changes nothing: a mark never moves back, and a change after the line was read, even in the same millisecond, shows again. A new dispatcher keeps the mark.
 - The daemon scans the board for the line only when the board's revision or last event, the mark or the dispatcher session changed; an unchanged board costs no scan per poll.
 - **What should I do?** (`dispatcher.what-next`) sends the dispatcher `What should I do?` followed by the changed cards (`- "<title>" [<taskId>] in project <projectId>: <status>`); it does not mark them seen. Refused with `DISPATCHER_DOWN` unless the dispatcher is running or idle; it is sent with `activeTurnBehavior: "steer"`, as the composer's messages are.
@@ -175,7 +178,10 @@ One source (plan Q1): `asksFrom(board, agents, receipts, dismissals)` in `shared
 - Start creates a background directory workspace once and reuses it; Flowly never archives it.
 - Start is refused while the stored session is alive (running, idle, error, any context use); a dead one (archived, closed, missing) is replaced, and a closed one is archived first, only after a re-read still finds it dead.
 - Notes wait for the turn to end and never steer; a pending permission holds them like a running turn; a turn end read as still running is re-checked with a growing delay until the notes go out; a second send waits for the cooldown; notes in the start window are held until the session exists; notes are dropped only while the dispatcher is dead or missing.
-- A legacy multi-repo project is read-only to the dispatcher (`LEGACY_PROJECT`).
+- A legacy multi-repo project takes the dispatcher's writes under the card agents' rules (no legacy refusal).
+- With Agents create and edit cards off, every dispatcher write (links and ideas included) is refused with `AGENT_CARDS_DISABLED`; reads work.
+- A project whose root is missing can be listed and read by the dispatcher; its writes are refused with `ROOT_UNAVAILABLE`.
+- The dispatcher's 41st creation or start in an hour is refused with `CARD_LIMIT`; its count and a card agent's are independent.
 - The dispatcher's folder is never offered or accepted as a Flowly project.
 - Start without a provider uses the Dispatcher model setting, else `claude/claude-sonnet-5-5`.
 - A corrupt `dispatcher.json` is preserved and treated as empty.

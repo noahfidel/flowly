@@ -191,7 +191,10 @@ test("an archived project is refused", async () => {
   ];
   for (const [name, args] of attempts) expect(code(await d.call(name, { projectId: "z", ...args })), name).toBe("PROJECT_ARCHIVED");
   for (const [name, args] of attempts) expect(code(await d.call(name, { projectId: "nope", ...args })), name).toBe("NOT_FOUND");
-  for (const [name, args] of attempts) expect(code(await d.call(name, { projectId: "gone", ...args })), name).toBe("ROOT_UNAVAILABLE");
+  // A project whose folder is missing can be read, not written.
+  expect(code(await d.call("flowly_list_cards", { projectId: "gone" }))).toBeUndefined();
+  expect(code(await d.call("flowly_get_card", { projectId: "gone", taskId: "z1" }))).toBe("CARD_NOT_FOUND");
+  for (const [name, args] of attempts.slice(2)) expect(code(await d.call(name, { projectId: "gone", ...args })), name).toBe("ROOT_UNAVAILABLE");
   expect(JSON.stringify(await x.store.read())).toBe(before);
   expect(x.createdWorkspaces).toEqual([]);
   // A project archived after the session started is refused on the next call.
@@ -202,22 +205,55 @@ test("an archived project is refused", async () => {
   expect((await d.call("flowly_list_projects", {})).structuredContent.projects.map((p: { projectId: string }) => p.projectId)).toEqual(["p", "gone", "r"]);
 });
 
-test("a legacy multi-repo project is read-only to the dispatcher", async () => {
+test("a legacy multi-repo project follows the card agents' rules", async () => {
   const x = await setup();
   const d = await x.connect(x.dispatcherToken);
-  // Reads stay allowed.
   expect(code(await d.call("flowly_list_cards", { projectId: "p" }))).toBeUndefined();
   expect(code(await d.call("flowly_get_card", { projectId: "p", taskId: "t" }))).toBeUndefined();
+  const made = await d.call("flowly_create_card", { projectId: "p", title: "Legacy work", idempotencyKey: "k-legacy" });
+  expect(code(made)).toBeUndefined();
+  const other = made.structuredContent.card.taskId as string;
+  expect(code(await d.call("flowly_update_card", { projectId: "p", taskId: "t", revision: 1, priority: "high" }))).toBeUndefined();
+  expect(code(await d.call("flowly_link_cards", { projectId: "p", taskId: "t", relation: "blocks", otherTaskId: other }))).toBeUndefined();
+  expect(code(await d.call("flowly_propose_idea", { projectId: "p", title: "Legacy idea", detail: "x", rationale: "y" }))).toBeUndefined();
+  // Start goes through START-CARD-SPEC's own checks; no legacy refusal.
+  expect(code(await d.call("flowly_start_card", { projectId: "p", taskId: "t", idempotencyKey: "s-legacy" }))).not.toBe("LEGACY_PROJECT");
+});
+
+test("the Agents create and edit cards switch turns off every dispatcher write", async () => {
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  x.server.cards.on = async () => false;
   const before = JSON.stringify(await x.store.read());
   const writes: [string, Record<string, unknown>][] = [
-    ["flowly_create_card", { title: "Nope", idempotencyKey: "k-legacy" }],
-    ["flowly_update_card", { taskId: "t", revision: 1, title: "Nope" }],
-    ["flowly_start_card", { taskId: "t", idempotencyKey: "s-legacy" }],
-    ["flowly_link_cards", { taskId: "t", relation: "blocks", otherTaskId: "t" }],
+    ["flowly_create_card", { title: "Nope", idempotencyKey: "k-off" }],
+    ["flowly_update_card", { taskId: "q1", revision: 1, title: "Nope" }],
+    ["flowly_start_card", { taskId: "q1", idempotencyKey: "s-off" }],
+    ["flowly_link_cards", { taskId: "q1", relation: "blocks", otherTaskId: "q2" }],
+    ["flowly_propose_idea", { title: "Nope", detail: "x", rationale: "y" }],
   ];
-  for (const [name, args] of writes) expect(code(await d.call(name, { projectId: "p", ...args })), name).toBe("LEGACY_PROJECT");
+  for (const [name, args] of writes) expect(code(await d.call(name, { projectId: "q", ...args })), name).toBe("AGENT_CARDS_DISABLED");
   expect(JSON.stringify(await x.store.read())).toBe(before);
-  expect(x.createdWorkspaces).toEqual([]);
+  // Reads stay allowed.
+  expect(code(await d.call("flowly_list_projects", {}))).toBeUndefined();
+  expect(code(await d.call("flowly_list_cards", { projectId: "q" }))).toBeUndefined();
+  expect(code(await d.call("flowly_get_card", { projectId: "q", taskId: "q1" }))).toBeUndefined();
+});
+
+test("the dispatcher has its own hourly limit of 40, apart from the card agents' 20", async () => {
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  // A card agent with the same id filling its own bucket does not touch the dispatcher's.
+  for (let i = 0; i < 20; i++) x.server.cards.reserve("disp");
+  expect(() => x.server.cards.reserve("disp")).toThrow(expect.objectContaining({ code: "CARD_LIMIT" }));
+  expect(code(await d.call("flowly_create_card", { projectId: "q", title: "First", idempotencyKey: "k-1" }))).toBeUndefined();
+  for (let i = 0; i < 38; i++) x.server.cards.reserve("disp", true);
+  expect(code(await d.call("flowly_create_card", { projectId: "q", title: "Fortieth", idempotencyKey: "k-40" }))).toBeUndefined();
+  const over = await d.call("flowly_create_card", { projectId: "q", title: "Too many", idempotencyKey: "k-41" });
+  expect(code(over)).toBe("CARD_LIMIT");
+  expect(over.structuredContent.error.message).toContain("40");
+  // And the dispatcher's 40 leave a card agent's 20 untouched.
+  expect(() => x.server.cards.reserve("actor")).not.toThrow();
 });
 
 test("a dispatcher token from a replaced dispatcher is refused", async () => {

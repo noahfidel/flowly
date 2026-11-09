@@ -19,9 +19,11 @@ import { BoardStore, columnOrder, setTags } from "./store";
 import { digest } from "./tool-context";
 import { ToolError } from "./tool-error";
 
-/** Who calls a card tool: a card session (its card is `taskId`) or a session outside cards (AGENT-CARDS-SPEC §2). */
-/** Who calls a card tool; `human` is the user's own Start again from the dispatcher chat (DISPATCHER-SPEC §9.4). */
-export type CardCaller = { agentId: string; projectId: string; taskId?: string; human?: true };
+/**
+ * Who calls a card tool: a card session (its card is `taskId`), a session outside cards (AGENT-CARDS-SPEC §2), the
+ * dispatcher (`dispatcher`, its own hourly limit, DISPATCHER-SPEC §5), or the user's own Start again (`human`, §9.4).
+ */
+export type CardCaller = { agentId: string; projectId: string; taskId?: string; human?: true; dispatcher?: true };
 
 const hour = 3600000;
 
@@ -33,6 +35,8 @@ export class AgentCards {
   private paseo?: PaseoApi;
   /** Per session, when it created cards in the last hour; a plugin reload resets it (§3.3). */
   private created = new Map<string, number[]>();
+  /** The same for the dispatcher, apart from the card agents' (DISPATCHER-SPEC §5). */
+  private dispatched = new Map<string, number[]>();
   /** The Agents create and edit cards setting (§2.3); set by the plugin entry. */
   on: () => Promise<boolean> = async () => true;
   /** The board service the New card form uses; set by the plugin entry so creations share its queue. */
@@ -68,25 +72,28 @@ export class AgentCards {
    * Takes one of this session's `agentCardLimits.perHour` hourly slots, or CARD_LIMIT; card creations
    * and flowly_start_card sessions count together (START-CARD-SPEC §3). The slot is taken before any
    * await, so concurrent calls cannot pass the limit together; the returned function gives it back
-   * when the creation or start failed.
+   * when the creation or start failed. The dispatcher (`dispatcher`) has its own bucket and limit,
+   * `agentCardLimits.dispatcherPerHour`, apart from the card agents'.
    */
-  reserve(agentId: string) {
+  reserve(agentId: string, dispatcher = false) {
+    const slots = dispatcher ? this.dispatched : this.created,
+      limit = dispatcher ? agentCardLimits.dispatcherPerHour : agentCardLimits.perHour;
     const now = this.clock(),
-      recent = (this.created.get(agentId) || []).filter((at) => now - at < hour);
-    if (recent.length >= agentCardLimits.perHour)
+      recent = (slots.get(agentId) || []).filter((at) => now - at < hour);
+    if (recent.length >= limit)
       throw new ToolError(
         "CARD_LIMIT",
-        `This session already created or started ${agentCardLimits.perHour} cards in the last hour. Stop and ask the user before creating more.`,
+        `This ${dispatcher ? "dispatcher" : "session"} already created or started ${limit} cards in the last hour. Stop and ask the user before creating more.`,
       );
-    this.created.set(agentId, [...recent, now]);
+    slots.set(agentId, [...recent, now]);
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      const list = [...(this.created.get(agentId) || [])],
+      const list = [...(slots.get(agentId) || [])],
         at = list.lastIndexOf(now);
       if (at >= 0) list.splice(at, 1);
-      this.created.set(agentId, list);
+      slots.set(agentId, list);
     };
   }
   /** A session outside cards, checked again on every call (§2.2). */
@@ -110,17 +117,18 @@ export class AgentCards {
     return { agentId: identity.agentId, projectId: project.id };
   }
   /**
-   * The dispatcher acting on `projectId` (DISPATCHER-SPEC §4): the project must exist, be live and have a
-   * readable root. The dispatcher session itself is checked by the caller first.
+   * The dispatcher acting on `projectId` (DISPATCHER-SPEC §4): the project must exist and be live. A write also
+   * needs the Agents create and edit cards setting on and a readable root; a missing root still allows reads.
+   * The dispatcher session itself is checked by the caller first.
    */
   async dispatcherCaller(projectId: string, agentId: string, write = false): Promise<CardCaller> {
+    if (write) await this.enabled();
     const project = (await this.store.read()).projects.find((p) => p.id === projectId);
     if (!project) throw new ToolError("NOT_FOUND", "No Flowly project with that projectId. Use one from flowly_list_projects.");
     if (project.archivedAt) throw new ToolError("PROJECT_ARCHIVED", "The Flowly project is archived. Tell the user instead of changing it.");
-    if (!(await rootAvailable(project.primaryPath)))
-      throw new ToolError("ROOT_UNAVAILABLE", "The project's folder is missing or unreadable. Tell the user before doing anything in this project.");
-    if (write) assertNotLegacy(project);
-    return { agentId, projectId: project.id };
+    if (write && !(await rootAvailable(project.primaryPath)))
+      throw new ToolError("ROOT_UNAVAILABLE", "The project's folder is missing or unreadable. Tell the user instead of changing this project.");
+    return { agentId, projectId: project.id, dispatcher: true };
   }
   /**
    * Whether a session opening in `workspaceId` gets the project's card tools, and for which project
@@ -218,7 +226,7 @@ export class AgentCards {
     // A linked-root project has no worktree option (START-CARD-SPEC §7).
     if (input.workspace === "worktree" && project.links?.length)
       throw new ToolError("WORKTREE_UNAVAILABLE", "This project links several repositories and has no worktree option. Create the card without workspace=worktree.");
-    const release = this.reserve(caller.agentId);
+    const release = this.reserve(caller.agentId, caller.dispatcher);
     let task: Task;
     try {
       task = await this.board.createTask(
@@ -315,12 +323,6 @@ export class AgentCards {
       return { value: { card: cardView(board, project, task), changed }, changed: true };
     });
   }
-}
-
-/** Legacy multi-repo projects (SINGLE-ROOT-SPEC) are read-only to the dispatcher: it refuses writes there (DISPATCHER-SPEC §4). */
-export function assertNotLegacy(project: Pick<Project, "repos">) {
-  if (project.repos.length > 1)
-    throw new ToolError("LEGACY_PROJECT", "This is a legacy multi-repo project; its cards are read-only to you. Tell the user instead of changing it.");
 }
 
 /** Whether a project root is a readable directory. */

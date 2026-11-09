@@ -33,7 +33,7 @@ Output (`startCardResultSchema`): `{ taskId, workspaceId, agentId, replayed, war
 5. The card's workspace exists and is not being archived (`RESOURCE_UNAVAILABLE`).
 6. It has no live (non-archived) session (`CARD_HAS_SESSION`: send that session instructions instead). For the user's **Start again** from the dispatcher chat (DISPATCHER-SPEC §9.4; a human caller, which also skips check 1 and the limit in check 8), a session whose status is `closed` does not count: a card may have several sessions, so the new one starts next to it and nothing is archived (ruling 2026-11-08). A running or idle session still refuses.
 7. Where the session runs (§4): may refuse with `NEEDS_WORKTREE`.
-8. At most 20 creations per session per hour, shared with `flowly_create_card` (`CARD_LIMIT`). The slot is taken before any further work, so concurrent creates and starts cannot pass the limit together, and given back when the start or create fails.
+8. At most 20 creations per session per hour, shared with `flowly_create_card` (`CARD_LIMIT`); the dispatcher has its own 40 per hour instead, counted apart (DISPATCHER-SPEC §5). The slot is taken before any further work, so concurrent creates and starts cannot pass the limit together, and given back when the start or create fails.
 9. A starting model (§5) exists (`MODEL_UNAVAILABLE`).
 
 ## 4. Where the session runs

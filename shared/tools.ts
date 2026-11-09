@@ -429,7 +429,8 @@ export const boardIdentitySchema = z.strictObject({
 export type BoardIdentity = z.infer<typeof boardIdentitySchema>;
 /** The lanes flowly_create_card and flowly_update_card may use (AGENT-CARDS-SPEC §3.3-3.4). */
 export const agentCardStatuses = ["backlog", "todo"] as const;
-export const agentCardLimits = { listMax: 200, listDefault: 50, preview: 300, perHour: 20 } as const;
+/** `perHour`: a card agent's creations and starts; `dispatcherPerHour`: the dispatcher's own, counted apart (DISPATCHER-SPEC §5). */
+export const agentCardLimits = { listMax: 200, listDefault: 50, preview: 300, perHour: 20, dispatcherPerHour: 40 } as const;
 const cardTagList = z
   .array(z.string().max(200))
   .max(tagLimits.perCall)

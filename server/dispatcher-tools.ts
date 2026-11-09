@@ -3,6 +3,7 @@ import { z } from "zod";
 import { linkFor } from "../shared/links";
 import { linkSchema } from "../shared/model";
 import {
+  agentCardLimits,
   createCardInputSchema,
   createCardResultSchema,
   getCardInputSchema,
@@ -16,7 +17,7 @@ import {
   updateCardInputSchema,
   updateCardResultSchema,
 } from "../shared/tools";
-import { assertNotLegacy, rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
+import { rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
 import type { Dispatcher } from "./dispatcher";
 import { addLink, linkNote } from "./links";
 import type { ProjectIdeas } from "./project-ideas";
@@ -100,7 +101,8 @@ export class DispatcherTools {
 
   async proposeIdea(identity: DispatcherIdentity, raw: unknown) {
     const input = dispatcherInputs.proposeIdea.parse(raw);
-    const caller = await this.projectCaller(identity, input.projectId);
+    // A write: the agent-cards switch and a readable root apply, then the Ideas switch.
+    const caller = await this.projectCaller(identity, input.projectId, true);
     if (!(await this.ideasOn()))
       throw new ToolError("IDEAS_DISABLED", "Ideas are turned off in Flowly settings. Mention the idea to the user instead.");
     return { idea: await this.ideas.propose(caller.projectId, rest(input), { actor: "agent", agentId: caller.agentId }) };
@@ -113,7 +115,6 @@ export class DispatcherTools {
       const project = board.projects.find((p) => p.id === caller.projectId);
       if (!project) throw new ToolError("NOT_FOUND", "The Flowly project was removed.");
       if (project.archivedAt) throw new ToolError("PROJECT_ARCHIVED", "The Flowly project is archived.");
-      assertNotLegacy(project);
       for (const id of [input.taskId, input.otherTaskId])
         if (!board.tasks.some((t) => t.id === id && t.projectId === project.id))
           throw new ToolError("CARD_NOT_FOUND", `No card ${id} in this project. Use ids from flowly_list_cards.`);
@@ -177,7 +178,7 @@ export class DispatcherTools {
       "flowly_create_card",
       {
         description:
-          'Create a card in a project: one deliverable, one branch or PR. Use workspace="worktree" for repo work, then start it with flowly_start_card. Write the description for an agent that cannot see this conversation (goal, context, files, acceptance). Lands in Backlog (default) or Todo. Pass a unique idempotencyKey; retrying with the same key returns the same card. At most 20 cards or starts per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.',
+          `Create a card in a project: one deliverable, one branch or PR. Use workspace="worktree" for repo work, then start it with flowly_start_card. Write the description for an agent that cannot see this conversation (goal, context, files, acceptance). Lands in Backlog (default) or Todo. Pass a unique idempotencyKey; retrying with the same key returns the same card. At most ${agentCardLimits.dispatcherPerHour} cards or starts per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.createCard,
         outputSchema: createCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },

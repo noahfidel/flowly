@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { Dispatcher, RECHECK_MAX_MS, dispatcherState, isDeadDispatcher, wireDispatcher } from "./dispatcher";
+import { dispatcherSessionIds } from "./dispatcher-items";
 import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
 import { agentFixture } from "./agent-fixture";
@@ -232,7 +233,7 @@ test("a replacement archives the dead dispatcher (that id only, after a re-read)
   expect(x.archived).toEqual([`agent:${first.agentId}`]);
   // The earlier sessions are remembered, newest last, without the current one.
   expect((await x.dispatcher.record()).previousAgentIds).toEqual([first.agentId, second.agentId, third.agentId]);
-  expect(x.dispatcher.agentIds()).toEqual([first.agentId, second.agentId, third.agentId, fourth.agentId]);
+  expect(dispatcherSessionIds(await x.dispatcher.record())).toEqual([first.agentId, second.agentId, third.agentId, fourth.agentId]);
   // A session that came back between the status read and the archive is never archived: the start is refused.
   x.agents.get(fourth.agentId)!.status = "closed";
   let reads = 0;

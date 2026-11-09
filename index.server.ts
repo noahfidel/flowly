@@ -64,7 +64,7 @@ import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
 import { EventBus, commitHandler } from "./server/event-bus";
 import { wireDispatcher } from "./server/dispatcher";
-import { ChangeLineCache, DispatcherItems, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
+import { ChangeLineCache, DispatcherItems, dispatcherSessionIds, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
 import { DispatcherAsks } from "./server/dispatcher-asks";
 
 export default function contribute(host: PluginServerContext) {
@@ -391,7 +391,7 @@ export default function contribute(host: PluginServerContext) {
   const changes = new ChangeLineCache();
   const currentChange = async () => {
     const [board, record] = await Promise.all([store.read(), tools.dispatcher.record()]);
-    return changes.get(board, seenMark(record), record.agentId);
+    return changes.get(board, seenMark(record), dispatcherSessionIds(record));
   };
   // Asks (DISPATCHER-SPEC §9.4): one source with the bell; answered on the daemon after a fresh check.
   server.handle(rpc.dispatcherItemsChanged, async ({ etag }, { paseo }) => {

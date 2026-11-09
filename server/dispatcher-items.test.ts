@@ -50,17 +50,20 @@ test("the change line counts cards changed since the seen revision", () => {
     event("t2", T0 + 7_000, { action: "edited", agentId: "disp" }),
     event("t2", T0 + 7_001, { id: "e-t2-link", action: "linked", agentId: "disp" }),
   );
-  const line = changeLine(b, mark(T0), "disp");
+  const line = changeLine(b, mark(T0), ["disp"]);
   expect(line).toMatchObject({ kind: "change", id: "change", revision: T0 + 5_000, ids: [`e-t1-${T0 + 5_000}`], at: iso(T0 + 5_000) });
   expect(line?.kind === "change" && line.cards).toEqual([
     { taskId: "t1", projectId: "p", title: "Card t1", status: "in_progress", events: 2 },
     { taskId: "t2", projectId: "p", title: "Card t2", status: "in_review", events: 1 },
   ]);
   // Nothing newer than the mark: no line. No mark at all: no line.
-  expect(changeLine(b, mark(T0 + 5_000, [`e-t1-${T0 + 5_000}`]), "disp")).toBeNull();
-  expect(changeLine(b, null, "disp")).toBeNull();
+  expect(changeLine(b, mark(T0 + 5_000, [`e-t1-${T0 + 5_000}`]), ["disp"])).toBeNull();
+  expect(changeLine(b, null, ["disp"])).toBeNull();
   // Another agent's action on the same card is news.
-  expect(changeLine(b, mark(T0 + 5_000, [`e-t1-${T0 + 5_000}`]), "other")?.kind).toBe("change");
+  expect(changeLine(b, mark(T0 + 5_000, [`e-t1-${T0 + 5_000}`]), ["other"])?.kind).toBe("change");
+  // An earlier dispatcher session of this install made them too: still not news after a replacement.
+  expect(changeLine(b, mark(T0 + 5_000, [`e-t1-${T0 + 5_000}`]), ["disp", "disp2"])).toBeNull();
+  expect(changeLine(b, mark(T0 + 5_000, [`e-t1-${T0 + 5_000}`]), ["disp2"])?.kind).toBe("change");
   // What should I do? lists the same cards.
   const text = whatNextMessage(line);
   expect(text.split("\n")[0]).toBe("What should I do?");
@@ -168,15 +171,15 @@ test("the change line is scanned once per board revision and mark", () => {
   const b = board();
   b.revision = 7;
   b.events.push(event("t1", T0 + 1_000));
-  const first = cache.get(b, mark(T0), "disp");
-  expect(cache.get(b, mark(T0), "disp")).toBe(first);
+  const first = cache.get(b, mark(T0), ["disp"]);
+  expect(cache.get(b, mark(T0), ["disp"])).toBe(first);
   expect(scan).toHaveBeenCalledTimes(1);
   // A new board revision, a new mark or a new dispatcher scans again.
   b.events.push(event("t2", T0 + 2_000));
   b.revision = 8;
-  expect(cache.get(b, mark(T0), "disp")?.kind === "change").toBe(true);
-  cache.get(b, mark(T0 + 2_000), "disp");
-  cache.get(b, mark(T0 + 2_000), "disp2");
+  expect(cache.get(b, mark(T0), ["disp"])?.kind === "change").toBe(true);
+  cache.get(b, mark(T0 + 2_000), ["disp"]);
+  cache.get(b, mark(T0 + 2_000), ["disp2"]);
   expect(scan).toHaveBeenCalledTimes(4);
 });
 

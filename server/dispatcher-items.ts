@@ -47,18 +47,20 @@ export function seenMark(record: Pick<DispatcherRecord, "seenRevision" | "seenId
 /**
  * "Changed since you looked" (§9.2): cards with an agent's or the system's event after `mark` (event revision =
  * its time in ms; at the mark's own ms, an event whose id was not seen), on live cards of live projects; newest
- * first. The user's own changes and the dispatcher's own actions are left out. Null when nothing changed.
+ * first. The user's own changes and the actions of every dispatcher session this install has had
+ * (`dispatcherAgentIds`) are left out. Null when nothing changed.
  */
-export function changeLine(board: Board, mark: SeenMark | null, dispatcherAgentId: string | null = null): ChatItem | null {
+export function changeLine(board: Board, mark: SeenMark | null, dispatcherAgentIds: readonly string[] = []): ChatItem | null {
   if (mark === null) return null;
   const seenAtMark = new Set(mark.ids);
+  const dispatchers = new Set(dispatcherAgentIds);
   const live = new Set(board.projects.filter((p) => !p.archivedAt).map((p) => p.id));
   const tasks = new Map(board.tasks.filter((t) => !t.archivedAt && live.has(t.projectId)).map((t) => [t.id, t]));
   const changed = new Map<string, { card: ChangedCard; newest: number }>();
   let newest = -Infinity;
   let newestIds: string[] = [];
   for (const event of board.events) {
-    if (event.actor === "human" || (dispatcherAgentId && event.agentId === dispatcherAgentId)) continue;
+    if (event.actor === "human" || (event.agentId && dispatchers.has(event.agentId))) continue;
     const revision = Date.parse(event.at);
     if (!(revision > mark.revision || (revision === mark.revision && !seenAtMark.has(event.id)))) continue;
     const task = tasks.get(event.taskId);
@@ -78,16 +80,21 @@ export function changeLine(board: Board, mark: SeenMark | null, dispatcherAgentI
 
 /**
  * The change line for each open panel's poll without a board scan while nothing moved: one cached result,
- * keyed on the board's revision and last event, the mark and the dispatcher session (§9.2).
+ * keyed on the board's revision and last event, the mark and the dispatcher sessions (§9.2).
  */
 export class ChangeLineCache {
   private last: { key: string; value: ChatItem | null } | null = null;
   constructor(private readonly scan: typeof changeLine = changeLine) {}
-  get(board: Board, mark: SeenMark | null, dispatcherAgentId: string | null): ChatItem | null {
-    const key = JSON.stringify([board.revision, board.events.length, board.events.at(-1)?.id ?? null, mark, dispatcherAgentId]);
-    if (this.last?.key !== key) this.last = { key, value: this.scan(board, mark, dispatcherAgentId) };
+  get(board: Board, mark: SeenMark | null, dispatcherAgentIds: readonly string[]): ChatItem | null {
+    const key = JSON.stringify([board.revision, board.events.length, board.events.at(-1)?.id ?? null, mark, dispatcherAgentIds]);
+    if (this.last?.key !== key) this.last = { key, value: this.scan(board, mark, dispatcherAgentIds) };
     return this.last.value;
   }
+}
+
+/** Every dispatcher session id the record names: the earlier ones, then the current one. */
+export function dispatcherSessionIds(record: Pick<DispatcherRecord, "agentId" | "previousAgentIds">): string[] {
+  return [...(record.previousAgentIds ?? []), ...(record.agentId ? [record.agentId] : [])];
 }
 
 /** The "What should I do?" message: the question, then the changed cards (§9.2). Agent-facing, English. */

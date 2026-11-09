@@ -161,7 +161,7 @@ export class CardStarter {
         );
       request = await this.worktreeRequest(task, project, board, operationId);
     }
-    const release = caller.human ? () => undefined : this.cards.reserve(caller.agentId);
+    const release = caller.human ? () => undefined : this.cards.reserve(caller.agentId, caller.dispatcher);
     try {
       const model = await this.model(project, board, paseo);
       let workspaceId = task.workspaceId;

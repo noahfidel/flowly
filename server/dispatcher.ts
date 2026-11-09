@@ -173,12 +173,6 @@ export class Dispatcher {
   agentId() {
     return this.cached?.agentId ?? null;
   }
-  /** Every dispatcher session id this install has had (earlier ones, then the current one), once the record is loaded. */
-  agentIds(): string[] {
-    const record = this.cached;
-    if (!record) return [];
-    return [...(record.previousAgentIds ?? []), ...(record.agentId ? [record.agentId] : [])];
-  }
   /** Whether `workspaceId` is the dispatcher's workspace; such a workspace is never bound to a card (§2). */
   async owns(workspaceId: string) {
     const { workspaceId: own } = await this.record();
