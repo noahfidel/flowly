@@ -223,6 +223,7 @@ const catalog: Catalog = {
   "Close side bar": "사이드바 닫기",
   "Minimize": "최소화",
   "Restore size": "원래 크기로",
+  "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.": "디스패처는 Claude에서만 실행됩니다. 다른 제공자에서는 디스패처가 카드의 질문과 권한 요청에 답하는 것을 Flowly가 막을 수 없습니다. 설정 → 모델에서 디스패처용 Claude 모델을 선택하세요.",
   "Status: {lane}": "상태: {lane}",
   "Priority: {priority}": "우선순위: {priority}",
   "none": "없음",

@@ -6,9 +6,22 @@ const refusals: Record<string, string> = {
   CARD_HAS_SESSION: msg("The card already has a running session. Send it a message instead."),
 };
 
-export function startAgainMessage(error: string): string {
+function refusalText(error: string, known: Record<string, string>): string {
   const coded = /^([A-Z_]+): ([\s\S]*)$/.exec(error);
   if (!coded) return error;
-  const known = refusals[coded[1]];
-  return known ? t(known) : coded[2];
+  const text = known[coded[1]];
+  return text ? t(text) : coded[2];
+}
+
+export function startAgainMessage(error: string): string {
+  return refusalText(error, refusals);
+}
+
+/** Start dispatcher's refusals in the user's words (DISPATCHER-SPEC §3); the daemon sends `CODE: message`. */
+const dispatcherRefusals: Record<string, string> = {
+  DISPATCHER_PROVIDER_UNSUPPORTED: msg("The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models."),
+};
+
+export function dispatcherStartMessage(error: string): string {
+  return refusalText(error, dispatcherRefusals);
 }

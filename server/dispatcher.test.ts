@@ -869,9 +869,13 @@ test("start without a provider uses the Dispatcher model setting, else the serve
   const first = await x.dispatcher.start(x.paseo, {});
   expect(x.agentCreates[0].options.config).toMatchObject({ provider: "claude/claude-sonnet-5-5" });
   x.agents.get(first.agentId)!.status = "closed";
+  // A setting on a provider that cannot withhold the routes to a card's asks is refused, naming what to pick.
   x.dispatcher.modelSetting = async () => ({ provider: "codex", model: "gpt-5.4", thinking: "high", mode: "full-access" });
+  await expect(x.dispatcher.start(x.paseo, {})).rejects.toMatchObject({ code: "DISPATCHER_PROVIDER_UNSUPPORTED", message: expect.stringContaining("Claude") });
+  expect(x.agentCreates).toHaveLength(1);
+  x.dispatcher.modelSetting = async () => ({ provider: "claude", model: "claude-opus-5-5", thinking: "high", mode: "bypassPermissions" });
   const second = await x.dispatcher.start(x.paseo, {});
-  expect(x.agentCreates[1].options.config).toMatchObject({ provider: "codex/gpt-5.4", modeId: "full-access", thinkingOptionId: "high" });
+  expect(x.agentCreates[1].options.config).toMatchObject({ provider: "claude/claude-opus-5-5", modeId: "bypassPermissions", thinkingOptionId: "high" });
   // An explicit provider wins over the setting.
   x.agents.get(second.agentId)!.status = "closed";
   await x.dispatcher.start(x.paseo, { provider: "claude/claude-opus-5-5" });
@@ -979,8 +983,11 @@ test("What should I do? marks the changed cards it sent as seen, only once it wa
 test("no route to a card's ask: a Claude dispatcher starts without Paseo's tools, a shell or subagents (ruling, Noah 2026-11-09)", async () => {
   const x = await setup();
   await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5", modeId: "bypassPermissions" });
-  const config = x.agentCreates[0].options.config as { providerOptions?: { disallowedTools?: string[] } };
-  const withheld = config.providerOptions?.disallowedTools ?? [];
+  // The SDK's `options` field is what it sends as the session's `providerOptions`; a `providerOptions` key here only
+  // reached the daemon through the SDK's spread of unknown fields.
+  const config = x.agentCreates[0].options.config as { options?: { disallowedTools?: string[] }; providerOptions?: unknown };
+  expect(config.providerOptions).toBeUndefined();
+  const withheld = config.options?.disallowedTools ?? [];
   // Paseo's own agent tools answer permissions (respond_to_permission), message a card's session (send_agent_prompt),
   // or reach a shell or another agent that could; the shell reaches the paseo CLI.
   for (const tool of ["mcp__paseo", "mcp__paseo__respond_to_permission", "mcp__paseo__send_agent_prompt", "mcp__paseo__create_agent", "mcp__paseo__send_terminal_keys", "mcp__paseo__set_agent_mode", "Bash", "Task", "Agent"])

@@ -6,6 +6,8 @@ import { z } from "zod";
 import {
   dispatcherCharter,
   dispatcherWithheldTools,
+  dispatcherProviderReason,
+  dispatcherProviderSupported,
   dispatcherDefaultModel,
   dispatcherServerName,
   dispatcherToolNames,
@@ -117,10 +119,6 @@ export function missesTools(record: DispatcherRecord) {
   const saved = record.savedTools === true ? firstSavedTools : record.savedTools;
   return !!saved && dispatcherToolNames.some((tool) => !saved.includes(tool));
 }
-const preapprovingProviders: readonly string[] = ["claude", "codex"];
-/** Providers whose sessions can be started without given tools: Claude (`disallowedTools`); others have no per-session way (§3). */
-export const withholdsTools = (provider: string) => provider.split("/")[0] === "claude";
-export const savesTools = (provider: string) => preapprovingProviders.includes(provider.split("/")[0]);
 
 const emptyRecord = (): DispatcherRecord => ({ version: 1, workspaceId: null, agentId: null, startedAt: null });
 
@@ -276,7 +274,12 @@ export class Dispatcher {
   /** Starts a new dispatcher session; one at a time, refused unless the stored one is dead (§3). */
   start(paseo: PaseoApi, raw: { provider?: string; modeId?: string }): Promise<{ agentId: string }> {
     const input = dispatcherStartInputSchema.parse(raw);
-    const job = this.starts.then(async () => this.run(paseo, await this.model(input)));
+    const job = this.starts.then(async () => {
+      const model = await this.model(input);
+      // Only a provider that can withhold the routes to a card's asks (ruling, Noah 2026-11-09; §3).
+      if (!dispatcherProviderSupported(model.provider)) throw new ToolError("DISPATCHER_PROVIDER_UNSUPPORTED", dispatcherProviderReason);
+      return this.run(paseo, model);
+    });
     this.starts = job.catch(() => undefined);
     return job;
   }
@@ -305,8 +308,7 @@ export class Dispatcher {
     // What is held now is on the board the summary reads; later notes are kept (one may repeat the summary).
     const covered = [...this.held];
     try {
-      const saved = savesTools(input.provider);
-      const [mcp, summary] = await Promise.all([saved ? this.deps.mcp({ agentId, workspaceId }) : null, this.deps.summary()]);
+      const [mcp, summary] = await Promise.all([this.deps.mcp({ agentId, workspaceId }), this.deps.summary()]);
       if (previous.agentId) await this.retire(paseo, previous.agentId);
       const now = this.deps.now?.() ?? Date.now();
       const earlier = previous.agentId
@@ -314,13 +316,13 @@ export class Dispatcher {
         : previous.previousAgentIds;
       for (const [taskId, held] of covered) if (this.held.get(taskId) === held) this.held.delete(taskId);
       // Stored first: the session's first tool calls already pass the caller check (§4).
-      // Only a session saved with its tools is marked; any other gets them from the open hook (§3).
+      // Saved with its tools (§3); a record without the mark is a dispatcher from before, served by the open hook.
       await this.save(({ savedTools: _, ...r }) => ({
         ...r,
         workspaceId,
         agentId,
         startedAt: new Date(now).toISOString(),
-        ...(saved ? { savedTools: [...dispatcherToolNames] } : {}),
+        savedTools: [...dispatcherToolNames],
         ...(earlier ? { previousAgentIds: earlier } : {}),
       }));
       await this.create(paseo, { workspaceId, agentId, mcp, summary, input, previous });
@@ -352,7 +354,7 @@ export class Dispatcher {
     { workspaceId, agentId, mcp, summary, input, previous }: {
       workspaceId: string;
       agentId: string;
-      mcp: DispatcherMcpServer | null;
+      mcp: DispatcherMcpServer;
       summary: string;
       input: { provider: string; modeId?: string; thinking?: string };
       previous: DispatcherRecord;
@@ -368,15 +370,12 @@ export class Dispatcher {
           ...(input.thinking ? { thinkingOptionId: input.thinking } : {}),
           systemPrompt: dispatcherCharter,
           // No route to a card's ask: Paseo's agent tools, a shell and subagents are withheld where the provider allows it (§3).
-          ...(withholdsTools(input.provider) ? { providerOptions: { disallowedTools: [...dispatcherWithheldTools] } } : {}),
+          // The SDK's `options` is the session's `providerOptions`, validated by Claude's provider schema.
+          options: { disallowedTools: [...dispatcherWithheldTools] },
           // Saved with the session and every tool preapproved, so its own tools never prompt (they are gated by the
           // "Agents create and edit cards" switch); Paseo checks each grant's server is in this same request (§3).
-          ...(mcp
-            ? {
-                mcpServers: { [dispatcherServerName]: mcp },
-                toolPolicy: { preapproved: dispatcherToolNames.map((tool) => ({ kind: "mcp" as const, server: dispatcherServerName, tool })) },
-              }
-            : {}),
+          mcpServers: { [dispatcherServerName]: mcp },
+          toolPolicy: { preapproved: dispatcherToolNames.map((tool) => ({ kind: "mcp" as const, server: dispatcherServerName, tool })) },
         },
         title: DISPATCHER_TITLE,
         labels: { "flowly-dispatcher": "1" },

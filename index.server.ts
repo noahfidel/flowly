@@ -378,7 +378,9 @@ export default function contribute(host: PluginServerContext) {
   });
   server.handle(rpc.dispatcherStart, (input, { paseo }) => {
     tools.attach(paseo);
-    return tools.dispatcher.start(paseo, input);
+    return tools.dispatcher.start(paseo, input).catch((e: unknown) => {
+      throw codedError(e);
+    });
   });
   // The chat panel (DISPATCHER-SPEC §9): note rows are what the dispatcher received; the change line is scanned
   // again only when the board, the mark or the dispatcher session changed.

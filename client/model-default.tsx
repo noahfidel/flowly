@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { AgentModel } from "../shared/agent-defaults";
 import { modelOptions, providerOptions } from "./options";
 import { SettingSelect, SettingsGroup } from "./settings-ui";
+import { Notice } from "./ui";
 import { t } from "../shared/i18n";
 
 /**
@@ -18,6 +19,8 @@ export function ModelDefaultGroup({
   noneLabel,
   noneDetail,
   disabled = false,
+  allowProvider,
+  invalidText,
 }: {
   title?: string;
   description?: string;
@@ -26,6 +29,9 @@ export function ModelDefaultGroup({
   noneLabel: string;
   noneDetail?: string;
   disabled?: boolean;
+  /** Only these providers are offered; a stored value on another one shows `invalidText`. */
+  allowProvider?: (provider: string) => boolean;
+  invalidText?: string;
 }) {
   const paseo = usePaseo();
   // A provider can be picked before its model is: the model row follows it.
@@ -71,13 +77,14 @@ export function ModelDefaultGroup({
   const modelDefault = defaultThinkingLabel ? t("Model default ({defaultLabel})", { defaultLabel: defaultThinkingLabel }) : t("Model default");
   return (
     <SettingsGroup title={title} description={description}>
+      {!!value && !!allowProvider && !allowProvider(value.provider) && !!invalidText && <Notice>{invalidText}</Notice>}
       <SettingSelect
         title={t("Provider")}
         value={provider}
         placeholder={noneLabel}
         disabled={disabled}
         loading={providers.isPending}
-        options={[{ value: "", label: noneLabel, detail: noneDetail }, ...providerOptions(providers.data?.providers || [], providerInfo.data?.entries || [])]}
+        options={[{ value: "", label: noneLabel, detail: noneDetail }, ...providerOptions(providers.data?.providers || [], providerInfo.data?.entries || []).filter((o) => !allowProvider || allowProvider(o.value))]}
         onChange={(next) => {
           setProvider(next);
           if (!next) onChange(null);

@@ -18,6 +18,7 @@ import { sessionTone } from "./status";
 import { RunningDots } from "./running-motion";
 import { newMessageId, rememberSentImages } from "./sent-images";
 import { Collapse } from "./disclosure";
+import { dispatcherStartMessage } from "./start-again";
 import { PulseDot, useReducedMotion } from "./motion";
 import { useKeyboardInset } from "./keyboard";
 import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery, useLiveAgents } from "./queries";
@@ -98,8 +99,8 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
       await startRpc({});
       await client.invalidateQueries({ queryKey: statusKey });
     } catch (e) {
-      // HOST_UNSUPPORTED and START_FAILED arrive with a readable message (DISPATCHER-SPEC §2, §8).
-      setStartError(message(e));
+      // Refusals arrive as `CODE: message`; the provider refusal is shown in the user's words (DISPATCHER-SPEC §3, §8).
+      setStartError(dispatcherStartMessage(message(e)));
     } finally {
       setStarting(false);
     }

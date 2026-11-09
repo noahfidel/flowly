@@ -35,7 +35,7 @@ import {
   deliverySettingsValues,
 } from "../shared/settings";
 import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
-import { dispatcherDefaultModel } from "../shared/dispatcher";
+import { dispatcherDefaultModel, dispatcherProviderSupported } from "../shared/dispatcher";
 import { deviceLocale, formatLocale, getLocale, locales, msg, t, tn } from "../shared/i18n";
 import { hideFinishedChoices } from "./finished-cards";
 import { deliveryModeLabels, deliveryModes, type DeliveryMode } from "../shared/delivery-mode";
@@ -216,6 +216,8 @@ export function ModelsPage({ active }: { active: boolean }) {
         noneLabel={t("Default")}
         noneDetail={modelLabel(`${dispatcherDefaultModel.provider}/${dispatcherDefaultModel.model}`)}
         onChange={(next: AgentModel | null) => models.save({ dispatcherModel: next })}
+        allowProvider={dispatcherProviderSupported}
+        invalidText={t("The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.")}
       />
       <SummaryModelGroup active={active} />
     </SettingsPage>

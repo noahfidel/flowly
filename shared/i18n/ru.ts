@@ -223,6 +223,7 @@ const catalog: Catalog = {
   "Close side bar": "Закрыть боковую панель",
   "Minimize": "Свернуть",
   "Restore size": "Обычный размер",
+  "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.": "Диспетчер работает только с Claude: с другими провайдерами Flowly не может запретить ему отвечать на вопросы и запросы разрешений карточек. Выберите модель Claude для диспетчера в «Настройки → Модели».",
   "Status: {lane}": "Статус: {lane}",
   "Priority: {priority}": "Приоритет: {priority}",
   "none": "нет",

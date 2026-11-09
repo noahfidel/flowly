@@ -301,32 +301,22 @@ test("a new dispatcher saves its tools with every one preapproved, so they never
   expect(policy.preapproved.every((g) => g.kind === "mcp" && g.server === "flowly-dispatcher")).toBe(true);
 });
 
-test("a provider Paseo cannot preapprove for, or whose mode a tool policy changes, gets its tools from the open hook (DISPATCHER-SPEC §3)", async () => {
-  // Verified against the daemon: exact preapproval is claude, codex and opencode only (provider-registry.js
-  // PROVIDER_CONTRACTS), and any tool policy turns OpenCode's auto-accept off (opencode-agent.js).
-  for (const provider of ["copilot/gpt-5", "opencode/some-model", "kimi/k2", "pi/x", "my-claude/claude-sonnet-5-5"]) {
+test("the dispatcher starts only on a provider that can withhold the routes to a card's asks (ruling, Noah 2026-11-09)", async () => {
+  for (const provider of ["codex/gpt-5", "opencode/some-model", "copilot/gpt-5", "kimi/k2", "pi/x", "my-claude/claude-sonnet-5-5"]) {
     const x = await setup();
     x.agents.disp.status = "closed";
-    const { agentId } = await x.server.dispatcher.start(x.paseo, { provider });
-    expect(x.policies[agentId], provider).toBeUndefined();
-    // Not saved: the hook adds it at each open, as before saved tools.
-    expect(await x.server.dispatcherSession(agentId, x.paseo), provider).toMatchObject({ mcp: { type: "http" } });
-    expect(Object.keys(x.launched[agentId]), provider).toEqual(["flowly-dispatcher"]);
-    expect((await x.server.dispatcher.record()).savedTools, provider).toBeUndefined();
+    const before = await x.server.dispatcher.record();
+    await expect(x.server.dispatcher.start(x.paseo, { provider }), provider).rejects.toMatchObject({ code: "DISPATCHER_PROVIDER_UNSUPPORTED" });
+    // Nothing was created or stored: the dead dispatcher's record stays as it was.
+    expect(Object.keys(x.policies), provider).toEqual([]);
+    expect(await x.server.dispatcher.record(), provider).toEqual(before);
   }
-});
-
-test("a start on such a provider drops the earlier dispatcher's saved-tools mark (DISPATCHER-SPEC §1)", async () => {
+  // Claude: saved with its tools, as always.
   const x = await setup();
   x.agents.disp.status = "closed";
-  const first = await x.server.dispatcher.start(x.paseo, { provider: "codex/gpt-5" });
-  expect(x.policies[first.agentId]).toBeDefined();
-  expect((await x.server.dispatcher.record()).savedTools).toBeTruthy();
-  x.agents[first.agentId].status = "closed";
-  const second = await x.server.dispatcher.start(x.paseo, { provider: "copilot/gpt-5" });
-  expect(x.policies[second.agentId]).toBeUndefined();
-  expect((await x.server.dispatcher.record()).savedTools).toBeUndefined();
-  expect(await x.server.dispatcherSession(second.agentId, x.paseo)).toMatchObject({ mcp: { type: "http" } });
+  const { agentId } = await x.server.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(x.policies[agentId]).toBeDefined();
+  expect((await x.server.dispatcher.record()).savedTools).toEqual(expect.any(Array));
 });
 
 test("a dispatcher started before its tools were saved still gets them from the open hook (DISPATCHER-SPEC §3)", async () => {

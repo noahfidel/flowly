@@ -118,6 +118,17 @@ export const dispatcherWithheldTools = [
 ] as const;
 
 /**
+ * Providers the dispatcher starts on: those whose sessions can be started without `dispatcherWithheldTools` (Claude's
+ * `disallowedTools`). Others have no per-session way to withhold them (ruling, Noah 2026-11-09; DISPATCHER-SPEC §3).
+ */
+export const dispatcherProviders: readonly string[] = ["claude"];
+/** Whether the dispatcher may start on this provider (`provider` or `provider/model`). */
+export const dispatcherProviderSupported = (provider: string) => dispatcherProviders.includes(provider.split("/")[0]);
+/** Why the dispatcher refuses another provider, and what to pick. Agent-facing English; the UI shows its translation. */
+export const dispatcherProviderReason =
+  "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.";
+
+/**
  * How the user's messages reach the dispatcher (composer, What should I do?): always steer. Paseo's daemon
  * starts a normal turn for a steer on an idle agent, and a send without it interrupts a turn and clears pending
  * permissions, which a status read as idle a moment ago cannot rule out (§9.3).

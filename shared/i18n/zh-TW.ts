@@ -223,6 +223,7 @@ const catalog: Catalog = {
   "Close side bar": "關閉側欄",
   "Minimize": "最小化",
   "Restore size": "恢復大小",
+  "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.": "調度器只能在 Claude 上執行：在其他供應商上，Flowly 無法阻止它回答卡片的問題和權限請求。請在「設定 → 模型」中為調度器選擇一個 Claude 模型。",
   "Status: {lane}": "狀態：{lane}",
   "Priority: {priority}": "優先順序：{priority}",
   "none": "無",

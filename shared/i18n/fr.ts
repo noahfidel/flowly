@@ -223,6 +223,7 @@ const catalog: Catalog = {
   "Close side bar": "Fermer le panneau latéral",
   "Minimize": "Réduire",
   "Restore size": "Taille normale",
+  "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.": "Le répartiteur ne fonctionne qu'avec Claude : avec d'autres fournisseurs, Flowly ne peut pas l'empêcher de répondre aux questions et aux demandes d'autorisation des cartes. Choisissez un modèle Claude pour le répartiteur dans Réglages → Modèles.",
   "Status: {lane}": "Statut : {lane}",
   "Priority: {priority}": "Priorité : {priority}",
   "none": "aucun",

@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { answeredAsks, bellResolved, forgetAnsweredMissing, markAsksAnswered, subscribeAnsweredAsks } from "./answered-asks";
-import { startAgainMessage } from "./start-again";
+import { dispatcherStartMessage, startAgainMessage } from "./start-again";
+import { dispatcherProviderSupported } from "../shared/dispatcher";
 import { attentionItems, openAskCount } from "./attention";
 
 const now = "2026-11-08T10:00:00.000Z";
@@ -54,4 +55,15 @@ test("Start again's refusals are shown in the user's words", () => {
   expect(startAgainMessage("CARD_HAS_SESSION: The card already has a live session (s1).")).toBe("The card already has a running session. Send it a message instead.");
   expect(startAgainMessage("CARD_FINISHED: The card is Done or Cancelled; only the user reopens it.")).toBe("The card is Done or Cancelled; only the user reopens it.");
   expect(startAgainMessage("Network down")).toBe("Network down");
+});
+
+test("the dispatcher runs only on Claude; a refused start says why and what to pick (ruling, Noah 2026-11-09)", () => {
+  expect(dispatcherProviderSupported("claude/claude-sonnet-5-5")).toBe(true);
+  expect(dispatcherProviderSupported("claude")).toBe(true);
+  for (const p of ["codex/gpt-5", "opencode/x", "my-claude/claude-sonnet-5-5", ""]) expect(dispatcherProviderSupported(p), p).toBe(false);
+  expect(dispatcherStartMessage("DISPATCHER_PROVIDER_UNSUPPORTED: The dispatcher runs only on Claude…")).toBe(
+    "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.",
+  );
+  expect(dispatcherStartMessage("HOST_UNSUPPORTED: This Paseo host can't run the dispatcher.")).toBe("This Paseo host can't run the dispatcher.");
+  expect(dispatcherStartMessage("Network down")).toBe("Network down");
 });
