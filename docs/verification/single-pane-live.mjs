@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -155,11 +155,15 @@ const within = (child, parent) => {
   return c === p || c.startsWith(p.endsWith(sep) ? p : p + sep);
 };
 
+/** Set by SIGINT/SIGTERM: running checks stop at their next poll while cleanup (which sets `cleaning`) goes on. */
+const runState = { interrupted: false, cleaning: false };
+
 /** Polls `fn` until it returns a truthy value; the last value or error goes into the timeout message. */
 async function waitFor(label, fn, { timeout = 60_000, interval = 2_000 } = {}) {
   const started = Date.now();
   let last;
   for (;;) {
+    if (runState.interrupted && !runState.cleaning) throw new Error(`Interrupted while waiting for ${label}.`);
     try {
       const v = await fn();
       if (v) return v;
@@ -184,6 +188,107 @@ async function expectRejection(label, fn, pattern) {
 
 // ---- Run record and cleanup --------------------------------------------------------------------------------------
 
+export const runIdPattern = /^[0-9a-f]{6}$/;
+export const fixtureDirPrefix = 'single-pane-live-fixture-';
+/** Exit codes after SIGINT and SIGTERM (cleanup runs once first). */
+export const signalExitCodes = { SIGINT: 130, SIGTERM: 143 };
+
+/** The command that finishes a crashed or interrupted run; carries --home only when it is not the default. */
+export function retryCommand(file, args, defaultHome = process.env.PASEO_HOME || join(homedir(), '.paseo')) {
+  const q = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+  return `node docs/verification/single-pane-live.mjs --cleanup ${q(file)}${args.home && args.home !== defaultHome ? ` --home ${q(args.home)}` : ''}${args.keepDispatcher ? ' --keep-dispatcher' : ''}`;
+}
+
+export class RecordError extends Error {
+  constructor(problems) {
+    super(`Refusing to clean up from this record:\n  - ${problems.join('\n  - ')}`);
+    this.problems = problems;
+  }
+}
+
+const realOr = (path) => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+};
+const strictlyInside = (child, parent) => {
+  const c = resolve(child);
+  const p = resolve(parent);
+  return c !== p && c.startsWith(p.endsWith(sep) ? p : p + sep);
+};
+/** A fixture directory: a direct child of the temp directory (never the temp directory itself) with the fixture prefix. */
+export function isFixtureDir(dir, tmp = tmpdir()) {
+  if (typeof dir !== 'string' || !dir) return false;
+  const inside = [resolve(tmp), realOr(tmp)].some((t) => strictlyInside(dir, t) && resolve(dir, '..') === t);
+  return inside && basename(resolve(dir)).startsWith(fixtureDirPrefix);
+}
+/** The branch names this run may delete: the ones Flowly generated from a card title carrying this run's marker. */
+export const ownBranchPattern = (runId) => new RegExp(`^kanban/single-pane-live-${runId}-`);
+/** Whether `branch` is checked out in a worktree that still exists (`git worktree list --porcelain` output). */
+export function branchCheckedOut(porcelain, branch, exists = existsSync) {
+  let path = null;
+  for (const line of porcelain.split('\n')) {
+    if (line.startsWith('worktree ')) path = line.slice('worktree '.length);
+    else if (line === `branch refs/heads/${branch}` && path && exists(path)) return true;
+  }
+  return false;
+}
+
+/**
+ * Checks a record read from disk before any of it is used. The file is untrusted: `--cleanup` must not act on a record
+ * edited or made by anything else. Throws RecordError listing every problem; returns the data when it is sound.
+ */
+export function validateRecord(data, file, { tmp = tmpdir() } = {}) {
+  const problems = [];
+  const isStr = (v) => typeof v === 'string' && v.length > 0;
+  const strings = (v) => Array.isArray(v) && v.every(isStr);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new RecordError(['the record is not an object.']);
+  if (typeof data.runId !== 'string' || !runIdPattern.test(data.runId)) problems.push('runId is not 6 lowercase hex characters.');
+  const runId = typeof data.runId === 'string' ? data.runId : '';
+  if (data.marker !== `[single-pane-live ${runId}]`) problems.push('marker does not match the runId.');
+  if (basename(String(file)) !== `single-pane-live-${runId}.json`) problems.push(`the file name is not single-pane-live-${runId}.json.`);
+  if (data.tinylinkProjectId !== null && !isStr(data.tinylinkProjectId)) problems.push('tinylinkProjectId is neither null nor a string.');
+  if (!Array.isArray(data.cards)) problems.push('cards is not a list.');
+  else
+    for (const c of data.cards) {
+      if (!c || !isStr(c.id) || !isStr(c.projectId) || !strings(c.workspaces) || !strings(c.branches)) problems.push(`a card entry is malformed: ${JSON.stringify(c)}.`);
+      else if (typeof c.title !== 'string' || !c.title.startsWith(data.marker ?? '\0')) problems.push(`card ${c.id} does not carry the run's marker in its title.`);
+    }
+  if (!strings(data.agents)) problems.push('agents is not a list of ids.');
+  if (!Array.isArray(data.tmpDirs) || !data.tmpDirs.every((d) => isFixtureDir(d, tmp))) problems.push(`tmpDirs holds something that is not a direct child of ${tmp} named ${fixtureDirPrefix}*.`);
+  const dirs = Array.isArray(data.tmpDirs) ? data.tmpDirs.filter((d) => typeof d === 'string') : [];
+  const dirPaths = new Set(dirs.flatMap((d) => [resolve(d), realOr(d)]));
+  if (!Array.isArray(data.fixtureProjects)) problems.push('fixtureProjects is not a list.');
+  else
+    for (const f of data.fixtureProjects) {
+      if (!f || !isStr(f.path) || (f.id !== undefined && !isStr(f.id))) problems.push(`a fixture project entry is malformed: ${JSON.stringify(f)}.`);
+      else if (!dirPaths.has(resolve(f.path))) problems.push(`fixture project path ${f.path} is not one of the recorded fixture directories.`);
+    }
+  if (!Array.isArray(data.memory) || !data.memory.every((m) => m && isStr(m.projectId) && isStr(m.id))) problems.push('memory is malformed.');
+  const d = data.dispatcher;
+  if (d !== null && (typeof d !== 'object' || !(d.agentId === null || isStr(d.agentId)) || !(d.prior === null || d.prior === undefined || isStr(d.prior)) || typeof d.ours !== 'boolean')) problems.push('dispatcher is malformed.');
+  if (problems.length) throw new RecordError(problems);
+  return data;
+}
+
+/**
+ * What checks 1, 3 and 4 do with the dispatcher. A dispatcher record of the user's, in any state (also ended, failed or
+ * archived: a new one then archives the dead one), is theirs: this run touches it only with --use-existing-dispatcher.
+ * `status` is `dispatcher.status`.
+ */
+export function decideDispatcher(status, useExisting) {
+  const existing = status.agentId !== null || status.state !== 'none';
+  if (!existing) return { action: 'start' };
+  if (!useExisting)
+    return {
+      action: 'skip',
+      reason: `You already have a dispatcher (${status.agentId ?? 'no id'}, ${status.state}). --use-existing-dispatcher messages your real dispatcher with the test prompts${status.state === 'running' || status.state === 'idle' ? '' : ', and starting a replacement for the ended one archives that ended session'}. Pass it only if that is what you want.`,
+    };
+  return { action: status.state === 'ended' ? 'start' : 'use' };
+}
+
 /**
  * Everything this run creates, written to a file after each change, so a crash can be cleaned up with --cleanup. Only
  * ids in here are deleted; cards are also matched by the run's title prefix and, for the Tinylink project, never
@@ -200,8 +305,7 @@ class Record {
       runId,
       marker: `[single-pane-live ${runId}]`,
       startedAt: new Date().toISOString(),
-      tinylinkProjectId: null,
-      tinylinkRoot: null,
+      tinylinkProjectId: null, // only a claim: cleanup re-resolves the Tinylink project and requires it to match
       cards: [], // { id, title, projectId, workspaces: [ids], branches: [names] }
       agents: [], // ids this run created (or the dispatcher it started)
       tmpDirs: [], // directories this run made under os.tmpdir()
@@ -212,8 +316,16 @@ class Record {
     rec.save();
     return rec;
   }
+  /** Reads and validates a record file; throws RecordError (nothing is cleaned up from a record that does not validate). */
   static load(file) {
-    return new Record(file, JSON.parse(readFileSync(file, 'utf8')));
+    let data;
+    try {
+      data = JSON.parse(readFileSync(file, 'utf8'));
+    } catch (e) {
+      throw new RecordError([`cannot read the record ${file}: ${errText(e)}`]);
+    }
+    validateRecord(data, file);
+    return new Record(file, data);
   }
   save() {
     const tmp = `${this.file}.tmp`;
@@ -343,7 +455,6 @@ function makeContext(args, client, api, rec) {
     if (project.archivedAt) throw new Skip('The Tinylink project is archived.');
     ctx.fx = { id: project.id, title: project.title, root: project.primaryPath };
     rec.data.tinylinkProjectId = project.id;
-    rec.data.tinylinkRoot = project.primaryPath;
     rec.save();
     return ctx.fx;
   };
@@ -418,15 +529,18 @@ function makeContext(args, client, api, rec) {
   };
 
   /**
-   * The dispatcher, for checks 1, 3 and 4. This run messages only a dispatcher it started; an existing one is used
-   * only with --use-existing-dispatcher. An ended or missing one is started (Noah's ruling: a new dispatcher only when
+   * The dispatcher, for checks 1, 3 and 4. This run messages only a dispatcher it started. Any dispatcher record of the
+   * user's, in any state, makes the checks skip unless --use-existing-dispatcher (`decideDispatcher`). With none, a new
+   * one is started; with the flag and an ended one, a replacement is started (Noah's ruling: a new dispatcher only when
    * the old one died or was archived; there is no "start fresh" for a live one).
    */
   ctx.needDispatcher = async () => {
     if (ctx.dispatcherState) return ctx.dispatcherState;
     const status = await rpc('dispatcher.status', {});
     let agentId;
-    if (status.state === 'none' || status.state === 'ended') {
+    const decision = decideDispatcher(status, args.useExistingDispatcher);
+    if (decision.action === 'skip') throw new Skip(decision.reason);
+    if (decision.action === 'start') {
       rec.data.dispatcher = { agentId: null, prior: status.agentId, ours: true };
       rec.save(); // recorded before the start
       const started = await rpc('dispatcher.start', {});
@@ -438,8 +552,6 @@ function makeContext(args, client, api, rec) {
       // A fresh session reads idle before its first turn begins: wait for the board summary, then for the turn to end.
       await waitFor('the dispatcher to receive its board summary', async () => (await ctx.timeline(agentId)).some((e) => e.type === 'user_message' && e.json.includes('Flowly board summary.')), { timeout: 120_000, interval: 3_000 });
     } else {
-      if (!args.useExistingDispatcher)
-        throw new Skip(`A dispatcher is already running (${status.agentId}, ${status.state}) and this run did not start it; it sends messages only to sessions it created. Archive that dispatcher, or pass --use-existing-dispatcher.`);
       agentId = status.agentId;
       ctx.dispatcherState = { agentId, ours: false, prior: null };
       ctx.note(`using the running dispatcher ${agentId} (--use-existing-dispatcher).`);
@@ -456,12 +568,16 @@ function makeContext(args, client, api, rec) {
 
 // ---- Cleanup (verified) ------------------------------------------------------------------------------------------
 
-/** Cleans up exactly what the record names. Returns { problems: string[], done: string[] }. */
+/**
+ * Cleans up exactly what the record names, after validating it. Returns { problems: string[], done: string[] }; throws
+ * RecordError (and touches nothing) when the record does not validate or its Tinylink claim does not match.
+ */
 async function cleanup(ctx, { keepDispatcher }) {
   const { client, rpc, rec } = ctx;
   const problems = [];
   const done = [];
   const data = rec.data;
+  validateRecord(data, rec.file);
   const guard = async (label, fn) => {
     try {
       await fn();
@@ -470,14 +586,42 @@ async function cleanup(ctx, { keepDispatcher }) {
     }
   };
 
-  // 1. Cards: the recorded ones plus any carrying this run's prefix in a project this run uses (the dispatcher made
-  // some). A card outside those projects, or without the prefix, is never touched.
-  const projectIds = new Set([data.tinylinkProjectId, ...data.fixtureProjects.map((f) => f.id)].filter(Boolean));
+  // The Tinylink project and its root are never taken from the record: resolve them again and require the claim to match.
+  let tinylink = null;
+  const claimed = data.tinylinkProjectId;
+  if (claimed) {
+    try {
+      tinylink = await ctx.needTinylink();
+    } catch (e) {
+      if (!(e instanceof Skip)) throw e;
+    }
+    if (!tinylink || tinylink.id !== claimed) throw new RecordError([`the record names project ${claimed} as Tinylink, but Tinylink resolves to ${tinylink?.id ?? 'nothing'}.`]);
+    data.tinylinkProjectId = claimed;
+  }
+
   let board = await ctx.board().catch((e) => {
     problems.push(`board.read: ${errText(e)}`);
     return null;
   });
   if (!board) return { problems, done };
+
+  // The fixture projects: usable only when the board's project has the run's marker in its title and sits at the
+  // validated fixture directory.
+  const fixtures = [];
+  const blocked = new Set(); // fixture directories whose project did not verify: left alone
+  for (const f of data.fixtureProjects) {
+    const project = board.projects.find((p) => p.id === f.id || (!f.id && p.primaryPath === f.path));
+    if (!project) fixtures.push({ ...f, project: null });
+    else if (!project.title.startsWith(data.marker) || resolve(project.primaryPath) !== resolve(f.path)) {
+      problems.push(`fixture project ${project.id} left in place: its title or root does not match this run.`);
+      blocked.add(resolve(f.path));
+    }
+    else fixtures.push({ ...f, project });
+  }
+
+  // 1. Cards: the recorded ones plus any carrying this run's prefix in a project this run uses (the dispatcher made
+  // some). A card outside those projects, or without the prefix, is never touched.
+  const projectIds = new Set([tinylink?.id, ...fixtures.map((f) => f.project?.id)].filter(Boolean));
   for (const t of board.tasks)
     if (projectIds.has(t.projectId) && t.title.startsWith(data.marker)) rec.card(t);
   const owned = (id) => data.cards.find((c) => c.id === id && c.title.startsWith(data.marker));
@@ -488,15 +632,24 @@ async function cleanup(ctx, { keepDispatcher }) {
   for (const id of shared) workspaces.delete(id);
 
   // 2. Sessions of this run: recorded ids, and sessions in the cards' workspaces that carry a recorded card's label.
+  // A session is archived only when verified as this run's: the script's own label, the flowly-task label of a card
+  // of this run, or the dispatcher this run recorded starting (it also carries the dispatcher label).
   const live = await ctx.agents().catch(() => []);
   const sessionIds = new Set(data.agents);
   for (const a of live) if (cardIds.includes(a.labels?.['flowly-task']) && workspaces.has(a.workspaceId)) sessionIds.add(a.id);
   const dispatcherId = data.dispatcher?.agentId;
+  const ownDispatcher = (a) => !!dispatcherId && a.id === dispatcherId && data.dispatcher.ours === true && !!a.labels?.['flowly-dispatcher'];
+  const verified = (a) => a.labels?.['flowly-started-by'] === 'single-pane-live' || cardIds.includes(a.labels?.['flowly-task']) || ownDispatcher(a);
+  const unverified = new Set();
   for (const id of sessionIds) {
     if (id === dispatcherId && (!data.dispatcher.ours || keepDispatcher)) continue;
     await guard(`archive session ${id}`, async () => {
       const a = await ctx.agent(id);
       if (!a || a.archivedAt) return;
+      if (!verified(a)) {
+        unverified.add(id);
+        throw new Error('left in place: it does not carry this run\'s labels.');
+      }
       if (a.status === 'running' || a.status === 'initializing') {
         await client.cancelAgent(id).catch(() => {});
         await waitFor(`session ${id} to stop`, async () => (await ctx.agent(id))?.status !== 'running', { timeout: 60_000, interval: 2_000 }).catch(() => {});
@@ -531,12 +684,13 @@ async function cleanup(ctx, { keepDispatcher }) {
   }
 
   // 5. The fixture projects of this run (Remove, also from Paseo), then their directories.
-  for (const f of data.fixtureProjects) {
+  for (const f of fixtures) {
     await guard(`remove fixture project ${f.id ?? f.path}`, async () => {
-      if (!within(f.path, tmpdir()) && !within(f.path, realpathSync(tmpdir()))) throw new Error('refusing: not under the temp directory.');
-      const project = (await ctx.board()).projects.find((p) => p.id === f.id || (!f.id && p.primaryPath === f.path));
+      if (!f.project) return;
+      // Read again for the current revision; the marker and the validated directory are checked once more.
+      const project = (await ctx.board()).projects.find((p) => p.id === f.project.id);
       if (project) {
-        if (project.primaryPath !== f.path) throw new Error('refusing: the project root differs from the record.');
+        if (!project.title.startsWith(data.marker) || resolve(project.primaryPath) !== resolve(f.path)) throw new Error('refusing: the project does not match this run.');
         const result = await rpc('projects.remove', { id: project.id, revision: project.revision, alsoPaseo: true });
         if (result.paseo && !result.paseo.removed) throw new Error(`the Paseo project was not removed: ${result.paseo.error}`);
         done.push(`removed fixture project ${project.id}`);
@@ -544,20 +698,27 @@ async function cleanup(ctx, { keepDispatcher }) {
     });
   }
 
-  // 6. Branches this run made in the Tinylink repository (generated names only, and only when no worktree holds them).
+  // 6. Branches this run made in the Tinylink repository: only names Flowly generated from a card title with this run's
+  // marker (kanban/single-pane-live-<run>-…), and only when no existing worktree holds them. Any other recorded
+  // branch is reported and left alone.
+  const ownBranch = ownBranchPattern(data.runId);
   for (const c of data.cards)
     for (const branch of c.branches) {
-      if (!data.tinylinkRoot || !c.title.startsWith(data.marker)) continue;
+      if (!ownBranch.test(branch) || !tinylink?.root) {
+        done.push(`left in place: ${branch}`);
+        continue;
+      }
       await guard(`delete branch ${branch}`, async () => {
-        if (!/^kanban\//.test(branch)) return;
-        const worktrees = git(['worktree', 'list', '--porcelain'], data.tinylinkRoot);
-        if (worktrees.split('\n').some((l) => l === `branch refs/heads/${branch}`)) throw new Error('still checked out in a worktree; left in place.');
+        // A removed worktree directory leaves a stale entry that would block `branch -D`; prune it (it drops only
+        // entries whose directory is gone), then refuse when a worktree that still exists holds the branch.
+        git(['worktree', 'prune'], tinylink.root);
+        if (branchCheckedOut(git(['worktree', 'list', '--porcelain'], tinylink.root), branch)) throw new Error('still checked out in a worktree that exists; left in place.');
         try {
-          git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], data.tinylinkRoot);
+          git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], tinylink.root);
         } catch {
           return;
         }
-        git(['branch', '-D', branch], data.tinylinkRoot);
+        git(['branch', '-D', branch], tinylink.root);
         done.push(`deleted branch ${branch}`);
       });
     }
@@ -567,6 +728,7 @@ async function cleanup(ctx, { keepDispatcher }) {
     await guard(`archive dispatcher ${dispatcherId}`, async () => {
       const a = await ctx.agent(dispatcherId);
       if (a && !a.archivedAt) {
+        if (!ownDispatcher(a)) throw new Error('left in place: it does not carry the dispatcher label.');
         await client.archiveAgent(dispatcherId);
         done.push(`archived dispatcher ${dispatcherId}`);
       }
@@ -574,7 +736,11 @@ async function cleanup(ctx, { keepDispatcher }) {
 
   for (const dir of data.tmpDirs)
     await guard(`remove ${dir}`, async () => {
-      if (!within(dir, tmpdir()) && !within(dir, realpathSync(tmpdir()))) throw new Error('refusing: not under the temp directory.');
+      if (!isFixtureDir(dir)) throw new Error('refusing: not a fixture directory directly under the temp directory.');
+      if (blocked.has(resolve(dir)) || blocked.has(realOr(dir))) {
+        done.push(`left in place: ${dir}`);
+        return;
+      }
       rmSync(dir, { recursive: true, force: true });
       done.push(`removed ${dir}`);
     });
@@ -586,22 +752,22 @@ async function cleanup(ctx, { keepDispatcher }) {
     if (leftCards.length) throw new Error(`cards still on the board: ${leftCards.map((t) => t.id).join(', ')}`);
     const leftMarked = board.tasks.filter((t) => t.title.startsWith(data.marker));
     if (leftMarked.length) throw new Error(`cards with this run's prefix still on the board: ${leftMarked.map((t) => t.id).join(', ')}`);
-    const leftProjects = board.projects.filter((p) => data.fixtureProjects.some((f) => f.id === p.id || f.path === p.primaryPath));
+    const leftProjects = board.projects.filter((p) => fixtures.some((f) => f.project && f.project.id === p.id));
     if (leftProjects.length) throw new Error(`fixture projects still on the board: ${leftProjects.map((p) => p.id).join(', ')}`);
-    if (data.tinylinkProjectId && !board.projects.some((p) => p.id === data.tinylinkProjectId)) throw new Error('the Tinylink project is gone from the board.');
+    if (tinylink && !board.projects.some((p) => p.id === tinylink.id)) throw new Error('the Tinylink project is gone from the board.');
   });
   await guard('verify Paseo', async () => {
     const active = await ctx.workspaces();
-    const leftWs = active.filter((w) => workspaces.has(w.id) || data.fixtureProjects.some((f) => w.workspaceDirectory && within(w.workspaceDirectory, f.path)));
+    const leftWs = active.filter((w) => workspaces.has(w.id) || fixtures.some((f) => f.project && w.workspaceDirectory && within(w.workspaceDirectory, f.path)));
     if (leftWs.length) throw new Error(`workspaces still active in Paseo: ${leftWs.map((w) => `${w.id} (${w.workspaceKind})`).join(', ')}`);
     const stillLive = [];
     for (const id of sessionIds) {
-      if (id === dispatcherId && (!data.dispatcher.ours || keepDispatcher)) continue;
+      if (unverified.has(id) || (id === dispatcherId && (!data.dispatcher.ours || keepDispatcher))) continue;
       const a = await ctx.agent(id);
       if (a && !a.archivedAt) stillLive.push(id);
     }
     if (stillLive.length) throw new Error(`sessions still live in Paseo: ${stillLive.join(', ')}`);
-    for (const dir of data.tmpDirs) if (existsSync(dir)) throw new Error(`${dir} still exists`);
+    for (const dir of data.tmpDirs) if (existsSync(dir) && !blocked.has(resolve(dir)) && !blocked.has(realOr(dir))) throw new Error(`${dir} still exists`);
   });
   return { problems, done };
 }
@@ -625,6 +791,8 @@ async function checkDispatcherStartsCard(ctx) {
       throw new Error(`the ended dispatcher ${d.prior} was not archived when the new one started (needs the final fix round): ${errText(e)}`);
     });
     if (old) ctx.note(`the ended dispatcher ${d.prior} is archived.`);
+  } else {
+    ctx.note('not exercised: no ended dispatcher was replaced, so "the dead dispatcher is archived" was not checked.');
   }
 
   const title = ctx.title('check 1: add CHECK-1.txt');
@@ -653,6 +821,8 @@ async function checkDispatcherStartsCard(ctx) {
     const stillActive = (await ctx.workspaces()).filter((w) => previous.some((p) => p.id === w.id));
     if (stillActive.length) throw new Error(`the card's earlier directory workspace is still active: ${stillActive.map((w) => w.id).join(', ')}.`);
     ctx.note(`the earlier directory workspace ${previous.map((p) => p.id).join(', ')} is archived.`);
+  } else {
+    ctx.note('not exercised: the card has no earlier directory workspace (it started in a worktree directly), so "the empty directory workspace is archived" was not checked.');
   }
 }
 
@@ -855,6 +1025,8 @@ async function checkImport(ctx) {
 
 async function checkExport(ctx) {
   const fx = await ctx.needFixture();
+  const memoryView = (await ctx.rpc('memory.read', { projectId: fx.id })).value;
+  if (memoryView && memoryView.enabled === false) throw new Skip('Project memory is off for the fixture project (turn the Memory feature on in Settings, or this check cannot seed an entry).');
   const card = await ctx.makeCard(fx.id, 'export card', { description: 'First line of the export card.\nSecond line.' });
   const ideaTitle = ctx.title('export idea');
   await ctx.rpc('ideas.create-project', { projectId: fx.id, idea: { title: ideaTitle, detail: 'Detail of the export idea.', rationale: 'Seeded by the single-pane live checks.' } });
@@ -936,27 +1108,77 @@ export async function main(argv) {
   }
   process.env.FLOWLY_TELEMETRY = '0';
 
+  // --cleanup: validate the record before anything else, even before connecting to the daemon.
+  let loaded = null;
+  if (args.cleanup) {
+    try {
+      loaded = Record.load(args.cleanup);
+    } catch (e) {
+      if (!(e instanceof RecordError)) throw e;
+      console.error(e.message);
+      return 1;
+    }
+  }
+
   const { client, api } = await connect(args);
-  const rec = args.cleanup ? Record.load(args.cleanup) : Record.fresh(randomBytes(3).toString('hex'));
+  const rec = loaded ?? Record.fresh(randomBytes(3).toString('hex'));
   const ctx = makeContext(args, client, api, rec);
   console.log(`single-pane live checks, run ${rec.data.runId}; record ${rec.file}`);
+  console.log(`If interrupted or crashed, finish with: ${retryCommand(rec.file, args)}`);
+
+  // Cleanup runs at most once: normally, or from a signal (whichever comes first).
+  let cleanupRun = null;
+  const runCleanup = () => {
+    runState.cleaning = true;
+    cleanupRun ??= cleanup(ctx, { keepDispatcher: args.keepDispatcher }).catch((e) => ({
+      done: [],
+      problems: [e instanceof RecordError ? e.message : `cleanup failed: ${errText(e)}`],
+    }));
+    return cleanupRun;
+  };
+  const report = ({ problems, done }) => {
+    done.forEach((d) => console.log(`  ${d}`));
+    console.log(problems.length ? problems.map((p) => `CLEANUP PROBLEM ${p}`).join('\n') : 'CLEANUP verified in the board and in Paseo.');
+    if (problems.length) console.log(`Retry with: ${retryCommand(rec.file, args)}`);
+  };
+  let inFlight = Promise.resolve();
+  const handlers = {};
+  for (const signal of Object.keys(signalExitCodes)) {
+    handlers[signal] = () => {
+      if (runState.interrupted) process.exit(signalExitCodes[signal]); // a second signal stops now
+      runState.interrupted = true;
+      console.log(`\n${signal}: cleaning up what this run created (send it again to stop at once; then run the retry command above) …`);
+      // The running check stops at its next poll; give it a moment so it creates nothing while cleanup reads the record.
+      Promise.race([inFlight.catch(() => {}), new Promise((r) => setTimeout(r, 20_000))])
+        .then(runCleanup)
+        .then(report)
+        .finally(async () => {
+          await api.dispose?.().catch(() => {});
+          await client.close().catch(() => {});
+          process.exit(signalExitCodes[signal]);
+        });
+    };
+    process.on(signal, handlers[signal]);
+  }
+
   let code = 0;
   try {
     const telemetry = await ctx.rpc('telemetry.status', {}).catch(() => null);
     if (telemetry && !telemetry.forcedOff && !telemetry.builtOff) console.log('NOTE the daemon does not force telemetry off; start it with FLOWLY_TELEMETRY=0.');
     if (args.cleanup) {
-      const { problems, done } = await cleanup(ctx, { keepDispatcher: args.keepDispatcher });
-      done.forEach((d) => console.log(`  ${d}`));
-      problems.forEach((p) => console.log(`CLEANUP PROBLEM ${p}`));
-      return problems.length ? 1 : 0;
+      const result = await runCleanup();
+      report(result);
+      return result.problems.length ? 1 : 0;
     }
     const selected = CHECKS.filter((c) => !args.only || args.only.has(c.id));
     const results = [];
     for (const check of selected) {
+      if (runState.interrupted) break;
       console.log(`\n[${check.id}] ${check.title}`);
       ctx.notes = [];
       try {
-        await check.run(ctx);
+        inFlight = check.run(ctx);
+        await inFlight;
         results.push({ id: check.id, status: 'PASS' });
         console.log(`PASS ${check.id}`);
       } catch (e) {
@@ -969,18 +1191,20 @@ export async function main(argv) {
         }
       }
     }
+    if (runState.interrupted) return await new Promise(() => {}); // the signal handler cleans up and exits
     console.log('\nCleaning up what this run created …');
-    const { problems, done } = await cleanup(ctx, { keepDispatcher: args.keepDispatcher });
-    done.forEach((d) => console.log(`  ${d}`));
-    console.log(problems.length ? problems.map((p) => `CLEANUP PROBLEM ${p}`).join('\n') : 'CLEANUP verified in the board and in Paseo.');
-    if (problems.length) console.log(`Retry with: node docs/verification/single-pane-live.mjs --cleanup ${rec.file}`);
+    const result = await runCleanup();
+    report(result);
     console.log('\nSummary');
     for (const r of results) console.log(`  ${r.status.padEnd(4)} ${r.id}${r.reason ? `  ${r.reason.split('\n')[0]}` : ''}`);
-    if (results.some((r) => r.status === 'FAIL') || problems.length) code = 1;
+    if (results.some((r) => r.status === 'FAIL') || result.problems.length) code = 1;
     else if (results.some((r) => r.status === 'SKIP')) code = 2;
   } finally {
-    await api.dispose?.().catch(() => {});
-    await client.close().catch(() => {});
+    for (const [signal, handler] of Object.entries(handlers)) process.off(signal, handler);
+    if (!runState.interrupted) {
+      await api.dispose?.().catch(() => {});
+      await client.close().catch(() => {});
+    }
   }
   return code;
 }

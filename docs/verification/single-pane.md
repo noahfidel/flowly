@@ -12,10 +12,11 @@ Run it from the repository root with Paseo's daemon up. It reads the daemon addr
 
 | Code | Meaning |
 |---|---|
-| 0 | every selected check passed and cleanup was verified |
-| 1 | a check failed, or cleanup left something behind |
+| 0 | every selected check passed and cleanup was verified. **With a dispatcher of your own, exit 0 needs `--use-existing-dispatcher`** (see below); without it checks 1, 3 and 4 skip and the run exits 2 |
+| 1 | a check failed, cleanup left something behind, or `--cleanup` refused its record |
 | 2 | no failure, but a check was skipped (a precondition this run must not create) |
 | 64 | bad arguments |
+| 130 / 143 | interrupted by Ctrl-C (SIGINT) / SIGTERM; cleanup ran first |
 
 ## Checks
 
@@ -38,16 +39,30 @@ The Delivery mode ruling (editable until the card delivers) and the one-dispatch
 - A run id (random, 6 hex) and the title prefix `[single-pane-live <run>]` on every card, fixture project and session it makes. Every id is written to `$TMPDIR/single-pane-live-<run>.json` before it is used (the path is printed first). If the script dies, `node docs/verification/single-pane-live.mjs --cleanup <that file>` finishes the cleanup.
 - Tinylink (`docs/promo/ids.json`, else the project titled "Tinylink"): cards with the prefix, in worktrees (checks 2 and 7) or directory workspaces (check 3), their sessions, and the worktree branches (`kanban/…`) this run made. The project, its directory and its other cards, sessions and branches are never touched: only recorded ids with the prefix are deleted, and only inside the Tinylink or fixture projects.
 - A temporary git repository under `os.tmpdir()` registered as a fixture project (checks 5 and 6), with one card, one project idea, one memory entry and the imported ideas. It is removed with Remove project (also from Paseo) and the directory deleted.
-- A dispatcher, when none is running (checks 1, 3, 4): started by the script, archived at the end (`--keep-dispatcher` keeps it). A running dispatcher the script did not start is **not messaged**: those checks skip, unless `--use-existing-dispatcher` says the real dispatcher may receive the test messages. The dispatcher workspace is never touched.
+- A dispatcher, only when you have no dispatcher record at all (checks 1, 3, 4): started by the script, archived at the end (`--keep-dispatcher` keeps it). A dispatcher you already have is yours **in any state** (running, idle, ended, failed or archived) and is not touched: those checks skip, and the skip text names `--use-existing-dispatcher`. That flag sends the test prompts to your real dispatcher, and when yours is dead, the replacement the script starts archives that ended session (that archive is the assertion check 1 makes about replacement). The dispatcher workspace is never touched.
+- A script-started dispatcher is a real dispatcher: besides the test prompts it receives the board summary and the notes from real board activity (other cards' stops) while it lives. Check 3 counts only notes about its own card, but a busy board adds noise to the transcript.
 - Cleanup order: sessions of the run (cancel, archive), memory entry, cards (`tasks.delete` with archive: their sessions and own workspace go to Paseo's archive), fixture project, branches, dispatcher, temp directories. It then verifies: no card with the prefix on the board, no fixture project, none of the run's workspaces active in Paseo, none of its sessions live, the Tinylink project still there. Any leftover is printed as `CLEANUP PROBLEM` and exits 1.
 - Left behind on purpose: the dispatcher chat keeps note rows for the deleted cards until its 500-item cap prunes them.
+
+## Cleanup safety
+
+The record file is untrusted input: `--cleanup` validates it before connecting to the daemon and refuses the whole cleanup (message on stderr, exit 1) when anything is off.
+
+- `runId` is 6 lowercase hex characters, `marker` is `[single-pane-live <runId>]`, the file is named `single-pane-live-<runId>.json`, and every recorded card title carries the marker.
+- Fixture directories are direct children of `os.tmpdir()` (never the temp directory itself) named `single-pane-live-fixture-*`. A fixture project is removed only when its title starts with the marker and its path is one of those directories.
+- Sessions are archived only when verified: label `flowly-started-by=single-pane-live`, or the `flowly-task` label of a recorded card whose title has the marker, or the dispatcher this run recorded starting.
+- The Tinylink project id and root are never taken from the record: they are re-resolved from `docs/promo/ids.json` or the project titled Tinylink, and the recorded id must match.
+- Branches are deleted only when they match `kanban/single-pane-live-<runId>-*`, and only when no worktree that still exists on disk holds them (`git worktree prune` runs first). A recorded card's other branch is reported as `left in place: <branch>`.
+- The first line of every run prints the exact retry command (`node docs/verification/single-pane-live.mjs --cleanup <record file>`, with `--home` when it is not the default). Ctrl-C or SIGTERM stops the running check at its next poll, runs cleanup once, then exits 130 or 143; a second signal exits at once and you run the retry command.
 
 ## Fixtures and options
 
 - Check 5 reads `zenlytic.md` from `$FLOWLY_BACKLOG_DIR` (default `~/.claude/backlogs`), or `--backlog <file>`; without either it falls back to the synthetic `shared/fixtures/backlogs/recipes.md` and says so. The real file is read at run time on Noah's machine and is never copied into the repository.
 - The sessions the script starts itself (checks 2 and 7) use `claude/claude-haiku-5-5`. Check 2's permission needs a command Noah's permission rules do not already allow: it runs `touch SINGLE-PANE-LIVE-PERMISSION.txt` in the card's worktree; if that is pre-allowed, no ask appears and the check fails with a timeout naming the ask it waited for.
-- Check 7 compares two numbers over the whole board, so another card's change while it runs can disturb it; it reads until the two agree (45 s) and reports both numbers when they do not.
+- Check 7 compares two numbers over the whole board, so another card's change or any real activity (a session asking, a card stopping) while it runs can disturb it; it reads until the two agree (45 s) and reports both numbers when they do not. Run it while the board is quiet and rerun it alone (`--only 7`) before treating a mismatch as a bug.
+- Check 6 needs the memory feature on for the fixture project (its memory entry is part of the export). When it is off, the check skips cleanly with that reason instead of failing.
+- Check 1 prints a note when there was no earlier directory workspace to archive: the archive assertion was then not exercised, and the run says so rather than passing silently.
 
 ## Last result
 
-Not run live. Written and dry-checked at the commit that adds it: `node --check` exit 0; `--help` exit 0, prints checks 1–7; `--only 9` exit 64; `scripts/single-pane-live.test.ts` (argument parsing, check list, `--help`) 7 passed. Noah's live run of checks 1–7 is the remaining gate (plan "Done"); paste its output here when it exits 0.
+Not run live. Written and dry-checked at the commit that adds it: `node --check` exit 0; `--help` exit 0, prints checks 1–7; `--only 9` exit 64; `scripts/single-pane-live.test.ts` (argument parsing, check list, `--help`, record validation, fixture and branch guards, dispatcher decision, signal exit codes, retry command) 23 passed. Noah's live run of checks 1–7 is the remaining gate (plan "Done"); paste its output here when it exits 0.
