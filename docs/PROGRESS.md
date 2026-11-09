@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Extra artifact folders (branch `feat/single-pane`, Task 3b) — 2026-11-08
+
+- New host setting `artifacts` (`artifactSettings`, `extraFolders`: at most 20 strings) edited under Settings > AI features > Artifacts (a field per folder, add and remove). `artifactRoots(task, project, workspaceDirectory?, extra)` appends `extraFolderRoots(extra)` (`~` expanded, normalized, deduplicated; empty, relative, `/` and the home directory dropped, so even a raw `""` or `/` handed to `artifactRoots` never becomes a root). `withinRoots` and `normalizeTarget` are unchanged. `ArtifactService` takes the getter in its constructor; `AgentService.extraArtifactFolders` is set by `index.server.ts`; both read the setting at each use, and `artifacts.status` caches on the folders too. Spec: CARD-ARTIFACTS-SPEC (2026-11-08 增量).
+- Beyond the brief: the home directory itself is refused as a root (an agent could otherwise attach `~/.ssh` or `~/.aws` files); say so if it should be allowed.
+- Strings: 4 new ("Folder" already existed), in all 9 catalogs. Onboarding: no tour row or tip (a setting for an existing feature). Telemetry: no heartbeat field.
+- Checks: see the Task 3 report. The Settings group was not exercised in the installed plugin (not installed per the plan's constraints), only typechecked.
+
 ## Markdown export (branch `feat/single-pane`, Task 3) — 2026-11-08
 
 - Settings > Storage > **Export as Markdown** copies every live project's open cards, open ideas and active memory to the clipboard. `exportMarkdown` (`shared/board-export.ts`, pure); RPC `board.export-markdown` `{ projectId? }` (`index.server.ts`, reads the board and `MemoryService.view`). The ideas section re-imports through `parseBacklog`: a note the parser would not read as a source note is written as `added <date>, <note>`; unbalanced parentheses in a note are dropped. `isSourceNote` is now exported from `shared/ideas-import.ts`. Spec: IDEAS-IMPORT-EXPORT-SPEC §7.

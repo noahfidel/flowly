@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { View } from "react-native";
 import { Collapse } from "./disclosure";
 import { Icon } from "@getpaseo/plugin/client/react-native";
@@ -8,6 +8,8 @@ import { AUTO_MODELS, summaryModelsOf, type SummarySettings, modelLabel, summary
 import {
   aiLanguageSettings,
   aiLanguageSettingsValues,
+  artifactSettings,
+  artifactSettingsValues,
   boardViewSettings,
   boardViewValues,
   featureSettings,
@@ -40,7 +42,7 @@ import { SettingRow, SettingSelect, SettingSwitch, SettingsGroup, SettingsPage }
 import { useOnboarding } from "./onboarding-state";
 import { useStored } from "./stored-settings";
 import { whatsNew } from "./whats-new";
-import { Button, IconButton, Notice, space, useTheme } from "./ui";
+import { Button, Field, IconButton, Notice, space, useTheme } from "./ui";
 import { compactNumber } from "../shared/usage";
 import { dollars, roundTokens, runCost, runTokens, type AiRun } from "../shared/ai-cost";
 import * as rpc from "../shared/rpc";
@@ -381,6 +383,48 @@ function QuickTaskGroup() {
   );
 }
 
+const maxExtraFolders = 20;
+
+/** Folders outside a card's directories that agents may attach files from (CARD-ARTIFACTS-SPEC, extra folders). */
+function ExtraFoldersGroup() {
+  const stored = useStored(useSettings(artifactSettings), artifactSettingsValues);
+  const [rows, setRows] = useState<{ id: number; text: string }[] | null>(null);
+  const nextId = useRef(0);
+  // Debounced field edits can arrive after the rows changed; always edit the latest list.
+  const latest = useRef<{ id: number; text: string }[]>([]);
+  latest.current = rows ?? [];
+  const loaded = stored.values?.extraFolders;
+  // Seed the rows once from the stored list; after that the fields own their text (typed text is never fed back).
+  useEffect(() => {
+    if (loaded && !rows) setRows(loaded.map((text) => ({ id: nextId.current++, text })));
+  }, [loaded, rows]);
+  const persist = (next: { id: number; text: string }[]) => {
+    latest.current = next;
+    setRows(next);
+    void stored.saveSure({ extraFolders: next.map((r) => r.text.trim()).filter(Boolean) });
+  };
+  return (
+    <SettingsGroup title={t("Extra artifact folders")} description={t("Agents can attach any file under these folders to any card.")}>
+      <Problem text={stored.problem} />
+      {(rows ?? []).map((row) => (
+        <View key={row.id} style={{ flexDirection: "row", alignItems: "flex-end", gap: space[2], padding: space[2] }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Field
+              title={t("Folder")}
+              value={row.text}
+              placeholder="~/.claude/plans"
+              commitDelay={800}
+              onChange={(text) => persist(latest.current.map((r) => (r.id === row.id ? { ...r, text } : r)))}
+            />
+          </View>
+          <IconButton icon="X" label={t("Remove folder")} disabled={stored.busy} onPress={() => persist(latest.current.filter((r) => r.id !== row.id))} />
+        </View>
+      ))}
+      {rows && rows.length < maxExtraFolders && <SettingRow title={t("Add folder")} disabled={stored.busy} onPress={() => setRows([...rows, { id: nextId.current++, text: "" }])} />}
+    </SettingsGroup>
+  );
+}
+
 /** AI features: what the plugin writes for you, and the ideas agents propose. */
 export function AiPage() {
   const summary = useStored(useSettings(summarySettings), summarySettingsValues);
@@ -467,6 +511,7 @@ export function AiPage() {
           onChange={(value) => ideas.save({ artifacts: value })}
         />
       </SettingsGroup>
+      <ExtraFoldersGroup />
       <SettingsGroup title={t("Cards")}>
         <SettingSwitch
           title={t("Agents create and edit cards")}

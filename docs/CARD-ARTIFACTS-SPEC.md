@@ -47,7 +47,7 @@
 
 ### 2.2 文件路径
 
-- 添加时服务端把路径解析为绝对路径（相对路径以卡片 workspace 目录为基准），`realpath` 后必须位于该卡的 scope 目录之内（`shared/scope.ts` 的有效目录：workspace 目录、项目根、legacy scope 目录；linked root 的符号链接按目标解析后也算在内）。目录外的路径拒绝：“Files outside this card's directories can't be added.”
+- 添加时服务端把路径解析为绝对路径（相对路径以卡片 workspace 目录为基准），`realpath` 后必须位于该卡的 scope 目录之内（`shared/scope.ts` 的有效目录：workspace 目录、项目根、legacy scope 目录；linked root 的符号链接按目标解析后也算在内）。目录外的路径拒绝：“Files outside this card's directories can't be added.”（设置里的额外目录也算在内，见文末 2026-11-08 增量。）
 - 存储时，位于 workspace 目录内的保存为相对 workspace 的路径（前缀 `./`），其余保存绝对路径。这样 worktree 被收尾后重建（WORKSPACE-RESTORE-SPEC）路径仍然有效。
 - 文件在添加时必须存在（文件或目录均可）；之后被删除、移动或 worktree 被移除时，记录保留，界面显示 “Missing”。
 - URL 只接受 `http:`/`https:`，最长 2000。
@@ -199,3 +199,13 @@
 ## 2026-10-22 增量：交付时原子登记产物
 
 `flowly_update_status(in_review)` 与 `flowly_report_progress(result)` 的 `outputs?: {target,title?,note?}[]` 在同一事务登记 output；`[]` 表示本次无产物，省略则成功后提醒。复用本规范的路径边界、目标去重和用户条目保护。回执 `artifactIds` 持久化，精确重放不会再校验已消失文件或重新访问 connector。完整契约、开关行为和 CLI 参数见 [DELIVERY-CONSTRAINTS-SPEC](DELIVERY-CONSTRAINTS-SPEC.md) §1。
+
+## 2026-11-08 增量：额外产物目录
+
+用户要求（经 Loadout）：harness 会附加 `~/.claude/plans/<plan>/`、`~/.claude/reviews/`、`~/.claude/handoffs/` 下的文件，它们在卡片目录之外，会被 §2.2 拒绝。
+
+- 设置：设置 > AI features > Artifacts 下的 “Extra artifact folders”（host 范围的 `artifacts` 设置，`extraFolders`，最多 20 条、每条最多 1000 字符），一组文件夹文本框，可增删；说明只写后果：agent 可以把这些文件夹下的任何文件附加到任何卡片。
+- 读取：绝对路径或 `~/…`；`~` 展开为主目录，路径规范化（去掉末尾斜杠、`.`/`..`），重复项去掉。空字符串、相对路径、文件系统根 `/` 和主目录本身一律忽略（太宽，不会成为根）；格式不对的整体设置按空列表处理。
+- 作用：这些目录追加到每张卡的 `roots`（`artifactRoots(task, project, workspaceDirectory?, extra)`）；`withinRoots`（两侧 `realpath`、按分隔符的前缀比较）和 `normalizeTarget` 不变，所以 `plans-old` 不算在 `plans` 内，目录内指向目录外的符号链接被拒绝。目录外的文件仍按绝对路径存储（§2.2）。
+- 设置每次使用时读取：从设置里移除某个目录后，其中文件的产物在下一次状态检查（缓存键含这些目录）显示 “Missing”，记录保留；人工 RPC 和 agent 工具（`flowly_artifact`、交付时的 `outputs`、`flowly_get_task` 的 `missing`）都用同一份根。
+- 验收（`server/artifacts.test.ts`）：额外目录内的文件被接受并存绝对路径；名字以其为前缀的同级目录被拒；目录内指向外部的符号链接被拒；`missingArtifacts` 在目录被移出设置后标记缺失；相对路径、空串、`/` 被忽略（含直接传给 `artifactRoots` 的情况）。

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { extname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { absoluteTarget, artifactNoteLine, defaultTitle, isUrlTarget, validUrl } from "../shared/artifacts";
 import { artifactLimits, type Artifact, type ArtifactEdit, type ArtifactRole, type Board, type Project, type Task } from "../shared/model";
 import { effectiveRepos } from "../shared/scope";
@@ -17,12 +17,32 @@ import type { ConnectorService } from "./connectors/service";
 /** Where a card's files may live, and the directory "./" targets are relative to. */
 export type ArtifactRoots = { workspace: string; roots: string[] };
 
-/** The card's workspace directory (or its source path) plus its scope directories and linked repositories. */
-export function artifactRoots(task: Task, project: Project, workspaceDirectory?: string | null): ArtifactRoots {
+/**
+ * Extra folders from Settings as absolute roots: `~` expanded, normalized (no trailing slash), duplicates dropped.
+ * Empty and relative entries are ignored, and so are the filesystem root and the home directory (too broad to hand to agents).
+ */
+export function extraFolderRoots(folders: readonly string[], home = homedir()): string[] {
+  const roots = new Set<string>();
+  for (const raw of folders) {
+    const value = raw.trim();
+    const path = value === "~" || value.startsWith("~/") ? join(home, value.slice(1)) : value;
+    if (!path || !isAbsolute(path)) continue;
+    const root = resolve(path);
+    if (root === parse(root).root || root === resolve(home)) continue;
+    roots.add(root);
+  }
+  return [...roots];
+}
+
+/**
+ * The card's workspace directory (or its source path) plus its scope directories and linked repositories,
+ * and the extra folders set in Settings (never validated here beyond `extraFolderRoots`).
+ */
+export function artifactRoots(task: Task, project: Project, workspaceDirectory?: string | null, extra: readonly string[] = []): ArtifactRoots {
   const workspace = workspaceDirectory || task.sourcePath;
   return {
     workspace,
-    roots: [...new Set([workspace, task.sourcePath, project.primaryPath, ...effectiveRepos(task, project), ...(project.links || []).map((l) => l.target)])],
+    roots: [...new Set([workspace, task.sourcePath, project.primaryPath, ...effectiveRepos(task, project), ...(project.links || []).map((l) => l.target), ...extraFolderRoots(extra)])],
   };
 }
 
@@ -248,6 +268,8 @@ export class ArtifactService {
   constructor(
     readonly store: BoardStore,
     readonly connectors?: ConnectorService,
+    /** The extra folders from Settings, read at each use so a change applies at once. */
+    private extraFolders: () => Promise<readonly string[]> = async () => [],
   ) {}
 
   /** The card's directories, from its live workspace when Paseo still knows it. */
@@ -260,7 +282,7 @@ export class ArtifactService {
       .ref(task.workspaceId)
       .refresh()
       .catch(() => null);
-    return artifactRoots(task, project, workspace?.workspaceDirectory);
+    return artifactRoots(task, project, workspace?.workspaceDirectory, await this.extraFolders());
   }
 
   async create(
@@ -302,7 +324,7 @@ export class ArtifactService {
   async status(input: { taskId: string }, paseo: Paseo) {
     const board = await this.store.read();
     const list = board.artifacts.filter((a) => a.taskId === input.taskId);
-    const key = list.map((a) => `${a.id}:${a.target}`).join("|");
+    const key = [...list.map((a) => `${a.id}:${a.target}`), ...extraFolderRoots(await this.extraFolders())].join("|");
     const hit = this.cache.get(input.taskId);
     if (hit && hit.key === key && Date.now() - hit.at < 15000) return { missing: hit.missing };
     const missing = [...(await missingArtifacts(list, await this.where(input.taskId, paseo, board)))];

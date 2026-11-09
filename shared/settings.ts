@@ -148,6 +148,28 @@ export function nativeSessionSettingsValues(values: unknown): NativeSessionSetti
   return parsed.success ? parsed.data : nativeSessionSettings.schema.parse({});
 }
 
+/** Folders outside a card's directories that agents may attach files from (CARD-ARTIFACTS-SPEC, extra folders). */
+export const artifactSettings = defineSettings({
+  id: "artifacts",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    /** Absolute paths, or `~/…`; the server expands `~` when it reads them. */
+    extraFolders: z.array(z.string().max(1000)).max(20).default([]),
+  }),
+});
+export type ArtifactSettings = z.infer<typeof artifactSettings.schema>;
+/** Stored values with empty and relative entries dropped and trailing slashes removed; `/` is never kept. */
+export function artifactSettingsValues(values: unknown): ArtifactSettings {
+  const parsed = artifactSettings.schema.safeParse(values ?? {});
+  const folders: string[] = [];
+  for (const raw of parsed.success ? parsed.data.extraFolders : []) {
+    const value = raw.trim().replace(/[\\/]+$/, "");
+    if (value && /^(\/|~(\/|$)|[A-Za-z]:[\\/])/.test(value) && !folders.includes(value)) folders.push(value);
+  }
+  return { extraFolders: folders };
+}
+
 /** The Ideas feature (IDEAS-INBOX-SPEC §10): off hides every Ideas entry and refuses new proposals. */
 export const ideasSettings = defineSettings({
   id: "ideas",

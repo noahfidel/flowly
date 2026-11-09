@@ -2,7 +2,10 @@ import { afterEach, expect, test } from "vitest";
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { agentFixture } from "./agent-fixture";
-import { ArtifactService, editArtifact, normalizeTarget, putArtifact } from "./artifacts";
+import { ArtifactService, artifactRoots, editArtifact, extraFolderRoots, missingArtifacts, normalizeTarget, putArtifact } from "./artifacts";
+import { artifactSettingsValues } from "../shared/settings";
+import { homedir } from "node:os";
+import type { Artifact } from "../shared/model";
 import { artifactContextLines } from "../shared/artifacts";
 import { AgentService } from "./agent-service";
 
@@ -214,4 +217,57 @@ test("agent tool result carries the notice and keeps it on replay", async () => 
   expect(first.notice).toMatch(/role not changed/);
   const replay = await x.service.write(x.identity, "artifact", { ...input(ctx), role: "output", target: "https://issue.example/1" });
   expect(replay).toMatchObject({ replayed: true, notice: first.notice });
+});
+
+async function extraSetup() {
+  const x = await setup();
+  const board = await x.store.read();
+  const extra = join(x.root, "extra", "plans");
+  await mkdir(extra, { recursive: true });
+  await writeFile(join(extra, "a.md"), "plan");
+  await mkdir(join(x.root, "extra", "plans-old"), { recursive: true });
+  await writeFile(join(x.root, "extra", "plans-old", "a.md"), "old");
+  const where = (folders: string[]) => artifactRoots(board.tasks[0], board.projects[0], x.a, folders);
+  return { ...x, extra, where };
+}
+
+test("a file inside an extra folder is accepted and stored absolute", async () => {
+  const x = await extraSetup();
+  const file = join(x.extra, "a.md");
+  await expect(normalizeTarget(file, x.where([]))).rejects.toThrow("outside this card's directories");
+  expect(await normalizeTarget(file, x.where([x.extra]))).toEqual({ kind: "file", target: file });
+  // A trailing slash on the setting changes nothing.
+  expect(await normalizeTarget(file, x.where([`${x.extra}/`]))).toEqual({ kind: "file", target: file });
+});
+
+test("a sibling folder whose name starts with the extra folder's name is refused", async () => {
+  const x = await extraSetup();
+  await expect(normalizeTarget(join(x.root, "extra", "plans-old", "a.md"), x.where([x.extra]))).rejects.toThrow("outside this card's directories");
+});
+
+test("a symlink inside an extra folder that points outside it is refused", async () => {
+  const x = await extraSetup();
+  await symlink(join(x.root, "outside", "secret.txt"), join(x.extra, "leak.txt"));
+  await expect(normalizeTarget(join(x.extra, "leak.txt"), x.where([x.extra]))).rejects.toThrow("outside this card's directories");
+});
+
+test("missingArtifacts keeps a file in an extra folder and flags it once the folder is removed from the setting", async () => {
+  const x = await extraSetup();
+  const list = [{ id: "f", kind: "file", target: join(x.extra, "a.md") }] as Artifact[];
+  expect([...(await missingArtifacts(list, x.where([x.extra])))]).toEqual([]);
+  expect([...(await missingArtifacts(list, x.where([])))]).toEqual(["f"]);
+});
+
+test("relative and empty extra folders are ignored", async () => {
+  const x = await extraSetup();
+  expect(artifactSettingsValues({ extraFolders: ["", "  ", "plans", "./plans", "../x", "/", "//", "~other/x", "/abs/ok/", "~/notes/"] }).extraFolders).toEqual(["/abs/ok", "~/notes"]);
+  expect(artifactSettingsValues({}).extraFolders).toEqual([]);
+  expect(extraFolderRoots(["", "/", "//", "relative/dir", ".", "~", `${homedir()}/`, `${x.extra}/`, "~/notes/", `${x.extra}/../plans`])).toEqual([x.extra, join(homedir(), "notes")]);
+  // Even when a caller passes them raw, they never become roots: "" would resolve to the working directory, "/" to everything.
+  const roots = x.where(["", "/", "relative"]).roots;
+  expect(roots).not.toContain("");
+  expect(roots).not.toContain("/");
+  expect(roots).not.toContain("relative");
+  await expect(normalizeTarget(join(x.extra, "a.md"), x.where(["", "/"]))).rejects.toThrow("outside this card's directories");
+  await expect(normalizeTarget(join(process.cwd(), "package.json"), x.where([""]))).rejects.toThrow("outside this card's directories");
 });

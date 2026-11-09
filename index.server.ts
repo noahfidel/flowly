@@ -6,7 +6,7 @@ import { BoardService, dataDirectory, migrateLegacyPluginData, paseoHome } from 
 import { readPaseoVersion } from "./server/paseo-version";
 import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./server/directories";
 import * as rpc from "./shared/rpc";
-import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues, prReviewSettings, prReviewSettingsValues } from "./shared/settings";
+import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, artifactSettings, artifactSettingsValues, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues, prReviewSettings, prReviewSettingsValues } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { SessionReadStore, SessionReadService, daemonNativeAttention } from "./server/session-reads";
 import { readAttentionCount } from "./server/attention-count";
@@ -75,6 +75,7 @@ export default function contribute(host: PluginServerContext) {
   const wrapupPrefs = server.registerSettings(wrapupSettings);
   const statusPrefs = server.registerSettings(statusSettings);
   const ideasPrefs = server.registerSettings(ideasSettings);
+  const artifactPrefs = server.registerSettings(artifactSettings);
   const nativePrefs = server.registerSettings(nativeSessionSettings);
   const workflowPrefs = server.registerSettings(workflowInsightsSettings);
   const perfPrefs = server.registerSettings(performanceSettings);
@@ -315,6 +316,12 @@ export default function contribute(host: PluginServerContext) {
     return ideasSettingsValues(state?.status === "ready" ? state.values : {}).ideas;
   };
   tools.agents.aiLanguage = aiLanguage;
+  // Folders outside a card's directories that agents and people may attach files from; unreadable settings keep none.
+  const extraArtifactFolders = async () => {
+    const state = await artifactPrefs.read().catch(() => null);
+    return artifactSettingsValues(state?.status === "ready" ? state.values : {}).extraFolders;
+  };
+  tools.agents.extraArtifactFolders = extraArtifactFolders;
   tools.agents.artifactsOn = async () => {
     const state = await ideasPrefs.read().catch(() => null);
     return ideasSettingsValues(state?.status === "ready" ? state.values : {}).artifacts;
@@ -523,7 +530,7 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.adoptIdea, (input, { paseo }) => adoptIdea(store, (message, api) => composer.push(message, api), input, paseo));
   server.handle(rpc.createLink, (input) => createLink(store, input));
   server.handle(rpc.deleteLink, (input) => deleteLink(store, input));
-  const artifacts = new ArtifactService(store, connectors);
+  const artifacts = new ArtifactService(store, connectors, extraArtifactFolders);
   const workpads = new WorkpadService(store);
   server.handle(rpc.listConnections, async () => {
     const [connections, board] = await Promise.all([connectors.list(), store.read()]);
