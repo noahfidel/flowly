@@ -976,6 +976,85 @@ test("a live dispatcher started without this build's routes withheld says to rep
   expect(await status(undefined, "closed")).toEqual({ state: "idle", agentId: "old", unguarded: true });
 });
 
+/** A stored dispatcher "old" in `status`, recorded with `guard` (absent: started before the guard). */
+async function oldDispatcher(guard?: unknown, agentStatus = "idle") {
+  const x = await setup();
+  x.agents.set("old", { id: "old", workspaceId: "dw-0", status: agentStatus, archivedAt: null });
+  const record = { version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", savedTools: [...dispatcherToolNames], ...(guard ? { guard } : {}) };
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(record));
+  return x;
+}
+
+test("an unguarded dispatcher gets no board notes: they are held for a fresh one, and it is never woken (ruling, Noah 2026-11-09)", async () => {
+  for (const guard of [undefined, { version: dispatcherGuardVersion - 1, provider: "claude" }, { version: dispatcherGuardVersion, provider: "codex" }]) {
+    for (const agentStatus of ["idle", "closed"]) {
+      const x = await oldDispatcher(guard, agentStatus);
+      await x.dispatcher.deliver([note("a"), note("b")], x.paseo);
+      // A status read that sees it idle (closed reads idle) does not deliver either.
+      expect(await x.dispatcher.status(x.paseo)).toMatchObject({ state: "idle", unguarded: true });
+      await x.dispatcher.deliver([note("c")], x.paseo);
+      expect(x.sends, JSON.stringify({ guard, agentStatus })).toEqual([]);
+      expect(x.archived).toEqual([]);
+      // Replaced: the held notes are on the board the fresh dispatcher's summary reads; later ones reach it.
+      const { agentId } = await x.dispatcher.replace(x.paseo, { agentId: "old" });
+      x.agents.get(agentId)!.status = "idle";
+      await x.dispatcher.deliver([note("d")], x.paseo);
+      expect(x.sends.map((s) => s.id)).toEqual([agentId]);
+      expect(x.sends[0].text).toContain("Card d");
+      expect(x.sends.some((s) => s.id === "old")).toBe(false);
+    }
+  }
+  // A guarded one gets its notes as before.
+  const y = await oldDispatcher({ version: dispatcherGuardVersion, provider: "claude" });
+  await y.dispatcher.deliver([note("a")], y.paseo);
+  expect(y.sends.map((s) => s.id)).toEqual(["old"]);
+});
+
+test("Replace archives exactly the unguarded dispatcher's session and starts a guarded one (ruling, Noah 2026-11-09)", async () => {
+  for (const agentStatus of ["idle", "running", "closed", "error"]) {
+    const x = await oldDispatcher(undefined, agentStatus);
+    x.agents.set("card-session", { id: "card-session", workspaceId: "w-a", status: "idle", archivedAt: null });
+    const { agentId } = await x.dispatcher.replace(x.paseo, { agentId: "old" });
+    expect(x.archived, agentStatus).toEqual(["agent:old"]);
+    expect(agentId).not.toBe("old");
+    const record = await x.dispatcher.record();
+    expect(record).toMatchObject({ agentId, guard: { version: dispatcherGuardVersion, provider: "claude" }, savedTools: [...dispatcherToolNames] });
+    expect(record.previousAgentIds).toEqual(["old"]);
+    expect(x.agentCreates).toHaveLength(1);
+    expect(x.agentCreates[0].options).toMatchObject({ config: { options: { disallowedTools: [...dispatcherWithheldTools] } } });
+    expect(await x.dispatcher.status(x.paseo)).not.toHaveProperty("unguarded");
+  }
+  // Already dead (archived meanwhile): nothing is archived again, the new one starts.
+  const y = await oldDispatcher();
+  y.agents.get("old")!.archivedAt = "2026-11-09T00:00:00.000Z";
+  await y.dispatcher.replace(y.paseo, { agentId: "old" });
+  expect(y.archived).toEqual([]);
+  expect(y.agentCreates).toHaveLength(1);
+});
+
+test("Replace is refused for a guarded dispatcher, another session id or none, and archives nothing (ruling, Noah 2026-11-09)", async () => {
+  const x = await oldDispatcher({ version: dispatcherGuardVersion, provider: "claude" });
+  await expect(x.dispatcher.replace(x.paseo, { agentId: "old" })).rejects.toMatchObject({ code: "DISPATCHER_GUARDED" });
+  const y = await oldDispatcher();
+  await expect(y.dispatcher.replace(y.paseo, { agentId: "another" })).rejects.toMatchObject({ code: "DISPATCHER_CHANGED" });
+  const z = await setup();
+  await expect(z.dispatcher.replace(z.paseo, { agentId: "old" })).rejects.toMatchObject({ code: "DISPATCHER_CHANGED" });
+  for (const w of [x, y, z]) {
+    expect(w.archived).toEqual([]);
+    expect(w.agentCreates).toHaveLength(0);
+  }
+  // Start still refuses the live unguarded one: Replace is the only route.
+  await expect(y.dispatcher.start(y.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "DISPATCHER_RUNNING" });
+  expect(y.archived).toEqual([]);
+  // A failed archive starts nothing.
+  const v = await oldDispatcher();
+  const ref = v.paseo.agents.ref;
+  (v.paseo.agents as { ref: unknown }).ref = (id: string) => ({ ...ref(id), archive: async () => { throw new Error("busy"); } });
+  await expect(v.dispatcher.replace(v.paseo, { agentId: "old" })).rejects.toMatchObject({ code: "REPLACE_FAILED" });
+  expect(v.agentCreates).toHaveLength(0);
+  expect((await v.dispatcher.record()).agentId).toBe("old");
+});
+
 test("a started dispatcher records its guard; a refused create restores the earlier one (§1, §3)", async () => {
   const x = await setup();
   const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });

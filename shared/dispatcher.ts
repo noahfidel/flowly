@@ -261,6 +261,8 @@ export const dispatcherStartInputSchema = z.strictObject({
   modeId: z.string().trim().min(1).max(100).optional(),
 });
 export const dispatcherStartResultSchema = z.strictObject({ agentId: z.string() });
+/** Replace dispatcher (§3): the session the user saw as unguarded; only that one is archived. */
+export const dispatcherReplaceInputSchema = z.strictObject({ agentId: z.string().min(1).max(200) });
 /** The first words of a note batch message and of the board summary, as the chat recognizes them (§9.3). */
 export const noteMessagePrefix = "Flowly board update (";
 export const summaryMessagePrefix = "Flowly board summary.";

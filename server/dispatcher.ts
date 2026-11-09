@@ -14,6 +14,7 @@ import {
   dispatcherServerName,
   dispatcherToolNames,
   dispatcherStartInputSchema,
+  dispatcherReplaceInputSchema,
   mergeNotes,
   noteBatching,
   noteMessagePrefix,
@@ -290,6 +291,34 @@ export class Dispatcher {
     return job;
   }
 
+  /**
+   * Replace dispatcher (§3, ruling Noah 2026-11-09): the user's confirmed click on an unguarded dispatcher. Archives
+   * exactly that session (the stored one, by the id the user saw), then starts a new guarded one as Start does. Refused
+   * for a guarded dispatcher, or when the stored one is not the id given. The only way Flowly archives a dispatcher.
+   */
+  replace(paseo: PaseoApi, raw: { agentId: string }): Promise<{ agentId: string }> {
+    const { agentId } = dispatcherReplaceInputSchema.parse(raw);
+    const job = this.starts.then(async () => {
+      const record = await this.record();
+      if (!record.agentId || record.agentId !== agentId) throw new ToolError("DISPATCHER_CHANGED", "The dispatcher changed meanwhile; nothing was replaced.");
+      if (guarded(record)) throw new ToolError("DISPATCHER_GUARDED", "This dispatcher has the current guard; Flowly does not replace it.");
+      const model = await this.model({});
+      if (!dispatcherProviderSupported(model.provider)) throw new ToolError("DISPATCHER_PROVIDER_UNSUPPORTED", dispatcherProviderReason);
+      const ref = paseo.agents.ref(agentId);
+      if (!isDeadDispatcher((await ref.refresh())?.agent)) {
+        try {
+          await ref.archive();
+        } catch (e) {
+          logFailure("Flowly dispatcher not archived for replace:", e, agentId);
+          throw new ToolError("REPLACE_FAILED", `Paseo did not archive the dispatcher session: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      return this.run(paseo, model);
+    });
+    this.starts = job.catch(() => undefined);
+    return job;
+  }
+
   /** The passed `provider/model`, else the Dispatcher model setting, else the server default (§3). */
   private async model(input: { provider?: string; modeId?: string }): Promise<{ provider: string; modeId?: string; thinking?: string }> {
     if (input.provider) return { provider: input.provider, ...(input.modeId ? { modeId: input.modeId } : {}) };
@@ -495,9 +524,10 @@ export class Dispatcher {
       this.chaseStep = 0;
     }
     if (this.disposed || !this.held.size) return this.stopChase();
-    let agentId: string | null, agent: AgentSnapshot;
+    let agentId: string | null, agent: AgentSnapshot, record: DispatcherRecord;
     try {
-      agentId = (await this.record()).agentId;
+      record = await this.record();
+      agentId = record.agentId;
       agent = agentId ? (await paseo.agents.ref(agentId).refresh())?.agent : null;
     } catch (e) {
       logFailure("Flowly dispatcher state unreadable; notes dropped:", e, `${this.held.size} notes`);
@@ -507,6 +537,9 @@ export class Dispatcher {
     // A start is under way (summary, store, create): hold; the start delivers when it ends.
     if (this.starting) return;
     const state = agentId ? dispatcherState(agent) : "none";
+    // One started without this build's guard gets no notes, and is never woken: they stay held, and a fresh dispatcher's
+    // board summary covers them (ruling, Noah 2026-11-09; §3).
+    if ((state === "running" || state === "idle") && !guarded(record)) return this.stopChase();
     if (state === "running" || (state === "idle" && agent?.pendingPermissions?.length)) {
       // The hook can fire before Paseo's snapshot leaves "running", and a later turn end may never come:
       // after a turn end, keep looking with a growing delay until the notes go out; without one (a batch that

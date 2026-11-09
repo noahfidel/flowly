@@ -401,6 +401,12 @@ export default function contribute(host: PluginServerContext) {
     const [items, change] = await Promise.all([chatItems.list().then((stored) => asks.chatItems(stored, paseo)), currentChange()]);
     return ifChanged(change ? [...items, change] : items, etag);
   });
+  server.handle(rpc.dispatcherReplace, (input, { paseo }) => {
+    tools.attach(paseo);
+    return tools.dispatcher.replace(paseo, input).catch((e: unknown) => {
+      throw codedError(e);
+    });
+  });
   server.handle(rpc.asksAnswer, (input, { paseo }) => asks.answer(input, paseo));
   server.handle(rpc.asksDismiss, (input, { paseo }) => asks.dismiss(input, paseo));
   server.handle(rpc.asksResolved, async ({ etag }, { paseo }) => ifChanged(await asks.resolvedSignals(paseo), etag));

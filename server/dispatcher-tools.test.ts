@@ -160,6 +160,8 @@ test("a dispatcher token can write to any live project", async () => {
   expect(await d.names()).toEqual(dispatcherTools);
   // None of them answers a card's ask (permission, question, blocker) or messages a card's session (ruling, Noah 2026-11-09).
   for (const name of await d.names()) expect(name).not.toMatch(/answer|respond|permission|approve|allow|deny|send|prompt|message/);
+  // Replacing or archiving a dispatcher is the user's confirmed click only, never one of its own tools (ruling, Noah 2026-11-09).
+  for (const name of await d.names()) expect(name).not.toMatch(/replace|archive|dispatcher/);
   const projects = (await d.call("flowly_list_projects", {})).structuredContent.projects;
   expect(projects).toEqual([
     { projectId: "p", title: "Project", rootAvailable: true, openCards: 1 },

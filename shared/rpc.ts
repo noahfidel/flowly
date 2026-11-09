@@ -68,6 +68,7 @@ import {
   askDismissInputSchema,
   chatItemSchema,
   dispatcherStartInputSchema,
+  dispatcherReplaceInputSchema,
   dispatcherStartResultSchema,
   dispatcherStatusSchema,
   seenIdLimit,
@@ -1004,6 +1005,8 @@ export const useSqliteStorage = defineRpc({ name: "storage.use-sqlite", input: z
 export const dispatcherStatus = defineRpc({ name: "dispatcher.status", input: z.strictObject({}), output: dispatcherStatusSchema });
 /** Starts a new dispatcher session; refused while one is up (DISPATCHER-SPEC §3, §8). */
 export const dispatcherStart = defineRpc({ name: "dispatcher.start", input: dispatcherStartInputSchema, output: dispatcherStartResultSchema });
+/** Replace an unguarded dispatcher: the user's confirmed click only; never a dispatcher tool (DISPATCHER-SPEC §3). */
+export const dispatcherReplace = defineRpc({ name: "dispatcher.replace", input: dispatcherReplaceInputSchema, output: dispatcherStartResultSchema });
 /** The chat's own items plus "Changed since you looked" (DISPATCHER-SPEC §9.1, §9.2). */
 export const dispatcherItemsChanged = defineRpc({
   name: "dispatcher.items-changed",

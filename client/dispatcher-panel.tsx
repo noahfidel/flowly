@@ -9,7 +9,8 @@ import { msg, t, tn } from "../shared/i18n";
 import { userSendOptions, type ChatItem } from "../shared/dispatcher";
 import { maxImages } from "../shared/composer";
 import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
-import { Button, IconButton, Label, Notice, font, message, noFocusRing, radius, space, touch, useTheme } from "./ui";
+import { Actions, Button, IconButton, Label, Notice, Theme, font, message, noFocusRing, radius, space, touch, useTheme } from "./ui";
+import { Modal } from "./modal";
 import { SessionTranscript, type TranscriptExtra, type TranscriptExtraRow, type TranscriptHandle, type TranscriptNotice } from "./session-transcript";
 import { ComposerBox, useComposerDraft } from "./session-composer";
 import { restoredDraft } from "./session-input";
@@ -64,6 +65,8 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   const toast = useToast();
   const readStatus = useRpc(rpc.dispatcherStatus);
   const startRpc = useRpc(rpc.dispatcherStart);
+  const replaceRpc = useRpc(rpc.dispatcherReplace);
+  const [confirmReplace, setConfirmReplace] = useState(false);
   const status = useQuery({ queryKey: statusKey, queryFn: () => readStatus({}), enabled: visible, refetchInterval: visible ? 5_000 : false, placeholderData: (p) => p });
   const items = useDispatcherItemsQuery(visible);
   const state = status.data?.state;
@@ -100,6 +103,22 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
       await client.invalidateQueries({ queryKey: statusKey });
     } catch (e) {
       // Refusals arrive as `CODE: message`; the provider refusal is shown in the user's words (DISPATCHER-SPEC §3, §8).
+      setStartError(dispatcherStartMessage(message(e)));
+    } finally {
+      setStarting(false);
+    }
+  });
+  // Replace dispatcher (§3): only the user's confirmed click; archives exactly the session shown, then starts a guarded one.
+  const replace = useStableCallback(async () => {
+    if (!agentId) return;
+    setStartError("");
+    setStarting(true);
+    try {
+      await replaceRpc({ agentId });
+      setConfirmReplace(false);
+      await client.invalidateQueries({ queryKey: statusKey });
+    } catch (e) {
+      setConfirmReplace(false);
       setStartError(dispatcherStartMessage(message(e)));
     } finally {
       setStarting(false);
@@ -216,8 +235,6 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   if (agent?.lastError) notices.push({ key: "last-error", text: agent.lastError });
   // Saved tools are fixed when the session is created; a new dispatcher gets this build's (DISPATCHER-SPEC §3).
   if (status.data?.newTools) notices.push({ key: "new-tools", tone: "warning", text: t("This dispatcher started before some Flowly tools existed. Archive its session in Paseo, then start a new one to use them.") });
-  // Its routes are fixed at create too: one started without this build's guard keeps them (DISPATCHER-SPEC §3).
-  if (status.data?.unguarded) notices.push({ key: "unguarded", tone: "warning", text: t("This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. Archive its session in Paseo, then start a new one.") });
   if (agent?.providerUnavailable)
     notices.push({ key: "provider", tone: "warning", text: t("The dispatcher's provider is unavailable, so it can't take messages. Check that provider in Paseo's settings.") });
 
@@ -271,6 +288,19 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
         style={{ flexShrink: 0, minWidth: 0, backgroundColor: colors.surface0, transform: [{ translateY: keyboard.translate }], zIndex: 25, paddingHorizontal: space[3], paddingTop: space[2], paddingBottom: space[3], gap: space[2] }}
       >
         {!!error && <Notice>{error}</Notice>}
+        {/* Its routes are fixed at create: one started without this build's guard keeps them, so it gets no notes until replaced (§3). */}
+        {up && agentId && status.data?.unguarded && (
+          <View style={{ gap: space[2], alignItems: "flex-start" }}>
+            <Notice tone="warning">
+              {t("This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. It gets no board notes until it is replaced.")}
+            </Notice>
+            <Button icon="RefreshCw" disabled={starting} onPress={() => setConfirmReplace(true)}>
+              {t("Replace dispatcher")}
+            </Button>
+            {!!startError && <Notice>{startError}</Notice>}
+          </View>
+        )}
+        {confirmReplace && <ReplaceDialog pending={starting} onClose={() => setConfirmReplace(false)} onConfirm={() => void replace()} />}
         {up && agentId ? (
           <ComposerBox
             composer={box}
@@ -301,6 +331,25 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     </View>
   );
 });
+
+function ReplaceDialog({ pending, onClose, onConfirm }: { pending: boolean; onClose(): void; onConfirm(): void }) {
+  const theme = useTheme();
+  return (
+    <Modal open title={t("Replace dispatcher?")} onOpenChange={(open) => !open && !pending && onClose()}>
+      <Modal.Content>
+        <Theme.Provider value={theme}>
+          <View style={{ gap: space[3] }}>
+            <Label>{t("Flowly archives this dispatcher session and starts a new one that can't answer cards' asks. The new one starts from a board summary, not this chat.")}</Label>
+            <Actions>
+              <Button quiet disabled={pending} onPress={onClose}>{t("Cancel")}</Button>
+              <Button danger icon="RefreshCw" disabled={pending} onPress={onConfirm}>{t("Replace")}</Button>
+            </Actions>
+          </View>
+        </Theme.Provider>
+      </Modal.Content>
+    </Modal>
+  );
+}
 
 function SummaryRow() {
   const { colors } = useTheme();
