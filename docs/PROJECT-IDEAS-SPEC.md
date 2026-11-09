@@ -48,7 +48,8 @@ No board version bump: the fields default on read (IDEAS-SPEC §2.1), and files 
 - The Ideas page groups by card; project ideas form a **Project** group sorted first. It shows New card, Dismiss and Restore only (no Continue in card).
 - A card's own Ideas section lists only its card's ideas.
 - A project idea has no "From …" source line. In the grouped view its group header reads **Project** and does not link anywhere.
-- **Good idea** on a project idea opens New card directly (prefilled from the idea; no source card context).
+- **Good idea** on a project idea opens New card directly (prefilled from the idea; no source card context): Quick task locked to the idea's project when *Quick task for New task* is on, else the full form (QUICK-TASK-SPEC §10). Its Other options… lists only the full form.
+- **Discuss** (next to Dismiss) puts a draft about the idea in the dispatcher chat's message box (DISPATCHER-SPEC §9.5), as for card ideas.
 - The Ideas count on the board's overview bar counts the project's open ideas, card ideas and project ideas together. The overview carries `projectIdeas: [{ projectId, open }]` (one entry per project; `open` = open ideas without a card) next to the per-card `openIdeas`.
 
 ## 6. Acceptance criteria

@@ -157,6 +157,12 @@ Amended 2026-10-29 (user decision, [AGENT-CARDS-SPEC](AGENT-CARDS-SPEC.md) D1): 
 
 agent 建议 `scope=new` 时 “Start a new task · Suggested” 排在最前、其余在分隔线后；建议 `scope=here` 时本卡的三项在前，Continue 带 “· Suggested”（没有可用 session 时改由 “Do it in a new session” 带 Suggested）。
 
+“Start a new task” 在 *Quick task for New task* 开启时打开 Quick task（锁定 idea 的项目，预填 idea，带 `ideaId`；对话框里的 **Other options…** 列出完整表单和上面本卡的三项），关闭时打开 §6.1 的完整表单；见 QUICK-TASK-SPEC §10。项目 idea 与来源卡已结束/归档/不存在的 idea 只有新建一条路，Good idea 直接打开同一个 Quick task（或完整表单），不再弹菜单。
+
+### 6.4 Discuss
+
+每个 open idea 卡在 Dismiss 左侧有 **Discuss**（侧栏 Ideas 与项目 Ideas 页，共用 `IdeaCard`），仅当看板能打开 dispatcher 聊天时显示。它打开 dispatcher 聊天，把一段关于该 idea 的草稿放进消息框，不发送；见 DISPATCHER-SPEC §9.5。
+
 ### 6.1 新建卡片
 
 1. 打开现有新建任务表单（同一组件），预填：

@@ -215,6 +215,24 @@ One source (plan Q1): `asksFrom(board, agents, receipts, dismissals)` in `shared
 - Panel: an open ask shows its card, kind and detail, its buttons (options, Allow / Deny, a text box with Send for reports and for a permission with no request left (an ask row carries the ask's `requestId`; the box shows exactly when a permission's row has none, the rule step 4 answers by), one text box per question that takes text), Dismiss, and Open card. While an answer is in flight it shows without a tick; the tick appears when the stored `answer` item has `delivered: true`. Answered asks show "Answered" (or "Answered in the session"), ended ones "Session ended" with **Start again** and Dismiss, dismissed ones one muted line.
 - Bell: with the chat open, pressing a card's row scrolls the chat to that card's first open ask; when the chat is closed or has no such ask, it opens the card as before.
 
+### 9.5 Discuss an idea
+
+- Every open idea's card (a card's Ideas section and the project Ideas page, the shared `IdeaCard`) has **Discuss**
+  before Dismiss, shown only while the board can open the dispatcher chat (the toolbar's Dispatcher button shows: a
+  project board or All projects). Closed ideas and the welcome tour's demo have none.
+- Discuss opens the chat: desktop un-minimizes it (`chatMinimized: false`, remembered as the toolbar button does);
+  a phone opens the chat page and closes an open card over it. It also counts as acting on the `dispatcher` tip.
+- It puts this draft in the message box (`discussDraft`, English, since it is a message to the agent):
+  `Let's talk about this idea (id <idea id>, project <project title>): <title>. <detail>`. A blank detail is left
+  out with its space; no period is added after a title that already ends with `.`, `!` or `?`.
+- It never sends: the user reads, edits and presses Enter. Text already in the box is kept and the draft goes after
+  it with a blank line between (as a picked next move, NEXT-MOVES-SPEC §4); when the box already holds this exact
+  draft, nothing changes. Nothing is replaced, so there is nothing to undo.
+- The box shows the new text as any outside change (a restore after a failed send): on phones the input remounts
+  with it as its seed, and it takes focus. While the dispatcher is not running the chat shows Start dispatcher; the
+  draft is kept and appears in the box once it runs.
+- Tests: `discussDraft` and `discussAvailable` in `client/dispatcher-panel-logic.test.ts`.
+
 ## 10. Acceptance
 
 - A dispatcher token can write to any live project; an archived project is refused with `PROJECT_ARCHIVED` and nothing is written; a token from a replaced dispatcher is refused.
