@@ -63,6 +63,7 @@ import { PrReviewCards } from "./server/pr-review-cards";
 import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
 import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
+import { EventBus, commitHandler } from "./server/event-bus";
 
 export default function contribute(host: PluginServerContext) {
   const server = reportRpcErrors(host);
@@ -206,7 +207,9 @@ export default function contribute(host: PluginServerContext) {
   service.connectors = connectors;
   // Each project's board copy in `<root>/.flowly/` (PROJECT-FOLDER-SPEC).
   const folders = new ProjectFolders(() => store.read(), async () => (await summaries.store.read()).entries);
-  store.onCommit = () => folders.schedule();
+  // The event bus (EVENT-BUS-SPEC): board commits and agent asks, for the dispatcher's notes (DISPATCHER-SPEC).
+  const bus = new EventBus();
+  store.onCommit = commitHandler(bus, () => folders.schedule());
   // Existing projects get their folder copy on the first start after the upgrade (and failed ones on every start).
   void folders.migrate(store.directory).catch((e) =>
     logFailure("Flowly project folder migration failed:", e),
@@ -733,11 +736,16 @@ export default function contribute(host: PluginServerContext) {
   server.on("agent.permission_requested", async (event, { paseo }) => {
     tools.attach(paseo);
     const identity = await managedTask(event.agent);
+    // EVENT-BUS-SPEC §1: every session's request, with its card when Flowly manages the session.
+    bus.publish([{ kind: "permission", agentId: event.agent.id, taskId: identity?.taskId ?? null, request: event.request }]);
     if (!identity) return;
     await store.mutate((board) =>
       // INSIGHTS-REDESIGN-SPEC §7.2: only the tool's name, never its input.
       recordLifecycle(store, board, identity, "agent.permission_requested", undefined, { tool: event.request.name || event.request.kind }),
     );
+  });
+  server.on("agent.permission_resolved", (event) => {
+    bus.publish([{ kind: "permission_resolved", agentId: event.agent.id, requestId: event.requestId }]);
   });
   // Anonymous daily heartbeat (TELEMETRY-SPEC); off by the setting, DO_NOT_TRACK or FLOWLY_TELEMETRY=0, and always off while POSTHOG_KEY is empty.
   const ready = <T,>(state: { status: string; values?: unknown } | null, parse: (values: unknown) => T) => parse(state?.status === "ready" ? state.values : {});

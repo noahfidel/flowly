@@ -76,8 +76,11 @@ export class BoardStore {
   private pending: BoardEvent[] = [];
   /** Untrimmed event log for insights (PROJECT-INSIGHTS-SPEC §2). */
   flow: FlowLog | null = null;
-  /** Runs after each committed write (project folder snapshots, PROJECT-FOLDER-SPEC). */
-  onCommit: (() => void) | null = null;
+  /**
+   * Runs after each committed write with the events it created (project folder snapshots, PROJECT-FOLDER-SPEC;
+   * the event bus, EVENT-BUS-SPEC). The restore and export paths have no events and no board.
+   */
+  onCommit: ((events: BoardEvent[], board: Board | null) => void) | null = null;
   private readonly json: JsonBoardFile;
   /** SQLite storage with its fallback to board.json (SQLITE-STORAGE-SPEC); null keeps board.json only. */
   readonly storage: BoardStorage | null;
@@ -127,7 +130,7 @@ export class BoardStore {
       board.revision++;
       assertBoardInvariants(board);
       await persistence.save(storageSchema.parse(board));
-      this.onCommit?.();
+      this.onCommit?.(events, board);
       if (this.flow && events.length)
         void this.flow.append(events, board).catch((e) =>
           logFailure("Kanban flow log append failed:", e),
@@ -157,14 +160,14 @@ export class BoardStore {
   restoreStorage(name: string) {
     return this.queue(async () => {
       const result = await this.requireStorage().restore(name);
-      this.onCommit?.();
+      this.onCommit?.([], null);
       return result;
     });
   }
   exportStorage() {
     return this.queue(async () => {
       const result = await this.requireStorage().exportJson();
-      this.onCommit?.();
+      this.onCommit?.([], null);
       return result;
     });
   }

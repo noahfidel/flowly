@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Event bus and dispatcher notes (branch `feat/single-pane`, Task 8) — 2026-11-08
+
+- `server/event-bus.ts`: `EventBus` (sync fan-out, a throwing subscriber is logged and skipped), `factsFromCommit`, `commitHandler`, `isStop`, `NoteBatcher`; `shared/dispatcher.ts`: `DispatcherNote` schema and `noteBatching`. `BoardStore.onCommit` now receives `(events, board)` (`null` board and no events on the storage restore and export paths); `index.server.ts` installs `commitHandler` (folder snapshots still scheduled) and publishes `agent.permission_requested` (every session, card id when managed) and the new `agent.permission_resolved` hook. Nothing subscribes yet: Task 9 wires the batcher to the dispatcher.
+- Code-shape notes: "turn ended with error outcome" is `agent.turn_ended` with `outcome: "failed"` (a `canceled` turn is not a stop); `reportKind` question/blocker/result counts on `status_changed` events too, since a report that moves the card is recorded as one. `BusFact`'s board variant has an optional `title` (the batcher has no board access, and `DispatcherNote.title` needs it). The batcher ignores permission facts: asks reach the chat in Task 11, not the dispatcher's input.
+- Strings: none. Onboarding: no tour change or tip (no user-visible change). Telemetry: no heartbeat field. AGENTS.md: no new exception line in this task (nothing acts yet; Task 9 adds the dispatcher's).
+- Checks: new `server/event-bus.test.ts`; `npx vitest run server/event-bus.test.ts server/store.test.ts` and `npm run typecheck` exit 0; full `npm run typecheck` exit 0, `npm test` exit 0 (165 files, 1488 passed, 1 skipped). Not run: any live Paseo permission event (the plan's live check 2, Task 12).
+
 ## Flowly skill text (branch `feat/single-pane`, Task 6) — 2026-11-08
 
 - `server/skill-source.ts` and `skills/flowly/SKILL.md` (byte-identical): the card-creation rule is now "No workspace without a card" (attach to a card or `flowly_create_card` with `workspace="worktree"` before changing files, then continue there or `flowly_start_card`; one card = one branch or PR; parallel deliverables are separate cards linked with `blocks`/`follow_up`; parking an ask is `flowly_propose_idea`, project-level from a session outside any card). A new Delivery mode bullet: follow `deliveryMode` from `flowly_get_task`; never bypass the permission prompts for `git push` / `gh pr create` (the user answers them); in `ready_pr` never mark a PR ready while review notes are open. `turnChecklist` unchanged (6 items, under 1800 characters).
