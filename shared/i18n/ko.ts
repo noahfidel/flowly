@@ -221,6 +221,7 @@ const catalog: Catalog = {
   "Edit task": "작업 편집",
   "More task actions": "작업 더보기",
   "Close side bar": "사이드바 닫기",
+  "Minimize": "최소화",
   "Status: {lane}": "상태: {lane}",
   "Priority: {priority}": "우선순위: {priority}",
   "none": "없음",

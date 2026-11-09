@@ -1,5 +1,5 @@
 import { perfStart, perfEnd, usePerfRender } from "./perf";
-import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
+import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, View, type ListRenderItemInfo } from "react-native";
 import { FlatList, Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { usePaseo } from "@getpaseo/plugin/client";
@@ -7,7 +7,7 @@ import { Label, Notice, font, message, noFocusRing, radius, space, touch, useThe
 import { activitySummary, groupTranscript, pendingEchoes, recentSessionOutput, type SentEcho, type TranscriptBlock } from "./session-state";
 import { coalescedRefresh, FOLLOW_SLACK, useSessionFollowTail } from "./session-follow";
 import { useSessionTimeline } from "./session-timeline";
-import { HISTORY_MAX } from "../shared/session-tail";
+import { HISTORY_MAX, type TailEntry } from "../shared/session-tail";
 import { extractImages } from "../shared/images";
 import { SessionImage } from "./session-image";
 import { sentImages } from "./sent-images";
@@ -26,6 +26,20 @@ export type TranscriptHandle = {
   /** Shows a message just sent at once, until the timeline holds it (or `unecho` after a failed send). */
   echo(messageId: string, text: string): void;
   unecho(messageId: string): void;
+};
+
+/** A row of the caller's own between the transcript's blocks (the dispatcher chat's items, DISPATCHER-SPEC §9.3). */
+export type TranscriptExtraRow = { kind: "extra"; key: string; item: unknown };
+export type TranscriptRow = TranscriptBlock | TranscriptExtraRow;
+/**
+ * The dispatcher chat's rows on the shared transcript: `rows` builds the list from the loaded entries (sent
+ * messages included) in place of the plain grouping, `render` draws a row of its own. Memoize it: the transcript
+ * re-renders when it changes. A new `focus.seq` scrolls to that row (the bell's jump to an ask, §9.4).
+ */
+export type TranscriptExtra = {
+  rows(entries: readonly TailEntry[]): readonly TranscriptRow[];
+  render(row: TranscriptExtraRow): ReactElement | null;
+  focus?: { key: string; seq: number } | null;
 };
 
 /** A sent message whose record never shows up stops being shown after this long. */
@@ -66,6 +80,9 @@ type TranscriptProps = {
   /** The settled lift, for reaching the oldest output while the keyboard is up. */
   inset: number;
   onStreamError(message: string): void;
+  /** The dispatcher's session: read with `dispatcher.tail`; `taskId` then only names the cache. */
+  dispatcher?: boolean;
+  extra?: TranscriptExtra;
 };
 
 const sameNotices = (a: TranscriptNotice[], b: TranscriptNotice[]) =>
@@ -100,6 +117,8 @@ function SessionTranscriptView({
   lift,
   inset,
   onStreamError,
+  dispatcher = false,
+  extra,
 }: TranscriptProps) {
   usePerfRender("switch.transcript.commit");
   const switchStart = perfStart();
@@ -107,7 +126,7 @@ function SessionTranscriptView({
   const paseo = usePaseo();
   const agent = useMemo(() => paseo.agents.ref(agentId), [paseo, agentId]);
   const [streamReady, setStreamReady] = useState(false);
-  const timeline = useSessionTimeline({ taskId, agentId, enabled, streamReady });
+  const timeline = useSessionTimeline({ taskId, agentId, enabled, streamReady, dispatcher });
   const refetch = timeline.query.refetch;
   const reading = useRef(enabled);
   reading.current = enabled;
@@ -155,16 +174,15 @@ function SessionTranscriptView({
     // Recorded now: drop them so a later window that no longer holds the message cannot bring the echo back.
     for (const e of echoes) if (!waiting.includes(e)) unecho(e.messageId);
   }, [waiting]);
-  const output = useMemo(
-    () =>
-      recentSessionOutput(
-        waiting.length
-          ? [...(loaded?.entries || []), ...waiting.map((e) => ({ item: { type: "user_message", text: e.text, messageId: e.messageId } }))]
-          : loaded?.entries || [],
-      ),
+  const entries = useMemo(
+    (): readonly TailEntry[] =>
+      waiting.length
+        ? [...(loaded?.entries || []), ...waiting.map((e) => ({ item: { type: "user_message", text: e.text, messageId: e.messageId } }))]
+        : loaded?.entries || [],
     [loaded?.entries, waiting],
   );
-  const blocks = useMemo(() => groupTranscript(output), [output]);
+  const output = useMemo(() => recentSessionOutput(entries), [entries]);
+  const blocks = useMemo((): readonly TranscriptRow[] => (extra ? extra.rows(entries) : groupTranscript(output)), [extra, entries, output]);
   const data = useMemo(() => (virtualized ? [...blocks].reverse() : blocks), [blocks]);
   const tail = useSessionFollowTail(virtualized);
   // Web: adding older output above keeps what the user is reading in place.
@@ -177,6 +195,19 @@ function SessionTranscriptView({
   });
   useImperativeHandle(handle, () => ({ refresh: () => void refetch(), jumpToLatest, echo, unecho }), [refetch, jumpToLatest, echo, unecho]);
   const latest = useMotionPresence(!tail.following ? true : undefined, !tail.following ? "latest" : "");
+  // The bell's jump to a row of the caller's (web: its measured offset; phones: its index in the inverted list).
+  const offsets = useRef(new Map<string, number>());
+  const focusKey = extra?.focus?.key ?? "";
+  useEffect(() => {
+    if (!focusKey) return;
+    if (virtualized) {
+      const index = data.findIndex((row) => row.key === focusKey);
+      if (index >= 0) (tail.scrollRef.current as { scrollToIndex?(o: object): void } | null)?.scrollToIndex?.({ index, viewPosition: 0.5, animated: true });
+      return;
+    }
+    const y = offsets.current.get(focusKey);
+    if (y !== undefined) tail.scrollToY(Math.max(0, y - space[3]));
+  }, [extra?.focus?.seq, focusKey, data]);
 
   const loadEarlier = useStableCallback(() => {
     // Armed only when older output is about to land, so other size changes never use it.
@@ -197,18 +228,21 @@ function SessionTranscriptView({
 
   const lastKey = blocks.at(-1)?.key;
   const renderBlock = useCallback(
-    (block: TranscriptBlock) =>
-      block.kind === "activity" ? (
+    (block: TranscriptRow) =>
+      block.kind === "extra" ? (
+        (extra?.render(block) ?? null)
+      ) : block.kind === "activity" ? (
         <ActivityBlock block={block} live={live && block.key === lastKey} />
       ) : (
         <TranscriptEntry entry={block.entry} taskId={taskId} agentId={agentId} />
       ),
-    [live, lastKey, taskId, agentId],
+    [live, lastKey, taskId, agentId, extra],
   );
-  const renderItem = useCallback(({ item }: ListRenderItemInfo<TranscriptBlock>) => renderBlock(item), [renderBlock]);
+  const renderItem = useCallback(({ item }: ListRenderItemInfo<TranscriptRow>) => renderBlock(item), [renderBlock]);
 
-  const pending = showOutput && settled && timeline.query.isPending;
-  const empty = showOutput && settled && !timeline.query.isPending && !blocks.length && !timeline.query.error;
+  // The dispatcher chat shows its items before any session exists: a timeline it does not read is not loading.
+  const pending = showOutput && settled && timeline.query.isPending && (enabled || !dispatcher);
+  const empty = showOutput && settled && (!timeline.query.isPending || (dispatcher && !enabled)) && !blocks.length && !timeline.query.error;
   const capped = !!loaded?.hasOlder && (loaded?.entries.length ?? 0) >= HISTORY_MAX;
   // Older output, notices and states: above the transcript.
   const top = (
@@ -305,6 +339,11 @@ function SessionTranscriptView({
       contentContainerStyle={{ ...verticalContent, paddingHorizontal: space[4], paddingTop: space[5], paddingBottom: space[4] }}
       // Keeps what the user reads in place as output arrives; near the newest end it follows.
       maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: FOLLOW_SLACK }}
+      // A jump to a row not laid out yet: go near it, then once more when it is.
+      onScrollToIndexFailed={(info: { index: number; averageItemLength: number }) => {
+        tail.scrollToY(info.averageItemLength * info.index);
+        setTimeout(() => (tail.scrollRef.current as { scrollToIndex?(o: object): void } | null)?.scrollToIndex?.({ index: info.index, viewPosition: 0.5, animated: true }), 100);
+      }}
       initialNumToRender={6}
       maxToRenderPerBatch={6}
       windowSize={9}
@@ -318,7 +357,9 @@ function SessionTranscriptView({
     >
       {top}
       {shown.map((block) => (
-        <View key={block.key}>{renderBlock(block)}</View>
+        <View key={block.key} onLayout={block.kind === "extra" ? (e) => void offsets.current.set(block.key, e.nativeEvent.layout.y) : undefined}>
+          {renderBlock(block)}
+        </View>
       ))}
       {bottom}
     </ScrollView>
@@ -372,7 +413,7 @@ function SessionTranscriptView({
   );
 }
 
-const blockKey = (block: TranscriptBlock) => block.key;
+const blockKey = (block: TranscriptRow) => block.key;
 const Separator = () => <View style={{ height: space[4] }} />;
 
 function LoadEarlier({ loading, onPress }: { loading: boolean; onPress(): void }) {

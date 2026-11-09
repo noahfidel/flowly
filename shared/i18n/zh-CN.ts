@@ -221,6 +221,7 @@ const catalog: Catalog = {
   "Edit task": "编辑任务",
   "More task actions": "更多任务操作",
   "Close side bar": "关闭侧栏",
+  "Minimize": "最小化",
   "Status: {lane}": "状态：{lane}",
   "Priority: {priority}": "优先级：{priority}",
   "none": "无",

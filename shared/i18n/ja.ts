@@ -221,6 +221,7 @@ const catalog: Catalog = {
   "Edit task": "タスクを編集",
   "More task actions": "その他のタスク操作",
   "Close side bar": "サイドバーを閉じる",
+  "Minimize": "最小化",
   "Status: {lane}": "ステータス：{lane}",
   "Priority: {priority}": "優先度：{priority}",
   "none": "なし",

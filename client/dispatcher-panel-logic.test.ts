@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { displayRows, mergeTimeline } from "./dispatcher-panel-logic";
+import { chatRows, displayRows, mergeTimeline } from "./dispatcher-panel-logic";
 import type { ChatItem } from "../shared/dispatcher";
 import type { TailEntry } from "../shared/session-tail";
 
@@ -48,9 +48,17 @@ test("transcript runs between items are grouped like the session pane", () => {
     [entry(1, "reasoning", "think", 1), { seqStart: 2, seqEnd: 2, timestamp: at(2), item: { type: "tool_call", name: "flowly_list_cards", status: "completed" } }, entry(3, "assistant_message", "Hi", 3), entry(4, "reasoning", "more", 9)],
     [note("n1", 5)],
   );
+  // The shared session transcript's rows: its own blocks, and the dispatcher's items as rows of their own.
   const shown = displayRows(rows);
-  expect(shown.map((r) => r.kind)).toEqual(["block", "block", "item", "block"]);
-  expect(shown[0].kind === "block" && shown[0].block.kind).toBe("activity");
-  expect(shown[1].kind === "block" && shown[1].block.kind).toBe("entry");
+  expect(shown.map((r) => r.kind)).toEqual(["activity", "entry", "extra", "activity"]);
+  expect(shown[2].kind === "extra" && shown[2].item).toMatchObject({ kind: "item", item: { id: "n1" } });
   expect(new Set(shown.map((r) => r.key)).size).toBe(shown.length);
+});
+
+test("the board summary is one row of its own, and chatRows keeps item keys for the bell's jump", () => {
+  const summary = entry(1, "user_message", "Flowly board summary. Pass the projectId to every tool.\n\nProjects…", 0);
+  const shown = chatRows([summary, entry(2, "assistant_message", "Ready.", 2)], [note("n1", 5)]);
+  expect(shown.map((r) => r.kind)).toEqual(["extra", "entry", "extra"]);
+  expect(shown[0].kind === "extra" && shown[0].item).toEqual({ kind: "summary" });
+  expect(shown[2].key).toBe("item-n1");
 });

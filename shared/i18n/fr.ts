@@ -221,6 +221,7 @@ const catalog: Catalog = {
   "Edit task": "Modifier la tâche",
   "More task actions": "Plus d’actions sur la tâche",
   "Close side bar": "Fermer le panneau latéral",
+  "Minimize": "Réduire",
   "Status: {lane}": "Statut : {lane}",
   "Priority: {priority}": "Priorité : {priority}",
   "none": "aucun",

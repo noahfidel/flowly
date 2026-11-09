@@ -221,6 +221,7 @@ const catalog: Catalog = {
   "Edit task": "Изменить задачу",
   "More task actions": "Другие действия с задачей",
   "Close side bar": "Закрыть боковую панель",
+  "Minimize": "Свернуть",
   "Status: {lane}": "Статус: {lane}",
   "Priority: {priority}": "Приоритет: {priority}",
   "none": "нет",

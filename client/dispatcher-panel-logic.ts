@@ -1,6 +1,7 @@
 import { noteMessagePrefix, summaryMessagePrefix, type ChatItem } from "../shared/dispatcher";
 import type { TailEntry } from "../shared/session-tail";
-import { groupTranscript, recentSessionOutput, type TranscriptBlock } from "./session-state";
+import { groupTranscript, recentSessionOutput } from "./session-state";
+import type { TranscriptRow } from "./session-transcript";
 
 /** Pure parts of the dispatcher chat (DISPATCHER-SPEC §9.3). No React. */
 
@@ -48,18 +49,19 @@ export function mergeTimeline(transcript: readonly TailEntry[], items: readonly 
   return merged;
 }
 
-export type DisplayRow =
-  | { kind: "block"; key: string; block: TranscriptBlock }
-  | { kind: "summary"; key: string }
-  | { kind: "item"; key: string; item: ChatItem };
+/** A dispatcher row on the shared session transcript: the board summary line or one of Flowly's chat items. */
+export type ChatExtra = { kind: "summary" } | { kind: "item"; item: ChatItem };
 
-/** Each run of transcript entries between items is grouped as the session pane groups it (activity blocks). */
-export function displayRows(rows: readonly Row[]): DisplayRow[] {
-  const out: DisplayRow[] = [];
+/**
+ * The rows the shared session transcript shows (`TranscriptExtra.rows`): each run of transcript entries between
+ * items is grouped as a card's session view groups it (activity blocks); items and the summary are rows of their own.
+ */
+export function displayRows(rows: readonly Row[]): TranscriptRow[] {
+  const out: TranscriptRow[] = [];
   let run: TailEntry[] = [];
   const flush = () => {
     if (!run.length) return;
-    for (const block of groupTranscript(recentSessionOutput(run))) out.push({ kind: "block", key: block.key, block });
+    out.push(...groupTranscript(recentSessionOutput(run)));
     run = [];
   };
   for (const row of rows) {
@@ -68,10 +70,16 @@ export function displayRows(rows: readonly Row[]): DisplayRow[] {
       continue;
     }
     flush();
-    out.push(row.kind === "item" ? { kind: "item", key: row.key, item: row.item } : { kind: "summary", key: row.key });
+    const item: ChatExtra = row.kind === "item" ? { kind: "item", item: row.item } : { kind: "summary" };
+    out.push({ kind: "extra", key: row.key, item });
   }
   flush();
   return out;
+}
+
+/** The dispatcher chat's rows from the loaded transcript and Flowly's chat items (§9.3). */
+export function chatRows(transcript: readonly TailEntry[], items: readonly ChatItem[]): TranscriptRow[] {
+  return displayRows(mergeTimeline(transcript, items));
 }
 
 /** Whether two chat items render the same (the row's memo comparison). */

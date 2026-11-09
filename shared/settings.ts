@@ -65,6 +65,8 @@ export const boardViewSettings = defineSettings({
     linearHidden: z.array(z.enum(linearColumns)).max(5).catch([]).default([]),
     /** Card sidebar width as last dragged, as a share of the Flowly area; 0 = never dragged, opens at half (UI-UX-SPEC, drawer width). */
     drawerShare: z.number().min(0).max(1).catch(0).default(0),
+    /** The dispatcher chat minimized on desktop; it starts open (DISPATCHER-SPEC §9.3). */
+    chatMinimized: z.boolean().catch(false).default(false),
   }),
 });
 

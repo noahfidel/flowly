@@ -1,25 +1,36 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Pressable, View } from "react-native";
-import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { Animated, Pressable, View } from "react-native";
+import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
+import type { PaseoAgent } from "@getpaseo/client";
 import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { msg, t, tn } from "../shared/i18n";
 import { userSendOptions, type ChatItem } from "../shared/dispatcher";
-import { Button, IconButton, Label, Notice, TextBox, font, message, noFocusRing, radius, space, touch, useTheme, verticalScroll } from "./ui";
-import { ActivityBlock, TranscriptEntry } from "./session-transcript";
-import { useSessionTimeline } from "./session-timeline";
-import { coalescedRefresh } from "./session-follow";
+import { maxImages } from "../shared/composer";
+import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
+import { Button, IconButton, Label, Notice, font, message, noFocusRing, radius, space, touch, useTheme } from "./ui";
+import { SessionTranscript, type TranscriptExtra, type TranscriptExtraRow, type TranscriptHandle, type TranscriptNotice } from "./session-transcript";
+import { ComposerBox, useComposerDraft } from "./session-composer";
+import { restoredDraft } from "./session-input";
+import { sessionState } from "./session-state";
+import { sessionTone } from "./status";
+import { RunningDots } from "./running-motion";
+import { newMessageId, rememberSentImages } from "./sent-images";
 import { Collapse } from "./disclosure";
-import { useReducedMotion } from "./motion";
+import { PulseDot, useReducedMotion } from "./motion";
 import { useKeyboardInset } from "./keyboard";
-import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery } from "./queries";
+import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery, useLiveAgents } from "./queries";
 import { useStableCallback } from "./stable";
-import { displayRows, mergeTimeline, sameItem, type DisplayRow } from "./dispatcher-panel-logic";
+import { chatRows, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
 import { AnswerRow, AskRow } from "./dispatcher-asks";
 import { markAsksAnswered } from "./answered-asks";
 
-/** The dispatcher chat next to the board (DISPATCHER-SPEC §9.3). */
+/**
+ * The dispatcher chat next to the board (DISPATCHER-SPEC §9.3), on the card session view's own parts: the session
+ * transcript (messages, streaming, tool calls, permissions) and the message box. Only the dispatcher's rows (notes,
+ * asks with their ticks, answers, the board summary and the "changed since you looked" line) are its own.
+ */
 
 const statusKey = ["flowly", "dispatcher", "status"] as const;
 const noteKinds: Record<string, string> = {
@@ -32,18 +43,21 @@ const noteKinds: Record<string, string> = {
 type Props = {
   /** Shown: only then are the status, items and transcript read and the stream followed. */
   visible: boolean;
+  compact?: boolean;
   /** A card's lane name in its own project. */
   laneOf(projectId: string, status: string): string;
   onOpenCard(taskId: string): void;
+  /** Minimize (desktop) or close (phone) the chat. */
   onClose(): void;
   /** The bell's jump to an ask (§9.4): scroll to its row and outline it; a new `key` jumps again. */
   focus?: { signal: string; key: number } | null;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, onOpenCard, onClose, focus }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, onClose, focus }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
+  const toast = useToast();
   const readStatus = useRpc(rpc.dispatcherStatus);
   const startRpc = useRpc(rpc.dispatcherStart);
   const status = useQuery({ queryKey: statusKey, queryFn: () => readStatus({}), enabled: visible, refetchInterval: visible ? 5_000 : false, placeholderData: (p) => p });
@@ -51,44 +65,38 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, 
   const state = status.data?.state;
   const agentId = status.data?.agentId ?? null;
   const up = state === "running" || state === "idle";
-  const [error, setError] = useState("");
+  const [startError, setStartError] = useState("");
   const [starting, setStarting] = useState(false);
+  const mounted = useRef(visible);
+  mounted.current = visible;
 
-  // The transcript: read while shown, refreshed by the agent's timeline stream while it is up.
-  const [streamReady, setStreamReady] = useState(false);
-  const timeline = useSessionTimeline({ taskId: "dispatcher", agentId: agentId ?? "-", enabled: visible && !!agentId, streamReady, dispatcher: true });
-  const refetch = timeline.query.refetch;
-  useEffect(() => {
-    if (!visible || !agentId || !up) return;
-    let alive = true;
-    const updates = coalescedRefresh(() => void refetch({ cancelRefetch: false }), 400);
-    const subscription = paseo.agents.ref(agentId).timeline.subscribe(() => {
-      if (alive) updates.trigger();
-    });
-    void subscription.ready.then(
-      () => alive && setStreamReady(true),
-      () => undefined,
-    );
-    return () => {
-      alive = false;
-      setStreamReady(false);
-      updates.dispose();
-      subscription();
-    };
-  }, [paseo, agentId, visible, up]);
-
-  const rows = useMemo(() => displayRows(mergeTimeline(timeline.query.data?.entries ?? [], items.data ?? [])), [timeline.query.data?.entries, items.data]);
-  const lastKey = rows.at(-1)?.key;
+  // The session itself, read as a card's session view reads it: the streamed agent list, else a poll.
+  const live = useLiveAgents({
+    poll: false,
+    select: useCallback((agents: PaseoAgent[]) => agents.find((a) => a.id === agentId) ?? null, [agentId]),
+  });
+  const current = useQuery({
+    queryKey: ["flowly", "agent", agentId ?? "-"],
+    queryFn: () => paseo.agents.ref(agentId!).refresh(),
+    enabled: visible && !!agentId,
+    refetchInterval: 10000,
+  });
+  const streamed = live.data ?? undefined;
+  const polled = current.data?.agent;
+  const agent = agentId ? (streamed && (!polled || streamed.updatedAt >= polled.updatedAt) ? streamed : polled) : undefined;
+  const running = agent ? agent.status === "running" || agent.status === "initializing" : state === "running";
+  const session = agent ? sessionState(agent) : null;
+  const tone = session ? sessionTone(colors, session) : colors.foregroundMuted;
 
   const start = useStableCallback(async () => {
-    setError("");
+    setStartError("");
     setStarting(true);
     try {
       await startRpc({});
       await client.invalidateQueries({ queryKey: statusKey });
     } catch (e) {
       // HOST_UNSUPPORTED and START_FAILED arrive with a readable message (DISPATCHER-SPEC §2, §8).
-      setError(message(e));
+      setStartError(message(e));
     } finally {
       setStarting(false);
     }
@@ -105,160 +113,175 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, 
     markAsksAnswered((items.data ?? []).flatMap((item) => (item.kind === "ask" && item.state !== "open" ? [item.signal] : [])));
   }, [items.data]);
 
-  // Follow the newest output unless the user scrolled up.
-  const scroll = useRef<{ scrollToEnd(options?: { animated?: boolean }): void; scrollTo(options: { y: number; animated?: boolean }): void } | null>(null);
-  // Row offsets, for the bell's jump to an ask.
-  const offsets = useRef(new Map<string, number>());
+  // The dispatcher's rows on the shared transcript, in time order with its output (§9.3).
   const focusedKey = focus ? `item-ask-${focus.signal}` : "";
-  useEffect(() => {
-    if (!focusedKey) return;
-    const y = offsets.current.get(focusedKey);
-    if (y === undefined) return;
-    following.current = false;
-    scroll.current?.scrollTo({ y: Math.max(0, y - space[3]), animated: true });
-  }, [focus?.key, focusedKey, rows]);
-  const following = useRef(true);
-  const onScroll = useStableCallback((e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    following.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 48;
-  });
-  const keyboard = useKeyboardInset(visible, useReducedMotion());
-
-  const renderRow = useCallback(
-    (row: DisplayRow) =>
-      row.kind === "block" ? (
-        row.block.kind === "activity" ? (
-          <ActivityBlock block={row.block} live={state === "running" && row.key === lastKey} />
-        ) : (
-          <TranscriptEntry entry={row.block.entry} taskId="dispatcher" agentId={agentId ?? ""} />
-        )
-      ) : row.kind === "summary" ? (
-        <SummaryRow />
-      ) : row.item.kind === "ask" ? (
-        <AskRow item={row.item} focused={row.key === focusedKey} onOpenCard={onOpenCard} onChanged={refreshItems} />
-      ) : row.item.kind === "answer" ? (
-        <AnswerRow item={row.item} title={askTitles.get(row.item.signal) ?? ""} onOpenCard={onOpenCard} />
-      ) : (
-        <ItemRow item={row.item} laneOf={laneOf} onOpenCard={onOpenCard} onChanged={refreshItems} />
-      ),
-    [state, lastKey, agentId, laneOf, onOpenCard, refreshItems, focusedKey, askTitles],
+  const renderExtra = useCallback(
+    (row: TranscriptExtraRow) => {
+      const extra = row.item as ChatExtra;
+      if (extra.kind === "summary") return <SummaryRow />;
+      const item = extra.item;
+      if (item.kind === "ask") return <AskRow item={item} focused={row.key === focusedKey} onOpenCard={onOpenCard} onChanged={refreshItems} />;
+      if (item.kind === "answer") return <AnswerRow item={item} title={askTitles.get(item.signal) ?? ""} onOpenCard={onOpenCard} />;
+      return <ItemRow item={item} laneOf={laneOf} onOpenCard={onOpenCard} onChanged={refreshItems} />;
+    },
+    [focusedKey, onOpenCard, refreshItems, askTitles, laneOf],
+  );
+  const chatItems = items.data;
+  const extra = useMemo<TranscriptExtra>(
+    () => ({
+      rows: (entries) => chatRows(entries, chatItems ?? []),
+      render: renderExtra,
+      focus: focusedKey ? { key: focusedKey, seq: focus!.key } : null,
+    }),
+    [chatItems, renderExtra, focusedKey, focus?.key],
   );
 
-  return (
-    <View ref={keyboard.ref} onLayout={keyboard.onLayout} style={{ flex: 1, minHeight: 0, minWidth: 0, backgroundColor: colors.surface0 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], paddingHorizontal: space[3], paddingVertical: space[2], borderBottomWidth: 1, borderBottomColor: colors.border }}>
-        <Icon name="Bot" size={16} color={colors.foregroundMuted} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label bold size={font.base} lines={1} selectable={false}>{t("Dispatcher")}</Label>
-        </View>
-        {state === "running" && <ActivityIndicator size="small" color={colors.accent} />}
-        <IconButton icon="X" label={t("Close")} onPress={onClose} />
-      </View>
-      <ScrollView
-        {...verticalScroll}
-        ref={scroll as never}
-        style={{ flex: 1, minHeight: 0 }}
-        contentContainerStyle={{ padding: space[3], paddingBottom: space[3] + keyboard.inset, gap: space[3] }}
-        keyboardShouldPersistTaps="handled"
-        scrollEventThrottle={100}
-        onScroll={onScroll}
-        onContentSizeChange={() => following.current && scroll.current?.scrollToEnd({ animated: false })}
-      >
-        {timeline.canLoadEarlier && (
-          <View style={{ alignItems: "center" }}>
-            <Button quiet small icon="ArrowUp" disabled={timeline.loadingEarlier} onPress={() => void timeline.loadEarlier()}>
-              {t("Load earlier")}
-            </Button>
-          </View>
-        )}
-        {rows.map((row) => (
-          <View key={row.key} onLayout={row.kind === "item" && row.item.kind === "ask" ? (e) => void offsets.current.set(row.key, e.nativeEvent.layout.y) : undefined}>
-            {renderRow(row)}
-          </View>
-        ))}
-        {status.isPending && visible && <ActivityIndicator size="small" color={colors.foregroundMuted} />}
-        {!!status.error && <Notice>{message(status.error)}</Notice>}
-        {!!state && !up && (
-          <View style={{ gap: space[2], alignItems: "flex-start" }}>
-            <Label muted size={font.md}>
-              {state === "ended" ? t("The dispatcher session ended.") : t("Starts one agent session that works across all your projects.")}
-            </Label>
-            <Button primary icon="Play" disabled={starting} onPress={() => void start()}>
-              {t("Start dispatcher")}
-            </Button>
-            {!!error && <Notice>{error}</Notice>}
-          </View>
-        )}
-      </ScrollView>
-      {up && agentId && (
-        <Animated.View style={{ flexShrink: 0, backgroundColor: colors.surface0, transform: [{ translateY: keyboard.translate }], borderTopWidth: 1, borderTopColor: colors.border, padding: space[2] }}>
-          <Composer
-            agentId={agentId}
-            onSent={() => {
-              following.current = true;
-              void refetch();
-            }}
-          />
-        </Animated.View>
-      )}
-    </View>
-  );
-});
-
-/**
- * Sends exactly the typed text to the dispatcher with the host's Paseo client (no second connection), always
- * steering (`userSendOptions`). The Send button sends; Enter adds a line (a multiline native input never submits).
- */
-function Composer({ agentId, onSent }: { agentId: string; onSent(): void }) {
-  const { colors } = useTheme();
-  const paseo = usePaseo();
-  const text = useRef("");
-  const [empty, setEmpty] = useState(true);
-  // A new key clears the box after a send (an outside change, as TextBox expects).
-  const [box, setBox] = useState(0);
+  // Its permission requests, answered here as in a card's session view (never without the user's choice).
+  const transcript = useRef<TranscriptHandle | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const send = useStableCallback(async () => {
-    const value = text.current.trim();
-    if (!value || sending) return;
+  const requestsKey = JSON.stringify(agent?.pendingPermissions ?? []);
+  const requests = useMemo(() => pendingRequests(agent), [requestsKey]);
+  const respond = useStableCallback((request: PendingRequest, reply: PermissionReply) => {
+    if (!agentId || sending) return;
     setSending(true);
     setError("");
+    void (async () => {
+      const latest = (await paseo.agents.ref(agentId).refresh())?.agent;
+      if (!pendingRequests(latest).some((r) => r.id === request.id)) throw new Error(t("This request was already answered or withdrawn."));
+      await paseo.agents.ref(agentId).respondToPermission({ requestId: request.id, response: reply });
+      toast.show(reply.behavior === "allow" && request.kind === "question" ? t("Answer sent") : t("Response sent"), { variant: "success" });
+      if (mounted.current) transcript.current?.jumpToLatest();
+      await current.refetch();
+      transcript.current?.refresh();
+    })()
+      .catch((e) => setError(message(e)))
+      .finally(() => setSending(false));
+  });
+
+  // The message box: the card session view's, with the text kept here. Sends always steer (§9.3).
+  const [draft, setDraft] = useState("");
+  const draftChange = useStableCallback((_id: string, text: string, expected?: string) =>
+    setDraft((now) => (expected !== undefined && now !== expected ? now : text)),
+  );
+  const box = useComposerDraft({ sessionId: "dispatcher", draft, onDraftChange: draftChange, isMounted: () => mounted.current });
+  const canWrite = visible && up && !!agentId && !!agent && !agent.providerUnavailable && !sending;
+  const submit = useStableCallback(async () => {
+    box.flush();
+    const text = box.read();
+    const attached = box.attachmentsRef.current;
+    const images = attached.map(({ data, mimeType }) => ({ data, mimeType }));
+    if (!canWrite || !agentId || (!text.trim() && !images.length)) return;
+    setSending(true);
+    setError("");
+    const messageId = newMessageId();
+    rememberSentImages(messageId, attached.map((a) => a.uri));
+    // Cleared at once, so text typed while the send is in flight stays; a failed send puts it back.
+    box.clear(text);
+    draftChange("dispatcher", "", text);
+    box.setAttachments(box.attachmentsRef.current.filter((a) => !attached.includes(a)));
+    transcript.current?.echo(messageId, text);
+    transcript.current?.jumpToLatest();
     try {
-      await paseo.agents.ref(agentId).send(value, userSendOptions);
-      text.current = "";
-      setEmpty(true);
-      setBox((n) => n + 1);
-      onSent();
+      await paseo.agents.ref(agentId).send(text, { ...userSendOptions, ...(images.length ? { images } : {}), messageId });
+      void current.refetch();
+      transcript.current?.refresh();
     } catch (e) {
+      transcript.current?.unecho(messageId);
+      box.flush();
+      setDraft(restoredDraft(text, box.read()));
+      if (mounted.current) box.setAttachments([...attached, ...box.attachmentsRef.current].slice(0, maxImages));
       setError(message(e));
     } finally {
       setSending(false);
     }
   });
+  const keyboard = useKeyboardInset(visible, useReducedMotion());
+
+  const notices: TranscriptNotice[] = [];
+  if (status.error) notices.push({ key: "status", text: message(status.error) });
+  if (current.error) notices.push({ key: "session", text: message(current.error) });
+  if (agent?.lastError) notices.push({ key: "last-error", text: agent.lastError });
+  if (agent?.providerUnavailable)
+    notices.push({ key: "provider", tone: "warning", text: t("This session's provider is unavailable. Open in Paseo to inspect its configuration.") });
+
   return (
-    <View style={{ gap: space[1.5] }}>
-      {!!error && <Notice>{error}</Notice>}
-      <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space[2] }}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <TextBox
-            key={box}
-            value=""
-            autoFocus={box > 0}
-            multiline
-            placeholder={t("Message the dispatcher")}
-            placeholderTextColor={colors.foregroundMuted}
-            onChangeText={(next) => {
-              text.current = next;
-              setEmpty((was) => (was === !next.trim() ? was : !next.trim()));
-            }}
-            style={{ minHeight: touch ? 40 : 32, maxHeight: 140, paddingHorizontal: space[2], paddingVertical: space[1.5], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, color: colors.foreground, backgroundColor: colors.surface1, fontSize: font.base }}
-          />
+    <View ref={keyboard.ref} onLayout={keyboard.onLayout} style={{ flex: 1, minHeight: 0, minWidth: 0, backgroundColor: colors.surface0 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], paddingHorizontal: space[2], paddingVertical: space[2], borderBottomWidth: 1, borderBottomColor: colors.border, flexShrink: 0, minWidth: 0 }}>
+        {session?.active && <RunningDots color={tone} seed="dispatcher" />}
+        <View style={{ flex: 1, minWidth: 0, paddingHorizontal: space[1] }}>
+          <Label medium size={font.base} lines={1} selectable={false}>{t("Dispatcher")}</Label>
+          {session && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
+              <PulseDot color={tone} size={7} active={session.active} />
+              <View style={{ flexShrink: 1, minWidth: 0 }}>
+                <Label muted size={font.sm} lines={1} selectable={false}>
+                  <Label size={font.sm} medium color={session.active || "waiting" in session ? tone : colors.foregroundMuted} selectable={false}>
+                    {t(session.label)}
+                  </Label>
+                  {agent?.provider ? ` · ${agent.provider}${agent.model ? `/${agent.model}` : ""}` : ""}
+                </Label>
+              </View>
+            </View>
+          )}
         </View>
-        <IconButton icon="Send" label={t("Send")} disabled={empty || sending} onPress={() => void send()} />
+        <IconButton icon={compact ? "X" : "PanelLeftClose"} label={compact ? t("Close") : t("Minimize")} onPress={onClose} />
       </View>
+      <SessionTranscript
+        handle={transcript}
+        taskId="dispatcher"
+        agentId={agentId ?? "-"}
+        dispatcher
+        enabled={visible && !!agentId && !current.isError}
+        subscribe={visible && !!agentId && up}
+        settled
+        showOutput={!!agentId || !!chatItems?.length}
+        live={running}
+        starting={agent?.status === "initializing"}
+        loadingSession={visible && status.isPending}
+        notices={notices}
+        requests={requests}
+        requestsDisabled={!canWrite}
+        onRespond={respond}
+        lift={keyboard.translate}
+        inset={keyboard.inset}
+        onStreamError={setError}
+        extra={extra}
+      />
+      <Animated.View
+        style={{ flexShrink: 0, minWidth: 0, backgroundColor: colors.surface0, transform: [{ translateY: keyboard.translate }], zIndex: 25, paddingHorizontal: space[3], paddingTop: space[2], paddingBottom: space[3], gap: space[2] }}
+      >
+        {!!error && <Notice>{error}</Notice>}
+        {up && agentId ? (
+          <ComposerBox
+            composer={box}
+            canWrite={canWrite}
+            busy={sending}
+            running={running}
+            preferred="steer"
+            compact={compact}
+            editable={!!agent}
+            placeholder={t("Message the dispatcher")}
+            keyboard={keyboard}
+            onSubmit={() => void submit()}
+          />
+        ) : (
+          !!state && (
+            <View style={{ gap: space[2], alignItems: "flex-start" }}>
+              <Label muted size={font.md}>
+                {state === "ended" ? t("The dispatcher session ended.") : t("Starts one agent session that works across all your projects.")}
+              </Label>
+              <Button primary icon="Play" disabled={starting} onPress={() => void start()}>
+                {t("Start dispatcher")}
+              </Button>
+              {!!startError && <Notice>{startError}</Notice>}
+            </View>
+          )
+        )}
+      </Animated.View>
     </View>
   );
-}
+});
 
 function SummaryRow() {
   const { colors } = useTheme();

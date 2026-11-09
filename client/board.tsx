@@ -615,6 +615,11 @@ function BoardContent(
     events: currentDetail?.events || noEvents,
   } : undefined, [task, taskProject, currentDetail, detailData.error]);
   const drawer = useMotionPresence(drawerTarget, drawerTarget ? `${drawerTarget.project.id}|${drawerTarget.task.id}` : "");
+  // The dispatcher chat: open by default on desktop, minimized when the user says so (remembered per host);
+  // phones open it from the toolbar each time (DISPATCHER-SPEC §9.3).
+  const chatOpen = compact ? chat.open : !!view.values && !view.values.chatMinimized && (!!project || allView);
+  const chatMotion = useMotionPresence(chatOpen ? true : undefined, chatOpen ? "dispatcher-chat" : "");
+  const chatMounted = useRef(false);
   // Desktop: the open card's lane is centred in the board left of the drawer when the drawer would hide it, on
   // opening, on moving to another lane, and on coming back to the board from a page (DRAWER-SPEC). Only the last:
   // an In review / Blocked chip pressed in the same moment (it also leaves the page) keeps its own lane.
@@ -831,7 +836,7 @@ function BoardContent(
   const openAttention = (item: AttentionItem) => {
     setMenu(null);
     // With the chat open, a card's first open ask that the chat lists is where the row goes; else the card opens.
-    const listed = chat.open ? queryClient.getQueryData<ChatItem[]>(dispatcherItemsKey) : undefined;
+    const listed = chatOpen ? queryClient.getQueryData<ChatItem[]>(dispatcherItemsKey) : undefined;
     const target = listed && item.parts.find((p) => !p.dismissed && listed.some((i) => i.kind === "ask" && i.state === "open" && i.signal === p.key));
     if (target) {
       const focus = () => setChatFocus({ signal: target.key, key: Date.now() });
@@ -1175,24 +1180,41 @@ function BoardContent(
   });
   const toggleChat = useStableCallback(() => {
     // Opening the chat is acting on its tip.
-    if (!chat.open && onboarding.values && !onboarding.values.tipsSeen.includes("dispatcher")) void onboarding.markTipSeen("dispatcher");
-    setChat((c) => ({ open: !c.open, mounted: true }));
+    if (!chatOpen && onboarding.values && !onboarding.values.tipsSeen.includes("dispatcher")) void onboarding.markTipSeen("dispatcher");
+    if (compact) setChat((c) => ({ open: !c.open, mounted: true }));
+    else void view.update({ chatMinimized: chatOpen });
   });
-  const closeChat = useStableCallback(() => setChat((c) => (c.open ? { ...c, open: false } : c)));
+  const closeChat = useStableCallback(() => {
+    if (compact) setChat((c) => (c.open ? { ...c, open: false } : c));
+    else if (chatOpen) void view.update({ chatMinimized: true });
+  });
   const chatLaneOf = useStableCallback((projectId: string, status: string) =>
     laneName(board?.projects.find((p) => p.id === projectId) ?? null, status as Status),
   );
-  const chatPanel = chat.mounted && (
-    <View
+  // Desktop: shown while it is opening, open or closing, and kept mounted (hidden) afterwards so its draft stays.
+  const chatShown = compact ? chat.open : !!chatMotion.item;
+  if (!compact && chatShown) chatMounted.current = true;
+  const chatPanel = (compact ? chat.mounted : chatMounted.current) && (
+    <Animated.View
+      pointerEvents={compact || chatMotion.active ? "auto" : "none"}
       style={
         compact
           ? // Phone: a full-screen page under an open card's sidebar, so closing the card comes back to the chat.
             { position: "absolute", top: 0, bottom: 0, left: 0, right: 0, zIndex: 29, display: chat.open ? "flex" : "none" }
-          : { width: 380, flexShrink: 0, minHeight: 0, borderRightWidth: 1, borderRightColor: colors.border, display: chat.open ? "flex" : "none" }
+          : {
+              width: 380,
+              flexShrink: 0,
+              minHeight: 0,
+              borderRightWidth: 1,
+              borderRightColor: colors.border,
+              display: chatShown ? "flex" : "none",
+              // The card sidebar's open and close, mirrored to the left; at rest no animated props (MotionReveal).
+              ...(chatMotion.settled ? null : { opacity: chatMotion.progress, transform: [{ translateX: lerp(chatMotion.progress, [-32, 0]) }] }),
+            }
       }
     >
-      <DispatcherPanel visible={chat.open} laneOf={chatLaneOf} focus={chatFocus} onOpenCard={openTaskById} onClose={closeChat} />
-    </View>
+      <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} focus={chatFocus} onOpenCard={openTaskById} onClose={closeChat} />
+    </Animated.View>
   );
   const togglePage = (next: "insights" | "ideas" | "memory" | "search") => {
     ignoredLink.current = linkKey;
@@ -1429,7 +1451,7 @@ function BoardContent(
           skillDraft: features.insights && workflowTipDue && !!workflowView.data?.findings.some((f) => f.status === "open" && f.target === "skill" && !!f.skill),
           memoryCandidate: !task && !!memoryCandidates,
           searchable: !task && projectTasks.filter((x) => !x.archivedAt).length >= 10,
-          dispatcherIntro: !task && !chat.open && projectTasks.some((x) => !x.archivedAt),
+          dispatcherIntro: !task && !chatOpen && projectTasks.some((x) => !x.archivedAt),
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen || settingsHint || whatsNewOpen || whatsNewDue === "show",
       });
@@ -1931,7 +1953,7 @@ function BoardContent(
               />
             )}
             {(!!project || allView) && (
-              <IconButton icon="Bot" label={t("Dispatcher")} active={chat.open} onPress={toggleChat} />
+              <IconButton icon="Bot" label={t("Dispatcher")} active={chatOpen} onPress={toggleChat} />
             )}
             <View ref={attentionRef} collapsable={false}>
               <AttentionButton
