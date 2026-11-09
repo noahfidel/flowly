@@ -109,7 +109,6 @@ export class ToolServer {
     this.dispatcher = new Dispatcher(
       store.directory,
       {
-        mcp: (identity) => this.dispatcherServer(identity),
         summary: async () => dispatcherSummary(await store.read()),
       },
       dispatcherPath,

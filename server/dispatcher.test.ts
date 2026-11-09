@@ -108,7 +108,6 @@ async function setup(summary: () => Promise<string> = async () => "Board summary
   const dispatcher = new Dispatcher(
     directory,
     {
-      mcp: async (identity) => ({ type: "http" as const, url: "http://127.0.0.1:1/mcp", headers: { Authorization: `Bearer sealed-${identity.agentId}` } }),
       summary,
     },
     folder,
@@ -149,10 +148,11 @@ test("start creates a background directory workspace once and reuses it", async 
         provider: "claude/claude-sonnet-5-5",
         modeId: "default",
         systemPrompt: dispatcherCharter,
-        mcpServers: { "flowly-dispatcher": { type: "http", headers: { Authorization: `Bearer sealed-${first.agentId}` } } },
       },
     },
   });
+  // Its MCP server comes from the session-open hook only: a saved one would collide with it in Paseo (§3).
+  expect((x.agentCreates[0].options.config as Record<string, unknown>).mcpServers).toBeUndefined();
   const stored = JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8"));
   expect(stored).toMatchObject({ version: 1, workspaceId: "dw-1", agentId: first.agentId });
   expect(typeof stored.startedAt).toBe("string");

@@ -75,7 +75,7 @@ test("the change line counts cards changed since the seen revision", () => {
 test("Mark seen hides the change line until something new changes", async () => {
   const dir = await directory();
   const now = { value: T0 + 60_000 };
-  const dispatcher = new Dispatcher(dir, { mcp: async () => ({ type: "http", url: "http://x", headers: {} }), summary: async () => "", now: () => now.value }, join(dir, "..", "unused-dispatcher-folder"));
+  const dispatcher = new Dispatcher(dir, { summary: async () => "", now: () => now.value }, join(dir, "..", "unused-dispatcher-folder"));
   // Before any dispatcher and any mark: no baseline.
   expect(seenMark(await dispatcher.record())).toBeNull();
   // The dispatcher's start is the mark until the user marks seen.
@@ -97,7 +97,7 @@ test("Mark seen hides the change line until something new changes", async () => 
   expect(await dispatcher.markSeen(T0 + 3_600_000)).toBe(T0 + 60_000);
   expect(seenMark(await dispatcher.record())).toEqual(mark(T0 + 60_000));
   // The mark is stored and survives a reload.
-  const again = new Dispatcher(dir, { mcp: async () => ({ type: "http", url: "http://x", headers: {} }), summary: async () => "" }, join(dir, "..", "unused-dispatcher-folder"));
+  const again = new Dispatcher(dir, { summary: async () => "" }, join(dir, "..", "unused-dispatcher-folder"));
   expect((await again.record()).seenRevision).toBe(T0 + 60_000);
 });
 
@@ -147,7 +147,7 @@ test("a corrupt items file is preserved and read as empty", async () => {
 
 test("events in the same millisecond as the mark are not lost", async () => {
   const dir = await directory();
-  const dispatcher = new Dispatcher(dir, { mcp: async () => ({ type: "http", url: "http://x", headers: {} }), summary: async () => "", now: () => T0 + 60_000 }, join(dir, "..", "unused-dispatcher-folder"));
+  const dispatcher = new Dispatcher(dir, { summary: async () => "", now: () => T0 + 60_000 }, join(dir, "..", "unused-dispatcher-folder"));
   const b = board();
   const ms = T0 + 1_000;
   b.events.push(event("t1", ms, { id: "a" }));

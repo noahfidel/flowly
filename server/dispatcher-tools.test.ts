@@ -78,6 +78,8 @@ async function setup() {
     actor: { id: "actor", workspaceId: "w", status: "idle", archivedAt: null },
   };
   const createdWorkspaces: { title: string; source: { kind: string; projectId?: string } }[] = [];
+  /** The MCP servers each created session launched with: its saved ones plus what the plugin's open hook adds. */
+  const launched: Record<string, Record<string, unknown>> = {};
   const paseo = {
     ...(fixture.paseo as unknown as Record<string, unknown>),
     agents: {
@@ -88,7 +90,15 @@ async function setup() {
       ref: (id: string) => ({
         refresh: async () => (id === "dw" ? { id: "dw", archivingAt: null, workspaceDirectory: dispatcherPath } : fixture.workspace()),
         agents: {
-          create: async (options: { agentId: string }) => {
+          create: async (options: { agentId: string; config?: { mcpServers?: Record<string, unknown> } }) => {
+            // As Paseo's daemon (agent-manager.js resolveProviderLaunchConfig): a server the plugin's open hook adds
+            // (index.server.ts adds the dispatcher's through dispatcherSession) must not share a name with a saved one.
+            const saved = options.config?.mcpServers ?? {};
+            const added = await server.dispatcherSession(options.agentId, paseo);
+            const plugin: Record<string, unknown> = added ? { "flowly-dispatcher": added } : {};
+            for (const name of Object.keys(plugin))
+              if (name in saved) throw new Error(`MCP server '${name}' from plugin flowly collides with agent saved configuration`);
+            launched[options.agentId] = { ...saved, ...plugin };
             agents[options.agentId] = { id: options.agentId, workspaceId: id, status: "running", archivedAt: null };
             return { id: options.agentId };
           },
@@ -127,7 +137,7 @@ async function setup() {
     return { mcp, call, names };
   };
   const dispatcherToken = server.secrets.dispatcherCredential({ agentId: "disp", workspaceId: "dw" });
-  return { ...fixture, server, paseo, agents, url, createdWorkspaces, connect, dispatcherToken };
+  return { ...fixture, server, paseo, agents, url, createdWorkspaces, launched, connect, dispatcherToken };
 }
 
 const code = (result: { isError?: boolean; structuredContent?: { error?: { code?: string } } }) =>
@@ -257,6 +267,19 @@ test("the dispatcher has its own hourly limit of 40, apart from the card agents'
   expect(over.structuredContent.error.message).toContain("40");
   // And the dispatcher's 40 leave a card agent's 20 untouched.
   expect(() => x.server.cards.reserve("actor")).not.toThrow();
+});
+
+test("a new dispatcher gets its tools from the open hook only, so Paseo starts it (DISPATCHER-SPEC §3)", async () => {
+  const x = await setup();
+  x.agents.disp.status = "closed";
+  // Paseo refuses a plugin-added MCP server named like a saved one; the start must not trip it.
+  const { agentId } = await x.server.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(Object.keys(x.launched[agentId])).toEqual(["flowly-dispatcher"]);
+  const server = x.launched[agentId]["flowly-dispatcher"] as { headers: { Authorization: string } };
+  const fresh = await x.connect(server.headers.Authorization.replace(/^Bearer /, ""));
+  expect(code(await fresh.call("flowly_list_projects", {}))).toBeUndefined();
+  // A later open (a resume, a daemon restart) gets it from the hook again.
+  expect(await x.server.dispatcherSession(agentId, x.paseo)).toMatchObject({ type: "http" });
 });
 
 test("a dispatcher token from a replaced dispatcher is refused", async () => {

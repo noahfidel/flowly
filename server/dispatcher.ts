@@ -23,7 +23,6 @@ import type { AgentModel } from "../shared/agent-defaults";
 import { createDirectoryWorkspace } from "./background-workspace";
 import { logFailure } from "./error-report";
 import { EventBus, NoteBatcher, isStop } from "./event-bus";
-import type { DispatcherIdentity } from "./tool-context";
 import { ToolError } from "./tool-error";
 
 /** The one cross-project dispatcher session: record, workspace, lifecycle and note delivery (DISPATCHER-SPEC). */
@@ -89,10 +88,7 @@ const recordSchema = z.strictObject({
 export type DispatcherRecord = z.infer<typeof recordSchema>;
 const emptyRecord = (): DispatcherRecord => ({ version: 1, workspaceId: null, agentId: null, startedAt: null });
 
-export type DispatcherMcpServer = { type: "http"; url: string; headers: Record<string, string> };
 export type DispatcherDeps = {
-  /** The `flowly-dispatcher` MCP server entry for this session (the tool service, sealed credential). */
-  mcp: (identity: DispatcherIdentity) => Promise<DispatcherMcpServer>;
   /** The first message: projects with their ids, open cards and ideas (§6). */
   summary: () => Promise<string>;
   now?: () => number;
@@ -267,7 +263,7 @@ export class Dispatcher {
     // What is held now is on the board the summary reads; later notes are kept (one may repeat the summary).
     const covered = [...this.held];
     try {
-      const [mcp, summary] = await Promise.all([this.deps.mcp({ agentId, workspaceId }), this.deps.summary()]);
+      const summary = await this.deps.summary();
       if (previous.agentId) await this.retire(paseo, previous.agentId);
       const now = this.deps.now?.() ?? Date.now();
       const earlier = previous.agentId
@@ -276,7 +272,7 @@ export class Dispatcher {
       for (const [taskId, held] of covered) if (this.held.get(taskId) === held) this.held.delete(taskId);
       // Stored first: the session's first tool calls already pass the caller check (§4).
       await this.save((r) => ({ ...r, workspaceId, agentId, startedAt: new Date(now).toISOString(), ...(earlier ? { previousAgentIds: earlier } : {}) }));
-      await this.create(paseo, { workspaceId, agentId, mcp, summary, input, previous });
+      await this.create(paseo, { workspaceId, agentId, summary, input, previous });
     } finally {
       this.starting = null;
       // Notes held meanwhile go out by the dispatcher's state now (the new one, or the one a refused start kept).
@@ -302,10 +298,9 @@ export class Dispatcher {
 
   private async create(
     paseo: PaseoApi,
-    { workspaceId, agentId, mcp, summary, input, previous }: {
+    { workspaceId, agentId, summary, input, previous }: {
       workspaceId: string;
       agentId: string;
-      mcp: DispatcherMcpServer;
       summary: string;
       input: { provider: string; modeId?: string; thinking?: string };
       previous: DispatcherRecord;
@@ -320,7 +315,8 @@ export class Dispatcher {
           ...(input.modeId ? { modeId: input.modeId } : {}),
           ...(input.thinking ? { thinkingOptionId: input.thinking } : {}),
           systemPrompt: dispatcherCharter,
-          mcpServers: { "flowly-dispatcher": mcp },
+          // No saved `flowly-dispatcher` server: the plugin's session-open hook adds it at every open, the first
+          // included (the record already names this id), and Paseo refuses a hook server named like a saved one (§3).
         },
         title: DISPATCHER_TITLE,
         labels: { "flowly-dispatcher": "1" },
