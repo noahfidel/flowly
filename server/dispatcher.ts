@@ -5,7 +5,6 @@ import type { PaseoApi } from "@getpaseo/client";
 import { z } from "zod";
 import {
   dispatcherCharter,
-  dispatcherContextLimit,
   dispatcherDefaultModel,
   dispatcherStartInputSchema,
   mergeNotes,
@@ -30,6 +29,8 @@ import { ToolError } from "./tool-error";
 /** The one cross-project dispatcher session: record, workspace, lifecycle and note delivery (DISPATCHER-SPEC). */
 
 export const DISPATCHER_TITLE = "Flowly dispatcher";
+/** How many earlier dispatcher session ids the record keeps. */
+const previousAgentIdLimit = 20;
 
 const recordSchema = z.strictObject({
   version: z.literal(1),
@@ -40,6 +41,8 @@ const recordSchema = z.strictObject({
   seenRevision: z.number().int().nonnegative().optional(),
   /** Ids of the seen events at exactly `seenRevision`, so later events in that millisecond still count. */
   seenIds: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional(),
+  /** The earlier dispatcher sessions of this install, oldest first (their actions are not news either, §9.2). */
+  previousAgentIds: z.array(z.string().min(1).max(300)).max(previousAgentIdLimit).optional(),
 });
 export type DispatcherRecord = z.infer<typeof recordSchema>;
 const emptyRecord = (): DispatcherRecord => ({ version: 1, workspaceId: null, agentId: null, startedAt: null });
@@ -56,23 +59,32 @@ export type DispatcherDeps = {
 type AgentSnapshot = {
   status?: string | null;
   archivedAt?: string | null;
-  lastUsage?: { contextWindowUsedTokens?: number; contextWindowMaxTokens?: number } | null;
   pendingPermissions?: readonly unknown[] | null;
 } | null | undefined;
 
 /** After a send, Paseo may still report the dispatcher idle for a moment; no second send within this (as the composer's drain). */
 export const SEND_COOLDOWN_MS = 8_000;
-/** `agent.turn_ended` can arrive before Paseo's snapshot leaves "running": one retry after this. */
+/** `agent.turn_ended` can arrive before Paseo's snapshot leaves "running": the first re-check after this. */
 export const TURN_END_RETRY_MS = 2_000;
+/** While notes stay held after a turn end, the re-checks slow down to at most one per this long (§7). */
+export const RECHECK_MAX_MS = 60_000;
+const recheckDelays = [TURN_END_RETRY_MS, 5_000, 15_000, 30_000, RECHECK_MAX_MS];
+
+/**
+ * The one test for a dead dispatcher (§3): Paseo no longer returns it, it is archived, or it is closed. Only a
+ * dead dispatcher is replaced (and then archived); every other status, `error` included, is the live one.
+ */
+export function isDeadDispatcher(agent: AgentSnapshot): boolean {
+  return !agent || !!agent.archivedAt || agent.status === "closed";
+}
 
 /** The state of the stored dispatcher session as Flowly reads it (§3). */
 export function dispatcherState(agent: AgentSnapshot): Exclude<DispatcherState, "none"> {
-  if (!agent || agent.archivedAt || agent.status === "error" || agent.status === "closed") return "ended";
-  const used = agent.lastUsage?.contextWindowUsedTokens,
-    max = agent.lastUsage?.contextWindowMaxTokens;
-  if (typeof used === "number" && typeof max === "number" && max > 0 && used / max >= dispatcherContextLimit) return "context_full";
-  return agent.status === "running" || agent.status === "initializing" ? "running" : "idle";
+  if (isDeadDispatcher(agent)) return "ended";
+  return agent?.status === "running" || agent?.status === "initializing" ? "running" : "idle";
 }
+
+const dispatcherRunning = () => new ToolError("DISPATCHER_RUNNING", "The dispatcher is already running. Open its chat instead of starting another.");
 
 /** The dispatcher's first message (§6): each live project's id, then the open cards and ideas, without memory. */
 export function dispatcherSummary(board: Board): string {
@@ -112,8 +124,14 @@ export class Dispatcher {
   private held = new Map<string, DispatcherNote>();
   /** When Flowly last sent the dispatcher notes; null before the first send. */
   private lastSent: number | null = null;
-  /** The one pending re-check (send cooldown or turn-end retry). */
+  /** The one pending re-check (send cooldown or turn-end retry) and when it fires. */
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryAt = 0;
+  /** After a turn end, held notes are re-checked with a growing delay (`recheckDelays`) until they go out. */
+  private chasing = false;
+  private chaseStep = 0;
+  /** The session id a start has stored but Paseo may not have created yet: notes for it are held, not dropped. */
+  private starting: string | null = null;
   private disposed = false;
   /** The Dispatcher model setting (plan Q6); null uses `dispatcherDefaultModel`. Set by the plugin entry. */
   modelSetting: () => Promise<AgentModel | null> = async () => null;
@@ -155,6 +173,12 @@ export class Dispatcher {
   agentId() {
     return this.cached?.agentId ?? null;
   }
+  /** Every dispatcher session id this install has had (earlier ones, then the current one), once the record is loaded. */
+  agentIds(): string[] {
+    const record = this.cached;
+    if (!record) return [];
+    return [...(record.previousAgentIds ?? []), ...(record.agentId ? [record.agentId] : [])];
+  }
   /** Whether `workspaceId` is the dispatcher's workspace; such a workspace is never bound to a card (§2). */
   async owns(workspaceId: string) {
     const { workspaceId: own } = await this.record();
@@ -165,10 +189,14 @@ export class Dispatcher {
     const { agentId } = await this.record();
     if (!agentId) return { state: "none", agentId: null };
     const found = await paseo.agents.ref(agentId).refresh();
-    return { state: dispatcherState(found?.agent), agentId };
+    const state = dispatcherState(found?.agent);
+    // A read that sees it idle is a chance to deliver what is held (§7).
+    if (state === "idle" && this.held.size && !this.disposed)
+      void this.serial(() => this.flush(paseo, false)).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
+    return { state, agentId };
   }
 
-  /** Starts a new dispatcher session; one at a time, refused while one is up (§3). */
+  /** Starts a new dispatcher session; one at a time, refused unless the stored one is dead (§3). */
   start(paseo: PaseoApi, raw: { provider?: string; modeId?: string }): Promise<{ agentId: string }> {
     const input = dispatcherStartInputSchema.parse(raw);
     const job = this.starts.then(async () => this.run(paseo, await this.model(input)));
@@ -189,17 +217,57 @@ export class Dispatcher {
   }
 
   private async run(paseo: PaseoApi, input: { provider: string; modeId?: string; thinking?: string }) {
-    const { state } = await this.status(paseo);
-    if (state === "running" || state === "idle")
-      throw new ToolError("DISPATCHER_RUNNING", "The dispatcher is already running. Open its chat instead of starting another.");
+    const stored = await this.record();
+    if (stored.agentId && !isDeadDispatcher((await paseo.agents.ref(stored.agentId).refresh())?.agent)) throw dispatcherRunning();
+    const workspaceId = await this.workspace(paseo, stored);
     const previous = await this.record();
-    const workspaceId = await this.workspace(paseo, previous);
     const agentId = randomUUID();
     const [mcp, summary] = await Promise.all([this.deps.mcp({ agentId, workspaceId }), this.deps.summary()]);
+    if (previous.agentId) await this.retire(paseo, previous.agentId);
     const now = this.deps.now?.() ?? Date.now();
-    // Stored first: the session's first tool calls already pass the caller check (§4).
-    await this.save((r) => ({ ...r, workspaceId, agentId, startedAt: new Date(now).toISOString() }));
+    const earlier = previous.agentId
+      ? [...(previous.previousAgentIds ?? []).filter((id) => id !== previous.agentId), previous.agentId].slice(-previousAgentIdLimit)
+      : previous.previousAgentIds;
     this.held.clear();
+    this.starting = agentId;
+    try {
+      // Stored first: the session's first tool calls already pass the caller check (§4).
+      await this.save((r) => ({ ...r, workspaceId, agentId, startedAt: new Date(now).toISOString(), ...(earlier ? { previousAgentIds: earlier } : {}) }));
+      await this.create(paseo, { workspaceId, agentId, mcp, summary, input, previous });
+    } finally {
+      this.starting = null;
+    }
+    // Notes that arrived while Paseo created it were held; deliver them by its state now.
+    void this.serial(() => this.flush(paseo, false)).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
+    return { agentId };
+  }
+
+  /**
+   * The stored dispatcher is being replaced: read it again and archive it only while it is still dead and not
+   * archived yet (that id only, never its workspace). A session that came back meanwhile refuses the start.
+   */
+  private async retire(paseo: PaseoApi, agentId: string) {
+    const again = (await paseo.agents.ref(agentId).refresh())?.agent;
+    if (!isDeadDispatcher(again)) throw dispatcherRunning();
+    if (!again || again.archivedAt) return;
+    try {
+      await paseo.agents.ref(agentId).archive();
+    } catch (e) {
+      logFailure("Flowly dispatcher: dead session not archived:", e, `agent ${agentId}`);
+    }
+  }
+
+  private async create(
+    paseo: PaseoApi,
+    { workspaceId, agentId, mcp, summary, input, previous }: {
+      workspaceId: string;
+      agentId: string;
+      mcp: DispatcherMcpServer;
+      summary: string;
+      input: { provider: string; modeId?: string; thinking?: string };
+      previous: DispatcherRecord;
+    },
+  ) {
     try {
       await paseo.workspaces.ref(workspaceId).agents.create({
         agentId,
@@ -222,12 +290,20 @@ export class Dispatcher {
         .then((found) => !!found?.agent)
         .catch(() => false);
       if (!made) {
-        await this.save((r) => ({ ...r, workspaceId, agentId: previous.agentId, startedAt: previous.startedAt }));
+        await this.save((r) => {
+          const { previousAgentIds: _, ...rest } = r;
+          return {
+            ...rest,
+            workspaceId,
+            agentId: previous.agentId,
+            startedAt: previous.startedAt,
+            ...(previous.previousAgentIds ? { previousAgentIds: previous.previousAgentIds } : {}),
+          };
+        });
         logFailure("Flowly dispatcher not started:", e, `workspace ${workspaceId}`);
         throw new ToolError("START_FAILED", `Paseo did not start the dispatcher: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    return { agentId };
   }
 
   /** The stored workspace while Paseo still returns it; else a new background directory workspace (§2). Never archived. */
@@ -272,7 +348,8 @@ export class Dispatcher {
   dispose() {
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
-    if (!this.disposed && this.held.size) logFailure("Flowly dispatcher held notes dropped on unload:", `${this.held.size} notes`);
+    if (!this.disposed && this.held.size)
+      logFailure("Flowly dispatcher held notes dropped on unload:", new Error("plugin unloaded"), `${this.held.size} notes`);
     this.held.clear();
     this.disposed = true;
   }
@@ -283,7 +360,11 @@ export class Dispatcher {
    * (Paseo's daemon defaults it to "interrupt" with `clearPendingPermissions`), so both hold the notes instead.
    */
   private async flush(paseo: PaseoApi, afterTurnEnd: boolean) {
-    if (this.disposed || !this.held.size) return;
+    if (afterTurnEnd) {
+      this.chasing = true;
+      this.chaseStep = 0;
+    }
+    if (this.disposed || !this.held.size) return this.stopChase();
     let agentId: string | null, agent: AgentSnapshot;
     try {
       agentId = (await this.record()).agentId;
@@ -291,17 +372,21 @@ export class Dispatcher {
     } catch (e) {
       logFailure("Flowly dispatcher state unreadable; notes dropped:", e, `${this.held.size} notes`);
       this.held.clear();
-      return;
+      return this.stopChase();
     }
+    // A start stored this id and Paseo is still creating it: hold; the start delivers once it exists.
+    if (agentId && agentId === this.starting && isDeadDispatcher(agent)) return;
     const state = agentId ? dispatcherState(agent) : "none";
     if (state === "running" || (state === "idle" && agent?.pendingPermissions?.length)) {
-      // The hook can fire before Paseo's snapshot leaves "running": look once more shortly after.
-      if (afterTurnEnd) this.recheck(paseo, TURN_END_RETRY_MS);
+      // The hook can fire before Paseo's snapshot leaves "running", and a later turn end may never come:
+      // after a turn end, keep looking with a growing delay until the notes go out.
+      if (this.chasing) this.recheck(paseo, recheckDelays[Math.min(this.chaseStep++, recheckDelays.length - 1)]);
       return;
     }
     if (state !== "idle" || !agentId) {
+      // Only a dead dispatcher (or none) drops notes; the next one's board summary covers them.
       this.held.clear();
-      return;
+      return this.stopChase();
     }
     const wait = this.lastSent === null ? 0 : this.lastSent + SEND_COOLDOWN_MS - this.now();
     if (wait > 0) {
@@ -310,6 +395,7 @@ export class Dispatcher {
     }
     const notes = [...this.held.values()];
     this.held.clear();
+    this.stopChase();
     let sentAt: number;
     try {
       await paseo.agents.ref(agentId).send(noteMessage(notes));
@@ -354,13 +440,22 @@ export class Dispatcher {
     await paseo.agents.ref(agentId).send(text, userSendOptions);
   }
 
-  /** One pending re-check at a time; it never schedules another for a turn end (retry once). */
+  /** One pending re-check at a time: an earlier one wins, a later one is replaced by a sooner request. */
   private recheck(paseo: PaseoApi, ms: number) {
-    if (this.retryTimer || this.disposed) return;
+    if (this.disposed) return;
+    const at = this.now() + ms;
+    if (this.retryTimer && this.retryAt <= at) return;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryAt = at;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       void this.serial(() => this.flush(paseo, false)).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
     }, ms);
+  }
+
+  private stopChase() {
+    this.chasing = false;
+    this.chaseStep = 0;
   }
 
   private now() {
@@ -418,7 +513,7 @@ export function wireDispatcher(bus: EventBus, dispatcher: Dispatcher, paseo: () 
   const batcher = new NoteBatcher({ ...noteBatching, exclude: () => dispatcher.agentId() }, (notes) => {
     const api = paseo();
     if (!api) {
-      logFailure("Flowly dispatcher notes dropped: no Paseo connection yet:", `${notes.length} notes`);
+      logFailure("Flowly dispatcher notes dropped: no Paseo connection yet:", new Error("no Paseo connection"), `${notes.length} notes`);
       return;
     }
     void dispatcher.deliver(notes, api).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));

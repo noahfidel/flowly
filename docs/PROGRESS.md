@@ -1,5 +1,11 @@
 # Implementation progress
 
+## Single pane final fix round (branch `feat/single-pane`) — 2026-11-09
+
+- Dispatcher lifecycle (rulings 2026-11-08, "one long-lived session"): the `context_full` state, its panel text (removed from all 9 catalogs) and the start-fresh path are gone. `isDeadDispatcher` is the one test for a dead session (archived, closed or missing; `error` counts as alive until decided). A start is refused unless the stored session is dead; before replacing it Flowly reads it again and archives it only if it is still dead and not archived yet (that id only; a failed archive is logged and the start goes on); the old id joins `previousAgentIds` in `dispatcher.json`. Notes are never dropped while the dispatcher lives; notes in the start window are held until Paseo has created the session; after a turn end, held notes are re-checked at 2/5/15/30/60 s and then every 60 s until they go out, and a `dispatcher.status` read that sees idle delivers them. Note-drop counts are logged with a fixed label and the count as context. DISPATCHER-SPEC §1–§3, §7 (the remaining idle-read → send race stated), §9.3, §10; AGENTS.md dispatcher exception (dead-session archive).
+  - Checks: the new `server/dispatcher.test.ts` cases failed first (9 failed: missing `isDeadDispatcher`/`RECHECK_MAX_MS`, no archive, no start-window hold, no backoff, notes dropped on a full context); then `npm run typecheck` exit 0, `npm test` exit 0 (172 files, 1609 passed, 1 skipped).
+  - Onboarding and telemetry: no change (recovery behavior only; no new switch or core action, no heartbeat field).
+
 ## Live verification script for the single pane (branch `feat/single-pane`, Task 12) — 2026-11-08
 
 - Added `docs/verification/single-pane-live.mjs` (checks 1–7 of the plan's Verification: dispatcher starts a card in a worktree, asks answered through `asks.answer`, one batched note, two-card split with wrap-up, backlog import, markdown export, bell/chat parity) and `docs/verification/single-pane.md` (how to run, what it creates, last result). Arguments and the check list are covered by `scripts/single-pane-live.test.ts` (the script itself is outside `npm test` and typecheck, like the other `docs/verification` scripts).

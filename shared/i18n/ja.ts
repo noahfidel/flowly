@@ -1547,7 +1547,6 @@ const catalog: Catalog = {
   "Blocker": "ブロッカー",
   "Result": "結果",
   "The dispatcher session ended.": "ディスパッチャーのセッションは終了しました。",
-  "The dispatcher's context is full. A new one starts from the board.": "ディスパッチャーのコンテキストがいっぱいです。新しいディスパッチャーがボードの状態から始めます。",
   "Starts one agent session that works across all your projects.": "すべてのプロジェクトをまたいで作業するエージェントセッションを 1 つ開始します。",
   "Start dispatcher": "ディスパッチャーを開始",
   "Message the dispatcher": "ディスパッチャーにメッセージ",

@@ -1547,7 +1547,6 @@ const catalog: Catalog = {
   "Blocker": "阻塞",
   "Result": "结果",
   "The dispatcher session ended.": "调度员会话已结束。",
-  "The dispatcher's context is full. A new one starts from the board.": "调度员的上下文已满。新的调度员会从看板状态开始。",
   "Starts one agent session that works across all your projects.": "启动一个跨你所有项目工作的智能体会话。",
   "Start dispatcher": "启动调度员",
   "Message the dispatcher": "给调度员发消息",

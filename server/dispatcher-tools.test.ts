@@ -224,8 +224,8 @@ test("a dispatcher token from a replaced dispatcher is refused", async () => {
   const x = await setup();
   const d = await x.connect(x.dispatcherToken);
   expect(code(await d.call("flowly_list_projects", {}))).toBeUndefined();
-  // The dispatcher's context is full: a new one replaces it.
-  x.agents.disp.lastUsage = { contextWindowUsedTokens: 99, contextWindowMaxTokens: 100 };
+  // The dispatcher session closed: a new one replaces it.
+  x.agents.disp.status = "closed";
   const { agentId } = await x.server.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   expect(agentId).not.toBe("disp");
   expect(code(await d.call("flowly_list_projects", {}))).toBe("DISPATCHER_REPLACED");

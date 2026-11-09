@@ -181,11 +181,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, 
         {!!state && !up && (
           <View style={{ gap: space[2], alignItems: "flex-start" }}>
             <Label muted size={font.md}>
-              {state === "ended"
-                ? t("The dispatcher session ended.")
-                : state === "context_full"
-                  ? t("The dispatcher's context is full. A new one starts from the board.")
-                  : t("Starts one agent session that works across all your projects.")}
+              {state === "ended" ? t("The dispatcher session ended.") : t("Starts one agent session that works across all your projects.")}
             </Label>
             <Button primary icon="Play" disabled={starting} onPress={() => void start()}>
               {t("Start dispatcher")}

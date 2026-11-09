@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
-import { Dispatcher, wireDispatcher } from "./dispatcher";
+import { Dispatcher, RECHECK_MAX_MS, dispatcherState, isDeadDispatcher, wireDispatcher } from "./dispatcher";
 import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
 import { agentFixture } from "./agent-fixture";
@@ -77,6 +77,8 @@ function fakePaseo() {
         },
         archive: async () => {
           archived.push(`agent:${id}`);
+          const agent = agents.get(id);
+          if (agent) agent.archivedAt = "now";
           return { archivedAt: "now" };
         },
       }),
@@ -169,11 +171,12 @@ test("the workspace is never archived", async () => {
   x.agents.get(agentId)!.status = "idle";
   await x.dispatcher.deliver([note("t1")], x.paseo);
   await x.dispatcher.turnEnded(agentId, x.paseo);
-  x.agents.get(agentId)!.status = "error";
+  x.agents.get(agentId)!.status = "closed";
   await x.dispatcher.status(x.paseo);
   await x.dispatcher.deliver([note("t2")], x.paseo);
   await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  expect(x.archived).toEqual([]);
+  // Only the dead session is archived, never the workspace.
+  expect(x.archived).toEqual([`agent:${agentId}`]);
   expect(await x.dispatcher.owns("dw-1")).toBe(true);
   expect(await x.dispatcher.owns("other")).toBe(false);
   // The dispatcher workspace can never be bound to a card, so no card archive path reaches it.
@@ -189,20 +192,126 @@ test("the workspace is never archived", async () => {
   ).rejects.toThrow("Flowly dispatcher");
 });
 
-test("context at 95% reports context_full", async () => {
+test("one long-lived dispatcher: dead means archived, closed or missing", () => {
+  expect(isDeadDispatcher(null)).toBe(true);
+  expect(isDeadDispatcher(undefined)).toBe(true);
+  expect(isDeadDispatcher({ status: "idle", archivedAt: "2026-11-08T11:00:00.000Z" })).toBe(true);
+  expect(isDeadDispatcher({ status: "closed", archivedAt: null })).toBe(true);
+  for (const status of ["running", "initializing", "idle", "error"]) expect(isDeadDispatcher({ status, archivedAt: null }), status).toBe(false);
+  // A full context is no state of its own: the session compacts and stays the dispatcher.
+  const full = { status: "idle", archivedAt: null, lastUsage: { contextWindowUsedTokens: 99, contextWindowMaxTokens: 100 } };
+  expect(dispatcherState(full)).toBe("idle");
+  expect(dispatcherState({ status: "error", archivedAt: null })).toBe("idle");
+  expect(dispatcherState({ status: "closed", archivedAt: null })).toBe("ended");
+});
+
+test("start is refused while the dispatcher is alive, including a full context or an error", async () => {
   const x = await setup();
   const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   const agent = x.agents.get(agentId)!;
   agent.status = "idle";
-  agent.lastUsage = { contextWindowUsedTokens: 94_000, contextWindowMaxTokens: 100_000 };
-  expect((await x.dispatcher.status(x.paseo)).state).toBe("idle");
-  agent.lastUsage = { contextWindowUsedTokens: 95_000, contextWindowMaxTokens: 100_000 };
-  expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "context_full", agentId });
-  agent.lastUsage = { contextWindowUsedTokens: 95_000, contextWindowMaxTokens: 0 };
-  expect((await x.dispatcher.status(x.paseo)).state).toBe("idle");
-  // A full dispatcher may be replaced.
   agent.lastUsage = { contextWindowUsedTokens: 99_000, contextWindowMaxTokens: 100_000 };
-  await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).resolves.toMatchObject({ agentId: expect.any(String) });
+  await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "DISPATCHER_RUNNING" });
+  agent.status = "error";
+  await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "DISPATCHER_RUNNING" });
+  expect(x.agentCreates).toHaveLength(1);
+  expect(x.archived).toEqual([]);
+});
+
+test("a replacement archives the dead dispatcher (that id only, after a re-read) and remembers it", async () => {
+  const x = await setup();
+  const first = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(first.agentId)!.status = "closed";
+  const second = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(x.archived).toEqual([`agent:${first.agentId}`]);
+  // An already archived or missing session has nothing to archive.
+  x.agents.get(second.agentId)!.archivedAt = "2026-11-08T12:00:00.000Z";
+  const third = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.delete(third.agentId);
+  const fourth = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(x.archived).toEqual([`agent:${first.agentId}`]);
+  // The earlier sessions are remembered, newest last, without the current one.
+  expect((await x.dispatcher.record()).previousAgentIds).toEqual([first.agentId, second.agentId, third.agentId]);
+  expect(x.dispatcher.agentIds()).toEqual([first.agentId, second.agentId, third.agentId, fourth.agentId]);
+  // A session that came back between the status read and the archive is never archived: the start is refused.
+  x.agents.get(fourth.agentId)!.status = "closed";
+  let reads = 0;
+  const paseo = {
+    ...x.paseo,
+    agents: {
+      ref: (id: string) => {
+        const ref = x.paseo.agents.ref(id);
+        return {
+          ...ref,
+          refresh: async () => {
+            const found = await ref.refresh();
+            // The first read sees it closed; the re-read before archiving sees it running again.
+            if (++reads > 1 && found?.agent) return { agent: { ...found.agent, status: "running" } };
+            return found;
+          },
+        };
+      },
+    },
+  } as unknown as PaseoApi;
+  await expect(x.dispatcher.start(paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "DISPATCHER_RUNNING" });
+  expect(x.archived).toEqual([`agent:${first.agentId}`]);
+  expect((await x.dispatcher.record()).agentId).toBe(fourth.agentId);
+});
+
+test("a dead dispatcher that cannot be archived is logged and still replaced", async () => {
+  const x = await setup();
+  const first = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(first.agentId)!.status = "closed";
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const paseo = {
+    ...x.paseo,
+    agents: {
+      ref: (id: string) => ({
+        ...x.paseo.agents.ref(id),
+        archive: async () => Promise.reject(new Error("socket closed")),
+      }),
+    },
+  } as unknown as PaseoApi;
+  const second = await x.dispatcher.start(paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect((await x.dispatcher.record()).agentId).toBe(second.agentId);
+  expect(errors.mock.calls.some((c) => c[0] === "Flowly dispatcher: dead session not archived:")).toBe(true);
+});
+
+test("notes in the start window are held until Paseo has created the session", async () => {
+  const x = await setup();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const paseo = {
+    ...x.paseo,
+    workspaces: {
+      ...x.paseo.workspaces,
+      ref: (id: string) => {
+        const ref = x.paseo.workspaces.ref(id);
+        return {
+          ...ref,
+          agents: {
+            create: async (options: Record<string, unknown>) => {
+              await gate;
+              const made = await ref.agents.create(options as never);
+              x.agents.get(made.id)!.status = "idle";
+              return made;
+            },
+          },
+        };
+      },
+    },
+  } as unknown as PaseoApi;
+  const starting = x.dispatcher.start(paseo, { provider: "claude/claude-sonnet-5-5" });
+  // Wait until the record names the new session but Paseo has not created it yet.
+  await vi.waitFor(async () => expect((await x.dispatcher.record()).agentId).toBeTruthy());
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  expect(x.sends).toEqual([]);
+  release();
+  const { agentId } = await starting;
+  // Once it exists and is idle, the held notes go out.
+  await vi.waitFor(() => expect(x.sends).toHaveLength(1));
+  expect(x.sends[0]).toMatchObject({ id: agentId });
+  expect(x.sends[0].text).toContain("[t1]");
 });
 
 test("notes wait for the turn to end and never steer", async () => {
@@ -241,21 +350,19 @@ test("notes are dropped while the dispatcher is down", async () => {
   // No dispatcher yet.
   await x.dispatcher.deliver([note("t0")], x.paseo);
   const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  // Held while it runs, then it fails: the held notes are dropped, not replayed.
+  // Held while it runs, then it closes: the held notes are dropped, not replayed.
   await x.dispatcher.deliver([note("t1")], x.paseo);
-  x.agents.get(agentId)!.status = "error";
+  x.agents.get(agentId)!.status = "closed";
   await x.dispatcher.turnEnded(agentId, x.paseo);
   await x.dispatcher.deliver([note("t2")], x.paseo);
-  expect(x.sends).toEqual([]);
-  // Context full counts as down.
-  const next = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  const agent = x.agents.get(next.agentId)!;
-  agent.status = "idle";
-  agent.lastUsage = { contextWindowUsedTokens: 97, contextWindowMaxTokens: 100 };
+  // Archived counts as down too.
+  x.agents.get(agentId)!.status = "idle";
+  x.agents.get(agentId)!.archivedAt = "2026-11-08T11:00:00.000Z";
   await x.dispatcher.deliver([note("t3")], x.paseo);
   expect(x.sends).toEqual([]);
   // The new dispatcher hears only what arrives after it is up.
-  agent.lastUsage = undefined;
+  const next = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(next.agentId)!.status = "idle";
   await x.dispatcher.deliver([note("t4")], x.paseo);
   expect(x.sends).toHaveLength(1);
   expect(x.sends[0].text).toContain("[t4]");
@@ -400,7 +507,7 @@ test("a pending permission holds notes like a running turn", async () => {
   expect(x.sends[0].text).toContain("[t1]");
 });
 
-test("turn_ended while the read still says running retries once shortly", async () => {
+test("turn_ended while the read still says running retries shortly, then backs off until it reads idle", async () => {
   vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
   const x = await setup();
   const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
@@ -412,17 +519,45 @@ test("turn_ended while the read still says running retries once shortly", async 
   agent.status = "idle";
   await vi.advanceTimersByTimeAsync(3_000);
   expect(x.sends).toHaveLength(1);
-  // Only once: a retry that still reads running leaves the notes held for the next turn end.
+  // The turn-end read and the 2 s re-check both still say running: Flowly keeps looking, more slowly.
   agent.status = "running";
+  await vi.advanceTimersByTimeAsync(10_000);
   await x.dispatcher.deliver([note("t2")], x.paseo);
   await x.dispatcher.turnEnded(agentId, x.paseo);
   await vi.advanceTimersByTimeAsync(3_000);
-  agent.status = "idle";
-  await vi.advanceTimersByTimeAsync(30_000);
   expect(x.sends).toHaveLength(1);
-  await x.dispatcher.turnEnded(agentId, x.paseo);
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(x.sends).toHaveLength(1);
+  // Delivered without another turn end once a re-check reads idle; never more often than the cap.
+  agent.status = "idle";
+  await vi.advanceTimersByTimeAsync(RECHECK_MAX_MS);
   expect(x.sends).toHaveLength(2);
   expect(x.sends[1].text).toContain("[t2]");
+  // Nothing held: no more re-checks.
+  expect(vi.getTimerCount()).toBe(0);
+  // Never into a pending permission either: the chase holds and keeps looking.
+  agent.status = "running";
+  await x.dispatcher.deliver([note("t3")], x.paseo);
+  agent.status = "idle";
+  agent.pendingPermissions = [{ id: "perm" }];
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  await vi.advanceTimersByTimeAsync(RECHECK_MAX_MS * 3);
+  expect(x.sends).toHaveLength(2);
+  agent.pendingPermissions = [];
+  await vi.advanceTimersByTimeAsync(RECHECK_MAX_MS);
+  expect(x.sends).toHaveLength(3);
+  x.dispatcher.dispose();
+});
+
+test("a status read that sees idle delivers held notes", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  expect(x.sends).toEqual([]);
+  x.agents.get(agentId)!.status = "idle";
+  expect((await x.dispatcher.status(x.paseo)).state).toBe("idle");
+  await vi.waitFor(() => expect(x.sends).toHaveLength(1));
   x.dispatcher.dispose();
 });
 
@@ -462,20 +597,28 @@ test("held notes keep a question over a later status change and count across bat
   x.dispatcher.dispose();
 });
 
-test("held notes are dropped when the dispatcher's context turns full", async () => {
+test("held notes are never dropped while the dispatcher lives, however full its context", async () => {
   const x = await setup();
   const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   await x.dispatcher.deliver([note("t1")], x.paseo);
   const agent = x.agents.get(agentId)!;
-  agent.status = "idle";
-  agent.lastUsage = { contextWindowUsedTokens: 96, contextWindowMaxTokens: 100 };
+  agent.status = "error";
+  agent.lastUsage = { contextWindowUsedTokens: 99, contextWindowMaxTokens: 100 };
   await x.dispatcher.turnEnded(agentId, x.paseo);
-  expect(x.sends).toEqual([]);
-  agent.lastUsage = undefined;
-  await x.dispatcher.turnEnded(agentId, x.paseo);
-  await x.dispatcher.deliver([note("t2")], x.paseo);
   expect(x.sends).toHaveLength(1);
-  expect(x.sends[0].text).not.toContain("[t1]");
+  expect(x.sends[0].text).toContain("[t1]");
+  x.dispatcher.dispose();
+});
+
+test("note-drop counts are logged with a fixed label and the count as context", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  await x.dispatcher.deliver([note("t1"), note("t2")], x.paseo);
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  x.dispatcher.dispose();
+  const call = errors.mock.calls.find((c) => c[0] === "Flowly dispatcher held notes dropped on unload:");
+  expect(call?.[1]).toBe("2 notes");
+  void agentId;
 });
 
 test("a failed status read drops the held notes and logs it", async () => {

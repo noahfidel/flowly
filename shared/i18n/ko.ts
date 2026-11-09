@@ -1547,7 +1547,6 @@ const catalog: Catalog = {
   "Blocker": "차단 요인",
   "Result": "결과",
   "The dispatcher session ended.": "디스패처 세션이 종료되었습니다.",
-  "The dispatcher's context is full. A new one starts from the board.": "디스패처의 컨텍스트가 가득 찼습니다. 새 디스패처가 보드 상태에서 시작합니다.",
   "Starts one agent session that works across all your projects.": "모든 프로젝트에 걸쳐 작업하는 에이전트 세션 하나를 시작합니다.",
   "Start dispatcher": "디스패처 시작",
   "Message the dispatcher": "디스패처에게 메시지",

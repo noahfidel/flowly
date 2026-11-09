@@ -1547,7 +1547,6 @@ const catalog: Catalog = {
   "Blocker": "Блокер",
   "Result": "Результат",
   "The dispatcher session ended.": "Сессия диспетчера завершилась.",
-  "The dispatcher's context is full. A new one starts from the board.": "Контекст диспетчера заполнен. Новый начнёт с состояния доски.",
   "Starts one agent session that works across all your projects.": "Запускает одну сессию агента, которая работает со всеми вашими проектами.",
   "Start dispatcher": "Запустить диспетчера",
   "Message the dispatcher": "Сообщение диспетчеру",

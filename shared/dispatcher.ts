@@ -137,7 +137,7 @@ export const storedChatItemsSchema = z.strictObject({ version: z.literal(1), ite
 export const dispatcherDefaultModel = { provider: "claude", model: "claude-sonnet-5-5" } as const;
 
 /** The dispatcher session's state as Flowly sees it (DISPATCHER-SPEC §3). */
-export const dispatcherStates = ["none", "running", "idle", "ended", "context_full"] as const;
+export const dispatcherStates = ["none", "running", "idle", "ended"] as const;
 export type DispatcherState = (typeof dispatcherStates)[number];
 export const dispatcherStatusSchema = z.strictObject({
   state: z.enum(dispatcherStates),
@@ -154,8 +154,6 @@ export const dispatcherStartResultSchema = z.strictObject({ agentId: z.string() 
 export const noteMessagePrefix = "Flowly board update (";
 export const summaryMessagePrefix = "Flowly board summary.";
 export const whatNextText = "What should I do?";
-/** The share of the context window at which the dispatcher counts as full. */
-export const dispatcherContextLimit = 0.95;
 
 /** The dispatcher's system prompt (DISPATCHER-SPEC §6). Agent-facing, so English only. */
 export const dispatcherCharter = `You are the Flowly dispatcher: the one agent that keeps all of the user's Flowly projects moving. The user talks to you from the chat next to the Flowly board.

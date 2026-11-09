@@ -1547,7 +1547,6 @@ const catalog: Catalog = {
   "Blocker": "阻礙",
   "Result": "結果",
   "The dispatcher session ended.": "調度員工作階段已結束。",
-  "The dispatcher's context is full. A new one starts from the board.": "調度員的上下文已滿。新的調度員會從看板狀態開始。",
   "Starts one agent session that works across all your projects.": "啟動一個跨你所有專案工作的智慧體工作階段。",
   "Start dispatcher": "啟動調度員",
   "Message the dispatcher": "傳訊息給調度員",
