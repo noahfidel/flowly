@@ -105,7 +105,7 @@ async function setup() {
             policies[options.agentId] = options.config?.toolPolicy;
             // As resolveProviderLaunchConfig: a server the plugin's open hook adds (index.server.ts adds the
             // dispatcher's through dispatcherSession) must not share a name with a saved one.
-            const added = await server.dispatcherSession(options.agentId, paseo);
+            const added = (await server.dispatcherSession(options.agentId, paseo))?.mcp;
             const plugin: Record<string, unknown> = added ? { "flowly-dispatcher": added } : {};
             for (const name of Object.keys(plugin))
               if (name in saved) throw new Error(`MCP server '${name}' from plugin flowly collides with agent saved configuration`);
@@ -284,8 +284,9 @@ test("a new dispatcher saves its tools with every one preapproved, so they never
   const x = await setup();
   x.agents.disp.status = "closed";
   const { agentId } = await x.server.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  // Saved once, with the session: the open hook adds nothing, so Paseo's name check is never tripped.
-  expect(await x.server.dispatcherSession(agentId, x.paseo)).toBeNull();
+  // Saved once, with the session: the open hook adds nothing, so Paseo's name check is never tripped, and it is
+  // still known as the dispatcher, so the hook stops there (no card context, no board tools).
+  expect(await x.server.dispatcherSession(agentId, x.paseo)).toEqual({ mcp: null });
   expect(Object.keys(x.launched[agentId])).toEqual(["flowly-dispatcher"]);
   const server = x.launched[agentId]["flowly-dispatcher"] as { type: string; headers: { Authorization: string } };
   expect(server.type).toBe("http");
@@ -301,7 +302,7 @@ test("a new dispatcher saves its tools with every one preapproved, so they never
 test("a dispatcher started before its tools were saved still gets them from the open hook (DISPATCHER-SPEC §3)", async () => {
   const x = await setup();
   // The stored "disp" record has no savedTools mark.
-  expect(await x.server.dispatcherSession("disp", x.paseo)).toMatchObject({ type: "http" });
+  expect(await x.server.dispatcherSession("disp", x.paseo)).toMatchObject({ mcp: { type: "http" } });
   expect(await x.server.dispatcherSession("actor", x.paseo)).toBeNull();
 });
 

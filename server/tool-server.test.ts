@@ -683,7 +683,7 @@ test("only the stored dispatcher's session gets a dispatcher credential (DISPATC
   const restored = new ToolServer(x.store, dispatcherPath(x.root));
   cleanups.push(() => restored.stop());
   await writeFile(x.store.directory + "/dispatcher.json", JSON.stringify({ version: 1, workspaceId: "dw", agentId: "current", startedAt: null }));
-  const config = (await restored.dispatcherSession("current", x.paseo))!;
+  const config = (await restored.dispatcherSession("current", x.paseo))!.mcp!;
   expect(config).toMatchObject({ type: "http" });
   expect(restored.secrets.authenticateAny(config.headers.Authorization.slice(7))).toEqual({ kind: "dispatcher", identity: { agentId: "current", workspaceId: "dw" } });
   // A replaced dispatcher's session, a card session and any other session get none.

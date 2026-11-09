@@ -64,6 +64,7 @@ import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
 import { EventBus, commitHandler } from "./server/event-bus";
 import { wireDispatcher } from "./server/dispatcher";
+import { dispatcherServerName } from "./shared/dispatcher";
 import { ChangeLineCache, DispatcherItems, dispatcherSessionIds, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
 import { DispatcherAsks } from "./server/dispatcher-asks";
 
@@ -886,15 +887,15 @@ export default function contribute(host: PluginServerContext) {
   server.before("agent.session_open", async ({ request }, { paseo }) => {
     tools.attach(paseo);
     if (request.purpose !== "interactive") return;
-    // A stored dispatcher started before its tools were saved gets them here at each open; no other session does (DISPATCHER-SPEC §3).
+    // The stored dispatcher stops here: one started before its tools were saved gets them at each open, one saved
+    // with them gets nothing; never card context or board tools. No other session gets them (DISPATCHER-SPEC §3).
     const opening = request as typeof request & { mcpServers?: Record<string, unknown> };
-    if (opening.mcpServers)
-      try {
-        const mcp = await tools.dispatcherSession(request.agentId, paseo);
-        if (mcp) return { ...request, mcpServers: { ...opening.mcpServers, "flowly-dispatcher": mcp } };
-      } catch (e) {
-        logFailure("Flowly dispatcher tools not added to its session:", e);
-      }
+    try {
+      const own = await tools.dispatcherSession(request.agentId, paseo);
+      if (own) return own.mcp && opening.mcpServers ? { ...request, mcpServers: { ...opening.mcpServers, [dispatcherServerName]: own.mcp } } : undefined;
+    } catch (e) {
+      logFailure("Flowly dispatcher tools not added to its session:", e);
+    }
     try {
       const contextFile = await tools.sessionContext(
         request.agentId,
