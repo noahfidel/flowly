@@ -113,35 +113,66 @@ const load = async () => (await import(/* @vite-ignore */ scriptPath)) as Script
 
 /**
  * A fake daemon for check 7 that keeps the store's two dismiss rules: `asks.dismiss` adds one signal to the card's
- * set, `attention.dismiss` replaces the set with the signals it is given (ATTENTION-DISMISS-SPEC §7a).
+ * set, `attention.dismiss` replaces the set with the signals it is given (ATTENTION-DISMISS-SPEC §7a). Its board and
+ * agent list are real enough for the bell's own rule (`attentionItems`, shared/attention.ts).
  */
 function fakeBellDaemon() {
-  // Besides the check's own asks, the card has an answered report the session still shows (live, so in the bell's
-  // signals) and an ask of an archived session (session_ended: not live, so not among them).
+  const at = "2026-11-09T10:00:00.000Z";
+  const waiting = (id: string, workspaceId: string) => ({
+    id, workspaceId, status: "idle", archivedAt: null, updatedAt: at, requiresAttention: true, attentionReason: "permission", attentionTimestamp: at,
+    pendingPermissions: [{ id: "r0", kind: "tool", name: "Bash", title: "git push", actions: [] }],
+  });
+  // Besides the check's own asks, the card has: a report answered in the chat that its session still shows (live,
+  // so among the bell's signals), a report answered in the chat that is no longer live (a later turn started), and
+  // an ask of an archived session (session_ended: not live). Only live signals are the bell's.
+  const agents: Record<string, unknown>[] = [
+    waiting("other", "w-other"),
+    { id: "s0", workspaceId: "w7", status: "idle", archivedAt: null, updatedAt: at },
+    { id: "s9", workspaceId: "w7", status: "idle", archivedAt: null, updatedAt: at },
+  ];
+  const events = [
+    { id: "e-answered", taskId: "c7", agentId: "s0", actor: "agent", action: "progress_reported", reportKind: "question", note: "Which?", at },
+    { id: "e-old", taskId: "c7", agentId: "s9", actor: "agent", action: "progress_reported", reportKind: "question", note: "Old?", at },
+    { id: "t-9", taskId: "c7", agentId: "s9", actor: "agent", action: "agent.turn_started", at: "2026-11-09T10:01:00.000Z" },
+  ];
   const asks: { signal: string; taskId: string; agentId: string; stored?: "answered" | "session_ended" }[] = [
     { signal: "p:other:r0", taskId: "other", agentId: "other" },
     { signal: "q:e-answered", taskId: "c7", agentId: "s0", stored: "answered" },
+    { signal: "q:e-old", taskId: "c7", agentId: "s9", stored: "answered" },
     { signal: "p:gone:r0", taskId: "c7", agentId: "gone", stored: "session_ended" },
   ];
   const sets = new Map<string, string[]>();
   const calls: [string, Record<string, unknown>][] = [];
   const state = (a: (typeof asks)[number]) => a.stored ?? (sets.get(a.taskId)?.includes(a.signal) ? "dismissed" : "open");
   const items = async () => asks.map((a) => ({ kind: "ask", askKind: "permission", ...a, state: state(a) }));
+  const board = () => ({
+    projects: [{ id: "tl", title: "Tinylink", archivedAt: null }],
+    tasks: [
+      { id: "c7", projectId: "tl", workspaceId: "w7", title: "check 7: bell", status: "development", archivedAt: null },
+      { id: "other", projectId: "tl", workspaceId: "w-other", title: "other", status: "development", archivedAt: null },
+    ],
+    events,
+    attentionDismissals: [...sets].map(([taskId, signals]) => ({ taskId, signals, dismissedAt: at })),
+  });
   let n = 0;
   const ctx = {
     needTinylink: async () => ({ id: "tl", title: "Tinylink" }),
-    makeCard: async () => ({ id: "c7", title: "check 7: bell" }),
+    makeCard: async () => ({ id: "c7", title: "check 7: bell", workspaceId: "w7" }),
     note: () => {},
     items,
+    board: async () => board(),
+    agents: async () => agents,
     asksOf: async (taskId: string) => (await items()).filter((i) => i.taskId === taskId),
     startSession: async (card: { id: string }) => {
       const agentId = `s${++n}`;
+      agents.push(waiting(agentId, "w7"));
       asks.push({ signal: `p:${agentId}:r0`, taskId: card.id, agentId });
       return agentId;
     },
     rpc: async (method: string, input: Record<string, unknown>) => {
       calls.push([method, input]);
       if (method === "attention.count") return { count: (await items()).filter((i) => i.state === "open").length };
+      if (method === "sessions.read-state") return { version: 1, receipts: [] };
       if (method === "asks.dismiss") {
         const ask = asks.find((a) => a.signal === input.signal)!;
         sets.set(ask.taskId, [...new Set([...(sets.get(ask.taskId) ?? []), ask.signal])]);
@@ -158,7 +189,7 @@ function fakeBellDaemon() {
 }
 
 describe("check 7 (the bell)", () => {
-  it("dismisses the card in the bell with all its signals, as the bell does, so the chat's earlier dismiss holds", async () => {
+  it("dismisses the card in the bell with exactly the bell's signals, so the chat's earlier dismiss holds", async () => {
     const { checkBell } = await load();
     const { ctx, calls } = fakeBellDaemon();
     vi.useFakeTimers();
@@ -173,8 +204,10 @@ describe("check 7 (the bell)", () => {
     } finally {
       vi.useRealTimers();
     }
-    const bell = calls.find(([m]) => m === "attention.dismiss")?.[1];
-    expect(bell).toEqual({ taskId: "c7", signals: ["q:e-answered", "p:s1:r0", "p:s2:r0"] });
+    const bell = calls.find(([m]) => m === "attention.dismiss")?.[1] as { taskId: string; signals: string[] };
+    expect(bell.taskId).toBe("c7");
+    // The stored answered row of a report that is no longer live (q:e-old) and the archived session's ask are not sent.
+    expect([...bell.signals].sort()).toEqual(["p:s1:r0", "p:s2:r0", "q:e-answered"]);
   });
 });
 

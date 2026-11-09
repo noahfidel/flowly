@@ -13,7 +13,8 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { registerHooks } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const MODEL = 'claude/claude-haiku-5-5';
@@ -1183,6 +1184,42 @@ async function parity(ctx, label, expected) {
   return last;
 }
 
+/**
+ * The bell's own rule, loaded from the source: `attentionItems` in shared/attention.ts, the engine of
+ * `attentionItemsWithFacts` that client/board.tsx runs for the bell. Node strips its types; the shared files import
+ * each other without an extension, so a resolve hook adds `.ts` to a relative specifier that has none. Loaded only
+ * when check 7 runs (nothing at import time).
+ */
+let bellRule = null;
+function loadBellRule() {
+  if (!bellRule) {
+    registerHooks({
+      resolve(specifier, context, next) {
+        try {
+          return next(specifier, context);
+        } catch (e) {
+          if (specifier.startsWith('.') && !/\.[cm]?[jt]sx?$/.test(specifier) && context.parentURL?.endsWith('.ts')) return next(`${specifier}.ts`, context);
+          throw e;
+        }
+      },
+    });
+    bellRule = import(pathToFileURL(join(here, '..', '..', 'shared', 'attention.ts')).href);
+  }
+  return bellRule;
+}
+
+/**
+ * The signals the bell sends to dismiss a card (client/board.tsx, `dismissRpc({ taskId, signals: item.signals })`):
+ * the card's attention item's `signals`, from the board, the live agents and the read receipts. A failed read of the
+ * receipts counts as unavailable, as the bell's does.
+ */
+export async function bellSignals(ctx, taskId) {
+  const { attentionItems } = await loadBellRule();
+  const [board, agents, reads] = await Promise.all([ctx.board(), ctx.agents(), ctx.rpc('sessions.read-state', {}).catch(() => null)]);
+  const item = attentionItems(board, agents, reads?.receipts ?? [], !reads).find((i) => i.task.id === taskId);
+  return item?.signals ?? [];
+}
+
 export async function checkBell(ctx) {
   const fx = await ctx.needTinylink();
   const card = await ctx.makeCard(fx.id, 'check 7: bell', { description: 'Temporary card of the single-pane live checks.', mode: 'worktree' });
@@ -1205,12 +1242,12 @@ export async function checkBell(ctx) {
   if (withTwo.chat <= afterChat.chat) throw new Error(`the open asks did not grow with the second permission (${afterChat.chat} → ${withTwo.chat}).`);
   // The bell dismisses the whole card: it sends all the card's current signals (client/board.tsx, `item.signals`),
   // and `attention.dismiss` replaces the card's set with them (ATTENTION-DISMISS-SPEC §7a). Sending only the second
-  // ask's signal would drop the first one from the set and reopen it. Those are all the card's live signals, whatever
-  // the chat shows for them (open, dismissed, or answered while the session still shows it); only a session_ended ask
-  // is never live (its session is archived or gone), so it is the one left out.
-  const live = (await ctx.asksOf(card.id)).filter((a) => a.state !== 'session_ended');
-  const openOnCard = live.filter((a) => a.state === 'open').length;
-  await ctx.rpc('attention.dismiss', { taskId: card.id, signals: live.map((a) => a.signal) });
+  // ask's signal would drop the first one from the set and reopen it. The signals come from the bell's own rule
+  // (`bellSignals`), not from the chat, whose stored rows can name a signal that is no longer live.
+  const signals = await bellSignals(ctx, card.id);
+  if (![askOne.signal, askTwo.signal].every((signal) => signals.includes(signal))) throw new Error(`the bell's signals for the card lack the check's asks (${signals.join(', ')}).`);
+  const openOnCard = (await ctx.asksOf(card.id)).filter((a) => a.state === 'open').length;
+  await ctx.rpc('attention.dismiss', { taskId: card.id, signals });
   await waitFor('the card\'s asks in the chat to read dismissed', async () => {
     const asks = await ctx.asksOf(card.id);
     return [askOne.signal, askTwo.signal].every((signal) => asks.find((a) => a.signal === signal)?.state === 'dismissed');
