@@ -399,8 +399,10 @@ export class Dispatcher {
           ...(input.thinking ? { thinkingOptionId: input.thinking } : {}),
           systemPrompt: dispatcherCharter,
           // No route to a card's ask (§3): Paseo's agent tools are withheld, and the built-in tools are an allowlist.
+          // `--strict-mcp-config` (a null value is a bare flag) loads only the MCP servers Paseo passes (its own and its
+          // plugins'), none from Claude Code's user, project, plugin or cloud configuration.
           // The SDK's `options` is the session's `providerOptions`, validated by Claude's provider schema.
-          options: { disallowedTools: [...dispatcherWithheldTools], extraArgs: { tools: dispatcherBuiltinTools.join(",") } },
+          options: { disallowedTools: [...dispatcherWithheldTools], extraArgs: { tools: dispatcherBuiltinTools.join(","), "strict-mcp-config": null } },
           // Saved with the session and every tool preapproved, so its own tools never prompt (they are gated by the
           // "Agents create and edit cards" switch); Paseo checks each grant's server is in this same request (§3).
           mcpServers: { [dispatcherServerName]: mcp },

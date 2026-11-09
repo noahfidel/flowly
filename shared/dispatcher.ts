@@ -132,11 +132,12 @@ export const dispatcherWithheldTools = [
 export const dispatcherBuiltinTools = ["Read", "Glob", "Grep", "WebSearch", "ToolSearch"] as const;
 
 /**
- * The version of the routes a dispatcher is started without (`dispatcherWithheldTools` and `dispatcherBuiltinTools`).
- * Raise it when either changes in a way an older session should not keep: a live dispatcher recorded with another
- * version, or none, shows a warning to replace it (DISPATCHER-SPEC §3).
+ * The version of the routes a dispatcher is started without (`dispatcherWithheldTools`, `dispatcherBuiltinTools` and
+ * `--strict-mcp-config`). Raise it when any of them changes in a way an older session should not keep: a live
+ * dispatcher recorded with another version, or none, shows a warning to replace it (DISPATCHER-SPEC §3).
+ * 2: `--strict-mcp-config`, so Claude Code's user, project, plugin and cloud MCP servers no longer load.
  */
-export const dispatcherGuardVersion = 1;
+export const dispatcherGuardVersion = 2;
 
 /**
  * Providers the dispatcher starts on: those whose sessions can be started without `dispatcherWithheldTools` (Claude's

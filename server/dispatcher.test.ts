@@ -1119,6 +1119,16 @@ test("no route to a card's ask: Claude's built-in tools are an allowlist, so its
     expect(tools).not.toContain(tool);
 });
 
+test("only the MCP servers Paseo passes load: --strict-mcp-config keeps Claude Code's user, project, plugin and cloud servers out (ruling, Noah 2026-11-09)", async () => {
+  const x = await setup();
+  await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  const config = x.agentCreates[0].options.config as { options?: { extraArgs?: Record<string, string | null> }; mcpServers?: Record<string, unknown> };
+  // The SDK turns a null `extraArgs` value into a bare flag: `--strict-mcp-config`. Paseo's own servers (its plugins'
+  // `agent.open.before` servers, chat_polish among them) reach the SDK as `mcpServers` (`--mcp-config`), so they stay.
+  expect(config.options?.extraArgs).toEqual({ tools: dispatcherBuiltinTools.join(","), "strict-mcp-config": null });
+  expect(Object.keys(config.mcpServers ?? {})).toEqual(["flowly-dispatcher"]);
+});
+
 test("the charter says plainly that only the user answers a card's asks", () => {
   expect(dispatcherCharter).toContain("You have no tool that answers them");
   expect(dispatcherCharter).toContain("buttons");
