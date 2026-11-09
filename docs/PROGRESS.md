@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Flowly skill text (branch `feat/single-pane`, Task 6) — 2026-11-08
+
+- `server/skill-source.ts` and `skills/flowly/SKILL.md` (byte-identical): the card-creation rule is now "No workspace without a card" (attach to a card or `flowly_create_card` with `workspace="worktree"` before changing files, then continue there or `flowly_start_card`; one card = one branch or PR; parallel deliverables are separate cards linked with `blocks`/`follow_up`; parking an ask is `flowly_propose_idea`, project-level from a session outside any card). A new Delivery mode bullet: follow `deliveryMode` from `flowly_get_task`; never bypass the permission prompts for `git push` / `gh pr create` (the user answers them); in `ready_pr` never mark a PR ready while review notes are open. `turnChecklist` unchanged (6 items, under 1800 characters).
+- The board MCP server has no `instructions` field in the host's MCP config, so the tool descriptions (Task 5) carry the board-session rule.
+- Strings: none (agent-facing). Onboarding: no tour change or tip. Telemetry: no heartbeat field.
+- Checks: `server/tool-server.test.ts` (new `toContain` assertions), `server/skill-source.test.ts` (SKILL.md equals `skillText`); `npm run typecheck` exit 0, `npm test` exit 0 (164 files, 1476 passed, 1 skipped).
+
 ## Start a card from a tool (branch `feat/single-pane`, Task 5) — 2026-11-08
 
 - `flowly_start_card` (`server/start-card.ts`, `CardStarter`) on the card and board MCP servers: checks setting, project (`NOT_FOUND`/`PROJECT_ARCHIVED`), card (`NOT_FOUND`/`CARD_FINISHED`), replays a session this `operationId` already prepared (`ToolSecrets.preparedFor`, no new resources), refuses a card with a live session (`CARD_HAS_SESSION`), then per Q2(b): worktree → start there; linked-root directory → start there; directory workspace with `ownsWorkspace`, no `previousWorkspaces`/`switch` and no session ever → new worktree (`flowly-start:<operationId>` key, request kept on disk per operation for retries), card moved in one write (`previousWorkspaces`, `workspace_switched` by the agent), the empty directory workspace re-checked and archived; anything else `NEEDS_WORKTREE`. Cards older than `ownsWorkspace` count as not owned.

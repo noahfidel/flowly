@@ -147,6 +147,14 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(skillText).toContain("fix setup.missing before work");
   expect(skillText).toContain("Small cards also need a type");
   expect(skillText).toContain("SETUP_INCOMPLETE");
+  // Delivery mode and "no workspace without a card" (DELIVERY-MODE-SPEC §3-4, START-CARD-SPEC).
+  expect(skillText).toContain("Follow the card's deliveryMode (flowly_get_task): branch = commit on the card's branch, no push or PR; draft_pr / ready_pr = push and open a draft / ready PR, then register its URL as an output.");
+  expect(skillText).toContain("never bypass the permission prompts for git push or gh pr create; the user answers them");
+  expect(skillText).toContain("In ready_pr mode never mark a PR ready while review notes are open");
+  expect(skillText).toContain("A session that starts work in a repo without a card attaches to one or creates one before changing files");
+  expect(skillText).toContain('flowly_create_card with workspace="worktree"');
+  expect(skillText).toContain("one card = one branch or PR");
+  expect(skillText).toContain("flowly_propose_idea");
   expect(described("flowly_update_status")).toContain("SETUP_INCOMPLETE");
   expect(described("flowly_get_task")).toContain("setup.missing");
   for (const name of ["flowly_set_type", "flowly_set_tags", "flowly_update_workpad"])
