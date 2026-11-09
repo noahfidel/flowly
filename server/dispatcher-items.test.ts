@@ -1,11 +1,14 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DispatcherItems, changeLine, seenMark, whatNextMessage } from "./dispatcher-items";
+import { ChangeLineCache, DispatcherItems, changeLine, seenMark, whatNextMessage, type SeenMark } from "./dispatcher-items";
+import { logFailure } from "./error-report";
 import { Dispatcher } from "./dispatcher";
 import { chatItemLimit, type StoredChatItem as ChatItem } from "../shared/dispatcher";
 import { emptyBoard, type Board, type BoardEvent } from "../shared/model";
+
+vi.mock("./error-report", async (original) => ({ ...(await original<typeof import("./error-report")>()), logFailure: vi.fn() }));
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -30,6 +33,7 @@ function board(): Board {
   return b;
 }
 const event = (taskId: string, at: number, extra: Partial<BoardEvent> = {}): BoardEvent => ({ id: `e-${taskId}-${at}`, taskId, actor: "agent", action: "progress_reported", at: iso(at), ...extra });
+const mark = (revision: number, ids: string[] = []): SeenMark => ({ revision, ids });
 
 test("the change line counts cards changed since the seen revision", () => {
   const b = board();
@@ -42,16 +46,21 @@ test("the change line counts cards changed since the seen revision", () => {
     event("t1", T0 + 9_000, { actor: "human", action: "status_changed" }),
     event("t3", T0 + 2_000),
     event("t4", T0 + 2_000),
+    // The dispatcher's own actions are not news either (it made them).
+    event("t2", T0 + 7_000, { action: "edited", agentId: "disp" }),
+    event("t2", T0 + 7_001, { id: "e-t2-link", action: "linked", agentId: "disp" }),
   );
-  const line = changeLine(b, T0);
-  expect(line).toMatchObject({ kind: "change", id: "change", revision: T0 + 5_000, at: iso(T0 + 5_000) });
+  const line = changeLine(b, mark(T0), "disp");
+  expect(line).toMatchObject({ kind: "change", id: "change", revision: T0 + 5_000, ids: [`e-t1-${T0 + 5_000}`], at: iso(T0 + 5_000) });
   expect(line?.kind === "change" && line.cards).toEqual([
     { taskId: "t1", projectId: "p", title: "Card t1", status: "in_progress", events: 2 },
     { taskId: "t2", projectId: "p", title: "Card t2", status: "in_review", events: 1 },
   ]);
   // Nothing newer than the mark: no line. No mark at all: no line.
-  expect(changeLine(b, T0 + 5_000)).toBeNull();
-  expect(changeLine(b, null)).toBeNull();
+  expect(changeLine(b, mark(T0 + 5_000, [`e-t1-${T0 + 5_000}`]), "disp")).toBeNull();
+  expect(changeLine(b, null, "disp")).toBeNull();
+  // Another agent's action on the same card is news.
+  expect(changeLine(b, mark(T0 + 5_000, [`e-t1-${T0 + 5_000}`]), "other")?.kind).toBe("change");
   // What should I do? lists the same cards.
   const text = whatNextMessage(line);
   expect(text.split("\n")[0]).toBe("What should I do?");
@@ -62,17 +71,17 @@ test("the change line counts cards changed since the seen revision", () => {
 
 test("Mark seen hides the change line until something new changes", async () => {
   const dir = await directory();
-  const now = { value: T0 };
+  const now = { value: T0 + 60_000 };
   const dispatcher = new Dispatcher(dir, { mcp: async () => ({ type: "http", url: "http://x", headers: {} }), summary: async () => "", now: () => now.value });
   // Before any dispatcher and any mark: no baseline.
   expect(seenMark(await dispatcher.record())).toBeNull();
   // The dispatcher's start is the mark until the user marks seen.
-  expect(seenMark({ startedAt: iso(T0) })).toBe(T0);
+  expect(seenMark({ startedAt: iso(T0) })).toEqual(mark(T0));
   const b = board();
   b.events.push(event("t1", T0 + 1_000));
-  const line = changeLine(b, T0);
+  const line = changeLine(b, mark(T0));
   expect(line?.kind === "change" && line.cards.length).toBe(1);
-  await dispatcher.markSeen(line!.kind === "change" ? line!.revision : 0);
+  await dispatcher.markSeen(line!.kind === "change" ? line!.revision : 0, line!.kind === "change" ? line!.ids : []);
   expect(changeLine(b, seenMark(await dispatcher.record()))).toBeNull();
   // An older mark never moves it back.
   await dispatcher.markSeen(T0 - 10);
@@ -81,9 +90,12 @@ test("Mark seen hides the change line until something new changes", async () => 
   b.events.push(event("t2", T0 + 2_000));
   const next = changeLine(b, seenMark(await dispatcher.record()));
   expect(next?.kind === "change" && next.cards.map((c) => c.taskId)).toEqual(["t2"]);
+  // A mark from a client whose clock runs ahead is clamped to the daemon's time.
+  expect(await dispatcher.markSeen(T0 + 3_600_000)).toBe(T0 + 60_000);
+  expect(seenMark(await dispatcher.record())).toEqual(mark(T0 + 60_000));
   // The mark is stored and survives a reload.
   const again = new Dispatcher(dir, { mcp: async () => ({ type: "http", url: "http://x", headers: {} }), summary: async () => "" });
-  expect((await again.record()).seenRevision).toBe(T0 + 1_000);
+  expect((await again.record()).seenRevision).toBe(T0 + 60_000);
 });
 
 const note = (taskId: string, at: number): ChatItem => ({ id: `n-${taskId}-${at}`, at: iso(at), kind: "note", note: { taskId, projectId: "p", title: `Card ${taskId}`, kind: "status_changed", detail: "a → b", at: iso(at) } });
@@ -128,4 +140,54 @@ test("a corrupt items file is preserved and read as empty", async () => {
   expect((await readdir(dir)).some((f) => f.startsWith("dispatcher-items.json.invalid-"))).toBe(true);
   await items.put([note("t1", T0)]);
   expect(JSON.parse(await readFile(join(dir, "dispatcher-items.json"), "utf8")).items).toHaveLength(1);
+});
+
+test("events in the same millisecond as the mark are not lost", async () => {
+  const dir = await directory();
+  const dispatcher = new Dispatcher(dir, { mcp: async () => ({ type: "http", url: "http://x", headers: {} }), summary: async () => "", now: () => T0 + 60_000 });
+  const b = board();
+  const ms = T0 + 1_000;
+  b.events.push(event("t1", ms, { id: "a" }));
+  const line = changeLine(b, mark(T0));
+  expect(line?.kind === "change" && line.ids).toEqual(["a"]);
+  await dispatcher.markSeen(ms, ["a"]);
+  // A second event lands in the same millisecond after the user looked: still news.
+  b.events.push(event("t2", ms, { id: "b" }));
+  const after = changeLine(b, seenMark(await dispatcher.record()));
+  expect(after?.kind === "change" && after.cards.map((c) => [c.taskId, c.events])).toEqual([["t2", 1]]);
+  // Marking it too keeps both ids at that millisecond; an older mark changes nothing.
+  await dispatcher.markSeen(ms, ["b"]);
+  await dispatcher.markSeen(ms - 5, ["zzz"]);
+  expect(seenMark(await dispatcher.record())).toEqual(mark(ms, ["a", "b"]));
+  expect(changeLine(b, seenMark(await dispatcher.record()))).toBeNull();
+});
+
+test("the change line is scanned once per board revision and mark", () => {
+  const scan = vi.fn(changeLine);
+  const cache = new ChangeLineCache(scan);
+  const b = board();
+  b.revision = 7;
+  b.events.push(event("t1", T0 + 1_000));
+  const first = cache.get(b, mark(T0), "disp");
+  expect(cache.get(b, mark(T0), "disp")).toBe(first);
+  expect(scan).toHaveBeenCalledTimes(1);
+  // A new board revision, a new mark or a new dispatcher scans again.
+  b.events.push(event("t2", T0 + 2_000));
+  b.revision = 8;
+  expect(cache.get(b, mark(T0), "disp")?.kind === "change").toBe(true);
+  cache.get(b, mark(T0 + 2_000), "disp");
+  cache.get(b, mark(T0 + 2_000), "disp2");
+  expect(scan).toHaveBeenCalledTimes(4);
+});
+
+test("concurrent first reads of a corrupt items file keep it aside once", async () => {
+  const dir = await directory();
+  await writeFile(join(dir, "dispatcher-items.json"), "{ not json");
+  vi.mocked(logFailure).mockClear();
+  let clock = T0;
+  const items = new DispatcherItems(dir, { now: () => clock++ });
+  const [a, b] = await Promise.all([items.list(), items.list()]);
+  expect([a, b]).toEqual([[], []]);
+  expect((await readdir(dir)).filter((f) => f.startsWith("dispatcher-items.json.invalid-"))).toHaveLength(1);
+  expect(vi.mocked(logFailure)).toHaveBeenCalledTimes(1);
 });

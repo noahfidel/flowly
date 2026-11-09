@@ -39,6 +39,14 @@ export function mergeNotes(prev: DispatcherNote, next: DispatcherNote): Dispatch
   return { ...base, ...(next.later ? { later: next.later } : {}), earlier: hidden + 1 + (prev.later ? 1 : 0) };
 }
 
+/** At most this many event ids are kept with the seen mark, all from its one millisecond (§9.2). */
+export const seenIdLimit = 500;
+/**
+ * How the user's messages reach the dispatcher (composer, What should I do?): always steer. Paseo's daemon
+ * starts a normal turn for a steer on an idle agent, and a send without it interrupts a turn and clears pending
+ * permissions, which a status read as idle a moment ago cannot rule out (§9.3).
+ */
+export const userSendOptions = { activeTurnBehavior: "steer" } as const;
 /** At most this many chat items are kept (DISPATCHER-SPEC §9.1). */
 export const chatItemLimit = 500;
 /** Answered or dismissed asks are kept this long (DISPATCHER-SPEC §9.1). */
@@ -66,7 +74,14 @@ export const chatItemSchema = z.discriminatedUnion("kind", [
     resolvedAt: z.string().optional(),
   }),
   z.object({ ...itemBase, kind: z.literal("answer"), signal: id, taskId: id, projectId: id, text: z.string(), delivered: z.boolean() }),
-  z.object({ ...itemBase, kind: z.literal("change"), revision: z.number().int().nonnegative(), cards: z.array(changedCardSchema) }),
+  z.object({
+    ...itemBase,
+    kind: z.literal("change"),
+    /** The newest counted event's time in ms, and the ids of the counted events at exactly that ms (§9.2). */
+    revision: z.number().int().nonnegative(),
+    ids: z.array(id).max(seenIdLimit),
+    cards: z.array(changedCardSchema),
+  }),
 ]);
 export type ChatItem = z.infer<typeof chatItemSchema>;
 /** What `dispatcher-items.json` holds: every kind except the computed change line. */

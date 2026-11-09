@@ -65,7 +65,7 @@ import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
 import { EventBus, commitHandler } from "./server/event-bus";
 import { wireDispatcher } from "./server/dispatcher";
-import { DispatcherItems, changeLine, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
+import { ChangeLineCache, DispatcherItems, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
 
 export default function contribute(host: PluginServerContext) {
   const server = reportRpcErrors(host);
@@ -375,7 +375,8 @@ export default function contribute(host: PluginServerContext) {
     tools.attach(paseo);
     return tools.dispatcher.start(paseo, input);
   });
-  // The chat panel (DISPATCHER-SPEC §9): note rows are what the dispatcher received; the change line is computed per read.
+  // The chat panel (DISPATCHER-SPEC §9): note rows are what the dispatcher received; the change line is scanned
+  // again only when the board, the mark or the dispatcher session changed.
   const chatItems = new DispatcherItems(store.directory);
   tools.dispatcher.onSent = (notes, at) => {
     void chatItems.put(noteItems(notes, at)).catch((e) => logFailure("Flowly dispatcher chat notes not recorded:", e, `${notes.length} notes`));
@@ -384,16 +385,17 @@ export default function contribute(host: PluginServerContext) {
     const { agentId, workspaceId } = await tools.dispatcher.record();
     return agentId && workspaceId ? { agentId, workspaceId } : null;
   };
+  const changes = new ChangeLineCache();
   const currentChange = async () => {
     const [board, record] = await Promise.all([store.read(), tools.dispatcher.record()]);
-    return changeLine(board, seenMark(record));
+    return changes.get(board, seenMark(record), record.agentId);
   };
   server.handle(rpc.dispatcherItemsChanged, async ({ etag }) => {
     const [items, change] = await Promise.all([chatItems.list(), currentChange()]);
     return ifChanged(change ? [...items, change] : items, etag);
   });
   server.handle(rpc.dispatcherTail, (input, { paseo }) => tails.dispatcherTail(input, paseo));
-  server.handle(rpc.dispatcherMarkSeen, async ({ revision }) => ({ seenRevision: await tools.dispatcher.markSeen(revision) }));
+  server.handle(rpc.dispatcherMarkSeen, async ({ revision, ids }) => ({ seenRevision: await tools.dispatcher.markSeen(revision, ids) }));
   server.handle(rpc.dispatcherWhatNext, async (_, { paseo }) => {
     tools.attach(paseo);
     await tools.dispatcher.whatNext(paseo, whatNextMessage(await currentChange()));

@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import {
   chatItemLimit,
   resolvedAskMs,
+  seenIdLimit,
   storedChatItemsSchema,
   whatNextText,
   type ChangedCard,
@@ -34,27 +35,36 @@ export function noteItems(notes: readonly DispatcherNote[], at: string): Stored[
 }
 
 /** The mark the change line counts from: the user's Mark seen, else the dispatcher's start, else none (§9.2). */
-export function seenMark(record: Pick<DispatcherRecord, "seenRevision" | "startedAt">): number | null {
-  if (typeof record.seenRevision === "number") return record.seenRevision;
+/** Where "Changed since you looked" starts: a millisecond, and the events at exactly that ms already seen. */
+export type SeenMark = { revision: number; ids: readonly string[] };
+
+export function seenMark(record: Pick<DispatcherRecord, "seenRevision" | "seenIds" | "startedAt">): SeenMark | null {
+  if (typeof record.seenRevision === "number") return { revision: record.seenRevision, ids: record.seenIds ?? [] };
   const started = record.startedAt ? Date.parse(record.startedAt) : NaN;
-  return Number.isFinite(started) ? started : null;
+  return Number.isFinite(started) ? { revision: started, ids: [] } : null;
 }
 
 /**
- * "Changed since you looked" (§9.2): cards with an agent's or the system's event newer than `mark` (event
- * revision = its time in ms), on live cards of live projects; newest first. Null when nothing changed.
+ * "Changed since you looked" (§9.2): cards with an agent's or the system's event after `mark` (event revision =
+ * its time in ms; at the mark's own ms, an event whose id was not seen), on live cards of live projects; newest
+ * first. The user's own changes and the dispatcher's own actions are left out. Null when nothing changed.
  */
-export function changeLine(board: Board, mark: number | null): ChatItem | null {
+export function changeLine(board: Board, mark: SeenMark | null, dispatcherAgentId: string | null = null): ChatItem | null {
   if (mark === null) return null;
+  const seenAtMark = new Set(mark.ids);
   const live = new Set(board.projects.filter((p) => !p.archivedAt).map((p) => p.id));
   const tasks = new Map(board.tasks.filter((t) => !t.archivedAt && live.has(t.projectId)).map((t) => [t.id, t]));
   const changed = new Map<string, { card: ChangedCard; newest: number }>();
+  let newest = -Infinity;
+  let newestIds: string[] = [];
   for (const event of board.events) {
-    if (event.actor === "human") continue;
+    if (event.actor === "human" || (dispatcherAgentId && event.agentId === dispatcherAgentId)) continue;
     const revision = Date.parse(event.at);
-    if (!(revision > mark)) continue;
+    if (!(revision > mark.revision || (revision === mark.revision && !seenAtMark.has(event.id)))) continue;
     const task = tasks.get(event.taskId);
     if (!task) continue;
+    if (revision > newest) [newest, newestIds] = [revision, [event.id]];
+    else if (revision === newest) newestIds.push(event.id);
     const seen = changed.get(task.id);
     if (seen) {
       seen.card.events++;
@@ -63,8 +73,21 @@ export function changeLine(board: Board, mark: number | null): ChatItem | null {
   }
   if (!changed.size) return null;
   const cards = [...changed.values()].sort((a, b) => b.newest - a.newest);
-  const revision = cards[0].newest;
-  return { id: "change", at: new Date(revision).toISOString(), kind: "change", revision, cards: cards.map((c) => c.card) };
+  return { id: "change", at: new Date(newest).toISOString(), kind: "change", revision: newest, ids: newestIds.slice(-seenIdLimit), cards: cards.map((c) => c.card) };
+}
+
+/**
+ * The change line for each open panel's poll without a board scan while nothing moved: one cached result,
+ * keyed on the board's revision and last event, the mark and the dispatcher session (§9.2).
+ */
+export class ChangeLineCache {
+  private last: { key: string; value: ChatItem | null } | null = null;
+  constructor(private readonly scan: typeof changeLine = changeLine) {}
+  get(board: Board, mark: SeenMark | null, dispatcherAgentId: string | null): ChatItem | null {
+    const key = JSON.stringify([board.revision, board.events.length, board.events.at(-1)?.id ?? null, mark, dispatcherAgentId]);
+    if (this.last?.key !== key) this.last = { key, value: this.scan(board, mark, dispatcherAgentId) };
+    return this.last.value;
+  }
 }
 
 /** The "What should I do?" message: the question, then the changed cards (§9.2). Agent-facing, English. */
@@ -82,6 +105,8 @@ export function whatNextMessage(change: ChatItem | null): string {
 /** `<dataDir>/dispatcher-items.json`: atomic, serialized, pruned on write; a corrupt file is kept aside (§9.1). */
 export class DispatcherItems {
   private cached: Stored[] | null = null;
+  /** One first read at a time, so a corrupt file is kept aside once (and a fresh write is never moved). */
+  private loading: Promise<Stored[]> | null = null;
   private writes: Promise<unknown> = Promise.resolve();
   constructor(
     readonly directory: string,
@@ -122,8 +147,15 @@ export class DispatcherItems {
     return this.deps.now?.() ?? Date.now();
   }
 
-  private async load(): Promise<Stored[]> {
-    if (this.cached) return this.cached;
+  private load(): Promise<Stored[]> {
+    if (this.cached) return Promise.resolve(this.cached);
+    this.loading ??= this.readFile().finally(() => {
+      this.loading = null;
+    });
+    return this.loading;
+  }
+
+  private async readFile(): Promise<Stored[]> {
     let text: string;
     try {
       text = await readFile(this.path, "utf8");

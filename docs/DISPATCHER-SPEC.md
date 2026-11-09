@@ -9,10 +9,10 @@ Status: user decisions 2026-11-08 (single-pane spec D1, D2; plan Decisions Q5, Q
 `<dataDir>/dispatcher.json`:
 
 ```json
-{ "version": 1, "workspaceId": "…" | null, "agentId": "…" | null, "startedAt": "ISO time" | null, "seenRevision"?: number }
+{ "version": 1, "workspaceId": "…" | null, "agentId": "…" | null, "startedAt": "ISO time" | null, "seenRevision"?: number, "seenIds"?: string[] }
 ```
 
-`seenRevision` is the user's "Changed since you looked" mark (§9.2); every write keeps the fields it does not change.
+`seenRevision` and `seenIds` are the user's "Changed since you looked" mark (§9.2); every write keeps the fields it does not change.
 
 - Written atomically (temporary file + rename, mode 0600) and serialized; a missing file is the empty record (all `null`).
 - A file that does not parse or validate is renamed to `dispatcher.json.invalid-<epoch ms>` (kept, never deleted) and treated as empty; the next write creates a fresh file.
@@ -92,7 +92,7 @@ All take `projectId` explicitly, except `flowly_list_projects`. Writes are recor
 - `dispatcher.start` `{ provider?, modeId? }` → `{ agentId }` (no `provider`: the Dispatcher model setting, §3); errors `DISPATCHER_RUNNING`, `HOST_UNSUPPORTED`, `START_FAILED` (Paseo did not create the session; its reason in the message), returned as the RPC error.
 - `dispatcher.items-changed` `{ etag? }` → `{ etag, value?: ChatItem[] }`: the stored items plus the change line (§9.1, §9.2).
 - `dispatcher.tail`: the `sessions.tail` input without `taskId` and its output, for the stored dispatcher session only (§9.3).
-- `dispatcher.mark-seen` `{ revision }` → `{ seenRevision }` (§9.2).
+- `dispatcher.mark-seen` `{ revision, ids? }` → `{ seenRevision }` (§9.2).
 - `dispatcher.what-next` `{}` → `{ sent: true }` (§9.2).
 
 ## 9. Chat panel
@@ -114,18 +114,20 @@ On every write the list is pruned: asks answered or dismissed more than 7 days a
 
 ### 9.2 Changed since you looked
 
-- An event's revision is its time in epoch milliseconds (`Date.parse(event.at)`). The user's mark is `seenRevision` in `dispatcher.json` (§1; absent in older files). While it is absent the dispatcher's `startedAt` is the mark; with neither there is no change line.
-- The change line counts the cards with an event newer than the mark, by an agent or the system (the user's own changes are not news to them), whose card is not archived and whose project is live. Its `revision` is the newest such event's, its `at` that event's time, and it lists each card (`taskId`, `projectId`, `title`, `status`, number of events), newest first.
-- **Mark seen** (`dispatcher.mark-seen { revision }`) stores `max(seenRevision, revision)`, so a mark never moves back and a change after the line was read shows again. A new dispatcher keeps the mark.
-- **What should I do?** (`dispatcher.what-next`) sends the dispatcher `What should I do?` followed by the changed cards (`- "<title>" [<taskId>] in project <projectId>: <status>`); it does not mark them seen. Refused with `DISPATCHER_DOWN` unless the dispatcher is running or idle; while it runs the message steers its turn, as the composer's does.
+- An event's revision is its time in epoch milliseconds (`Date.parse(event.at)`). The user's mark is `seenRevision` with `seenIds` (the ids of the events at exactly that millisecond already seen) in `dispatcher.json` (§1; absent in older files). While it is absent the dispatcher's `startedAt` is the mark, with no ids; with neither there is no change line.
+- The change line counts the cards with an event after the mark (a later millisecond, or the mark's own millisecond with an id not in `seenIds`), by an agent or the system, whose card is not archived and whose project is live. The user's own changes are not news to them, and the dispatcher's own actions (events whose `agentId` is the stored dispatcher session) are not news either: it made them. Its `revision` is the newest such event's millisecond, `ids` the ids of the counted events at that millisecond, its `at` that time, and it lists each card (`taskId`, `projectId`, `title`, `status`, number of events), newest first.
+- **Mark seen** (`dispatcher.mark-seen { revision, ids }`, the line's own values) first clamps `revision` to the daemon's clock (a clamped mark keeps no ids). A later millisecond replaces the mark, the same millisecond adds the ids, an earlier one changes nothing: a mark never moves back, and a change after the line was read, even in the same millisecond, shows again. A new dispatcher keeps the mark.
+- The daemon scans the board for the line only when the board's revision or last event, the mark or the dispatcher session changed; an unchanged board costs no scan per poll.
+- **What should I do?** (`dispatcher.what-next`) sends the dispatcher `What should I do?` followed by the changed cards (`- "<title>" [<taskId>] in project <projectId>: <status>`); it does not mark them seen. Refused with `DISPATCHER_DOWN` unless the dispatcher is running or idle; it is sent with `activeTurnBehavior: "steer"`, as the composer's messages are.
 
 ### 9.3 Panel
 
 - Desktop: a panel beside the board, before an open card's sidebar, toggled from the toolbar. Phone: a full-screen page from the same toolbar button, hidden rather than unmounted when closed.
 - The transcript is read with `dispatcher.tail` (the `sessions.tail` contract, only for the stored dispatcher session in the stored workspace; any other session is refused). Note-batch messages (`Flowly board update (`) are left out of the transcript (the note rows stand for them), and the first message (`Flowly board summary.`) shows as one line.
 - Items are read with `dispatcher.items-changed` (etag), the status with `dispatcher.status`; both, the transcript and its stream run only while the panel is visible.
-- States none, ended and context_full show **Start dispatcher** (`dispatcher.start` with the Dispatcher model setting); an error, such as `HOST_UNSUPPORTED`, shows as a notice under it. While running or idle the composer sends exactly the typed text with the host Paseo client (`activeTurnBehavior: "steer"` while it runs).
-- A note row is one line (card title, kind, detail); pressing it opens the card. The change line is collapsed to its count; expanded it lists the cards (press opens one), with **Mark seen** and **What should I do?**.
+- States none, ended and context_full show **Start dispatcher** (`dispatcher.start` with the Dispatcher model setting); an error, such as `HOST_UNSUPPORTED`, shows as a notice under it. While running or idle the composer sends exactly the typed text with the host Paseo client, always with `activeTurnBehavior: "steer"`: Paseo starts a normal turn for a steer on an idle agent, while a send without it interrupts a turn and clears pending permissions, which a status read as idle a moment earlier cannot rule out. The Send button sends; Enter adds a line.
+- A note row is one line (card title, kind, detail); pressing it opens the card. The change line is always the last row, whatever its newest event time; it is collapsed to its count; expanded it lists the cards (press opens one), with **Mark seen** and **What should I do?**.
+- Known gap: images in the dispatcher's transcript show the image fallback (the session image read is per card, and the dispatcher has none).
 
 ## 10. Acceptance
 
@@ -139,7 +141,8 @@ On every write the list is pruned: asks answered or dismissed more than 7 days a
 - Start without a provider uses the Dispatcher model setting, else `claude/claude-sonnet-5-5`.
 - A corrupt `dispatcher.json` is preserved and treated as empty.
 - Transcript entries and chat items interleave by time; note-batch messages appear only as note rows, one per note the dispatcher received.
-- The change line counts the cards changed since the mark; Mark seen hides it until something new changes.
+- The change line counts the cards changed since the mark, without the user's or the dispatcher's own actions; Mark seen hides it until something new changes, including a later event in the same millisecond; a mark ahead of the daemon's clock is clamped; it is always the last row.
+- The composer and What should I do? always steer.
 - Items are capped at 500; answered or dismissed asks older than 7 days are dropped.
 - `dispatcher.tail` refuses every session except the stored dispatcher; `sessions.tail` still refuses sessions outside the card's workspace.
 - A host without background workspaces shows the `HOST_UNSUPPORTED` message in the panel.

@@ -8,6 +8,15 @@
 - Calls I made: an event's revision is its time in ms (events have no revision number); events by a human are left out of the change line; What should I do? does not mark seen; the composer and What should I do? steer a running turn.
 - Strings: 15 new, in all 9 catalogs. Onboarding: new tip `dispatcher` (after first-card, before card-display; opening the chat marks it seen) and a Dispatcher line under More features on the tour's last page; ONBOARDING-SPEC updated. Telemetry: no heartbeat field. What's new: none (part of the release that ships the dispatcher).
 - Checks: `npx vitest run server/dispatcher-items.test.ts server/dispatcher.test.ts server/session-tail.test.ts client/dispatcher-panel-logic.test.ts client/onboarding-logic.test.ts` exit 0 (5 files, 84 passed); `npm run typecheck` exit 0; `npm test` exit 0 (169 files, 1531 passed, 1 skipped). Not run: the panel against a live host (plugin not installed in this task): desktop and phone layout, Start dispatcher, the composer send, the HOST_UNSUPPORTED notice, transcript streaming — Task 12's live checks.
+- Review fix round 1:
+  - The composer and What should I do? always send with `activeTurnBehavior: "steer"` (`userSendOptions`). Paseo's daemon (`agent-prompt.js`, `agent-manager.js` `steerOrReplaceActiveTurn`) returns `inactive` for a steer on an agent with no turn and starts a normal run, so steer is safe when idle; a send without it interrupts and clears pending permissions.
+  - The change line is cached on the daemon (`ChangeLineCache`, keyed on board revision, event count and last event id, mark and dispatcher session): an unchanged board costs no scan per 4 s poll. The client overview carries no events, so computing the line on the client would have meant adding events to the overview.
+  - Ruling applied: the dispatcher's own actions (events with its `agentId`; its tools tag every create, update, link and start that way) are left out of the change line.
+  - Mark seen clamps to the daemon's clock and keeps `seenIds` (ids at the mark's millisecond), so a later event in the same millisecond still shows.
+  - `DispatcherItems` first read is shared (one in-flight load), so a corrupt file is moved aside once.
+  - Composer: the dead `onSubmitEditing` is gone (Send button sends; Enter adds a line). The change row is pinned to the end of the timeline.
+  - Spec: the dispatcher transcript's image fallback is listed as a known gap.
+  - Checks: 7 new or changed tests failed first (RED), then `npx vitest run client/dispatcher-panel-logic.test.ts server/dispatcher-items.test.ts server/dispatcher.test.ts server/session-tail.test.ts` exit 0 (39 passed); `npm run typecheck` exit 0; `npm test` exit 0 (169 files, 1535 passed, 1 skipped). Not run: live host.
 
 ## Dispatcher agent, charter and cross-project scope (branch `feat/single-pane`, Task 9) — 2026-11-08
 

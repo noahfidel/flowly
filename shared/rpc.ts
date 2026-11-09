@@ -62,7 +62,7 @@ import { localeCodes } from "./i18n";
 import { workflowOverviewSchema, workflowViewSchema } from "./workflow-insights";
 import { cardTokensSchema, insightsViewSchema } from "./workflow-stats";
 import { dayDetailSchema } from "./day-detail";
-import { chatItemSchema, dispatcherStartInputSchema, dispatcherStartResultSchema, dispatcherStatusSchema } from "./dispatcher";
+import { chatItemSchema, dispatcherStartInputSchema, dispatcherStartResultSchema, dispatcherStatusSchema, seenIdLimit } from "./dispatcher";
 
 /** `{ etag }` in; the value is omitted when it still matches (PERFORMANCE-SPEC §3). */
 const etagInput = z.strictObject({ etag: z.string().max(200).optional() });
@@ -1002,10 +1002,13 @@ export const dispatcherItemsChanged = defineRpc({
 });
 /** The dispatcher's transcript: `sessions.tail` for the stored dispatcher session only (DISPATCHER-SPEC §9.3). */
 export const dispatcherTail = defineRpc({ name: "dispatcher.tail", input: sessionTail.input.omit({ taskId: true }), output: tailPageSchema });
-/** Mark seen: the change line counts from `revision` on; never moves back (DISPATCHER-SPEC §9.2). */
+/**
+ * Mark seen: the change line counts from `revision` on, except the event `ids` seen at that very ms; never moves
+ * back, clamped to the daemon's clock (DISPATCHER-SPEC §9.2).
+ */
 export const dispatcherMarkSeen = defineRpc({
   name: "dispatcher.mark-seen",
-  input: z.strictObject({ revision: z.number().int().nonnegative() }),
+  input: z.strictObject({ revision: z.number().int().nonnegative(), ids: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional() }),
   output: z.strictObject({ seenRevision: z.number().int().nonnegative() }),
 });
 /** "What should I do?" with the changed cards, sent to the dispatcher (DISPATCHER-SPEC §9.2). */

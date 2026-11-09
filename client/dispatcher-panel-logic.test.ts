@@ -17,7 +17,7 @@ test("transcript entries and chat items interleave by time", () => {
     entry(5, "user_message", "Flowly board update (1 card):\n- \"Card n2\" [n2] …", 30),
     entry(6, "assistant_message", "n2 needs you.", 31),
   ];
-  const items = [note("n2", 30), note("n1", 5), { id: "change", at: at(40), kind: "change", revision: 1, cards: [] } as ChatItem];
+  const items = [note("n2", 30), note("n1", 5), { id: "change", at: at(40), kind: "change", revision: 1, ids: [], cards: [] } as ChatItem];
   const rows = mergeTimeline(transcript, items);
   expect(rows.map((r) => (r.kind === "item" ? r.item.id : r.kind === "summary" ? "summary" : r.entry.item.text))).toEqual([
     "summary",
@@ -35,6 +35,12 @@ test("transcript entries and chat items interleave by time", () => {
   // Ties keep the transcript first, and items with equal times keep their order.
   const tie = mergeTimeline([entry(1, "assistant_message", "a", 5)], [note("x", 5), note("y", 5)]);
   expect(tie.map((r) => r.key)).toEqual(["entry-1-assistant_message", "item-x", "item-y"]);
+});
+
+test("the change line stays at the end of the timeline, whatever its newest event time", () => {
+  const change = { id: "change", at: at(1), kind: "change", revision: 1, ids: [], cards: [] } as ChatItem;
+  const rows = mergeTimeline([entry(1, "assistant_message", "a", 0), entry(2, "assistant_message", "b", 20)], [change, note("n1", 10)]);
+  expect(rows.map((r) => r.key)).toEqual(["entry-1-assistant_message", "item-n1", "entry-2-assistant_message", "item-change"]);
 });
 
 test("transcript runs between items are grouped like the session pane", () => {

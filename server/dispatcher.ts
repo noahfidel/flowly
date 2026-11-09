@@ -11,7 +11,9 @@ import {
   mergeNotes,
   noteBatching,
   noteMessagePrefix,
+  seenIdLimit,
   summaryMessagePrefix,
+  userSendOptions,
   type DispatcherNote,
   type DispatcherState,
   type DispatcherStatus,
@@ -36,6 +38,8 @@ const recordSchema = z.strictObject({
   startedAt: z.string().nullable(),
   /** The user's "Changed since you looked" mark, in event milliseconds (§9.2); absent in older files. */
   seenRevision: z.number().int().nonnegative().optional(),
+  /** Ids of the seen events at exactly `seenRevision`, so later events in that millisecond still count. */
+  seenIds: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional(),
 });
 export type DispatcherRecord = z.infer<typeof recordSchema>;
 const emptyRecord = (): DispatcherRecord => ({ version: 1, workspaceId: null, agentId: null, startedAt: null });
@@ -321,22 +325,33 @@ export class Dispatcher {
     }
   }
 
-  /** Mark seen (§9.2): the mark only moves forward. */
-  async markSeen(revision: number): Promise<number> {
+  /**
+   * Mark seen (§9.2): the mark only moves forward and never past the daemon's clock. At the same millisecond
+   * the event ids add up; a clamped mark keeps no ids (they belong to a later millisecond).
+   */
+  async markSeen(revision: number, ids: readonly string[] = []): Promise<number> {
+    const now = this.now();
+    const target = Math.min(revision, now);
+    const marked = target === revision ? ids : [];
     let seen = 0;
     await this.save((r) => {
-      seen = Math.max(r.seenRevision ?? 0, revision);
-      return { ...r, seenRevision: seen };
+      if (r.seenRevision !== undefined && target < r.seenRevision) {
+        seen = r.seenRevision;
+        return r;
+      }
+      const kept = target === r.seenRevision ? (r.seenIds ?? []) : [];
+      seen = target;
+      return { ...r, seenRevision: target, seenIds: [...new Set([...kept, ...marked])].slice(-seenIdLimit) };
     });
     return seen;
   }
 
-  /** "What should I do?" (§9.2): only to a dispatcher that is up; a running turn is steered, as by the composer. */
+  /** "What should I do?" (§9.2): only to a dispatcher that is up; always steered, as by the composer (`userSendOptions`). */
   async whatNext(paseo: PaseoApi, text: string): Promise<void> {
     const { state, agentId } = await this.status(paseo);
     if (!agentId || (state !== "running" && state !== "idle"))
       throw new ToolError("DISPATCHER_DOWN", "The dispatcher is not running. Start it first.");
-    await paseo.agents.ref(agentId).send(text, state === "running" ? { activeTurnBehavior: "steer" } : {});
+    await paseo.agents.ref(agentId).send(text, userSendOptions);
   }
 
   /** One pending re-check at a time; it never schedules another for a turn end (retry once). */

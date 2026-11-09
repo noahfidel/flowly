@@ -7,7 +7,7 @@ import { Dispatcher, wireDispatcher } from "./dispatcher";
 import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
 import { agentFixture } from "./agent-fixture";
-import { dispatcherCharter, type DispatcherNote } from "../shared/dispatcher";
+import { dispatcherCharter, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
 import type { BoardEvent } from "../shared/model";
 
 const directories: string[] = [];
@@ -586,13 +586,16 @@ test("the chat records exactly the notes the dispatcher received", async () => {
   expect((await x.dispatcher.record()).seenRevision).toBe(123);
 });
 
-test("What should I do? reaches only a dispatcher that is up, and steers a running turn", async () => {
+test("What should I do? reaches only a dispatcher that is up, and always steers", async () => {
   const x = await setup();
   await expect(x.dispatcher.whatNext(x.paseo, "What should I do?")).rejects.toMatchObject({ code: "DISPATCHER_DOWN" });
   const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   await x.dispatcher.whatNext(x.paseo, "What should I do?");
   expect(x.sends.at(-1)).toEqual({ id: agentId, text: "What should I do?", options: { activeTurnBehavior: "steer" } });
+  // A status read as idle can be stale by the time the message lands (a turn or a permission started meanwhile):
+  // a send without activeTurnBehavior would interrupt it and clear its permissions, so idle steers too.
   x.agents.get(agentId)!.status = "idle";
   await x.dispatcher.whatNext(x.paseo, "What should I do?");
-  expect(x.sends.at(-1)!.options).toEqual({});
+  expect(x.sends.at(-1)!.options).toEqual({ activeTurnBehavior: "steer" });
+  expect(userSendOptions).toEqual({ activeTurnBehavior: "steer" });
 });

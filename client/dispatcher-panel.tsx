@@ -5,7 +5,7 @@ import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { msg, t, tn } from "../shared/i18n";
-import type { ChatItem } from "../shared/dispatcher";
+import { userSendOptions, type ChatItem } from "../shared/dispatcher";
 import { Button, IconButton, Label, Notice, TextBox, font, message, noFocusRing, radius, space, touch, useTheme, verticalScroll } from "./ui";
 import { ActivityBlock, TranscriptEntry } from "./session-transcript";
 import { useSessionTimeline } from "./session-timeline";
@@ -168,7 +168,6 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, 
         <Animated.View style={{ flexShrink: 0, backgroundColor: colors.surface0, transform: [{ translateY: keyboard.translate }], borderTopWidth: 1, borderTopColor: colors.border, padding: space[2] }}>
           <Composer
             agentId={agentId}
-            running={state === "running"}
             onSent={() => {
               following.current = true;
               void refetch();
@@ -180,8 +179,11 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, 
   );
 });
 
-/** Sends exactly the typed text to the dispatcher with the host's Paseo client (no second connection). */
-function Composer({ agentId, running, onSent }: { agentId: string; running: boolean; onSent(): void }) {
+/**
+ * Sends exactly the typed text to the dispatcher with the host's Paseo client (no second connection), always
+ * steering (`userSendOptions`). The Send button sends; Enter adds a line (a multiline native input never submits).
+ */
+function Composer({ agentId, onSent }: { agentId: string; onSent(): void }) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const text = useRef("");
@@ -196,7 +198,7 @@ function Composer({ agentId, running, onSent }: { agentId: string; running: bool
     setSending(true);
     setError("");
     try {
-      await paseo.agents.ref(agentId).send(value, running ? { activeTurnBehavior: "steer" } : {});
+      await paseo.agents.ref(agentId).send(value, userSendOptions);
       text.current = "";
       setEmpty(true);
       setBox((n) => n + 1);
@@ -223,7 +225,6 @@ function Composer({ agentId, running, onSent }: { agentId: string; running: bool
               text.current = next;
               setEmpty((was) => (was === !next.trim() ? was : !next.trim()));
             }}
-            onSubmitEditing={() => void send()}
             style={{ minHeight: touch ? 40 : 32, maxHeight: 140, paddingHorizontal: space[2], paddingVertical: space[1.5], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, color: colors.foreground, backgroundColor: colors.surface1, fontSize: font.base }}
           />
         </View>
@@ -316,7 +317,7 @@ function ChangeRow({ item, laneOf, onOpenCard, onChanged }: { item: Extract<Chat
             </Pressable>
           ))}
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[2], paddingTop: space[1] }}>
-            <Button small disabled={busy} onPress={() => run(() => markSeen({ revision: item.revision }))}>
+            <Button small disabled={busy} onPress={() => run(() => markSeen({ revision: item.revision, ids: item.ids }))}>
               {t("Mark seen")}
             </Button>
             <Button small primary disabled={busy} onPress={() => run(() => whatNext({}))}>
