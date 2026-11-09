@@ -193,6 +193,8 @@ export class DispatcherTools {
         add = normalizeTags(addTags ?? []);
         remove = normalizeTags(removeTags ?? []);
         if (add.some((t) => remove!.includes(t))) throw new Error("A tag can't be both added and removed.");
+        // Empty lists are not a tag change; with nothing else given there is nothing to do.
+        if (!add.length && !remove.length) add = remove = undefined;
       }
     } catch (e) {
       throw new ToolError("TAG_INVALID", e instanceof Error ? e.message : String(e));

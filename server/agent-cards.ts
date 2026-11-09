@@ -26,6 +26,8 @@ import { ToolError } from "./tool-error";
 export type CardCaller = { agentId: string; projectId: string; taskId?: string; human?: true; dispatcher?: true };
 
 const hour = 3600000;
+/** The New card path's refusal of an idea that is no longer open (`openIdea` in service.ts). */
+const ideaGone = "This idea is no longer open.";
 
 /**
  * flowly_list_cards, flowly_get_card, flowly_create_card and flowly_update_card (AGENT-CARDS-SPEC §3):
@@ -214,7 +216,8 @@ export class AgentCards {
     const operationId = `agent-card:${digest(JSON.stringify([caller.taskId ?? caller.projectId, caller.agentId, input.idempotencyKey]))}`;
     const previous = board.tasks.find((t) => t.operationId === operationId);
     if (previous) {
-      if (previous.projectId !== project.id || previous.title !== input.title)
+      // The same key from another idea, or with or without one, is another request (DISPATCHER-SPEC §5.1).
+      if (previous.projectId !== project.id || previous.title !== input.title || previous.origin?.ideaId !== fromIdea?.ideaId)
         throw new ToolError("REQUEST_REUSED", "This idempotencyKey already created a different card. Use a new key for a new card.");
       return { card: cardView(board, project, previous), replayed: true };
     }
@@ -262,7 +265,11 @@ export class AgentCards {
       );
     } catch (e) {
       release();
-      throw new ToolError("CARD_CREATE_FAILED", e instanceof Error ? e.message : String(e));
+      const text = e instanceof Error ? e.message : String(e);
+      // Taken up or dismissed after the check above, e.g. by a create from the same idea at the same time.
+      if (fromIdea && text.includes(ideaGone))
+        throw new ToolError("IDEA_CLOSED", "This idea is no longer open; another card took it up or it was dismissed meanwhile.");
+      throw new ToolError("CARD_CREATE_FAILED", text);
     }
     const after = await this.store.read();
     return { card: cardView(after, this.project(after, caller), after.tasks.find((t) => t.id === task.id) ?? task), replayed: false };

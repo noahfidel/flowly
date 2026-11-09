@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { ToolServer } from "./tool-server";
 import { agentFixture } from "./agent-fixture";
+import { changeLine } from "./dispatcher-items";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -556,11 +557,21 @@ test("flowly_create_card with ideaId takes the idea up as New card from it does 
   // A retry with the same key returns the same card, not a refusal for the now-accepted idea.
   const again = await d.call("flowly_create_card", { projectId: "q", title: "From idea", idempotencyKey: "k-idea", ideaId: "i-new" });
   expect(again.structuredContent).toMatchObject({ replayed: true, card: { taskId } });
+  // The same key with another idea, or with none, is a different request.
+  const reused = await d.call("flowly_create_card", { projectId: "q", title: "From idea", idempotencyKey: "k-idea", ideaId: "i-tie-a" });
+  expect(code(reused)).toBe("REQUEST_REUSED");
+  expect(code(await d.call("flowly_create_card", { projectId: "q", title: "From idea", idempotencyKey: "k-idea" }))).toBe("REQUEST_REUSED");
+  expect((await x.store.read()).ideas.find((i) => i.id === "i-tie-a")?.status).toBe("open");
+  // A key first used without an idea cannot take one up on replay.
+  await d.call("flowly_create_card", { projectId: "q", title: "Plain", idempotencyKey: "k-plain" });
+  expect(code(await d.call("flowly_create_card", { projectId: "q", title: "Plain", idempotencyKey: "k-plain", ideaId: "i-tie-a" }))).toBe("REQUEST_REUSED");
+  expect((await x.store.read()).ideas.find((i) => i.id === "i-tie-a")?.status).toBe("open");
   // A card idea: also the derived link to its source card and the idea_accepted event there.
   const fromCard = await d.call("flowly_create_card", { projectId: "q", title: "From card idea", idempotencyKey: "k-card-idea", ideaId: "i-card" });
   const second = fromCard.structuredContent.card.taskId as string;
   board = await x.store.read();
   expect(board.ideas.find((i) => i.id === "i-card")).toMatchObject({ status: "accepted", acceptedTaskId: second });
+  expect(board.tasks.find((t) => t.id === second)?.origin).toEqual({ taskId: "q1", ideaId: "i-card" });
   expect(board.links.some((l) => l.kind === "derived" && l.from === second && l.to === "q1" && l.ideaId === "i-card")).toBe(true);
   expect(board.events.some((e) => e.taskId === "q1" && e.action === "idea_accepted")).toBe(true);
   // Refused before anything is made: another project's idea, an unknown one, one not open, Ideas off.
@@ -575,7 +586,59 @@ test("flowly_create_card with ideaId takes the idea up as New card from it does 
   expect(code(await attempt("i-tie-a", "k-off"))).toBe("IDEAS_DISABLED");
   expect(JSON.stringify(await x.store.read())).toBe(before);
   expect(x.createdWorkspaces.length).toBe(workspaces);
-  // Refusals took no slot of the hourly limit: 2 used, so 38 more go through.
-  for (let i = 0; i < 38; i++) x.server.cards.reserve("disp", true);
+  // Refusals took no slot of the hourly limit: 3 used, so 37 more go through.
+  for (let i = 0; i < 37; i++) x.server.cards.reserve("disp", true);
   expect(() => x.server.cards.reserve("disp", true)).toThrow(expect.objectContaining({ code: "CARD_LIMIT" }));
+});
+
+test("two creates from one idea at once: one card, the other refused with IDEA_CLOSED (DISPATCHER-SPEC §5.1)", async () => {
+  const x = await setup();
+  await seedIdeas(x);
+  const d = await x.connect(x.dispatcherToken);
+  const results = await Promise.all(
+    ["k-a", "k-b"].map((key) => d.call("flowly_create_card", { projectId: "q", title: `Race ${key}`, idempotencyKey: key, ideaId: "i-tie-a" })),
+  );
+  expect(results.map(code).sort()).toEqual(["IDEA_CLOSED", undefined].sort());
+  const board = await x.store.read();
+  const winner = results.find((r) => !code(r))!.structuredContent.card.taskId;
+  expect(board.ideas.find((i) => i.id === "i-tie-a")).toMatchObject({ status: "accepted", acceptedTaskId: winner });
+  expect(board.tasks.filter((t) => t.title.startsWith("Race "))).toHaveLength(1);
+});
+
+test("flowly_update_idea: empty addTags and removeTags alone change nothing and are refused (DISPATCHER-SPEC §5.1)", async () => {
+  const x = await setup();
+  await seedIdeas(x);
+  const d = await x.connect(x.dispatcherToken);
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", addTags: [], removeTags: [] }))).toBe("INVALID_INPUT");
+  expect(code(await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", addTags: [] }))).toBe("INVALID_INPUT");
+  // With another field they are just nothing to do for the tags.
+  expect((await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-old", addTags: [], priority: "low" })).structuredContent.changed).toBe(true);
+});
+
+test("flowly_update_idea works on ideas of finished and archived cards (ruling 2026-11-09, DISPATCHER-SPEC §5.1)", async () => {
+  const x = await setup();
+  await seedIdeas(x);
+  await x.store.mutate((board) => {
+    board.ideas.push({ ...board.ideas.find((i) => i.id === "i-card")!, id: "i-card2", title: "Second card idea", taskId: "q2" });
+    board.tasks.find((t) => t.id === "q1")!.status = "done";
+    board.tasks.find((t) => t.id === "q2")!.archivedAt = stamp;
+  });
+  const d = await x.connect(x.dispatcherToken);
+  const done = await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-card", title: "Still worth it" });
+  expect(done.structuredContent).toMatchObject({ changed: true, idea: { title: "Still worth it" } });
+  const archived = await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-card2", status: "dismissed" });
+  expect(archived.structuredContent).toMatchObject({ changed: true, idea: { status: "dismissed" } });
+});
+
+test("the dispatcher's own idea edits do not show in its changed-since line (DISPATCHER-SPEC §9.2)", async () => {
+  const x = await setup();
+  await seedIdeas(x);
+  const d = await x.connect(x.dispatcherToken);
+  const mark = { revision: Date.now() - 1, ids: [] };
+  await d.call("flowly_update_idea", { projectId: "q", ideaId: "i-card", title: "Edited", status: "dismissed" });
+  const board = await x.store.read();
+  expect(board.events.filter((e) => e.taskId === "q1" && e.action.startsWith("idea_")).length).toBe(2);
+  expect(changeLine(board, mark, ["disp"])).toBeNull();
+  // The same events from another session would count.
+  expect(changeLine(board, mark, ["someone-else"])?.kind).toBe("change");
 });
