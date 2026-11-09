@@ -524,6 +524,19 @@ test("a chat ask carries its request id, so the panel's text box follows the ser
   }
 });
 
+test("a permission with no request left takes text only from a closed session; a live one sends nothing (§9.4)", async () => {
+  for (const status of ["running", "idle"] as const) {
+    const agents = () => [baseAgents()[0], agent("s2", "w-b", { status, pendingPermissions: [], requiresAttention: true, attentionReason: "permission", attentionTimestamp: at }), baseAgents()[2]];
+    const f = fixture(baseBoard(), agents());
+    const ask = (await f.asks.chatItems([], f.paseo)).find((i) => i.kind === "ask" && i.agentId === "s2");
+    expect(ask, status).toMatchObject({ signal: `p:s2:${at}`, askKind: "permission", state: "open" });
+    await expect(answer(f, `p:s2:${at}`, { text: "Go ahead" }), status).rejects.toThrow("Open the card to answer this request.");
+    expect(f.send, status).not.toHaveBeenCalled();
+    expect(f.respond, status).not.toHaveBeenCalled();
+    expect((await f.items.list()).some((i) => i.kind === "answer"), status).toBe(false);
+  }
+});
+
 test("a deleted card's notes disappear from the chat, as its asks and answers do (ruling, Noah 2026-11-09)", async () => {
   const f = fixture(baseBoard(), baseAgents());
   const note = (id: string, taskId: string) => ({ id, at: "2026-11-09T00:00:00.000Z", kind: "note" as const, note: { taskId, projectId: "p", title: taskId, kind: "status", detail: "", at: "2026-11-09T00:00:00.000Z" } });

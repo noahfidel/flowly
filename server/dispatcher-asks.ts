@@ -249,7 +249,9 @@ export class DispatcherAsks {
     let choice: "allow" | "deny" | undefined;
     if (ask.kind === "permission" && !ask.requestId) {
       // A permission attention with no request left (Paseo cleared it when the session closed): nothing to approve,
-      // so the user's typed text goes to the session as a message, which resumes it.
+      // so the user's typed text goes to the session as a message, which resumes it. Only a closed session's: in a
+      // live one the request may be on its way, and a message is not an answer to it.
+      if (agent.status !== "closed") throw new Error("Open the card to answer this request.");
       text = input.answer.text ?? "";
       if (!text.trim()) throw new Error("Type an answer.");
       await paseo.agents.ref(agentId).send(text, userSendOptions);
