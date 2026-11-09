@@ -42,11 +42,7 @@ export function mergeNotes(prev: DispatcherNote, next: DispatcherNote): Dispatch
 
 /** At most this many event ids are kept with the seen mark, all from its one millisecond (§9.2). */
 export const seenIdLimit = 500;
-/**
- * How the user's messages reach the dispatcher (composer, What should I do?): always steer. Paseo's daemon
- * starts a normal turn for a steer on an idle agent, and a send without it interrupts a turn and clears pending
- * permissions, which a status read as idle a moment ago cannot rule out (§9.3).
- */
+
 /** The dispatcher's MCP server name and its tools, all preapproved when its session is created (DISPATCHER-SPEC §3–4). */
 export const dispatcherServerName = "flowly-dispatcher";
 export const dispatcherToolNames = [
@@ -60,6 +56,11 @@ export const dispatcherToolNames = [
   "flowly_link_cards",
 ] as const;
 
+/**
+ * How the user's messages reach the dispatcher (composer, What should I do?): always steer. Paseo's daemon
+ * starts a normal turn for a steer on an idle agent, and a send without it interrupts a turn and clears pending
+ * permissions, which a status read as idle a moment ago cannot rule out (§9.3).
+ */
 export const userSendOptions = { activeTurnBehavior: "steer" } as const;
 /** At most this many chat items are kept (DISPATCHER-SPEC §9.1). */
 export const chatItemLimit = 500;
