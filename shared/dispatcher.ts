@@ -156,6 +156,8 @@ export type DispatcherState = (typeof dispatcherStates)[number];
 export const dispatcherStatusSchema = z.strictObject({
   state: z.enum(dispatcherStates),
   agentId: z.string().nullable(),
+  /** The live dispatcher was saved without a tool this build lists; a new dispatcher gets it (§3). */
+  newTools: z.literal(true).optional(),
 });
 export type DispatcherStatus = z.infer<typeof dispatcherStatusSchema>;
 /** `dispatcher.start`: the model as `provider/model` and an optional mode; no provider uses the Dispatcher model setting (DISPATCHER-SPEC §3). */

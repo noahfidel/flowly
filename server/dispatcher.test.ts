@@ -159,7 +159,8 @@ test("start creates a background directory workspace once and reuses it", async 
     },
   });
   const stored = JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8"));
-  expect(stored).toMatchObject({ version: 1, workspaceId: "dw-1", agentId: first.agentId, savedTools: true });
+  // The record keeps the tool list it was saved with, to tell when a later build lists more (§1, §3).
+  expect(stored).toMatchObject({ version: 1, workspaceId: "dw-1", agentId: first.agentId, savedTools: [...dispatcherToolNames] });
   expect(typeof stored.startedAt).toBe("string");
   expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "running", agentId: first.agentId });
   // A second start while it runs is refused: there is one dispatcher.
@@ -931,4 +932,23 @@ test("a refused session create restores the earlier record, its savedTools mark 
   expect(stored.agentId).toBe("old");
   expect(stored.savedTools).toBeUndefined();
   expect(errors.mock.calls.some((c) => String(c[0]) === "Flowly dispatcher not started:")).toBe(true);
+});
+
+test("a dispatcher saved with fewer tools than this build lists says a new one gets them; nothing restarts it (§3)", async () => {
+  const status = async (extra: Record<string, unknown>, agentStatus = "idle") => {
+    const x = await setup();
+    x.agents.set("old", { id: "old", workspaceId: "dw-0", status: agentStatus, archivedAt: null });
+    await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", ...extra }));
+    const read = await x.dispatcher.status(x.paseo);
+    expect(x.created).toHaveLength(0);
+    return read;
+  };
+  expect(await status({ savedTools: dispatcherToolNames.slice(0, -1) })).toEqual({ state: "idle", agentId: "old", newTools: true });
+  // Saved with this build's list, or marked true (saved with the first eight, all still listed): nothing to say.
+  expect(await status({ savedTools: [...dispatcherToolNames] })).toEqual({ state: "idle", agentId: "old" });
+  expect(await status({ savedTools: true })).toEqual({ state: "idle", agentId: "old" });
+  // Tools from the open hook are read at each open, always this build's.
+  expect(await status({})).toEqual({ state: "idle", agentId: "old" });
+  // An ended one says nothing: Start gives a new one anyway.
+  expect(await status({ savedTools: ["flowly_list_projects"] }, "closed")).toEqual({ state: "ended", agentId: "old" });
 });

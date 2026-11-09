@@ -1550,6 +1550,7 @@ const catalog: Catalog = {
   "The dispatcher session ended.": "Сессия диспетчера завершилась.",
   "Starts one agent session that works across all your projects.": "Запускает одну сессию агента, которая работает со всеми вашими проектами.",
   "Start dispatcher": "Запустить диспетчера",
+  "This dispatcher started before some Flowly tools existed. Archive its session in Paseo, then start a new one to use them.": "Этот диспетчер запущен до появления некоторых инструментов Flowly. Чтобы пользоваться ими, архивируйте его сессию в Paseo и запустите нового.",
   "Message the dispatcher": "Сообщение диспетчеру",
   "Board summary": "Сводка доски",
   "{n} cards changed since you looked": {"one": "{n} карточка изменилась с вашего последнего просмотра", "few": "{n} карточки изменились с вашего последнего просмотра", "many": "{n} карточек изменились с вашего последнего просмотра", "other": "{n} карточки изменились с вашего последнего просмотра"},

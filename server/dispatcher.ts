@@ -87,8 +87,11 @@ const recordSchema = z.strictObject({
   seenIds: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional(),
   /** The earlier dispatcher sessions of this install, oldest first (their actions are not news either, §9.2). */
   previousAgentIds: z.array(z.string().min(1).max(300)).max(previousAgentIdLimit).optional(),
-  /** Its session was saved with the `flowly-dispatcher` server and every tool preapproved (§3); absent for older ones. */
-  savedTools: z.literal(true).optional(),
+  /**
+   * Its session was saved with the `flowly-dispatcher` server and these tools preapproved (§3); `true` (the first
+   * saved sessions) stands for `firstSavedTools`; absent when the open hook adds the server.
+   */
+  savedTools: z.union([z.literal(true), z.array(z.string().min(1).max(100)).max(100)]).optional(),
 });
 export type DispatcherRecord = z.infer<typeof recordSchema>;
 /**
@@ -97,6 +100,22 @@ export type DispatcherRecord = z.infer<typeof recordSchema>;
  * them, which a plugin cannot tell apart, are left out), and any tool policy turns OpenCode's auto-accept off
  * (opencode-agent.js). Every other provider gets the tools from the open hook, unapproved.
  */
+/** The tools a record marked `savedTools: true` was saved with. */
+const firstSavedTools: readonly string[] = [
+  "flowly_list_projects",
+  "flowly_list_cards",
+  "flowly_get_card",
+  "flowly_create_card",
+  "flowly_update_card",
+  "flowly_start_card",
+  "flowly_propose_idea",
+  "flowly_link_cards",
+];
+/** Whether a live dispatcher's saved tools miss one this build lists: only a new session gets it (§3). */
+export function missesTools(record: DispatcherRecord) {
+  const saved = record.savedTools === true ? firstSavedTools : record.savedTools;
+  return !!saved && dispatcherToolNames.some((tool) => !saved.includes(tool));
+}
 const preapprovingProviders: readonly string[] = ["claude", "codex"];
 export const savesTools = (provider: string) => preapprovingProviders.includes(provider.split("/")[0]);
 
@@ -238,14 +257,17 @@ export class Dispatcher {
   }
 
   async status(paseo: PaseoApi): Promise<DispatcherStatus> {
-    const { agentId } = await this.record();
+    const record = await this.record();
+    const { agentId } = record;
     if (!agentId) return { state: "none", agentId: null };
     const found = await paseo.agents.ref(agentId).refresh();
     const state = dispatcherState(found?.agent);
+    // Saved tools are fixed at create: say so when this build lists more, never restart it (§3).
+    const newTools = (state === "running" || state === "idle") && missesTools(record);
     // A read that sees it idle is a chance to deliver what is held (§7).
     if (state === "idle" && this.held.size && !this.disposed)
       void this.serial(() => this.flush(paseo, false)).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
-    return { state, agentId };
+    return { state, agentId, ...(newTools ? { newTools: true as const } : {}) };
   }
 
   /** Starts a new dispatcher session; one at a time, refused unless the stored one is dead (§3). */
@@ -295,7 +317,7 @@ export class Dispatcher {
         workspaceId,
         agentId,
         startedAt: new Date(now).toISOString(),
-        ...(saved ? { savedTools: true as const } : {}),
+        ...(saved ? { savedTools: [...dispatcherToolNames] } : {}),
         ...(earlier ? { previousAgentIds: earlier } : {}),
       }));
       await this.create(paseo, { workspaceId, agentId, mcp, summary, input, previous });
@@ -366,7 +388,7 @@ export class Dispatcher {
           const { previousAgentIds: _, savedTools: __, ...rest } = r;
           return {
             ...rest,
-            ...(previous.savedTools ? { savedTools: true as const } : {}),
+            ...(previous.savedTools ? { savedTools: previous.savedTools } : {}),
             workspaceId,
             agentId: previous.agentId,
             startedAt: previous.startedAt,

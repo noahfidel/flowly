@@ -202,6 +202,8 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   if (status.error) notices.push({ key: "status", text: message(status.error) });
   if (current.error) notices.push({ key: "session", text: message(current.error) });
   if (agent?.lastError) notices.push({ key: "last-error", text: agent.lastError });
+  // Saved tools are fixed when the session is created; a new dispatcher gets this build's (DISPATCHER-SPEC §3).
+  if (status.data?.newTools) notices.push({ key: "new-tools", tone: "warning", text: t("This dispatcher started before some Flowly tools existed. Archive its session in Paseo, then start a new one to use them.") });
   if (agent?.providerUnavailable)
     notices.push({ key: "provider", tone: "warning", text: t("This session's provider is unavailable. Open in Paseo to inspect its configuration.") });
 

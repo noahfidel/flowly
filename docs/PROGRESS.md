@@ -41,7 +41,8 @@
 - Review fixes (opus-reviewer on 261003b and 6cac35a, 2026-11-09):
   - Saved tools only where Paseo can preapprove them without changing the mode: `claude` and `codex` (checked in the installed daemon 0.15.2: `provider-registry.js` `PROVIDER_CONTRACTS` lists claude, codex, opencode; any tool policy turns OpenCode's auto-accept off, `opencode-agent.js`). Every other provider (Copilot, OpenCode, ACP providers, pi, custom ones) is created as before 261003b, its tools from the open hook, so Start no longer fails with Paseo's `tool_policy_unsupported`. A start on such a provider drops the earlier record's `savedTools`. DISPATCHER-SPEC §3, §10. Checks: the two new cases in `server/dispatcher-tools.test.ts` failed first (2 failed: a tool policy was sent for `copilot/gpt-5` and after a Codex start).
   - The open hook stops at the stored dispatcher's session whether or not it adds a server (`dispatcherSession` returns `{ mcp }` for it, null for others), so a dispatcher with saved tools no longer falls through to card context or board tools. DISPATCHER-SPEC §3. Checks: the changed cases in `server/dispatcher-tools.test.ts` failed first (2 failed).
-  - Strings, onboarding, telemetry: none.
+  - The saved tool list is kept in the record (`savedTools: string[]`; the first sessions' `true` stands for the eight tools then). `dispatcher.status` adds `newTools: true` while a live dispatcher lacks one of this build's tools, and the chat shows a warning to archive it and start a new one; no restart. DISPATCHER-SPEC §1, §3, §10. Checks: the changed and new cases in `server/dispatcher.test.ts` failed first (2 failed: the record kept `true`, and a saved list did not validate). String: the new-tools warning, in all 9 catalogs.
+  - Strings, onboarding, telemetry: one string (above); onboarding and telemetry unchanged.
 
 ## Live verification script for the single pane (branch `feat/single-pane`, Task 12) — 2026-11-08
 

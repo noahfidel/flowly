@@ -1550,6 +1550,7 @@ const catalog: Catalog = {
   "The dispatcher session ended.": "ディスパッチャーのセッションは終了しました。",
   "Starts one agent session that works across all your projects.": "すべてのプロジェクトをまたいで作業するエージェントセッションを 1 つ開始します。",
   "Start dispatcher": "ディスパッチャーを開始",
+  "This dispatcher started before some Flowly tools existed. Archive its session in Paseo, then start a new one to use them.": "このディスパッチャーは一部の Flowly ツールより前に開始されました。使うには Paseo でセッションをアーカイブしてから、新しいディスパッチャーを開始してください。",
   "Message the dispatcher": "ディスパッチャーにメッセージ",
   "Board summary": "ボードの概要",
   "{n} cards changed since you looked": "前回確認してから {n} 枚のカードが変わりました",
