@@ -194,9 +194,10 @@ export class DispatcherAsks {
       const project = board.projects.find((p) => p.id === task.projectId);
       if (task.archivedAt || !project || project.archivedAt) throw new Error("The card or its project is archived.");
       const at = this.now();
-      // Its session archived or gone: the ask ended with it, it was not answered.
+      // Its session archived or gone: the ask ended with it, it was not answered. A closed session has not ended:
+      // Paseo stopped its process (idle or a restart) and a message reloads it.
       const agent = known.agentId ? ((await paseo.agents.ref(known.agentId).refresh())?.agent ?? null) : null;
-      if (known.agentId && (!agent || agent.archivedAt || agent.status === "closed")) {
+      if (known.agentId && (!agent || agent.archivedAt)) {
         await this.record([askItem(known, "session_ended", { resolvedAt: at })]);
         return { delivered: false, state: "session_ended" };
       }
@@ -206,10 +207,11 @@ export class DispatcherAsks {
     if (ask.kind === "error" || ask.kind === "unread") throw new Error(noAnswer);
     const task = board.tasks.find((t) => t.id === ask.taskId)!;
 
-    // 3. The session, read again: ended sessions are never restored; another workspace is never answered.
+    // 3. The session, read again: archived or gone ones are never restored (a closed one is: Paseo reloads it for the
+    // answer); another workspace is never answered.
     const agentId = ask.agentId!;
     const agent = (await paseo.agents.ref(agentId).refresh())?.agent ?? null;
-    if (!agent || agent.archivedAt || agent.status === "closed") {
+    if (!agent || agent.archivedAt) {
       await this.record([askItem(ask, "session_ended")]);
       return { delivered: false, state: "session_ended" };
     }

@@ -215,15 +215,15 @@ test("a request of a session outside the card's workspace is never answered", as
   expect((await f.items.list()).filter((i) => i.kind === "answer")).toEqual([]);
 });
 
-test("an ended session shows session ended and no tick", async () => {
+test("an archived session shows session ended and no tick", async () => {
   const f = fixture(baseBoard(), baseAgents());
   const live = baseAgents();
-  // Listed while it still waited; the fresh read finds it closed.
+  // Listed while it still waited; the fresh read finds it archived.
   const paseo = {
     agents: {
       list: async () => ({ entries: live.map((a) => ({ agent: a })), pageInfo: {} }),
       ref: (id: string) => ({
-        refresh: async () => ({ agent: id === "s1" ? { ...live[0], status: "closed" } : live.find((a) => a.id === id) }),
+        refresh: async () => ({ agent: id === "s1" ? { ...live[0], archivedAt: later } : live.find((a) => a.id === id) }),
         respondToPermission: (o: unknown) => f.respond(id, o),
         send: (t: string, o?: unknown) => f.send(id, t, o),
       }),
@@ -377,24 +377,23 @@ test("a form with several text questions takes one text per question and never d
 test("after a reload with the chat closed, the bell (daemon's resolved signals, empty client set) equals the badge", async () => {
   const f = fixture(baseBoard(), baseAgents());
   await answer(f, "p:s2:r2", { optionIds: ["a1"] });
-  // A closed session still lists its report: the ask is recorded ended, and the board still shows the signal.
-  const closed = { ...baseAgents()[0], status: "closed" as const };
+  // The session was archived after the list was read: the ask is recorded ended, and the board still shows the signal.
+  const archived = { ...baseAgents()[0], archivedAt: later };
   const paseo = {
     agents: {
-      list: async () => ({ entries: [closed, ...baseAgents().slice(1)].map((a) => ({ agent: a })), pageInfo: {} }),
-      ref: (id: string) => ({ refresh: async () => ({ agent: id === "s1" ? closed : baseAgents().find((a) => a.id === id) }) }),
+      list: async () => ({ entries: baseAgents().map((a) => ({ agent: a })), pageInfo: {} }),
+      ref: (id: string) => ({ refresh: async () => ({ agent: id === "s1" ? archived : baseAgents().find((a) => a.id === id) }) }),
     },
   } as unknown as PaseoApi;
   expect(await f.asks.answer({ signal: "q:e1", answer: { text: "Postgres" } }, paseo)).toEqual({ delivered: false, state: "session_ended" });
   // Reload: a fresh client knows nothing; it reads the daemon's resolved signals.
   const resolved = new Set(await f.asks.resolvedSignals());
   expect([...resolved].sort()).toEqual(["p:s2:r2", "q:e1"]);
-  const agents = [closed, ...baseAgents().slice(1)];
-  const items = attentionFromSources({ board: f.board, agents, receipts: [], readUnavailable: false })!;
+  const items = attentionFromSources({ board: f.board, agents: baseAgents(), receipts: [], readUnavailable: false })!;
   const badge = (await f.asks.count(paseo)).count;
   expect(openAskCount(items, resolved)).toBe(badge);
-  // Without the resolved set only the answered request still counts: the closed session's report is ended on its own.
-  expect(openAskCount(items)).toBe(badge + 1);
+  // Without the resolved set both still count: the board still lists the request and the report.
+  expect(openAskCount(items)).toBe(badge + 2);
 });
 
 test("errors and unread turns are never answered or resolved, so their reused keys keep counting", async () => {
@@ -446,27 +445,28 @@ test("agent lists are shared for a short time: two polls inside it list agents o
   expect(list).toHaveBeenCalledTimes(4);
 });
 
-test("an ask whose session ended shows as ended, with nothing to answer, and leaves the bell (§9.4)", async () => {
-  const ended = () => [
+test("a closed session's ask stays open, and answering it goes through (Paseo resumes the session; §9.4)", async () => {
+  // Paseo 0.15.2 closes an idle session after an hour (and on a daemon restart): its process stops and its pending
+  // requests are cleared, but its reports stay, and a message reloads it. Only archived or missing sessions have ended.
+  const closed = () => [
     agent("s1", "w-a", { status: "closed", requiresAttention: true, attentionReason: "finished", attentionTimestamp: at }),
-    agent("s2", "w-b", { status: "closed", pendingPermissions: [askUser, tool], requiresAttention: true, attentionReason: "permission", attentionTimestamp: at }),
+    agent("s2", "w-b", { status: "closed", pendingPermissions: [], requiresAttention: true, attentionReason: "permission", attentionTimestamp: at }),
     agent("s3", "w-c"),
   ];
-  const f = fixture(baseBoard(), ended());
+  const f = fixture(baseBoard(), closed());
   const items = await f.asks.chatItems([], f.paseo);
   const state = (signal: string) => items.flatMap((i) => (i.kind === "ask" && i.signal === signal ? [i.state] : []))[0];
-  // Its question report and its requests can no longer be answered: shown closed, never open.
-  for (const signal of ["q:e1", "p:s2:r1", "p:s2:r2"]) expect(state(signal), signal).toBe("session_ended");
-  // A live session's blocker stays open.
+  expect(state("q:e1")).toBe("open");
   expect(state("b:e2")).toBe("open");
-  // The bell, the badge and the chat's open rows agree, without the ended ones.
+  expect(items.some((i) => i.kind === "ask" && i.state === "session_ended")).toBe(false);
+  // The bell, the badge and the chat's open rows agree, with the closed session's report among them.
   const open = items.filter((i) => i.kind === "ask" && i.state === "open").length;
   expect((await readAttentionCount(f.store, f.reads, f.paseo)).count).toBe(open);
-  expect(openAskCount(attentionFromSources({ board: f.board, agents: ended(), receipts: [], readUnavailable: false })!)).toBe(open);
-  expect(asksFrom(f.board, ended(), [], []).filter((a) => a.state === "open").map((a) => a.signal)).not.toContain("p:s2:r2");
-  // An answer reaches nothing.
-  expect(await answer(f, "p:s2:r2", { allow: true })).toEqual({ delivered: false, state: "session_ended" });
-  expect(f.respond).not.toHaveBeenCalled();
+  expect(openAskCount(attentionFromSources({ board: f.board, agents: closed(), receipts: [], readUnavailable: false })!)).toBe(open);
+  expect(asksFrom(f.board, closed(), [], []).filter((a) => a.state === "open").map((a) => a.signal)).toContain("q:e1");
+  // The answer is sent; Paseo reloads the session for it.
+  expect(await answer(f, "q:e1", { text: "Postgres" })).toMatchObject({ delivered: true, state: "answered" });
+  expect(f.send).toHaveBeenCalledWith("s1", "Postgres", expect.objectContaining({ activeTurnBehavior: "steer" }));
 });
 
 test("a deleted card's notes disappear from the chat, as its asks and answers do (ruling, Noah 2026-11-09)", async () => {
