@@ -67,6 +67,8 @@ export const boardViewSettings = defineSettings({
     drawerShare: z.number().min(0).max(1).catch(0).default(0),
     /** The dispatcher chat minimized on desktop; it starts open (DISPATCHER-SPEC §9.3). */
     chatMinimized: z.boolean().catch(false).default(false),
+    /** The dispatcher chat expanded over the whole board area on desktop; it starts docked (DISPATCHER-SPEC §9.3). */
+    chatExpanded: z.boolean().catch(false).default(false),
   }),
 });
 

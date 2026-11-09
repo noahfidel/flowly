@@ -618,6 +618,12 @@ function BoardContent(
   // The dispatcher chat: open by default on desktop, minimized when the user says so (remembered per host);
   // phones open it from the toolbar each time (DISPATCHER-SPEC §9.3).
   const chatOpen = compact ? chat.open : !!view.values && !view.values.chatMinimized && (!!project || allView);
+  // Desktop: expanded, the open chat takes the whole board area; the board stays mounted, hidden (§9.3).
+  const chatExpanded = !compact && chatOpen && !!view.values?.chatExpanded;
+  const toggleChatSize = useStableCallback(() => void view.update({ chatExpanded: !chatExpanded }));
+  // A page shows in the board area, so opening one brings an expanded chat back to its docked width.
+  const restoreChatSize = useStableCallback(() => { if (chatExpanded) void view.update({ chatExpanded: false }); });
+  useEffect(() => { if (page) restoreChatSize(); }, [page, restoreChatSize]);
   const chatMotion = useMotionPresence(chatOpen ? true : undefined, chatOpen ? "dispatcher-chat" : "");
   const chatMounted = useRef(false);
   // Desktop: the open card's lane is centred in the board left of the drawer when the drawer would hide it, on
@@ -1202,8 +1208,7 @@ function BoardContent(
           ? // Phone: a full-screen page under an open card's sidebar, so closing the card comes back to the chat.
             { position: "absolute", top: 0, bottom: 0, left: 0, right: 0, zIndex: 29, display: chat.open ? "flex" : "none" }
           : {
-              width: 380,
-              flexShrink: 0,
+              ...(chatExpanded ? { flex: 1, minWidth: 0 } : { width: 380, flexShrink: 0 }),
               minHeight: 0,
               borderRightWidth: 1,
               borderRightColor: colors.border,
@@ -1213,7 +1218,7 @@ function BoardContent(
             }
       }
     >
-      <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} focus={chatFocus} onOpenCard={openTaskById} onClose={closeChat} />
+      <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} focus={chatFocus} onOpenCard={openTaskById} onClose={closeChat} expanded={chatExpanded} onToggleSize={toggleChatSize} />
     </Animated.View>
   );
   const togglePage = (next: "insights" | "ideas" | "memory" | "search") => {
@@ -2120,7 +2125,9 @@ function BoardContent(
                 distance={compact ? 0 : 18}
                 {...covered}
                 style={
-                  resizingFrom == null
+                  chatExpanded
+                    ? { display: "none" }
+                    : resizingFrom == null
                     ? { flex: 1, minWidth: 0, minHeight: 0 }
                     : { width: resizingFrom, flexGrow: 0, flexShrink: 0, minHeight: 0, overflow: "hidden" }
                 }

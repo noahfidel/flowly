@@ -222,6 +222,7 @@ const catalog: Catalog = {
   "More task actions": "その他のタスク操作",
   "Close side bar": "サイドバーを閉じる",
   "Minimize": "最小化",
+  "Restore size": "元のサイズに戻す",
   "Status: {lane}": "ステータス：{lane}",
   "Priority: {priority}": "優先度：{priority}",
   "none": "なし",

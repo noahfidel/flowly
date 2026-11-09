@@ -222,6 +222,7 @@ const catalog: Catalog = {
   "More task actions": "更多工操作",
   "Close side bar": "關閉側欄",
   "Minimize": "最小化",
+  "Restore size": "恢復大小",
   "Status: {lane}": "狀態：{lane}",
   "Priority: {priority}": "優先順序：{priority}",
   "none": "無",

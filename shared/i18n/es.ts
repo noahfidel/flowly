@@ -222,6 +222,7 @@ const catalog: Catalog = {
   "More task actions": "Más acciones de la tarea",
   "Close side bar": "Cerrar barra lateral",
   "Minimize": "Minimizar",
+  "Restore size": "Tamaño normal",
   "Status: {lane}": "Estado: {lane}",
   "Priority: {priority}": "Prioridad: {priority}",
   "none": "ninguno",

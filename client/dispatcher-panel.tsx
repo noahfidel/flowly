@@ -49,11 +49,14 @@ type Props = {
   onOpenCard(taskId: string): void;
   /** Minimize (desktop) or close (phone) the chat. */
   onClose(): void;
+  /** Desktop: the chat takes the whole board area; the toggle restores its docked width (§9.3). */
+  expanded?: boolean;
+  onToggleSize?(): void;
   /** The bell's jump to an ask (§9.4): scroll to its row and outline it; a new `key` jumps again. */
   focus?: { signal: string; key: number } | null;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, onClose, focus }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, onClose, focus, expanded = false, onToggleSize }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -235,6 +238,9 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
             </View>
           )}
         </View>
+        {!compact && onToggleSize ? (
+          <IconButton icon={expanded ? "Minimize2" : "Maximize2"} label={expanded ? t("Restore size") : t("Expand")} onPress={onToggleSize} />
+        ) : null}
         <IconButton icon={compact ? "X" : "PanelLeftClose"} label={compact ? t("Close") : t("Minimize")} onPress={onClose} />
       </View>
       <SessionTranscript
