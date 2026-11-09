@@ -11,7 +11,7 @@ import { IdeasImportModal } from "./ideas-import";
 import { Enter } from "./motion";
 import { usePageRows } from "./page-rows";
 import { StatusIcon } from "./status";
-import { ClosedIdea, IdeaCard, IdeaRow, sessionName, useExitList, useIdeaActions, type IdeaSession } from "./task-ideas";
+import { ClosedIdea, IdeaCard, IdeaRow, sessionName, useExitList, useIdeaActions, type IdeaOther, type IdeaSession } from "./task-ideas";
 import { AiMark, Button, Choices, Label, TextBox, font, radius, space, tint, touch, useTheme, verticalContent, verticalScroll, noFocusRing, pageBarHeight } from "./ui";
 import { t, msg, tn } from "../shared/i18n";
 
@@ -50,7 +50,7 @@ export const IdeasPage = memo(function IdeasPage({
   sessionsOf(taskId: string): readonly IdeaSession[];
   onCardFilter(taskId: string): void;
   onOpenTask(id: string): void;
-  onCreate(idea: Idea): void;
+  onCreate(idea: Idea, other?: IdeaOther): void;
   onNewSession(idea: Idea): void;
   onBack(): void;
 }) {

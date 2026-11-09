@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { quickCard, quickMode, quickProject, quickPrompt, startStatus } from "./quick-task";
+import { ideaQuickSeed, ideaQuickText, quickCard, quickCreateInput, quickMode, quickMoreSeed, quickProject, quickProjects, quickPrompt, startStatus } from "./quick-task";
+import { ideaDescription } from "../shared/ideas";
+import type { Idea } from "../shared/model";
 import { defaultFirstMessage } from "./first-message";
 import { statuses, type Project } from "../shared/model";
 
@@ -87,5 +89,80 @@ describe("a Quick task seeded from a Linear issue (LINEAR-BOARD-SPEC §5, QUICK-
   test("an empty text without an issue still cannot be sent", () => {
     expect(quickPrompt("", [])).toBeNull();
     expect(quickPrompt("do it", [])).toBe("do it");
+  });
+});
+
+describe("a Quick task seeded from an idea (QUICK-TASK-SPEC §10)", () => {
+  const idea: Idea = {
+    id: "i1",
+    taskId: "t1",
+    projectId: "b",
+    title: "Add retry to the importer",
+    detail: "Wrap the fetch in a retry with backoff.",
+    rationale: "Imports fail on flaky networks.",
+    context: "importer.ts",
+    type: "feature",
+    priority: "high",
+    tags: ["importer"],
+    status: "open",
+    createdAt: "2026-11-09T00:00:00.000Z",
+    updatedAt: "2026-11-09T00:00:00.000Z",
+  };
+  const source = { id: "t1", title: "Importer" };
+  const progress = { target: "Ship the importer", recap: "Fetch works" };
+  const seed = ideaQuickSeed(idea, source, progress);
+
+  test("the text box starts with the idea's title and detail", () => {
+    expect(seed.text).toBe("Add retry to the importer\n\nWrap the fetch in a retry with backoff.");
+    expect(ideaQuickText({ title: "Only a title", detail: "  " })).toBe("Only a title");
+  });
+  test("the card carries the idea: its title, the full-form description, type, priority, tags and id", () => {
+    expect(seed.title).toBe(idea.title);
+    expect(seed.idea).toEqual({ id: "i1", projectId: "b", description: ideaDescription(idea, source, progress), type: "feature", priority: "high", tags: ["importer"] });
+    expect(seed.externals).toEqual([]);
+  });
+  test("the project is locked to the idea's, and an archived one leaves nothing to choose", () => {
+    const a = project("a"), b = project("b");
+    expect(quickProjects([a, b], seed).map((p) => p.id)).toEqual(["b"]);
+    expect(quickProjects([a, project("b", { archivedAt: "2026-11-01T00:00:00.000Z" })], seed)).toEqual([]);
+    expect(quickProjects([a, b], undefined).map((p) => p.id)).toEqual(["a", "b"]);
+  });
+  test("the idea names the card: no AI title, even when the text is edited", () => {
+    expect(quickCard("something else entirely", seed, 0)).toEqual({ title: idea.title, aiTitle: false });
+  });
+  test("the create request sends ideaId with the idea's fields", () => {
+    const input = quickCreateInput({ projectId: "b", operationId: "op", text: seed.text!, seed, externals: [], status: "todo", mode: "worktree" });
+    expect(input).toEqual({
+      projectId: "b",
+      operationId: "op",
+      title: idea.title,
+      description: ideaDescription(idea, source, progress),
+      status: "todo",
+      priority: "high",
+      type: "feature",
+      tags: ["importer"],
+      mode: "worktree",
+      baseRef: "",
+      branchName: "",
+      ideaId: "i1",
+    });
+  });
+  test("an ordinary quick task's request has no idea, type or tags", () => {
+    const input = quickCreateInput({ projectId: "a", operationId: "op", text: "Fix the login redirect", seed: undefined, externals: [], status: "todo", mode: "directory" });
+    expect(input).toEqual({ projectId: "a", operationId: "op", title: "Fix the login redirect", description: "", status: "todo", priority: "normal", mode: "directory", baseRef: "", branchName: "" });
+  });
+  test("More options hands the idea to the full form with the typed text as the instruction", () => {
+    const more = quickMoreSeed({ text: "edited text", seed, externals: [], mode: "worktree" });
+    expect(more).toEqual({
+      ideaId: "i1",
+      title: idea.title,
+      description: ideaDescription(idea, source, progress),
+      type: "feature",
+      priority: "high",
+      tags: ["importer"],
+      prompt: "edited text",
+      startAgent: true,
+      mode: "worktree",
+    });
   });
 });

@@ -7,14 +7,16 @@ import { t } from "../shared/i18n";
 import { quickTitleText } from "../shared/quick-task";
 import type { ConnectorProvider, ExternalSummary } from "../shared/connectors";
 import { Modal } from "./modal";
-import { Theme, useTheme, Button, Field, Notice, Actions, message, space } from "./ui";
+import { Theme, useTheme, Button, Field, Label, Notice, Actions, Row, font, message, space } from "./ui";
 import { PickerGroup, PickerRow } from "./picker";
 import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice";
 import { launchKanbanSession } from "./session";
 import { ImageAttachments, useImageAttachments } from "./image-attach";
 import { newMessageId, rememberSentImages } from "./sent-images";
 import { useBoardView } from "./board-view";
-import { quickCard, quickMode, quickPrompt, startStatus, type QuickMode, type QuickTaskSeed } from "./quick-task";
+import { quickCard, quickCreateInput, quickMode, quickMoreSeed, quickPrompt, startStatus, type QuickMode, type QuickTaskSeed } from "./quick-task";
+import type { OtherOption } from "./idea-choice";
+import { cardBlockLabel, ideaStepIcon, ideaStepLabel } from "./task-ideas";
 import { ExternalChip } from "./connectors";
 import type { TaskSeed } from "./forms";
 
@@ -37,18 +39,23 @@ export function QuickTaskForm({
   onClose,
   onMore,
   onSaved,
+  otherOptions,
+  onOther,
 }: {
   /** Live projects the task can go to. */
   projects: readonly Project[];
   initialProjectId: string;
   defaultStatus?: Status;
-  /** Opened from an external item (Linear's Start card): attached, titled by it, and the text is optional. */
+  /** Opened from an external item (Linear's Start card): attached, titled by it, and the text is optional. From an idea: prefilled and made from it (§10). */
   seed?: QuickTaskSeed;
   /** The agent the full form would start with in that project (MODEL-DEFAULTS-SPEC). */
   agentDefaultsFor: (project: Project) => AgentDefaults;
   onClose: () => void;
   onMore: (more: QuickTaskMore) => void;
   onSaved: (projectId: string, taskId: string, launch: { sessionId?: string; error?: string }) => void;
+  /** From an idea: Other options…, the choices that skip Quick task (§10); the caller closes the dialog and runs one. */
+  otherOptions?: readonly OtherOption[];
+  onOther?: (option: OtherOption) => void;
 }) {
   const theme = useTheme();
   const view = useBoardView();
@@ -58,10 +65,10 @@ export function QuickTaskForm({
     prepare = useRpc(rpc.prepareSession),
     paseo = usePaseo();
   const [projectId, setProjectId] = useState(initialProjectId),
-    [text, setText] = useState(""),
+    [text, setText] = useState(seed?.text ?? ""),
     [externals, setExternals] = useState<{ item: ExternalSummary; provider: ConnectorProvider }[]>(() => seed?.externals || []),
     [modeChoice, setModeChoice] = useState<QuickMode | null>(null),
-    [open, setOpen] = useState<"project" | "agent" | null>(null),
+    [open, setOpen] = useState<"project" | "agent" | "other" | "send" | null>(null),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
   const project = projects.find((p) => p.id === projectId) ?? projects[0];
@@ -89,18 +96,8 @@ export function QuickTaskForm({
     setError("");
     const { title, aiTitle } = quickCard(text, seed, externals.length);
     try {
-      const created = await create({
-        projectId: project.id,
-        operationId,
-        title,
-        description: "",
-        status: startStatus(project, defaultStatus),
-        priority: "normal",
-        mode,
-        baseRef: "",
-        branchName: "",
-        ...(externals.length ? { externals: items.map((x) => ({ connectionId: x.connectionId, key: x.key, itemType: x.itemType })) } : {}),
-      });
+      // From an idea it carries `ideaId`, so the daemon accepts the idea in the same write (§10).
+      const created = await create(quickCreateInput({ projectId: project.id, operationId, text, seed, externals, status: startStatus(project, defaultStatus), mode }));
       if (view.values && view.values.lastQuickProjectId !== project.id) void view.update({ lastQuickProjectId: project.id });
       // Not awaited: the provisional title stays if this fails or the setting is off (§4). The run reads at most
       // QUICK_TEXT_MAX characters, so a longer paste is cut here rather than refused by the RPC's input limit.
@@ -138,12 +135,7 @@ export function QuickTaskForm({
       projectId: project.id,
       status: defaultStatus,
       seed: {
-        title: quickCard(text, seed, externals.length).title,
-        description: "",
-        ...(externals.length ? { externals } : {}),
-        prompt: text,
-        startAgent: true,
-        mode,
+        ...quickMoreSeed({ text, seed, externals, mode }),
         images: attachments.list(),
         agent: { provider: choice.provider, model: choice.chosenModel, mode: choice.chosenMode, thinking: choice.chosenThinking, speed: choice.chosenSpeed },
       },
@@ -198,7 +190,15 @@ export function QuickTaskForm({
               <Button small quiet disabled={pending || !project} onPress={more}>
                 {t("More options…")}
               </Button>
+              {!!otherOptions?.length && onOther && (
+                <Button small quiet disabled={pending} onPress={() => setOpen(open === "other" || open === "send" ? null : "other")}>
+                  {t("Other options…")}
+                </Button>
+              )}
             </View>
+            {(open === "other" || open === "send") && otherOptions && onOther && (
+              <OtherOptions options={otherOptions} sending={open === "send"} disabled={pending} onSend={() => setOpen("send")} onPick={onOther} />
+            )}
             {open === "project" && (
               <PickerGroup>
                 <PickerRow
@@ -228,5 +228,60 @@ export function QuickTaskForm({
         </Theme.Provider>
       </Modal.Content>
     </Modal>
+  );
+}
+
+/**
+ * Other options… (§10): in place, like the Project picker, since the board's menus cannot show over a dialog.
+ * Send to another session… turns the list into the live sessions.
+ */
+function OtherOptions({
+  options,
+  sending,
+  disabled,
+  onSend,
+  onPick,
+}: {
+  options: readonly OtherOption[];
+  sending: boolean;
+  disabled: boolean;
+  onSend(): void;
+  onPick(option: OtherOption): void;
+}) {
+  const send = options.find((o) => o.kind === "send-other");
+  if (sending && send?.kind === "send-other")
+    return (
+      <PickerGroup>
+        {send.sessions.map((s) => (
+          <Row
+            key={s.id}
+            title={s.title || t("this card's session")}
+            icon={s.id === send.current?.id ? "Check" : "MessageSquare"}
+            disabled={disabled}
+            onPress={() => onPick({ kind: "continue", session: s, suggested: false })}
+          />
+        ))}
+      </PickerGroup>
+    );
+  return (
+    <PickerGroup>
+      {options.map((option) =>
+        option.kind === "note" ? (
+          <View key="note" style={{ paddingHorizontal: space[3], paddingVertical: space[2] }}>
+            <Label muted size={font.sm}>{cardBlockLabel(option.blocked)}</Label>
+          </View>
+        ) : option.kind === "form" ? (
+          <Row key="form" title={t("Open the full form")} icon="SquarePlus" disabled={disabled} onPress={() => onPick(option)} />
+        ) : (
+          <Row
+            key={option.kind}
+            title={ideaStepLabel(option)}
+            icon={ideaStepIcon(option)}
+            disabled={disabled}
+            onPress={() => (option.kind === "send-other" ? onSend() : onPick(option))}
+          />
+        ),
+      )}
+    </PickerGroup>
   );
 }

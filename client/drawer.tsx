@@ -65,7 +65,7 @@ import { workspaceSession } from "./session";
 import { TaskProgress } from "./task-progress";
 import { TaskUsage } from "./task-usage";
 import { SessionMarkdown } from "./session-content";
-import { TaskIdeas } from "./task-ideas";
+import { TaskIdeas, type IdeaOther } from "./task-ideas";
 import { TaskMemorySection } from "./memory";
 import { LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
@@ -125,7 +125,7 @@ function TaskDrawerView({
   /** Opens the permanent-delete confirmation (archived cards only). */
   onDelete?(): void;
   /** Opens the new-task form prefilled from an idea (IDEAS-SPEC §6). */
-  onCreateFromIdea?(idea: Idea): void;
+  onCreateFromIdea?(idea: Idea, other?: IdeaOther): void;
   /** Opens "Link to a card…" for this card (CARD-LINKS-SPEC §5.4). */
   onLink?(task: Task): void;
   /** Opens the new-task form as a follow-up of this card (CARD-LINKS-SPEC §5.5). */

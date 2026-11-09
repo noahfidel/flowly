@@ -64,7 +64,9 @@ import { Chevron, Collapse } from "./disclosure";
 import { IdeaRow, useExitList, useHeld } from "./task-ideas";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
 import { QuickTaskForm } from "./quick-task-form";
-import { quickProject, type QuickTaskSeed } from "./quick-task";
+import { ideaQuickSeed, quickProject, quickProjects, type QuickTaskSeed } from "./quick-task";
+import { newTaskFromIdea, type OtherOption } from "./idea-choice";
+import type { IdeaOther } from "./task-ideas";
 import { ideaDescription } from "../shared/ideas";
 import { waitingOn } from "../shared/links";
 import { LinkPicker } from "./task-links";
@@ -366,7 +368,14 @@ function BoardContent(
     ),
     // Quick task (QUICK-TASK-SPEC): `projectId` when the entry point belongs to one project (a lane, a tab, the empty-board hint).
     // `recent`: Q and the Command Center open in the last quick-task project (QUICK-TASK-SPEC §3).
-    [quickTask, setQuickTask] = useState<{ status: Status; projectId?: string; recent?: boolean; seed?: QuickTaskSeed } | null>(null),
+    // `idea`: from an idea (QUICK-TASK-SPEC §10): the full form's seed and Other options… with the card actions' runner.
+    [quickTask, setQuickTask] = useState<{
+      status: Status;
+      projectId?: string;
+      recent?: boolean;
+      seed?: QuickTaskSeed;
+      idea?: { form: TaskSeed; options: readonly OtherOption[]; run?(option: OtherOption): void };
+    } | null>(null),
     [error, setError] = useState(""),
     [pending, setPending] = useState(false),
     [preferredShare, setPreferredShare] = useState(defaultDrawerShare);
@@ -1089,25 +1098,27 @@ function BoardContent(
     setTask("");
   });
   const editDrawerTask = useStableCallback(() => task && setTaskForm({ task, status: task.status }));
-  // IDEAS-SPEC §6: the new-task form, prefilled from the idea and its source card.
-  const createFromIdea = useStableCallback((idea: Idea) =>
-    setTaskForm({
+  // IDEAS-SPEC §6: a new task prefilled from the idea and its source card: Quick task locked to the idea's project,
+  // else (Quick task for New task off) the full form (QUICK-TASK-SPEC §10). `other`: Other options…' card actions.
+  const createFromIdea = useStableCallback((idea: Idea, other?: IdeaOther) => {
+    const source = board?.tasks.find((t) => t.id === idea.taskId);
+    const progress = idea.taskId ? cardProgress(summaries.data, idea.taskId) : undefined;
+    const form: TaskSeed = {
+      ideaId: idea.id,
+      title: idea.title,
+      description: ideaDescription(idea, source, progress),
+      type: idea.type,
+      priority: idea.priority,
+      tags: idea.tags,
+    };
+    if (newTaskFromIdea(view.values?.quickTaskDefault ?? true) === "form") return setTaskForm({ status: "todo", projectId: idea.projectId, seed: form });
+    setQuickTask({
       status: "todo",
       projectId: idea.projectId,
-      seed: {
-        ideaId: idea.id,
-        title: idea.title,
-        description: ideaDescription(
-          idea,
-          board?.tasks.find((t) => t.id === idea.taskId),
-          idea.taskId ? cardProgress(summaries.data, idea.taskId) : undefined,
-        ),
-        type: idea.type,
-        priority: idea.priority,
-        tags: idea.tags,
-      },
-    }),
-  );
+      seed: ideaQuickSeed(idea, source, progress),
+      idea: { form, options: other?.options ?? [{ kind: "form" }], ...(other ? { run: other.run } : {}) },
+    });
+  });
   useEffect(() => {
     if (ideaInput.error) {
       setError(ideaInput.error);
@@ -2743,9 +2754,9 @@ function BoardContent(
         )}
         {quickTask && board && (
           <QuickTaskForm
-            key={quickTask.seed?.externals[0]?.item.key || "quick"}
+            key={quickTask.seed?.idea?.id || quickTask.seed?.externals[0]?.item.key || "quick"}
             seed={quickTask.seed}
-            projects={projects.filter((p) => !p.archivedAt)}
+            projects={quickProjects(projects, quickTask.seed)}
             initialProjectId={
               (allView && !quickTask.projectId
                 ? allQuickProject(projects, view.values?.lastQuickProjectId ?? "")
@@ -2755,6 +2766,17 @@ function BoardContent(
             defaultStatus={quickTask.status}
             agentDefaultsFor={agentDefaultsFor}
             onClose={() => setQuickTask(null)}
+            otherOptions={quickTask.idea?.options}
+            onOther={(option) => {
+              const idea = quickTask.idea;
+              const projectId = quickTask.projectId;
+              if (!idea || option.kind === "note") return;
+              // What it opens waits for this dialog to close: two Modals in one frame freeze Paseo.
+              setQuickTask(null);
+              if (option.kind !== "form") return afterModalClose(() => idea.run?.(option));
+              if (projectId) focusProject(projectId);
+              afterModalClose(() => setTaskForm({ status: "todo", seed: idea.form, ...(projectId ? { projectId } : {}) }));
+            }}
             onMore={(more) => {
               // The full form opens once this dialog has closed: two Modals in one frame freeze Paseo.
               setQuickTask(null);
