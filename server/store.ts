@@ -1,4 +1,4 @@
-import { deliveryModeLocked } from "../shared/delivery-mode";
+import { deliveryModeLocked, inDeliveryLane } from "../shared/delivery-mode";
 import { laneName, laneProblem } from "../shared/lanes";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -78,6 +78,17 @@ export function onlyAiTitleSince(board: Board, task: Task, revision: number) {
   return !!last && last.at === task.updatedAt;
 }
 
+/**
+ * Marks each card in a delivery lane that has no `deliveredAt` yet (DELIVERY-MODE-SPEC §2). Every write goes
+ * through one commit, so a card's first move into In review, Committed or Integrated is marked in that write,
+ * whoever made it; the mark is never removed, so its delivery mode stays fixed after a move back.
+ */
+function markDelivered(board: Board) {
+  let now: string | undefined;
+  for (const task of board.tasks)
+    if (!task.deliveredAt && inDeliveryLane(task.status)) task.deliveredAt = now ??= new Date().toISOString();
+}
+
 export class BoardStore {
   private tail: Promise<unknown> = Promise.resolve();
   /** Events created by the running transaction; appended to the flow log once it commits. */
@@ -135,6 +146,7 @@ export class BoardStore {
       const events = this.pending;
       this.pending = [];
       if (!result.changed) return result.value;
+      markDelivered(board);
       board.revision++;
       assertBoardInvariants(board);
       await persistence.save(storageSchema.parse(board));
@@ -206,8 +218,8 @@ export class BoardStore {
       if ((input.tags === undefined) !== (input.tagsBase === undefined))
         throw new Error("Tags and the tags the form started from must be sent together.");
       const deliveryChange = input.deliveryMode !== undefined && input.deliveryMode !== task.deliveryMode;
-      if (deliveryChange && deliveryModeLocked(task.status))
-        throw new Error("The delivery mode can't be changed once the card is in review, committed or integrated.");
+      if (deliveryChange && deliveryModeLocked(task))
+        throw new Error("The delivery mode can't be changed once the card has been in review, committed or integrated.");
       const tagChange =
         input.tags !== undefined
           ? mergeTagEdit(task.tags || [], normalizeTags(input.tagsBase!), normalizeTags(input.tags), new Date().toISOString())

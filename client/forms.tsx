@@ -492,13 +492,13 @@ export function TaskForm({
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
   // The card's delivery mode, seeded from its stored mode, else the Settings default, until chosen here. Editable
-  // until the card delivers (in review, committed, integrated), then shown read-only (DELIVERY-MODE-SPEC §2).
+  // until the card has delivered (been in review, committed or integrated), then shown read-only for good (DELIVERY-MODE-SPEC §2).
   const deliveryPrefs = useSettings(deliverySettings);
   const [deliveryChoice, setDeliveryChoice] = useState<DeliveryMode | null>(null);
   const deliveryDefault = deliveryPrefs.status === "ready" ? deliverySettingsValues(deliveryPrefs.values).defaultMode : "branch";
   const deliverySeed = effectiveDeliveryMode(task?.deliveryMode, deliveryDefault);
   const delivery = deliveryChoice ?? deliverySeed;
-  const deliveryLocked = !!task && deliveryModeLocked(task.status);
+  const deliveryLocked = !!task && deliveryModeLocked(task);
   // From… (EXTERNAL-TRACKER-SPEC §5, CONNECTORS-SPEC §8.2): items added as inputs with the new card.
   const resources = useResourcesQuery({ enabled: ready && !task && mode === "existing" });
   const connections = useConnections(ready && !task);

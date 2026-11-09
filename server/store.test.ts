@@ -75,16 +75,47 @@ describe("board durability and business invariants", () => {
     for (const [revision, status] of [[3, "in_review"], [5, "committed"], [7, "integrated"]] as const) {
       await s.editTask({ id: "t1", revision, status, actor: "human" });
       await expect(s.editTask({ id: "t1", revision: revision + 1, deliveryMode: "ready_pr", actor: "human" })).rejects.toThrow(
-        "The delivery mode can't be changed once the card is in review, committed or integrated.",
+        "The delivery mode can't be changed once the card has been in review, committed or integrated.",
       );
       // Sending the stored value again is no change and passes.
       await s.editTask({ id: "t1", revision: revision + 1, deliveryMode: "draft_pr", actor: "human" });
     }
-    expect((await s.read()).tasks[0].deliveryMode).toBe("draft_pr");
-    // Moved back out of delivery, it can change again.
+    const delivered = (await s.read()).tasks[0];
+    expect(delivered.deliveryMode).toBe("draft_pr");
+    expect(typeof delivered.deliveredAt).toBe("string");
+    // Moved back out of delivery, it stays fixed (ruling 2026-11-09), and the first delivery time is kept.
     await s.editTask({ id: "t1", revision: 9, status: "development", actor: "human" });
-    await s.editTask({ id: "t1", revision: 10, deliveryMode: "branch", actor: "human" });
-    expect((await s.read()).tasks[0].deliveryMode).toBe("branch");
+    await expect(s.editTask({ id: "t1", revision: 10, deliveryMode: "branch", actor: "human" })).rejects.toThrow(
+      "The delivery mode can't be changed once the card has been in review, committed or integrated.",
+    );
+    expect((await s.read()).tasks[0]).toMatchObject({ deliveryMode: "draft_pr", deliveredAt: delivered.deliveredAt, status: "development" });
+  });
+  test("every write into a delivery lane marks the card delivered, a drag and a rule's change included (DELIVERY-MODE-SPEC §2)", async () => {
+    const s = await setup();
+    await writeFile(s.path, JSON.stringify({ ...fixture(), version: 4, agentReceipts: [] }));
+    const before = (await s.read()).tasks[0];
+    expect(before.deliveredAt).toBeUndefined();
+    await s.placeTask({ id: "t1", revision: before.revision, status: "in_review", beforeId: null, afterId: null });
+    await s.placeTask({ id: "t1", revision: before.revision + 1, status: "development", beforeId: null, afterId: null });
+    await expect(s.editTask({ id: "t1", revision: before.revision + 2, deliveryMode: "ready_pr", actor: "human" })).rejects.toThrow(
+      "once the card has been in review",
+    );
+    // A status set by any other writer (a status rule, an agent tool) goes through the same commit.
+    const s2 = await setup();
+    await writeFile(s2.path, JSON.stringify({ ...fixture(), version: 4, agentReceipts: [] }));
+    await s2.mutate((board) => {
+      board.tasks[0].status = "committed";
+    });
+    await s2.mutate((board) => {
+      board.tasks[0].status = "todo";
+    });
+    expect(typeof (await s2.read()).tasks[0].deliveredAt).toBe("string");
+    // A card that has never delivered stays editable.
+    const s3 = await setup();
+    await writeFile(s3.path, JSON.stringify({ ...fixture(), version: 4, agentReceipts: [] }));
+    await s3.editTask({ id: "t1", revision: 1, deliveryMode: "ready_pr", actor: "human" });
+    expect((await s3.read()).tasks[0]).toMatchObject({ deliveryMode: "ready_pr" });
+    expect((await s3.read()).tasks[0].deliveredAt).toBeUndefined();
   });
   test("v2 migration preserves selected scope/history, waits for a commit, and backs up the source", async () => {
     const s = await setup(),

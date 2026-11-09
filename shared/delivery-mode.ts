@@ -22,11 +22,20 @@ export function effectiveDeliveryMode(stored: unknown, fallback: DeliveryMode = 
 }
 
 /**
- * Whether a card in `status` has delivered, so its mode is fixed (§2, ruling 2026-11-08): In review, Committed
- * and Integrated (the same three as `deliveryStatuses` in `shared/model.ts`, which imports this module).
+ * A delivery lane: In review, Committed and Integrated (the same three as `deliveryStatuses` in
+ * `shared/model.ts`, which imports this module).
  */
-export function deliveryModeLocked(status: string): boolean {
+export function inDeliveryLane(status: string): boolean {
   return status === "in_review" || status === "committed" || status === "integrated";
+}
+
+/**
+ * Whether a card has delivered, so its mode is fixed for good (§2, rulings 2026-11-08 and 2026-11-09): it carries
+ * the `deliveredAt` mark (set by the store on its first write into a delivery lane), or it is in one now (a card
+ * written before the mark).
+ */
+export function deliveryModeLocked(task: { status: string; deliveredAt?: string }): boolean {
+  return !!task.deliveredAt || inDeliveryLane(task.status);
 }
 
 const permission ="Pushing and opening the PR still go through the user's permission prompt, which the user answers.";

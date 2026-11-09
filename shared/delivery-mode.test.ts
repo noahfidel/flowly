@@ -51,6 +51,13 @@ test("Edit accepts only the three modes, and the mode is fixed once the card del
   expect(taskEdit.parse({ id: "t", revision: 1, deliveryMode: "ready_pr" }).deliveryMode).toBe("ready_pr");
   expect(taskEdit.parse({ id: "t", revision: 1 }).deliveryMode).toBeUndefined();
   expect(() => taskEdit.parse({ id: "t", revision: 1, deliveryMode: "auto_merge" })).toThrow();
-  for (const status of ["backlog", "todo", "development", "blocked", "done", "cancelled"] as const) expect(deliveryModeLocked(status), status).toBe(false);
-  for (const status of ["in_review", "committed", "integrated"] as const) expect(deliveryModeLocked(status), status).toBe(true);
+  for (const status of ["backlog", "todo", "development", "blocked", "done", "cancelled"] as const) {
+    expect(deliveryModeLocked({ status }), status).toBe(false);
+    // Once delivered, it stays fixed in every lane (ruling 2026-11-09).
+    expect(deliveryModeLocked({ status, deliveredAt: "2026-11-09T00:00:00.000Z" }), status).toBe(true);
+  }
+  // A card in a delivery lane with no mark yet (written before the mark) counts as delivered.
+  for (const status of ["in_review", "committed", "integrated"] as const) expect(deliveryModeLocked({ status }), status).toBe(true);
+  const stored = { id: "t", projectId: "p", workspaceId: "w", sourcePath: "/r", repoPaths: [], title: "T", description: "", status: "development", priority: "normal", position: 0, revision: 1, operationId: "o", createdAt: "2026-11-08T00:00:00.000Z", updatedAt: "2026-11-08T00:00:00.000Z", archivedAt: null };
+  expect(taskSchema.parse({ ...stored, deliveredAt: "2026-11-09T00:00:00.000Z" }).deliveredAt).toBe("2026-11-09T00:00:00.000Z");
 });
