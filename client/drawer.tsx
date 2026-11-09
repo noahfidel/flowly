@@ -93,6 +93,7 @@ function TaskDrawerView({
   onDelete,
   onCreateFromIdea,
   onDiscussIdea,
+  quickTask = true,
   onLink,
   onFollowUp,
   onOpenTask,
@@ -129,6 +130,8 @@ function TaskDrawerView({
   onCreateFromIdea?(idea: Idea, other?: IdeaOther): void;
   /** Puts a draft about an idea in the dispatcher chat (DISPATCHER-SPEC §9.5); absent: no Discuss. */
   onDiscussIdea?(idea: Idea): void;
+  /** *Quick task for New task* is on (default on): a scope-new idea opens Quick task directly. */
+  quickTask?: boolean;
   /** Opens "Link to a card…" for this card (CARD-LINKS-SPEC §5.4). */
   onLink?(task: Task): void;
   /** Opens the new-task form as a follow-up of this card (CARD-LINKS-SPEC §5.5). */
@@ -872,6 +875,7 @@ function TaskDrawerView({
               disabled={!active || !!project.archivedAt}
               onCreate={onCreateFromIdea}
               onDiscuss={onDiscussIdea}
+              quick={quickTask}
               onAllIdeas={onAllIdeas && (() => onAllIdeas(task.id))}
               onNewSession={(idea) => {
                 setIdeaSession(idea);

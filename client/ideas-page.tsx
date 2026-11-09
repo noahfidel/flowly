@@ -37,6 +37,7 @@ export const IdeasPage = memo(function IdeasPage({
   onCreate,
   onNewSession,
   onDiscuss,
+  quick,
   onBack,
 }: {
   project: Project;
@@ -55,6 +56,8 @@ export const IdeasPage = memo(function IdeasPage({
   onNewSession(idea: Idea): void;
   /** Puts a draft about the idea in the dispatcher chat (DISPATCHER-SPEC §9.5); absent: no Discuss. */
   onDiscuss?(idea: Idea): void;
+  /** *Quick task for New task* is on: a scope-new idea opens Quick task directly (IDEAS-SPEC §6). */
+  quick: boolean;
   onBack(): void;
 }) {
   usePerfRender("project.ideas.render");
@@ -68,7 +71,7 @@ export const IdeasPage = memo(function IdeasPage({
   const [finishedOnly, setFinishedOnly] = useState(false);
   const [shown, setShown] = useState(PAGE);
   const [importing, setImporting] = useState(false);
-  const actions = useIdeaActions({ sessionsOf, onCreate, onNewSession, ideas, tasks });
+  const actions = useIdeaActions({ sessionsOf, onCreate, onNewSession, ideas, tasks, quick });
   const { hidden } = actions;
   const lanes = useMemo(() => enabledStatuses(project), [project]);
   const cards = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);

@@ -1906,6 +1906,7 @@ function BoardContent(
         onDelete={deleteDrawerTask}
         onCreateFromIdea={ideasOn ? createFromIdea : undefined}
         onDiscussIdea={ideasOn && canDiscuss ? discussIdea : undefined}
+        quickTask={view.values?.quickTaskDefault ?? true}
         onLink={linkFrom}
         onFollowUp={followUp}
         onOpenTask={openTaskById}
@@ -2209,6 +2210,7 @@ function BoardContent(
                     onCreate={createFromIdea}
                     onNewSession={ideaInNewSession}
                     onDiscuss={canDiscuss ? discussIdea : undefined}
+                    quick={view.values?.quickTaskDefault ?? true}
                     onBack={closePage}
                   />
                 ) : page === "search" && board ? (

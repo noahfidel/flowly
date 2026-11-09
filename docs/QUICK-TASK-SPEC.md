@@ -145,9 +145,14 @@ form. With it off, each of them opens the full form prefilled as before (IDEAS-S
 - **Good idea** on an idea whose card is Done, Cancelled, archived or gone (IDEAS-INBOX-SPEC §2.3): Quick task
   directly, since a new card is its only action; the line saying why it cannot continue in its card moves into
   **Other options…** (below).
-- **Start a new task** in the Good idea menu of an idea whose card can still continue. The menu itself is unchanged
-  (IDEAS-SPEC §6): `scope=here` lists Continue in <session> (Suggested), Send to another session…, Do it in a new
-  session, then Start a new task; `scope=new` lists Start a new task (Suggested) first.
+- **Good idea** on an idea whose card can still continue:
+  - `scope=new` (or no scope), with *Quick task for New task* on: Quick task directly, no menu. The card's own actions
+    stay reachable through **Other options…** (below): Continue in <session>, Send to another session… (only with more
+    than one live session), Do it in a new session, and the full form.
+  - `scope=new` (or no scope) with it off: the menu, Start a new task (Suggested) first, since there is no Other
+    options… to reach the card's actions.
+  - `scope=here`: the menu (IDEAS-SPEC §6), Continue in <session> (Suggested), Send to another session…, Do it in a
+    new session, then Start a new task; Start a new task opens Quick task (or the full form when it is off).
 - An idea link (`ideaInput`, the deep link to one idea).
 
 The dialog then opens with:

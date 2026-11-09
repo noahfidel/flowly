@@ -47,12 +47,16 @@ export function continueSteps(idea: Pick<Idea, "agentId" | "scope">, sessions: r
   ];
 }
 
-/** Good idea: straight to a new task when that is the only path, else the menu with the agent's suggestion first. */
-export function goodIdeaPlan(idea: Pick<Idea, "taskId" | "agentId" | "scope">, card: Card | undefined, sessions: readonly ChoiceSession[]): GoodIdeaPlan {
+/**
+ * Good idea: straight to a new task when that is the only path, or when the idea is not "here" and Quick task is on
+ * (its Other options… keeps the card's actions); else the menu with the agent's suggestion first.
+ */
+export function goodIdeaPlan(idea: Pick<Idea, "taskId" | "agentId" | "scope">, card: Card | undefined, sessions: readonly ChoiceSession[], quick: boolean): GoodIdeaPlan {
   if (!idea.taskId) return { kind: "new-task" };
   const blocked = cardBlock(idea, card);
   if (blocked) return { kind: "new-task", blocked };
   const here = idea.scope === "here";
+  if (quick && !here) return { kind: "new-task" };
   const inCard = continueSteps(idea, sessions);
   const divider = { kind: "separator" as const };
   const newTask = { kind: "new-task" as const, suggested: !here };

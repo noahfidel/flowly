@@ -23,16 +23,16 @@ const gone: ChoiceSession = { id: "a0", title: "Old", archivedAt: "2026-11-01T00
 
 describe("goodIdeaPlan (IDEAS-SPEC §6, QUICK-TASK-SPEC §10)", () => {
   test("a project idea goes straight to a new task", () => {
-    expect(goodIdeaPlan(idea({ taskId: undefined }), undefined, [])).toEqual({ kind: "new-task" });
+    expect(goodIdeaPlan(idea({ taskId: undefined }), undefined, [], true)).toEqual({ kind: "new-task" });
   });
   test("a finished, archived or gone card goes straight to a new task, with the reason kept", () => {
-    expect(goodIdeaPlan(idea(), { ...live, status: "done" }, [a1])).toEqual({ kind: "new-task", blocked: { reason: "finished", title: "Importer" } });
-    expect(goodIdeaPlan(idea(), { ...live, status: "cancelled" }, [a1])).toEqual({ kind: "new-task", blocked: { reason: "finished", title: "Importer" } });
-    expect(goodIdeaPlan(idea(), { ...live, archivedAt: "2026-11-02T00:00:00.000Z" }, [a1])).toEqual({ kind: "new-task", blocked: { reason: "archived", title: "Importer" } });
-    expect(goodIdeaPlan(idea(), undefined, [a1])).toEqual({ kind: "new-task", blocked: { reason: "gone" } });
+    expect(goodIdeaPlan(idea(), { ...live, status: "done" }, [a1], true)).toEqual({ kind: "new-task", blocked: { reason: "finished", title: "Importer" } });
+    expect(goodIdeaPlan(idea(), { ...live, status: "cancelled" }, [a1], true)).toEqual({ kind: "new-task", blocked: { reason: "finished", title: "Importer" } });
+    expect(goodIdeaPlan(idea(), { ...live, archivedAt: "2026-11-02T00:00:00.000Z" }, [a1], true)).toEqual({ kind: "new-task", blocked: { reason: "archived", title: "Importer" } });
+    expect(goodIdeaPlan(idea(), undefined, [a1], true)).toEqual({ kind: "new-task", blocked: { reason: "gone" } });
   });
   test("scope here on a live card: Continue (the proposer's session) suggested first, Start a new task last", () => {
-    const plan = goodIdeaPlan(idea({ scope: "here" }), live, [a1, a2, gone]);
+    const plan = goodIdeaPlan(idea({ scope: "here" }), live, [a1, a2, gone], true);
     expect(plan.kind).toBe("menu");
     if (plan.kind !== "menu") return;
     expect(plan.entries.map((e) => e.kind)).toEqual(["continue", "send-other", "new-session", "separator", "new-task"]);
@@ -42,11 +42,21 @@ describe("goodIdeaPlan (IDEAS-SPEC §6, QUICK-TASK-SPEC §10)", () => {
     expect(plan.entries[4]).toEqual({ kind: "new-task", suggested: false });
   });
   test("scope here without a live session: Do it in a new session is suggested", () => {
-    const plan = goodIdeaPlan(idea({ scope: "here" }), live, [gone]);
+    const plan = goodIdeaPlan(idea({ scope: "here" }), live, [gone], true);
     expect(plan.kind === "menu" && plan.entries).toEqual([{ kind: "new-session", suggested: true }, { kind: "separator" }, { kind: "new-task", suggested: false }]);
   });
-  test("scope new (or none): Start a new task suggested first", () => {
-    const plan = goodIdeaPlan(idea(), live, [a1]);
+  test("scope here keeps the menu whether or not Quick task is on", () => {
+    expect(goodIdeaPlan(idea({ scope: "here" }), live, [a1, a2], false)).toEqual(goodIdeaPlan(idea({ scope: "here" }), live, [a1, a2], true));
+  });
+  test("scope new (or none) with Quick task on: straight to Quick task", () => {
+    expect(goodIdeaPlan(idea(), live, [a1], true)).toEqual({ kind: "new-task" });
+    expect(goodIdeaPlan(idea({ scope: "new" }), live, [a1, a2], true)).toEqual({ kind: "new-task" });
+  });
+  test("scope new (or none) with Quick task on stays blocked on a finished card", () => {
+    expect(goodIdeaPlan(idea(), { ...live, status: "done" }, [a1], true)).toEqual({ kind: "new-task", blocked: { reason: "finished", title: "Importer" } });
+  });
+  test("scope new (or none) with Quick task off: Start a new task suggested first", () => {
+    const plan = goodIdeaPlan(idea(), live, [a1], false);
     expect(plan.kind === "menu" && plan.entries).toEqual([
       { kind: "new-task", suggested: true },
       { kind: "separator" },
@@ -64,6 +74,10 @@ describe("ideaOtherOptions: Quick task's Other options… (QUICK-TASK-SPEC §10)
       { kind: "send-other", sessions: [a1, a2], current: a2 },
       { kind: "new-session", suggested: false },
     ]);
+  });
+  test("a scope-new idea on a live card: Other options… keeps the card's actions", () => {
+    expect(ideaOtherOptions(idea(), live, [a1, a2]).map((o) => o.kind)).toEqual(["form", "continue", "send-other", "new-session"]);
+    expect(ideaOtherOptions(idea(), live, [a1]).map((o) => o.kind)).toEqual(["form", "continue", "new-session"]);
   });
   test("a project idea: only the full form", () => {
     expect(ideaOtherOptions(idea({ taskId: undefined }), undefined, [])).toEqual([{ kind: "form" }]);

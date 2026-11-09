@@ -41,6 +41,7 @@ export function TaskIdeas({
   onOpenTask,
   onAllIdeas,
   section,
+  quick,
 }: {
   taskId: string;
   /** This card's sessions, newest first (archived included, for names). */
@@ -55,10 +56,12 @@ export function TaskIdeas({
   /** Opens the project Ideas page showing only this card (IDEAS-INBOX-SPEC §5). */
   onAllIdeas?(): void;
   section: SectionState;
+  /** *Quick task for New task* is on. */
+  quick: boolean;
 }) {
   const { detail } = useTaskDetail();
   const [closedOpen, setClosedOpen] = useState(false);
-  const actions = useIdeaActions({ sessionsOf: () => sessions, onCreate, onNewSession, ideas: detail?.ideas || [], tasks: detail?.relatedTasks || [] });
+  const actions = useIdeaActions({ sessionsOf: () => sessions, onCreate, onNewSession, ideas: detail?.ideas || [], tasks: detail?.relatedTasks || [], quick });
   const { hidden, restoring } = actions;
   const ideas = useMemo(() => (detail?.ideas || []).filter((i) => i.taskId === taskId), [detail?.ideas, taskId]);
   const open = useMemo(() => ideas.filter((i) => i.status === "open" && !hidden.has(i.id)), [ideas, hidden]);
@@ -138,6 +141,7 @@ export function useIdeaActions({
   onCreate,
   onNewSession,
   ideas, tasks,
+  quick,
 }: {
   ideas: readonly Idea[];
   tasks: readonly CardReference[];
@@ -146,6 +150,8 @@ export function useIdeaActions({
   /** A new task from the idea (Quick task or the full form), with Quick task's Other options… for it. */
   onCreate(idea: Idea, other: IdeaOther): void;
   onNewSession(idea: Idea): void;
+  /** *Quick task for New task* is on: a scope-new idea opens Quick task directly (IDEAS-SPEC §6). */
+  quick: boolean;
 }) {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -190,7 +196,7 @@ export function useIdeaActions({
     const card = idea.taskId ? tasks.find((t) => t.id === idea.taskId) : undefined;
     const sessions = idea.taskId ? sessionsOf(idea.taskId) : [];
     const create = () => onCreate(idea, { options: ideaOtherOptions(idea, card, sessions), run: runOther(idea) });
-    const plan = goodIdeaPlan(idea, card, sessions);
+    const plan = goodIdeaPlan(idea, card, sessions, quick);
     if (!openMenu || plan.kind === "new-task") return create();
     const entry = (step: IdeaStep | { kind: "separator" }): MenuEntry => {
       if (step.kind === "separator") return { kind: "separator", id: "divider" };
