@@ -22,6 +22,23 @@ export function parsePrReviewLabel(value: string | undefined | null): PrRef | nu
   return match ? { text, owner: match[1], repo: match[2], number: Number(match[3]) } : { text };
 }
 
+/** The key two reviews share when they name the same pull request: `owner/repo#n`, lower case (GitHub names ignore case). Null for a loose label (§8). */
+export const prKey = (ref: PrRef): string | null => (ref.owner ? `${ref.owner}/${ref.repo}#${ref.number}`.toLowerCase() : null);
+
+const prLine = /^PR: (\S+)(?: \(https:\/\/github\.com\/\S+\))?$/;
+
+/** The PR a PR review card is for: its stored ref, else (older cards) a whole `PR:` line of the description, searched line by line (§8). */
+export function prReviewCardKey(task: Pick<Task, "description" | "prRef">): string | null {
+  if (task.prRef) return task.prRef;
+  for (const line of task.description.split(/\r?\n/)) {
+    const m = prLine.exec(line.trimEnd());
+    const ref = m ? parsePrReviewLabel(m[1]) : null;
+    const key = ref ? prKey(ref) : null;
+    if (key) return key;
+  }
+  return null;
+}
+
 /** In review when the project has that lane, else To do, else its first open lane (§4). */
 export function prReviewStatus(project: Pick<Project, "lanes">): Status {
   if (laneEnabled(project, "in_review")) return "in_review";

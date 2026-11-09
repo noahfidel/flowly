@@ -84,6 +84,7 @@ Status: implemented 2026-10-29. Card: badge for worktree vs local.
 A card's meta row says where it works, so worktree cards and cards that share the project folder can be told apart on the board.
 
 - **What**: `GitBranch` + *Worktree* when Paseo's `workspaceKind` is `worktree`; `Folder` + *Local* for every other kind (`local_checkout`, `checkout`, `directory`). Same quiet muted text with icon as the other meta items (§2), no pill. First in the row, before priority, type, ticket and tags, so it sits at the same place on every card (user request 2026-10-29).
+- **Background workspaces** (hidden ones, such as PR-review workspaces) are in that list too, flagged `background`: a card bound to one is available and can be opened. The existing-workspace picker in New session leaves them out.
 - **Source**: Paseo's live workspace list. `resources.list` (and `resources.read-changed`) carries each workspace's `kind` (optional, Paseo's raw value); the board maps it per card with `cardWorkspace(kind)` in `shared/card-display.ts`. No new request or poll; a card linked to an existing workspace shows that workspace's real kind. Nothing is stored on the task.
 - **No kind, no badge**: a workspace that is not in the live list (missing, archived, wrapped up) shows nothing here; *Workspace unavailable* / *Wrapped up* still explain it.
 - **Option**: field id `workspace` (*Workspace*, first in Settings → Cards → Details), shown by default. The preview card shows *Worktree*.

@@ -555,7 +555,7 @@ export function TaskForm({
     prepare = useRpc(rpc.prepareSession),
     paseo = usePaseo();
   const eligible = (resources.data?.workspaces || []).filter((w) =>
-    w.repoPaths.includes(project.primaryPath),
+    !w.background && w.repoPaths.includes(project.primaryPath),
   );
   const suggestions = useMemo(() => (index.data?.tags || []).map((s) => s.tag), [index.data]);
   const agentTags = useMemo(

@@ -43,12 +43,18 @@ async function setup(agentStatus: string) {
   });
   const paseo = {
     projects: { list: async () => ({ projects: [{ projectId: "native", projectRootPath: "/r", projectDisplayName: "P" }] }) },
-    workspaces: { list: async () => ({ entries: [{ id: "w1", projectId: "native" }, { id: "w9", projectId: "other" }], pageInfo: { nextCursor: null } }) },
+    workspaces: {
+      list: async (o: { filter?: { includeBackground?: boolean } }) => ({
+        entries: [{ id: "w1", projectId: "native" }, { id: "w9", projectId: "other" }, ...(o.filter?.includeBackground ? [{ id: "wb", projectId: "native", background: true }] : [])],
+        pageInfo: { nextCursor: null },
+      }),
+    },
     agents: {
-      list: async () => ({
+      list: async (o: { filter?: { includeBackground?: boolean } }) => ({
         entries: [
           { agent: { id: "a1", workspaceId: "w1", status: agentStatus, archivedAt: null } },
           { agent: { id: "a9", workspaceId: "w9", status: "running", archivedAt: null } },
+          ...(o.filter?.includeBackground ? [{ agent: { id: "ab", workspaceId: "wb", status: agentStatus, archivedAt: null } }] : []),
         ],
         pageInfo: { nextCursor: null },
       }),
@@ -59,7 +65,8 @@ async function setup(agentStatus: string) {
 
 test("check counts only the project's workspaces and running sessions", async () => {
   const x = await setup("running");
-  expect(await x.service.removeCheck("p", x.paseo)).toEqual({ cards: 0, paseoProjectId: "native", paseoExists: true, workspaces: 1, runningSessions: 1 });
+  // Background (hidden) review workspaces and their sessions are removed with the project too.
+  expect(await x.service.removeCheck("p", x.paseo)).toEqual({ cards: 0, paseoProjectId: "native", paseoExists: true, workspaces: 2, runningSessions: 2 });
 });
 
 test("board-only removal never touches Paseo", async () => {

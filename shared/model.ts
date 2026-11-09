@@ -211,6 +211,8 @@ export const taskSchema = z.object({
   handover: handoverSchema.optional(),
   /** The latest workspace switch (WORKSPACE-SWITCH-SPEC §7.1). */
   switch: switchSchema.optional(),
+  /** PR review cards: the pull request, `owner/repo#n` in lower case, so a new review of it can reuse the card (PR-REVIEW-CARDS-SPEC §8). Absent on older cards and loose labels. */
+  prRef: z.string().optional(),
   /** How the card is delivered (DELIVERY-MODE-SPEC §2); a plain string so a value this version does not know still loads. Absent: the host default. */
   deliveryMode: z.string().optional(),
   /** When the card first entered In review, Committed or Integrated; kept when it moves back, so the mode stays fixed (DELIVERY-MODE-SPEC §2). */

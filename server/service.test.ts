@@ -417,3 +417,33 @@ test("the dispatcher's own Paseo project is hidden from Add project and refused 
   await expect(x.service.createProject({ title: "Dispatcher", description: "", primaryPath: dispatcherRoot }, paseo)).rejects.toThrow("Flowly dispatcher");
   expect((await x.store.read()).projects.map((p) => p.id)).toEqual(["p"]);
 });
+
+test("background workspaces are listed and flagged, so a card bound to one is not 'unavailable'", async () => {
+  const x = await setup(),
+    dispatcherRoot = join(x.root, "data", "dispatcher");
+  const natives = [
+    { projectId: "native", projectRootPath: x.a, projectDisplayName: "Mine" },
+    { projectId: "disp-native", projectRootPath: dispatcherRoot, projectDisplayName: "dispatcher" },
+  ];
+  const asked: unknown[] = [];
+  const all = [
+    { id: "w1", projectId: "native", name: "One", workspaceDirectory: x.a, status: "done", workspaceKind: "directory" },
+    { id: "bg", projectId: "native", name: "PR review", workspaceDirectory: x.a, status: "done", workspaceKind: "worktree", background: true },
+    { id: "bg-reserved", projectId: "native", name: "Reserved", workspaceDirectory: x.a, status: "done", workspaceKind: "worktree", background: true },
+    { id: "bg-hidden", projectId: "disp-native", name: "Hidden project", workspaceDirectory: dispatcherRoot, status: "done", workspaceKind: "worktree", background: true },
+  ];
+  const paseo = {
+    projects: { list: async () => ({ projects: natives }) },
+    workspaces: {
+      list: async (options: { filter?: { includeBackground?: boolean } }) => {
+        asked.push(options.filter);
+        return { entries: all.filter((w) => !w.background || options.filter?.includeBackground), pageInfo: { nextCursor: null } };
+      },
+    },
+  } as unknown as PaseoApi;
+  x.service.reservedRoot = async (path) => (await realpath(path).catch(() => path)) === dispatcherRoot;
+  x.service.reservedWorkspace = (id) => id === "bg-reserved";
+  const resources = await x.service.resources(paseo);
+  expect(resources.workspaces.map((w) => w.id)).toEqual(["w1", "bg"]);
+  expect(resources.workspaces.map((w) => w.background)).toEqual([undefined, true]);
+});
