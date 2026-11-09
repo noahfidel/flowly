@@ -114,3 +114,14 @@ export function discussDraft(text: string, typed: string): string {
 
 /** Discuss shows where the board can open the dispatcher chat: a project board or All projects (the toolbar's rule). */
 export const discussAvailable = (where: { project: boolean; allView: boolean }) => where.project || where.allView;
+
+/**
+ * What the panel does with a Discuss fill: null when there is none or this mount already applied its key; else the
+ * key to report as used (the board then drops the fill, so a remounted panel never applies it again) and the box's
+ * new text, or null when the box already holds it (no change, no focus).
+ */
+export function discussFill(fill: { text: string; key: number } | null | undefined, applied: number, typed: string): { key: number; next: string | null } | null {
+  if (!fill || fill.key === applied) return null;
+  const next = discussDraft(fill.text, typed);
+  return { key: fill.key, next: next === typed ? null : next };
+}

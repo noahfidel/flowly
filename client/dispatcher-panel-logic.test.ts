@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { answersWithText, chatRows, discussAvailable, discussDraft, discussIdeaText, displayRows, mergeTimeline } from "./dispatcher-panel-logic";
+import { answersWithText, chatRows, discussAvailable, discussDraft, discussFill, discussIdeaText, displayRows, mergeTimeline } from "./dispatcher-panel-logic";
 import type { ChatItem } from "../shared/dispatcher";
 import { lastOutputRow } from "./session-state";
 import type { TailEntry } from "../shared/session-tail";
@@ -104,4 +104,15 @@ test("Discuss shows only where the board can open the dispatcher chat", () => {
   expect(discussAvailable({ project: true, allView: false })).toBe(true);
   expect(discussAvailable({ project: false, allView: true })).toBe(true);
   expect(discussAvailable({ project: false, allView: false })).toBe(false);
+});
+
+test("a Discuss fill is used once and leaves an unchanged box alone (DISPATCHER-SPEC §9.5)", () => {
+  const text = "Let's talk about this idea (id i1, project P): T.";
+  expect(discussFill({ text, key: 1 }, 0, "")).toEqual({ key: 1, next: text });
+  expect(discussFill({ text, key: 1 }, 0, "typed")).toEqual({ key: 1, next: `typed\n\n${text}` });
+  // Already applied (the same mount) or none: nothing to do.
+  expect(discussFill({ text, key: 1 }, 1, "")).toBeNull();
+  expect(discussFill(null, 0, "")).toBeNull();
+  // The box already holds it: consumed, but no change (and no focus request).
+  expect(discussFill({ text, key: 2 }, 1, `a\n\n${text}`)).toEqual({ key: 2, next: null });
 });

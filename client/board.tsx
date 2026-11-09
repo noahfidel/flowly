@@ -1205,6 +1205,8 @@ function BoardContent(
   // Discuss on an idea (DISPATCHER-SPEC §9.5): a draft for the chat's message box; the key makes each press distinct.
   const [chatDraft, setChatDraft] = useState<{ text: string; key: number } | null>(null);
   const canDiscuss = discussAvailable({ project: !!project, allView });
+  // Each draft is used once: a panel remounted later (phone/desktop layout flip) must not add it again.
+  const draftFilled = useStableCallback((key: number) => setChatDraft((d) => (d?.key === key ? null : d)));
   const discussIdea = useStableCallback((idea: Idea) => {
     setChatDraft({ text: discussIdeaText(idea, projectById.get(idea.projectId)?.title ?? ""), key: Date.now() });
     // Opening the chat is acting on its tip, and pressing Discuss on the Discuss tip.
@@ -1243,7 +1245,7 @@ function BoardContent(
             }
       }
     >
-      <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} focus={chatFocus} fill={chatDraft} onOpenCard={openTaskById} onClose={closeChat} expanded={chatExpanded} onToggleSize={toggleChatSize} />
+      <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} focus={chatFocus} fill={chatDraft} onFilled={draftFilled} onOpenCard={openTaskById} onClose={closeChat} expanded={chatExpanded} onToggleSize={toggleChatSize} />
     </Animated.View>
   );
   const togglePage = (next: "insights" | "ideas" | "memory" | "search") => {

@@ -24,7 +24,7 @@ import { PulseDot, useReducedMotion } from "./motion";
 import { useKeyboardInset } from "./keyboard";
 import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery, useLiveAgents } from "./queries";
 import { useStableCallback } from "./stable";
-import { chatRows, discussDraft, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
+import { chatRows, discussFill, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
 import { AnswerRow, AskRow } from "./dispatcher-asks";
 import { markAsksAnswered } from "./answered-asks";
 
@@ -58,9 +58,11 @@ type Props = {
   focus?: { signal: string; key: number } | null;
   /** Discuss on an idea (§9.5): text for the message box, after what is typed; never sent. A new `key` adds it again. */
   fill?: { text: string; key: number } | null;
+  /** The fill with this key is in the box: the board drops it, so a remounted panel does not add it again. */
+  onFilled?(key: number): void;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, onClose, focus, fill, expanded = false, onToggleSize }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, onClose, focus, fill, onFilled, expanded = false, onToggleSize }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -205,12 +207,14 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   // Discuss (§9.5): an outside change of the draft, as a picked next move is; the box remounts with it on phones.
   const filled = useRef(0);
   useEffect(() => {
-    if (!fill || fill.key === filled.current) return;
-    filled.current = fill.key;
-    box.flush();
-    const next = discussDraft(fill.text, box.read());
+    if (fill && fill.key !== filled.current) box.flush();
+    const step = discussFill(fill, filled.current, box.read());
+    if (!step) return;
+    filled.current = step.key;
+    onFilled?.(step.key);
+    if (step.next === null) return;
     box.focusAfterChange();
-    setDraft(next);
+    setDraft(step.next);
   }, [fill?.key]);
   const submit = useStableCallback(async () => {
     box.flush();
