@@ -327,3 +327,134 @@ test("a label without owner/repo#n keeps one card per agent", async () => {
   expect((await x.watcher.consider(x.review("agent-2", { workspaceId: "wks2", labels: loose }), x.paseo)).kind).toBe("created");
   expect((await x.store.read()).tasks).toHaveLength(2);
 });
+
+// --- review fixes ---
+
+test("a card made for a PR stores a normalised PR ref; a loose label stores none", async () => {
+  const x = await fixture();
+  await x.watcher.consider(x.review("agent-1", { labels: label(9164) }), x.paseo);
+  await x.watcher.consider(x.review("agent-2", { workspaceId: "wks2", labels: { "pr-review-watch": "some review" } }), x.paseo);
+  const [pr, loose] = (await x.store.read()).tasks;
+  expect(pr.prRef).toBe("zenlytic/zenlytic#9164");
+  expect(loose.prRef).toBeUndefined();
+});
+
+test("matching ignores case in owner and repo", async () => {
+  const x = await fixture();
+  await x.watcher.consider(x.review("agent-1"), x.paseo);
+  const outcome = await x.watcher.consider(x.review("agent-2", { workspaceId: "wks2", labels: { "pr-review-watch": "ZENLYTIC/Zenlytic#9164" } }), x.paseo);
+  expect(outcome.kind).toBe("reused");
+});
+
+test("#91 and #9164 are different PRs, as are different repos", async () => {
+  const x = await fixture();
+  await x.watcher.consider(x.review("agent-1"), x.paseo);
+  expect((await x.watcher.consider(x.review("agent-2", { workspaceId: "wks2", labels: label(91) }), x.paseo)).kind).toBe("created");
+  expect((await x.watcher.consider(x.review("agent-3", { workspaceId: "wks3", labels: { "pr-review-watch": "Zenlytic/other#9164" } }), x.paseo)).kind).toBe("created");
+  expect((await x.store.read()).tasks).toHaveLength(3);
+});
+
+test("another project's card for the same PR is not reused", async () => {
+  const x = await fixture();
+  await x.watcher.consider(x.review("agent-1"), x.paseo);
+  await x.store.mutate(async (b) => {
+    const base = b.projects[0];
+    const other = join(base.primaryPath, "..", "other-repo");
+    await mkdir(other, { recursive: true });
+    b.projects.push({ ...base, id: "q", paseoProjectId: "q-native", title: "Other", primaryPath: other, repos: [other] });
+    Object.assign(b.tasks[0], { projectId: "q", sourcePath: other, repoPaths: [other] });
+  });
+  expect((await x.watcher.consider(x.review("agent-2", { workspaceId: "wks2" }), x.paseo)).kind).toBe("created");
+});
+
+test("an edited description does not break the match when the ref is stored", async () => {
+  const x = await fixture();
+  await x.watcher.consider(x.review("agent-1"), x.paseo);
+  await x.store.mutate((b) => {
+    b.tasks[0].description = "my own notes";
+  });
+  expect((await x.watcher.consider(x.review("agent-2", { workspaceId: "wks2" }), x.paseo)).kind).toBe("reused");
+});
+
+test("a card without a stored ref falls back to its PR line, searched line by line and parsed exactly", async () => {
+  const mk = async (description: string) => {
+    const x = await fixture();
+    await x.watcher.consider(x.review("agent-1"), x.paseo);
+    await x.store.mutate((b) => {
+      delete b.tasks[0].prRef;
+      b.tasks[0].description = description;
+    });
+    return (await x.watcher.consider(x.review("agent-2", { workspaceId: "wks2" }), x.paseo)).kind;
+  };
+  expect(await mk("PR: Zenlytic/zenlytic#9164 (https://github.com/Zenlytic/zenlytic/pull/9164)\n\nCreated automatically from a PR review agent.")).toBe("reused");
+  expect(await mk("Notes first\nPR: Zenlytic/zenlytic#9164")).toBe("reused");
+  expect(await mk("PR: Zenlytic/zenlytic#9164 is the follow-up of the other one")).toBe("created");
+  expect(await mk("PR: some review")).toBe("created");
+  expect(await mk("mentions PR: Zenlytic/zenlytic#9164 mid-line")).toBe("created");
+});
+
+test("a workspace in an ordinary card's history does not block a new review card", async () => {
+  const x = await fixture();
+  await x.watcher.consider(x.review("agent-1"), x.paseo);
+  await x.store.mutate((b) => {
+    const t = b.tasks[0];
+    t.operationId = "ordinary";
+    t.workspaceId = "ordinary-ws";
+    t.tags = [];
+    t.description = "plain";
+    delete t.prRef;
+    t.previousWorkspaces = [{ id: "wks2", kind: "worktree", directory: "/x", switchedAt: new Date(now).toISOString() }];
+  });
+  expect((await x.watcher.consider(x.review("agent-2", { workspaceId: "wks2" }), x.paseo)).kind).toBe("created");
+});
+
+test("a workspace in the history of a PR review card for another PR does not block either", async () => {
+  const x = await fixture();
+  await x.watcher.consider(x.review("agent-1", { labels: label(1) }), x.paseo);
+  await x.store.mutate((b) => {
+    b.tasks[0].previousWorkspaces = [{ id: "wks2", kind: "worktree", directory: "/x", switchedAt: new Date(now).toISOString() }];
+  });
+  expect((await x.watcher.consider(x.review("agent-2", { workspaceId: "wks2" }), x.paseo)).kind).toBe("created");
+});
+
+test("a skip because the card exists is logged", async () => {
+  const x = await fixture();
+  await x.watcher.consider(x.review("agent-1"), x.paseo);
+  expect(await x.watcher.consider(x.review("agent-2"), x.paseo)).toEqual({ kind: "skipped", reason: "bound" });
+  expect(x.logs.some((l) => l.includes("agent-2") && l.includes("already"))).toBe(true);
+});
+
+test("two reviews of one PR arriving together make one card", async () => {
+  const x = await fixture();
+  const [a, b] = await Promise.all([
+    x.watcher.consider(x.review("agent-1"), x.paseo),
+    x.watcher.consider(x.review("agent-2", { workspaceId: "wks2" }), x.paseo),
+  ]);
+  expect([a.kind, b.kind].sort()).toEqual(["created", "reused"]);
+  expect((await x.store.read()).tasks).toHaveLength(1);
+});
+
+test("the history entry records the old workspace's real kind and directory", async () => {
+  const x = await fixture();
+  await x.watcher.consider(x.review("agent-1"), x.paseo);
+  await x.watcher.consider(x.review("agent-2", { workspaceId: "wks2" }), x.paseo);
+  const [entry] = (await x.store.read()).tasks[0].previousWorkspaces!;
+  expect(entry).toMatchObject({ id: "wks", kind: "worktree" });
+  expect(entry.directory).toMatch(/zenlytic\/sub$/);
+});
+
+test("a card that owns its workspace or has a workspace switch is not reused: a new card is made and it is logged", async () => {
+  for (const patch of [
+    (t: { ownsWorkspace?: boolean }) => (t.ownsWorkspace = true),
+    (t: { switch?: unknown }) => (t.switch = { id: "s", at: new Date(now).toISOString(), direction: "to_worktree", release: "pending" }),
+  ]) {
+    const x = await fixture();
+    await x.watcher.consider(x.review("agent-1"), x.paseo);
+    await x.store.mutate((b) => patch(b.tasks[0] as never));
+    expect((await x.watcher.consider(x.review("agent-2", { workspaceId: "wks2" }), x.paseo)).kind).toBe("created");
+    const board = await x.store.read();
+    expect(board.tasks).toHaveLength(2);
+    expect(board.tasks[0].workspaceId).toBe("wks");
+    expect(x.logs.some((l) => l.includes("agent-2"))).toBe(true);
+  }
+});

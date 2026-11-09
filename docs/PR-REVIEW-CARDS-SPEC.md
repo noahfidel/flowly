@@ -43,13 +43,16 @@ Settings → Workflow → Board → **Make cards for PR review agents**, host sc
 
 ## 8. A new review of the same PR reuses its card
 
-When an agent that passes §3 has a label of the form `<owner>/<repo>#<n>` and the chosen project already has an unarchived PR review card (operation id `pr-review:…`) for the same owner, repo and number (read from the `PR:` line of its description), no new card is made. The newest such card (by creation time) is reused:
+When an agent that passes §3 has a label of the form `<owner>/<repo>#<n>` and the chosen project already has an unarchived PR review card (operation id `pr-review:…`) for the same owner, repo and number (the card stores it as `prRef`, `owner/repo#n` in lower case; owner and repo match without regard to case. A card without `prRef` falls back to a whole `PR: <label>` line of its description, searched line by line, with nothing else on the line but the optional GitHub link), no new card is made. The newest such card (by creation time) is reused:
 
 - Rebound to the new agent's workspace, as the *Existing workspace* path binds a card (the card does not own it). A card has one current workspace, so the earlier one moves to the card's read-only workspace history (`previousWorkspaces`, same as a workspace switch, newest 10 kept) and is not archived. Its sessions stay in that history; the card opens the new review chat.
 - Moved to the lane of §4 (In review, else To do, else the first open lane) when it is elsewhere, including Done or Cancelled. This is the one exception to "never moved by itself": a new review means the card needs looking at again.
 - Retitled from the new agent's title (§4) when it differs; the description is kept.
 - The card's operation id and tag stay. The activity (workspace switched, status changed, edited) is attributed to the new agent.
-- A re-run for an agent whose workspace the card already holds or held as history makes nothing (the "no card bound to that workspace" rule of §3 counts history).
+- A re-run for an agent whose workspace the card already holds, or held as history, makes nothing. History blocks only for a PR review card of the same PR; an ordinary card's history, or a card of another PR, never blocks. Every skip because a card exists is logged.
+- Agents for the same project and PR are handled one at a time, so two arriving together make one card.
+- The history entry records the old workspace's real kind and directory.
+- A card that owns its workspace (`ownsWorkspace`) or has a workspace switch is not reused: a new card is made and a line is logged.
 - Archived cards are never reused; a new card is made. A label without `owner/repo#n` is never matched: one card per agent as in §3. Cards in other projects are never reused.
 
 The outcome is `reused` (with the card) instead of `created`.
