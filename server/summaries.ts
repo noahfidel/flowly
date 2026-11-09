@@ -155,7 +155,7 @@ export function within<T>(work: Promise<T>, ms: number): Promise<T> {
 }
 
 /**
- * Runs the cheap summarizer after Kanban-managed turns. One run per card at a
+ * Runs the cheap summarizer after a turn of one of the card's chats. One run per card at a
  * time; turns that end meanwhile are merged into a single follow-up run.
  */
 export class SummaryService {
@@ -295,12 +295,12 @@ export class SummaryService {
     }
   }
 
-  /** Manual refresh: the last turn of the card's most recently active managed session. */
-  async refresh(taskId: string, managedAgentIds: readonly string[], paseo: PaseoApi) {
+  /** Manual refresh: the last turn of the card's most recently active chat (`resolveCardChats`, §2.1). */
+  async refresh(taskId: string, chatIds: readonly string[], paseo: PaseoApi) {
     if (this.queues.has(taskId)) return { queued: true };
-    if (!managedAgentIds.length) throw new Error("This card has no Kanban sessions to summarize yet.");
+    if (!chatIds.length) throw new Error("This card has no chats to summarize yet.");
     let best: { agentId: string; at: string; items: { type: string }[] } | null = null;
-    for (const agentId of managedAgentIds) {
+    for (const agentId of chatIds) {
       const response = await paseo.agents
         .ref(agentId)
         .timeline.refetch({ direction: "tail", limit: 200, projection: "projected" })

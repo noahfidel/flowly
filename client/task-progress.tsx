@@ -3,7 +3,7 @@ import { perfStart, perfEnd, usePerfRender } from "./perf";
 import { useState } from "react";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { modelLabel, targetText, type SummaryEntry, type SummaryOverview } from "../shared/summary";
 import { CardBody, CardField, CardFootnote, CardHeadline, ContentCard, PROGRESS_CLAMP_HEIGHT } from "./content-card";
@@ -24,7 +24,18 @@ export function cardProgress(overview: SummaryOverview | undefined, taskId: stri
 }
 
 /** Drawer "Progress": state, recap and next step, with refresh. */
-export function TaskProgress({ taskId, active, section }: { taskId: string; active: boolean; section: SectionState }) {
+export function TaskProgress({
+  taskId,
+  active,
+  section,
+  chatsKey,
+}: {
+  taskId: string;
+  active: boolean;
+  section: SectionState;
+  /** The workspace's live session ids: a change re-reads the card's chats (TASK-SUMMARY-SPEC §2.1). */
+  chatsKey: string;
+}) {
   usePerfRender("switch.progress.commit");
   const switchStart = perfStart();
   const toast = useToast();
@@ -36,10 +47,20 @@ export function TaskProgress({ taskId, active, section }: { taskId: string; acti
     workpadEnabled(detail?.project) && !!detail?.workpad?.acceptance.length;
   const refreshRpc = useRpc(rpc.refreshSummary);
   const [requesting, setRequesting] = useState(false);
+  const chatsRpc = useRpc(rpc.cardChats);
+  const chats = useQuery({
+    queryKey: ["flowly", "card-chats", taskId, chatsKey],
+    queryFn: () => chatsRpc({ taskId }),
+    enabled: active,
+    refetchInterval: 30000,
+    placeholderData: (previous) => previous,
+  });
   const latest = cardProgress(overview.data, taskId);
   const mark = useMark("section:progress");
   const running = !!overview.data?.running.includes(taskId);
   const error = overview.data?.errors.find((e) => e.taskId === taskId);
+  // Refresh needs a chat to read; until the count is known the button stays.
+  const noChats = !running && chats.data?.count === 0;
   const refresh = async () => {
     setRequesting(true);
     try {
@@ -62,9 +83,15 @@ export function TaskProgress({ taskId, active, section }: { taskId: string; acti
       onToggle={section.onToggle}
       summary={running ? t("Updating…") : latest?.state}
       actions={
-        <Button quiet icon="RefreshCw" disabled={!active || running || requesting} onPress={() => void refresh()}>
-          {running ? t("Updating…") : t("Refresh")}
-        </Button>
+        noChats ? (
+          <Label muted size={font.sm}>
+            {t("No chats on this card yet.")}
+          </Label>
+        ) : (
+          <Button quiet icon="RefreshCw" disabled={!active || running || requesting} onPress={() => void refresh()}>
+            {running ? t("Updating…") : t("Refresh")}
+          </Button>
+        )
       }
     >
       {latest ? (

@@ -309,7 +309,7 @@ test("manual refresh summarizes the latest turn of the most recent managed sessi
       append: async (row: unknown) => void x.appended.push({ agentId: id, row }),
     },
   });
-  await expect(x.service.refresh("t", [], x.paseo)).rejects.toThrow(/no Kanban sessions/);
+  await expect(x.service.refresh("t", [], x.paseo)).rejects.toThrow("This card has no chats to summarize yet.");
   x.replies.push({ text: x.json("refreshed") });
   expect(await x.service.refresh("t", ["old", "new"], x.paseo)).toEqual({ queued: true });
   await settle();
@@ -318,6 +318,37 @@ test("manual refresh summarizes the latest turn of the most recent managed sessi
   expect((await x.store.latest("t"))?.agentIds).toEqual(["new"]);
   // The row goes to the refreshed session (NATIVE-SESSION-SPEC §5.1).
   expect(x.appended.map((a) => a.agentId)).toEqual(["new"]);
+});
+
+test("manual refresh summarizes a workspace chat Flowly did not start (PR review card)", async () => {
+  const x = await setup();
+  const { resolveCardChats } = await import("./card-chats");
+  const watcher = { id: "pr", workspaceId: "w", archivedAt: null, labels: { "pr-review-watch": "o/r#1" } };
+  const helper = { id: "sum", workspaceId: "w", archivedAt: null, labels: { flowly: "summarizer" } };
+  const api = x.paseo as unknown as { agents: Record<string, unknown> };
+  api.agents.list = async () => ({ entries: [{ agent: watcher }, { agent: helper }], pageInfo: { nextCursor: null } });
+  api.agents.ref = (id: string) => ({
+    refresh: async () => ({ agent: { id, archivedAt: null } }),
+    timeline: {
+      refetch: async () => ({
+        entries:
+          id === "pr"
+            ? [
+                { item: { type: "user_message", text: "review PR 1" }, timestamp: "2026-02-02" },
+                { item: { type: "assistant_message", text: "two findings" }, timestamp: "2026-02-03" },
+              ]
+            : [],
+      }),
+      append: async (row: unknown) => void x.appended.push({ agentId: id, row }),
+    },
+  });
+  const chats = await resolveCardChats(x.paseo, "t", (await x.board.read()).tasks, []);
+  expect(chats).toEqual(["pr"]);
+  x.replies.push({ text: x.json("reviewed") });
+  expect(await x.service.refresh("t", chats!, x.paseo)).toEqual({ queued: true });
+  await settle();
+  expect(x.created[0].prompt).toContain("User: review PR 1");
+  expect((await x.store.latest("t"))?.agentIds).toEqual(["pr"]);
 });
 
 test("overview lists latest per card, running cards, errors and the setting", async () => {

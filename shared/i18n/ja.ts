@@ -670,6 +670,7 @@ const catalog: Catalog = {
   "Updating…": "更新中…",
   "Writing the first summary…": "最初のサマリーを作成中…",
   "Auto summary is off. Turn it on with the settings button at the bottom left of the board, or press Refresh.": "自動サマリーはオフです。ボード左下の設定ボタンからオンにするか、「更新」を押してください。",
+  "No chats on this card yet.": "このカードにはまだチャットがありません。",
   "Updates after each agent turn.": "エージェントのターンが終わるたびに更新されます。",
   "Last update failed {time}: {error}": "{time}の更新に失敗しました：{error}",
   "Show less": "折りたたむ",

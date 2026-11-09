@@ -670,6 +670,7 @@ const catalog: Catalog = {
   "Updating…": "업데이트하는 중…",
   "Writing the first summary…": "첫 요약을 작성하는 중…",
   "Auto summary is off. Turn it on with the settings button at the bottom left of the board, or press Refresh.": "자동 요약이 꺼져 있습니다. 보드 왼쪽 아래의 설정 버튼으로 켜거나 새로고침을 누르세요.",
+  "No chats on this card yet.": "이 카드에는 아직 채팅이 없습니다.",
   "Updates after each agent turn.": "에이전트의 턴이 끝날 때마다 업데이트됩니다.",
   "Last update failed {time}: {error}": "{time} 업데이트 실패: {error}",
   "Show less": "접기",

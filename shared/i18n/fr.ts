@@ -670,6 +670,7 @@ const catalog: Catalog = {
   "Updating…": "Mise à jour…",
   "Writing the first summary…": "Rédaction du premier résumé…",
   "Auto summary is off. Turn it on with the settings button at the bottom left of the board, or press Refresh.": "Le résumé automatique est désactivé. Activez-le avec le bouton des paramètres en bas à gauche du tableau, ou appuyez sur Actualiser.",
+  "No chats on this card yet.": "Aucun chat sur cette carte pour l’instant.",
   "Updates after each agent turn.": "Mis à jour après chaque tour d’agent.",
   "Last update failed {time}: {error}": "La dernière mise à jour a échoué {time} : {error}",
   "Show less": "Voir moins",

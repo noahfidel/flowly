@@ -785,7 +785,7 @@ function TaskDrawerView({
     switch (id) {
       case "progress":
         return (
-          <TaskProgress taskId={task.id} active={active} section={sectionStates.progress} />
+          <TaskProgress taskId={task.id} active={active} section={sectionStates.progress} chatsKey={liveIds} />
         );
       case "workpad":
         return (

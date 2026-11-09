@@ -52,6 +52,7 @@ import { workflowInsightsSettings, workflowSettingsValues } from "./shared/workf
 import { sessionModel } from "./server/agent-model";
 import { startedByUser, turnPick, userTexts } from "./shared/agent-habits";
 import { turnTimeline } from "./server/turn-timeline";
+import { cardOfChat, resolveCardChats } from "./server/card-chats";
 import { codedError, ToolError } from "./server/tool-error";
 import { exportMarkdown } from "./shared/board-export";
 import type { MemoryEntry } from "./shared/memory";
@@ -533,8 +534,12 @@ export default function contribute(host: PluginServerContext) {
     return { ok: true as const };
   });
   server.handle(rpc.refreshSummary, async (input, { paseo }) => {
-    const managed = (await tools.managedSessions()).filter((s) => s.taskId === input.taskId);
-    return summaries.refresh(input.taskId, managed.map((s) => s.agentId), paseo);
+    const chats = await resolveCardChats(paseo, input.taskId, (await store.read()).tasks, await tools.managedSessions());
+    return summaries.refresh(input.taskId, chats ?? [], paseo);
+  });
+  server.handle(rpc.cardChats, async (input, { paseo }) => {
+    const chats = await resolveCardChats(paseo, input.taskId, (await store.read()).tasks, await tools.managedSessions());
+    return { count: chats?.length ?? 0 };
   });
   // Quick task (QUICK-TASK-SPEC §4): returns at once; the title run and its merge happen in the background.
   const quickTitles = new QuickTitleService(store, summaries.settings, aiLanguage);
@@ -758,6 +763,24 @@ export default function contribute(host: PluginServerContext) {
     if (!identity || identity.workspaceId !== agent.workspaceId) return null;
     return identity;
   };
+  /**
+   * Auto summary for a card's chat Flowly did not start (TASK-SUMMARY-SPEC §2.1): same setting and queue as a
+   * managed turn. Labels are not on the hook event, so the session is read only when a live card is on its workspace.
+   */
+  const summarizeWorkspaceChat = async (
+    agent: { id: string; workspaceId: string | null },
+    turn: Promise<readonly { type: string }[]>,
+    endedAt: string,
+    paseo: PaseoApi,
+  ) => {
+    if (!agent.workspaceId || !(await summaries.settings()).summaryEnabled) return;
+    const board = await store.read();
+    if (!board.tasks.some((t) => !t.archivedAt && t.workspaceId === agent.workspaceId)) return;
+    const found = await paseo.agents.ref(agent.id).refresh();
+    if (!found?.agent) return;
+    const taskId = cardOfChat(found.agent, board.tasks, await tools.managedSessions());
+    if (taskId) await summaries.enqueue(taskId, agent.id, await turn, paseo, endedAt);
+  };
   server.on("agent.turn_started", async (event, { paseo }) => {
     tools.attach(paseo);
     const identity = await managedTask(event.agent);
@@ -782,10 +805,16 @@ export default function contribute(host: PluginServerContext) {
     const identity = await managedTask(event.agent);
     if (!identity) {
       // A session Flowly does not manage (NATIVE-SESSION-SPEC §12): insights after a completed turn, when switched on.
-      if (event.outcome.kind === "completed")
-        void turnTimeline(paseo, event.agent.id, event.timeline)
+      if (event.outcome.kind === "completed") {
+        const turn = turnTimeline(paseo, event.agent.id, event.timeline);
+        void turn
           .then((timeline) => sessionInsights.enqueue(event.agent, timeline, paseo, endedAt))
           .catch((e) => logFailure("Flowly session insight failed:", e));
+        // Still one of a card's chats when it runs in that card's workspace (TASK-SUMMARY-SPEC §2.1).
+        void summarizeWorkspaceChat(event.agent, turn, endedAt, paseo).catch((e) =>
+          logFailure("Flowly workspace chat summary failed:", e, event.agent.id),
+        );
+      }
       return;
     }
     // This turn's suggested next steps as a card under the reply in Paseo's timeline. First thing, before the

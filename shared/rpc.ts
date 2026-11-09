@@ -851,6 +851,12 @@ export const refreshSummary = defineRpc({
   input: z.strictObject({ taskId: z.string().min(1) }),
   output: z.object({ queued: z.boolean() }),
 });
+/** How many chats a card has for Progress to summarize (TASK-SUMMARY-SPEC §2.1); 0 for an unknown card. */
+export const cardChats = defineRpc({
+  name: "summaries.chats",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: z.object({ count: z.number().int().min(0) }),
+});
 /** Quick task: the AI title, type and tags, applied by the daemon in the background (QUICK-TASK-SPEC §4). */
 export const quickTaskTitle = defineRpc({
   name: "tasks.quick-title",

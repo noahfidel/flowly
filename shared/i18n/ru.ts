@@ -670,6 +670,7 @@ const catalog: Catalog = {
   "Updating…": "Обновляем…",
   "Writing the first summary…": "Пишем первую сводку…",
   "Auto summary is off. Turn it on with the settings button at the bottom left of the board, or press Refresh.": "Автосводка выключена. Включите её кнопкой настроек в левом нижнем углу доски или нажмите «Обновить».",
+  "No chats on this card yet.": "На этой карточке пока нет чатов.",
   "Updates after each agent turn.": "Обновляется после каждого хода агента.",
   "Last update failed {time}: {error}": "Последнее обновление не удалось {time}: {error}",
   "Show less": "Свернуть",

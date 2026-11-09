@@ -11,7 +11,7 @@ summary 是系统写的描述文字，**不改**卡片业务状态（lane），�
 
 ## 2. 触发与运行（daemon）
 
-- 触发：看板管理的 session（AUTO-STATUS-SPEC §1 的范围）收到 `agent.turn_ended` 且 `outcome.kind === "completed"`。失败、取消的回合不触发。已归档卡片、已归档项目不处理；Done/Cancelled 的卡片仍可更新。
+- 触发：卡片的任一对话（§2.1）收到 `agent.turn_ended` 且 `outcome.kind === "completed"`。失败、取消的回合不触发。已归档卡片、已归档项目不处理；Done/Cancelled 的卡片仍可更新。
 - 开关：设置 `summaryEnabled=false` 时不触发（手动 Refresh 仍可用）。
 - 单飞与合并：每张卡同时最多一个 summarizer。运行中又有回合结束时，把该回合的文本加入待处理；当前运行结束后，把累积的所有回合合并为一次再运行。待处理文本保存在内存中，插件 reload 会丢失，下一轮自然补上。
 - 输入（无状态，每次完整传入）：卡片标题、描述（≤2000 字）、当前 lane 名、上一版 summary（若有）、本轮或合并轮次的文本。
@@ -24,7 +24,20 @@ summary 是系统写的描述文字，**不改**卡片业务状态（lane），�
   - `waitForFinish(120000)`；无论成功、失败、超时，都在 `finally` 中移除该 session（硬删除失败时回退归档，见 §10）。
   - 看板视图按标签隐藏 summarizer：卡片 session 列表、计数、最近输出、Attention、侧栏角标、`flowly_get_task` 的 sessions。项目 Remove 与 Wrap up 的“运行中 session”检查**不**隐藏它，运行中的 summarizer 仍会阻止这些破坏性操作。
   - 初版把 cwd 放在插件数据目录，实测（[验证](verification/task-summary.md)）Paseo 为该目录注册了原生 project 并每次新建 workspace，因此改为本方案；遗留的 project 已删除（`paseo project delete`，不删目录）。
-- summarizer 自己的回合结束不会递归触发：它没有看板身份（无 context 文件；`session_open` 只给已有凭据的 session 注入看板上下文）。
+- summarizer 自己的回合结束不会递归触发：它带 `flowly: summarizer` 标签，不属于任何卡片的对话（§2.1）。
+
+### 2.1 卡片的对话（2026-11-09 用户决定）
+
+哪些 session 属于一张卡片，不取决于是谁启动的。`server/card-chats.ts` 是唯一的判定，手动 Refresh、无对话提示与自动 summary 共用：
+
+1. 绑定到该卡的看板管理 session（工具绑定文件，`managedSessions`），无论在哪个 workspace；
+2. 加上卡片 workspace（`task.workspaceId`）里未归档的其他 session（例如 PR review 卡片由外部 watcher 以 `pr-review-watch` 标签启动的 review session），经插件 SDK `agents.list({ includeArchived: false })` 分页读取后按 `workspaceId` 过滤（SDK 无 workspace 过滤）。第 2 项排除：
+   - 另一张未归档卡片绑定同一 workspace 时（如 local 模式多张卡共用项目 checkout），整个第 2 项跳过，只算第 1 项；
+   - 绑定到其他卡片的看板管理 session；
+   - 已归档的 session；
+   - 内部 session：带 `flowly: summarizer`（含旧 `ultra-kanban: summarizer`；summary、Insights、session insights、quick title、memory、workflow insights 的运行都带它）或 `flowly-dispatcher` 标签的，以及 Paseo 标记 `internal` 的。
+
+Flowly MCP 工具仍只给 Flowly 启动的 session（启动时注入）；本节只决定 Progress 读哪些对话。自动 summary 中，非管理 session 的回合结束时，daemon 只在其 workspace 上有未归档卡片时读取该 session（hook 事件不带标签），再按同一规则判定是否属于唯一那张卡；属于则进入同一队列，同样受 `summaryEnabled` 控制。该回合的 session insights（NATIVE-SESSION-SPEC §12）照旧，互不影响。
 
 ## 3. 输出
 
@@ -76,14 +89,15 @@ Auto：按 `claude/claude-haiku-5-5` → `codex/gpt-6-luna` 顺序尝试可用�
 | --- | --- | --- |
 | `summaries.read` | `{}` | 每卡最新一版、运行中的 taskId、每卡错误 |
 | `summaries.history` | `{ taskId }` | 该卡全部版本（新→旧） |
-| `summaries.refresh` | `{ taskId }` | `{ queued: true }`；取该卡最近活跃的看板管理 session 的 tail timeline（≤200 条）中最后一轮作为输入；无看板管理 session 时报错 |
+| `summaries.refresh` | `{ taskId }` | `{ queued: true }`；取该卡最近活跃的对话（§2.1）的 tail timeline（≤200 条）中最后一轮作为输入；没有对话时报错 “This card has no chats to summarize yet.” |
+| `summaries.chats` | `{ taskId }` | `{ count }`：该卡对话（§2.1）的数量，卡片不存在为 0 |
 
 ## 7. UI
 
 - 卡片：有 summary 时，标题下显示 `state`，最多一行（超出以省略号结尾）；全文在侧栏 Progress 查看（2026-10-15 用户反馈）。
 - 侧栏：描述之后、Sessions 之前的 **Progress** 区块：State（强调）、Recap、Next，脚注“Updated 5m ago · Haiku 5.5”。文字从不截断，简短由 prompt 约束。整块内容（State、Target、Recap、Next 一起）超过约 12 行（240 pt）时整体收起到该高度，底部渐隐（2026-10-29 用户反馈：原先约 5 行（104 pt）几乎每条 summary 都被截断；240 pt 下 State、4 行 Recap 与 Next 在默认侧栏宽度约 640 pt 时可完整显示，带 Target 的通常仍收起。该高度经 `ContentCard` 的 `clampHeight` 参数只用于侧栏 Progress，Ideas、Memory 仍为 104 pt；Paseo 时间线中的 Progress 行自 2026-10-29 起默认展开，Show less 收起到 104 pt，见 NATIVE-SESSION-SPEC §5.3），左下角（与右侧“Updated · 模型”脚注同一行，2026-10-19 起位置对调，与 Ideas 卡片一致，共用 `client/content-card.tsx` 的 `ContentCard` 通用卡片样式）的 Show more / Show less 展开或收起；高度用动画过渡（展开 220 ms 减速、收起 160 ms 加速，可打断，遵循 Reduce Motion；首次测量直接定位不播放）。内容未超出时完整显示且不出现按钮。History 列表同样不截断（2026-10-15 用户反馈）。
   - 运行中显示 “Updating…”；最近一次失败显示一行弱化错误，不弹窗。
-  - **Refresh** 按钮手动触发；**History** 展开为倒序版本列表，每条显示时间与 state，点开看 Recap/Next。
+  - **Refresh** 按钮手动触发；该卡没有对话（`summaries.chats` 为 0，且没有运行中的 summary）时不显示按钮，改为一行弱化文字 “No chats on this card yet.”。计数仅在侧栏打开时读取：workspace 的实时 session 列表变化时立即重读，否则每 30 s 一次；数量未知时保留按钮。**History** 展开为倒序版本列表，每条显示时间与 state，点开看 Recap/Next。
   - 无 summary 时显示一行提示：“Updates after each agent turn.”（自动关闭时提示去设置开启）。
 - 设置：看板主页左下角悬浮设置按钮打开插件自绘的 “Ultra Kanban settings” 弹层（host 的 `addSettingsScreen` 页在当前 Paseo 中不显示，已弃用），Auto summary 开关；Provider（Auto 或可用 provider）→ Model（该 provider 的可选模型）两级选择，选定模型才保存，选 Auto 立即保存。
 
@@ -105,5 +119,6 @@ Auto：按 `claude/claude-haiku-5-5` → `codex/gpt-6-luna` 顺序尝试可用�
 
 - 单元：回合文本转换与截断、输出解析容错、模型 Auto 解析、单飞与合并、`update=false` 不写、50 版本上限、错误记录与清除、项目移除备份、不改 board/task revision。
 - 回退回归（fake SDK）：运行错误/额度耗尽、idle 带 error、创建失败、wait 抛错、超时/权限/坏输出均尝试下一可用候选；成功或有效 `update=false` 停止；全部失败保留旧摘要、记录各候选模型原因；手动模型不回退；每次已创建的子 session 都清理。
-- 集成（fake SDK）：只有看板管理 session 触发；出错/超时也移除（硬删除，失败回退归档）summarizer session；失败回合不触发。
+- 卡片对话（§2.1）：只有管理 session；workspace 中非 Flowly 启动的 session（PR review 卡片）计入；workspace 被另一张卡共用时只算管理 session；绑定到其他卡的、归档的、内部 session 不计入；无对话为空；手动 Refresh 能总结非管理的 workspace session。
+- 集成（fake SDK）：卡片对话（§2.1）触发；出错/超时也移除（硬删除，失败回退归档）summarizer session；失败回合不触发。
 - typecheck、全量测试；reload 本插件；Luna 6 全权限测试 session 用 fixture 卡片实测并清理。

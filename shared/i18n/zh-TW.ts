@@ -670,6 +670,7 @@ const catalog: Catalog = {
   "Updating…": "更新中…",
   "Writing the first summary…": "正在撰寫第一份摘要…",
   "Auto summary is off. Turn it on with the settings button at the bottom left of the board, or press Refresh.": "自動摘要已關閉。請用看板左下角的設定按鈕開啟，或點選“重新整理”。",
+  "No chats on this card yet.": "這張卡片還沒有對話。",
   "Updates after each agent turn.": "每輪智慧體對話結束後更新。",
   "Last update failed {time}: {error}": "上次更新在 {time} 失敗：{error}",
   "Show less": "收起",
