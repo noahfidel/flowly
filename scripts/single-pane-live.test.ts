@@ -1,12 +1,15 @@
 import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { dispatcherStates } from "../shared/dispatcher";
 
 // The live script lives in docs/verification (outside typecheck and `npm test`); this tests only what needs no daemon:
 // the argument parsing, the check list and `--help`.
 const scriptPath = fileURLToPath(new URL("../docs/verification/single-pane-live.mjs", import.meta.url));
 type Script = {
-  parseArgs: (argv: string[]) => { help: boolean; only: Set<number> | null; ids: string | null; backlog: string | null; useExistingDispatcher: boolean; keepDispatcher: boolean; cleanup: string | null; home: string };
+  parseArgs: (argv: string[]) => { help: boolean; only: Set<number> | null; ids: string | null; backlog: string | null; useExistingDispatcher: boolean; keepDispatcher: boolean; yesArchiveDispatcher: boolean; cleanup: string | null; home: string };
   helpText: () => string;
   CHECKS: { id: number; title: string; needs: string[]; needsFinalFix?: string }[];
   UsageError: new (message: string) => Error;
@@ -20,7 +23,73 @@ type Script = {
   validateRecord: (data: unknown, file: string, opts?: { tmp?: string }) => Record<string, unknown>;
   decideDispatcher: (status: { agentId: string | null; state: string }, useExisting: boolean) => { action: "start" | "use" | "skip"; reason?: string };
   retryCommand: (file: string, args: { home?: string; keepDispatcher?: boolean }, defaultHome?: string) => string;
+  cleanup: (ctx: unknown, opts: { keepDispatcher: boolean; unattended?: boolean; yesArchiveDispatcher?: boolean }) => Promise<{ problems: string[]; done: string[] }>;
+  dispatcherArchivePlan: (o: { ours: boolean; keep: boolean; unattended: boolean; yes: boolean }) => "archive" | "keep" | "hold";
+  memoryUnavailable: (result: { view?: { enabled?: boolean } | null; error?: unknown }) => string | null;
+  createReport: (log: (line: string) => void, retry: string) => (result: { problems: string[]; done: string[] }) => boolean;
+  interruptNotice: (retry: string) => string[];
 };
+
+/** A fake of the script's context for `cleanup`, over an in-memory board and agent list; records every write. */
+type FakeTask = { id: string; title: string; projectId: string; workspaceId: string; revision: number };
+type FakeAgent = { id: string; labels: Record<string, string>; workspaceId: string; status: string; archivedAt?: string };
+function fakeContext(opts: {
+  data: Record<string, unknown>;
+  tasks: FakeTask[];
+  projects?: { id: string; title: string; primaryPath: string; revision: number }[];
+  agents?: FakeAgent[];
+  memory?: Record<string, { id: string; projectId: string; title: string; revision: number }[]>;
+  file?: string;
+}) {
+  const calls: { archived: string[]; cancelled: string[]; rpc: [string, unknown][] } = { archived: [], cancelled: [], rpc: [] };
+  const board = { tasks: opts.tasks, projects: opts.projects ?? [{ id: "tl", title: "Tinylink", primaryPath: "/x/tinylink", revision: 1 }] };
+  const agents = opts.agents ?? [];
+  const ctx = {
+    rec: { data: opts.data, file: opts.file ?? `/x/single-pane-live-${RUN}.json`, card: () => {} },
+    client: {
+      archiveAgent: async (id: string) => {
+        calls.archived.push(id);
+        const a = agents.find((x) => x.id === id);
+        if (a) a.archivedAt = "now";
+      },
+      cancelAgent: async (id: string) => void calls.cancelled.push(id),
+    },
+    rpc: async (method: string, input: Record<string, unknown>) => {
+      calls.rpc.push([method, input]);
+      if (method === "memory.read") return { value: { enabled: true, entries: opts.memory?.[String(input.projectId)] ?? [] } };
+      if (method === "tasks.delete") {
+        board.tasks = board.tasks.filter((t) => t.id !== input.id);
+        return {};
+      }
+      if (method === "projects.remove") {
+        board.projects = board.projects.filter((p) => p.id !== input.id);
+        return { paseo: { removed: true } };
+      }
+      return {};
+    },
+    board: async () => ({ tasks: board.tasks, projects: board.projects }),
+    agents: async () => agents,
+    agent: async (id: string) => agents.find((a) => a.id === id) ?? null,
+    workspaces: async () => [],
+    needTinylink: async () => ({ id: "tl", title: "Tinylink", root: "/x/tinylink" }),
+    noteBranch: async () => {},
+  };
+  return { ctx, calls, deletes: () => calls.rpc.filter(([m]) => m === "tasks.delete" || m === "memory.delete" || m === "projects.remove").map(([m]) => m) };
+}
+const marker = "[single-pane-live a1b2c3]"; // RUN's marker (RUN is declared further down)
+const baseData = (over: Record<string, unknown> = {}) => ({
+  runId: RUN,
+  marker,
+  tinylinkProjectId: "tl",
+  cards: [{ id: "c1", title: `${marker} card`, projectId: "tl", workspaces: ["w1"], branches: [] }],
+  agents: ["s1"],
+  tmpDirs: [],
+  fixtureProjects: [],
+  memory: [],
+  dispatcher: null,
+  ...over,
+});
+const realSession = (over: Partial<FakeAgent> = {}): FakeAgent => ({ id: "s1", labels: { "flowly-task": "c1" }, workspaceId: "w1", status: "idle", ...over });
 const TMP = "/var/fake-tmp";
 const RUN = "a1b2c3";
 const goodRecord = () => ({
@@ -194,6 +263,175 @@ describe("single-pane live script", () => {
       expect(decideDispatcher({ agentId: "d1", state: "idle" }, true).action).toBe("use");
       expect(decideDispatcher({ agentId: "d1", state: "running" }, true).action).toBe("use");
       expect(decideDispatcher({ agentId: "d1", state: "ended" }, true).action).toBe("start");
+    });
+  });
+
+  describe("cleanup acts on the live board, not on the record", () => {
+    const liveTask = (over: Partial<FakeTask> = {}): FakeTask => ({ id: "c1", title: `${marker} card`, projectId: "tl", workspaceId: "w1", revision: 1, ...over });
+
+    it("archives nothing for a forged record that pairs a real card id with a marked title and a real session", async () => {
+      const { cleanup } = await load();
+      // The record claims card c1 carries the marker; on the board c1 is a real card without it.
+      const fake = fakeContext({ data: baseData(), tasks: [liveTask({ title: "Real card" })], agents: [realSession()] });
+      const { problems } = await cleanup(fake.ctx, { keepDispatcher: false });
+      expect(fake.calls.archived).toEqual([]);
+      expect(fake.calls.cancelled).toEqual([]);
+      expect(fake.deletes()).toEqual([]);
+      expect(problems.join("\n")).toContain("left in place");
+    });
+
+    it("archives nothing when the marked card sits outside Tinylink and the fixture projects", async () => {
+      const { cleanup } = await load();
+      const fake = fakeContext({ data: baseData(), tasks: [liveTask({ projectId: "other" })], agents: [realSession()], projects: [{ id: "tl", title: "Tinylink", primaryPath: "/x/tinylink", revision: 1 }, { id: "other", title: "Real project", primaryPath: "/x/other", revision: 1 }] });
+      await cleanup(fake.ctx, { keepDispatcher: false });
+      expect(fake.calls.archived).toEqual([]);
+      expect(fake.deletes()).toEqual([]);
+    });
+
+    it("archives a session through the card label and deletes the card when the live card carries the marker in Tinylink", async () => {
+      const { cleanup } = await load();
+      const fake = fakeContext({ data: baseData(), tasks: [liveTask()], agents: [realSession()] });
+      const { problems } = await cleanup(fake.ctx, { keepDispatcher: false });
+      expect(fake.calls.archived).toEqual(["s1"]);
+      expect(fake.deletes()).toEqual(["tasks.delete"]);
+      expect(problems).toEqual([]);
+    });
+
+    it("finds a session by its card label in the card's workspace only for live marked cards", async () => {
+      const { cleanup } = await load();
+      const other = realSession({ id: "s2", labels: { "flowly-task": "c9" }, workspaceId: "w1" });
+      const fake = fakeContext({ data: baseData({ agents: [] }), tasks: [liveTask(), liveTask({ id: "c9", title: "Real card" })], agents: [other] });
+      await cleanup(fake.ctx, { keepDispatcher: false });
+      expect(fake.calls.archived).toEqual([]);
+    });
+  });
+
+  describe("memory cleanup", () => {
+    const fixtureDir = () => join(tmpdir(), "single-pane-live-fixture-memtest");
+    const withFixture = (memory: Record<string, unknown>[], entries: Record<string, { id: string; projectId: string; title: string; revision: number }[]>) =>
+      fakeContext({
+        data: baseData({ cards: [], agents: [], tmpDirs: [fixtureDir()], fixtureProjects: [{ path: fixtureDir(), id: "fp" }], memory }),
+        tasks: [],
+        projects: [{ id: "tl", title: "Tinylink", primaryPath: "/x/tinylink", revision: 1 }, { id: "fp", title: `${marker} fixture`, primaryPath: fixtureDir(), revision: 1 }],
+        memory: entries,
+      });
+
+    it("refuses an entry whose project is not a validated fixture project (Tinylink's memory is never deleted)", async () => {
+      const { cleanup } = await load();
+      const fake = withFixture([{ projectId: "tl", id: "m1" }], { tl: [{ id: "m1", projectId: "tl", title: `${marker} memory`, revision: 3 }] });
+      const { problems } = await cleanup(fake.ctx, { keepDispatcher: false });
+      expect(fake.calls.rpc.some(([m]) => m === "memory.delete")).toBe(false);
+      expect(problems.join("\n")).toMatch(/delete memory m1: .*not a validated fixture project/);
+    });
+
+    it("refuses an entry in the fixture project that does not carry the marker in its title", async () => {
+      const { cleanup } = await load();
+      const fake = withFixture([{ projectId: "fp", id: "m1" }], { fp: [{ id: "m1", projectId: "fp", title: "Real memory", revision: 3 }] });
+      await cleanup(fake.ctx, { keepDispatcher: false });
+      expect(fake.calls.rpc.some(([m]) => m === "memory.delete")).toBe(false);
+    });
+
+    it("deletes the script's own entry in the fixture project, reading it first for its revision", async () => {
+      const { cleanup } = await load();
+      const fake = withFixture([{ projectId: "fp", id: "m1" }], { fp: [{ id: "m1", projectId: "fp", title: `${marker} export memory`, revision: 3 }] });
+      await cleanup(fake.ctx, { keepDispatcher: false });
+      const calls = fake.calls.rpc.map(([m]) => m);
+      expect(calls.indexOf("memory.read")).toBeLessThan(calls.indexOf("memory.delete"));
+      expect(fake.calls.rpc.find(([m]) => m === "memory.delete")?.[1]).toEqual({ id: "m1", revision: 3 });
+    });
+
+    it("skips check 6 when memory is off or memory.read throws", async () => {
+      const { memoryUnavailable } = await load();
+      expect(memoryUnavailable({ view: { enabled: false } })).toMatch(/memory/i);
+      expect(memoryUnavailable({ error: new Error("Project not found.") })).toMatch(/memory/i);
+      expect(memoryUnavailable({ view: null })).toMatch(/memory/i);
+      expect(memoryUnavailable({ view: { enabled: true } })).toBeNull();
+    });
+  });
+
+  describe("the dispatcher in --cleanup mode", () => {
+    const withDispatcher = () =>
+      fakeContext({
+        data: baseData({ cards: [], agents: ["d1"], dispatcher: { agentId: "d1", prior: null, ours: true } }),
+        tasks: [],
+        agents: [{ id: "d1", labels: { "flowly-dispatcher": "1" }, workspaceId: "dw", status: "idle" }],
+      });
+
+    it("leaves it in place and lists it unless --yes-archive-dispatcher is given", async () => {
+      const { cleanup } = await load();
+      const fake = withDispatcher();
+      const { done } = await cleanup(fake.ctx, { keepDispatcher: false, unattended: true });
+      expect(fake.calls.archived).toEqual([]);
+      expect(done.join("\n")).toMatch(/left in place: dispatcher d1.*--yes-archive-dispatcher/);
+    });
+
+    it("archives it with the flag, and in a normal run", async () => {
+      const { cleanup } = await load();
+      const flagged = withDispatcher();
+      await cleanup(flagged.ctx, { keepDispatcher: false, unattended: true, yesArchiveDispatcher: true });
+      expect(flagged.calls.archived).toEqual(["d1"]);
+      const normal = withDispatcher();
+      await cleanup(normal.ctx, { keepDispatcher: false });
+      expect(normal.calls.archived).toEqual(["d1"]);
+    });
+
+    it("plans archive, keep or hold", async () => {
+      const { dispatcherArchivePlan } = await load();
+      expect(dispatcherArchivePlan({ ours: true, keep: false, unattended: false, yes: false })).toBe("archive");
+      expect(dispatcherArchivePlan({ ours: true, keep: false, unattended: true, yes: false })).toBe("hold");
+      expect(dispatcherArchivePlan({ ours: true, keep: false, unattended: true, yes: true })).toBe("archive");
+      expect(dispatcherArchivePlan({ ours: true, keep: true, unattended: true, yes: true })).toBe("keep");
+      expect(dispatcherArchivePlan({ ours: false, keep: false, unattended: false, yes: true })).toBe("keep");
+    });
+
+    it("reads --yes-archive-dispatcher", async () => {
+      const { parseArgs } = await load();
+      expect(parseArgs([]).yesArchiveDispatcher).toBe(false);
+      expect(parseArgs(["--cleanup", "/x.json", "--yes-archive-dispatcher"]).yesArchiveDispatcher).toBe(true);
+    });
+  });
+
+  describe("dispatcher states", () => {
+    it("handles every state the daemon reports (shared/dispatcher.ts dispatcherStates)", async () => {
+      const { decideDispatcher } = await load();
+      for (const state of dispatcherStates) {
+        if (state === "none") {
+          expect(decideDispatcher({ agentId: null, state }, false).action).toBe("start");
+          continue;
+        }
+        const without = decideDispatcher({ agentId: "d1", state }, false);
+        expect(without.action, state).toBe("skip");
+        expect(without.reason).toContain("--use-existing-dispatcher");
+        // server/dispatcher.ts run(): only an ended or full session may be replaced; a live one is messaged.
+        expect(decideDispatcher({ agentId: "d1", state }, true).action, state).toBe(state === "ended" ? "start" : "use");
+      }
+    });
+
+    it("mentions archiving the old session only for an ended dispatcher", async () => {
+      const { decideDispatcher } = await load();
+      expect(decideDispatcher({ agentId: "d1", state: "ended" }, false).reason).toContain("archives that ended session");
+      for (const state of ["running", "idle", "context_full"]) expect(decideDispatcher({ agentId: "d1", state }, false).reason, state).not.toContain("archives that ended session");
+    });
+  });
+
+  describe("interruption reporting", () => {
+    it("prints the cleanup report only once", async () => {
+      const { createReport } = await load();
+      const lines: string[] = [];
+      const report = createReport((l) => lines.push(l), "node x --cleanup /r.json");
+      expect(report({ problems: [], done: ["archived session s1"] })).toBe(true);
+      const count = lines.length;
+      expect(count).toBeGreaterThan(0);
+      expect(report({ problems: ["late"], done: ["again"] })).toBe(false);
+      expect(lines.length).toBe(count);
+      expect(lines.join("\n")).not.toContain("late");
+    });
+
+    it("says a blocked check may still have created things, and gives the retry command", async () => {
+      const { interruptNotice } = await load();
+      const text = interruptNotice("node docs/verification/single-pane-live.mjs --cleanup /r.json").join("\n");
+      expect(text).toContain("long RPC");
+      expect(text).toContain("node docs/verification/single-pane-live.mjs --cleanup /r.json");
     });
   });
 

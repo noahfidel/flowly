@@ -88,6 +88,7 @@ export function parseArgs(argv) {
     backlog: null,
     useExistingDispatcher: false,
     keepDispatcher: false,
+    yesArchiveDispatcher: false,
     cleanup: null,
     home: process.env.PASEO_HOME || join(homedir(), '.paseo'),
   };
@@ -111,6 +112,7 @@ export function parseArgs(argv) {
     else if (a === '--home') args.home = value(i++, a);
     else if (a === '--use-existing-dispatcher') args.useExistingDispatcher = true;
     else if (a === '--keep-dispatcher') args.keepDispatcher = true;
+    else if (a === '--yes-archive-dispatcher') args.yesArchiveDispatcher = true;
     else throw new UsageError(`Unknown option "${a}". Try --help.`);
   }
   return args;
@@ -135,6 +137,8 @@ export function helpText() {
     '                               skip, because this script sends messages only to sessions it created.',
     '  --keep-dispatcher            Do not archive a dispatcher this run started (default: archived at the end).',
     '  --cleanup <record file>      Clean up what a crashed run recorded (the file path is printed at the start), then exit.',
+    '                               A dispatcher the record names is only listed ("left in place"), never archived unattended.',
+    '  --yes-archive-dispatcher     With --cleanup: also archive the dispatcher the record says this run started.',
     '  --home <dir>                 Paseo home (default $PASEO_HOME or ~/.paseo).',
     '  --help                       This text.',
     '',
@@ -274,9 +278,14 @@ export function validateRecord(data, file, { tmp = tmpdir() } = {}) {
 }
 
 /**
- * What checks 1, 3 and 4 do with the dispatcher. A dispatcher record of the user's, in any state (also ended, failed or
- * archived: a new one then archives the dead one), is theirs: this run touches it only with --use-existing-dispatcher.
- * `status` is `dispatcher.status`.
+ * What checks 1, 3 and 4 do with the dispatcher. A dispatcher record of the user's, in any state, is theirs: this run
+ * touches it only with --use-existing-dispatcher. `status` is `dispatcher.status`.
+ *
+ * The states are the ones the daemon reports: shared/dispatcher.ts `dispatcherStates` = none | running | idle | ended |
+ * context_full, derived by server/dispatcher.ts `dispatcherState` (an archived, error or closed session is `ended`;
+ * 95% of the context window is `context_full`; otherwise running or idle). `dispatcher.start` is refused only while
+ * the state is running or idle, so an ended session is the one a replacement is started for; a context_full one is
+ * still a live session and is messaged, not replaced.
  */
 export function decideDispatcher(status, useExisting) {
   const existing = status.agentId !== null || status.state !== 'none';
@@ -284,9 +293,54 @@ export function decideDispatcher(status, useExisting) {
   if (!useExisting)
     return {
       action: 'skip',
-      reason: `You already have a dispatcher (${status.agentId ?? 'no id'}, ${status.state}). --use-existing-dispatcher messages your real dispatcher with the test prompts${status.state === 'running' || status.state === 'idle' ? '' : ', and starting a replacement for the ended one archives that ended session'}. Pass it only if that is what you want.`,
+      reason: `You already have a dispatcher (${status.agentId ?? 'no id'}, ${status.state}). --use-existing-dispatcher messages your real dispatcher with the test prompts${status.state === 'ended' ? ', and the replacement it starts for the ended one archives that ended session' : ''}. Pass it only if that is what you want.`,
     };
   return { action: status.state === 'ended' ? 'start' : 'use' };
+}
+
+/**
+ * What cleanup does with the dispatcher this run started: 'archive', 'keep' (not ours, or --keep-dispatcher) or 'hold'
+ * (from --cleanup, a record alone never archives a session unattended: it is listed and needs --yes-archive-dispatcher).
+ */
+export function dispatcherArchivePlan({ ours, keep, unattended, yes }) {
+  if (!ours || keep) return 'keep';
+  return unattended && !yes ? 'hold' : 'archive';
+}
+
+/** Why check 6 cannot seed a memory entry, or null. memory.read answers `enabled: false` when the feature is off and throws for an unknown project. */
+export function memoryUnavailable({ view, error }) {
+  if (error) return `Project memory could not be read for the fixture project (${errText(error)}); this check cannot seed an entry.`;
+  if (!view || view.enabled !== true) return 'Project memory is off for the fixture project (turn the Memory feature on in Settings, or this check cannot seed an entry).';
+  return null;
+}
+
+/** Whether a recorded memory entry may be deleted: only the run's own entry (marker in the title) in a verified fixture project. Returns the refusal, or null. */
+export function memoryDeleteRefusal(recorded, entry, { fixtureProjectIds, marker }) {
+  if (!fixtureProjectIds.has(recorded.projectId)) return `refusing: project ${recorded.projectId} is not a validated fixture project of this run (the script creates memory only in its fixture project).`;
+  if (entry.projectId !== recorded.projectId) return 'refusing: the entry belongs to another project than the record says.';
+  if (typeof entry.title !== 'string' || !entry.title.startsWith(marker)) return 'refusing: the entry does not carry this run\'s marker in its title.';
+  return null;
+}
+
+/** Prints a cleanup report once, however many paths (the normal end, a signal) ask for it. Returns whether this call printed. */
+export function createReport(log, retry) {
+  let printed = false;
+  return ({ problems, done }) => {
+    if (printed) return false;
+    printed = true;
+    done.forEach((d) => log(`  ${d}`));
+    log(problems.length ? problems.map((p) => `CLEANUP PROBLEM ${p}`).join('\n') : 'CLEANUP verified in the board and in Paseo.');
+    if (problems.length) log(`Retry with: ${retry}`);
+    return true;
+  };
+}
+
+/** The lines printed after a signal's cleanup, before exiting. */
+export function interruptNotice(retry) {
+  return [
+    'A check that was blocked in a long RPC may still have created things after cleanup started.',
+    `Run the retry command to catch them (it is safe to repeat): ${retry}`,
+  ];
 }
 
 /**
@@ -572,7 +626,7 @@ function makeContext(args, client, api, rec) {
  * Cleans up exactly what the record names, after validating it. Returns { problems: string[], done: string[] }; throws
  * RecordError (and touches nothing) when the record does not validate or its Tinylink claim does not match.
  */
-async function cleanup(ctx, { keepDispatcher }) {
+export async function cleanup(ctx, { keepDispatcher, unattended = false, yesArchiveDispatcher = false }) {
   const { client, rpc, rec } = ctx;
   const problems = [];
   const done = [];
@@ -619,30 +673,31 @@ async function cleanup(ctx, { keepDispatcher }) {
     else fixtures.push({ ...f, project });
   }
 
-  // 1. Cards: the recorded ones plus any carrying this run's prefix in a project this run uses (the dispatcher made
-  // some). A card outside those projects, or without the prefix, is never touched.
+  // 1. Cards. The live board decides, never the record: a task counts only when its current title carries the marker and
+  // it sits in a validated project (Tinylink as re-resolved, or a verified fixture project). The record's card ids are
+  // a hint to find work, not authority. A card outside those projects, or without the marker now, is never touched.
   const projectIds = new Set([tinylink?.id, ...fixtures.map((f) => f.project?.id)].filter(Boolean));
-  for (const t of board.tasks)
-    if (projectIds.has(t.projectId) && t.title.startsWith(data.marker)) rec.card(t);
-  const owned = (id) => data.cards.find((c) => c.id === id && c.title.startsWith(data.marker));
-  const cardIds = data.cards.filter((c) => c.title.startsWith(data.marker)).map((c) => c.id);
-  const workspaces = new Set(data.cards.flatMap((c) => c.workspaces));
+  const liveCards = board.tasks.filter((t) => projectIds.has(t.projectId) && typeof t.title === 'string' && t.title.startsWith(data.marker));
+  for (const t of liveCards) rec.card(t);
+  const cardIds = liveCards.map((t) => t.id);
+  const workspaces = new Set(data.cards.filter((c) => cardIds.includes(c.id)).flatMap((c) => c.workspaces));
   // A workspace another (not this run's) card refers to is never expected to leave Paseo.
   const shared = new Set(board.tasks.filter((t) => !cardIds.includes(t.id)).flatMap((t) => [t.workspaceId, ...(t.previousWorkspaces ?? []).map((p) => p.id)]));
   for (const id of shared) workspaces.delete(id);
 
-  // 2. Sessions of this run: recorded ids, and sessions in the cards' workspaces that carry a recorded card's label.
-  // A session is archived only when verified as this run's: the script's own label, the flowly-task label of a card
-  // of this run, or the dispatcher this run recorded starting (it also carries the dispatcher label).
+  // 2. Sessions of this run: recorded ids, and sessions in the cards' workspaces that carry a live marked card's label.
+  // A session is archived only when verified as this run's: the script's own label, the flowly-task label of a live
+  // marked card (above), or the dispatcher this run recorded starting (it also carries the dispatcher label).
   const live = await ctx.agents().catch(() => []);
   const sessionIds = new Set(data.agents);
   for (const a of live) if (cardIds.includes(a.labels?.['flowly-task']) && workspaces.has(a.workspaceId)) sessionIds.add(a.id);
   const dispatcherId = data.dispatcher?.agentId;
+  const dispatcherPlan = dispatcherArchivePlan({ ours: data.dispatcher?.ours === true, keep: keepDispatcher, unattended, yes: yesArchiveDispatcher });
   const ownDispatcher = (a) => !!dispatcherId && a.id === dispatcherId && data.dispatcher.ours === true && !!a.labels?.['flowly-dispatcher'];
   const verified = (a) => a.labels?.['flowly-started-by'] === 'single-pane-live' || cardIds.includes(a.labels?.['flowly-task']) || ownDispatcher(a);
   const unverified = new Set();
   for (const id of sessionIds) {
-    if (id === dispatcherId && (!data.dispatcher.ours || keepDispatcher)) continue;
+    if (id === dispatcherId && dispatcherPlan !== 'archive') continue;
     await guard(`archive session ${id}`, async () => {
       const a = await ctx.agent(id);
       if (!a || a.archivedAt) return;
@@ -659,12 +714,17 @@ async function cleanup(ctx, { keepDispatcher }) {
     });
   }
 
-  // 3. Memory entries first (project removal does not clear them).
+  // 3. Memory entries first (project removal does not clear them). The script creates memory only in its fixture
+  // project, so an entry is deleted only there (never in Tinylink or any other project), after reading it.
+  const fixtureProjectIds = new Set(fixtures.map((f) => f.project?.id).filter(Boolean));
   for (const m of data.memory)
     await guard(`delete memory ${m.id}`, async () => {
+      if (!fixtureProjectIds.has(m.projectId)) throw new Error(memoryDeleteRefusal(m, { projectId: m.projectId }, { fixtureProjectIds, marker: data.marker }));
       const view = (await rpc('memory.read', { projectId: m.projectId })).value;
-      const entry = view?.entries?.find((e) => e.id === m.id) ?? view?.candidates?.find((e) => e.id === m.id);
+      const entry = view?.entries?.find((e) => e.id === m.id);
       if (!entry) return;
+      const refusal = memoryDeleteRefusal(m, entry, { fixtureProjectIds, marker: data.marker });
+      if (refusal) throw new Error(refusal);
       await rpc('memory.delete', { id: m.id, revision: entry.revision });
       done.push(`deleted memory entry ${m.id}`);
     });
@@ -674,7 +734,7 @@ async function cleanup(ctx, { keepDispatcher }) {
     await guard(`delete card ${id}`, async () => {
       const card = (await ctx.board()).tasks.find((t) => t.id === id);
       if (!card) return;
-      if (!owned(card.id) || !card.title.startsWith(data.marker)) throw new Error('refusing: not a card of this run.');
+      if (!card.title.startsWith(data.marker)) throw new Error('refusing: not a card of this run.');
       if (!projectIds.has(card.projectId)) throw new Error('refusing: not in a project of this run.');
       await ctx.noteBranch(card);
       for (const w of [card.workspaceId, ...(card.previousWorkspaces ?? []).map((p) => p.id)]) if (!shared.has(w)) workspaces.add(w);
@@ -723,8 +783,10 @@ async function cleanup(ctx, { keepDispatcher }) {
       });
     }
 
-  // 7. The dispatcher, when this run started it.
-  if (dispatcherId && data.dispatcher.ours && !keepDispatcher)
+  // 7. The dispatcher, when this run started it. From --cleanup a record alone never archives a session: it is listed.
+  if (dispatcherId && dispatcherPlan === 'hold')
+    done.push(`left in place: dispatcher ${dispatcherId} (would be archived; a record alone does not archive a session unattended, pass --yes-archive-dispatcher)`);
+  if (dispatcherId && dispatcherPlan === 'archive')
     await guard(`archive dispatcher ${dispatcherId}`, async () => {
       const a = await ctx.agent(dispatcherId);
       if (a && !a.archivedAt) {
@@ -762,7 +824,7 @@ async function cleanup(ctx, { keepDispatcher }) {
     if (leftWs.length) throw new Error(`workspaces still active in Paseo: ${leftWs.map((w) => `${w.id} (${w.workspaceKind})`).join(', ')}`);
     const stillLive = [];
     for (const id of sessionIds) {
-      if (unverified.has(id) || (id === dispatcherId && (!data.dispatcher.ours || keepDispatcher))) continue;
+      if (unverified.has(id) || (id === dispatcherId && dispatcherPlan !== 'archive')) continue;
       const a = await ctx.agent(id);
       if (a && !a.archivedAt) stillLive.push(id);
     }
@@ -1025,8 +1087,11 @@ async function checkImport(ctx) {
 
 async function checkExport(ctx) {
   const fx = await ctx.needFixture();
-  const memoryView = (await ctx.rpc('memory.read', { projectId: fx.id })).value;
-  if (memoryView && memoryView.enabled === false) throw new Skip('Project memory is off for the fixture project (turn the Memory feature on in Settings, or this check cannot seed an entry).');
+  // memory.read answers `enabled: false` when the feature is off for the project (server/memory.ts `view`) and throws
+  // for an unknown project; either way this check cannot seed an entry, so it skips.
+  const memoryRead = await ctx.rpc('memory.read', { projectId: fx.id }).then((r) => ({ view: r.value }), (error) => ({ error }));
+  const memoryReason = memoryUnavailable(memoryRead);
+  if (memoryReason) throw new Skip(memoryReason);
   const card = await ctx.makeCard(fx.id, 'export card', { description: 'First line of the export card.\nSecond line.' });
   const ideaTitle = ctx.title('export idea');
   await ctx.rpc('ideas.create-project', { projectId: fx.id, idea: { title: ideaTitle, detail: 'Detail of the export idea.', rationale: 'Seeded by the single-pane live checks.' } });
@@ -1130,22 +1195,24 @@ export async function main(argv) {
   let cleanupRun = null;
   const runCleanup = () => {
     runState.cleaning = true;
-    cleanupRun ??= cleanup(ctx, { keepDispatcher: args.keepDispatcher }).catch((e) => ({
+    // From --cleanup (nobody watched the run) a dispatcher is archived only with --yes-archive-dispatcher.
+    cleanupRun ??= cleanup(ctx, { keepDispatcher: args.keepDispatcher, unattended: !!args.cleanup, yesArchiveDispatcher: args.yesArchiveDispatcher }).catch((e) => ({
       done: [],
       problems: [e instanceof RecordError ? e.message : `cleanup failed: ${errText(e)}`],
     }));
     return cleanupRun;
   };
-  const report = ({ problems, done }) => {
-    done.forEach((d) => console.log(`  ${d}`));
-    console.log(problems.length ? problems.map((p) => `CLEANUP PROBLEM ${p}`).join('\n') : 'CLEANUP verified in the board and in Paseo.');
-    if (problems.length) console.log(`Retry with: ${retryCommand(rec.file, args)}`);
-  };
+  // The report prints once, even when a signal arrives while the normal path is cleaning up.
+  const report = createReport((line) => console.log(line), retryCommand(rec.file, args));
   let inFlight = Promise.resolve();
   const handlers = {};
   for (const signal of Object.keys(signalExitCodes)) {
     handlers[signal] = () => {
-      if (runState.interrupted) process.exit(signalExitCodes[signal]); // a second signal stops now
+      if (runState.interrupted) {
+        // a second signal stops now
+        interruptNotice(retryCommand(rec.file, args)).forEach((line) => console.log(line));
+        process.exit(signalExitCodes[signal]);
+      }
       runState.interrupted = true;
       console.log(`\n${signal}: cleaning up what this run created (send it again to stop at once; then run the retry command above) …`);
       // The running check stops at its next poll; give it a moment so it creates nothing while cleanup reads the record.
@@ -1153,6 +1220,7 @@ export async function main(argv) {
         .then(runCleanup)
         .then(report)
         .finally(async () => {
+          interruptNotice(retryCommand(rec.file, args)).forEach((line) => console.log(line));
           await api.dispose?.().catch(() => {});
           await client.close().catch(() => {});
           process.exit(signalExitCodes[signal]);

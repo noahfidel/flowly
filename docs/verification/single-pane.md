@@ -50,10 +50,15 @@ The record file is untrusted input: `--cleanup` validates it before connecting t
 
 - `runId` is 6 lowercase hex characters, `marker` is `[single-pane-live <runId>]`, the file is named `single-pane-live-<runId>.json`, and every recorded card title carries the marker.
 - Fixture directories are direct children of `os.tmpdir()` (never the temp directory itself) named `single-pane-live-fixture-*`. A fixture project is removed only when its title starts with the marker and its path is one of those directories.
-- Sessions are archived only when verified: label `flowly-started-by=single-pane-live`, or the `flowly-task` label of a recorded card whose title has the marker, or the dispatcher this run recorded starting.
+- The live board decides, never the record: a card counts only when its current title carries the marker and it sits in Tinylink (re-resolved) or a verified fixture project. A real card id forged into the record with a marked title is ignored.
+- Sessions are archived only when verified: label `flowly-started-by=single-pane-live`, or the `flowly-task` label of such a live marked card, or the dispatcher this run recorded starting.
+- A memory entry is deleted only in a verified fixture project (the script creates memory nowhere else; Tinylink's memory is never touched), after reading it, and only when its title carries the marker.
+- From `--cleanup`, a dispatcher the record says this run started is listed as `left in place` and not archived; add `--yes-archive-dispatcher` to archive it. A normal run (and the Ctrl-C cleanup of a normal run) archives it as before, unless `--keep-dispatcher`.
 - The Tinylink project id and root are never taken from the record: they are re-resolved from `docs/promo/ids.json` or the project titled Tinylink, and the recorded id must match.
 - Branches are deleted only when they match `kanban/single-pane-live-<runId>-*`, and only when no worktree that still exists on disk holds them (`git worktree prune` runs first). A recorded card's other branch is reported as `left in place: <branch>`.
-- The first line of every run prints the exact retry command (`node docs/verification/single-pane-live.mjs --cleanup <record file>`, with `--home` when it is not the default). Ctrl-C or SIGTERM stops the running check at its next poll, runs cleanup once, then exits 130 or 143; a second signal exits at once and you run the retry command.
+- The first line of every run prints the exact retry command (`node docs/verification/single-pane-live.mjs --cleanup <record file>`, with `--home` when it is not the default). Ctrl-C or SIGTERM stops the running check at its next poll, runs cleanup once, then exits 130 or 143; a second signal exits at once and you run the retry command. The cleanup report prints once, and after any signal exit the retry command is printed again with a reminder that a check blocked in a long RPC may still have created things after cleanup started; the retry command covers them.
+- Dispatcher states (`none`, `running`, `idle`, `ended`, `context_full`; `shared/dispatcher.ts`, derived in `server/dispatcher.ts`): `dispatcher.start` is refused only while running or idle. With `--use-existing-dispatcher`, an ended dispatcher is replaced and a running, idle or context-full one is messaged.
+- Check 6 skips (not fails) when memory is off for the fixture project: `memory.read` returns `enabled: false` then, and it throws for an unknown project; the script skips on either.
 
 ## Fixtures and options
 
@@ -65,4 +70,4 @@ The record file is untrusted input: `--cleanup` validates it before connecting t
 
 ## Last result
 
-Not run live. Written and dry-checked at the commit that adds it: `node --check` exit 0; `--help` exit 0, prints checks 1–7; `--only 9` exit 64; `scripts/single-pane-live.test.ts` (argument parsing, check list, `--help`, record validation, fixture and branch guards, dispatcher decision, signal exit codes, retry command) 23 passed. Noah's live run of checks 1–7 is the remaining gate (plan "Done"); paste its output here when it exits 0.
+Not run live. Written and dry-checked at the commit that adds it: `node --check` exit 0; `--help` exit 0, prints checks 1–7; `--only 9` exit 64; `scripts/single-pane-live.test.ts` (argument parsing, check list, `--help`, record validation, fixture and branch guards, forged-record cleanup against a fake daemon, memory and dispatcher guards, signal reporting, retry command) 39 passed. Noah's live run of checks 1–7 is the remaining gate (plan "Done"); paste its output here when it exits 0.
