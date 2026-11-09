@@ -39,7 +39,9 @@ export type AttentionItem = {
 };
 
 /** One signal of a card: its session, and whether it is in the card's dismissal set. */
-export type AttentionPart = SignalPart & { agentId: string; dismissed: boolean };
+/** `ended`: an answerable signal (report, question, permission) of a closed session; nothing can answer it (DISPATCHER-SPEC §9.4). */
+export type AttentionPart = SignalPart & { agentId: string; dismissed: boolean; ended?: true };
+const answerableKinds: ReadonlySet<string> = new Set(["question_report", "blocker_report", "ask_user", "permission"]);
 
 /** Session facts the attention rule needs; the board read and the overview give the same ones. */
 type SessionFactsLike = {
@@ -121,7 +123,12 @@ export function attentionItemsWithFacts(
       .filter((s) => s.permission || s.error || s.question || s.blocker || s.unread);
     if (!flagged.length) continue;
     const parts: AttentionPart[] = flagged.flatMap((s) =>
-      s.parts.map((p) => ({ ...p, agentId: s.agent.id, dismissed: !!record?.signals.includes(p.key) })),
+      s.parts.map((p) => ({
+        ...p,
+        agentId: s.agent.id,
+        dismissed: !!record?.signals.includes(p.key),
+        ...(s.agent.status === "closed" && answerableKinds.has(p.kind) ? { ended: true as const } : {}),
+      })),
     );
     const signals = parts.map((p) => p.key);
     items.push({
@@ -154,7 +161,7 @@ export function attentionItemsWithFacts(
 
 /** The bell's count (plan Q1): open asks, each signal not in its card's dismissal set. */
 export function openAskCount(items: readonly AttentionItem[], resolved: ReadonlySet<string> = noSignals): number {
-  return items.reduce((n, item) => n + item.parts.filter((p) => !p.dismissed && !resolved.has(p.key)).length, 0);
+  return items.reduce((n, item) => n + item.parts.filter((p) => !p.dismissed && !p.ended && !resolved.has(p.key)).length, 0);
 }
 
 const noSignals: ReadonlySet<string> = new Set();
@@ -252,7 +259,7 @@ export function asksFrom(
         ...shaped,
         ...(part.requestId ? { requestId: part.requestId } : {}),
         ...(part.eventId ? { eventId: part.eventId } : {}),
-        state: part.dismissed ? "dismissed" : "open",
+        state: part.dismissed ? "dismissed" : part.ended ? "session_ended" : "open",
       };
     }),
   );
