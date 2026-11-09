@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { dispatcherStates } from "../shared/dispatcher";
 
 // The live script lives in docs/verification (outside typecheck and `npm test`); this tests only what needs no daemon:
@@ -30,6 +30,7 @@ type Script = {
   memoryUnavailable: (result: { view?: { enabled?: boolean } | null; error?: unknown }) => string | null;
   createReport: (log: (line: string) => void, retry: string) => (result: { problems: string[]; done: string[] }) => boolean;
   interruptNotice: (retry: string) => string[];
+  checkBell: (ctx: unknown) => Promise<void>;
 };
 
 /** A fake of the script's context for `cleanup`, over an in-memory board and agent list; records every write. */
@@ -107,6 +108,67 @@ const goodRecord = () => ({
 });
 const goodFile = `/anywhere/single-pane-live-${RUN}.json`;
 const load = async () => (await import(/* @vite-ignore */ scriptPath)) as Script;
+
+/**
+ * A fake daemon for check 7 that keeps the store's two dismiss rules: `asks.dismiss` adds one signal to the card's
+ * set, `attention.dismiss` replaces the set with the signals it is given (ATTENTION-DISMISS-SPEC §7a).
+ */
+function fakeBellDaemon() {
+  const asks: { signal: string; taskId: string; agentId: string }[] = [{ signal: "p:other:r0", taskId: "other", agentId: "other" }];
+  const sets = new Map<string, string[]>();
+  const calls: [string, Record<string, unknown>][] = [];
+  const state = (a: (typeof asks)[number]) => (sets.get(a.taskId)?.includes(a.signal) ? "dismissed" : "open");
+  const items = async () => asks.map((a) => ({ kind: "ask", askKind: "permission", ...a, state: state(a) }));
+  let n = 0;
+  const ctx = {
+    needTinylink: async () => ({ id: "tl", title: "Tinylink" }),
+    makeCard: async () => ({ id: "c7", title: "check 7: bell" }),
+    note: () => {},
+    items,
+    asksOf: async (taskId: string) => (await items()).filter((i) => i.taskId === taskId),
+    startSession: async (card: { id: string }) => {
+      const agentId = `s${++n}`;
+      asks.push({ signal: `p:${agentId}:r0`, taskId: card.id, agentId });
+      return agentId;
+    },
+    rpc: async (method: string, input: Record<string, unknown>) => {
+      calls.push([method, input]);
+      if (method === "attention.count") return { count: (await items()).filter((i) => i.state === "open").length };
+      if (method === "asks.dismiss") {
+        const ask = asks.find((a) => a.signal === input.signal)!;
+        sets.set(ask.taskId, [...new Set([...(sets.get(ask.taskId) ?? []), ask.signal])]);
+        return { taskId: ask.taskId };
+      }
+      if (method === "attention.dismiss") {
+        sets.set(String(input.taskId), [...(input.signals as string[])]);
+        return {};
+      }
+      throw new Error(`unexpected rpc ${method}`);
+    },
+  };
+  return { ctx, calls };
+}
+
+describe("check 7 (the bell)", () => {
+  it("dismisses the card in the bell with all its signals, as the bell does, so the chat's earlier dismiss holds", async () => {
+    const { checkBell } = await load();
+    const { ctx, calls } = fakeBellDaemon();
+    vi.useFakeTimers();
+    try {
+      let settled = false;
+      const run = checkBell(ctx).then(
+        () => ({ ok: true as const }),
+        (e: unknown) => ({ ok: false as const, error: String(e) }),
+      ).finally(() => void (settled = true));
+      while (!settled) await vi.advanceTimersByTimeAsync(5_000);
+      expect(await run).toEqual({ ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
+    const bell = calls.find(([m]) => m === "attention.dismiss")?.[1];
+    expect(bell).toEqual({ taskId: "c7", signals: ["p:s1:r0", "p:s2:r0"] });
+  });
+});
 
 describe("single-pane live script", () => {
   it("lists checks 1 to 7 once each, in order", async () => {

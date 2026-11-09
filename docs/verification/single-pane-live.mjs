@@ -1173,7 +1173,7 @@ async function parity(ctx, label, expected) {
   return last;
 }
 
-async function checkBell(ctx) {
+export async function checkBell(ctx) {
   const fx = await ctx.needTinylink();
   const card = await ctx.makeCard(fx.id, 'check 7: bell', { description: 'Temporary card of the single-pane live checks.', mode: 'worktree' });
   const base = await parity(ctx, 'before the asks');
@@ -1193,10 +1193,18 @@ async function checkBell(ctx) {
   const askTwo = await waitFor('the second ask', async () => (await ctx.asksOf(card.id)).find((a) => a.agentId === second && a.state === 'open') ?? false, { timeout: 5 * 60_000, interval: 3_000 });
   const withTwo = await parity(ctx, 'with the second ask');
   if (withTwo.chat <= afterChat.chat) throw new Error(`the open asks did not grow with the second permission (${afterChat.chat} → ${withTwo.chat}).`);
-  await ctx.rpc('attention.dismiss', { taskId: card.id, signals: [askTwo.signal] });
-  await waitFor('the chat ask to read dismissed', async () => (await ctx.asksOf(card.id)).find((a) => a.signal === askTwo.signal)?.state === 'dismissed', { timeout: 30_000 });
-  await parity(ctx, 'after dismissing in the bell', withTwo.chat - 1);
-  ctx.note('dismissing in the bell turned the chat ask dismissed and the counts still agree.');
+  // The bell dismisses the whole card: it sends all the card's current signals (client/board.tsx, `item.signals`),
+  // and `attention.dismiss` replaces the card's set with them (ATTENTION-DISMISS-SPEC §7a). Sending only the second
+  // ask's signal would drop the first one from the set and reopen it.
+  const live = (await ctx.asksOf(card.id)).filter((a) => a.state === 'open' || a.state === 'dismissed');
+  const openOnCard = live.filter((a) => a.state === 'open').length;
+  await ctx.rpc('attention.dismiss', { taskId: card.id, signals: live.map((a) => a.signal) });
+  await waitFor('the card\'s asks in the chat to read dismissed', async () => {
+    const asks = await ctx.asksOf(card.id);
+    return [askOne.signal, askTwo.signal].every((signal) => asks.find((a) => a.signal === signal)?.state === 'dismissed');
+  }, { timeout: 30_000 });
+  await parity(ctx, 'after dismissing in the bell', withTwo.chat - openOnCard);
+  ctx.note('dismissing the card in the bell turned its chat asks dismissed and the counts still agree.');
 }
 
 // ---- Runner -------------------------------------------------------------------------------------------------------

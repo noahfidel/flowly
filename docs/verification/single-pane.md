@@ -28,7 +28,7 @@ Run it from the repository root with Paseo's daemon up. It reads the daemon addr
 | 4 | The dispatcher splits a two-deliverable plan into two cards and starts both: two worktrees, two sessions. Wrapping up one card removes its worktree workspace from Paseo's active list and leaves the other | Tinylink, dispatcher |
 | 5 | A copy of the backlog through `ideas.import-preview` then `ideas.import` into a throwaway fixture project: ideas created = kept rows; open project ideas match; a replay returns the first result | fixture project |
 | 6 | `board.export-markdown` lists the fixture project with its open card, idea and memory entry | fixture project |
-| 7 | `attention.count` equals the open asks in the chat; dismissing in the chat lowers the bell by one; dismissing in the bell marks the chat ask dismissed | Tinylink |
+| 7 | `attention.count` equals the open asks in the chat; dismissing in the chat lowers the bell by one; dismissing the card in the bell (all its signals, as the bell sends them) marks its chat asks dismissed | Tinylink |
 
 Check 4 uses Wrap up, not archive: archiving a card never archives Paseo resources (plan "Spec issues" #4).
 
