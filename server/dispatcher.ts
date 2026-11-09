@@ -28,6 +28,7 @@ import {
 import { exportMarkdown } from "../shared/board-export";
 import type { Board } from "../shared/model";
 import type { AgentModel } from "../shared/agent-defaults";
+import type { OutgoingImage } from "../shared/composer";
 import { createDirectoryWorkspace } from "./background-workspace";
 import { logFailure } from "./error-report";
 import { EventBus, NoteBatcher, isStop } from "./event-bus";
@@ -621,14 +622,31 @@ export class Dispatcher {
     return seen;
   }
 
-  /** "What should I do?" (§9.2): only to a dispatcher that is up; always steered, as by the composer (`userSendOptions`). */
+  /** "What should I do?" (§9.2): only to a dispatcher that is up and guarded; always steered, as by the composer (`userSendOptions`). */
   async whatNext(paseo: PaseoApi, text: string, seen?: { revision: number; ids: readonly string[] }): Promise<void> {
-    const { state, agentId } = await this.status(paseo);
-    if (!agentId || (state !== "running" && state !== "idle"))
-      throw new ToolError("DISPATCHER_DOWN", "The dispatcher is not running. Start it first.");
+    const agentId = await this.reachable(paseo);
     await paseo.agents.ref(agentId).send(text, userSendOptions);
     // The cards it asked about are seen, as Mark seen would mark them; only once the question was sent (ruling, §9.2).
     if (seen) await this.markSeen(seen.revision, seen.ids);
+  }
+
+  /** The user's message from the dispatcher chat (§9.3): only to a dispatcher that is up and guarded; always steered. */
+  async send(paseo: PaseoApi, input: { text: string; images?: OutgoingImage[]; messageId: string }): Promise<{ sent: true }> {
+    const agentId = await this.reachable(paseo);
+    await paseo.agents.ref(agentId).send(input.text, { ...userSendOptions, ...(input.images?.length ? { images: input.images } : {}), messageId: input.messageId });
+    return { sent: true };
+  }
+
+  /**
+   * The session the user's messages may reach: up (running, idle or closed) and guarded. An unguarded one takes no
+   * messages from the user until Replace (ruling, Noah 2026-11-09; §3); nothing is sent.
+   */
+  private async reachable(paseo: PaseoApi): Promise<string> {
+    const { state, agentId, unguarded } = await this.status(paseo);
+    if (!agentId || (state !== "running" && state !== "idle"))
+      throw new ToolError("DISPATCHER_DOWN", "The dispatcher is not running. Start it first.");
+    if (unguarded) throw new ToolError("DISPATCHER_UNGUARDED", "Replace the dispatcher to keep chatting; nothing was sent.");
+    return agentId;
   }
 
   /** One pending re-check at a time: an earlier one wins, a later one is replaced by a sooner request. */

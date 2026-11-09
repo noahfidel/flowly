@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { askKinds, askStates, attentionDismissLimits } from "./attention-dismiss";
+import { maxImages, outgoingImageSchema } from "./composer";
 
 /** Dispatcher contracts shared by the daemon and the client (DISPATCHER-SPEC; the event side is EVENT-BUS-SPEC). */
 
@@ -266,6 +267,10 @@ export const dispatcherStartInputSchema = z.strictObject({
 export const dispatcherStartResultSchema = z.strictObject({ agentId: z.string() });
 /** Replace dispatcher (§3): the session the user saw as unguarded; only that one is archived. */
 export const dispatcherReplaceInputSchema = z.strictObject({ agentId: z.string().min(1).max(200) });
+/** The user's message from the dispatcher chat (§9.3): the daemon sends it, only to a live guarded dispatcher (§3). */
+export const dispatcherSendInputSchema = z
+  .strictObject({ text: z.string().max(20000), images: z.array(outgoingImageSchema).max(maxImages).optional(), messageId: z.string().min(1).max(200) })
+  .refine((v) => !!v.text.trim() || !!v.images?.length, "Write a message or attach an image.");
 /** The first words of a note batch message and of the board summary, as the chat recognizes them (§9.3). */
 export const noteMessagePrefix = "Flowly board update (";
 export const summaryMessagePrefix = "Flowly board summary.";

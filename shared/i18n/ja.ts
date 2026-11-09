@@ -226,6 +226,7 @@ const catalog: Catalog = {
   "Asleep": "スリープ中",
   "This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. It gets no board notes until it is replaced.": "このディスパッチャーはまだカードの質問や権限リクエストに答えられます。Flowly がその経路を取り除く前に、または Claude 以外のプロバイダーで起動されたためです。置き換えるまでボードのメモは届きません。",
   "Replace dispatcher": "ディスパッチャーを置き換える",
+  "Replace the dispatcher to keep chatting": "チャットを続けるにはディスパッチャーを置き換えてください",
   "Replace dispatcher?": "ディスパッチャーを置き換えますか？",
   "Replace": "置き換える",
   "Flowly archives this dispatcher session and starts a new one that can't answer cards' asks. The new one starts from a board summary, not this chat.": "Flowly はこのディスパッチャーのセッションをアーカイブし、カードの問いかけに答えられない新しいセッションを起動します。新しいセッションはこのチャットではなく、ボードの要約から始まります。",

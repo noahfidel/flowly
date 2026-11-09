@@ -66,4 +66,6 @@ test("the dispatcher runs only on Claude; a refused start says why and what to p
   );
   expect(dispatcherStartMessage("HOST_UNSUPPORTED: This Paseo host can't run the dispatcher.")).toBe("This Paseo host can't run the dispatcher.");
   expect(dispatcherStartMessage("Network down")).toBe("Network down");
+  // A message refused for an unguarded dispatcher (ruling, Noah 2026-11-09).
+  expect(dispatcherStartMessage("DISPATCHER_UNGUARDED: Replace the dispatcher to keep chatting; nothing was sent.")).toBe("Replace the dispatcher to keep chatting");
 });

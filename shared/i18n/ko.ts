@@ -226,6 +226,7 @@ const catalog: Catalog = {
   "Asleep": "휴면 중",
   "This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. It gets no board notes until it is replaced.": "이 디스패처는 아직 카드의 질문과 권한 요청에 답할 수 있습니다. Flowly가 그 경로를 없애기 전에, 또는 Claude가 아닌 제공자로 시작되었기 때문입니다. 교체될 때까지 보드 메모를 받지 않습니다.",
   "Replace dispatcher": "디스패처 교체",
+  "Replace the dispatcher to keep chatting": "계속 대화하려면 디스패처를 교체하세요",
   "Replace dispatcher?": "디스패처를 교체할까요?",
   "Replace": "교체",
   "Flowly archives this dispatcher session and starts a new one that can't answer cards' asks. The new one starts from a board summary, not this chat.": "Flowly가 이 디스패처 세션을 보관하고, 카드의 요청에 답할 수 없는 새 세션을 시작합니다. 새 세션은 이 채팅이 아니라 보드 요약에서 시작합니다.",

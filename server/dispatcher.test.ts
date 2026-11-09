@@ -1207,6 +1207,34 @@ test("What should I do? marks the changed cards it sent as seen, only once it wa
   expect(await x.dispatcher.record()).toMatchObject({ seenRevision: seen.revision, seenIds: seen.ids });
 });
 
+test("an unguarded dispatcher takes no messages from the user until Replace: chat send and What should I do? are refused (ruling, Noah 2026-11-09)", async () => {
+  const seen = { revision: 1_700_000_000_000, ids: ["e1"] };
+  const image = { data: "aGk=", mimeType: "image/png" as const };
+  for (const agentStatus of ["idle", "running", "closed"]) {
+    const x = await oldDispatcher(undefined, agentStatus);
+    await expect(x.dispatcher.send(x.paseo, { text: "Make a card", messageId: "m1" }), agentStatus).rejects.toMatchObject({ code: "DISPATCHER_UNGUARDED" });
+    await expect(x.dispatcher.whatNext(x.paseo, "What should I do?", seen), agentStatus).rejects.toMatchObject({ code: "DISPATCHER_UNGUARDED" });
+    expect(x.sends, agentStatus).toEqual([]);
+    // Refused before anything is marked seen.
+    expect((await x.dispatcher.record()).seenRevision, agentStatus).toBeUndefined();
+    // Replaced: both reach the new, guarded one, steered as before.
+    const { agentId } = await x.dispatcher.replace(x.paseo, { agentId: "old" });
+    x.agents.get(agentId)!.status = "idle";
+    await x.dispatcher.send(x.paseo, { text: "Make a card", images: [image], messageId: "m2" });
+    expect(x.sends.at(-1), agentStatus).toEqual({ id: agentId, text: "Make a card", options: { activeTurnBehavior: "steer", images: [image], messageId: "m2" } });
+    await x.dispatcher.whatNext(x.paseo, "What should I do?", seen);
+    expect(x.sends.at(-1), agentStatus).toMatchObject({ id: agentId, text: "What should I do?" });
+    expect(await x.dispatcher.record(), agentStatus).toMatchObject({ seenRevision: seen.revision });
+    expect(x.sends.some((s) => s.id === "old"), agentStatus).toBe(false);
+  }
+  // A guarded one takes the user's message; a dead one or none is refused as down.
+  const y = await oldDispatcher({ version: dispatcherGuardVersion, provider: "claude" });
+  await y.dispatcher.send(y.paseo, { text: "hi", messageId: "m3" });
+  expect(y.sends).toEqual([{ id: "old", text: "hi", options: { activeTurnBehavior: "steer", messageId: "m3" } }]);
+  const z = await setup();
+  await expect(z.dispatcher.send(z.paseo, { text: "hi", messageId: "m4" })).rejects.toMatchObject({ code: "DISPATCHER_DOWN" });
+});
+
 test("no route to a card's ask: a Claude dispatcher starts without Paseo's tools, a shell or subagents (ruling, Noah 2026-11-09)", async () => {
   const x = await setup();
   await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5", modeId: "bypassPermissions" });

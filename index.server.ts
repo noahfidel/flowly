@@ -425,8 +425,17 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.dispatcherWhatNext, async (_, { paseo }) => {
     tools.attach(paseo);
     const change = await currentChange();
-    await tools.dispatcher.whatNext(paseo, whatNextMessage(change), change?.kind === "change" ? { revision: change.revision, ids: change.ids } : undefined);
+    await tools.dispatcher.whatNext(paseo, whatNextMessage(change), change?.kind === "change" ? { revision: change.revision, ids: change.ids } : undefined).catch((e: unknown) => {
+      throw codedError(e);
+    });
     return { sent: true as const };
+  });
+  // The chat's composer sends through the daemon, which refuses an unguarded dispatcher (DISPATCHER-SPEC §3).
+  server.handle(rpc.dispatcherSend, (input, { paseo }) => {
+    tools.attach(paseo);
+    return tools.dispatcher.send(paseo, input).catch((e: unknown) => {
+      throw codedError(e);
+    });
   });
   tools.cards.on = async () => {
     const state = await ideasPrefs.read().catch(() => null);

@@ -69,6 +69,7 @@ import {
   chatItemSchema,
   dispatcherStartInputSchema,
   dispatcherReplaceInputSchema,
+  dispatcherSendInputSchema,
   dispatcherStartResultSchema,
   dispatcherStatusSchema,
   seenIdLimit,
@@ -1024,6 +1025,8 @@ export const dispatcherMarkSeen = defineRpc({
   input: z.strictObject({ revision: z.number().int().nonnegative(), ids: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional() }),
   output: z.strictObject({ seenRevision: z.number().int().nonnegative() }),
 });
+/** The user's chat message to the dispatcher, sent by the daemon; refused for an unguarded one (DISPATCHER-SPEC §3, §9.3). */
+export const dispatcherSend = defineRpc({ name: "dispatcher.send", input: dispatcherSendInputSchema, output: z.strictObject({ sent: z.literal(true) }) });
 /** "What should I do?" with the changed cards, sent to the dispatcher (DISPATCHER-SPEC §9.2). */
 export const dispatcherWhatNext = defineRpc({ name: "dispatcher.what-next", input: z.strictObject({}), output: z.strictObject({ sent: z.literal(true) }) });
 /** Answers one ask from the chat, re-checked against its session; `delivered` only after the Paseo call resolved (DISPATCHER-SPEC §9.4). */

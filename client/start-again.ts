@@ -19,6 +19,7 @@ export function startAgainMessage(error: string): string {
 
 /** Start dispatcher's refusals in the user's words (DISPATCHER-SPEC §3); the daemon sends `CODE: message`. */
 const dispatcherRefusals: Record<string, string> = {
+  DISPATCHER_UNGUARDED: msg("Replace the dispatcher to keep chatting"),
   DISPATCHER_PROVIDER_UNSUPPORTED: msg("The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models."),
 };
 

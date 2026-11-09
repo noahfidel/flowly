@@ -226,6 +226,7 @@ const catalog: Catalog = {
   "Asleep": "休眠中",
   "This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. It gets no board notes until it is replaced.": "此调度器仍能回答卡片的问题和权限请求：它是在 Flowly 移除这些途径之前启动的，或使用的不是 Claude 提供商。在被替换之前，它不会收到看板备注。",
   "Replace dispatcher": "替换调度器",
+  "Replace the dispatcher to keep chatting": "替换调度器以继续对话",
   "Replace dispatcher?": "替换调度器？",
   "Replace": "替换",
   "Flowly archives this dispatcher session and starts a new one that can't answer cards' asks. The new one starts from a board summary, not this chat.": "Flowly 会归档此调度器会话，并启动一个无法回答卡片请求的新会话。新会话从看板摘要开始，而不是从这段对话开始。",

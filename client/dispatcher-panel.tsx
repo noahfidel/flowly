@@ -6,7 +6,7 @@ import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { msg, t, tn } from "../shared/i18n";
-import { userSendOptions, type ChatItem } from "../shared/dispatcher";
+import type { ChatItem } from "../shared/dispatcher";
 import { maxImages } from "../shared/composer";
 import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
 import { Actions, Button, IconButton, Label, Notice, Theme, font, message, noFocusRing, radius, space, touch, useTheme } from "./ui";
@@ -65,6 +65,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   const toast = useToast();
   const readStatus = useRpc(rpc.dispatcherStatus);
   const startRpc = useRpc(rpc.dispatcherStart);
+  const sendRpc = useRpc(rpc.dispatcherSend);
   const replaceRpc = useRpc(rpc.dispatcherReplace);
   const [confirmReplace, setConfirmReplace] = useState(false);
   const status = useQuery({ queryKey: statusKey, queryFn: () => readStatus({}), enabled: visible, refetchInterval: visible ? 5_000 : false, placeholderData: (p) => p });
@@ -72,6 +73,8 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   const state = status.data?.state;
   const agentId = status.data?.agentId ?? null;
   const up = state === "running" || state === "idle";
+  // An unguarded dispatcher takes no messages from the user until Replace; the daemon refuses them too (§3).
+  const locked = up && !!status.data?.unguarded;
   const [startError, setStartError] = useState("");
   const [starting, setStarting] = useState(false);
   const mounted = useRef(visible);
@@ -147,9 +150,9 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
       const item = extra.item;
       if (item.kind === "ask") return <AskRow item={item} focused={row.key === focusedKey} onOpenCard={onOpenCard} onChanged={refreshItems} />;
       if (item.kind === "answer") return <AnswerRow item={item} title={askTitles.get(item.signal) ?? ""} onOpenCard={onOpenCard} />;
-      return <ItemRow item={item} laneOf={laneOf} onOpenCard={onOpenCard} onChanged={refreshItems} />;
+      return <ItemRow item={item} laneOf={laneOf} locked={locked} onOpenCard={onOpenCard} onChanged={refreshItems} />;
     },
-    [focusedKey, onOpenCard, refreshItems, askTitles, laneOf],
+    [focusedKey, onOpenCard, refreshItems, askTitles, laneOf, locked],
   );
   const chatItems = items.data;
   const extra = useMemo<TranscriptExtra>(
@@ -196,7 +199,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     setDraft((now) => (expected !== undefined && now !== expected ? now : text)),
   );
   const box = useComposerDraft({ sessionId: "dispatcher", draft, onDraftChange: draftChange, isMounted: () => mounted.current });
-  const canWrite = visible && up && !!agentId && !!agent && !agent.providerUnavailable && !sending;
+  const canWrite = visible && up && !locked && !!agentId && !!agent && !agent.providerUnavailable && !sending;
   const submit = useStableCallback(async () => {
     box.flush();
     const text = box.read();
@@ -215,7 +218,8 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     transcript.current?.echo(messageId, text);
     transcript.current?.jumpToLatest();
     try {
-      await paseo.agents.ref(agentId).send(text, { ...userSendOptions, ...(images.length ? { images } : {}), messageId });
+      // Through the daemon, which sends only to a guarded dispatcher (§3); steered (§9.3).
+      await sendRpc({ text, ...(images.length ? { images } : {}), messageId });
       void current.refetch();
       transcript.current?.refresh();
     } catch (e) {
@@ -223,7 +227,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
       box.flush();
       setDraft(restoredDraft(text, box.read()));
       if (mounted.current) box.setAttachments([...attached, ...box.attachmentsRef.current].slice(0, maxImages));
-      setError(message(e));
+      setError(dispatcherStartMessage(message(e)));
     } finally {
       lock.current = false;
       setSending(false);
@@ -296,9 +300,12 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
             <Notice tone="warning">
               {t("This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. It gets no board notes until it is replaced.")}
             </Notice>
-            <Button icon="RefreshCw" disabled={starting} onPress={() => setConfirmReplace(true)}>
-              {t("Replace dispatcher")}
-            </Button>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space[2] }}>
+              <Button icon="RefreshCw" disabled={starting} onPress={() => setConfirmReplace(true)}>
+                {t("Replace dispatcher")}
+              </Button>
+              <Label muted size={font.sm}>{t("Replace the dispatcher to keep chatting")}</Label>
+            </View>
             {!!startError && <Notice>{startError}</Notice>}
           </View>
         )}
@@ -311,7 +318,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
             running={running}
             preferred="steer"
             compact={compact}
-            editable={!!agent}
+            editable={!!agent && !locked}
             placeholder={t("Message the dispatcher")}
             keyboard={keyboard}
             onSubmit={() => void submit()}
@@ -371,9 +378,9 @@ function noteDetail(item: Extract<ChatItem, { kind: "note" }>, laneOf: Props["la
   return [lanes, note.later ? note.later : ""].filter(Boolean).join("; ");
 }
 
-const ItemRow = memo(function ItemRow({ item, laneOf, onOpenCard, onChanged }: { item: ChatItem; laneOf: Props["laneOf"]; onOpenCard(taskId: string): void; onChanged(): void }) {
+const ItemRow = memo(function ItemRow({ item, laneOf, locked, onOpenCard, onChanged }: { item: ChatItem; laneOf: Props["laneOf"]; locked: boolean; onOpenCard(taskId: string): void; onChanged(): void }) {
   const { colors } = useTheme();
-  if (item.kind === "change") return <ChangeRow item={item} laneOf={laneOf} onOpenCard={onOpenCard} onChanged={onChanged} />;
+  if (item.kind === "change") return <ChangeRow item={item} laneOf={laneOf} locked={locked} onOpenCard={onOpenCard} onChanged={onChanged} />;
   if (item.kind === "note") {
     const kind = noteKinds[item.note.kind];
     const detail = noteDetail(item, laneOf);
@@ -396,10 +403,10 @@ const ItemRow = memo(function ItemRow({ item, laneOf, onOpenCard, onChanged }: {
       </View>
     </Pressable>
   );
-}, (a, b) => a.laneOf === b.laneOf && a.onOpenCard === b.onOpenCard && a.onChanged === b.onChanged && sameItem(a.item, b.item));
+}, (a, b) => a.laneOf === b.laneOf && a.locked === b.locked && a.onOpenCard === b.onOpenCard && a.onChanged === b.onChanged && sameItem(a.item, b.item));
 
 /** "Changed since you looked" (§9.2): collapsed to its count; open, the cards plus Mark seen and What should I do?. */
-function ChangeRow({ item, laneOf, onOpenCard, onChanged }: { item: Extract<ChatItem, { kind: "change" }>; laneOf: Props["laneOf"]; onOpenCard(taskId: string): void; onChanged(): void }) {
+function ChangeRow({ item, laneOf, locked, onOpenCard, onChanged }: { item: Extract<ChatItem, { kind: "change" }>; laneOf: Props["laneOf"]; locked: boolean; onOpenCard(taskId: string): void; onChanged(): void }) {
   const { colors } = useTheme();
   const markSeen = useRpc(rpc.dispatcherMarkSeen);
   const whatNext = useRpc(rpc.dispatcherWhatNext);
@@ -410,7 +417,7 @@ function ChangeRow({ item, laneOf, onOpenCard, onChanged }: { item: Extract<Chat
     setBusy(true);
     setError("");
     void job()
-      .then(onChanged, (e) => setError(message(e)))
+      .then(onChanged, (e) => setError(dispatcherStartMessage(message(e))))
       .finally(() => setBusy(false));
   };
   const count = tn(item.cards.length, "{n} card changed since you looked", "{n} cards changed since you looked");
@@ -440,7 +447,7 @@ function ChangeRow({ item, laneOf, onOpenCard, onChanged }: { item: Extract<Chat
             <Button small disabled={busy} onPress={() => run(() => markSeen({ revision: item.revision, ids: item.ids }))}>
               {t("Mark seen")}
             </Button>
-            <Button small primary disabled={busy} onPress={() => run(() => whatNext({}))}>
+            <Button small primary disabled={busy || locked} onPress={() => run(() => whatNext({}))}>
               {t("What should I do?")}
             </Button>
           </View>

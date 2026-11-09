@@ -226,6 +226,7 @@ const catalog: Catalog = {
   "Asleep": "Em repouso",
   "This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. It gets no board notes until it is replaced.": "Este despachante ainda pode responder às perguntas e aos pedidos de permissão dos cartões: ele foi iniciado antes de o Flowly remover essas rotas, ou com um provedor diferente do Claude. Ele não recebe notas do quadro até ser substituído.",
   "Replace dispatcher": "Substituir despachante",
+  "Replace the dispatcher to keep chatting": "Substitua o despachante para continuar conversando",
   "Replace dispatcher?": "Substituir o despachante?",
   "Replace": "Substituir",
   "Flowly archives this dispatcher session and starts a new one that can't answer cards' asks. The new one starts from a board summary, not this chat.": "O Flowly arquiva esta sessão do despachante e inicia uma nova que não pode responder aos pedidos dos cartões. A nova começa de um resumo do quadro, não desta conversa.",
