@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Live verification script for the single pane (branch `feat/single-pane`, Task 12) — 2026-11-08
+
+- Added `docs/verification/single-pane-live.mjs` (checks 1–7 of the plan's Verification: dispatcher starts a card in a worktree, asks answered through `asks.answer`, one batched note, two-card split with wrap-up, backlog import, markdown export, bell/chat parity) and `docs/verification/single-pane.md` (how to run, what it creates, last result). Arguments and the check list are covered by `scripts/single-pane-live.test.ts` (the script itself is outside `npm test` and typecheck, like the other `docs/verification` scripts).
+- Safety: every id recorded in `$TMPDIR/single-pane-live-<run>.json` before use; only recorded, prefixed cards inside Tinylink or the fixture project are deleted; Tinylink itself and unrecorded cards or sessions are never touched; messages go only to sessions the run started (the real dispatcher only with `--use-existing-dispatcher`); cleanup in `finally`, verified against the board and Paseo; `--cleanup <record>` finishes a crashed run.
+- Written against Noah's rulings: no `context_full` check (a second `dispatcher.start` is refused while one runs; a new one replaces only a dead one). The one assertion that depends on the final fix round (the dead dispatcher is archived when a new one starts) is marked "needs the final fix round" in `--help` and `single-pane.md`. Delivery-mode editing has no check in 1–7.
+- Checks: `node --check` exit 0; `--help` exit 0; `--only 9` exit 64; `scripts/single-pane-live.test.ts` 7 passed. Not run: any live check (Noah runs it after installing), and the independent milestone run after Task 12.
+- No strings, onboarding, What's new or telemetry change (a verification script only; no heartbeat field).
+
 ## Asks in the dispatcher chat, one source with the bell (branch `feat/single-pane`, Task 11) — 2026-11-08
 
 - Spec: DISPATCHER-SPEC §8 (`asks.answer`, `asks.dismiss`, `tasks.start-again`), §9.1 ask/answer fields, new §9.4 Asks, §10 acceptance; ATTENTION-DISMISS-SPEC §7a (blocker signal `b:`, count by open asks, single-signal dismissal); SIDEBAR-BADGE-SPEC count and label.
