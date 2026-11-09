@@ -391,13 +391,12 @@ describe("single-pane live script", () => {
       const { problems } = await cleanup(fake.ctx, { keepDispatcher: false });
       expect(problems.join("\n")).toMatch(/dispatcher chat.*ask-1.*answer-1/);
     });
-    it("lists the run's note rows left in the chat, which nothing can remove yet, without failing cleanup", async () => {
+    it("reports the run's note rows still in the chat", async () => {
       const { cleanup } = await load();
       const chat = [{ id: "note-1", kind: "note", at: "2026-11-09T00:00:00Z", note: { taskId: "c1", projectId: "tl", title: "t", kind: "status", detail: "" } }];
       const fake = fakeContext({ data: baseData(), tasks: tasks(), chat });
-      const { problems, done } = await cleanup(fake.ctx, { keepDispatcher: false });
-      expect(problems).toEqual([]);
-      expect(done.join("\n")).toContain("1 note row(s) of this run's cards");
+      const { problems } = await cleanup(fake.ctx, { keepDispatcher: false });
+      expect(problems.join("\n")).toMatch(/dispatcher chat.*note-1 \(note, card c1\)/);
     });
   });
 

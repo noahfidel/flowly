@@ -121,14 +121,16 @@ export class DispatcherAsks {
   }
 
   /**
-   * The chat's items: the stored ones, without the asks and answers of cards that no longer exist, and the
+   * The chat's items: the stored ones, without the asks, answers and notes of cards that no longer exist, and the
    * live asks a stored one with the same signal does not already stand for (§9.4). A live ask answered in this
    * run whose record failed shows as answered, as the bell counts it.
    */
   async chatItems(stored: readonly StoredChatItem[], paseo: PaseoApi): Promise<ChatItem[]> {
     const { board, asks } = await this.live(paseo);
     const cards = new Set(board.tasks.map((t) => t.id));
-    const kept = stored.filter((item) => (item.kind !== "ask" && item.kind !== "answer") || cards.has(item.taskId));
+    const kept = stored.filter((item) =>
+      item.kind === "ask" || item.kind === "answer" ? cards.has(item.taskId) : item.kind === "note" ? cards.has(item.note.taskId) : true,
+    );
     const storedAsks = new Set(kept.flatMap((item) => (item.kind === "ask" ? [item.signal] : [])));
     return [
       ...kept,

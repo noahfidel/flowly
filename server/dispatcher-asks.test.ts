@@ -468,3 +468,11 @@ test("an ask whose session ended shows as ended, with nothing to answer, and lea
   expect(await answer(f, "p:s2:r2", { allow: true })).toEqual({ delivered: false, state: "session_ended" });
   expect(f.respond).not.toHaveBeenCalled();
 });
+
+test("a deleted card's notes disappear from the chat, as its asks and answers do (ruling, Noah 2026-11-09)", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  const note = (id: string, taskId: string) => ({ id, at: "2026-11-09T00:00:00.000Z", kind: "note" as const, note: { taskId, projectId: "p", title: taskId, kind: "status", detail: "", at: "2026-11-09T00:00:00.000Z" } });
+  f.setBoard(baseBoard({ tasks: [task("a"), task("c")] as never, events: [report("e1", "a", "s1", "question", "?"), report("e2", "c", "s3", "blocker", "x")] as never }));
+  const items = await f.asks.chatItems([note("note-a", "a"), note("note-b", "b")], f.paseo);
+  expect(items.filter((i) => i.kind === "note").map((i) => i.id)).toEqual(["note-a"]);
+});

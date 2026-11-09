@@ -878,15 +878,12 @@ export async function cleanup(ctx, { keepDispatcher, unattended = false, yesArch
     for (const dir of data.tmpDirs) if (existsSync(dir) && !blocked.has(resolve(dir)) && !blocked.has(realOr(dir))) throw new Error(`${dir} still exists`);
   });
   // The dispatcher chat and the bell: the bell counts exactly the chat's open asks (DISPATCHER-SPEC §9.4), and the chat
-  // leaves out the asks and answers of a card that no longer exists, so once the run's cards are deleted none of them
-  // may show. Read only, by every card id the record names as well as the live marked cards.
+  // leaves out the asks, answers and notes of a card that no longer exists, so once the run's cards are deleted none of
+  // them may show. Read only, by every card id the record names as well as the live marked cards.
   await guard('verify the dispatcher chat and the bell', async () => {
     const runCards = new Set([...data.cards.map((c) => c.id), ...cardIds]);
     const items = ((await rpc('dispatcher.items-changed', {})).value ?? []).filter((i) => runCards.has(i.taskId) || runCards.has(i.note?.taskId));
-    const left = items.filter((i) => i.kind === 'ask' || i.kind === 'answer');
-    if (left.length) throw new Error(`the dispatcher chat still shows this run's asks or answers: ${left.map((i) => `${i.id} (${i.kind}, card ${i.taskId})`).join(', ')}`);
-    const notes = items.filter((i) => i.kind === 'note');
-    if (notes.length) done.push(`left in place: ${notes.length} note row(s) of this run's cards in the dispatcher chat (Flowly has no way to remove them yet)`);
+    if (items.length) throw new Error(`the dispatcher chat still shows this run's items: ${items.map((i) => `${i.id} (${i.kind}, card ${i.taskId ?? i.note?.taskId})`).join(', ')}`);
   });
   return { problems, done };
 }
