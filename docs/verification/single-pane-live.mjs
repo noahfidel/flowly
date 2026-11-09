@@ -1210,13 +1210,20 @@ function loadBellRule() {
 
 /**
  * The signals the bell sends to dismiss a card (client/board.tsx, `dismissRpc({ taskId, signals: item.signals })`):
- * the card's attention item's `signals`, from the board, the live agents and the read receipts. A failed read of the
- * receipts counts as unavailable, as the bell's does.
+ * the card's attention item's `signals`, by the bell's own call: `attentionItemsWithFacts` over the board overview
+ * (`board.overview-changed`) with its cards' session facts, the live agents and the read receipts. A failed read of
+ * the receipts counts as unavailable, as the bell's does.
  */
 export async function bellSignals(ctx, taskId) {
-  const { attentionItems } = await loadBellRule();
-  const [board, agents, reads] = await Promise.all([ctx.board(), ctx.agents(), ctx.rpc('sessions.read-state', {}).catch(() => null)]);
-  const item = attentionItems(board, agents, reads?.receipts ?? [], !reads).find((i) => i.task.id === taskId);
+  const { attentionItemsWithFacts } = await loadBellRule();
+  const [overview, agents, reads] = await Promise.all([
+    ctx.rpc('board.overview-changed', {}).then((r) => r.value),
+    ctx.agents(),
+    ctx.rpc('sessions.read-state', {}).catch(() => null),
+  ]);
+  if (!overview) throw new Error('board.overview-changed returned no overview.');
+  const facts = new Map(overview.cards.map((c) => [c.taskId, new Map(c.sessions.map((s) => [s.agentId, s]))]));
+  const item = attentionItemsWithFacts(overview, agents, reads?.receipts ?? [], !reads, (task, agentId) => facts.get(task.id)?.get(agentId)).find((i) => i.task.id === taskId);
   return item?.signals ?? [];
 }
 

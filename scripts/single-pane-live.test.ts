@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { dispatcherStates } from "../shared/dispatcher";
+import { boardOverview } from "../server/board-overview";
 
 // The live script lives in docs/verification (outside typecheck and `npm test`); this tests only what needs no daemon:
 // the argument parsing, the check list and `--help`.
@@ -113,8 +114,9 @@ const load = async () => (await import(/* @vite-ignore */ scriptPath)) as Script
 
 /**
  * A fake daemon for check 7 that keeps the store's two dismiss rules: `asks.dismiss` adds one signal to the card's
- * set, `attention.dismiss` replaces the set with the signals it is given (ATTENTION-DISMISS-SPEC §7a). Its board and
- * agent list are real enough for the bell's own rule (`attentionItems`, shared/attention.ts).
+ * set, `attention.dismiss` replaces the set with the signals it is given (ATTENTION-DISMISS-SPEC §7a). Its overview
+ * (`board.overview-changed`, built by the daemon's own `boardOverview`) and agent list are real enough for the bell's
+ * own call (`attentionItemsWithFacts` over the overview's session facts, client/board.tsx).
  */
 function fakeBellDaemon() {
   const at = "2026-11-09T10:00:00.000Z";
@@ -160,7 +162,10 @@ function fakeBellDaemon() {
     makeCard: async () => ({ id: "c7", title: "check 7: bell", workspaceId: "w7" }),
     note: () => {},
     items,
-    board: async () => board(),
+    // The bell never reads the full board: the check must not either.
+    board: async () => {
+      throw new Error("check 7 read board.read; the bell reads the overview");
+    },
     agents: async () => agents,
     asksOf: async (taskId: string) => (await items()).filter((i) => i.taskId === taskId),
     startSession: async (card: { id: string }) => {
@@ -173,6 +178,8 @@ function fakeBellDaemon() {
       calls.push([method, input]);
       if (method === "attention.count") return { count: (await items()).filter((i) => i.state === "open").length };
       if (method === "sessions.read-state") return { version: 1, receipts: [] };
+      if (method === "board.overview-changed")
+        return { etag: "overview-v1:x", value: boardOverview({ version: 1, revision: 1, links: [], workpads: [], artifacts: [], ideas: [], ...board() } as never) };
       if (method === "asks.dismiss") {
         const ask = asks.find((a) => a.signal === input.signal)!;
         sets.set(ask.taskId, [...new Set([...(sets.get(ask.taskId) ?? []), ask.signal])]);
