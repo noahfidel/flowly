@@ -31,7 +31,7 @@ The card is created through the New card path in *existing workspace* mode: no w
 - Tag: `pr-review`. Priority normal. The activity and tag are attributed to the review agent.
 - Its session is the review agent (the session in the card's workspace), so opening the card opens the review chat.
 
-Flowly never moves the card by itself because of this feature: when the review ends, the card stays where it is until the user moves or closes it. (Auto-status rules apply only to sessions Flowly manages; the review agent is not one.)
+Flowly never moves the card by itself because of this feature, except when a later review reuses it (§8): when the review ends, the card stays where it is until the user moves or closes it. (Auto-status rules apply only to sessions Flowly manages; the review agent is not one.)
 
 ## 5. Linear ticket
 
@@ -41,6 +41,19 @@ A PR review card is never asked for a Linear ticket, even in a project with *Mak
 
 Settings → Workflow → Board → **Make cards for PR review agents**, host scope (`pr-review-cards`, `prReviewCards`), on by default. Off: Flowly does not read agents for this and makes no card. Turning it on does not backfill (§3).
 
+## 8. A new review of the same PR reuses its card
+
+When an agent that passes §3 has a label of the form `<owner>/<repo>#<n>` and the chosen project already has an unarchived PR review card (operation id `pr-review:…`) for the same owner, repo and number (read from the `PR:` line of its description), no new card is made. The newest such card (by creation time) is reused:
+
+- Rebound to the new agent's workspace, as the *Existing workspace* path binds a card (the card does not own it). A card has one current workspace, so the earlier one moves to the card's read-only workspace history (`previousWorkspaces`, same as a workspace switch, newest 10 kept) and is not archived. Its sessions stay in that history; the card opens the new review chat.
+- Moved to the lane of §4 (In review, else To do, else the first open lane) when it is elsewhere, including Done or Cancelled. This is the one exception to "never moved by itself": a new review means the card needs looking at again.
+- Retitled from the new agent's title (§4) when it differs; the description is kept.
+- The card's operation id and tag stay. The activity (workspace switched, status changed, edited) is attributed to the new agent.
+- A re-run for an agent whose workspace the card already holds or held as history makes nothing (the "no card bound to that workspace" rule of §3 counts history).
+- Archived cards are never reused; a new card is made. A label without `owner/repo#n` is never matched: one card per agent as in §3. Cards in other projects are never reused.
+
+The outcome is `reused` (with the card) instead of `created`.
+
 ## 7. Acceptance
 
 - A new agent labelled `pr-review-watch=Zenlytic/zenlytic#9164` in a worktree of a project's repository gets one card in In review, tagged `pr-review`, bound to that workspace; opening it shows the review chat.
@@ -49,3 +62,4 @@ Settings → Workflow → Board → **Make cards for PR review agents**, host sc
 - Setting off: no card.
 - Archived agents, agents without the label and agents created more than 30 minutes earlier: no card.
 - A project with the Linear ticket requirement on: the PR review card's context has no Linear block; other cards still do.
+- A second review agent for the same PR in a new workspace: no second card; the card is bound to the new workspace, the old one is in its history, it is in In review and has the new title. A re-run of the first agent changes nothing. An archived card is not reused.

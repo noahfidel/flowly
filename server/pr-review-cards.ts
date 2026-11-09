@@ -5,9 +5,15 @@ import {
   PR_REVIEW_TAG,
   parsePrReviewLabel,
   prReviewCard,
+  prReviewCardRef,
+  isPrReviewCard,
+  samePr,
   prReviewOperationId,
   prReviewStatus,
+  type PrRef,
 } from "../shared/pr-review";
+import { cardWorkspaceIds } from "../shared/workspace-switch";
+import { switchLimits } from "../shared/model";
 import type { BoardService } from "./service";
 import { repoMatcher } from "./repos";
 
@@ -26,6 +32,7 @@ export type PrReviewAgent = {
 
 export type PrReviewOutcome =
   | { kind: "created"; task: Task }
+  | { kind: "reused"; task: Task }
   | { kind: "skipped"; reason: "off" | "not-review" | "no-workspace" | "archived" | "old" | "bound" | "workspace-gone" | "no-project" };
 
 /** The live project whose repository holds the workspace: the Paseo project's own first, then the deepest root (§2). */
@@ -87,7 +94,8 @@ export class PrReviewCards {
     if (!Number.isFinite(created) || this.clock() - created > prReviewWindowMs) return { kind: "skipped", reason: "old" };
     const operationId = prReviewOperationId(agent.id);
     const board = await this.service.store.read();
-    if (board.tasks.some((t) => t.workspaceId === workspaceId || t.operationId === operationId))
+    // Current or earlier workspace of any card: a reused card keeps its old review workspaces as history, so a re-run of an old agent is "bound" too.
+    if (board.tasks.some((t) => cardWorkspaceIds(t).includes(workspaceId) || t.operationId === operationId))
       return { kind: "skipped", reason: "bound" };
     const workspace = await paseo.workspaces.ref(workspaceId).refresh();
     if (!workspace || workspace.archivingAt) return { kind: "skipped", reason: "workspace-gone" };
@@ -100,6 +108,10 @@ export class PrReviewCards {
       return { kind: "skipped", reason: "no-project" };
     }
     const card = prReviewCard(ref, agent.title);
+    if (ref.owner) {
+      const reused = await this.reuse(project, ref, agent, card.title, workspaceId, workspace, paseo);
+      if (reused) return { kind: "reused", task: reused };
+    }
     const task = await this.service.createTask(
       {
         projectId: project.id,
@@ -118,5 +130,56 @@ export class PrReviewCards {
       { agentId: agent.id },
     );
     return { kind: "created", task };
+  }
+
+  /** The newest unarchived PR review card of this PR in the project takes the new review (PR-REVIEW-CARDS-SPEC §8). */
+  private async reuse(
+    project: Project,
+    ref: PrRef,
+    agent: PrReviewAgent,
+    title: string,
+    workspaceId: string,
+    workspace: { workspaceKind?: string | null; workspaceDirectory?: string | null },
+    paseo: PaseoApi,
+  ): Promise<Task | null> {
+    if (await this.service.reservedWorkspace(workspaceId)) return null;
+    const lane = prReviewStatus(project);
+    return this.service.store.transaction<Task | null>((board) => {
+      const found = board.tasks
+        .filter((t) => t.projectId === project.id && !t.archivedAt && isPrReviewCard(t) && samePr(prReviewCardRef(t) ?? { text: "" }, ref))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.position - a.position)[0];
+      if (!found) return { value: null, changed: false };
+      // The workspace must still be free (a card made meanwhile may hold it).
+      if (board.tasks.some((t) => cardWorkspaceIds(t).includes(workspaceId))) return { value: null, changed: false };
+      const now = new Date().toISOString();
+      const old = found.workspaceId;
+      found.previousWorkspaces = [
+        ...(found.previousWorkspaces || []),
+        { id: old, kind: "directory", directory: found.sourcePath, switchedAt: now },
+      ].slice(-switchLimits.previousWorkspaces);
+      found.workspaceId = workspaceId;
+      found.ownsWorkspace = false;
+      const actor = { actor: "agent" as const, agentId: agent.id };
+      this.service.store.event(board, {
+        taskId: found.id,
+        ...actor,
+        action: "workspace_switched",
+        note: `new PR review ${ref.text}`,
+      });
+      if (found.title !== title) {
+        found.title = title;
+        this.service.store.event(board, { taskId: found.id, ...actor, action: "edited" });
+      }
+      if (found.status !== lane) {
+        const from = found.status;
+        found.status = lane;
+        found.position =
+          Math.max(-1, ...board.tasks.filter((t) => t.projectId === project.id && t.status === lane).map((t) => t.position)) + 1;
+        this.service.store.event(board, { taskId: found.id, ...actor, action: "status_changed", from, to: lane });
+      }
+      found.revision++;
+      found.updatedAt = now;
+      return { value: found, changed: true };
+    });
   }
 }

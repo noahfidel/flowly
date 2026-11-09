@@ -22,6 +22,16 @@ export function parsePrReviewLabel(value: string | undefined | null): PrRef | nu
   return match ? { text, owner: match[1], repo: match[2], number: Number(match[3]) } : { text };
 }
 
+/** The PR a card was made for, read back from its description's `PR: <label value>` line; null when it has no owner/repo#n (§8). */
+export function prReviewCardRef(task: Pick<Task, "description">): PrRef | null {
+  const line = /^PR: (\S+)/.exec(task.description);
+  const ref = line ? parsePrReviewLabel(line[1]) : null;
+  return ref?.owner ? ref : null;
+}
+
+/** Whether two refs name the same pull request (§8). */
+export const samePr = (a: PrRef, b: PrRef) => !!a.owner && !!b.owner && a.owner === b.owner && a.repo === b.repo && a.number === b.number;
+
 /** In review when the project has that lane, else To do, else its first open lane (§4). */
 export function prReviewStatus(project: Pick<Project, "lanes">): Status {
   if (laneEnabled(project, "in_review")) return "in_review";
