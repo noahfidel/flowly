@@ -136,8 +136,8 @@ export function useMotionValue(target: number, duration: number = motionDuration
   return value;
 }
 
-/** Retain an inert visual shell during exit; never let an old exit remove a new target. `instantExit` drops it in the same commit instead (entering still animates). */
-export function useMotionPresence<T>(item: T | undefined | null, key: string, nativeDriver = Platform.OS !== "web", instantExit = false) {
+/** Retain an inert visual shell during exit; never let an old exit remove a new target. */
+export function useMotionPresence<T>(item: T | undefined | null, key: string, nativeDriver = Platform.OS !== "web") {
   const reduced = useContext(ReduceMotion);
   const held = useRef(item);
   if (item) held.current = item;
@@ -165,7 +165,7 @@ export function useMotionPresence<T>(item: T | undefined | null, key: string, na
         setRetained(false);
       }
     };
-    if (reduced || (instantExit && !key)) {
+    if (reduced) {
       progress.setValue(key ? 1 : 0);
       setEntered(!!key);
       finish();
@@ -188,7 +188,7 @@ export function useMotionPresence<T>(item: T | undefined | null, key: string, na
       animation.stop();
       release();
     };
-  }, [key, reduced, progress, nativeDriver, instantExit]);
+  }, [key, reduced, progress, nativeDriver]);
   return { item: item || (retained ? held.current : undefined), active: !!item, progress, settled: !!item && entered };
 }
 

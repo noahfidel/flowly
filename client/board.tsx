@@ -618,7 +618,6 @@ function BoardContent(
   // The dispatcher chat: open by default on desktop, minimized when the user says so (remembered per host);
   // phones open it from the toolbar each time (DISPATCHER-SPEC §9.3).
   const chatOpen = compact ? chat.open : !!view.values && !view.values.chatMinimized && (!!project || allView);
-  const chatMotion = useMotionPresence(chatOpen ? true : undefined, chatOpen ? "dispatcher-chat" : "", undefined, true);
   const chatMounted = useRef(false);
   // Desktop: the open card's lane is centred in the board left of the drawer when the drawer would hide it, on
   // opening, on moving to another lane, and on coming back to the board from a page (DRAWER-SPEC). Only the last:
@@ -1191,12 +1190,12 @@ function BoardContent(
   const chatLaneOf = useStableCallback((projectId: string, status: string) =>
     laneName(board?.projects.find((p) => p.id === projectId) ?? null, status as Status),
   );
-  // Desktop: shown while it is opening, open or closing, and kept mounted (hidden) afterwards so its draft stays.
-  const chatShown = compact ? chat.open : !!chatMotion.item;
+  // Desktop: shown in the same frame it opens, hidden (kept mounted) when closed so its draft stays. No motion either way.
+  const chatShown = compact ? chat.open : chatOpen;
   if (!compact && chatShown) chatMounted.current = true;
   const chatPanel = (compact ? chat.mounted : chatMounted.current) && (
     <Animated.View
-      pointerEvents={compact || chatMotion.active ? "auto" : "none"}
+      pointerEvents={compact || chatOpen ? "auto" : "none"}
       style={
         compact
           ? // Phone: a full-screen page under an open card's sidebar, so closing the card comes back to the chat.
@@ -1208,8 +1207,6 @@ function BoardContent(
               borderRightWidth: 1,
               borderRightColor: colors.border,
               display: chatShown ? "flex" : "none",
-              // Opens like the card sidebar, mirrored to the left; closing is instant (no exit tween), so the board never sits narrow under a fading panel. At rest no animated props (MotionReveal).
-              ...(chatMotion.settled ? null : { opacity: chatMotion.progress, transform: [{ translateX: lerp(chatMotion.progress, [-32, 0]) }] }),
             }
       }
     >
