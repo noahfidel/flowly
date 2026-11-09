@@ -1,4 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -28,5 +31,18 @@ describe("Tinylink setup script", () => {
     expect(stderr).toContain("--no-sessions");
     const out = execFileSync(process.execPath, [scriptPath, "--help"], { encoding: "utf8", timeout: 20_000 });
     expect(out).toContain("--no-sessions");
+  });
+
+  it("runs as the main script through a symlinked path too (only --help: it prints and connects to nothing)", () => {
+    // Node gives the main module its real path in import.meta.url while argv[1] keeps the link.
+    const dir = mkdtempSync(join(tmpdir(), "promo-setup-link-"));
+    try {
+      const link = join(dir, "setup.mjs");
+      symlinkSync(scriptPath, link);
+      const out = execFileSync(process.execPath, [link, "--help"], { encoding: "utf8", timeout: 20_000 });
+      expect(out).toContain("--no-sessions");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

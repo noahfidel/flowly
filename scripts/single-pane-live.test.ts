@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -632,5 +632,17 @@ describe("single-pane live script", () => {
     expect(out).toContain("Usage:");
     for (let id = 1; id <= 7; id++) expect(out).toContain(`  ${id}. `);
     expect(out).toContain("docs/promo/setup.mjs --no-sessions");
+  });
+
+  it("runs as the main script through a symlinked path too (only --help, which needs no daemon)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "single-pane-live-link-"));
+    try {
+      const link = join(dir, "single-pane-live.mjs");
+      symlinkSync(scriptPath, link);
+      const out = execFileSync(process.execPath, [link, "--help"], { encoding: "utf8", env: { ...process.env, FLOWLY_TELEMETRY: "0" } });
+      expect(out).toContain("Usage:");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

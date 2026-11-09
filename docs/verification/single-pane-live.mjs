@@ -13,7 +13,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, join, resolve, sep } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const MODEL = 'claude/claude-haiku-5-5';
@@ -1341,6 +1341,15 @@ export async function main(argv) {
   return code;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+// Run only as the main script, also through a symlinked path (Node gives import.meta.url the real path, argv[1] keeps
+// the link); an import (the tests) runs nothing.
+const isMain = () => {
+  try {
+    return !!process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+};
+if (isMain()) {
   process.exit(await main(process.argv.slice(2)));
 }

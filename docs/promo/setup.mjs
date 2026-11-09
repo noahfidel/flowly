@@ -7,7 +7,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { DaemonClient } from '@getpaseo/client/internal/daemon-client';
 import { createPaseoApi } from '@getpaseo/client';
 
@@ -109,7 +110,16 @@ try {
 }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Run only as the main script, also through a symlinked path (Node gives import.meta.url the real path, argv[1] keeps
+// the link); an import (the tests) runs nothing.
+const isMain = () => {
+  try {
+    return !!process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+};
+if (isMain()) {
   let opts;
   try {
     opts = setupArgs(process.argv.slice(2));
