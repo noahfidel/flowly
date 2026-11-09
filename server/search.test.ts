@@ -92,6 +92,22 @@ describe("query parsing and folding", () => {
   });
 });
 
+describe("project ideas", () => {
+  const projectIdea = { id: "pi1", projectId: "p", agentId: "s", title: "Backlogword", detail: "detailtext", rationale: "", context: "", status: "open" as const, createdAt: at, updatedAt: at };
+  test("project ideas are found and labelled with the project", () => {
+    const d = data({ projects: [project("p"), project("q")], tasks: [task("a")], ideas: [projectIdea, { ...projectIdea, id: "pi2", projectId: "q", title: "Backlogword elsewhere" }] });
+    expect(search(d, "backlogword", { projectIds: new Set(["p"]) })).toMatchObject({
+      cards: [],
+      projectIdeas: [{ ideaId: "pi1", projectId: "p", projectTitle: "Project p", title: "Backlogword", status: "open", hits: [{ source: "idea", field: "title", refId: "pi1" }] }],
+    });
+    expect(search(d, "backlogword").projectIdeas!.map((i) => i.ideaId)).toEqual(["pi1", "pi2"]);
+    // Leaving out the idea source, an archived project and a missing match leave them out.
+    expect(search(d, "backlogword", { sources: ["card"] }).projectIdeas).toBeUndefined();
+    expect(search(d, "nomatchword").projectIdeas).toBeUndefined();
+    expect(search(data({ projects: [project("p", { archivedAt: at })], ideas: [projectIdea] }), "backlogword").projectIdeas).toBeUndefined();
+  });
+});
+
 describe("sources (§2)", () => {
   const board: SearchData = { agentReceipts: [{ receiptword: true }] } as never;
   Object.assign(board, data({

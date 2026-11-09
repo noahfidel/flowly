@@ -13,6 +13,7 @@ import {
   type SearchHit,
   type SearchInput,
   type SearchMemoryHit,
+  type SearchProjectIdea,
   type SearchResult,
   type SearchSource,
 } from "../shared/search";
@@ -46,10 +47,13 @@ type Doc = {
 };
 type CardDocs = { task: Task; docs: Doc[] };
 type MemoryDocs = { entry: MemoryEntry; docs: Doc[] };
+type ProjectIdeaDocs = { idea: Idea; docs: Doc[] };
 export type SearchIndex = {
   projects: Map<string, Project>;
   cards: CardDocs[];
   memory: MemoryDocs[];
+  /** Ideas that belong to a project, not to a card (PROJECT-IDEAS-SPEC). */
+  projectIdeas: ProjectIdeaDocs[];
 };
 export type SearchData = Pick<Board, "projects" | "tasks" | "events" | "ideas" | "artifacts" | "workpads"> & {
   summaries?: readonly SummaryEntry[];
@@ -102,14 +106,18 @@ export function buildSearchIndex(data: SearchData): SearchIndex {
     }
     for (const c of w.confusions) doc(card.docs, "workpad", "confusion", c.text, 2, { refId: c.id, at: w.updatedAt });
   }
+  const projectIdeas: ProjectIdeaDocs[] = [];
   for (const i of data.ideas as readonly Idea[]) {
-    const card = cards.get(i.taskId);
-    if (!card) continue;
+    const own: Doc[] = [];
+    const card = i.taskId ? cards.get(i.taskId) : undefined;
+    if (i.taskId ? !card : !projects.has(i.projectId)) continue;
+    const docs = card ? card.docs : own;
     const extra = { refId: i.id, at: i.updatedAt, status: i.status };
-    doc(card.docs, "idea", "title", i.title, 4, extra);
-    doc(card.docs, "idea", "detail", i.detail, 2, extra);
-    doc(card.docs, "idea", "rationale", i.rationale, 2, extra);
-    doc(card.docs, "idea", "context", i.context, 2, extra);
+    doc(docs, "idea", "title", i.title, 4, extra);
+    doc(docs, "idea", "detail", i.detail, 2, extra);
+    doc(docs, "idea", "rationale", i.rationale, 2, extra);
+    doc(docs, "idea", "context", i.context, 2, extra);
+    if (!card) projectIdeas.push({ idea: i, docs: own });
   }
   for (const a of data.artifacts as readonly Artifact[]) {
     const card = cards.get(a.taskId);
@@ -130,7 +138,7 @@ export function buildSearchIndex(data: SearchData): SearchIndex {
     doc(docs, "memory", "tags", entry.tags.join(" "), 4);
     memory.push({ entry, docs });
   }
-  return { projects, cards: [...cards.values()], memory };
+  return { projects, cards: [...cards.values()], memory, projectIdeas };
 }
 
 /** A window around the first match: ±context characters, at most snippet long, whitespace collapsed (§3.2). */
@@ -167,7 +175,7 @@ export type SearchOptions = {
   excludeTaskId?: string;
   memoryLimit?: number;
 };
-export type SearchMatches = { cards: SearchCard[]; memory: SearchMemoryHit[]; truncated: boolean };
+export type SearchMatches = { cards: SearchCard[]; memory: SearchMemoryHit[]; truncated: boolean; projectIdeas?: SearchProjectIdea[] };
 
 /** Cards whose documents hold every term, ranked by best field, then open before closed, then recency (§3.3). */
 export function runSearch(index: SearchIndex, options: SearchOptions): SearchMatches {
@@ -212,6 +220,35 @@ export function runSearch(index: SearchIndex, options: SearchOptions): SearchMat
     });
   }
   ranked.sort((a, b) => b.weight - a.weight || a.tier - b.tier || b.at.localeCompare(a.at) || a.card.taskId.localeCompare(b.card.taskId));
+  // Project-level ideas have no card; they are listed apart, labelled with their project (PROJECT-IDEAS-SPEC §4).
+  const ideas: { hit: SearchProjectIdea; weight: number; at: string }[] = [];
+  if (sources.has("idea") && !tags.length) {
+    for (const { idea, docs } of index.projectIdeas) {
+      if (!inScope(idea.projectId) || !terms.every((term) => docs.some((d) => d.folded.includes(term)))) continue;
+      const hitDocs = docs.filter((d) => terms.some((term) => d.folded.includes(term))).sort((a, b) => b.weight - a.weight);
+      ideas.push({
+        hit: {
+          ideaId: idea.id,
+          projectId: idea.projectId,
+          projectTitle: index.projects.get(idea.projectId)!.title,
+          title: idea.title,
+          status: idea.status,
+          updatedAt: idea.updatedAt,
+          hits: hitDocs.slice(0, searchLimits.hitsPerCard).map((d) => ({
+            source: d.source,
+            ...(d.refId ? { refId: d.refId } : {}),
+            field: d.field,
+            ...snippetOf(d.text, d.folded, terms),
+            ...(d.at ? { at: d.at } : {}),
+            ...(d.status ? { status: d.status } : {}),
+          })),
+        },
+        weight: hitDocs[0]?.weight || 0,
+        at: idea.updatedAt,
+      });
+    }
+    ideas.sort((a, b) => b.weight - a.weight || b.at.localeCompare(a.at) || a.hit.ideaId.localeCompare(b.hit.ideaId));
+  }
   const memoryLimit = options.memoryLimit ?? searchLimits.memory;
   const memory: { hit: SearchMemoryHit; weight: number; at: string }[] = [];
   if (sources.has("memory") && memoryLimit > 0) {
@@ -231,7 +268,8 @@ export function runSearch(index: SearchIndex, options: SearchOptions): SearchMat
   return {
     cards: ranked.slice(0, options.limit).map((r) => r.card),
     memory: memory.slice(0, memoryLimit).map((m) => m.hit),
-    truncated: ranked.length > options.limit || memory.length > memoryLimit,
+    truncated: ranked.length > options.limit || memory.length > memoryLimit || ideas.length > options.limit,
+    ...(ideas.length ? { projectIdeas: ideas.slice(0, options.limit).map((i) => i.hit) } : {}),
   };
 }
 

@@ -373,7 +373,7 @@ export class BoardStore {
         tasks: board.tasks.filter((t) => taskIds.has(t.id)),
         events: board.events.filter((e) => taskIds.has(e.taskId)),
         agentReceipts: board.agentReceipts.filter((r) => taskIds.has(r.taskId)),
-        ideas: board.ideas.filter((i) => taskIds.has(i.taskId)),
+        ideas: board.ideas.filter((i) => i.projectId === project.id || (i.taskId && taskIds.has(i.taskId))),
         links: board.links.filter((l) => l.projectId === project.id || taskIds.has(l.from) || taskIds.has(l.to)),
         artifacts: board.artifacts.filter((a) => taskIds.has(a.taskId)),
         workpads: board.workpads.filter((w) => taskIds.has(w.taskId)),
@@ -387,7 +387,7 @@ export class BoardStore {
       board.tasks = board.tasks.filter((t) => !taskIds.has(t.id));
       board.events = board.events.filter((e) => !taskIds.has(e.taskId));
       board.agentReceipts = board.agentReceipts.filter((r) => !taskIds.has(r.taskId));
-      board.ideas = board.ideas.filter((i) => !taskIds.has(i.taskId));
+      board.ideas = board.ideas.filter((i) => !removed.ideas.includes(i));
       board.links = board.links.filter((l) => !removed.links.includes(l));
       board.artifacts = board.artifacts.filter((a) => !taskIds.has(a.taskId));
       board.workpads = board.workpads.filter((w) => !taskIds.has(w.taskId));
@@ -444,7 +444,7 @@ export class BoardStore {
       board.projects.push(project);
       board.tasks.push(...tasks);
       board.events.push(...snapshot.events.filter((e) => taskIds.has(e.taskId)));
-      board.ideas.push(...snapshot.ideas.filter((i) => taskIds.has(i.taskId)));
+      board.ideas.push(...snapshot.ideas.filter((i) => (i.taskId ? taskIds.has(i.taskId) : i.projectId === source.id)));
       const linkIds = new Set(board.links.map((l) => l.id));
       board.links.push(...snapshot.links.filter((l) => taskIds.has(l.from) && taskIds.has(l.to) && !linkIds.has(l.id)));
       const artifactIds = new Set(board.artifacts.map((a) => a.id));
@@ -536,32 +536,34 @@ export class BoardStore {
       return { value: { taskId: input.taskId }, changed: board.attentionDismissals.length !== before };
     });
   }
-  /** Dismisses or restores an idea; accepted ideas are final (IDEAS-SPEC §7, IDEAS-INBOX-SPEC §2.2). */
+  /** Dismisses or restores an idea; accepted ideas are final (IDEAS-SPEC §7, IDEAS-INBOX-SPEC §2.2, PROJECT-IDEAS-SPEC §3). */
   updateIdea(input: IdeaEdit) {
     return this.transaction((board) => {
       const idea = board.ideas.find((i) => i.id === input.id);
       if (!idea) throw new Error("Idea not found.");
       if (idea.status === "accepted") throw new Error("This idea already became a card.");
       if (idea.status === input.status) return { value: idea, changed: false };
-      const task = board.tasks.find((t) => t.id === idea.taskId),
+      const task = idea.taskId ? board.tasks.find((t) => t.id === idea.taskId) : undefined,
         project = board.projects.find((p) => p.id === idea.projectId);
-      // The card's own status and archive do not matter: ideas outlive it (IDEAS-INBOX-SPEC §2.2).
-      if (!task || !project || project.archivedAt) throw new Error("The project is archived.");
+      // The card's own status and archive do not matter: ideas outlive it (IDEAS-INBOX-SPEC §2.2). A project idea has no card.
+      if ((idea.taskId && !task) || !project || project.archivedAt) throw new Error("The project is archived.");
       if (input.status === "open") {
-        const open = board.ideas.filter((i) => i.taskId === idea.taskId && i.status === "open");
+        // A card's ideas share its open limit; project ideas only share the open titles (no cap).
+        const open = board.ideas.filter((i) => i.projectId === idea.projectId && i.taskId === idea.taskId && i.status === "open");
         if (open.some((i) => ideaTitleKey(i.title) === ideaTitleKey(idea.title)))
-          throw new Error("This card already has an open idea with that title.");
-        if (open.length >= ideaLimits.openPerTask)
+          throw new Error(task ? "This card already has an open idea with that title." : "This project already has an open idea with that title.");
+        if (task && open.length >= ideaLimits.openPerTask)
           throw new Error(`This card already has ${ideaLimits.openPerTask} open ideas.`);
       }
       idea.status = input.status;
       idea.updatedAt = new Date().toISOString();
-      this.event(board, {
-        taskId: idea.taskId,
-        actor: "human",
-        action: input.status === "dismissed" ? "idea_dismissed" : "idea_restored",
-        note: idea.title,
-      });
+      if (task)
+        this.event(board, {
+          taskId: task.id,
+          actor: "human",
+          action: input.status === "dismissed" ? "idea_dismissed" : "idea_restored",
+          note: idea.title,
+        });
       return { value: idea, changed: true };
     });
   }

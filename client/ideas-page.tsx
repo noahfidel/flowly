@@ -94,7 +94,7 @@ export const IdeasPage = memo(function IdeasPage({
       if (!next.delete(scope)) next.add(scope);
       return next;
     });
-  const source = (taskId: string) => cards.has(taskId) ? <SourceLine task={cards.get(taskId)} nameOf={nameOf} onOpenTask={onOpenTask} /> : undefined;
+  const source = (taskId: string | undefined) => taskId && cards.has(taskId) ? <SourceLine task={cards.get(taskId)} nameOf={nameOf} onOpenTask={onOpenTask} /> : undefined;
   const cardTitle = (id: string) => cards.get(id)?.title;
   const renderOpen = (rows: ExitRows) =>
     rows.map((row) => (
@@ -116,7 +116,7 @@ export const IdeasPage = memo(function IdeasPage({
           <ClosedIdea
             idea={row.item}
             acceptedTitle={row.item.acceptedTaskId ? cardTitle(row.item.acceptedTaskId) : undefined}
-            sentTo={row.item.acceptedAgentId ? sessionName(sessionsOf(row.item.taskId), row.item.acceptedAgentId) : undefined}
+            sentTo={row.item.acceptedAgentId && row.item.taskId ? sessionName(sessionsOf(row.item.taskId), row.item.acceptedAgentId) : undefined}
             disabled={!!project.archivedAt || !!actions.restoring || row.leaving}
             onOpenTask={onOpenTask}
             onRestore={actions.restore}
@@ -126,10 +126,10 @@ export const IdeasPage = memo(function IdeasPage({
       </IdeaRow>
     ));
   const closedRows = tab === "open" ? noIdeas : list.slice(0, compact ? pageRows.limit : shown);
-  const renderGroups = <T extends { taskId: string }>(rows: readonly T[], render: (rows: T[]) => ReactNode) =>
+  const renderGroups = <T extends { taskId?: string }>(rows: readonly T[], render: (rows: T[]) => ReactNode) =>
     groupByCard(rows).map((group) => (
-      <View key={group.taskId} style={{ gap: space[1.5], marginBottom: space[2] }}>
-        <GroupHeader task={cards.get(group.taskId)} count={compact ? list.filter((idea) => idea.taskId === group.taskId).length : group.ideas.length} nameOf={nameOf} onOpenTask={onOpenTask} />
+      <View key={group.taskId ?? "project"} style={{ gap: space[1.5], marginBottom: space[2] }}>
+        <GroupHeader task={group.taskId ? cards.get(group.taskId) : undefined} project={group.taskId === null} count={compact ? list.filter((idea) => (idea.taskId ?? null) === group.taskId).length : group.ideas.length} nameOf={nameOf} onOpenTask={onOpenTask} />
         {render(group.ideas)}
       </View>
     ));
@@ -298,8 +298,18 @@ function OpenList({ list, empty, render }: { list: readonly Idea[]; empty: React
   return <>{rows.length ? render(rows) : empty}</>;
 }
 
-function GroupHeader({ task, count, nameOf, onOpenTask }: { task: Task | undefined; count: number; nameOf(status: Status): string; onOpenTask(id: string): void }) {
+function GroupHeader({ task, project, count, nameOf, onOpenTask }: { task: Task | undefined; /** The project's own ideas, no card. */ project: boolean; count: number; nameOf(status: Status): string; onOpenTask(id: string): void }) {
   const { colors } = useTheme();
+  if (project)
+    return (
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: touch ? 40 : 30 }}>
+        <Icon name="Lightbulb" size={14} color={colors.foregroundMuted} />
+        <View style={{ flexShrink: 1, minWidth: 0 }}>
+          <Label bold size={font.md} lines={1} selectable={false}>{t("Project")}</Label>
+        </View>
+        <Label muted size={font.sm} selectable={false}>{count}</Label>
+      </View>
+    );
   if (!task) return null;
   return (
     <Pressable

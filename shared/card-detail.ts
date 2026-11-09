@@ -35,7 +35,7 @@ export function cardDetail(board: Board, input: { taskId: string; workspaceId: s
   if (!task || !project) throw new Error(CARD_UNAVAILABLE);
   const links = board.links.filter(l => l.from === task.id || l.to === task.id);
   const ideas = board.ideas.filter(i => i.taskId === task.id);
-  const ids = new Set([task.id, ...(task.origin ? [task.origin.taskId] : []), ...links.flatMap(l => [l.from, l.to]), ...ideas.flatMap(i => i.acceptedTaskId ? [i.acceptedTaskId] : [])]);
+  const ids = new Set([task.id, ...(task.origin?.taskId ? [task.origin.taskId] : []), ...links.flatMap(l => [l.from, l.to]), ...ideas.flatMap(i => i.acceptedTaskId ? [i.acceptedTaskId] : [])]);
   return { version: 1, revision: board.revision, task, project, links, ideas,
     events: board.events.filter(e => e.taskId === task.id), artifacts: board.artifacts.filter(a => a.taskId === task.id),
     workpad: board.workpads.find(w => w.taskId === task.id) ?? null, plans: board.plans.filter(p => p.taskId === task.id),

@@ -61,6 +61,18 @@ export const searchCardSchema = z.object({
 });
 export type SearchCard = z.infer<typeof searchCardSchema>;
 
+/** An idea that belongs to a project, not a card (PROJECT-IDEAS-SPEC §4), labelled with its project. */
+export const searchProjectIdeaSchema = z.object({
+  ideaId: z.string(),
+  projectId: z.string(),
+  projectTitle: z.string(),
+  title: z.string(),
+  status: z.enum(ideaStatuses),
+  updatedAt: z.string(),
+  hits: z.array(searchHitSchema),
+});
+export type SearchProjectIdea = z.infer<typeof searchProjectIdeaSchema>;
+
 export const searchMemorySchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -74,6 +86,8 @@ export type SearchMemoryHit = z.infer<typeof searchMemorySchema>;
 export const searchResultSchema = z.object({
   cards: z.array(searchCardSchema),
   memory: z.array(searchMemorySchema),
+  /** Only when a project idea matched. */
+  projectIdeas: z.array(searchProjectIdeaSchema).optional(),
   truncated: z.boolean(),
   /** Files that could not be read this time; their sources are missing from the result. */
   partial: z.array(z.enum(["summaries", "memory"])),

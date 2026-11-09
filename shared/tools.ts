@@ -12,6 +12,7 @@ import {
   statusSchema,
   legacyStatus,
   ideaLimits,
+  ideaSchema,
   ideaStatuses,
   artifactLimits,
   artifactRoles,
@@ -153,6 +154,15 @@ export const ideaInputSchema = z.strictObject({
       "here: an extension of this card's goal that this card's session can continue with its current context; new: divergent work that deserves its own card.",
     ),
 });
+/**
+ * A project-level idea (PROJECT-IDEAS-SPEC §4): the card tool's input without the card's revision, request and scope.
+ * `source` is free-text provenance, set by the import and by the human RPC.
+ */
+export const projectIdeaInputSchema = ideaInputSchema.omit({ scope: true, expectedRevision: true, request: true }).extend({
+  source: z.string().max(ideaLimits.source).optional().describe("Where the idea came from, such as a file and line."),
+});
+/** flowly_propose_idea on a board credential: the stored idea. */
+export const projectIdeaResultSchema = z.object({ idea: ideaSchema });
 /** flowly_update_idea (IDEAS-SPEC §3.1): edit an open idea of this card, or dismiss it. */
 export const ideaUpdateInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
@@ -680,6 +690,7 @@ export type ToolPreparation = z.infer<typeof preparationSchema>;
 export type StatusInput = z.infer<typeof statusInputSchema>;
 export type ProgressInput = z.infer<typeof progressInputSchema>;
 export type IdeaInput = z.infer<typeof ideaInputSchema>;
+export type ProjectIdeaInput = z.infer<typeof projectIdeaInputSchema>;
 export type IdeaUpdateInput = z.infer<typeof ideaUpdateInputSchema>;
 export type IdeaRemovalInput = z.infer<typeof ideaRemovalSchema>;
 export type RememberInput = z.infer<typeof rememberInputSchema>;

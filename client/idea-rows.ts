@@ -48,14 +48,16 @@ export function visibleIdeas(ideas: readonly Idea[], tasks: readonly Card[], lan
   const needle = q.search.trim().toLowerCase();
   const rows = ideas.filter((i) => {
     if (i.status !== q.tab || (q.taskId && i.taskId !== q.taskId)) return false;
-    const card = cards.get(i.taskId);
+    const card = i.taskId ? cards.get(i.taskId) : undefined;
     if (q.scopes.size && !q.scopes.has(i.scope || "new")) return false;
     if (q.finishedOnly && (!card || continuesInCard(card))) return false;
     if (!needle) return true;
     return [i.title, i.detail, i.rationale, card?.title || ""].some((text) => text.toLowerCase().includes(needle));
   });
   const newest = (a: Idea, b: Idea) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id);
-  const cardRank = (id: string) => {
+  // Project ideas have no card and lead (PROJECT-IDEAS-SPEC §5).
+  const cardRank = (id: string | undefined) => {
+    if (!id) return [-1, 0] as const;
     const card = cards.get(id);
     if (!card) return [Infinity, 0] as const;
     const lane = lanes.indexOf(card.status);
@@ -66,19 +68,21 @@ export function visibleIdeas(ideas: readonly Idea[], tasks: readonly Card[], lan
     priority: (a, b) => priorityRank[a.priority || "normal"] - priorityRank[b.priority || "normal"] || newest(a, b),
     card: (a, b) => {
       const [la, pa] = cardRank(a.taskId), [lb, pb] = cardRank(b.taskId);
-      return la - lb || pa - pb || a.taskId.localeCompare(b.taskId) || newest(a, b);
+      return la - lb || pa - pb || (a.taskId ?? "").localeCompare(b.taskId ?? "") || newest(a, b);
     },
   };
   return rows.sort(by[q.sort]);
 }
 
-/** Consecutive runs of one card's ideas, keeping the list order (group by card). */
-export function groupByCard<T extends Pick<Idea, "taskId">>(ideas: readonly T[]): { taskId: string; ideas: T[] }[] {
-  const groups = new Map<string, T[]>();
+/** One group per card in list order; the project's own ideas (key null) form the first group (group by card). */
+export function groupByCard<T extends Pick<Idea, "taskId">>(ideas: readonly T[]): { taskId: string | null; ideas: T[] }[] {
+  const groups = new Map<string | null, T[]>();
   for (const idea of ideas) {
-    const group = groups.get(idea.taskId);
+    const key = idea.taskId ?? null;
+    const group = groups.get(key);
     if (group) group.push(idea);
-    else groups.set(idea.taskId, [idea]);
+    else groups.set(key, [idea]);
   }
-  return [...groups].map(([taskId, list]) => ({ taskId, ideas: list }));
+  const list = [...groups].map(([taskId, items]) => ({ taskId, ideas: items }));
+  return [...list.filter((g) => g.taskId === null), ...list.filter((g) => g.taskId !== null)];
 }

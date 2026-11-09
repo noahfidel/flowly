@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Project-level ideas (branch `feat/single-pane`, Task 1) — 2026-11-08
+
+- An idea can belong to a project instead of a card: `Idea.taskId`/`agentId`/`eventId` optional, new `source` (≤ 1000), `Task.origin.taskId` optional. No board version bump. `ProjectIdeas.propose/list` (`server/project-ideas.ts`): no open cap, unique open title per project (`DUPLICATE_IDEA`), `PROJECT_ARCHIVED` / `NOT_FOUND`, no board event. RPC `ideas.create-project`; `flowly_propose_idea` on board credentials (sessions outside cards; follows the Ideas switch, not the Cards switch). [PROJECT-IDEAS-SPEC](PROJECT-IDEAS-SPEC.md)
+- Relaxed for ideas without a card: `store.updateIdea` (no per-card limit, no event), project remove/restore and the project folder snapshot (ideas by `projectId`), New card from an idea (`origin { ideaId }`, no derived link, no `idea_accepted` event), search (`projectIdeas` in `search.query` results, labelled with the project), Ideas page (a **Project** group first, no Continue in card), `groupByCard`/`visibleIdeas`.
+- `projectIdeaInputSchema` omits `expectedRevision` and `request` as well as `scope` (a project idea has no card revision or signed request to carry).
+- No new strings (**Project** exists in every catalog). Onboarding: no tour row or tip yet (the import in Task 2 is the user-visible entry). Telemetry: no heartbeat field.
+- Checks: new `server/project-ideas.test.ts`, extended `server/tool-server.test.ts`, `server/search.test.ts`, `client/idea-rows.test.ts`; `npm run typecheck`, `npm test` exit 0. Not run: the Ideas page UI in the installed plugin (not installed here). Known gap: the Ideas count on the overview bar counts card ideas only.
+
 ## PR review cards (branch `feat/pr-review-cards`) — 2026-11-05
 
 - New agents labelled `pr-review-watch` (from Noah's launchd `paseo run` job) become cards bound to their existing workspace through the New card *existing* mode (`server/pr-review-cards.ts`, `shared/pr-review.ts`): In review (else To do, else the first open lane), tag `pr-review`, operation id `pr-review:<agent id>`.

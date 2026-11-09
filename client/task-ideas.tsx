@@ -174,7 +174,8 @@ export function useIdeaActions({
    * card only offers a new card (IDEAS-INBOX-SPEC §2.3).
    */
   const choose = useStableCallback((idea: Idea, at: Point) => {
-    if (!openMenu) return onCreate(idea);
+    // A project idea has no card to continue in: New card is the only action (PROJECT-IDEAS-SPEC §5).
+    if (!openMenu || !idea.taskId) return onCreate(idea);
     const card = tasks.find((t) => t.id === idea.taskId);
     if (!card || !continuesInCard(card))
       return openMenu(at, t("Good idea"), [

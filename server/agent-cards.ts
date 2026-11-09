@@ -63,6 +63,10 @@ export class AgentCards {
   /** A session outside cards, checked again on every call (§2.2). */
   async boardCaller(identity: BoardIdentity): Promise<CardCaller> {
     await this.enabled();
+    return this.liveBoardCaller(identity);
+  }
+  /** The same session checks without the card switch, for tools with their own switch (flowly_propose_idea, PROJECT-IDEAS-SPEC §4). */
+  async liveBoardCaller(identity: BoardIdentity): Promise<CardCaller> {
     const paseo = this.api();
     const actor = await paseo.agents.ref(identity.agentId).refresh();
     if (!actor?.agent || actor.agent.archivedAt || actor.agent.workspaceId !== identity.workspaceId)

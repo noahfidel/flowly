@@ -679,7 +679,19 @@ test("sessions outside cards: a board credential reaches only the card tools, ov
     "flowly_get_card",
     "flowly_create_card",
     "flowly_update_card",
+    "flowly_propose_idea",
   ]);
+  const proposed = await mcp("tools/call", {
+    name: "flowly_propose_idea",
+    arguments: { title: "Cache the board", detail: "Keep the last read", rationale: "Reads dominate" },
+  });
+  expect(proposed.result.structuredContent).toMatchObject({ idea: { title: "Cache the board", projectId: "p", agentId: "second", status: "open" } });
+  const stored = (await x.store.read()).ideas.at(-1)!;
+  expect(stored).toMatchObject({ projectId: "p", agentId: "second", title: "Cache the board" });
+  expect(stored.taskId).toBeUndefined();
+  const again = await mcp("tools/call", { name: "flowly_propose_idea", arguments: { title: "cache the BOARD", detail: "x", rationale: "y" } });
+  expect(again.result.isError).toBe(true);
+  expect(JSON.stringify(again.result)).toContain("DUPLICATE_IDEA");
   const listed = await mcp("tools/call", { name: "flowly_list_cards", arguments: {} });
   expect(listed.result.structuredContent.cards.map((c: { taskId: string }) => c.taskId)).toEqual(["t"]);
   const updated = await mcp("tools/call", { name: "flowly_update_card", arguments: { taskId: "t", revision: 1, title: "Renamed by an outside session" } });

@@ -612,7 +612,7 @@ export class BoardService {
             updatedAt: now,
             archivedAt: null,
             ownsWorkspace: input.mode !== "existing",
-            ...(idea ? { origin: { taskId: idea.taskId, ideaId: idea.id } } : {}),
+            ...(idea ? { origin: { ...(idea.taskId ? { taskId: idea.taskId } : {}), ideaId: idea.id } } : {}),
           };
           current.tasks.push(task);
           this.store.event(current, {
@@ -621,8 +621,8 @@ export class BoardService {
             ...(by ? { agentId: by.agentId } : {}),
             action: "created",
           });
-          // The new card follows up its source (CARD-LINKS-SPEC §3).
-          if (idea)
+          // The new card follows up its source (CARD-LINKS-SPEC §3); a project idea has none (PROJECT-IDEAS-SPEC §3).
+          if (idea?.taskId)
             addLink(this.store, current, { kind: "derived", from: task.id, to: idea.taskId, ideaId: idea.id, createdBy: "system" }, { events: false, limit: false, archived: true });
           if (input.followUpOf && by) {
             addLink(this.store, current, { kind: "derived", from: task.id, to: input.followUpOf, createdBy: "system" }, { events: false });
@@ -636,12 +636,13 @@ export class BoardService {
             idea.status = "accepted";
             idea.acceptedTaskId = task.id;
             idea.updatedAt = now;
-            this.store.event(current, {
-              taskId: idea.taskId,
-              actor: "human",
-              action: "idea_accepted",
-              note: `${idea.title} → ${task.title}`,
-            });
+            if (idea.taskId)
+              this.store.event(current, {
+                taskId: idea.taskId,
+                actor: "human",
+                action: "idea_accepted",
+                note: `${idea.title} → ${task.title}`,
+              });
           }
           return task;
         });

@@ -202,7 +202,8 @@ export const taskSchema = z.object({
   /** The plugin created this workspace for the card (not linked to an existing one). Absent on older cards. */
   ownsWorkspace: z.boolean().optional(),
   /** Created from an idea proposed on another card (IDEAS-SPEC §2.2). */
-  origin: z.object({ taskId: z.string(), ideaId: z.string() }).optional(),
+  /** Where the card came from: an idea (and the card it hung on); a project-level idea has no source card (PROJECT-IDEAS-SPEC §2). */
+  origin: z.object({ taskId: z.string().optional(), ideaId: z.string() }).optional(),
   /** Earlier workspaces of the card, oldest first; read-only history (WORKSPACE-SWITCH-SPEC §8). */
   previousWorkspaces: z.array(previousWorkspaceSchema).max(switchLimits.previousWorkspaces).optional(),
   /** This card's own changes in the main checkout, written by its session (WORKSPACE-SWITCH-SPEC §2). */
@@ -212,13 +213,16 @@ export const taskSchema = z.object({
 });
 /** A follow-up an agent proposed on its card; the user may turn it into a card (IDEAS-SPEC). */
 export const ideaStatuses = ["open", "accepted", "dismissed"] as const;
-export const ideaLimits = { title: 120, detail: 4000, rationale: 1000, context: 4000, openPerTask: 10, keptPerTask: 50 } as const;
+export const ideaLimits = { title: 120, detail: 4000, rationale: 1000, context: 4000, source: 1000, openPerTask: 10, keptPerTask: 50 } as const;
 export const ideaSchema = z.object({
   id: z.string(),
-  taskId: z.string(),
+  /** The source card; absent for a project-level idea (PROJECT-IDEAS-SPEC §2). */
+  taskId: z.string().optional(),
   projectId: z.string(),
-  agentId: z.string(),
-  eventId: z.string(),
+  /** The proposing session; absent when a person or an import proposed it. */
+  agentId: z.string().optional(),
+  /** The Activity event of the proposal; a project-level idea has none. */
+  eventId: z.string().optional(),
   title: z.string().trim().min(1).max(ideaLimits.title),
   detail: z.string().max(ideaLimits.detail),
   rationale: z.string().max(ideaLimits.rationale),
@@ -229,6 +233,8 @@ export const ideaSchema = z.object({
   tags: z.array(tagValueSchema).max(tagLimits.perTask).optional(),
   /** The proposing agent's suggestion: continue in this card ("here") or start a new card ("new"). Absent reads as "new". */
   scope: z.enum(["here", "new"]).optional(),
+  /** Free-text provenance, such as the backlog file an imported idea came from (PROJECT-IDEAS-SPEC §2). */
+  source: z.string().max(ideaLimits.source).optional(),
   status: z.enum(ideaStatuses),
   /** Accepted as a new card. */
   acceptedTaskId: z.string().optional(),

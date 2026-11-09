@@ -504,6 +504,7 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.deleteCheck, (input, { paseo }) => wrapups.check(input.id, paseo, "delete"));
   // Archiving comes first: a failed or refused archive leaves the card in place.
   server.handle(rpc.updateIdea, (input) => store.updateIdea(input));
+  server.handle(rpc.createProjectIdea, (input) => tools.projectIdeas.propose(input.projectId, input.idea, { actor: "human" }));
   server.handle(rpc.dismissAttention, (input) => store.dismissAttention(input));
   server.handle(rpc.restoreAttention, (input) => store.restoreAttention(input));
   server.handle(rpc.adoptIdea, (input, { paseo }) => adoptIdea(store, (message, api) => composer.push(message, api), input, paseo));

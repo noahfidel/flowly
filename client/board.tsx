@@ -1056,7 +1056,7 @@ function BoardContent(
         description: ideaDescription(
           idea,
           board?.tasks.find((t) => t.id === idea.taskId),
-          cardProgress(summaries.data, idea.taskId),
+          idea.taskId ? cardProgress(summaries.data, idea.taskId) : undefined,
         ),
         type: idea.type,
         priority: idea.priority,
@@ -1241,6 +1241,7 @@ function BoardContent(
   });
   // "Do it in a new session" from the Ideas page: the card's drawer opens its Start session form.
   const ideaInNewSession = useStableCallback((idea: Idea) => {
+    if (!idea.taskId) return;
     setTask(idea.taskId);
     setStartRequest({ taskId: idea.taskId, key: `start-${Date.now()}`, idea });
   });

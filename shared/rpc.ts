@@ -41,7 +41,7 @@ import {
   eventSchema,
   planSnapshotSchema,
 } from "./model";
-import { healthSchema, preparationSchema } from "./tools";
+import { healthSchema, preparationSchema, projectIdeaInputSchema } from "./tools";
 import { connectionInput, connectionSchema, externalSummarySchema, itemTypeSchema } from "./connectors";
 import { linearBoardRowSchema, linearTeamSchema } from "./linear-board";
 import { composerStateSchema, composerTarget, maxImages, outgoingImageSchema, queuedMessageSchema } from "./composer";
@@ -254,6 +254,12 @@ export const updateTaskTags = defineRpc({
 export const updateIdea = defineRpc({
   name: "ideas.update",
   input: ideaEdit,
+  output: ideaSchema,
+});
+/** Propose an idea that belongs to a project, not a card (PROJECT-IDEAS-SPEC §4). */
+export const createProjectIdea = defineRpc({
+  name: "ideas.create-project",
+  input: z.strictObject({ projectId: z.string().min(1), idea: projectIdeaInputSchema }),
   output: ideaSchema,
 });
 /** Hide a card from Attention until something new happens (ATTENTION-DISMISS-SPEC §5). */

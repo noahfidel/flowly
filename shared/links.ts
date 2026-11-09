@@ -102,13 +102,13 @@ export function wouldCycle(links: readonly Link[], kind: LinkKind, from: string,
 export function originLinks(tasks: readonly Task[]): Link[] {
   const ids = new Set(tasks.map((t) => t.id));
   return tasks
-    .filter((t) => t.origin && ids.has(t.origin.taskId) && t.origin.taskId !== t.id)
+    .filter((t) => t.origin?.taskId && ids.has(t.origin.taskId) && t.origin.taskId !== t.id)
     .map((t) => ({
       id: `origin-${t.id}`,
       projectId: t.projectId,
       kind: "derived" as const,
       from: t.id,
-      to: t.origin!.taskId,
+      to: t.origin!.taskId!,
       ideaId: t.origin!.ideaId,
       createdBy: "system" as const,
       createdAt: t.createdAt,

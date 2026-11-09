@@ -53,7 +53,7 @@ export function projectRecords(board: Board, projectId: string, summaries: reado
     project,
     tasks: board.tasks.filter((t) => ids.has(t.id)),
     events: board.events.filter((e) => ids.has(e.taskId)),
-    ideas: board.ideas.filter((i) => ids.has(i.taskId)),
+    ideas: board.ideas.filter((i) => (i.taskId ? ids.has(i.taskId) : i.projectId === projectId)),
     links: board.links.filter((l) => ids.has(l.from) && ids.has(l.to)),
     artifacts: board.artifacts.filter((a) => ids.has(a.taskId)),
     workpads: board.workpads.filter((w) => ids.has(w.taskId)),

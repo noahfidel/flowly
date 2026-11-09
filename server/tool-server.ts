@@ -23,6 +23,8 @@ import {
   integrateInputSchema,
   integrateResultSchema,
   ideaInputSchema,
+  projectIdeaInputSchema,
+  projectIdeaResultSchema,
   ideaRemovalSchema,
   ideaUpdateInputSchema,
   rememberInputSchema,
@@ -55,6 +57,7 @@ import {
 } from "../shared/tools";
 import { AgentService } from "./agent-service";
 import { AgentCards, type CardCaller } from "./agent-cards";
+import { ProjectIdeas } from "./project-ideas";
 import { BoardStore } from "./store";
 import { BoardService } from "./service";
 import { ToolSecrets, writePrivate } from "./tool-context";
@@ -88,6 +91,7 @@ export class ToolServer {
   readonly secrets: ToolSecrets;
   readonly agents: AgentService;
   readonly cards: AgentCards;
+  readonly projectIdeas: ProjectIdeas;
   private server?: Server;
   private handler?: McpHttpHandler;
   private starting?: Promise<void>;
@@ -99,6 +103,7 @@ export class ToolServer {
     this.secrets = new ToolSecrets(store.directory);
     this.agents = new AgentService(store, this.secrets);
     this.cards = new AgentCards(store);
+    this.projectIdeas = new ProjectIdeas(store);
   }
   attach(paseo: PaseoApi) {
     this.agents.attach(paseo);
@@ -256,6 +261,23 @@ export class ToolServer {
         if (auth.kind === "board") {
           const board = auth.identity;
           this.registerCardTools(mcp, () => this.cards.boardCaller(board));
+          mcp.registerTool(
+            "flowly_propose_idea",
+            {
+              description:
+                "Propose a next step for this Flowly project that does not belong to any card: a backlog item the user did not ask for. The user sees it on the project's Ideas page and may turn it into a card. Its agent cannot see this conversation, so put the files, branches and findings the card would need in context. Check for duplicates first: an open idea with the same title is refused (DUPLICATE_IDEA). Never start the idea yourself or create a card for it unless the user asked. IDEAS_DISABLED: the user turned Ideas off; mention the next step in your reply instead and do not retry.",
+              inputSchema: projectIdeaInputSchema,
+              outputSchema: projectIdeaResultSchema,
+              annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+            },
+            (input) =>
+              wrap(async () => {
+                if (!(await this.agents.ideasOn()))
+                  throw new ToolError("IDEAS_DISABLED", "Ideas are turned off in Flowly settings. Mention the next step in your reply instead.");
+                const caller = await this.cards.liveBoardCaller(board);
+                return { idea: await this.projectIdeas.propose(caller.projectId, input, { actor: "agent", agentId: caller.agentId }) };
+              }),
+          );
           return mcp;
         }
         const identity = auth.identity;

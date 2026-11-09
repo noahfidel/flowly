@@ -68,3 +68,17 @@ test("grouping by card keeps the list order", () => {
   const rows = [idea("1", "w"), idea("2", "d"), idea("3", "w")];
   expect(groupByCard(rows).map((g) => [g.taskId, ids(g.ideas)])).toEqual([["w", ["1", "3"]], ["d", ["2"]]]);
 });
+
+test("project ideas form a group with key null, sorted first", () => {
+  const project = idea("p1", undefined as unknown as string, { taskId: undefined, createdAt: at(1) });
+  const rows = [idea("1", "w"), project, idea("2", "w"), idea("3", "d")];
+  expect(groupByCard(rows).map((g) => [g.taskId, g.ideas.map((i) => i.id)])).toEqual([
+    [null, ["p1"]],
+    ["w", ["1", "2"]],
+    ["d", ["3"]],
+  ]);
+  // Project ideas lead the card order when sorting by card, too.
+  expect(visibleIdeas([idea("1", "w"), project], tasks, lanes, query({ sort: "card" })).map((i) => i.id)).toEqual(["p1", "1"]);
+  expect(visibleIdeas([project], tasks, lanes, query({ search: "idea p1" })).map((i) => i.id)).toEqual(["p1"]);
+  expect(visibleIdeas([project], tasks, lanes, query({ finishedOnly: true }))).toEqual([]);
+});
