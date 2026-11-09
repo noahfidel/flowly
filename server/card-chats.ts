@@ -60,12 +60,12 @@ export function cardOfChat(agent: ChatAgent, tasks: readonly ChatTask[], managed
   return cardChatIds({ task: here[0], tasks, managed, agents: [agent] }).includes(agent.id) ? here[0].id : null;
 }
 
-/** Every live (non-archived) agent on the host; the SDK has no workspace filter. */
+/** Every live (non-archived) agent on the host, including those in hidden (background) workspaces such as PR review cards; the SDK has no workspace filter. */
 export async function liveAgents(paseo: PaseoApi): Promise<ChatAgent[]> {
   const found: ChatAgent[] = [];
   let cursor: string | undefined;
   do {
-    const page = await paseo.agents.list({ filter: { includeArchived: false }, page: { limit: 200, cursor } });
+    const page = await paseo.agents.list({ filter: { includeArchived: false, includeBackground: true }, page: { limit: 200, cursor } });
     for (const { agent } of page.entries) found.push(agent);
     cursor = page.pageInfo.nextCursor ?? undefined;
   } while (cursor);

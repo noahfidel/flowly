@@ -68,8 +68,8 @@ test("resolveCardChats pages every live agent and skips the listing for a shared
   const paseo = { agents: { list: async (o: unknown) => (calls.push(o), pages[calls.length - 1]) } } as unknown as PaseoApi;
   expect(await resolveCardChats(paseo, "t", [card], [])).toEqual(["a", "b"]);
   expect(calls).toEqual([
-    { filter: { includeArchived: false }, page: { limit: 200, cursor: undefined } },
-    { filter: { includeArchived: false }, page: { limit: 200, cursor: "c" } },
+    { filter: { includeArchived: false, includeBackground: true }, page: { limit: 200, cursor: undefined } },
+    { filter: { includeArchived: false, includeBackground: true }, page: { limit: 200, cursor: "c" } },
   ]);
   expect(await resolveCardChats(paseo, "missing", [card], [])).toBeNull();
   expect(await resolveCardChats(paseo, "t", [card, { id: "u", workspaceId: "w", archivedAt: null }], [{ agentId: "m", taskId: "t" }])).toEqual(["m"]);
