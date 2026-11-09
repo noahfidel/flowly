@@ -62,10 +62,10 @@ import { AgentCards, type CardCaller } from "./agent-cards";
 import { ProjectIdeas } from "./project-ideas";
 import { CardStarter } from "./start-card";
 import { BoardStore } from "./store";
-import { BoardService } from "./service";
+import { BoardService, paseoHome } from "./service";
 import { ToolSecrets, writePrivate } from "./tool-context";
 import { ToolError, toolFailure, toolResult } from "./tool-error";
-import { Dispatcher, dispatcherSummary } from "./dispatcher";
+import { Dispatcher, dispatcherFolder, dispatcherSummary } from "./dispatcher";
 import { DispatcherTools } from "./dispatcher-tools";
 import type { DispatcherIdentity } from "./tool-context";
 import { cliSource } from "./cli-source";
@@ -91,7 +91,11 @@ export class ToolServer {
   private url = "";
   private reason = "Starting Kanban tool service…";
   private stopped = false;
-  constructor(readonly store: BoardStore) {
+  constructor(
+    readonly store: BoardStore,
+    /** The dispatcher's working folder (DISPATCHER-SPEC §2); derived from the Paseo home unless a test passes one. */
+    dispatcherPath = dispatcherFolder(paseoHome()),
+  ) {
     this.secrets = new ToolSecrets(store.directory);
     this.agents = new AgentService(store, this.secrets);
     this.cards = new AgentCards(store);
@@ -102,10 +106,14 @@ export class ToolServer {
       keptWorktree: (operationId) => this.secrets.keptStart(operationId),
       keepWorktree: (operationId, request) => this.secrets.keepStart(operationId, request),
     });
-    this.dispatcher = new Dispatcher(store.directory, {
-      mcp: (identity) => this.dispatcherServer(identity),
-      summary: async () => dispatcherSummary(await store.read()),
-    });
+    this.dispatcher = new Dispatcher(
+      store.directory,
+      {
+        mcp: (identity) => this.dispatcherServer(identity),
+        summary: async () => dispatcherSummary(await store.read()),
+      },
+      dispatcherPath,
+    );
     this.dispatcherTools = new DispatcherTools(store, this.cards, this.starter, this.projectIdeas, () => this.agents.ideasOn(), this.dispatcher);
   }
   /** The `flowly-dispatcher` MCP server entry for a dispatcher session (DISPATCHER-SPEC §4). */

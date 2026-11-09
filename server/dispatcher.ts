@@ -1,5 +1,5 @@
 import { mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import { z } from "zod";
@@ -29,6 +29,29 @@ import { ToolError } from "./tool-error";
 /** The one cross-project dispatcher session: record, workspace, lifecycle and note delivery (DISPATCHER-SPEC). */
 
 export const DISPATCHER_TITLE = "Flowly dispatcher";
+/**
+ * The dispatcher's working folder (§2): `<Paseo home>/flowly-dispatcher/dispatcher`. It sits outside the plugin data
+ * folder, in a parent of its own that holds nothing else, so neither the folder nor `..` from it holds the board, the
+ * token-sealing key, the database, plugin settings or Paseo's own files. The `dispatcher` name keeps the Paseo
+ * project's name as before.
+ */
+export function dispatcherFolder(paseoHome: string) {
+  return join(resolve(paseoHome), "flowly-dispatcher", "dispatcher");
+}
+
+/** Whether `path` is `parent` or inside it (lexically, on resolved paths). */
+function within(path: string, parent: string) {
+  const r = relative(parent, path);
+  return r === "" || (r !== ".." && !r.startsWith(`..${sep}`) && !isAbsolute(r));
+}
+
+/** Why `folder` cannot be the dispatcher's folder next to the data folder `data`, or null (§2). */
+export function dispatcherFolderProblem(folder: string, data: string): string | null {
+  if (within(folder, data) || within(data, folder)) return "it is inside the plugin data folder, or holds it";
+  if (within(data, dirname(folder))) return "its parent folder holds the plugin data folder";
+  return null;
+}
+
 /** How many earlier dispatcher session ids the record keeps. */
 const previousAgentIdLimit = 20;
 
@@ -140,11 +163,14 @@ export class Dispatcher {
   constructor(
     readonly directory: string,
     private readonly deps: DispatcherDeps,
+    /** The working folder (§2), from `dispatcherFolder`; never inside or next to `directory`. */
+    readonly workspacePath: string,
   ) {}
   get path() {
     return join(this.directory, "dispatcher.json");
   }
-  get workspacePath() {
+  /** Where the dispatcher worked before it moved out of the data folder (§2); recognized, never reused, moved or deleted. */
+  get legacyWorkspacePath() {
     return join(this.directory, "dispatcher");
   }
 
@@ -166,8 +192,8 @@ export class Dispatcher {
   }
   /** Whether `path` is the dispatcher's folder, which never becomes a Flowly project (§2). */
   async ownsRoot(path: string) {
-    const [own, other] = await Promise.all([realpath(this.workspacePath).catch(() => null), realpath(path).catch(() => null)]);
-    return !!own && own === other;
+    const [own, legacy, other] = await Promise.all([this.workspacePath, this.legacyWorkspacePath, path].map((p) => realpath(p).catch(() => null)));
+    return !!other && (other === own || other === legacy);
   }
   /** The stored dispatcher session id once the record is loaded (for the note batcher, which cannot wait). */
   agentId() {
@@ -306,11 +332,18 @@ export class Dispatcher {
 
   /** The stored workspace while Paseo still returns it; else a new background directory workspace (§2). Never archived. */
   private async workspace(paseo: PaseoApi, record: DispatcherRecord) {
+    const problem = dispatcherFolderProblem(this.workspacePath, this.directory);
+    if (problem) throw this.folderRefused(problem);
     if (record.workspaceId) {
       const found = await paseo.workspaces.ref(record.workspaceId).refresh();
-      if (found && !found.archivingAt) return record.workspaceId;
+      // Reused only while it is in the dispatcher folder: one in the old in-data folder (or anywhere else) is left as it is.
+      if (found && !found.archivingAt && (await this.inFolder(found.workspaceDirectory))) return record.workspaceId;
     }
     await mkdir(this.workspacePath, { recursive: true, mode: 0o700 });
+    // Checked again on real paths: a link must not put the folder in or next to the data folder.
+    const [real, data] = await Promise.all([realpath(this.workspacePath), realpath(this.directory)]);
+    const linked = dispatcherFolderProblem(real, data);
+    if (linked) throw this.folderRefused(linked);
     const id = await createDirectoryWorkspace(paseo, {
       title: DISPATCHER_TITLE,
       idempotencyKey: `flowly-dispatcher-workspace:${randomUUID()}`,
@@ -319,6 +352,16 @@ export class Dispatcher {
     });
     await this.save((r) => ({ ...r, workspaceId: id }));
     return id;
+  }
+
+  private async inFolder(directory: string | undefined) {
+    if (!directory) return false;
+    const [own, other] = await Promise.all([realpath(this.workspacePath).catch(() => null), realpath(directory).catch(() => null)]);
+    return !!own && own === other;
+  }
+  private folderRefused(problem: string) {
+    logFailure("Flowly dispatcher folder refused:", new Error(problem), this.workspacePath);
+    return new ToolError("START_FAILED", `The dispatcher folder can't be used: ${problem}.`);
   }
 
   /** Delivers a batch by state: idle → sent, running → held until its turn ends, down → dropped (§7). */

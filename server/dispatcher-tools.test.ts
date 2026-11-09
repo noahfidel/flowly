@@ -24,7 +24,10 @@ const dispatcherTools = [
 
 async function setup() {
   const fixture = await agentFixture();
-  const server = new ToolServer(fixture.store);
+  // The dispatcher folder of a Paseo home of its own, outside the fixture's data folder (DISPATCHER-SPEC §2).
+  const dispatcherPath = join(fixture.root, "paseo-home", "flowly-dispatcher", "dispatcher");
+  await mkdir(dispatcherPath, { recursive: true });
+  const server = new ToolServer(fixture.store, dispatcherPath);
   cleanups.push(async () => {
     await server.stop();
     await rm(fixture.root, { recursive: true, force: true });
@@ -83,7 +86,7 @@ async function setup() {
     },
     workspaces: {
       ref: (id: string) => ({
-        refresh: async () => (id === "dw" ? { id: "dw", archivingAt: null } : fixture.workspace()),
+        refresh: async () => (id === "dw" ? { id: "dw", archivingAt: null, workspaceDirectory: dispatcherPath } : fixture.workspace()),
         agents: {
           create: async (options: { agentId: string }) => {
             agents[options.agentId] = { id: options.agentId, workspaceId: id, status: "running", archivedAt: null };

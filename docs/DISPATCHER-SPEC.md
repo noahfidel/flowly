@@ -20,10 +20,13 @@ Status: user decisions 2026-11-08 (single-pane spec D1, D2; plan Decisions Q5, Q
 
 ## 2. Workspace
 
-- A directory workspace on `<dataDir>/dispatcher/` (created with mode 0700 when missing), titled "Flowly dispatcher", created with `background: true` and without a Paseo project id, so Paseo files it under its own project for that directory, apart from every Flowly project.
-- Reused while Paseo still returns it and it is not being archived; otherwise a new one is created and its id replaces `workspaceId`.
-- Flowly never archives the workspace: no archive, wrap-up, delete, switch or background-workspace path acts on it. Those paths act only on workspaces bound to a card or on the per-project `Flowly background` workspaces, and the dispatcher workspace cannot be bound to a card (New task with an existing workspace refuses it).
-- Its folder never becomes a Flowly project: the Paseo project rooted there and its workspaces are left out of the resources Add project and New task list, and Add project (and restore) with that folder is refused ("This is the Flowly dispatcher's folder; it can't be a Flowly project."). The folder is compared after resolving symlinks.
+- A directory workspace on the **dispatcher folder** `<Paseo home>/flowly-dispatcher/dispatcher` (the Paseo home is `PASEO_HOME`, else `~/.paseo`, the same home the plugin data folder is derived from), titled "Flowly dispatcher", created with `background: true` and without a Paseo project id, so Paseo files it under its own project for that directory, apart from every Flowly project. Both folders are created with mode 0700 when missing.
+- Why there (ruling, Noah 2026-11-09): the dispatcher works in that folder, so it must hold nothing Flowly trusts, and neither must `..` from it. Inside the plugin data folder it sat next to `board.json`, `flowly.sqlite`, the token-sealing key and the other plugin data. A direct child of the Paseo home would sit next to Paseo's own credentials and configuration. Its own parent, `flowly-dispatcher`, holds the dispatcher folder only. The host offers plugins no other per-plugin working folder. The folder keeps the name `dispatcher`, so Paseo's project for it keeps its name.
+- Before the workspace is opened, a dispatcher folder inside the plugin data folder, holding it, or whose parent holds it (compared as given, and again after resolving symlinks once the folder exists) makes `dispatcher.start` fail with `START_FAILED`; nothing is created and the refusal is logged.
+- The stored workspace is reused while Paseo still returns it, it is not being archived and its directory is the dispatcher folder (after resolving symlinks); otherwise a new one is created on the dispatcher folder and its id replaces `workspaceId`.
+- An earlier dispatcher worked in `<dataDir>/dispatcher/`. A stored workspace there is not reused: the next start creates the workspace on the dispatcher folder. That start follows §3 as any other (refused while the stored session is alive; a dead one is archived as usual). Flowly never moves or deletes the old folder, and never archives its workspace.
+- Flowly never archives the workspace: no archive, wrap-up, delete, switch or background-workspace path acts on it. Those paths act only on workspaces bound to a card or on the per-project `Flowly background` workspaces, and the dispatcher workspace cannot be bound to a card (New task with an existing workspace refuses the stored dispatcher workspace and any workspace whose directory is the dispatcher folder or the old `<dataDir>/dispatcher/`).
+- Its folder, and the old `<dataDir>/dispatcher/`, never become a Flowly project: the Paseo project rooted there and its workspaces are left out of the resources Add project and New task list, and Add project (and restore) with that folder is refused ("This is the Flowly dispatcher's folder; it can't be a Flowly project."). The folder is compared after resolving symlinks.
 - A host without background workspaces (`workspaces.create` throws "Update the host to use background workspaces.") makes `dispatcher.start` fail with `HOST_UNSUPPORTED` ("Update Paseo to use the dispatcher: this host has no background workspaces."). Nothing is retried and the record is not changed.
 
 ## 3. Lifecycle
@@ -175,14 +178,14 @@ One source (plan Q1): `asksFrom(board, agents, receipts, dismissals)` in `shared
 
 - A dispatcher token can write to any live project; an archived project is refused with `PROJECT_ARCHIVED` and nothing is written; a token from a replaced dispatcher is refused.
 - Card and board tokens cannot call dispatcher tools; a dispatcher token cannot call card-session or board tools.
-- Start creates a background directory workspace once and reuses it; Flowly never archives it.
+- Start creates a background directory workspace once on the dispatcher folder (outside the plugin data folder, its parent holding nothing else) and reuses it; Flowly never archives it. A stored workspace in the old `<dataDir>/dispatcher/` is not reused, and that folder is left as it is.
 - Start is refused while the stored session is alive (running, idle, error, any context use); a dead one (archived, closed, missing) is replaced, and a closed one is archived first, only after a re-read still finds it dead.
 - Notes wait for the turn to end and never steer; a pending permission holds them like a running turn; a turn end read as still running is re-checked with a growing delay until the notes go out; a second send waits for the cooldown; notes in the start window, from the board summary on, are held until the session exists; a batch held while running with no turn end is re-checked every 60 s; notes are dropped only while the dispatcher is dead or missing.
 - A legacy multi-repo project takes the dispatcher's writes under the card agents' rules (no legacy refusal).
 - With Agents create and edit cards off, every dispatcher write (links and ideas included) is refused with `AGENT_CARDS_DISABLED`; reads work.
 - A project whose root is missing can be listed and read by the dispatcher; its writes are refused with `ROOT_UNAVAILABLE`.
 - The dispatcher's 41st creation or start in an hour is refused with `CARD_LIMIT`; its count and a card agent's are independent.
-- The dispatcher's folder is never offered or accepted as a Flowly project.
+- The dispatcher's folder, and the old one, are never offered or accepted as a Flowly project or bound to a card.
 - Start without a provider uses the Dispatcher model setting, else `claude/claude-sonnet-5-5`.
 - A corrupt `dispatcher.json` is preserved and treated as empty.
 - Transcript entries and chat items interleave by time; note-batch messages appear only as note rows, one per note the dispatcher received.

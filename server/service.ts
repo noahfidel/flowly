@@ -528,6 +528,9 @@ export class BoardService {
         if (!workspaceId) throw new Error("Select a workspace.");
         if (await this.reservedWorkspace(workspaceId)) throw new Error("This is the Flowly dispatcher's workspace; a card can't use it.");
         const workspace = await paseo.workspaces.ref(workspaceId).refresh();
+        // Also one in the dispatcher's folder that is no longer its stored workspace (the old in-data one, §2).
+        if (workspace && (await this.reservedRoot(workspace.workspaceDirectory)))
+          throw new Error("This is the Flowly dispatcher's workspace; a card can't use it.");
         const matching = workspace
           ? await repoMatcher([project.primaryPath])(
               workspace.workspaceDirectory,

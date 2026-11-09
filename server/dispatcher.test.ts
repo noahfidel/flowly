@@ -1,9 +1,9 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
-import { Dispatcher, RECHECK_MAX_MS, dispatcherState, isDeadDispatcher, wireDispatcher } from "./dispatcher";
+import { Dispatcher, RECHECK_MAX_MS, dispatcherFolder, dispatcherState, isDeadDispatcher, wireDispatcher } from "./dispatcher";
 import { dispatcherSessionIds } from "./dispatcher-items";
 import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
@@ -32,7 +32,7 @@ type Agent = {
 /** A fake Paseo that records workspace creations, archives, agent creations and sends. */
 function fakePaseo() {
   const agents = new Map<string, Agent>();
-  const workspaces = new Map<string, { id: string; archivingAt: string | null }>();
+  const workspaces = new Map<string, { id: string; archivingAt: string | null; workspaceDirectory?: string }>();
   const created: Record<string, unknown>[] = [];
   const archived: string[] = [];
   const agentCreates: { workspaceId: string; options: Record<string, unknown> }[] = [];
@@ -44,7 +44,7 @@ function fakePaseo() {
         created.push(request);
         if (createError) throw createError;
         const id = `dw-${created.length}`;
-        workspaces.set(id, { id, archivingAt: null });
+        workspaces.set(id, { id, archivingAt: null, workspaceDirectory: (request.source as { path: string }).path });
         return { id };
       },
       archive: async (id: string) => {
@@ -97,16 +97,24 @@ function fakePaseo() {
   };
 }
 
-async function setup(summary: () => Promise<string> = async () => "Board summary") {
-  const directory = await mkdtemp(join(tmpdir(), "flowly-dispatcher-"));
-  directories.push(directory);
+/** A Paseo home with the plugin data folder at its usual place, and the dispatcher folder derived from that home. */
+async function setup(summary: () => Promise<string> = async () => "Board summary", folderOf: (home: string, directory: string) => string = (home) => dispatcherFolder(home)) {
+  const home = await mkdtemp(join(tmpdir(), "flowly-paseo-home-"));
+  directories.push(home);
+  const directory = join(home, "plugin-data", "flowly");
+  await mkdir(directory, { recursive: true });
+  const folder = folderOf(home, directory);
   const fake = fakePaseo();
-  const dispatcher = new Dispatcher(directory, {
-    mcp: async (identity) => ({ type: "http" as const, url: "http://127.0.0.1:1/mcp", headers: { Authorization: `Bearer sealed-${identity.agentId}` } }),
-    summary,
-  });
+  const dispatcher = new Dispatcher(
+    directory,
+    {
+      mcp: async (identity) => ({ type: "http" as const, url: "http://127.0.0.1:1/mcp", headers: { Authorization: `Bearer sealed-${identity.agentId}` } }),
+      summary,
+    },
+    folder,
+  );
   dispatchers.push(dispatcher);
-  return { directory, dispatcher, ...fake };
+  return { home, directory, folder, dispatcher, ...fake };
 }
 
 const note = (taskId: string, detail = "todo → in_review"): DispatcherNote => ({
@@ -126,7 +134,7 @@ test("start creates a background directory workspace once and reuses it", async 
   expect(x.created[0]).toMatchObject({
     title: "Flowly dispatcher",
     background: true,
-    source: { kind: "directory", path: join(x.directory, "dispatcher") },
+    source: { kind: "directory", path: x.folder },
   });
   expect((x.created[0].source as Record<string, unknown>).projectId).toBeUndefined();
   expect(x.agentCreates).toHaveLength(1);
@@ -724,13 +732,89 @@ test("notes dropped before a Paseo connection and held notes lost on unload are 
   expect(y.sends).toEqual([]);
 });
 
-test("the dispatcher's folder is recognized through symlinks", async () => {
+test("the dispatcher's folder, and the old one in the data folder, are recognized through symlinks (§2)", async () => {
   const x = await setup();
-  expect(await x.dispatcher.ownsRoot(join(x.directory, "dispatcher"))).toBe(false);
-  await mkdir(join(x.directory, "dispatcher"));
-  expect(await x.dispatcher.ownsRoot(join(x.directory, "dispatcher"))).toBe(true);
-  expect(await x.dispatcher.ownsRoot(join(x.directory, "dispatcher", ".."))).toBe(false);
+  const old = join(x.directory, "dispatcher");
+  expect(await x.dispatcher.ownsRoot(x.folder)).toBe(false);
+  expect(await x.dispatcher.ownsRoot(old)).toBe(false);
+  await mkdir(x.folder, { recursive: true });
+  await mkdir(old);
+  expect(await x.dispatcher.ownsRoot(x.folder)).toBe(true);
+  expect(await x.dispatcher.ownsRoot(old)).toBe(true);
+  const link = join(x.home, "link");
+  await symlink(x.folder, link);
+  expect(await x.dispatcher.ownsRoot(link)).toBe(true);
+  expect(await x.dispatcher.ownsRoot(join(x.folder, ".."))).toBe(false);
+  expect(await x.dispatcher.ownsRoot(join(old, ".."))).toBe(false);
   expect(await x.dispatcher.ownsRoot(x.directory)).toBe(false);
+  expect(await x.dispatcher.ownsRoot(x.home)).toBe(false);
+});
+
+test("the dispatcher's folder is outside the plugin data folder, in a parent of its own (§2)", async () => {
+  const x = await setup();
+  await writeFile(join(x.directory, "board.json"), "{}");
+  await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  // Derived from the Paseo home, not from the data folder, and not inside it.
+  expect(x.folder).toBe(join(x.home, "flowly-dispatcher", "dispatcher"));
+  expect(relative(x.directory, x.folder).startsWith("..")).toBe(true);
+  // Its parent holds the dispatcher folder only: no board, key, database, settings or Paseo files are next to it.
+  const parent = dirname(x.folder);
+  expect(await readdir(parent)).toEqual(["dispatcher"]);
+  expect(relative(parent, x.directory).startsWith("..")).toBe(true);
+  expect(parent).not.toBe(x.home);
+  // Only the user can enter it.
+  expect((await stat(x.folder)).mode & 0o077).toBe(0);
+  expect((await stat(parent)).mode & 0o077).toBe(0);
+});
+
+test("a folder inside or next to the data folder is refused and nothing is created (§2)", async () => {
+  for (const place of [(_: string, d: string) => join(d, "dispatcher"), (_: string, d: string) => join(d, "..", "dispatcher"), (h: string) => join(h, "dispatcher")]) {
+    const x = await setup(undefined, place);
+    await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "START_FAILED" });
+    expect(x.created).toEqual([]);
+    expect(x.agentCreates).toEqual([]);
+  }
+});
+
+test("a stored workspace in the old in-data folder is not reused; the old folder and workspace stay (§2)", async () => {
+  const x = await setup();
+  const old = join(x.directory, "dispatcher");
+  await mkdir(old);
+  await writeFile(join(old, "notes.md"), "kept");
+  x.workspaces.set("old-ws", { id: "old-ws", archivingAt: null, workspaceDirectory: old });
+  x.agents.set("old", { id: "old", workspaceId: "old-ws", status: "idle", archivedAt: null });
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "old-ws", agentId: "old", startedAt: "2026-11-08T10:00:00.000Z" }));
+  // While the old session is alive, start stays refused and nothing is created.
+  await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "DISPATCHER_RUNNING" });
+  expect(x.created).toEqual([]);
+  // Once it is dead, the new dispatcher gets a new workspace in the new folder; the old one is archived as a dead session only.
+  x.agents.get("old")!.status = "closed";
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(x.created).toHaveLength(1);
+  expect(x.created[0]).toMatchObject({ source: { kind: "directory", path: x.folder } });
+  expect(x.agentCreates[0].workspaceId).toBe("dw-1");
+  expect(JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8"))).toMatchObject({ workspaceId: "dw-1", agentId });
+  expect(x.archived).toEqual(["agent:old"]);
+  expect(await readFile(join(old, "notes.md"), "utf8")).toBe("kept");
+  // The old workspace is no longer the stored one, but its folder is still the dispatcher's: no card can use it.
+  expect(await x.dispatcher.owns("old-ws")).toBe(false);
+  const fixture = await agentFixture();
+  directories.push(fixture.root);
+  fixture.setWorkspace({ ...fixture.workspace(), id: "old-ws", workspaceDirectory: old });
+  const service = new BoardService(fixture.store);
+  service.reservedWorkspace = (id) => x.dispatcher.owns(id);
+  service.reservedRoot = (path) => x.dispatcher.ownsRoot(path);
+  await expect(
+    service.createTask(
+      { projectId: "p", operationId: "bind-old-dispatcher", title: "Bind", description: "", status: "todo", priority: "normal", mode: "existing", workspaceId: "old-ws", baseRef: "" },
+      fixture.paseo,
+    ),
+  ).rejects.toThrow("Flowly dispatcher");
+  // A stored workspace elsewhere (not the dispatcher folder) is not reused either.
+  x.workspaces.set("dw-1", { id: "dw-1", archivingAt: null, workspaceDirectory: x.home });
+  x.agents.get(agentId)!.status = "closed";
+  await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  expect(x.created).toHaveLength(2);
 });
 
 test("start without a provider uses the Dispatcher model setting, else the server default", async () => {
