@@ -94,6 +94,9 @@ All take `projectId` explicitly, except `flowly_list_projects`. Writes are recor
 - `dispatcher.tail`: the `sessions.tail` input without `taskId` and its output, for the stored dispatcher session only (§9.3).
 - `dispatcher.mark-seen` `{ revision, ids? }` → `{ seenRevision }` (§9.2).
 - `dispatcher.what-next` `{}` → `{ sent: true }` (§9.2).
+- `asks.answer` `{ signal, answer: { optionIds?, text?, allow? } }` → `{ delivered, state }` (§9.4).
+- `asks.dismiss` `{ signal }` → `{ taskId }` (§9.4).
+- `tasks.start-again` `{ taskId, idempotencyKey }` → the `flowly_start_card` result (§9.4).
 
 ## 9. Chat panel
 
@@ -106,8 +109,8 @@ The dispatcher's chat sits next to the board (single-pane spec, "Design details"
 | kind | stored | holds |
 |---|---|---|
 | `note` | yes | one dispatcher note (§7), recorded when its batch was sent to the dispatcher; never when the batch was dropped, so the chat shows exactly what the dispatcher received |
-| `ask` | yes | a card's ask (`signal`, `taskId`, `projectId`, `title`, `state` open / answered / session_ended / dismissed, `resolvedAt`); filled in by asks in the chat |
-| `answer` | yes | the user's answer to an ask, addressed to the card (`signal`, `taskId`, `projectId`, `text`, `delivered`) |
+| `ask` | answered and ended ones; open and dismissed ones are computed on read (§9.4) | a card's ask (`signal`, `taskId`, `projectId`, `title`, `state` open / answered / session_ended / dismissed, `resolvedAt`, and `askKind`, `agentId`, `detail`, `options`, `questions`, `elsewhere` (answered in the session)) |
+| `answer` | yes | the user's answer to an ask, addressed to the card (`signal`, `taskId`, `projectId`, `text`, `choice` allow/deny for permissions, `delivered`) |
 | `change` | no, computed on read | "Changed since you looked" (§9.2) |
 
 On every write the list is pruned: asks answered or dismissed more than 7 days ago (`resolvedAt`, else `at`) are dropped, then only the 500 newest items (by `at`) are kept.
@@ -129,6 +132,33 @@ On every write the list is pruned: asks answered or dismissed more than 7 days a
 - A note row is one line (card title, kind, detail); pressing it opens the card. The change line is always the last row, whatever its newest event time; it is collapsed to its count; expanded it lists the cards (press opens one), with **Mark seen** and **What should I do?**.
 - Known gap: images in the dispatcher's transcript show the image fallback (the session image read is per card, and the dispatcher has none).
 
+### 9.4 Asks
+
+One source (plan Q1): `asksFrom(board, agents, receipts, dismissals)` in `shared/attention.ts` turns every Attention signal (ATTENTION-DISMISS-SPEC §2.2) into one ask. The bell counts the open ones; the chat shows them. An ask is `{ signal, taskId, projectId, agentId, kind, title, detail, at, options, questions?, requestId?, state }`:
+
+| kind | from signal | answered in the chat by |
+|---|---|---|
+| `question_report` | `q:<eventId>`, the session's open Flowly question | typed text, sent to that session |
+| `blocker_report` | `b:<eventId>`, the session's open Flowly blocker (plan Q5: open until that session's next turn starts) | typed text, sent to that session |
+| `ask_user` | `p:<agentId>:<requestId>` of a pending `question` request (AskUserQuestion) | its options and "Other" text, through Paseo's permission response |
+| `permission` | `p:<agentId>:<requestId>` of any other pending request | its provider actions, or Allow / Deny when it has none |
+| `error` | `e:…` | not answerable; Open card |
+| `unread` | `u:…` | not answerable; Open card |
+
+- `title` is the card's title; `detail` the question or blocker text, the request's title, or empty. `at` is the report's time, else the session's attention time. `options` are `{ id, label }`: for `ask_user` one per question option (`q<i>o<j>`, labelled `header: label` when the form has several questions) with `questions` describing each question (header, text, multi-select, whether it takes text); for `permission` one per provider action (`a<i>`), or `allow` / `deny`.
+- A live ask's state is `open`, or `dismissed` when its signal is in the card's dismissal set. The bell's count is the number of open asks (ATTENTION-DISMISS-SPEC §3.2), computed by the same rule.
+- `dispatcher.items-changed` adds the live asks as `ask` items (id `ask-<signal>`). A stored `ask` item with the same signal (answered or session ended) wins over the live one. Stored `ask` and `answer` items of a card that no longer exists are left out: a deleted card's asks disappear.
+- **Answering** (`asks.answer`, one at a time on the daemon). The input is validated (signal up to 600 characters; up to 100 option ids; text up to 20,000 characters). Then, in order:
+  1. A stored ask with that signal already answered or ended: `{ delivered: false, state }` with its stored state, no call. A stale or replayed answer never reaches the session again.
+  2. The signal is not among the live asks: the session resolved it, `{ delivered: false, state: "answered" }`, no call; when the card is known it is recorded as answered in the session. When the card no longer exists the RPC fails ("The card was deleted.").
+  3. The session is read again from Paseo. Gone, archived or closed: `{ delivered: false, state: "session_ended" }`, recorded; Flowly never restores it. In another workspace than the card's: refused, nothing is sent.
+  4. By kind: `ask_user` and `permission` need the request still pending in that session (else step 2's answer). `ask_user` builds the reply with the session pane's rules (`answerReply`; `allow: false` declines with `dismissReply`); every question must be answered. `permission` takes exactly one option id, or `allow` when the request has no provider actions; an option's behavior comes from the request, never from the client, and nothing is allowed without the user's explicit choice. `question_report` and `blocker_report` need the report still open and send exactly the user's text (`activeTurnBehavior: "steer"`), no task header (product invariant). `error` and `unread` are refused.
+  5. Only after the Paseo call resolves: the ask is stored as answered and an `answer` item (`text`, `choice` allow/deny for permissions, `delivered: true`) is added, and `{ delivered: true, state: "answered" }` is returned. A failed call records nothing and fails the RPC.
+- **Dismissing** (`asks.dismiss`) adds that one signal to the card's dismissal set (ATTENTION-DISMISS-SPEC §5); the bell's count drops by one, and the card leaves the bell when all its signals are dismissed. Dismissing the card in the bell dismisses all its asks in the chat.
+- **Start again** (`tasks.start-again { taskId, idempotencyKey }`): the `flowly_start_card` path (START-CARD-SPEC) started by the user: not gated by the agent-cards setting or its hourly limit; the session is labelled `flowly-started-by: user`; a workspace move is recorded as the user's.
+- Panel: an open ask shows its card, kind and detail, its buttons (options, Allow / Deny, a text box with Send for reports and "Other"), Dismiss, and Open card. While an answer is in flight it shows without a tick; the tick appears when the stored `answer` item has `delivered: true`. Answered asks show "Answered" (or "Answered in the session"), ended ones "Session ended" with **Start again**, dismissed ones one muted line.
+- Bell: with the chat open, pressing a card's row scrolls the chat to that card's first open ask; when the chat is closed or has no such ask, it opens the card as before.
+
 ## 10. Acceptance
 
 - A dispatcher token can write to any live project; an archived project is refused with `PROJECT_ARCHIVED` and nothing is written; a token from a replaced dispatcher is refused.
@@ -146,3 +176,7 @@ On every write the list is pruned: asks answered or dismissed more than 7 days a
 - Items are capped at 500; answered or dismissed asks older than 7 days are dropped.
 - `dispatcher.tail` refuses every session except the stored dispatcher; `sessions.tail` still refuses sessions outside the card's workspace.
 - A host without background workspaces shows the `HOST_UNSUPPORTED` message in the panel.
+- The bell's count equals the open asks from `asksFrom`; dismissing one ask in the chat lowers it by one.
+- Answering an AskUserQuestion responds through Paseo's permission API; a question report's answer is exactly the user's text.
+- An ask already resolved in the session, or answered before, is not answered again; a request of another session is never answered; a permission is never allowed without the user's choice.
+- An ended session gives `session_ended` and no tick; a deleted card's asks disappear.

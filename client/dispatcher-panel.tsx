@@ -16,6 +16,7 @@ import { useKeyboardInset } from "./keyboard";
 import { dispatcherItemsKey, useDispatcherItemsQuery } from "./queries";
 import { useStableCallback } from "./stable";
 import { displayRows, mergeTimeline, sameItem, type DisplayRow } from "./dispatcher-panel-logic";
+import { AnswerRow, AskRow } from "./dispatcher-asks";
 
 /** The dispatcher chat next to the board (DISPATCHER-SPEC §9.3). */
 
@@ -34,9 +35,11 @@ type Props = {
   laneOf(projectId: string, status: string): string;
   onOpenCard(taskId: string): void;
   onClose(): void;
+  /** The bell's jump to an ask (§9.4): scroll to its row and outline it; a new `key` jumps again. */
+  focus?: { signal: string; key: number } | null;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, onOpenCard, onClose }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, onOpenCard, onClose, focus }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -89,10 +92,25 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, 
       setStarting(false);
     }
   });
-  const refreshItems = useStableCallback(() => void client.invalidateQueries({ queryKey: dispatcherItemsKey }));
+  const refreshItems = useStableCallback(() => {
+    void client.invalidateQueries({ queryKey: dispatcherItemsKey });
+    void client.invalidateQueries({ queryKey: ["flowly", "attention-count"] });
+  });
+  // An answer row is addressed to its card: the title comes from the ask it answers.
+  const askTitles = useMemo(() => new Map((items.data ?? []).flatMap((item) => (item.kind === "ask" ? [[item.signal, item.title] as const] : []))), [items.data]);
 
   // Follow the newest output unless the user scrolled up.
-  const scroll = useRef<{ scrollToEnd(options?: { animated?: boolean }): void } | null>(null);
+  const scroll = useRef<{ scrollToEnd(options?: { animated?: boolean }): void; scrollTo(options: { y: number; animated?: boolean }): void } | null>(null);
+  // Row offsets, for the bell's jump to an ask.
+  const offsets = useRef(new Map<string, number>());
+  const focusedKey = focus ? `item-ask-${focus.signal}` : "";
+  useEffect(() => {
+    if (!focusedKey) return;
+    const y = offsets.current.get(focusedKey);
+    if (y === undefined) return;
+    following.current = false;
+    scroll.current?.scrollTo({ y: Math.max(0, y - space[3]), animated: true });
+  }, [focus?.key, focusedKey, rows]);
   const following = useRef(true);
   const onScroll = useStableCallback((e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
@@ -110,10 +128,14 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, 
         )
       ) : row.kind === "summary" ? (
         <SummaryRow />
+      ) : row.item.kind === "ask" ? (
+        <AskRow item={row.item} focused={row.key === focusedKey} onOpenCard={onOpenCard} onChanged={refreshItems} />
+      ) : row.item.kind === "answer" ? (
+        <AnswerRow item={row.item} title={askTitles.get(row.item.signal) ?? ""} onOpenCard={onOpenCard} />
       ) : (
         <ItemRow item={row.item} laneOf={laneOf} onOpenCard={onOpenCard} onChanged={refreshItems} />
       ),
-    [state, lastKey, agentId, laneOf, onOpenCard, refreshItems],
+    [state, lastKey, agentId, laneOf, onOpenCard, refreshItems, focusedKey, askTitles],
   );
 
   return (
@@ -144,7 +166,9 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, laneOf, 
           </View>
         )}
         {rows.map((row) => (
-          <View key={row.key}>{renderRow(row)}</View>
+          <View key={row.key} onLayout={row.kind === "item" && row.item.kind === "ask" ? (e) => void offsets.current.set(row.key, e.nativeEvent.layout.y) : undefined}>
+            {renderRow(row)}
+          </View>
         ))}
         {status.isPending && visible && <ActivityIndicator size="small" color={colors.foregroundMuted} />}
         {!!status.error && <Notice>{message(status.error)}</Notice>}
@@ -267,7 +291,7 @@ const ItemRow = memo(function ItemRow({ item, laneOf, onOpenCard, onChanged }: {
       </Pressable>
     );
   }
-  // Asks and answers get their buttons and states with asks in the chat; until then, one line each.
+  // Asks and answers render as AskRow / AnswerRow (dispatcher-asks.tsx); this one line is only a fallback.
   return (
     <Pressable accessibilityRole="button" onPress={() => onOpenCard(item.taskId)} style={{ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
       <Icon name={item.kind === "ask" ? "MessageCircleQuestion" : "Reply"} size={12} color={colors.foregroundMuted} />

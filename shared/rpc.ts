@@ -42,7 +42,7 @@ import {
   eventSchema,
   planSnapshotSchema,
 } from "./model";
-import { healthSchema, preparationSchema, projectIdeaInputSchema } from "./tools";
+import { healthSchema, preparationSchema, projectIdeaInputSchema, startCardResultSchema } from "./tools";
 import { connectionInput, connectionSchema, externalSummarySchema, itemTypeSchema } from "./connectors";
 import { linearBoardRowSchema, linearTeamSchema } from "./linear-board";
 import { composerStateSchema, composerTarget, maxImages, outgoingImageSchema, queuedMessageSchema } from "./composer";
@@ -62,7 +62,17 @@ import { localeCodes } from "./i18n";
 import { workflowOverviewSchema, workflowViewSchema } from "./workflow-insights";
 import { cardTokensSchema, insightsViewSchema } from "./workflow-stats";
 import { dayDetailSchema } from "./day-detail";
-import { chatItemSchema, dispatcherStartInputSchema, dispatcherStartResultSchema, dispatcherStatusSchema, seenIdLimit } from "./dispatcher";
+import {
+  askAnswerInputSchema,
+  askAnswerResultSchema,
+  askDismissInputSchema,
+  chatItemSchema,
+  dispatcherStartInputSchema,
+  dispatcherStartResultSchema,
+  dispatcherStatusSchema,
+  seenIdLimit,
+  startAgainInputSchema,
+} from "./dispatcher";
 
 /** `{ etag }` in; the value is omitted when it still matches (PERFORMANCE-SPEC §3). */
 const etagInput = z.strictObject({ etag: z.string().max(200).optional() });
@@ -1013,6 +1023,12 @@ export const dispatcherMarkSeen = defineRpc({
 });
 /** "What should I do?" with the changed cards, sent to the dispatcher (DISPATCHER-SPEC §9.2). */
 export const dispatcherWhatNext = defineRpc({ name: "dispatcher.what-next", input: z.strictObject({}), output: z.strictObject({ sent: z.literal(true) }) });
+/** Answers one ask from the chat, re-checked against its session; `delivered` only after the Paseo call resolved (DISPATCHER-SPEC §9.4). */
+export const asksAnswer = defineRpc({ name: "asks.answer", input: askAnswerInputSchema, output: askAnswerResultSchema });
+/** Dismisses one ask: its signal joins the card's dismissal set (ATTENTION-DISMISS-SPEC §7a). */
+export const asksDismiss = defineRpc({ name: "asks.dismiss", input: askDismissInputSchema, output: z.strictObject({ taskId: z.string() }) });
+/** Start again on an ended ask: the flowly_start_card path, started by the user (DISPATCHER-SPEC §9.4). */
+export const startAgain = defineRpc({ name: "tasks.start-again", input: startAgainInputSchema, output: startCardResultSchema });
 
 /** Whether telemetry is forced off on the daemon's host by DO_NOT_TRACK / FLOWLY_TELEMETRY=0 / NODE_ENV=test, or by a build without a PostHog key (`builtOff`) (TELEMETRY-SPEC §5, §6). */
 export const telemetryStatus = defineRpc({ name: "telemetry.status", input: z.strictObject({}), output: z.object({ forcedOff: z.boolean(), builtOff: z.boolean().default(false) }) });

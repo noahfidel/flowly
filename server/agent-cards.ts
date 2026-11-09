@@ -20,7 +20,8 @@ import { digest } from "./tool-context";
 import { ToolError } from "./tool-error";
 
 /** Who calls a card tool: a card session (its card is `taskId`) or a session outside cards (AGENT-CARDS-SPEC §2). */
-export type CardCaller = { agentId: string; projectId: string; taskId?: string };
+/** Who calls a card tool; `human` is the user's own Start again from the dispatcher chat (DISPATCHER-SPEC §9.4). */
+export type CardCaller = { agentId: string; projectId: string; taskId?: string; human?: true };
 
 const hour = 3600000;
 

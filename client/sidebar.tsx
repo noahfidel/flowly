@@ -42,7 +42,7 @@ function SidebarEntryRow({ currentScreen, openScreen, theme }: PluginSidebarItem
           <Theme.Provider value={theme}>
             <Pressable style={noFocusRing}
               accessibilityRole="button"
-              accessibilityLabel={tn(count ?? 0, "Open Needs attention, {text} card", "Open Needs attention, {text} cards", { text })}
+              accessibilityLabel={tn(count ?? 0, "Open Needs attention, {text} item", "Open Needs attention, {text} items", { text })}
               hitSlop={10}
               onPress={() =>
                 openScreen({

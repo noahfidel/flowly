@@ -14,16 +14,25 @@ function latest(events: readonly BoardEvent[], test: (e: BoardEvent) => boolean)
   return undefined;
 }
 
-/** The session's question awaiting a reply: asked after its latest turn start and not followed by another report. */
-export function openQuestion(
+/**
+ * The session's question (or blocker) awaiting the user: its latest report, of that kind, made after its
+ * latest turn start. It stays open until the session's next turn starts or it reports again.
+ */
+export function openReport(
   events: readonly BoardEvent[],
   agentId: string,
+  kind: "question" | "blocker",
 ): BoardEvent | null {
   const mine = events.filter((e) => e.agentId === agentId);
   const report = latest(mine, isReport);
-  if (!report || report.reportKind !== "question") return null;
+  if (!report || report.reportKind !== kind) return null;
   const started = latest(mine, (e) => e.action === "agent.turn_started");
   return !started || started.at <= report.at ? report : null;
+}
+
+/** The session's question awaiting a reply: asked after its latest turn start and not followed by another report. */
+export function openQuestion(events: readonly BoardEvent[], agentId: string): BoardEvent | null {
+  return openReport(events, agentId, "question");
 }
 
 /** The session's latest turn ended while the card was in a work stage without any Kanban report. */

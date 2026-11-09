@@ -8,7 +8,14 @@ import type { StorageStatus } from "../shared/storage";
 import { ideaTitleKey } from "../shared/ideas";
 import { otherEnd, relationLabels, relationOf, touches } from "../shared/links";
 import { changeTags, mergeTagEdit, normalizeTags, tagChangeNote } from "../shared/tags";
-import { attentionDismissLimits, dismissalSignals, type AttentionDismissInput, type AttentionRestoreInput } from "../shared/attention-dismiss";
+import {
+  addDismissedSignal,
+  attentionDismissalSchema,
+  attentionDismissLimits,
+  dismissalSignals,
+  type AttentionDismissInput,
+  type AttentionRestoreInput,
+} from "../shared/attention-dismiss";
 import type { FlowLog } from "./flow-log";
 import { linearTeamValue } from "../shared/linear-ticket";
 import type { ProjectSnapshot } from "./project-folder";
@@ -526,6 +533,27 @@ export class BoardStore {
       if (others.length >= attentionDismissLimits.records)
         throw new Error(`Attention already has ${attentionDismissLimits.records} dismissed cards.`);
       const record = { taskId: task.id, signals, dismissedAt: new Date().toISOString() };
+      board.attentionDismissals = [...others, record];
+      return { value: record, changed: true };
+    });
+  }
+  /**
+   * Dismisses one signal (one ask) of a card: adds it to the card's set, keeping every key already there;
+   * `current` is the card's signals now, so only stale keys make room in a full set (ATTENTION-DISMISS-SPEC §7a).
+   */
+  dismissAttentionSignal(input: { taskId: string; signal: string; current: readonly string[] }) {
+    return this.transaction((board) => {
+      const task = board.tasks.find((t) => t.id === input.taskId);
+      const project = task && board.projects.find((p) => p.id === task.projectId);
+      if (!task) throw new Error("Task not found.");
+      if (task.archivedAt || !project || project.archivedAt) throw new Error("The card or its project is archived.");
+      const current = board.attentionDismissals.find((d) => d.taskId === task.id);
+      if (current?.signals.includes(input.signal)) return { value: current, changed: false };
+      const others = board.attentionDismissals.filter((d) => d.taskId !== task.id);
+      if (!current && others.length >= attentionDismissLimits.records)
+        throw new Error(`Attention already has ${attentionDismissLimits.records} dismissed cards.`);
+      const signals = addDismissedSignal(current?.signals ?? [], input.signal, input.current);
+      const record = attentionDismissalSchema.parse({ taskId: task.id, signals, dismissedAt: new Date().toISOString() });
       board.attentionDismissals = [...others, record];
       return { value: record, changed: true };
     });

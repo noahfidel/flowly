@@ -8,6 +8,8 @@ export const sessionFactsSchema = z.strictObject({
   agentId: z.string(),
   latestTurn: z.strictObject({ action: z.enum(["agent.turn_started", "agent.turn_ended"]), at: z.string() }).optional(),
   questionEventId: z.string().nullable(),
+  /** The session's open blocker report (ATTENTION-DISMISS-SPEC §7a). */
+  blockerEventId: z.string().nullable(),
   silent: z.boolean(),
   hadTurnEnd: z.boolean(),
 });

@@ -122,7 +122,8 @@ export class CardStarter {
   }
 
   private async run(caller: CardCaller, input: ReturnType<typeof startCardInputSchema.parse>, paseo: PaseoApi): Promise<StartCardResult> {
-    await this.cards.enabled();
+    // The user's own Start again is not an agent creating work: no agent-cards switch, no hourly limit.
+    if (!caller.human) await this.cards.enabled();
     const board = await this.store.read();
     const project = board.projects.find((p) => p.id === caller.projectId);
     if (!project) throw new ToolError("NOT_FOUND", "The Flowly project was removed.");
@@ -156,7 +157,7 @@ export class CardStarter {
         );
       request = await this.worktreeRequest(task, project, board, operationId);
     }
-    const release = this.cards.reserve(caller.agentId);
+    const release = caller.human ? () => undefined : this.cards.reserve(caller.agentId);
     try {
       const model = await this.model(project, board, paseo);
       let workspaceId = task.workspaceId;
@@ -291,7 +292,12 @@ export class CardStarter {
         t.ownsWorkspace = true;
         t.revision++;
         t.updatedAt = now;
-        this.store.event(board, { taskId: t.id, actor: "agent", agentId: caller.agentId, action: "workspace_switched", note: `directory → worktree ${branch}` });
+        this.store.event(board, {
+          taskId: t.id,
+          ...(caller.human ? { actor: "human" as const } : { actor: "agent" as const, agentId: caller.agentId }),
+          action: "workspace_switched",
+          note: `directory → worktree ${branch}`,
+        });
         // Live or archived, current or earlier: a workspace another card refers to is never archived (§4.3).
         return board.tasks.some((x) => x.id !== t.id && cardWorkspaceIds(x).includes(old));
       });

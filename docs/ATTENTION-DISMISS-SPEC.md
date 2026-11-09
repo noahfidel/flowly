@@ -102,6 +102,16 @@ attentionDismissals: [{
 - `npm run typecheck`、`npm test` 通过。
 - UI（安装 reload 后在非全屏窗口）：列表 Dismiss → 计数立即减少、toast 出现；Dismissed 分组可 Restore；卡片与侧栏仍显示信号和 Dismissed 标记；新的一轮结果让卡片回到列表；手机弹层同样可用。无法安全绑定窗口时记 UNRUN。
 
+## 7a. 按 ask 计数与单条 dismiss（2026-11-08，单窗格计划 Q1、Q5）
+
+本节修改上文 §2.1、§2.2、§3.2、§5；其余规则不变。
+
+- **Blocker 进入 Attention（Q5）**：session 最新的 Kanban 报告是 `blocker` 且之后没有新的一轮开始时，记为信号 `b:<eventId>`，和提问一样直到该 session 的下一轮开始才消失。列表行详情显示 `{n} blocker(s)`，行的圆点与提问同色。
+- **一个信号就是一个 ask**：`asksFrom(board, agents, receipts, dismissals)`（`shared/attention.ts`）把每个信号变成一个 ask，状态为 `open`，或该信号在这张卡的 dismissal 集合里时为 `dismissed`。铃铛角标、侧边栏角标（`attention.count`）都改为统计 **open 的 ask 数**，不再统计卡片数；Dispatcher 聊天里的 ask 来自同一个函数（DISPATCHER-SPEC §9.4）。列表仍按卡片分组，每卡一行。
+- **单条 dismiss**：`asks.dismiss { signal }` 只把这一个 key 加入该卡已有的 dismissal 集合（没有记录时新建），已有的 key 全部保留；超过 100 个时先丢掉已不再是当前信号的最旧 key，仍超限则报错。卡片级 Dismiss（`attention.dismiss`）照旧用该卡当前全部信号替换集合，所以聊天里这张卡的全部 ask 也变成 dismissed。
+- **计数口径**：卡片的当前信号全部在集合里时整行隐藏（规则同 §2.3）；有新 key 时整行回来、显示全部当前信号，但计数只算不在集合里的那些 ask。
+- 存储格式不变：旧的 `attentionDismissals` 记录照常读取；旧集合里没有 `b:` key，所以已 dismiss 的卡若有未解决的 blocker 会回到 Attention 一次。
+
 ## 8. 可能的扩展（不在本次范围）
 
 - 定时 snooze（1 小时 / 明天上午），到点后即使没有新情况也回到 Attention。

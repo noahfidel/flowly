@@ -2,7 +2,7 @@ import type { z } from "zod";
 import type { boardSchema, BoardEvent } from "../shared/model";
 import type { BoardOverview, SessionFacts } from "../shared/overview";
 import { currentWrapup } from "../shared/wrapup-state";
-import { cardQuestions, openQuestion, silentTurn } from "../shared/progress";
+import { cardQuestions, openQuestion, openReport, silentTurn } from "../shared/progress";
 import { workpadSignal } from "../shared/workpad";
 import { hasOpenNextMoves } from "../shared/next-moves";
 import { faceKey, familyOf } from "../shared/connectors";
@@ -29,6 +29,7 @@ export function boardOverview(board: Board): BoardOverview {
         agentId,
         ...(turn ? { latestTurn: { action: turn.action as "agent.turn_started" | "agent.turn_ended", at: turn.at } } : {}),
         questionEventId: openQuestion(own, agentId)?.id ?? null,
+        blockerEventId: openReport(own, agentId, "blocker")?.id ?? null,
         silent: silentTurn(task, own, agentId),
         hadTurnEnd: mine.some(e => e.action === "agent.turn_ended"),
       };

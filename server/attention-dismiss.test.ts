@@ -71,3 +71,36 @@ test("boards written before dismissals read as none", async () => {
   const fresh = new BoardStore(store.directory);
   expect((await fresh.read()).attentionDismissals).toEqual([]);
 });
+
+test("dismissing one signal adds it to the card's set and keeps every key already there", async () => {
+  const { store } = await setup();
+  // A set written before single-signal dismissal still loads and is extended, not replaced.
+  await store.dismissAttention({ taskId: "t", signals: ["u:a", "q:e1"] });
+  const record = await store.dismissAttentionSignal({ taskId: "t", signal: "p:s:r1", current: ["q:e1", "p:s:r1"] });
+  expect(record.signals).toEqual(["u:a", "q:e1", "p:s:r1"]);
+  const after = await store.read();
+  expect(after.attentionDismissals).toEqual([record]);
+  // Again: unchanged, nothing written.
+  const bytes = await readFile(store.path, "utf8");
+  expect(await store.dismissAttentionSignal({ taskId: "t", signal: "p:s:r1", current: [] })).toEqual(record);
+  expect(await readFile(store.path, "utf8")).toBe(bytes);
+  // No record yet: a new one with that one key.
+  await store.restoreAttention({ taskId: "t" });
+  expect((await store.dismissAttentionSignal({ taskId: "t", signal: "b:e2", current: ["b:e2"] })).signals).toEqual(["b:e2"]);
+  await expect(store.dismissAttentionSignal({ taskId: "missing", signal: "b:e2", current: [] })).rejects.toThrow("Task not found");
+});
+
+test("a full set drops only its oldest keys that are no longer current", async () => {
+  const { store } = await setup();
+  const old = Array.from({ length: 100 }, (_, i) => `u:old${i}`);
+  await store.dismissAttention({ taskId: "t", signals: old });
+  const record = await store.dismissAttentionSignal({ taskId: "t", signal: "q:new", current: ["u:old0", "q:new"] });
+  expect(record.signals).toHaveLength(100);
+  expect(record.signals).toContain("u:old0");
+  expect(record.signals).not.toContain("u:old1");
+  expect(record.signals.at(-1)).toBe("q:new");
+  // Every key still current and no room: refused rather than losing one.
+  await store.dismissAttention({ taskId: "t", signals: old });
+  await expect(store.dismissAttentionSignal({ taskId: "t", signal: "q:new", current: [...old, "q:new"] })).rejects.toThrow();
+  expect((await store.read()).attentionDismissals[0].signals).toEqual(old);
+});

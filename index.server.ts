@@ -66,6 +66,7 @@ import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server
 import { EventBus, commitHandler } from "./server/event-bus";
 import { wireDispatcher } from "./server/dispatcher";
 import { ChangeLineCache, DispatcherItems, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
+import { DispatcherAsks } from "./server/dispatcher-asks";
 
 export default function contribute(host: PluginServerContext) {
   const server = reportRpcErrors(host);
@@ -390,9 +391,19 @@ export default function contribute(host: PluginServerContext) {
     const [board, record] = await Promise.all([store.read(), tools.dispatcher.record()]);
     return changes.get(board, seenMark(record), record.agentId);
   };
-  server.handle(rpc.dispatcherItemsChanged, async ({ etag }) => {
-    const [items, change] = await Promise.all([chatItems.list(), currentChange()]);
+  // Asks (DISPATCHER-SPEC §9.4): one source with the bell; answered on the daemon after a fresh check.
+  const asks = new DispatcherAsks({ store, reads: sessionReads, items: chatItems });
+  server.handle(rpc.dispatcherItemsChanged, async ({ etag }, { paseo }) => {
+    const [items, change] = await Promise.all([chatItems.list().then((stored) => asks.chatItems(stored, paseo)), currentChange()]);
     return ifChanged(change ? [...items, change] : items, etag);
+  });
+  server.handle(rpc.asksAnswer, (input, { paseo }) => asks.answer(input, paseo));
+  server.handle(rpc.asksDismiss, (input, { paseo }) => asks.dismiss(input, paseo));
+  server.handle(rpc.startAgain, async (input, { paseo }) => {
+    tools.attach(paseo);
+    const task = (await store.read()).tasks.find((t) => t.id === input.taskId);
+    if (!task) throw new Error("Task not found.");
+    return tools.starter.start({ agentId: "user", projectId: task.projectId, human: true }, { taskId: task.id, idempotencyKey: input.idempotencyKey }, paseo);
   });
   server.handle(rpc.dispatcherTail, (input, { paseo }) => tails.dispatcherTail(input, paseo));
   server.handle(rpc.dispatcherMarkSeen, async ({ revision, ids }) => ({ seenRevision: await tools.dispatcher.markSeen(revision, ids) }));

@@ -1,0 +1,284 @@
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { PaseoApi } from "@getpaseo/client";
+import type { Board } from "../shared/model";
+import { asksFrom, openAskCount, attentionFromSources } from "../shared/attention";
+import { askAnswerInputSchema } from "../shared/dispatcher";
+import { readAttentionCount } from "./attention-count";
+import { DispatcherAsks } from "./dispatcher-asks";
+import { DispatcherItems } from "./dispatcher-items";
+
+const at = "2026-11-08T10:00:00.000Z";
+const later = "2026-11-08T10:05:00.000Z";
+const project = { id: "p", title: "P", archivedAt: null };
+const task = (id: string) => ({ id, projectId: "p", workspaceId: `w-${id}`, title: `Card ${id}`, status: "development", archivedAt: null });
+const report = (id: string, taskId: string, agentId: string, kind: "question" | "blocker", note: string, when = at) => ({
+  id, taskId, agentId, actor: "agent", action: "progress_reported", reportKind: kind, note, at: when,
+});
+const askUser = {
+  id: "r1",
+  kind: "question",
+  input: { questions: [{ question: "Which database?", header: "DB", options: [{ label: "Postgres" }, { label: "SQLite" }], multiSelect: false }] },
+};
+const tool = { id: "r2", kind: "tool", name: "Bash", title: "git push origin feat", actions: [{ id: "deny", label: "Deny", behavior: "deny" }, { id: "allow-once", label: "Allow once", behavior: "allow" }] };
+type Agent = { id: string; workspaceId: string; status: "idle" | "running" | "closed"; archivedAt: string | null; pendingPermissions?: unknown[]; [k: string]: unknown };
+const agent = (id: string, workspaceId: string, extra: Partial<Agent> = {}): Agent => ({ id, workspaceId, status: "idle", archivedAt: null, updatedAt: at, ...extra });
+
+let dir = "";
+let fixtures = 0;
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), "flowly-asks-"));
+});
+afterEach(async () => {
+  await rm(dir, { recursive: true, force: true });
+});
+
+function fixture(boardValue: Board, agentList: Agent[]) {
+  let board = boardValue;
+  let agents = agentList;
+  const respond = vi.fn(async (_agentId: string, _options: unknown) => undefined);
+  const send = vi.fn(async (_agentId: string, _text: string, _options?: unknown) => undefined);
+  const paseo = {
+    agents: {
+      list: vi.fn(async () => ({ entries: agents.map((a) => ({ agent: a })), pageInfo: {} })),
+      ref: (id: string) => ({
+        refresh: async () => {
+          const found = agents.find((a) => a.id === id);
+          return found ? { agent: found } : null;
+        },
+        respondToPermission: (options: unknown) => respond(id, options),
+        send: (text: string, options?: unknown) => send(id, text, options),
+      }),
+    },
+  } as unknown as PaseoApi;
+  const dismissals: { taskId: string; signals: string[]; current: string[] }[] = [];
+  const store = {
+    read: vi.fn(async () => board),
+    dismissAttentionSignal: vi.fn(async (input: { taskId: string; signal: string; current: readonly string[] }) => {
+      const record = board.attentionDismissals.find((d) => d.taskId === input.taskId);
+      const signals = [...new Set([...(record?.signals ?? []), input.signal])];
+      dismissals.push({ taskId: input.taskId, signals, current: [...input.current] });
+      board = { ...board, attentionDismissals: [...board.attentionDismissals.filter((d) => d.taskId !== input.taskId), { taskId: input.taskId, signals, dismissedAt: at }] };
+      return board.attentionDismissals.at(-1)!;
+    }),
+  };
+  const reads = { read: vi.fn(async () => ({ version: 1 as const, receipts: [] })) };
+  // Each fixture its own chat file, even several in one test.
+  const items = new DispatcherItems(join(dir, `f${++fixtures}`), { now: () => Date.parse(later) });
+  const asks = new DispatcherAsks({ store, reads, items, now: () => new Date(later) });
+  return {
+    paseo, respond, send, store, reads, items, asks, dismissals,
+    get board() {
+      return board;
+    },
+    setBoard(next: Board) {
+      board = next;
+    },
+    setAgents(next: Agent[]) {
+      agents = next;
+    },
+  };
+}
+
+const baseBoard = (extra: Partial<Board> = {}) =>
+  ({
+    projects: [project],
+    tasks: [task("a"), task("b"), task("c")],
+    events: [report("e1", "a", "s1", "question", "Postgres or SQLite?"), report("e2", "c", "s3", "blocker", "CI is red on main")],
+    attentionDismissals: [],
+    ...extra,
+  }) as unknown as Board;
+const baseAgents = () => [
+  agent("s1", "w-a", { requiresAttention: true, attentionReason: "finished", attentionTimestamp: at }),
+  agent("s2", "w-b", { pendingPermissions: [askUser, tool], requiresAttention: true, attentionReason: "permission", attentionTimestamp: at }),
+  agent("s3", "w-c"),
+];
+
+const answer = (f: ReturnType<typeof fixture>, signal: string, value: { optionIds?: string[]; text?: string; allow?: boolean }) =>
+  f.asks.answer({ signal, answer: value }, f.paseo);
+
+test("bell and chat read the same asks", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  const asks = asksFrom(f.board, baseAgents(), [], f.board.attentionDismissals);
+  // A question report, an unread turn, an AskUserQuestion, a tool permission, a blocker report (plan Q5).
+  expect(asks.map((a) => [a.signal, a.kind]).sort()).toEqual(
+    [
+      ["b:e2", "blocker_report"],
+      ["p:s2:r1", "ask_user"],
+      ["p:s2:r2", "permission"],
+      ["q:e1", "question_report"],
+      [`u:${JSON.stringify(["s1", "finished", at])}`, "unread"],
+    ].sort(),
+  );
+  const open = asks.filter((a) => a.state === "open").length;
+  const bell = await readAttentionCount(f.store, f.reads, f.paseo);
+  const chat = (await f.asks.chatItems([], f.paseo)).filter((i) => i.kind === "ask" && i.state === "open");
+  expect(bell.count).toBe(open);
+  expect(chat).toHaveLength(open);
+  expect(openAskCount(attentionFromSources({ board: f.board, agents: baseAgents(), receipts: [], readUnavailable: false })!)).toBe(open);
+  // The chat row carries what its buttons need.
+  const ask = (await f.asks.chatItems([], f.paseo)).find((i) => i.kind === "ask" && i.signal === "p:s2:r1");
+  expect(ask).toMatchObject({ askKind: "ask_user", agentId: "s2", detail: "Which database?", options: [{ id: "q0o0", label: "Postgres" }, { id: "q0o1", label: "SQLite" }] });
+});
+
+test("answering an AskUserQuestion responds through the permission API", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  expect(await answer(f, "p:s2:r1", { optionIds: ["q0o1"] })).toEqual({ delivered: true, state: "answered" });
+  expect(f.respond).toHaveBeenCalledTimes(1);
+  expect(f.respond).toHaveBeenCalledWith("s2", {
+    requestId: "r1",
+    response: { behavior: "allow", updatedInput: { ...askUser.input, answers: { DB: "SQLite" } } },
+  });
+  expect(f.send).not.toHaveBeenCalled();
+  const stored = await f.items.list();
+  expect(stored.find((i) => i.kind === "ask")).toMatchObject({ signal: "p:s2:r1", state: "answered", taskId: "b" });
+  expect(stored.find((i) => i.kind === "answer")).toMatchObject({ signal: "p:s2:r1", taskId: "b", text: "SQLite", delivered: true });
+});
+
+test("a permission is answered only with the user's explicit choice, never auto-allowed", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  // No choice: refused, nothing sent.
+  await expect(answer(f, "p:s2:r2", {})).rejects.toThrow();
+  // A bare allow cannot pick one of the provider's actions.
+  await expect(answer(f, "p:s2:r2", { allow: true })).rejects.toThrow();
+  // A client claiming allow for the deny action is refused: the behavior comes from the request.
+  await expect(answer(f, "p:s2:r2", { optionIds: ["a0"], allow: true })).rejects.toThrow();
+  expect(f.respond).not.toHaveBeenCalled();
+  expect(await answer(f, "p:s2:r2", { optionIds: ["a1"] })).toEqual({ delivered: true, state: "answered" });
+  expect(f.respond).toHaveBeenCalledWith("s2", { requestId: "r2", response: { behavior: "allow", selectedActionId: "allow-once" } });
+  expect((await f.items.list()).find((i) => i.kind === "answer")).toMatchObject({ choice: "allow", text: "Allow once", delivered: true });
+});
+
+test("answering a question report sends exactly the user's text", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  const text = "  Postgres.\n\nKeep the migration small.  ";
+  expect(await answer(f, "q:e1", { text })).toEqual({ delivered: true, state: "answered" });
+  expect(f.send).toHaveBeenCalledTimes(1);
+  expect(f.send.mock.calls[0][0]).toBe("s1");
+  expect(f.send.mock.calls[0][1]).toBe(text);
+  expect(f.send.mock.calls[0][2]).toEqual({ activeTurnBehavior: "steer" });
+  expect(f.respond).not.toHaveBeenCalled();
+  // A blocker report answers the same way.
+  expect(await answer(f, "b:e2", { text: "Rebased; try again." })).toEqual({ delivered: true, state: "answered" });
+  expect(f.send).toHaveBeenLastCalledWith("s3", "Rebased; try again.", { activeTurnBehavior: "steer" });
+  // Blank text is refused.
+  const g = fixture(baseBoard(), baseAgents());
+  await expect(answer(g, "q:e1", { text: "   " })).rejects.toThrow();
+  expect(g.send).not.toHaveBeenCalled();
+});
+
+test("an ask already resolved in the session is not answered twice", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  // Seen by the chat, then answered in the session pane: the request is no longer pending.
+  await f.asks.chatItems([], f.paseo);
+  f.setAgents([baseAgents()[0], agent("s2", "w-b", { pendingPermissions: [tool] }), baseAgents()[2]]);
+  expect(await answer(f, "p:s2:r1", { optionIds: ["q0o0"] })).toEqual({ delivered: false, state: "answered" });
+  expect(f.respond).not.toHaveBeenCalled();
+  expect((await f.items.list()).find((i) => i.kind === "ask")).toMatchObject({ signal: "p:s2:r1", state: "answered", elsewhere: true });
+  // Answered from the chat, then replayed: no second call, even while the request still looks pending.
+  const g = fixture(baseBoard(), baseAgents());
+  await answer(g, "p:s2:r2", { optionIds: ["a1"] });
+  expect(await answer(g, "p:s2:r2", { optionIds: ["a1"] })).toEqual({ delivered: false, state: "answered" });
+  await answer(g, "q:e1", { text: "Postgres" });
+  expect(await answer(g, "q:e1", { text: "Postgres" })).toEqual({ delivered: false, state: "answered" });
+  expect(g.respond).toHaveBeenCalledTimes(1);
+  expect(g.send).toHaveBeenCalledTimes(1);
+  // Two answers at once: one call.
+  const h = fixture(baseBoard(), baseAgents());
+  const both = await Promise.all([answer(h, "q:e1", { text: "a" }), answer(h, "q:e1", { text: "b" })]);
+  expect(both.map((r) => r.delivered).sort()).toEqual([false, true]);
+  expect(h.send).toHaveBeenCalledTimes(1);
+});
+
+test("a request of a session outside the card's workspace is never answered", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  await f.asks.chatItems([], f.paseo);
+  // Listed in the card's workspace, but the fresh read shows it moved elsewhere.
+  const moved = agent("s2", "w-other", { pendingPermissions: [askUser, tool] });
+  const listed = baseAgents();
+  const paseo = {
+    agents: {
+      list: async () => ({ entries: listed.map((a) => ({ agent: a })), pageInfo: {} }),
+      ref: (id: string) => ({
+        refresh: async () => ({ agent: id === "s2" ? moved : listed.find((a) => a.id === id) }),
+        respondToPermission: (o: unknown) => f.respond(id, o),
+        send: (t: string, o?: unknown) => f.send(id, t, o),
+      }),
+    },
+  } as unknown as PaseoApi;
+  await expect(f.asks.answer({ signal: "p:s2:r2", answer: { optionIds: ["a1"] } }, paseo)).rejects.toThrow();
+  expect(f.respond).not.toHaveBeenCalled();
+  expect((await f.items.list()).filter((i) => i.kind === "answer")).toEqual([]);
+});
+
+test("an ended session shows session ended and no tick", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  const live = baseAgents();
+  // Listed while it still waited; the fresh read finds it closed.
+  const paseo = {
+    agents: {
+      list: async () => ({ entries: live.map((a) => ({ agent: a })), pageInfo: {} }),
+      ref: (id: string) => ({
+        refresh: async () => ({ agent: id === "s1" ? { ...live[0], status: "closed" } : live.find((a) => a.id === id) }),
+        respondToPermission: (o: unknown) => f.respond(id, o),
+        send: (t: string, o?: unknown) => f.send(id, t, o),
+      }),
+    },
+  } as unknown as PaseoApi;
+  expect(await f.asks.answer({ signal: "q:e1", answer: { text: "Postgres" } }, paseo)).toEqual({ delivered: false, state: "session_ended" });
+  expect(f.send).not.toHaveBeenCalled();
+  const stored = await f.items.list();
+  expect(stored.find((i) => i.kind === "ask")).toMatchObject({ signal: "q:e1", state: "session_ended" });
+  expect(stored.some((i) => i.kind === "answer")).toBe(false);
+  // The stored state wins over the live ask in the chat, and a retry stays ended.
+  const items = await f.asks.chatItems(stored, f.paseo);
+  expect(items.filter((i) => i.kind === "ask" && i.signal === "q:e1").map((i) => i.kind === "ask" && i.state)).toEqual(["session_ended"]);
+  expect(await answer(f, "q:e1", { text: "Postgres" })).toEqual({ delivered: false, state: "session_ended" });
+  expect(f.send).not.toHaveBeenCalled();
+  // An archived session ends the ask too, and a failed call records nothing.
+  const g = fixture(baseBoard(), baseAgents());
+  g.send.mockRejectedValueOnce(new Error("socket closed"));
+  await expect(answer(g, "q:e1", { text: "Postgres" })).rejects.toThrow("socket closed");
+  expect(await g.items.list()).toEqual([]);
+});
+
+test("a deleted card's asks disappear", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  await answer(f, "p:s2:r2", { optionIds: ["a1"] });
+  await f.asks.chatItems([], f.paseo);
+  f.setBoard(baseBoard({ tasks: [task("a"), task("c")] as never, events: [report("e1", "a", "s1", "question", "?"), report("e2", "c", "s3", "blocker", "x")] as never }));
+  const stored = await f.items.list();
+  expect(stored.some((i) => i.kind !== "note" && i.taskId === "b")).toBe(true);
+  const items = await f.asks.chatItems(stored, f.paseo);
+  expect(items.filter((i) => (i.kind === "ask" || i.kind === "answer") && i.taskId === "b")).toEqual([]);
+  // Its live asks went with it, and answering one fails instead of reaching the session.
+  await expect(answer(f, "p:s2:r1", { optionIds: ["q0o0"] })).rejects.toThrow("The card was deleted.");
+  expect(f.respond).toHaveBeenCalledTimes(1);
+});
+
+test("dismissing one ask in the chat clears it from the bell", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  const before = (await readAttentionCount(f.store, f.reads, f.paseo)).count!;
+  expect(await f.asks.dismiss({ signal: "p:s2:r2" }, f.paseo)).toEqual({ taskId: "b" });
+  expect(f.dismissals.at(-1)).toMatchObject({ taskId: "b", current: ["p:s2:r1", "p:s2:r2"] });
+  expect((await readAttentionCount(f.store, f.reads, f.paseo)).count).toBe(before - 1);
+  const items = await f.asks.chatItems([], f.paseo);
+  expect(items.find((i) => i.kind === "ask" && i.signal === "p:s2:r2")).toMatchObject({ state: "dismissed" });
+  expect(items.find((i) => i.kind === "ask" && i.signal === "p:s2:r1")).toMatchObject({ state: "open" });
+  // The card stays in the bell for its other ask; dismissing that too hides the card.
+  expect(attentionFromSources({ board: f.board, agents: baseAgents(), receipts: [], readUnavailable: false })!.map((i) => i.task.id)).toContain("b");
+  await f.asks.dismiss({ signal: "p:s2:r1" }, f.paseo);
+  expect(attentionFromSources({ board: f.board, agents: baseAgents(), receipts: [], readUnavailable: false })!.map((i) => i.task.id)).not.toContain("b");
+  await expect(f.asks.dismiss({ signal: "p:nobody:x" }, f.paseo)).rejects.toThrow();
+});
+
+test("asks.answer input is validated", () => {
+  expect(() => askAnswerInputSchema.parse({ signal: "", answer: {} })).toThrow();
+  expect(() => askAnswerInputSchema.parse({ signal: "q:e1", answer: { text: 1 } })).toThrow();
+  expect(() => askAnswerInputSchema.parse({ signal: "q:e1", answer: {}, extra: true })).toThrow();
+  expect(() => askAnswerInputSchema.parse({ signal: "q:e1", answer: { optionIds: Array(101).fill("a0") } })).toThrow();
+  expect(() => askAnswerInputSchema.parse({ signal: "x".repeat(601), answer: {} })).toThrow();
+  expect(askAnswerInputSchema.parse({ signal: "q:e1", answer: { text: "ok" } })).toEqual({ signal: "q:e1", answer: { text: "ok" } });
+});

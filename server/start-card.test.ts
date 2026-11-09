@@ -510,3 +510,19 @@ test("a Linear branch that exists only on the remote is checked out as a trackin
   expect(x.createdWorkspaces[0].source).toMatchObject({ action: "checkout", refName: "noah/zen-126-remote" });
   expect(git(x.a, "rev-parse", "--abbrev-ref", "noah/zen-126-remote@{upstream}").trim()).toBe("origin/noah/zen-126-remote");
 });
+
+test("the user's Start again takes the same path without the agent switch or limit, and is recorded as the user's", async () => {
+  const x = await setup();
+  const user = { agentId: "user", projectId: x.caller.projectId, human: true as const };
+  await x.card("c", { ownsWorkspace: true });
+  x.turn(false);
+  for (let i = 0; i < agentCardLimits.perHour; i++) x.cards.reserve("user");
+  const started = await x.starter.start(user, { taskId: "c", idempotencyKey: "again-1" }, x.paseo);
+  expect(started).toMatchObject({ taskId: "c", workspaceId: "created-1", replayed: false });
+  expect(x.createdSessions[0].labels).toEqual({ "flowly-task": "c", "flowly-started-by": "user" });
+  const moved = (await x.store.read()).events.filter((e) => e.taskId === "c").at(-1);
+  expect(moved).toMatchObject({ action: "workspace_switched", actor: "human" });
+  expect(moved?.agentId).toBeUndefined();
+  // The same refusals as an agent's start: a live session is not started twice.
+  expect(await x.failure(x.starter.start(user, { taskId: "c", idempotencyKey: "again-2" }, x.paseo))).toBe("CARD_HAS_SESSION");
+});

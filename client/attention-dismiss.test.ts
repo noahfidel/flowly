@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { allAttentionFromSources, attentionFromSources, attentionItems } from "./attention";
+import { allAttentionFromSources, asksFrom, attentionFromSources, attentionItems, openAskCount } from "./attention";
 import { isDismissed, sessionSignalKeys } from "../shared/attention-dismiss";
 
 const now = "2026-10-19T10:00:00.000Z";
@@ -71,4 +71,26 @@ test("a new turn, question, request or error brings the card back; fewer signals
   const b2 = board({ attentionDismissals: [{ taskId: "a", signals: both, dismissedAt: now }] });
   expect(active(b2, two)).toEqual([]);
   expect(active(b2, [two[1]])).toEqual([]);
+});
+
+test("an open blocker report is a signal until the session's next turn starts (plan Q5)", () => {
+  const blocker = { ...question("b1", now), reportKind: "blocker" as const };
+  const items = attentionItems(board({ events: [blocker] }), [agent("s1", "wa")], [], false);
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({ blockers: 1, questions: 0, signals: ["b:b1"] });
+  const started = { id: "t1", taskId: "a", actor: "system" as const, action: "agent.turn_started", agentId: "s1", at: later };
+  expect(attentionItems(board({ events: [blocker, started] }), [agent("s1", "wa")], [], false)).toEqual([]);
+});
+
+test("the count is the open asks: a card's dismissed signals stay out of it when a new one comes", () => {
+  const agents = [agent("s1", "wa", finished())];
+  const signals = attentionItems(board({ events: [question("e1", now)] }), agents, [], false)[0].signals;
+  expect(openAskCount(attentionFromSources({ board: board({ events: [question("e1", now)] }), agents, receipts: [], readUnavailable: false })!)).toBe(2);
+  // One of the two dismissed (single-signal dismissal): the card stays, the count drops by one.
+  const dismissals = [{ taskId: "a", signals: [signals[0]], dismissedAt: now }];
+  const one = { ...board({ events: [question("e1", now)] }), attentionDismissals: dismissals };
+  const listed = attentionFromSources({ board: one, agents, receipts: [], readUnavailable: false })!;
+  expect(listed.map((i) => i.task.id)).toEqual(["a"]);
+  expect(openAskCount(listed)).toBe(1);
+  expect(asksFrom(one, agents, [], one.attentionDismissals).map((a) => a.state).sort()).toEqual(["dismissed", "open"]);
 });

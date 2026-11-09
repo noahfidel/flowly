@@ -54,8 +54,10 @@ import {
   attentionItemsWithFacts,
   attentionOpenToken,
   lastSessionSettings,
+  openAskCount,
   type AttentionItem,
 } from "./attention";
+import type { ChatItem } from "../shared/dispatcher";
 import { relativeTime } from "./ui";
 import { Chevron, Collapse } from "./disclosure";
 import { IdeaRow, useExitList, useHeld } from "./task-ideas";
@@ -67,7 +69,7 @@ import { waitingOn } from "../shared/links";
 import { LinkPicker } from "./task-links";
 import { TaskDrawer } from "./drawer";
 import { DeleteTaskDialog } from "./task-delete";
-import { useOverviewQuery, useLiveAgents, useMemoryCountsQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
+import { dispatcherItemsKey, useOverviewQuery, useLiveAgents, useMemoryCountsQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
 import { projectOpenIdeaCount } from "./overview-query";
 import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
@@ -740,6 +742,8 @@ function BoardContent(
     [projected, agents.data, receipts, readUnavailable, sessionFacts],
   );
   const attention = useMemo(() => allAttention.filter((i) => !i.dismissed), [allAttention]);
+  // The bell counts open asks (plan Q1), as the sidebar badge and the dispatcher chat do; rows stay per card.
+  const attentionCount = useMemo(() => openAskCount(attention), [attention]);
   const dismissedAttention = useMemo(() => allAttention.filter((i) => i.dismissed), [allAttention]);
   const attentionByTask = useMemo(() => new Map(allAttention.map((i) => [i.task.id, i])), [allAttention]);
   const [dismissedOpen, setDismissedOpen] = useState(false);
@@ -807,8 +811,19 @@ function BoardContent(
   }, [surfaceWidth]);
   // Phones: the Needs attention sheet is a Modal; the card and session open once it has closed.
   const afterModalClose = useAfterModalClose();
+  // A bell row's ask to scroll the open dispatcher chat to (DISPATCHER-SPEC §9.4); the key makes each press distinct.
+  const [chatFocus, setChatFocus] = useState<{ signal: string; key: number } | null>(null);
   const openAttention = (item: AttentionItem) => {
     setMenu(null);
+    // With the chat open, a card's first open ask that the chat lists is where the row goes; else the card opens.
+    const listed = chat.open ? queryClient.getQueryData<ChatItem[]>(dispatcherItemsKey) : undefined;
+    const target = listed && item.parts.find((p) => !p.dismissed && listed.some((i) => i.kind === "ask" && i.state === "open" && i.signal === p.key));
+    if (target) {
+      const focus = () => setChatFocus({ signal: target.key, key: Date.now() });
+      if (compact) afterModalClose(focus);
+      else focus();
+      return;
+    }
     const go = () => {
       focusProject(item.project.id);
       setTask(item.task.id);
@@ -1161,7 +1176,7 @@ function BoardContent(
           : { width: 380, flexShrink: 0, minHeight: 0, borderLeftWidth: 1, borderLeftColor: colors.border, display: chat.open ? "flex" : "none" }
       }
     >
-      <DispatcherPanel visible={chat.open} laneOf={chatLaneOf} onOpenCard={openTaskById} onClose={closeChat} />
+      <DispatcherPanel visible={chat.open} laneOf={chatLaneOf} focus={chatFocus} onOpenCard={openTaskById} onClose={closeChat} />
     </View>
   );
   const togglePage = (next: "insights" | "ideas" | "memory" | "search") => {
@@ -1650,6 +1665,7 @@ function BoardContent(
   const attentionDetail = (item: AttentionItem) =>
     `${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
       item.questions && tn(item.questions, "{n} question", "{n} questions"),
+      item.blockers && tn(item.blockers, "{n} blocker", "{n} blockers"),
       item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
       item.errors && tn(item.errors, "{n} error", "{n} errors"),
       item.unread &&
@@ -1675,7 +1691,7 @@ function BoardContent(
               color={
                 item.dismissed
                   ? colors.foregroundMuted
-                  : item.permissions || item.questions
+                  : item.permissions || item.questions || item.blockers
                     ? colors.statusWarning
                     : item.errors
                       ? colors.statusDanger
@@ -1904,7 +1920,7 @@ function BoardContent(
             )}
             <View ref={attentionRef} collapsable={false}>
               <AttentionButton
-                count={attention.length}
+                count={attentionCount}
                 compact={compact}
                 open={!!attentionDropdown}
                 shortcut={shortcutsOn ? "A" : ""}

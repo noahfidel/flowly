@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { askKinds, askStates, attentionDismissLimits } from "./attention-dismiss";
 
 /** Dispatcher contracts shared by the daemon and the client (DISPATCHER-SPEC; the event side is EVENT-BUS-SPEC). */
 
@@ -51,9 +52,33 @@ export const userSendOptions = { activeTurnBehavior: "steer" } as const;
 export const chatItemLimit = 500;
 /** Answered or dismissed asks are kept this long (DISPATCHER-SPEC §9.1). */
 export const resolvedAskMs = 7 * 86_400_000;
-export const chatAskStates = ["open", "answered", "session_ended", "dismissed"] as const;
+export const chatAskStates = askStates;
 const id = z.string().min(1).max(300);
-const itemBase = { id, at: z.string().min(1).max(40) };
+/** A signal key (ATTENTION-DISMISS-SPEC §2.2) and the chat ids made from it. */
+const signal = z.string().min(1).max(attentionDismissLimits.signal);
+const itemBase = { id: z.string().min(1).max(attentionDismissLimits.signal + 10), at: z.string().min(1).max(40) };
+const askOptionSchema = z.object({ id: z.string().min(1).max(40), label: z.string().max(2000) });
+const askQuestionSchema = z.object({
+  header: z.string().max(2000),
+  text: z.string().max(10000),
+  multiSelect: z.boolean(),
+  allowText: z.boolean(),
+  optionIds: z.array(z.string().max(40)).max(200),
+});
+/** `asks.answer` (DISPATCHER-SPEC §9.4): option ids from the ask, typed text, or Allow / Deny. */
+export const askAnswerInputSchema = z.strictObject({
+  signal,
+  answer: z.strictObject({
+    optionIds: z.array(z.string().min(1).max(40)).max(100).optional(),
+    text: z.string().max(20000).optional(),
+    allow: z.boolean().optional(),
+  }),
+});
+export type AskAnswerInput = z.infer<typeof askAnswerInputSchema>;
+export const askAnswerResultSchema = z.strictObject({ delivered: z.boolean(), state: z.enum(askStates) });
+export const askDismissInputSchema = z.strictObject({ signal });
+/** `tasks.start-again`: the user's Start again on an ended ask, through the flowly_start_card path. */
+export const startAgainInputSchema = z.strictObject({ taskId: id, idempotencyKey: z.string().trim().min(1).max(200) });
 /** One card in "Changed since you looked" (§9.2). */
 export const changedCardSchema = z.object({ taskId: id, projectId: id, title: z.string(), status: z.string(), events: z.number().int().positive() });
 export type ChangedCard = z.infer<typeof changedCardSchema>;
@@ -66,14 +91,32 @@ export const chatItemSchema = z.discriminatedUnion("kind", [
   z.object({
     ...itemBase,
     kind: z.literal("ask"),
-    signal: id,
+    signal,
     taskId: id,
     projectId: id,
     title: z.string(),
     state: z.enum(chatAskStates),
     resolvedAt: z.string().optional(),
+    /** What the ask is and what its buttons need (§9.4). */
+    askKind: z.enum(askKinds).optional(),
+    agentId: z.string().max(300).nullable().optional(),
+    detail: z.string().max(20000).optional(),
+    options: z.array(askOptionSchema).max(200).optional(),
+    questions: z.array(askQuestionSchema).max(50).optional(),
+    /** Answered in the session, not from the chat. */
+    elsewhere: z.boolean().optional(),
   }),
-  z.object({ ...itemBase, kind: z.literal("answer"), signal: id, taskId: id, projectId: id, text: z.string(), delivered: z.boolean() }),
+  z.object({
+    ...itemBase,
+    kind: z.literal("answer"),
+    signal,
+    taskId: id,
+    projectId: id,
+    text: z.string().max(20000),
+    /** A permission's answer: whether the chosen action allowed or denied. */
+    choice: z.enum(["allow", "deny"]).optional(),
+    delivered: z.boolean(),
+  }),
   z.object({
     ...itemBase,
     kind: z.literal("change"),

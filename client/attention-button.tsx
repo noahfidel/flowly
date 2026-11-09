@@ -23,7 +23,7 @@ export function AttentionButton({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${count ? tn(count, "Needs attention, {n} card", "Needs attention, {n} cards") : t("Needs attention")}${shortcut ? ` (${shortcut})` : ""}`}
+      accessibilityLabel={`${count ? tn(count, "Needs attention, {n} item", "Needs attention, {n} items") : t("Needs attention")}${shortcut ? ` (${shortcut})` : ""}`}
       accessibilityState={{ expanded: open }}
       onPress={onPress}
       style={(state) => {

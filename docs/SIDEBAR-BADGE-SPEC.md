@@ -17,11 +17,11 @@ Incremental spec for card F2. Extends the board Attention entry in [MULTITASK-SP
 - When the attention count is > 0, a small pill shows the count on the row's right (`99+` above 99), using the current host theme's accent background and paired accent foreground. It updates with the active Paseo theme. Count 0 renders no trailing content.
 - The board header's Attention button keeps its existing count and click behavior; its visible count pill uses the same active theme accent background and paired accent foreground.
 - Pressing the pill opens the board screen and opens its **Needs attention** modal (params `view=attention`, `open=<unique token>`). Each press uses a new token, so repeat presses reopen the modal even when the board is already showing. A board mounted with the same token applies it once; unrelated params (session links) are unaffected.
-- Accessibility: the pill is a button labelled `Open needs attention, N cards`.
+- Accessibility: the pill is a button labelled `Open needs attention, N items`.
 
 ## Data contract
 
-- Count = `attentionItems(...)` length, computed by the shared pure function `attentionFromSources` that the board also uses. Identical inputs give identical board and sidebar counts: same board RPC (`readBoard`), same agent listing (`listAgents` over the plugin-provided `usePaseo` SDK), same read receipts RPC, same `readUnavailable = pending || error` rule (unread excluded, permissions/errors kept).
+- 2026-11-08 (plan Q1, ATTENTION-DISMISS-SPEC §7a): Count = the open asks, `openAskCount(attentionItems(...))` (each card's undismissed signals, the same asks `asksFrom` lists in the dispatcher chat), no longer the number of cards. It is computed by the shared pure function `attentionFromSources` that the board also uses. Identical inputs give identical board and sidebar counts: same board RPC (`readBoard`), same agent listing (`listAgents` over the plugin-provided `usePaseo` SDK), same read receipts RPC, same `readUnavailable = pending || error` rule (unread excluded, permissions/errors kept).
 - No second Paseo connection; only plugin SDK/RPC.
 - Polling: every 10 s while the sidebar item is mounted, `retry: 1`, not in background. Query keys are host-scoped (`["flowly","sidebar",hostId,…]`) so multiple hosts never share counts. Unmount removes the observers, which stops polling.
 - Because the sidebar polls at 10 s and the board at 3–5 s, the two can briefly differ by one polling interval; they converge on the next poll.
