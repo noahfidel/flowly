@@ -184,7 +184,10 @@ export class BoardService {
     const workspaces = [];
     let cursor: string | undefined;
     do {
+      // Background (hidden) workspaces, such as PR-review ones, are listed too: a card may be bound to one.
+      // They carry `background` so pickers can leave them out.
       const page = await paseo.workspaces.list({
+        filter: { includeBackground: true },
         page: { limit: 200, cursor },
       });
       for (const w of page.entries) if (!hidden.has(w.projectId) && !(await this.reservedWorkspace(w.id))) workspaces.push(w);
@@ -204,6 +207,7 @@ export class BoardService {
           path: w.workspaceDirectory,
           status: w.status,
           kind: w.workspaceKind,
+          ...(w.background ? { background: true } : null),
           repoPaths: await match(w.workspaceDirectory),
           owner:
             projects.find((p) => p.projectId === w.projectId)
@@ -309,7 +313,8 @@ export class BoardService {
     if (native) {
       let cursor: string | undefined;
       do {
-        const page = await paseo.workspaces.list({ page: { limit: 200, cursor } });
+        // Removing the project removes its background workspaces too.
+        const page = await paseo.workspaces.list({ filter: { includeBackground: true }, page: { limit: 200, cursor } });
         for (const w of page.entries) if (w.projectId === project.paseoProjectId) workspaces.add(w.id);
         cursor = page.pageInfo.nextCursor ?? undefined;
       } while (cursor);
@@ -318,7 +323,7 @@ export class BoardService {
       cursor: string | undefined;
     if (workspaces.size)
       do {
-        const page = await paseo.agents.list({ filter: { includeArchived: false }, page: { limit: 200, cursor } });
+        const page = await paseo.agents.list({ filter: { includeArchived: false, includeBackground: true }, page: { limit: 200, cursor } });
         for (const { agent } of page.entries)
           if (!!agent.workspaceId && workspaces.has(agent.workspaceId) && !agent.archivedAt && (agent.status === "running" || agent.status === "initializing"))
             runningSessions++;

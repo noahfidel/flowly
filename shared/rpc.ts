@@ -471,6 +471,8 @@ export const listResources = defineRpc({
         status: z.string(),
         /** Paseo's workspaceKind: directory, local_checkout, checkout or worktree (CARD-DISPLAY-SPEC §8). */
         kind: z.string().optional(),
+        /** A background (hidden) workspace, such as a PR-review one: counts for card availability and opening, not for pickers. */
+        background: z.boolean().optional(),
         repoPaths: z.array(z.string()),
         owner: z.string(),
       }),
