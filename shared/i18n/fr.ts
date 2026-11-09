@@ -229,6 +229,7 @@ const catalog: Catalog = {
   "Replace dispatcher?": "Remplacer le répartiteur ?",
   "Replace": "Remplacer",
   "Flowly archives this dispatcher session and starts a new one that can't answer cards' asks. The new one starts from a board summary, not this chat.": "Flowly archive cette session du répartiteur et en démarre une nouvelle qui ne peut pas répondre aux demandes des cartes. La nouvelle part d'un résumé du tableau, pas de cette conversation.",
+  "If the new one doesn't start, this one stays archived and you can start one again.": "Si le nouveau ne démarre pas, celui-ci reste archivé et vous pouvez en relancer un.",
   "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.": "Le répartiteur ne fonctionne qu'avec Claude : avec d'autres fournisseurs, Flowly ne peut pas l'empêcher de répondre aux questions et aux demandes d'autorisation des cartes. Choisissez un modèle Claude pour le répartiteur dans Réglages → Modèles.",
   "Status: {lane}": "Statut : {lane}",
   "Priority: {priority}": "Priorité : {priority}",

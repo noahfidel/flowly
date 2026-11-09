@@ -229,6 +229,7 @@ const catalog: Catalog = {
   "Replace dispatcher?": "Substituir o despachante?",
   "Replace": "Substituir",
   "Flowly archives this dispatcher session and starts a new one that can't answer cards' asks. The new one starts from a board summary, not this chat.": "O Flowly arquiva esta sessão do despachante e inicia uma nova que não pode responder aos pedidos dos cartões. A nova começa de um resumo do quadro, não desta conversa.",
+  "If the new one doesn't start, this one stays archived and you can start one again.": "Se o novo não iniciar, este continua arquivado e você pode iniciar outro.",
   "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.": "O despachante só funciona com o Claude: com outros provedores, o Flowly não consegue impedir que ele responda a perguntas e pedidos de permissão dos cartões. Escolha um modelo Claude para o despachante em Ajustes → Modelos.",
   "Status: {lane}": "Status: {lane}",
   "Priority: {priority}": "Prioridade: {priority}",

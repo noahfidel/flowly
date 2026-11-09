@@ -304,16 +304,8 @@ export class Dispatcher {
       if (guarded(record)) throw new ToolError("DISPATCHER_GUARDED", "This dispatcher has the current guard; Flowly does not replace it.");
       const model = await this.model({});
       if (!dispatcherProviderSupported(model.provider)) throw new ToolError("DISPATCHER_PROVIDER_UNSUPPORTED", dispatcherProviderReason);
-      const ref = paseo.agents.ref(agentId);
-      if (!isDeadDispatcher((await ref.refresh())?.agent)) {
-        try {
-          await ref.archive();
-        } catch (e) {
-          logFailure("Flowly dispatcher not archived for replace:", e, agentId);
-          throw new ToolError("REPLACE_FAILED", `Paseo did not archive the dispatcher session: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
-      return this.run(paseo, model);
+      // Archived inside the start, after every step that can fail but the session create (§3).
+      return this.run(paseo, model, agentId);
     });
     this.starts = job.catch(() => undefined);
     return job;
@@ -331,9 +323,14 @@ export class Dispatcher {
     return { provider: `${model.provider}/${model.model}`, ...(modeId ? { modeId } : {}), ...(model.thinking ? { thinking: model.thinking } : {}) };
   }
 
-  private async run(paseo: PaseoApi, input: { provider: string; modeId?: string; thinking?: string }) {
+  /**
+   * Starts a dispatcher; `replacing` is the unguarded session Replace archives (§3). The folder, workspace, MCP server,
+   * board summary and record come first; only then is the old session archived (a failed archive restores the record
+   * and starts nothing), and only the session create comes after it.
+   */
+  private async run(paseo: PaseoApi, input: { provider: string; modeId?: string; thinking?: string }, replacing?: string) {
     const stored = await this.record();
-    if (stored.agentId && !isDeadDispatcher((await paseo.agents.ref(stored.agentId).refresh())?.agent)) throw dispatcherRunning();
+    if (stored.agentId && stored.agentId !== replacing && !isDeadDispatcher((await paseo.agents.ref(stored.agentId).refresh())?.agent)) throw dispatcherRunning();
     const workspaceId = await this.workspace(paseo, stored);
     const previous = await this.record();
     const agentId = randomUUID();
@@ -344,12 +341,11 @@ export class Dispatcher {
     const covered = [...this.held];
     try {
       const [mcp, summary] = await Promise.all([this.deps.mcp({ agentId, workspaceId }), this.deps.summary()]);
-      if (previous.agentId) await this.stillDead(paseo, previous.agentId);
+      if (previous.agentId && previous.agentId !== replacing) await this.stillDead(paseo, previous.agentId);
       const now = this.deps.now?.() ?? Date.now();
       const earlier = previous.agentId
         ? [...(previous.previousAgentIds ?? []).filter((id) => id !== previous.agentId), previous.agentId].slice(-previousAgentIdLimit)
         : previous.previousAgentIds;
-      for (const [taskId, held] of covered) if (this.held.get(taskId) === held) this.held.delete(taskId);
       // Stored first: the session's first tool calls already pass the caller check (§4).
       // Saved with its tools (§3); a record without the mark is a dispatcher from before, served by the open hook.
       await this.save(({ savedTools: _, guard: __, ...r }) => ({
@@ -361,7 +357,9 @@ export class Dispatcher {
         guard: { version: dispatcherGuardVersion, provider: input.provider.split("/")[0] },
         ...(earlier ? { previousAgentIds: earlier } : {}),
       }));
-      await this.create(paseo, { workspaceId, agentId, mcp, summary, input, previous });
+      if (replacing) await this.archiveReplaced(paseo, replacing, { workspaceId, previous });
+      for (const [taskId, held] of covered) if (this.held.get(taskId) === held) this.held.delete(taskId);
+      await this.create(paseo, { workspaceId, agentId, mcp, summary, input, previous, replaced: !!replacing });
     } finally {
       this.starting = null;
       // Notes held meanwhile go out by the dispatcher's state now (the new one, or the one a refused start kept).
@@ -378,15 +376,45 @@ export class Dispatcher {
     if (!isDeadDispatcher((await paseo.agents.ref(agentId).refresh())?.agent)) throw dispatcherRunning();
   }
 
+  /** Replace's archive of exactly that session (unless already dead); a failure restores the record and starts nothing. */
+  private async archiveReplaced(paseo: PaseoApi, agentId: string, restore: { workspaceId: string; previous: DispatcherRecord }) {
+    const ref = paseo.agents.ref(agentId);
+    try {
+      if (!isDeadDispatcher((await ref.refresh())?.agent)) await ref.archive();
+    } catch (e) {
+      await this.restore(restore.workspaceId, restore.previous);
+      logFailure("Flowly dispatcher not archived for replace:", e, agentId);
+      throw new ToolError("REPLACE_FAILED", `Paseo did not archive the dispatcher session: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /** Puts the earlier record back (its session, marks and history) after a start that made no session. */
+  private restore(workspaceId: string, previous: DispatcherRecord) {
+    return this.save((r) => {
+      const { previousAgentIds: _, savedTools: __, guard: ___, ...rest } = r;
+      return {
+        ...rest,
+        ...(previous.savedTools ? { savedTools: previous.savedTools } : {}),
+        ...(previous.guard ? { guard: previous.guard } : {}),
+        workspaceId,
+        agentId: previous.agentId,
+        startedAt: previous.startedAt,
+        ...(previous.previousAgentIds ? { previousAgentIds: previous.previousAgentIds } : {}),
+      };
+    });
+  }
+
   private async create(
     paseo: PaseoApi,
-    { workspaceId, agentId, mcp, summary, input, previous }: {
+    { workspaceId, agentId, mcp, summary, input, previous, replaced }: {
       workspaceId: string;
       agentId: string;
       mcp: DispatcherMcpServer;
       summary: string;
       input: { provider: string; modeId?: string; thinking?: string };
       previous: DispatcherRecord;
+      /** Replace archived the earlier session already: it stays archived, and the user starts a new one (§3). */
+      replaced: boolean;
     },
   ) {
     try {
@@ -419,20 +447,15 @@ export class Dispatcher {
         .then((found) => !!found?.agent)
         .catch(() => false);
       if (!made) {
-        await this.save((r) => {
-          const { previousAgentIds: _, savedTools: __, guard: ___, ...rest } = r;
-          return {
-            ...rest,
-            ...(previous.savedTools ? { savedTools: previous.savedTools } : {}),
-            ...(previous.guard ? { guard: previous.guard } : {}),
-            workspaceId,
-            agentId: previous.agentId,
-            startedAt: previous.startedAt,
-            ...(previous.previousAgentIds ? { previousAgentIds: previous.previousAgentIds } : {}),
-          };
-        });
+        await this.restore(workspaceId, previous);
         logFailure("Flowly dispatcher not started:", e, `workspace ${workspaceId}`);
-        throw new ToolError("START_FAILED", `Paseo did not start the dispatcher: ${e instanceof Error ? e.message : String(e)}`);
+        const reason = e instanceof Error ? e.message : String(e);
+        throw new ToolError(
+          "START_FAILED",
+          replaced
+            ? `Paseo did not start the new dispatcher: ${reason}. The old dispatcher was archived; start a new one.`
+            : `Paseo did not start the dispatcher: ${reason}`,
+        );
       }
     }
   }

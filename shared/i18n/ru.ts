@@ -229,6 +229,7 @@ const catalog: Catalog = {
   "Replace dispatcher?": "Заменить диспетчер?",
   "Replace": "Заменить",
   "Flowly archives this dispatcher session and starts a new one that can't answer cards' asks. The new one starts from a board summary, not this chat.": "Flowly архивирует эту сессию диспетчера и запускает новую, которая не может отвечать на запросы карточек. Новая начинает со сводки доски, а не с этого чата.",
+  "If the new one doesn't start, this one stays archived and you can start one again.": "Если новый не запустится, этот останется в архиве, и вы сможете запустить диспетчер снова.",
   "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.": "Диспетчер работает только с Claude: с другими провайдерами Flowly не может запретить ему отвечать на вопросы и запросы разрешений карточек. Выберите модель Claude для диспетчера в «Настройки → Модели».",
   "Status: {lane}": "Статус: {lane}",
   "Priority: {priority}": "Приоритет: {priority}",

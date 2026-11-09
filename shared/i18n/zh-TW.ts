@@ -229,6 +229,7 @@ const catalog: Catalog = {
   "Replace dispatcher?": "取代調度器？",
   "Replace": "取代",
   "Flowly archives this dispatcher session and starts a new one that can't answer cards' asks. The new one starts from a board summary, not this chat.": "Flowly 會封存此調度器工作階段，並啟動一個無法回答卡片請求的新工作階段。新的工作階段從看板摘要開始，而不是從這段對話開始。",
+  "If the new one doesn't start, this one stays archived and you can start one again.": "如果新的調度器未能啟動，此調度器仍保持封存，你可以重新啟動一個。",
   "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.": "調度器只能在 Claude 上執行：在其他供應商上，Flowly 無法阻止它回答卡片的問題和權限請求。請在「設定 → 模型」中為調度器選擇一個 Claude 模型。",
   "Status: {lane}": "狀態：{lane}",
   "Priority: {priority}": "優先順序：{priority}",

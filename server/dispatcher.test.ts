@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile 
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
-import { Dispatcher, RECHECK_MAX_MS, dispatcherFolder, dispatcherState, isDeadDispatcher, wireDispatcher } from "./dispatcher";
+import { Dispatcher, RECHECK_MAX_MS, dispatcherFolder, type DispatcherMcpServer, dispatcherState, isDeadDispatcher, wireDispatcher } from "./dispatcher";
 import { dispatcherSessionIds } from "./dispatcher-items";
 import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
@@ -104,7 +104,11 @@ function fakePaseo() {
 }
 
 /** A Paseo home with the plugin data folder at its usual place, and the dispatcher folder derived from that home. */
-async function setup(summary: () => Promise<string> = async () => "Board summary", folderOf: (home: string, directory: string) => string = (home) => dispatcherFolder(home)) {
+async function setup(
+  summary: () => Promise<string> = async () => "Board summary",
+  folderOf: (home: string, directory: string) => string = (home) => dispatcherFolder(home),
+  mcp: (identity: { agentId: string; workspaceId: string }) => Promise<DispatcherMcpServer> = async (identity) => ({ type: "http", url: "http://127.0.0.1:1/mcp", headers: { Authorization: `Bearer ${identity.agentId}` } }),
+) {
   const home = await mkdtemp(join(tmpdir(), "flowly-paseo-home-"));
   directories.push(home);
   const directory = join(home, "plugin-data", "flowly");
@@ -113,10 +117,7 @@ async function setup(summary: () => Promise<string> = async () => "Board summary
   const fake = fakePaseo();
   const dispatcher = new Dispatcher(
     directory,
-    {
-      summary,
-      mcp: async (identity) => ({ type: "http", url: "http://127.0.0.1:1/mcp", headers: { Authorization: `Bearer ${identity.agentId}` } }),
-    },
+    { summary, mcp },
     folder,
   );
   dispatchers.push(dispatcher);
@@ -977,8 +978,8 @@ test("a live dispatcher started without this build's routes withheld says to rep
 });
 
 /** A stored dispatcher "old" in `status`, recorded with `guard` (absent: started before the guard). */
-async function oldDispatcher(guard?: unknown, agentStatus = "idle") {
-  const x = await setup();
+async function oldDispatcher(guard?: unknown, agentStatus = "idle", ...args: Parameters<typeof setup>) {
+  const x = await setup(...args);
   x.agents.set("old", { id: "old", workspaceId: "dw-0", status: agentStatus, archivedAt: null });
   const record = { version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", savedTools: [...dispatcherToolNames], ...(guard ? { guard } : {}) };
   await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(record));
@@ -1053,6 +1054,52 @@ test("Replace is refused for a guarded dispatcher, another session id or none, a
   await expect(v.dispatcher.replace(v.paseo, { agentId: "old" })).rejects.toMatchObject({ code: "REPLACE_FAILED" });
   expect(v.agentCreates).toHaveLength(0);
   expect((await v.dispatcher.record()).agentId).toBe("old");
+});
+
+test("Replace does every step that can fail before it archives: a failed preparation archives nothing and keeps the dispatcher", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const failures: [string, () => Promise<ReturnType<typeof setup> extends Promise<infer X> ? X : never>][] = [
+    ["folder refused", () => oldDispatcher(undefined, "idle", undefined, (_, d) => join(d, "dispatcher"))],
+    ["workspace not created", async () => {
+      const x = await oldDispatcher();
+      x.failCreate(new Error("no workspace"));
+      return x;
+    }],
+    ["no MCP server", () => oldDispatcher(undefined, "idle", undefined, undefined, async () => { throw new Error("no credential"); })],
+    ["no summary", () => oldDispatcher(undefined, "idle", async () => { throw new Error("board unreadable"); })],
+  ];
+  for (const [label, make] of failures) {
+    const x = await make();
+    const before = await readFile(join(x.directory, "dispatcher.json"), "utf8");
+    await x.dispatcher.deliver([note("a")], x.paseo);
+    await expect(x.dispatcher.replace(x.paseo, { agentId: "old" }), label).rejects.toThrow();
+    expect(x.archived, label).toEqual([]);
+    expect(x.agentCreates, label).toHaveLength(0);
+    const record = await x.dispatcher.record();
+    expect(record, label).toMatchObject({ agentId: "old", startedAt: "2026-11-01T00:00:00.000Z" });
+    expect(record, label).not.toHaveProperty("guard");
+    expect(record.previousAgentIds, label).toBeUndefined();
+    // Nothing was made: the file is as it was. (A workspace Paseo did make is remembered, as a Start would.)
+    if (label !== "no MCP server" && label !== "no summary") expect(await readFile(join(x.directory, "dispatcher.json"), "utf8"), label).toBe(before);
+    // The old one is still the dispatcher, still unguarded, and its held note still waits for a fresh one.
+    expect(await x.dispatcher.status(x.paseo), label).toMatchObject({ state: "idle", agentId: "old", unguarded: true });
+    expect(x.sends, label).toEqual([]);
+  }
+});
+
+test("Replace whose create fails after the archive leaves an ended dispatcher, says so, and Start works", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const x = await oldDispatcher();
+  x.failAgentCreate(new Error("refused"));
+  const failed = x.dispatcher.replace(x.paseo, { agentId: "old" });
+  await expect(failed).rejects.toMatchObject({ code: "START_FAILED" });
+  await expect(failed).rejects.toThrow(/old dispatcher was archived/);
+  expect(x.archived).toEqual(["agent:old"]);
+  expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "ended", agentId: "old" });
+  x.failAgentCreate(null);
+  const { agentId } = await x.dispatcher.start(x.paseo, {});
+  expect(await x.dispatcher.record()).toMatchObject({ agentId, guard: { version: dispatcherGuardVersion, provider: "claude" }, previousAgentIds: ["old"] });
+  expect(x.archived).toEqual(["agent:old"]);
 });
 
 test("a started dispatcher records its guard; a refused create restores the earlier one (§1, §3)", async () => {

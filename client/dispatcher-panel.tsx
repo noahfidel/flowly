@@ -120,6 +120,8 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     } catch (e) {
       setConfirmReplace(false);
       setStartError(dispatcherStartMessage(message(e)));
+      // A create that failed after the archive leaves it ended: the panel shows Start with this error (§3).
+      void client.invalidateQueries({ queryKey: statusKey });
     } finally {
       setStarting(false);
     }
@@ -340,6 +342,7 @@ function ReplaceDialog({ pending, onClose, onConfirm }: { pending: boolean; onCl
         <Theme.Provider value={theme}>
           <View style={{ gap: space[3] }}>
             <Label>{t("Flowly archives this dispatcher session and starts a new one that can't answer cards' asks. The new one starts from a board summary, not this chat.")}</Label>
+            <Label muted>{t("If the new one doesn't start, this one stays archived and you can start one again.")}</Label>
             <Actions>
               <Button quiet disabled={pending} onPress={onClose}>{t("Cancel")}</Button>
               <Button danger icon="RefreshCw" disabled={pending} onPress={onConfirm}>{t("Replace")}</Button>

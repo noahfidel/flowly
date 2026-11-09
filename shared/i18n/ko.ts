@@ -229,6 +229,7 @@ const catalog: Catalog = {
   "Replace dispatcher?": "디스패처를 교체할까요?",
   "Replace": "교체",
   "Flowly archives this dispatcher session and starts a new one that can't answer cards' asks. The new one starts from a board summary, not this chat.": "Flowly가 이 디스패처 세션을 보관하고, 카드의 요청에 답할 수 없는 새 세션을 시작합니다. 새 세션은 이 채팅이 아니라 보드 요약에서 시작합니다.",
+  "If the new one doesn't start, this one stays archived and you can start one again.": "새 디스패처가 시작되지 않으면 이 디스패처는 보관된 상태로 남고, 다시 시작할 수 있습니다.",
   "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.": "디스패처는 Claude에서만 실행됩니다. 다른 제공자에서는 디스패처가 카드의 질문과 권한 요청에 답하는 것을 Flowly가 막을 수 없습니다. 설정 → 모델에서 디스패처용 Claude 모델을 선택하세요.",
   "Status: {lane}": "상태: {lane}",
   "Priority: {priority}": "우선순위: {priority}",
