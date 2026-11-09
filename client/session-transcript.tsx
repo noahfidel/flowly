@@ -4,7 +4,7 @@ import { ActivityIndicator, Animated, Platform, Pressable, View, type ListRender
 import { FlatList, Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { usePaseo } from "@getpaseo/plugin/client";
 import { Label, Notice, font, message, noFocusRing, radius, space, touch, useTheme, verticalContent, verticalScroll, type Tone } from "./ui";
-import { activitySummary, groupTranscript, pendingEchoes, recentSessionOutput, type SentEcho, type TranscriptBlock } from "./session-state";
+import { activitySummary, groupTranscript, lastOutputRow, pendingEchoes, recentSessionOutput, type SentEcho, type TranscriptBlock } from "./session-state";
 import { coalescedRefresh, createFocusJump, FOLLOW_SLACK, useSessionFollowTail } from "./session-follow";
 import { useSessionTimeline } from "./session-timeline";
 import { HISTORY_MAX, type TailEntry } from "../shared/session-tail";
@@ -240,7 +240,8 @@ function SessionTranscriptView({
     tail.scrollToTail();
   });
 
-  const lastKey = blocks.at(-1)?.key;
+  const lastOutput = lastOutputRow(blocks);
+  const lastKey = lastOutput?.key;
   const renderBlock = useCallback(
     (block: TranscriptRow) =>
       block.kind === "extra" ? (
@@ -296,7 +297,7 @@ function SessionTranscriptView({
   );
   // The running state: below the newest output.
   const running =
-    showOutput && live && blocks.at(-1)?.kind !== "activity" ? (
+    showOutput && live && lastOutput?.kind !== "activity" ? (
       <View testID="session-running-tail" style={{ flexDirection: "row", gap: space[2], alignItems: "center", minHeight: 24, paddingTop: blocks.length ? space[4] : 0 }}>
         <ActivityIndicator size="small" color={colors.accent} />
         <Label muted size={font.md}>

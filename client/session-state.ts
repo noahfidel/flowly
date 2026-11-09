@@ -159,6 +159,15 @@ export type TranscriptBlock =
  * block. The block key is its first entry's key, so it stays stable (and keeps
  * its expanded state) while a running turn appends steps to it.
  */
+/**
+ * The newest row of the session's own output: rows a caller adds (`extra`, the dispatcher's notes and change line)
+ * are not output, so the live activity stays live and no second running line is added under them (DISPATCHER-SPEC §9.3).
+ */
+export function lastOutputRow<Row extends { kind: string }>(rows: readonly Row[]): Row | undefined {
+  for (let i = rows.length - 1; i >= 0; i--) if (rows[i].kind !== "extra") return rows[i];
+  return undefined;
+}
+
 export function groupTranscript(entries: readonly OutputEntry[]): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = [];
   for (const entry of entries) {

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { chatRows, displayRows, mergeTimeline } from "./dispatcher-panel-logic";
 import type { ChatItem } from "../shared/dispatcher";
+import { lastOutputRow } from "./session-state";
 import type { TailEntry } from "../shared/session-tail";
 
 const at = (s: number) => new Date(Date.parse("2026-11-08T10:00:00.000Z") + s * 1000).toISOString();
@@ -61,4 +62,14 @@ test("the board summary is one row of its own, and chatRows keeps item keys for 
   expect(shown.map((r) => r.kind)).toEqual(["extra", "entry", "extra"]);
   expect(shown[0].kind === "extra" && shown[0].item).toEqual({ kind: "summary" });
   expect(shown[2].key).toBe("item-n1");
+});
+
+test("the live activity is the newest output row, not a note or the change line after it (DISPATCHER-SPEC §9.3)", () => {
+  const change = { id: "change", at: at(1), kind: "change", revision: 1, ids: [], cards: [] } as ChatItem;
+  const shown = chatRows([entry(1, "assistant_message", "Hi", 1), entry(2, "reasoning", "think", 3)], [note("n1", 5), change]);
+  expect(shown.map((r) => r.kind)).toEqual(["entry", "activity", "extra", "extra"]);
+  // While the agent runs, that activity block shows "Working" and no separate running line is added.
+  expect(lastOutputRow(shown)).toBe(shown[1]);
+  expect(lastOutputRow(shown.slice(0, 1))?.kind).toBe("entry");
+  expect(lastOutputRow(shown.slice(2))).toBeUndefined();
 });
