@@ -138,7 +138,7 @@ On every write the list is pruned: asks answered or dismissed more than 7 days a
 
 ### 9.3 Panel
 
-- Desktop: a panel beside the board, before an open card's sidebar, toggled from the toolbar. Phone: a full-screen page from the same toolbar button, hidden rather than unmounted when closed.
+- Desktop: a panel docked on the left of the board (Noah, 2026-11-09), toggled from the toolbar. The board narrows to make room and nothing covers it; closing the panel gives the board its full width back. An open card's sidebar stays on the right. Phone: a full-screen page from the same toolbar button, hidden rather than unmounted when closed.
 - The transcript is read with `dispatcher.tail` (the `sessions.tail` contract, only for the stored dispatcher session in the stored workspace; any other session is refused). Note-batch messages (`Flowly board update (`) are left out of the transcript (the note rows stand for them), and the first message (`Flowly board summary.`) shows as one line.
 - Items are read with `dispatcher.items-changed` (etag), the status with `dispatcher.status`; both, the transcript and its stream run only while the panel is visible.
 - States none and ended show **Start dispatcher** (`dispatcher.start` with the Dispatcher model setting); an error, such as `HOST_UNSUPPORTED`, shows as a notice under it. While running or idle the composer sends exactly the typed text with the host Paseo client, always with `activeTurnBehavior: "steer"`: Paseo starts a normal turn for a steer on an idle agent, while a send without it interrupts a turn and clears pending permissions, which a status read as idle a moment earlier cannot rule out. The Send button sends; Enter adds a line.

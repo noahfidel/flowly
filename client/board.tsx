@@ -1188,7 +1188,7 @@ function BoardContent(
         compact
           ? // Phone: a full-screen page under an open card's sidebar, so closing the card comes back to the chat.
             { position: "absolute", top: 0, bottom: 0, left: 0, right: 0, zIndex: 29, display: chat.open ? "flex" : "none" }
-          : { width: 380, flexShrink: 0, minHeight: 0, borderLeftWidth: 1, borderLeftColor: colors.border, display: chat.open ? "flex" : "none" }
+          : { width: 380, flexShrink: 0, minHeight: 0, borderRightWidth: 1, borderRightColor: colors.border, display: chat.open ? "flex" : "none" }
       }
     >
       <DispatcherPanel visible={chat.open} laneOf={chatLaneOf} focus={chatFocus} onOpenCard={openTaskById} onClose={closeChat} />
@@ -2089,6 +2089,8 @@ function BoardContent(
           </View>
         ) : (
           <View style={{ flex: 1, minHeight: 0, flexDirection: "row", ...(resizing ? { userSelect: "none" } : null) } as never}>
+            {/* Desktop: the dispatcher chat docks on the left; the board narrows beside it (DISPATCHER-SPEC §9). */}
+            {!compact && chatPanel}
             {(
               <MotionReveal
                 transitionKey={`${viewKey}|${page || (compact ? mobileStatus : "columns")}`}
@@ -2219,7 +2221,6 @@ function BoardContent(
                 )}
               </MotionReveal>
             )}
-            {!compact && chatPanel}
             {!compact && drawerView}
           </View>
         )}

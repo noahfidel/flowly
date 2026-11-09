@@ -29,6 +29,9 @@
   - Strings: none new (daemon errors stay English). Onboarding and telemetry: no change (no user-visible behavior beyond where the folder is).
 - Dispatcher start failed on the installed build ("MCP server 'flowly-dispatcher' from plugin flowly collides with agent saved configuration"): Paseo's daemon refuses any MCP server a plugin's open hook adds under a name the agent's saved config already has, and the dispatcher was created with `flowly-dispatcher` saved while the open hook also added it at the first open (the record names the new id before create). The create no longer saves it; the hook is the one source, at every open. Card starts are not affected: they save `flowly` and the hook never adds that name (it adds `flowly-board` only to sessions outside cards). DISPATCHER-SPEC §3.
   - Checks: the fake Paseo in `server/dispatcher-tools.test.ts` now applies the daemon's rule with what `dispatcherSession` (the hook's source) adds; the new case and an existing replacement case failed with the same message first. Then `npm run typecheck` exit 0 and `npm test` exit 0 (counts in the final-fix report). Unrun: a dispatcher start on the installed build after the fix.
+- Dispatcher chat panel docks on the left on desktop (Noah, 2026-11-09): it is the first child of the board row (border on its right), so the board narrows beside it and gets its full width back when it closes; the card sidebar stays on the right; open/closed state, phone page and everything else unchanged. DISPATCHER-SPEC §9; SPEC-OUTLINE line.
+  - Checks: no component test covers the panel's placement (no board render tests exist); `npm run typecheck` exit 0 and `npm test` exit 0 (counts in the final-fix report). Unrun: the panel in a live desktop client.
+  - Strings: none. Onboarding: the tour and tips do not describe the panel's side; no change. Telemetry: no field.
 
 ## Live verification script for the single pane (branch `feat/single-pane`, Task 12) — 2026-11-08
 
