@@ -153,6 +153,7 @@ const catalog: Catalog = {
   "Drag this card with the mouse or open task actions to change status.": "用滑鼠拖動此卡片，或開啟任務操作來更改狀態。",
   "Open details and agent sessions.": "開啟詳情和智慧體工作階段。",
   "Actions for {title}": "{title} 的操作",
+  "Open PR": "開啟 PR",
   "Open workspace": "開啟工作區",
   "Open workspace for {title}": "開啟 {title} 的工作區",
   "Needs you": "需要你處理",

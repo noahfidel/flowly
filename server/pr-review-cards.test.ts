@@ -112,7 +112,7 @@ test("a new review agent gets a card in In review, tagged pr-review, bound to it
     ownsWorkspace: false,
   });
   expect(task.tags?.map((t) => t.tag)).toEqual(["pr-review"]);
-  expect(task.description).toContain("Zenlytic/zenlytic#9164 (https://github.com/Zenlytic/zenlytic/pull/9164)");
+  expect(task.description).toContain("PR: [Zenlytic/zenlytic#9164](https://github.com/Zenlytic/zenlytic/pull/9164)");
   expect(task.description).toContain("Created automatically from a PR review agent.");
   expect(isPrReviewCard(task)).toBe(true);
 });

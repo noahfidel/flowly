@@ -26,7 +26,7 @@ The card is created through the New card path in *existing workspace* mode: no w
 ## 4. The card
 
 - Title: the agent's title (for example `PR review: Zenlytic/zenlytic#9164 Fix the thing`), else `PR review: <label value>`; at most 200 characters.
-- Description: `PR: <label value>` with the GitHub pull request URL when the value is `owner/repo#n`, then `Created automatically from a PR review agent.`
+- Description: `PR: [<label value>](<GitHub pull request URL>)` when the value is `owner/repo#n`, so the PR is a link in the card's description; any other value stays `PR: <label value>`. Then `Created automatically from a PR review agent.` Cards made before this wrote `PR: <label value> (<URL>)`; they are still recognized (§8).
 - Lane: *In review*; when the project has that lane turned off, *To do*; when that is off too, the project's first lane that is not Done or Cancelled.
 - Tag: `pr-review`. Priority normal. The activity and tag are attributed to the review agent.
 - Its session is the review agent (the session in the card's workspace), so opening the card opens the review chat.
@@ -43,7 +43,7 @@ Settings → Workflow → Board → **Make cards for PR review agents**, host sc
 
 ## 8. A new review of the same PR reuses its card
 
-When an agent that passes §3 has a label of the form `<owner>/<repo>#<n>` and the chosen project already has an unarchived PR review card (operation id `pr-review:…`) for the same owner, repo and number (the card stores it as `prRef`, `owner/repo#n` in lower case; owner and repo match without regard to case. A card without `prRef` falls back to a whole `PR: <label>` line of its description, searched line by line, with nothing else on the line but the optional GitHub link), no new card is made. The newest such card (by creation time) is reused:
+When an agent that passes §3 has a label of the form `<owner>/<repo>#<n>` and the chosen project already has an unarchived PR review card (operation id `pr-review:…`) for the same owner, repo and number (the card stores it as `prRef`, `owner/repo#n` in lower case; owner and repo match without regard to case. A card without `prRef` falls back to a whole `PR: <label>` line of its description, searched line by line, with nothing else on the line but the GitHub link, either `[label](url)` or `label (url)`, or no link at all), no new card is made. The newest such card (by creation time) is reused:
 
 - Rebound to the new agent's workspace, as the *Existing workspace* path binds a card (the card does not own it). A card has one current workspace, so the earlier one moves to the card's read-only workspace history (`previousWorkspaces`, same as a workspace switch, newest 10 kept) and is not archived. Its sessions stay in that history; the card opens the new review chat.
 - Moved to the lane of §4 (In review, else To do, else the first open lane) when it is elsewhere, including Done or Cancelled. This is the one exception to "never moved by itself": a new review means the card needs looking at again.
@@ -57,6 +57,10 @@ When an agent that passes §3 has a label of the form `<owner>/<repo>#<n>` and t
 
 The outcome is `reused` (with the card) instead of `created`.
 
+## 9. Open PR button
+
+The card drawer's header shows an **Open PR** button (icon `GitPullRequest`) on a PR review card (§5) whose PR can be named: the stored `prRef`, else the `PR:` line of the description (§8). It opens `https://github.com/<owner>/<repo>/pull/<n>` in the browser; a failure shows the toast "Could not open the link." The URL in the description (original case) is used when it names the same PR; otherwise it is built from the key, which is lower case (GitHub ignores case). A loose label, or any other card, has no button.
+
 ## 7. Acceptance
 
 - A new agent labelled `pr-review-watch=Zenlytic/zenlytic#9164` in a worktree of a project's repository gets one card in In review, tagged `pr-review`, bound to that workspace; opening it shows the review chat.
@@ -66,3 +70,4 @@ The outcome is `reused` (with the card) instead of `created`.
 - Archived agents, agents without the label and agents created more than 30 minutes earlier: no card.
 - A project with the Linear ticket requirement on: the PR review card's context has no Linear block; other cards still do.
 - A second review agent for the same PR in a new workspace: no second card; the card is bound to the new workspace, the old one is in its history, it is in In review and has the new title. A re-run of the first agent changes nothing. An archived card is not reused.
+- A PR review card for `owner/repo#n` shows Open PR in the drawer header, opening that pull request; a loose-label card and an ordinary card show none. The description's PR line is a markdown link.

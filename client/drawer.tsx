@@ -3,7 +3,7 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type
 import { isNoMoves, nextMovesAction } from "../shared/next-moves";
 import { workpadCheckedAction, workpadEnabled, workpadUpdatedAction } from "../shared/workpad";
 import type { PaseoAgent } from "@getpaseo/client";
-import { Pressable, View } from "react-native";
+import { Linking, Pressable, View } from "react-native";
 import { drawerNeedsBoard } from "./query-activity";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import {
@@ -74,6 +74,7 @@ import { TaskTags } from "./task-tags";
 import { ReleaseModal, ReleaseNotice, SwitchModal, type SwitchDirection } from "./workspace-switch";
 import { drawerSectionOrder, drawerSectionsOpen, type AnyDrawerSection, type DrawerSection } from "../shared/drawer-sections";
 import { ideaInstruction } from "../shared/ideas";
+import { prReviewCardUrl } from "../shared/pr-review";
 import { getLocale, localizedLabels, msg, t, tn } from "../shared/i18n";
 
 type TaskDrawerProps = Parameters<typeof TaskDrawerView>[0];
@@ -485,6 +486,7 @@ function TaskDrawerView({
   const switchTo: SwitchDirection | null =
     !place || finished || task.archivedAt || project.archivedAt ? null : place === "worktree" ? "to_local" : project.links?.length ? null : "to_worktree";
   const releasePending = task.switch?.release === "pending" && !task.archivedAt;
+  const prUrl = prReviewCardUrl(task);
   const taskActions = (): MenuEntry[] => [
     {
       id: "start",
@@ -971,6 +973,13 @@ function TaskDrawerView({
                   label={t("Open workspace")}
                   disabled={!active || unavailable}
                   onPress={() => openNativeWorkspace(navigation, task.workspaceId, hostId)}
+                />
+              )}
+              {!!prUrl && (
+                <IconButton
+                  icon="GitPullRequest"
+                  label={t("Open PR")}
+                  onPress={() => void Linking.openURL(prUrl).catch(() => toast.show(t("Could not open the link."), { variant: "error" }))}
                 />
               )}
               <IconButton icon="Pencil" label={t("Edit task")} disabled={!active || sending} onPress={onEdit} />

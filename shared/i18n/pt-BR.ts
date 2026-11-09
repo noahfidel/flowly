@@ -153,6 +153,7 @@ const catalog: Catalog = {
   "Drag this card with the mouse or open task actions to change status.": "Arraste este card com o mouse ou abra as ações da tarefa para mudar o status.",
   "Open details and agent sessions.": "Abre os detalhes e as sessões de agentes.",
   "Actions for {title}": "Ações de {title}",
+  "Open PR": "Abrir PR",
   "Open workspace": "Abrir espaço de trabalho",
   "Open workspace for {title}": "Abrir o espaço de trabalho de {title}",
   "Needs you": "Precisa de você",
