@@ -289,6 +289,21 @@ test("extra roots are decided on resolved paths: a link to / or to home, a case 
   expect(await resolveExtraRoots([x.extra], home)).toEqual([await realpath(x.extra)]);
 });
 
+test("extra roots are compared as resolved at the settings read: a folder swapped for a link afterwards does not widen them", async () => {
+  const x = await extraSetup();
+  const where = x.where(await resolveExtraRoots([x.extra]));
+  expect(where.roots).not.toContain(x.extra);
+  expect(where.resolved).toEqual([x.extra]);
+  // After the read, the folder is replaced by a link to a directory outside the card's.
+  await rm(x.extra, { recursive: true });
+  await symlink(join(x.root, "outside"), x.extra);
+  await expect(normalizeTarget(join(x.extra, "secret.txt"), where)).rejects.toThrow("outside this card's directories");
+  const list = [{ id: "f", kind: "file", target: join(x.extra, "secret.txt") }] as Artifact[];
+  expect([...(await missingArtifacts(list, where))]).toEqual(["f"]);
+  // No extra folders: nothing to resolve.
+  expect(await resolveExtraRoots([], join(x.root, "no-such-home"))).toEqual([]);
+});
+
 test("a symlink to / set as an extra folder does not open the filesystem to attachments", async () => {
   const x = await extraSetup();
   const toRoot = join(x.root, "link-root");

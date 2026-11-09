@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,7 +33,7 @@ type Script = {
 
 /** A fake of the script's context for `cleanup`, over an in-memory board and agent list; records every write. */
 type FakeTask = { id: string; title: string; projectId: string; workspaceId: string; revision: number };
-type FakeAgent = { id: string; labels: Record<string, string>; workspaceId: string; status: string; archivedAt?: string };
+type FakeAgent = { id: string; labels: Record<string, string>; workspaceId: string; status: string; archivedAt?: string; createdAt?: string };
 function fakeContext(opts: {
   data: Record<string, unknown>;
   tasks: FakeTask[];
@@ -248,7 +249,7 @@ describe("single-pane live script", () => {
 
     it("skips for a running, idle or ended dispatcher without the flag, naming the flag and the consequence", async () => {
       const { decideDispatcher } = await load();
-      for (const state of ["running", "idle", "ended", "context_full"]) {
+      for (const state of ["running", "idle", "ended"]) {
         const d = decideDispatcher({ agentId: "d1", state }, false);
         expect(d.action, state).toBe("skip");
         expect(d.reason).toContain("--use-existing-dispatcher");
@@ -349,13 +350,55 @@ describe("single-pane live script", () => {
     });
   });
 
+  describe("run labels and fixture directories", () => {
+    it("archives a session the script started only when it carries this run's id", async () => {
+      const { cleanup } = await load();
+      const own = { id: "s1", labels: { "flowly-started-by": "single-pane-live", "single-pane-live-run": RUN }, workspaceId: "wx", status: "idle" };
+      const older = { id: "s2", labels: { "flowly-started-by": "single-pane-live", "single-pane-live-run": "ffffff" }, workspaceId: "wx", status: "idle" };
+      const unlabelled = { id: "s3", labels: { "flowly-started-by": "single-pane-live" }, workspaceId: "wx", status: "idle" };
+      const fake = fakeContext({ data: baseData({ cards: [], agents: ["s1", "s2", "s3"] }), tasks: [], agents: [own, older, unlabelled] });
+      const { problems } = await cleanup(fake.ctx, { keepDispatcher: false });
+      expect(fake.calls.archived).toEqual(["s1"]);
+      expect(problems.join("\n")).toMatch(/s2: left in place/);
+      expect(problems.join("\n")).toMatch(/s3: left in place/);
+    });
+
+    it("removes only the temp directories of its fixture projects", async () => {
+      const { cleanup, fixtureDirPrefix } = await load();
+      const tied = mkdtempSync(join(tmpdir(), fixtureDirPrefix));
+      const loose = mkdtempSync(join(tmpdir(), fixtureDirPrefix));
+      try {
+        const fake = fakeContext({ data: baseData({ cards: [], agents: [], tmpDirs: [tied, loose], fixtureProjects: [{ path: tied, id: "fp" }] }), tasks: [] });
+        const { done } = await cleanup(fake.ctx, { keepDispatcher: false });
+        expect(existsSync(tied)).toBe(false);
+        expect(existsSync(loose)).toBe(true);
+        expect(done.join("\n")).toContain(`left in place: ${loose}`);
+      } finally {
+        rmSync(tied, { recursive: true, force: true });
+        rmSync(loose, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("the dispatcher in --cleanup mode", () => {
-    const withDispatcher = () =>
+    const startedAt = "2026-11-09T10:00:00.000Z";
+    const withDispatcher = (createdAt = "2026-11-09T10:05:00.000Z", data: Record<string, unknown> = { startedAt }) =>
       fakeContext({
-        data: baseData({ cards: [], agents: ["d1"], dispatcher: { agentId: "d1", prior: null, ours: true } }),
+        data: baseData({ cards: [], agents: ["d1"], dispatcher: { agentId: "d1", prior: null, ours: true }, ...data }),
         tasks: [],
-        agents: [{ id: "d1", labels: { "flowly-dispatcher": "1" }, workspaceId: "dw", status: "idle" }],
+        agents: [{ id: "d1", labels: { "flowly-dispatcher": "1" }, workspaceId: "dw", status: "idle", createdAt }],
       });
+
+    it("never archives a dispatcher created before the run started, or when the record has no start time", async () => {
+      const { cleanup } = await load();
+      const older = withDispatcher("2026-11-09T09:00:00.000Z");
+      const { done } = await cleanup(older.ctx, { keepDispatcher: false, unattended: true, yesArchiveDispatcher: true });
+      expect(older.calls.archived).toEqual([]);
+      expect(done.join("\n")).toMatch(/left in place: dispatcher d1.*before this run started/);
+      const undated = withDispatcher(undefined, {});
+      await cleanup(undated.ctx, { keepDispatcher: false });
+      expect(undated.calls.archived).toEqual([]);
+    });
 
     it("leaves it in place and lists it unless --yes-archive-dispatcher is given", async () => {
       const { cleanup } = await load();
@@ -402,7 +445,7 @@ describe("single-pane live script", () => {
         const without = decideDispatcher({ agentId: "d1", state }, false);
         expect(without.action, state).toBe("skip");
         expect(without.reason).toContain("--use-existing-dispatcher");
-        // server/dispatcher.ts run(): only an ended or full session may be replaced; a live one is messaged.
+        // server/dispatcher.ts run(): only an ended (dead) session may be replaced; a live one is messaged.
         expect(decideDispatcher({ agentId: "d1", state }, true).action, state).toBe(state === "ended" ? "start" : "use");
       }
     });
@@ -410,7 +453,7 @@ describe("single-pane live script", () => {
     it("mentions archiving the old session only for an ended dispatcher", async () => {
       const { decideDispatcher } = await load();
       expect(decideDispatcher({ agentId: "d1", state: "ended" }, false).reason).toContain("archives that ended session");
-      for (const state of ["running", "idle", "context_full"]) expect(decideDispatcher({ agentId: "d1", state }, false).reason, state).not.toContain("archives that ended session");
+      for (const state of ["running", "idle"]) expect(decideDispatcher({ agentId: "d1", state }, false).reason, state).not.toContain("archives that ended session");
     });
   });
 
@@ -431,6 +474,7 @@ describe("single-pane live script", () => {
       const { interruptNotice } = await load();
       const text = interruptNotice("node docs/verification/single-pane-live.mjs --cleanup /r.json").join("\n");
       expect(text).toContain("long RPC");
+      expect(text).toContain("--yes-archive-dispatcher");
       expect(text).toContain("node docs/verification/single-pane-live.mjs --cleanup /r.json");
     });
   });

@@ -16,7 +16,8 @@ import type { ConnectorService } from "./connectors/service";
  */
 
 /** Where a card's files may live, and the directory "./" targets are relative to. */
-export type ArtifactRoots = { workspace: string; roots: string[] };
+/** `roots` are resolved through symlinks at each check; `resolved` (the extra folders) were resolved at the settings read and are compared as they are. */
+export type ArtifactRoots = { workspace: string; roots: string[]; resolved?: string[] };
 
 /**
  * Extra folders from Settings as absolute roots: `~` expanded, normalized (no trailing slash), duplicates dropped.
@@ -38,13 +39,14 @@ export function extraFolderRoots(folders: readonly string[], home = homedir()): 
 
 /**
  * The card's workspace directory (or its source path) plus its scope directories and linked repositories,
- * and the extra folders set in Settings (textual cleanup only: pass `resolveExtraRoots` output).
+ * and, apart in `resolved`, the extra folders set in Settings (textual cleanup only: pass `resolveExtraRoots` output).
  */
 export function artifactRoots(task: Task, project: Project, workspaceDirectory?: string | null, extra: readonly string[] = []): ArtifactRoots {
   const workspace = workspaceDirectory || task.sourcePath;
   return {
     workspace,
-    roots: [...new Set([workspace, task.sourcePath, project.primaryPath, ...effectiveRepos(task, project), ...(project.links || []).map((l) => l.target), ...extraFolderRoots(extra)])],
+    roots: [...new Set([workspace, task.sourcePath, project.primaryPath, ...effectiveRepos(task, project), ...(project.links || []).map((l) => l.target)])],
+    resolved: extraFolderRoots(extra),
   };
 }
 
@@ -57,9 +59,11 @@ const inside = (path: string, root: string) => path === root || path.startsWith(
  * (a link to `/`, a case variant of home on macOS, `~/..`). Build every card's roots with this, never with the raw setting.
  */
 export async function resolveExtraRoots(folders: readonly string[], home = homedir()): Promise<string[]> {
+  const candidates = extraFolderRoots(folders, home);
+  if (!candidates.length) return [];
   const realHome = (await real(home)) ?? resolve(home);
   const roots = new Set<string>();
-  for (const candidate of extraFolderRoots(folders, home)) {
+  for (const candidate of candidates) {
     const path = await real(candidate);
     if (!path || path === parse(path).root || inside(realHome, path)) continue;
     roots.add(path);
@@ -67,15 +71,20 @@ export async function resolveExtraRoots(folders: readonly string[], home = homed
   return [...roots];
 }
 
-/** The real path of `path` when it lies within one of `roots` (after resolving symlinks), else null. */
-export async function withinRoots(path: string, roots: readonly string[]) {
+/** The card's roots as real paths: `roots` resolved now, `resolved` as they are (never resolved again). */
+async function realRoots(where: ArtifactRoots): Promise<string[]> {
+  const card = await Promise.all(where.roots.map(real));
+  return [...card.filter((r): r is string => !!r), ...(where.resolved ?? [])];
+}
+
+async function withinReal(path: string, roots: readonly string[]) {
   const target = await real(path);
-  if (!target) return null;
-  for (const root of roots) {
-    const r = await real(root);
-    if (r && inside(target, r)) return target;
-  }
-  return null;
+  return target && roots.some((r) => inside(target, r)) ? target : null;
+}
+
+/** The real path of `path` when it lies within the card's directories (after resolving symlinks), else null. */
+export async function withinRoots(path: string, where: ArtifactRoots) {
+  return withinReal(path, await realRoots(where));
 }
 
 /**
@@ -91,7 +100,7 @@ export async function normalizeTarget(raw: string, where: ArtifactRoots): Promis
   const path = value.replace(/^file:\/\//i, "").replace(/^~(?=\/|$)/, homedir());
   const absolute = isAbsolute(path) ? resolve(path) : resolve(where.workspace, path);
   if (!(await real(absolute))) throw new Error("This file doesn't exist.");
-  if (!(await withinRoots(absolute, where.roots))) throw new Error("Files outside this card's directories can't be added.");
+  if (!(await withinRoots(absolute, where))) throw new Error("Files outside this card's directories can't be added.");
   const fromWorkspace = relative(resolve(where.workspace), absolute);
   const target =
     fromWorkspace === "" ? "./" : !fromWorkspace.startsWith("..") && !isAbsolute(fromWorkspace) ? `./${fromWorkspace.split(sep).join("/")}` : absolute;
@@ -102,9 +111,12 @@ export async function normalizeTarget(raw: string, where: ArtifactRoots): Promis
 /** Whether each file artifact still exists (and stays inside the card's directories). Links are never missing. */
 export async function missingArtifacts(list: readonly Artifact[], where: ArtifactRoots) {
   const missing = new Set<string>();
+  if (!list.some((a) => a.kind === "file")) return missing;
+  // The roots are resolved once for the whole list, not once per file.
+  const roots = await realRoots(where);
   await Promise.all(
     list.map(async (a) => {
-      if (a.kind === "file" && !(await withinRoots(absoluteTarget(a.target, where.workspace), where.roots))) missing.add(a.id);
+      if (a.kind === "file" && !(await withinReal(absoluteTarget(a.target, where.workspace), roots))) missing.add(a.id);
     }),
   );
   return missing;
@@ -247,7 +259,7 @@ export type ArtifactPreview =
  */
 export async function previewFile(artifact: Artifact, where: ArtifactRoots): Promise<ArtifactPreview> {
   if (artifact.kind !== "file") throw new Error("Links open in the browser.");
-  const path = await withinRoots(absoluteTarget(artifact.target, where.workspace), where.roots);
+  const path = await withinRoots(absoluteTarget(artifact.target, where.workspace), where);
   if (!path) throw new Error("This file no longer exists.");
   const info = await stat(path);
   if (info.isDirectory()) {

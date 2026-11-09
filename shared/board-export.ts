@@ -18,14 +18,14 @@ const balanced = (text: string) => {
 /** The parenthetical after an idea title, in a form `parseBacklog` takes as the source note. */
 function ideaNote(idea: Idea, cardTitle: string | undefined) {
   let note = oneLine((idea.source || cardTitle || "").replace(/`/g, ""));
+  // Unbalanced parentheses are dropped first, so a note of only parentheses gets the same title guard as no note.
+  if (!balanced(note)) note = oneLine(note.replace(/[()]/g, ""));
   if (!note) {
     // No note of its own: a title that already ends in an added-style parenthetical would lose it to the parser on re-import.
     const title = oneLine(idea.title);
     const [row] = parseBacklog(`- [ ] ${title}`);
     return row && (row.source !== null || row.title !== title) ? `added ${idea.createdAt.slice(0, 10)}` : "";
   }
-  if (!balanced(note)) note = oneLine(note.replace(/[()]/g, ""));
-  if (!note) return "";
   return isSourceNote(note) ? note : `added ${idea.createdAt.slice(0, 10)}, ${note}`;
 }
 

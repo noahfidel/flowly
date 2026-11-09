@@ -281,11 +281,10 @@ export function validateRecord(data, file, { tmp = tmpdir() } = {}) {
  * What checks 1, 3 and 4 do with the dispatcher. A dispatcher record of the user's, in any state, is theirs: this run
  * touches it only with --use-existing-dispatcher. `status` is `dispatcher.status`.
  *
- * The states are the ones the daemon reports: shared/dispatcher.ts `dispatcherStates` = none | running | idle | ended |
- * context_full, derived by server/dispatcher.ts `dispatcherState` (an archived, error or closed session is `ended`;
- * 95% of the context window is `context_full`; otherwise running or idle). `dispatcher.start` is refused only while
- * the state is running or idle, so an ended session is the one a replacement is started for; a context_full one is
- * still a live session and is messaged, not replaced.
+ * The states are the ones the daemon reports: shared/dispatcher.ts `dispatcherStates` = none | running | idle | ended,
+ * derived by server/dispatcher.ts `dispatcherState` (`isDeadDispatcher`: an archived, closed or missing session is
+ * `ended`; otherwise running or idle). `dispatcher.start` is refused unless the stored session is dead, so an ended
+ * session is the one a replacement is started for; a live one is messaged, not replaced.
  */
 export function decideDispatcher(status, useExisting) {
   const existing = status.agentId !== null || status.state !== 'none';
@@ -305,6 +304,13 @@ export function decideDispatcher(status, useExisting) {
 export function dispatcherArchivePlan({ ours, keep, unattended, yes }) {
   if (!ours || keep) return 'keep';
   return unattended && !yes ? 'hold' : 'archive';
+}
+
+/** Whether a session was created at or after the run's start; a missing or unreadable time is never the run's. */
+export function createdDuringRun(createdAt, startedAt) {
+  const created = Date.parse(createdAt ?? '');
+  const started = Date.parse(startedAt ?? '');
+  return Number.isFinite(created) && Number.isFinite(started) && created >= started;
 }
 
 /** Why check 6 cannot seed a memory entry, or null. memory.read answers `enabled: false` when the feature is off and throws for an unknown project. */
@@ -340,6 +346,7 @@ export function interruptNotice(retry) {
   return [
     'A check that was blocked in a long RPC may still have created things after cleanup started.',
     `Run the retry command to catch them (it is safe to repeat): ${retry}`,
+    'If this run started a dispatcher, the retry lists it and leaves it running; add --yes-archive-dispatcher to archive it too.',
   ];
 }
 
@@ -574,7 +581,7 @@ function makeContext(args, client, api, rec) {
       agentId: prep.agentId,
       idempotencyKey: `single-pane-live:${prep.agentId}`,
       title: `${rec.marker} ${label}`,
-      labels: { 'flowly-task': task.id, 'flowly-started-by': 'single-pane-live' },
+      labels: { 'flowly-task': task.id, 'flowly-started-by': 'single-pane-live', 'single-pane-live-run': rec.data.runId },
       config: { provider: MODEL, modeId, systemPrompt: prep.instructions, mcpServers: { flowly: prep.mcp } },
       env: { FLOWLY_CONTEXT_FILE: prep.contextFile, FLOWLY_CLI: prep.cliPath, FLOWLY_SKILL: prep.skillPath },
       prompt,
@@ -692,9 +699,13 @@ export async function cleanup(ctx, { keepDispatcher, unattended = false, yesArch
   const sessionIds = new Set(data.agents);
   for (const a of live) if (cardIds.includes(a.labels?.['flowly-task']) && workspaces.has(a.workspaceId)) sessionIds.add(a.id);
   const dispatcherId = data.dispatcher?.agentId;
-  const dispatcherPlan = dispatcherArchivePlan({ ours: data.dispatcher?.ours === true, keep: keepDispatcher, unattended, yes: yesArchiveDispatcher });
+  let dispatcherPlan = dispatcherArchivePlan({ ours: data.dispatcher?.ours === true, keep: keepDispatcher, unattended, yes: yesArchiveDispatcher });
+  // A dispatcher session made before this run started is never this run's, whatever the record says.
+  const dispatcherNow = dispatcherId && dispatcherPlan === 'archive' ? await ctx.agent(dispatcherId).catch(() => null) : null;
+  if (dispatcherNow && !dispatcherNow.archivedAt && !createdDuringRun(dispatcherNow.createdAt, data.startedAt)) dispatcherPlan = 'older';
   const ownDispatcher = (a) => !!dispatcherId && a.id === dispatcherId && data.dispatcher.ours === true && !!a.labels?.['flowly-dispatcher'];
-  const verified = (a) => a.labels?.['flowly-started-by'] === 'single-pane-live' || cardIds.includes(a.labels?.['flowly-task']) || ownDispatcher(a);
+  const ownRun = (a) => a.labels?.['flowly-started-by'] === 'single-pane-live' && a.labels?.['single-pane-live-run'] === data.runId;
+  const verified = (a) => ownRun(a) || cardIds.includes(a.labels?.['flowly-task']) || ownDispatcher(a);
   const unverified = new Set();
   for (const id of sessionIds) {
     if (id === dispatcherId && dispatcherPlan !== 'archive') continue;
@@ -784,6 +795,8 @@ export async function cleanup(ctx, { keepDispatcher, unattended = false, yesArch
     }
 
   // 7. The dispatcher, when this run started it. From --cleanup a record alone never archives a session: it is listed.
+  if (dispatcherId && dispatcherPlan === 'older')
+    done.push(`left in place: dispatcher ${dispatcherId} (created before this run started, so not this run's)`);
   if (dispatcherId && dispatcherPlan === 'hold')
     done.push(`left in place: dispatcher ${dispatcherId} (would be archived; a record alone does not archive a session unattended, pass --yes-archive-dispatcher)`);
   if (dispatcherId && dispatcherPlan === 'archive')
@@ -796,10 +809,12 @@ export async function cleanup(ctx, { keepDispatcher, unattended = false, yesArch
       }
     });
 
+  // Only the directories of this run's fixture projects (verified above, or gone from the board); any other is left.
+  const tied = new Set(fixtures.flatMap((f) => [resolve(f.path), realOr(f.path)]));
   for (const dir of data.tmpDirs)
     await guard(`remove ${dir}`, async () => {
       if (!isFixtureDir(dir)) throw new Error('refusing: not a fixture directory directly under the temp directory.');
-      if (blocked.has(resolve(dir)) || blocked.has(realOr(dir))) {
+      if (blocked.has(resolve(dir)) || blocked.has(realOr(dir)) || !(tied.has(resolve(dir)) || tied.has(realOr(dir)))) {
         done.push(`left in place: ${dir}`);
         return;
       }

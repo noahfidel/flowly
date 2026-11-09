@@ -1566,7 +1566,7 @@ const catalog: Catalog = {
   "Denied": "Refusé",
   "Delivered": "Remis",
   "Choose an option or type an answer, not both.": "Choisissez une option ou saisissez une réponse, pas les deux.",
-  "This card's folder already had sessions. Switch the card to a worktree from its menu, then start again.": "Le dossier de cette carte a déjà eu des sessions. Passez la carte sur un worktree depuis son menu, puis relancez.",
+  "This card's folder already had sessions, or Flowly didn't create it for the card. Switch the card to a worktree from its menu, then start again.": "Le dossier de cette carte a déjà eu des sessions, ou Flowly ne l'a pas créé pour la carte. Passez la carte sur un worktree depuis son menu, puis relancez.",
   "The card already has a running session. Send it a message instead.": "La carte a déjà une session en cours. Envoyez-lui plutôt un message.",
 };
 export default catalog;

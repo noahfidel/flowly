@@ -1566,7 +1566,7 @@ const catalog: Catalog = {
   "Denied": "已拒绝",
   "Delivered": "已送达",
   "Choose an option or type an answer, not both.": "请选择一个选项或输入回答，不能两者都用。",
-  "This card's folder already had sessions. Switch the card to a worktree from its menu, then start again.": "这张卡片的文件夹已经有过会话。请从卡片菜单切换到 worktree，再重新开始。",
+  "This card's folder already had sessions, or Flowly didn't create it for the card. Switch the card to a worktree from its menu, then start again.": "这张卡片的文件夹已经有过会话，或不是 Flowly 为这张卡片创建的。请从卡片菜单切换到 worktree，再重新开始。",
   "The card already has a running session. Send it a message instead.": "这张卡片已有运行中的会话，请改为给它发消息。",
 };
 export default catalog;

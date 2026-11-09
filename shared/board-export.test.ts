@@ -128,6 +128,19 @@ describe("exportMarkdown", () => {
     expect(rows.every((r) => r.keep)).toBe(true);
   });
 
+  test("a source that is only parentheses round-trips: the note keeps it or is dropped, and the title stays whole", () => {
+    const ideas = [
+      idea({ title: "Use A (added support)", source: "()" }),
+      idea({ id: "i2", title: "Use B (added support)", source: "(" }),
+      idea({ id: "i3", title: "Use C (added support)", source: ")(" }),
+      idea({ id: "i4", title: "Plain D", source: "( )" }),
+    ];
+    const rows = parseBacklog(exportMarkdown(board({ projects: [project()], ideas }), {}).split("### Ideas")[1]!);
+    expect(rows.map((r) => r.title)).toEqual(["Use A (added support)", "Use B (added support)", "Use C (added support)", "Plain D"]);
+    expect(rows[0]!.source).toBe("added 2026-11-08, ()");
+    expect(rows[3]!.source).toBe("added 2026-11-08, ( )");
+  });
+
   test("pasting a whole export into Import picks up only the ideas", () => {
     const md = exportMarkdown(
       board({

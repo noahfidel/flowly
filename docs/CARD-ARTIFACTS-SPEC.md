@@ -206,7 +206,7 @@
 
 - 设置：设置 > AI features > Artifacts 下的 “Extra artifact folders”（host 范围的 `artifacts` 设置，`extraFolders`，最多 20 条、每条最多 1000 字符），一组文件夹文本框，可增删；说明只写后果：agent 可以把这些文件夹下的任何文件附加到任何卡片。
 - 读取：绝对路径或 `~/…`；`~` 展开为主目录，路径规范化（去掉末尾斜杠、`.`/`..`），重复项去掉。空字符串、相对路径（含 `~user`）、文件系统根 `/`、主目录本身及其任何上级目录一律忽略（太宽，不会成为根）；格式不对的整体设置按空列表处理。文本层面的判断（`extraFolderIgnored`，`~`/`/` 路径按 `.`/`..` 归一后落在根、主目录或其上级）客户端与服务端共用：设置里被忽略的行下面显示一句 “Not used: …”。
-- 真实路径：`withinRoots` 比较的是 realpath，所以额外目录也按真实路径决定（`resolveExtraRoots`，异步）：每个目录先 realpath（解析不了的丢弃），真实路径为 `/`、等于主目录的真实路径或是其上级的丢弃——指向 `/` 或主目录的符号链接、macOS 上主目录的大小写变体、`/Users`、`~/..` 都不能成为根。`ArtifactService.where`/`status` 与 agent 的三处 `artifactRoots` 调用都传 `resolveExtraRoots` 的结果。
-- 作用：这些目录追加到每张卡的 `roots`（`artifactRoots(task, project, workspaceDirectory?, extra)`）；`withinRoots`（两侧 `realpath`、按分隔符的前缀比较）和 `normalizeTarget` 不变，所以 `plans-old` 不算在 `plans` 内，目录内指向目录外的符号链接被拒绝。目录外的文件仍按绝对路径存储（§2.2）。
+- 真实路径：`withinRoots` 比较的是 realpath，所以额外目录也按真实路径决定（`resolveExtraRoots`，异步）：每个目录先 realpath（解析不了的丢弃），真实路径为 `/`、等于主目录的真实路径或是其上级的丢弃——指向 `/` 或主目录的符号链接、macOS 上主目录的大小写变体、`/Users`、`~/..` 都不能成为根。`ArtifactService.where`/`status` 与 agent 的三处 `artifactRoots` 调用都传 `resolveExtraRoots` 的结果。没有设置额外目录时不做任何 realpath。
+- 作用：这些目录作为每张卡的 `resolved` 根（`artifactRoots(task, project, workspaceDirectory?, extra)`，与卡片自己的 `roots` 分开）；它们在读取设置时已解析为真实路径，检查时按原样比较、不再 realpath，所以读取设置后某个目录被换成指向别处的符号链接也不会扩大范围。卡片自己的 `roots` 每次检查时 realpath（`missingArtifacts` 对整批只解析一次）。`withinRoots`（目标 `realpath`、按分隔符的前缀比较）和 `normalizeTarget` 的规则不变，所以 `plans-old` 不算在 `plans` 内，目录内指向目录外的符号链接被拒绝。目录外的文件仍按绝对路径存储（§2.2）。
 - 设置每次使用时读取：从设置里移除某个目录后，其中文件的产物在下一次状态检查（缓存键含这些目录）显示 “Missing”，记录保留；人工 RPC 和 agent 工具（`flowly_artifact`、交付时的 `outputs`、`flowly_get_task` 的 `missing`）都用同一份根。
 - 验收（`server/artifacts.test.ts`）：额外目录内的文件被接受并存绝对路径；名字以其为前缀的同级目录被拒；目录内指向外部的符号链接被拒；`missingArtifacts` 在目录被移出设置后标记缺失；相对路径、空串、`/` 被忽略（含直接传给 `artifactRoots` 的情况）；指向 `/` 或主目录的符号链接、主目录的大小写变体、主目录及其上级被丢弃，主目录下的子目录保留；设置里的提示与服务端的文本判断一致。

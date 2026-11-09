@@ -49,7 +49,7 @@ test("after a reload the bell leaves out what the daemon resolved, with an empty
 
 test("Start again's refusals are shown in the user's words", () => {
   expect(startAgainMessage("NEEDS_WORKTREE: The card works in a directory workspace…")).toBe(
-    "This card's folder already had sessions. Switch the card to a worktree from its menu, then start again.",
+    "This card's folder already had sessions, or Flowly didn't create it for the card. Switch the card to a worktree from its menu, then start again.",
   );
   expect(startAgainMessage("CARD_HAS_SESSION: The card already has a live session (s1).")).toBe("The card already has a running session. Send it a message instead.");
   expect(startAgainMessage("CARD_FINISHED: The card is Done or Cancelled; only the user reopens it.")).toBe("The card is Done or Cancelled; only the user reopens it.");
