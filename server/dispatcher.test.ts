@@ -1051,9 +1051,13 @@ test("Replace is refused for a guarded dispatcher, another session id or none, a
   const v = await oldDispatcher();
   const ref = v.paseo.agents.ref;
   (v.paseo.agents as { ref: unknown }).ref = (id: string) => ({ ...ref(id), archive: async () => { throw new Error("busy"); } });
+  await v.dispatcher.deliver([note("a")], v.paseo);
   await expect(v.dispatcher.replace(v.paseo, { agentId: "old" })).rejects.toMatchObject({ code: "REPLACE_FAILED" });
   expect(v.agentCreates).toHaveLength(0);
   expect((await v.dispatcher.record()).agentId).toBe("old");
+  expect(await v.dispatcher.record()).not.toHaveProperty("guard");
+  // Its held note still waits for a fresh dispatcher.
+  expect([...(v.dispatcher as unknown as { held: Map<string, unknown> }).held.keys()]).toEqual(["a"]);
 });
 
 test("Replace does every step that can fail before it archives: a failed preparation archives nothing and keeps the dispatcher", async () => {
@@ -1085,6 +1089,29 @@ test("Replace does every step that can fail before it archives: a failed prepara
     expect(await x.dispatcher.status(x.paseo), label).toMatchObject({ state: "idle", agentId: "old", unguarded: true });
     expect(x.sends, label).toEqual([]);
   }
+});
+
+test("Replace archives before it stores the new session: a failed save after the archive leaves an ended dispatcher, and Start works", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const x = await oldDispatcher();
+  // The save that would store the new session fails (as a crash there would): only once the old one is archived.
+  const internals = x.dispatcher as unknown as { save: (...args: unknown[]) => Promise<unknown> };
+  const save = internals.save.bind(x.dispatcher);
+  let failing = true;
+  internals.save = async (...args: unknown[]) => {
+    if (failing && x.archived.includes("agent:old")) throw new Error("disk full");
+    return save(...args);
+  };
+  await expect(x.dispatcher.replace(x.paseo, { agentId: "old" })).rejects.toThrow("disk full");
+  expect(x.archived).toEqual(["agent:old"]);
+  expect(x.agentCreates).toHaveLength(0);
+  // The record still names the archived session: ended, not a live session Flowly lost track of.
+  expect(await x.dispatcher.record()).toMatchObject({ agentId: "old" });
+  expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "ended", agentId: "old" });
+  failing = false;
+  const { agentId } = await x.dispatcher.start(x.paseo, {});
+  expect(await x.dispatcher.record()).toMatchObject({ agentId, guard: { version: dispatcherGuardVersion, provider: "claude" }, previousAgentIds: ["old"] });
+  expect(x.archived).toEqual(["agent:old"]);
 });
 
 test("Replace whose create fails after the archive leaves an ended dispatcher, says so, and Start works", async () => {

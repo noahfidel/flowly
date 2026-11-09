@@ -325,9 +325,10 @@ export class Dispatcher {
   }
 
   /**
-   * Starts a dispatcher; `replacing` is the unguarded session Replace archives (§3). The folder, workspace, MCP server,
-   * board summary and record come first; only then is the old session archived (a failed archive restores the record
-   * and starts nothing), and only the session create comes after it.
+   * Starts a dispatcher; `replacing` is the unguarded session Replace archives (§3). The folder, workspace, MCP server
+   * and board summary come first; then the old session is archived (a failed archive starts nothing), and only then is
+   * the new session stored and created. A crash or failed save after the archive leaves the record naming the archived
+   * session: ended, never a live session Flowly no longer tracks.
    */
   private async run(paseo: PaseoApi, input: { provider: string; modeId?: string; thinking?: string }, replacing?: string) {
     const stored = await this.record();
@@ -342,7 +343,8 @@ export class Dispatcher {
     const covered = [...this.held];
     try {
       const [mcp, summary] = await Promise.all([this.deps.mcp({ agentId, workspaceId }), this.deps.summary()]);
-      if (previous.agentId && previous.agentId !== replacing) await this.stillDead(paseo, previous.agentId);
+      if (replacing) await this.archiveReplaced(paseo, replacing);
+      else if (previous.agentId) await this.stillDead(paseo, previous.agentId);
       const now = this.deps.now?.() ?? Date.now();
       const earlier = previous.agentId
         ? [...(previous.previousAgentIds ?? []).filter((id) => id !== previous.agentId), previous.agentId].slice(-previousAgentIdLimit)
@@ -358,7 +360,6 @@ export class Dispatcher {
         guard: { version: dispatcherGuardVersion, provider: input.provider.split("/")[0] },
         ...(earlier ? { previousAgentIds: earlier } : {}),
       }));
-      if (replacing) await this.archiveReplaced(paseo, replacing, { workspaceId, previous });
       for (const [taskId, held] of covered) if (this.held.get(taskId) === held) this.held.delete(taskId);
       await this.create(paseo, { workspaceId, agentId, mcp, summary, input, previous, replaced: !!replacing });
     } finally {
@@ -377,13 +378,12 @@ export class Dispatcher {
     if (!isDeadDispatcher((await paseo.agents.ref(agentId).refresh())?.agent)) throw dispatcherRunning();
   }
 
-  /** Replace's archive of exactly that session (unless already dead); a failure restores the record and starts nothing. */
-  private async archiveReplaced(paseo: PaseoApi, agentId: string, restore: { workspaceId: string; previous: DispatcherRecord }) {
+  /** Replace's archive of exactly that session (unless already dead), before the record changes; a failure starts nothing. */
+  private async archiveReplaced(paseo: PaseoApi, agentId: string) {
     const ref = paseo.agents.ref(agentId);
     try {
       if (!isDeadDispatcher((await ref.refresh())?.agent)) await ref.archive();
     } catch (e) {
-      await this.restore(restore.workspaceId, restore.previous);
       logFailure("Flowly dispatcher not archived for replace:", e, agentId);
       throw new ToolError("REPLACE_FAILED", `Paseo did not archive the dispatcher session: ${e instanceof Error ? e.message : String(e)}`);
     }
