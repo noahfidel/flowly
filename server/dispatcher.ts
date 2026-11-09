@@ -148,11 +148,12 @@ export const RECHECK_MAX_MS = 60_000;
 const recheckDelays = [TURN_END_RETRY_MS, 5_000, 15_000, 30_000, RECHECK_MAX_MS];
 
 /**
- * The one test for a dead dispatcher (§3): Paseo no longer returns it, it is archived, or it is closed. Only a
- * dead dispatcher is replaced (and then archived); every other status, `error` included, is the live one.
+ * The one test for a dead dispatcher (§3, ruling, Noah 2026-11-09): Paseo no longer returns it, or it is archived.
+ * Every other status is the live one: `error`, and `closed` (Paseo stopped an idle process, or restarted; the next
+ * message resumes it). Only a dead dispatcher is replaced.
  */
 export function isDeadDispatcher(agent: AgentSnapshot): boolean {
-  return !agent || !!agent.archivedAt || agent.status === "closed";
+  return !agent || !!agent.archivedAt;
 }
 
 /** The state of the stored dispatcher session as Flowly reads it (§3). */
@@ -314,7 +315,7 @@ export class Dispatcher {
     const covered = [...this.held];
     try {
       const [mcp, summary] = await Promise.all([this.deps.mcp({ agentId, workspaceId }), this.deps.summary()]);
-      if (previous.agentId) await this.retire(paseo, previous.agentId);
+      if (previous.agentId) await this.stillDead(paseo, previous.agentId);
       const now = this.deps.now?.() ?? Date.now();
       const earlier = previous.agentId
         ? [...(previous.previousAgentIds ?? []).filter((id) => id !== previous.agentId), previous.agentId].slice(-previousAgentIdLimit)
@@ -341,18 +342,11 @@ export class Dispatcher {
   }
 
   /**
-   * The stored dispatcher is being replaced: read it again and archive it only while it is still dead and not
-   * archived yet (that id only, never its workspace). A session that came back meanwhile refuses the start.
+   * The stored dispatcher is being replaced: read it again just before; a session that came back meanwhile (restored
+   * from the archive) refuses the start. A dead one is already archived or gone, so Flowly archives nothing.
    */
-  private async retire(paseo: PaseoApi, agentId: string) {
-    const again = (await paseo.agents.ref(agentId).refresh())?.agent;
-    if (!isDeadDispatcher(again)) throw dispatcherRunning();
-    if (!again || again.archivedAt) return;
-    try {
-      await paseo.agents.ref(agentId).archive();
-    } catch (e) {
-      logFailure("Flowly dispatcher: dead session not archived:", e, `agent ${agentId}`);
-    }
+  private async stillDead(paseo: PaseoApi, agentId: string) {
+    if (!isDeadDispatcher((await paseo.agents.ref(agentId).refresh())?.agent)) throw dispatcherRunning();
   }
 
   private async create(

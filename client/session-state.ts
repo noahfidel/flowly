@@ -5,6 +5,15 @@ import { msg, t, tn } from "../shared/i18n";
 import { asksQuestion } from "../shared/permission-question";
 import { nextMovesAction } from "../shared/next-moves";
 
+/**
+ * The dispatcher's session state: as any session's, except that `closed` reads as asleep. Paseo stopped its idle
+ * process (or restarted), and the next note or message resumes it; it has not ended (DISPATCHER-SPEC §3).
+ */
+export function dispatcherSessionState(agent: Parameters<typeof sessionState>[0], events: readonly BoardEvent[] = []) {
+  if (agent.status === "closed" && !agent.archivedAt) return { label: msg("Asleep"), icon: "CircleStop", active: false };
+  return sessionState(agent, events);
+}
+
 export function sessionState(
   agent: Pick<
     PaseoAgent,

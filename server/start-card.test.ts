@@ -643,24 +643,25 @@ test("the user's Start again on a used directory card is told to switch to a wor
   expect(codedError(new Error("plain"))).toEqual(new Error("plain"));
 });
 
-test("the user's Start again starts next to a closed session and archives nothing; an idle one still refuses (ruling)", async () => {
+test("the user's Start again counts a closed session as the card's, as a running or idle one; an archived one does not (ruling, Noah 2026-11-09)", async () => {
   const x = await setup();
   const user = { agentId: "user", projectId: x.caller.projectId, human: true as const };
   await x.card("c", {}, "worktree");
   x.turn(false);
   const first = await x.starter.start(user, { taskId: "c", idempotencyKey: "again-1" }, x.paseo);
+  // Closed is a stopped process that a message resumes: send it instead, for the user as for an agent.
   x.agents.get(first.agentId)!.status = "closed";
-  // An agent's start still counts a closed session as the card's session.
+  expect(await x.failure(x.starter.start(user, { taskId: "c", idempotencyKey: "again-2" }, x.paseo))).toBe("CARD_HAS_SESSION");
   x.turn(true);
   expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "agent-1" }, x.paseo))).toBe("CARD_HAS_SESSION");
+  x.agents.get(first.agentId)!.status = "idle";
   x.turn(false);
-  const second = await x.starter.start(user, { taskId: "c", idempotencyKey: "again-2" }, x.paseo);
+  expect(await x.failure(x.starter.start(user, { taskId: "c", idempotencyKey: "again-3" }, x.paseo))).toBe("CARD_HAS_SESSION");
+  // Archived (its asks ended with it): a new session starts next to it, and nothing is archived.
+  x.agents.get(first.agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
+  const second = await x.starter.start(user, { taskId: "c", idempotencyKey: "again-4" }, x.paseo);
   expect(second).toMatchObject({ taskId: "c", workspaceId: "ws-c", replayed: false });
   expect(second.agentId).not.toBe(first.agentId);
-  expect(x.agents.get(first.agentId)).toMatchObject({ status: "closed", archivedAt: null });
   expect(x.createdSessions.map((s) => s.workspaceId)).toEqual(["ws-c", "ws-c"]);
   expect(x.archived).toEqual([]);
-  // Running or idle: still refused.
-  x.agents.get(second.agentId)!.status = "idle";
-  expect(await x.failure(x.starter.start(user, { taskId: "c", idempotencyKey: "again-3" }, x.paseo))).toBe("CARD_HAS_SESSION");
 });

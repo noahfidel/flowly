@@ -177,7 +177,7 @@ test("start creates a background directory workspace once and reuses it", async 
   expect(x.agentCreates[1].workspaceId).toBe("dw-1");
   // A workspace Paseo no longer returns is replaced.
   x.workspaces.delete("dw-1");
-  x.agents.get(second.agentId)!.status = "closed";
+  x.agents.get(second.agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   expect(x.created).toHaveLength(2);
   expect(JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8")).workspaceId).toBe("dw-2");
@@ -189,12 +189,12 @@ test("the workspace is never archived", async () => {
   x.agents.get(agentId)!.status = "idle";
   await x.dispatcher.deliver([note("t1")], x.paseo);
   await x.dispatcher.turnEnded(agentId, x.paseo);
-  x.agents.get(agentId)!.status = "closed";
+  x.agents.get(agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   await x.dispatcher.status(x.paseo);
   await x.dispatcher.deliver([note("t2")], x.paseo);
   await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  // Only the dead session is archived, never the workspace.
-  expect(x.archived).toEqual([`agent:${agentId}`]);
+  // Neither the dead (already archived) session nor the workspace is archived by Flowly.
+  expect(x.archived).toEqual([]);
   expect(await x.dispatcher.owns("dw-1")).toBe(true);
   expect(await x.dispatcher.owns("other")).toBe(false);
   // The dispatcher workspace can never be bound to a card, so no card archive path reaches it.
@@ -210,17 +210,33 @@ test("the workspace is never archived", async () => {
   ).rejects.toThrow("Flowly dispatcher");
 });
 
-test("one long-lived dispatcher: dead means archived, closed or missing", () => {
+test("one long-lived dispatcher: dead means archived or missing; a stopped (closed) session is alive (ruling, Noah 2026-11-09)", () => {
   expect(isDeadDispatcher(null)).toBe(true);
   expect(isDeadDispatcher(undefined)).toBe(true);
   expect(isDeadDispatcher({ status: "idle", archivedAt: "2026-11-08T11:00:00.000Z" })).toBe(true);
-  expect(isDeadDispatcher({ status: "closed", archivedAt: null })).toBe(true);
-  for (const status of ["running", "initializing", "idle", "error"]) expect(isDeadDispatcher({ status, archivedAt: null }), status).toBe(false);
+  expect(isDeadDispatcher({ status: "closed", archivedAt: "2026-11-08T11:00:00.000Z" })).toBe(true);
+  // Paseo closes an idle session after an hour and on a restart; a message resumes it.
+  for (const status of ["running", "initializing", "idle", "error", "closed"]) expect(isDeadDispatcher({ status, archivedAt: null }), status).toBe(false);
   // A full context is no state of its own: the session compacts and stays the dispatcher.
   const full = { status: "idle", archivedAt: null, lastUsage: { contextWindowUsedTokens: 99, contextWindowMaxTokens: 100 } };
   expect(dispatcherState(full)).toBe("idle");
   expect(dispatcherState({ status: "error", archivedAt: null })).toBe("idle");
-  expect(dispatcherState({ status: "closed", archivedAt: null })).toBe("ended");
+  expect(dispatcherState({ status: "closed", archivedAt: null })).toBe("idle");
+});
+
+test("a closed dispatcher is resumed, not replaced: Start refuses, nothing is archived, notes and What should I do? reach it", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(agentId)!.status = "closed";
+  expect(await x.dispatcher.status(x.paseo)).toMatchObject({ state: "idle", agentId });
+  await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "DISPATCHER_RUNNING" });
+  expect(x.agentCreates).toHaveLength(1);
+  expect(x.archived).toEqual([]);
+  // A note batch is sent to it (Paseo reloads the session for the message), as to an idle one.
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  expect(x.sends.filter((m) => m.id === agentId).length).toBe(1);
+  await x.dispatcher.whatNext(x.paseo, "What should I do?", { revision: 1_700_000_000_000, ids: [] });
+  expect(x.sends.at(-1)).toMatchObject({ id: agentId, text: "What should I do?" });
 });
 
 test("start is refused while the dispatcher is alive, including a full context or an error", async () => {
@@ -236,23 +252,20 @@ test("start is refused while the dispatcher is alive, including a full context o
   expect(x.archived).toEqual([]);
 });
 
-test("a replacement archives the dead dispatcher (that id only, after a re-read) and remembers it", async () => {
+test("a replacement archives nothing, re-reads the dead dispatcher first and remembers it", async () => {
   const x = await setup();
   const first = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  x.agents.get(first.agentId)!.status = "closed";
+  x.agents.get(first.agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   const second = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  expect(x.archived).toEqual([`agent:${first.agentId}`]);
-  // An already archived or missing session has nothing to archive.
-  x.agents.get(second.agentId)!.archivedAt = "2026-11-08T12:00:00.000Z";
+  x.agents.delete(second.agentId);
   const third = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  x.agents.delete(third.agentId);
-  const fourth = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  expect(x.archived).toEqual([`agent:${first.agentId}`]);
+  // A dead dispatcher is already archived or gone: Flowly archives nothing.
+  expect(x.archived).toEqual([]);
   // The earlier sessions are remembered, newest last, without the current one.
-  expect((await x.dispatcher.record()).previousAgentIds).toEqual([first.agentId, second.agentId, third.agentId]);
-  expect(dispatcherSessionIds(await x.dispatcher.record())).toEqual([first.agentId, second.agentId, third.agentId, fourth.agentId]);
-  // A session that came back between the status read and the archive is never archived: the start is refused.
-  x.agents.get(fourth.agentId)!.status = "closed";
+  expect((await x.dispatcher.record()).previousAgentIds).toEqual([first.agentId, second.agentId]);
+  expect(dispatcherSessionIds(await x.dispatcher.record())).toEqual([first.agentId, second.agentId, third.agentId]);
+  // A session restored between the status read and the start is never replaced: the start is refused.
+  x.agents.get(third.agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   let reads = 0;
   const paseo = {
     ...x.paseo,
@@ -263,8 +276,8 @@ test("a replacement archives the dead dispatcher (that id only, after a re-read)
           ...ref,
           refresh: async () => {
             const found = await ref.refresh();
-            // The first read sees it closed; the re-read before archiving sees it running again.
-            if (++reads > 1 && found?.agent) return { agent: { ...found.agent, status: "running" } };
+            // The first read sees it archived; the re-read just before replacing sees it restored.
+            if (++reads > 1 && found?.agent) return { agent: { ...found.agent, archivedAt: null, status: "idle" } };
             return found;
           },
         };
@@ -272,27 +285,7 @@ test("a replacement archives the dead dispatcher (that id only, after a re-read)
     },
   } as unknown as PaseoApi;
   await expect(x.dispatcher.start(paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "DISPATCHER_RUNNING" });
-  expect(x.archived).toEqual([`agent:${first.agentId}`]);
-  expect((await x.dispatcher.record()).agentId).toBe(fourth.agentId);
-});
-
-test("a dead dispatcher that cannot be archived is logged and still replaced", async () => {
-  const x = await setup();
-  const first = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  x.agents.get(first.agentId)!.status = "closed";
-  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
-  const paseo = {
-    ...x.paseo,
-    agents: {
-      ref: (id: string) => ({
-        ...x.paseo.agents.ref(id),
-        archive: async () => Promise.reject(new Error("socket closed")),
-      }),
-    },
-  } as unknown as PaseoApi;
-  const second = await x.dispatcher.start(paseo, { provider: "claude/claude-sonnet-5-5" });
-  expect((await x.dispatcher.record()).agentId).toBe(second.agentId);
-  expect(errors.mock.calls.some((c) => c[0] === "Flowly dispatcher: dead session not archived:")).toBe(true);
+  expect((await x.dispatcher.record()).agentId).toBe(third.agentId);
 });
 
 test("notes in the start window are held until Paseo has created the session", async () => {
@@ -346,7 +339,7 @@ test("notes that arrive while a replacement takes its board summary are held for
     return "Board summary";
   });
   const first = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  x.agents.get(first.agentId)!.status = "closed";
+  x.agents.get(first.agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   gated = true;
   const replacing = x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   await started;
@@ -418,7 +411,7 @@ test("notes are dropped while the dispatcher is down", async () => {
   const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   // Held while it runs, then it closes: the held notes are dropped, not replayed.
   await x.dispatcher.deliver([note("t1")], x.paseo);
-  x.agents.get(agentId)!.status = "closed";
+  x.agents.get(agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   await x.dispatcher.turnEnded(agentId, x.paseo);
   await x.dispatcher.deliver([note("t2")], x.paseo);
   // Archived counts as down too.
@@ -494,7 +487,7 @@ test("a host without background workspaces gets a clear error and no record", as
 test("a session Paseo did not create leaves the earlier record", async () => {
   const x = await setup();
   const first = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  x.agents.get(first.agentId)!.status = "closed";
+  x.agents.get(first.agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   const paseo = {
     ...x.paseo,
     workspaces: {
@@ -789,7 +782,7 @@ test("a dispatcher folder later replaced by a link into the data folder is refus
   const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
   const x = await setup();
   const first = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  x.agents.get(first.agentId)!.status = "closed";
+  x.agents.get(first.agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   const inside = join(x.directory, "inside");
   await mkdir(inside);
   await rm(x.folder, { recursive: true });
@@ -834,14 +827,14 @@ test("a stored workspace in the old in-data folder is not reused; the old folder
   // While the old session is alive, start stays refused and nothing is created.
   await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "DISPATCHER_RUNNING" });
   expect(x.created).toEqual([]);
-  // Once it is dead, the new dispatcher gets a new workspace in the new folder; the old one is archived as a dead session only.
-  x.agents.get("old")!.status = "closed";
+  // Once it is dead (archived), the new dispatcher gets a new workspace in the new folder; nothing is archived.
+  x.agents.get("old")!.archivedAt = "2026-11-09T00:00:00.000Z";
   const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   expect(x.created).toHaveLength(1);
   expect(x.created[0]).toMatchObject({ source: { kind: "directory", path: x.folder } });
   expect(x.agentCreates[0].workspaceId).toBe("dw-1");
   expect(JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8"))).toMatchObject({ workspaceId: "dw-1", agentId });
-  expect(x.archived).toEqual(["agent:old"]);
+  expect(x.archived).toEqual([]);
   expect(await readFile(join(old, "notes.md"), "utf8")).toBe("kept");
   // The old workspace is no longer the stored one, but its folder is still the dispatcher's: no card can use it.
   expect(await x.dispatcher.owns("old-ws")).toBe(false);
@@ -859,7 +852,7 @@ test("a stored workspace in the old in-data folder is not reused; the old folder
   ).rejects.toThrow("Flowly dispatcher");
   // A stored workspace elsewhere (not the dispatcher folder) is not reused either.
   x.workspaces.set("dw-1", { id: "dw-1", archivingAt: null, workspaceDirectory: x.home });
-  x.agents.get(agentId)!.status = "closed";
+  x.agents.get(agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   expect(x.created).toHaveLength(2);
 });
@@ -868,7 +861,7 @@ test("start without a provider uses the Dispatcher model setting, else the serve
   const x = await setup();
   const first = await x.dispatcher.start(x.paseo, {});
   expect(x.agentCreates[0].options.config).toMatchObject({ provider: "claude/claude-sonnet-5-5" });
-  x.agents.get(first.agentId)!.status = "closed";
+  x.agents.get(first.agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   // A setting on a provider that cannot withhold the routes to a card's asks is refused, naming what to pick.
   x.dispatcher.modelSetting = async () => ({ provider: "codex", model: "gpt-5.4", thinking: "high", mode: "full-access" });
   await expect(x.dispatcher.start(x.paseo, {})).rejects.toMatchObject({ code: "DISPATCHER_PROVIDER_UNSUPPORTED", message: expect.stringContaining("Claude") });
@@ -877,12 +870,12 @@ test("start without a provider uses the Dispatcher model setting, else the serve
   const second = await x.dispatcher.start(x.paseo, {});
   expect(x.agentCreates[1].options.config).toMatchObject({ provider: "claude/claude-opus-5-5", modeId: "bypassPermissions", thinkingOptionId: "high" });
   // An explicit provider wins over the setting.
-  x.agents.get(second.agentId)!.status = "closed";
+  x.agents.get(second.agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   await x.dispatcher.start(x.paseo, { provider: "claude/claude-opus-5-5" });
   expect(x.agentCreates[2].options.config).toMatchObject({ provider: "claude/claude-opus-5-5" });
   expect((x.agentCreates[2].options.config as Record<string, unknown>).thinkingOptionId).toBeUndefined();
   // An unreadable setting falls back to the default.
-  x.agents.get((JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8")) as { agentId: string }).agentId)!.status = "closed";
+  x.agents.get((JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8")) as { agentId: string }).agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   x.dispatcher.modelSetting = async () => Promise.reject(new Error("settings unreadable"));
   await x.dispatcher.start(x.paseo, {});
   expect(x.agentCreates[3].options.config).toMatchObject({ provider: "claude/claude-sonnet-5-5" });
@@ -908,7 +901,7 @@ test("the chat records exactly the notes the dispatcher received", async () => {
   expect(recorded[0].at).toBe("2026-11-08T10:00:00.000Z");
   // A seen mark written meanwhile survives a new start.
   await x.dispatcher.markSeen(123);
-  x.agents.get(agentId)!.status = "closed";
+  x.agents.get(agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   expect((await x.dispatcher.record()).seenRevision).toBe(123);
 });
@@ -932,7 +925,7 @@ test("a refused session create restores the earlier record, its savedTools mark 
   const x = await setup();
   // An earlier dispatcher from before saved tools: no mark.
   await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: null, agentId: "old", startedAt: "2026-11-01T00:00:00.000Z" }));
-  x.agents.set("old", { id: "old", workspaceId: "dw-0", status: "closed", archivedAt: null });
+  x.agents.set("old", { id: "old", workspaceId: "dw-0", status: "idle", archivedAt: "2026-11-09T00:00:00.000Z" });
   x.failAgentCreate(new Error("Provider 'x' cannot preapprove exact MCP tools for unattended execution; select Claude, Codex, or OpenCode"));
   await expect(x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "START_FAILED" });
   const stored = JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8"));
@@ -958,7 +951,8 @@ test("a dispatcher saved with fewer tools than this build lists says a new one g
   // Tools from the open hook are read at each open, always this build's.
   expect(await status({})).toEqual({ state: "idle", agentId: "old" });
   // An ended one says nothing: Start gives a new one anyway.
-  expect(await status({ savedTools: ["flowly_list_projects"] }, "closed")).toEqual({ state: "ended", agentId: "old" });
+  // A closed one is alive (resumed by the next message): it says so too.
+  expect(await status({ savedTools: ["flowly_list_projects"] }, "closed")).toEqual({ state: "idle", agentId: "old", newTools: true });
 });
 
 test("a live dispatcher started without this build's routes withheld says to replace it; nothing restarts it (§3)", async () => {
@@ -978,8 +972,8 @@ test("a live dispatcher started without this build's routes withheld says to rep
   expect(await status({ version: dispatcherGuardVersion - 1, provider: "claude" })).toEqual({ state: "idle", agentId: "old", unguarded: true });
   expect(await status({ version: dispatcherGuardVersion, provider: "codex" })).toEqual({ state: "idle", agentId: "old", unguarded: true });
   expect(await status({ version: dispatcherGuardVersion, provider: "claude" })).toEqual({ state: "idle", agentId: "old" });
-  // An ended one says nothing: Start gives a new one anyway.
-  expect(await status(undefined, "closed")).toEqual({ state: "ended", agentId: "old" });
+  // A closed one is alive and says so; an archived one has ended and says nothing.
+  expect(await status(undefined, "closed")).toEqual({ state: "idle", agentId: "old", unguarded: true });
 });
 
 test("a started dispatcher records its guard; a refused create restores the earlier one (§1, §3)", async () => {
@@ -988,7 +982,7 @@ test("a started dispatcher records its guard; a refused create restores the earl
   expect(await x.dispatcher.record()).toMatchObject({ agentId, guard: { version: dispatcherGuardVersion, provider: "claude" } });
   expect(await x.dispatcher.status(x.paseo)).not.toHaveProperty("unguarded");
   const y = await setup();
-  y.agents.set("old", { id: "old", workspaceId: "dw-0", status: "closed", archivedAt: null });
+  y.agents.set("old", { id: "old", workspaceId: "dw-0", status: "idle", archivedAt: "2026-11-09T00:00:00.000Z" });
   await writeFile(join(y.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z" }));
   y.failAgentCreate(new Error("refused"));
   await expect(y.dispatcher.start(y.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "START_FAILED" });
@@ -1005,10 +999,11 @@ test("What should I do? marks the changed cards it sent as seen, only once it wa
   expect((await x.dispatcher.record()).seenRevision).toBeUndefined();
   // Down: refused before anything is marked.
   x.failSend(null);
-  x.agents.get(agentId)!.status = "closed";
+  x.agents.get(agentId)!.archivedAt = "2026-11-09T00:00:00.000Z";
   await expect(x.dispatcher.whatNext(x.paseo, "What should I do?", seen)).rejects.toMatchObject({ code: "DISPATCHER_DOWN" });
   expect((await x.dispatcher.record()).seenRevision).toBeUndefined();
   // Sent: marked with that line's revision and ids, as Mark seen does.
+  x.agents.get(agentId)!.archivedAt = null;
   x.agents.get(agentId)!.status = "idle";
   await x.dispatcher.whatNext(x.paseo, "What should I do?", seen);
   expect(x.sends.at(-1)).toMatchObject({ id: agentId, text: "What should I do?" });

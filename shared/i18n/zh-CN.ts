@@ -223,6 +223,7 @@ const catalog: Catalog = {
   "Close side bar": "关闭侧栏",
   "Minimize": "最小化",
   "Restore size": "恢复大小",
+  "Asleep": "休眠中",
   "This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. Archive its session in Paseo, then start a new one.": "这个调度器仍能回答卡片的问题和权限请求：它是在 Flowly 移除这些途径之前启动的，或者使用的不是 Claude。请在 Paseo 中归档它的会话，然后启动一个新的。",
   "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.": "调度器只能在 Claude 上运行：在其他提供方上，Flowly 无法阻止它回答卡片的问题和权限请求。请在“设置 → 模型”中为调度器选择一个 Claude 模型。",
   "Status: {lane}": "状态：{lane}",

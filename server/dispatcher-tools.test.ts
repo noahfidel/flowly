@@ -284,7 +284,7 @@ test("the dispatcher has its own hourly limit of 40, apart from the card agents'
 
 test("a new dispatcher saves its tools with every one preapproved, so they never prompt (DISPATCHER-SPEC §3)", async () => {
   const x = await setup();
-  x.agents.disp.status = "closed";
+  x.agents.disp.archivedAt = "2026-11-09T00:00:00.000Z";
   const { agentId } = await x.server.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   // Saved once, with the session: the open hook adds nothing, so Paseo's name check is never tripped, and it is
   // still known as the dispatcher, so the hook stops there (no card context, no board tools).
@@ -304,7 +304,7 @@ test("a new dispatcher saves its tools with every one preapproved, so they never
 test("the dispatcher starts only on a provider that can withhold the routes to a card's asks (ruling, Noah 2026-11-09)", async () => {
   for (const provider of ["codex/gpt-5", "opencode/some-model", "copilot/gpt-5", "kimi/k2", "pi/x", "my-claude/claude-sonnet-5-5"]) {
     const x = await setup();
-    x.agents.disp.status = "closed";
+    x.agents.disp.archivedAt = "2026-11-09T00:00:00.000Z";
     const before = await x.server.dispatcher.record();
     await expect(x.server.dispatcher.start(x.paseo, { provider }), provider).rejects.toMatchObject({ code: "DISPATCHER_PROVIDER_UNSUPPORTED" });
     // Nothing was created or stored: the dead dispatcher's record stays as it was.
@@ -313,7 +313,7 @@ test("the dispatcher starts only on a provider that can withhold the routes to a
   }
   // Claude: saved with its tools, as always.
   const x = await setup();
-  x.agents.disp.status = "closed";
+  x.agents.disp.archivedAt = "2026-11-09T00:00:00.000Z";
   const { agentId } = await x.server.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   expect(x.policies[agentId]).toBeDefined();
   expect((await x.server.dispatcher.record()).savedTools).toEqual(expect.any(Array));
@@ -331,7 +331,7 @@ test("a dispatcher token from a replaced dispatcher is refused", async () => {
   const d = await x.connect(x.dispatcherToken);
   expect(code(await d.call("flowly_list_projects", {}))).toBeUndefined();
   // The dispatcher session closed: a new one replaces it.
-  x.agents.disp.status = "closed";
+  x.agents.disp.archivedAt = "2026-11-09T00:00:00.000Z";
   const { agentId } = await x.server.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
   expect(agentId).not.toBe("disp");
   expect(code(await d.call("flowly_list_projects", {}))).toBe("DISPATCHER_REPLACED");

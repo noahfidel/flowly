@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import {
   sessionState,
+  dispatcherSessionState,
   samePreviewTask,
   turnEventKey,
   openNativeSession,
@@ -39,6 +40,13 @@ test("session state distinguishes actual work, permission, error and archive", (
   expect(sessionState({ ...actor, status: "error" }).label).toBe("Error");
   expect(sessionState({ ...actor, status: "closed" }).label).toBe("Closed");
   expect(sessionState({ ...actor, archivedAt: "now" }).label).toBe("Archived");
+});
+
+test("a closed dispatcher reads as asleep, not closed: the next message resumes it (DISPATCHER-SPEC §3)", () => {
+  expect(dispatcherSessionState({ ...actor, status: "closed" })).toMatchObject({ label: "Asleep", active: false });
+  // Everything else reads as any session does.
+  expect(dispatcherSessionState({ ...actor, status: "running" }).label).toBe("Running");
+  expect(dispatcherSessionState({ ...actor, status: "closed", archivedAt: "now" }).label).toBe("Archived");
 });
 test("finished and ended signals never replace a newer turn or user message", () => {
   expect(sessionState({ ...actor, attentionReason: "finished" }).label).toBe(

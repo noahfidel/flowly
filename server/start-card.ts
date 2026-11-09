@@ -155,9 +155,9 @@ export class CardStarter {
     const workspace = await paseo.workspaces.ref(task.workspaceId).refresh().catch(() => null);
     if (!workspace || workspace.archivingAt) throw new ToolError("RESOURCE_UNAVAILABLE", "The card's workspace is unavailable or being archived.");
     const sessions = await workspaceSessions(paseo, task.workspaceId, true);
-    // The user's Start again starts next to a closed session (ruling 2026-11-08; a card may have several sessions);
-    // nothing is archived. An agent's start, and a running or idle session, still refuse.
-    const live = sessions.filter((s) => !s.archived && !(caller.human && s.status === "closed"));
+    // Any session not archived is the card's, for the user's Start again too: a closed one is a stopped process that
+    // a message resumes (ruling, Noah 2026-11-09). Nothing is archived.
+    const live = sessions.filter((s) => !s.archived);
     if (live.length)
       throw new ToolError("CARD_HAS_SESSION", `The card already has a live session (${live[0].id}). Send it instructions instead of starting another.`);
     // Where the session runs (§4).

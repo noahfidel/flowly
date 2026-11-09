@@ -223,6 +223,7 @@ const catalog: Catalog = {
   "Close side bar": "Fechar barra lateral",
   "Minimize": "Minimizar",
   "Restore size": "Tamanho normal",
+  "Asleep": "Em repouso",
   "This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. Archive its session in Paseo, then start a new one.": "Este despachante ainda pode responder a perguntas e pedidos de permissão dos cartões: ele foi iniciado antes de o Flowly remover esses caminhos, ou com um provedor diferente do Claude. Arquive a sessão dele no Paseo e depois inicie um novo.",
   "The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.": "O despachante só funciona com o Claude: com outros provedores, o Flowly não consegue impedir que ele responda a perguntas e pedidos de permissão dos cartões. Escolha um modelo Claude para o despachante em Ajustes → Modelos.",
   "Status: {lane}": "Status: {lane}",

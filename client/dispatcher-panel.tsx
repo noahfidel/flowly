@@ -13,7 +13,7 @@ import { Button, IconButton, Label, Notice, font, message, noFocusRing, radius, 
 import { SessionTranscript, type TranscriptExtra, type TranscriptExtraRow, type TranscriptHandle, type TranscriptNotice } from "./session-transcript";
 import { ComposerBox, useComposerDraft } from "./session-composer";
 import { restoredDraft } from "./session-input";
-import { sessionState } from "./session-state";
+import { dispatcherSessionState } from "./session-state";
 import { sessionTone } from "./status";
 import { RunningDots } from "./running-motion";
 import { newMessageId, rememberSentImages } from "./sent-images";
@@ -89,7 +89,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   const polled = current.data?.agent;
   const agent = agentId ? (streamed && (!polled || streamed.updatedAt >= polled.updatedAt) ? streamed : polled) : undefined;
   const running = agent ? agent.status === "running" || agent.status === "initializing" : state === "running";
-  const session = agent ? sessionState(agent) : null;
+  const session = agent ? dispatcherSessionState(agent) : null;
   const tone = session ? sessionTone(colors, session) : colors.foregroundMuted;
 
   const start = useStableCallback(async () => {
