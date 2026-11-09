@@ -25,6 +25,10 @@ export function createTailFollower(inverted = false) {
     resume() {
       following = true;
     },
+    /** A jump away from the end (the bell's jump to a row): stop following until the reader is back at the end. */
+    pause() {
+      following = false;
+    },
     beginDrag() {
       dragging = true;
     },
@@ -98,6 +102,11 @@ export function useSessionFollowTail(inverted = false) {
     scrollToTail() {
       if (!inverted && follower.current!.following && !follower.current!.dragging) toTail(false);
     },
+    /** Stop following the newest output (a jump to an earlier row); the Latest button shows. */
+    stopFollowing() {
+      follower.current!.pause();
+      setFollowing(false);
+    },
     jumpToLatest() {
       follower.current!.resume();
       setFollowing(true);
@@ -114,6 +123,22 @@ export function useSessionFollowTail(inverted = false) {
       track(event);
     },
     onMomentumScrollEnd: track,
+  };
+}
+
+/**
+ * The bell's jump to a row (DISPATCHER-SPEC §9.3): owed once per request (`seq`) until the row could be reached,
+ * so streamed output and new rows afterwards never scroll back to it.
+ */
+export function createFocusJump() {
+  let handled: number | undefined;
+  return {
+    pending(seq: number | undefined) {
+      return seq !== undefined && seq !== handled;
+    },
+    done(seq: number) {
+      handled = seq;
+    },
   };
 }
 

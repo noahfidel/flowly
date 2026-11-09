@@ -5,7 +5,7 @@ import { FlatList, Icon, ScrollView } from "@getpaseo/plugin/client/react-native
 import { usePaseo } from "@getpaseo/plugin/client";
 import { Label, Notice, font, message, noFocusRing, radius, space, touch, useTheme, verticalContent, verticalScroll, type Tone } from "./ui";
 import { activitySummary, groupTranscript, pendingEchoes, recentSessionOutput, type SentEcho, type TranscriptBlock } from "./session-state";
-import { coalescedRefresh, FOLLOW_SLACK, useSessionFollowTail } from "./session-follow";
+import { coalescedRefresh, createFocusJump, FOLLOW_SLACK, useSessionFollowTail } from "./session-follow";
 import { useSessionTimeline } from "./session-timeline";
 import { HISTORY_MAX, type TailEntry } from "../shared/session-tail";
 import { extractImages } from "../shared/images";
@@ -195,19 +195,33 @@ function SessionTranscriptView({
   });
   useImperativeHandle(handle, () => ({ refresh: () => void refetch(), jumpToLatest, echo, unecho }), [refetch, jumpToLatest, echo, unecho]);
   const latest = useMotionPresence(!tail.following ? true : undefined, !tail.following ? "latest" : "");
-  // The bell's jump to a row of the caller's (web: its measured offset; phones: its index in the inverted list).
+  // The bell's jump to a row of the caller's (web: its measured offset; phones: its index in the inverted list), once
+  // per request: retried as rows arrive or lay out until it is reachable, then never again for that request.
   const offsets = useRef(new Map<string, number>());
-  const focusKey = extra?.focus?.key ?? "";
-  useEffect(() => {
-    if (!focusKey) return;
+  const [focusJump] = useState(createFocusJump);
+  const focus = extra?.focus ?? null;
+  const tryFocus = useStableCallback(() => {
+    if (!focus || !focusJump.pending(focus.seq)) return;
     if (virtualized) {
-      const index = data.findIndex((row) => row.key === focusKey);
-      if (index >= 0) (tail.scrollRef.current as { scrollToIndex?(o: object): void } | null)?.scrollToIndex?.({ index, viewPosition: 0.5, animated: true });
+      const index = data.findIndex((row) => row.key === focus.key);
+      if (index < 0) return;
+      focusJump.done(focus.seq);
+      tail.stopFollowing();
+      // A row not laid out yet is reached through onScrollToIndexFailed.
+      (tail.scrollRef.current as { scrollToIndex?(o: object): void } | null)?.scrollToIndex?.({ index, viewPosition: 0.5, animated: true });
       return;
     }
-    const y = offsets.current.get(focusKey);
-    if (y !== undefined) tail.scrollToY(Math.max(0, y - space[3]));
-  }, [extra?.focus?.seq, focusKey, data]);
+    const y = offsets.current.get(focus.key);
+    if (y === undefined) return;
+    focusJump.done(focus.seq);
+    tail.stopFollowing();
+    tail.scrollToY(Math.max(0, y - space[3]));
+  });
+  useEffect(tryFocus, [focus?.seq, focus?.key, data]);
+  const measureExtra = useStableCallback((key: string, y: number) => {
+    offsets.current.set(key, y);
+    if (key === focus?.key) tryFocus();
+  });
 
   const loadEarlier = useStableCallback(() => {
     // Armed only when older output is about to land, so other size changes never use it.
@@ -357,7 +371,7 @@ function SessionTranscriptView({
     >
       {top}
       {shown.map((block) => (
-        <View key={block.key} onLayout={block.kind === "extra" ? (e) => void offsets.current.set(block.key, e.nativeEvent.layout.y) : undefined}>
+        <View key={block.key} onLayout={block.kind === "extra" ? (e) => measureExtra(block.key, e.nativeEvent.layout.y) : undefined}>
           {renderBlock(block)}
         </View>
       ))}

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { createTailFollower, FOLLOW_SLACK } from "./session-follow";
+import { createFocusJump, createTailFollower, FOLLOW_SLACK } from "./session-follow";
 
 const at = (y: number, height = 2000, viewport = 600) => ({
   contentOffset: { x: 0, y },
@@ -29,4 +29,27 @@ test("inverted list: following is being near offset 0 (the newest output)", () =
   expect(follower.scroll(at(10))).toBe(true);
   follower.resume();
   expect(follower.following).toBe(true);
+});
+
+test("a jump away from the newest output stops following until the reader comes back (DISPATCHER-SPEC §9.3)", () => {
+  const follower = createTailFollower();
+  expect(follower.scroll(at(1400))).toBe(true);
+  follower.pause();
+  expect(follower.following).toBe(false);
+  // Output growing below the row jumped to does not pull the list back to the end.
+  expect(follower.scroll(at(1400, 2400))).toBe(false);
+  expect(follower.scroll(at(2400 - 600, 2400))).toBe(true);
+});
+
+test("the bell's jump to a row happens once per request, retried only until the row is reachable (DISPATCHER-SPEC §9.3)", () => {
+  const jump = createFocusJump();
+  expect(jump.pending(undefined)).toBe(false);
+  expect(jump.pending(1)).toBe(true);
+  // Not laid out yet: still owed.
+  expect(jump.pending(1)).toBe(true);
+  jump.done(1);
+  // Streamed output and new rows after the jump do not jump again.
+  expect(jump.pending(1)).toBe(false);
+  // Another press of the bell does.
+  expect(jump.pending(2)).toBe(true);
 });
