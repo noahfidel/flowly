@@ -194,6 +194,15 @@ async function expectRejection(label, fn, pattern) {
 
 export const runIdPattern = /^[0-9a-f]{6}$/;
 export const fixtureDirPrefix = 'single-pane-live-fixture-';
+/** File in a fixture directory holding the runId of the run that made it (git-excluded), written before it is recorded. */
+export const runDirMarker = '.single-pane-live-run';
+const madeByRun = (dir, runId) => {
+  try {
+    return readFileSync(join(dir, runDirMarker), 'utf8').trim() === runId;
+  } catch {
+    return false;
+  }
+};
 /** Exit codes after SIGINT and SIGTERM (cleanup runs once first). */
 export const signalExitCodes = { SIGINT: 130, SIGTERM: 143 };
 
@@ -523,10 +532,13 @@ function makeContext(args, client, api, rec) {
   /** A throwaway git repository under os.tmpdir() registered as a Flowly project; removed in cleanup. */
   ctx.needFixture = async () => {
     if (ctx.fixture) return ctx.fixture;
-    const dir = mkdtempSync(join(tmpdir(), 'single-pane-live-fixture-'));
+    const dir = mkdtempSync(join(tmpdir(), fixtureDirPrefix));
+    // The run's marker first, so cleanup knows the directory is this run's even when it never became a project.
+    writeFileSync(join(dir, runDirMarker), rec.data.runId);
     rec.addDir(dir); // recorded before anything else uses it
     const real = realpathSync(dir);
     git(['init', '-q', '-b', 'main'], real);
+    writeFileSync(join(real, '.git', 'info', 'exclude'), `${runDirMarker}\n`, { flag: 'a' });
     git(['config', 'user.name', 'Single Pane Live'], real);
     git(['config', 'user.email', 'single-pane-live@example.invalid'], real);
     writeFileSync(join(real, 'README.md'), '# single-pane-live fixture\n');
@@ -700,9 +712,17 @@ export async function cleanup(ctx, { keepDispatcher, unattended = false, yesArch
   for (const a of live) if (cardIds.includes(a.labels?.['flowly-task']) && workspaces.has(a.workspaceId)) sessionIds.add(a.id);
   const dispatcherId = data.dispatcher?.agentId;
   let dispatcherPlan = dispatcherArchivePlan({ ours: data.dispatcher?.ours === true, keep: keepDispatcher, unattended, yes: yesArchiveDispatcher });
-  // A dispatcher session made before this run started is never this run's, whatever the record says.
-  const dispatcherNow = dispatcherId && dispatcherPlan === 'archive' ? await ctx.agent(dispatcherId).catch(() => null) : null;
-  if (dispatcherNow && !dispatcherNow.archivedAt && !createdDuringRun(dispatcherNow.createdAt, data.startedAt)) dispatcherPlan = 'older';
+  // A dispatcher session made before this run started is never this run's, whatever the record says; one whose
+  // creation time cannot be read is treated the same way.
+  if (dispatcherId && dispatcherPlan === 'archive') {
+    let now;
+    try {
+      now = await ctx.agent(dispatcherId);
+    } catch {
+      dispatcherPlan = 'unread';
+    }
+    if (now && !now.archivedAt && !createdDuringRun(now.createdAt, data.startedAt)) dispatcherPlan = 'older';
+  }
   const ownDispatcher = (a) => !!dispatcherId && a.id === dispatcherId && data.dispatcher.ours === true && !!a.labels?.['flowly-dispatcher'];
   const ownRun = (a) => a.labels?.['flowly-started-by'] === 'single-pane-live' && a.labels?.['single-pane-live-run'] === data.runId;
   const verified = (a) => ownRun(a) || cardIds.includes(a.labels?.['flowly-task']) || ownDispatcher(a);
@@ -797,6 +817,8 @@ export async function cleanup(ctx, { keepDispatcher, unattended = false, yesArch
   // 7. The dispatcher, when this run started it. From --cleanup a record alone never archives a session: it is listed.
   if (dispatcherId && dispatcherPlan === 'older')
     done.push(`left in place: dispatcher ${dispatcherId} (created before this run started, so not this run's)`);
+  if (dispatcherId && dispatcherPlan === 'unread')
+    done.push(`left in place: dispatcher ${dispatcherId} (its creation time could not be read; run the retry command again)`);
   if (dispatcherId && dispatcherPlan === 'hold')
     done.push(`left in place: dispatcher ${dispatcherId} (would be archived; a record alone does not archive a session unattended, pass --yes-archive-dispatcher)`);
   if (dispatcherId && dispatcherPlan === 'archive')
@@ -809,12 +831,19 @@ export async function cleanup(ctx, { keepDispatcher, unattended = false, yesArch
       }
     });
 
-  // Only the directories of this run's fixture projects (verified above, or gone from the board); any other is left.
+  // Only the directories of this run's fixture projects (verified above, or gone from the board), and one this run
+  // made but never registered (its marker file holds this runId and no project sits in it); any other is left.
   const tied = new Set(fixtures.flatMap((f) => [resolve(f.path), realOr(f.path)]));
+  const projectPaths = (board?.projects ?? []).flatMap((p) => [resolve(p.primaryPath), realOr(p.primaryPath)]);
+  const unregistered = (dir) =>
+    !data.fixtureProjects.some((f) => [resolve(f.path), realOr(f.path)].some((p) => p === resolve(dir) || p === realOr(dir))) &&
+    !projectPaths.some((p) => p === resolve(dir) || p === realOr(dir) || within(p, dir) || within(p, realOr(dir))) &&
+    madeByRun(dir, data.runId);
   for (const dir of data.tmpDirs)
     await guard(`remove ${dir}`, async () => {
       if (!isFixtureDir(dir)) throw new Error('refusing: not a fixture directory directly under the temp directory.');
-      if (blocked.has(resolve(dir)) || blocked.has(realOr(dir)) || !(tied.has(resolve(dir)) || tied.has(realOr(dir)))) {
+      const ours = tied.has(resolve(dir)) || tied.has(realOr(dir)) || unregistered(dir);
+      if (blocked.has(resolve(dir)) || blocked.has(realOr(dir)) || !ours) {
         done.push(`left in place: ${dir}`);
         return;
       }

@@ -97,13 +97,13 @@ function fakePaseo() {
   };
 }
 
-async function setup() {
+async function setup(summary: () => Promise<string> = async () => "Board summary") {
   const directory = await mkdtemp(join(tmpdir(), "flowly-dispatcher-"));
   directories.push(directory);
   const fake = fakePaseo();
   const dispatcher = new Dispatcher(directory, {
     mcp: async (identity) => ({ type: "http" as const, url: "http://127.0.0.1:1/mcp", headers: { Authorization: `Bearer sealed-${identity.agentId}` } }),
-    summary: async () => "Board summary",
+    summary,
   });
   dispatchers.push(dispatcher);
   return { directory, dispatcher, ...fake };
@@ -313,6 +313,54 @@ test("notes in the start window are held until Paseo has created the session", a
   await vi.waitFor(() => expect(x.sends).toHaveLength(1));
   expect(x.sends[0]).toMatchObject({ id: agentId });
   expect(x.sends[0].text).toContain("[t1]");
+});
+
+test("notes that arrive while a replacement takes its board summary are held for the new dispatcher", async () => {
+  let gated = false;
+  let summaryStarted!: () => void;
+  const started = new Promise<void>((resolve) => (summaryStarted = resolve));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const x = await setup(async () => {
+    if (gated) {
+      summaryStarted();
+      await gate;
+    }
+    return "Board summary";
+  });
+  const first = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(first.agentId)!.status = "closed";
+  gated = true;
+  const replacing = x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  await started;
+  // The summary is being written and the record still names the dead session.
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  release();
+  const second = await replacing;
+  x.agents.get(second.agentId)!.status = "idle";
+  await x.dispatcher.turnEnded(second.agentId, x.paseo);
+  expect(x.sends).toHaveLength(1);
+  expect(x.sends[0]).toMatchObject({ id: second.agentId });
+  expect(x.sends[0].text).toContain("[t1]");
+});
+
+test("notes held while the read says running are re-checked slowly even without a turn end", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  const agent = x.agents.get(agentId)!;
+  agent.status = "idle";
+  // A turn end with nothing held starts no chase.
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  // A batch arrives while Paseo's snapshot still says running, and no turn end follows.
+  agent.status = "running";
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  expect(x.sends).toEqual([]);
+  agent.status = "idle";
+  await vi.advanceTimersByTimeAsync(RECHECK_MAX_MS);
+  expect(x.sends).toHaveLength(1);
+  expect(x.sends[0].text).toContain("[t1]");
+  x.dispatcher.dispose();
 });
 
 test("notes wait for the turn to end and never steer", async () => {

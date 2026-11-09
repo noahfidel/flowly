@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,7 @@ type Script = {
   RecordError: new (problems: string[]) => Error & { problems: string[] };
   runIdPattern: RegExp;
   fixtureDirPrefix: string;
+  runDirMarker: string;
   signalExitCodes: Record<string, number>;
   isFixtureDir: (dir: unknown, tmp?: string) => boolean;
   ownBranchPattern: (runId: string) => RegExp;
@@ -363,19 +364,26 @@ describe("single-pane live script", () => {
       expect(problems.join("\n")).toMatch(/s3: left in place/);
     });
 
-    it("removes only the temp directories of its fixture projects", async () => {
-      const { cleanup, fixtureDirPrefix } = await load();
+    it("removes its fixture projects' temp directories and its own unregistered one, never another", async () => {
+      const { cleanup, fixtureDirPrefix, runDirMarker } = await load();
       const tied = mkdtempSync(join(tmpdir(), fixtureDirPrefix));
+      // The run failed between recording the directory and registering its project: the run's marker file says it is ours.
+      const ours = mkdtempSync(join(tmpdir(), fixtureDirPrefix));
+      writeFileSync(join(ours, runDirMarker), RUN);
+      const other = mkdtempSync(join(tmpdir(), fixtureDirPrefix));
+      writeFileSync(join(other, runDirMarker), "ffffff");
       const loose = mkdtempSync(join(tmpdir(), fixtureDirPrefix));
       try {
-        const fake = fakeContext({ data: baseData({ cards: [], agents: [], tmpDirs: [tied, loose], fixtureProjects: [{ path: tied, id: "fp" }] }), tasks: [] });
+        const fake = fakeContext({ data: baseData({ cards: [], agents: [], tmpDirs: [tied, ours, other, loose], fixtureProjects: [{ path: tied, id: "fp" }] }), tasks: [] });
         const { done } = await cleanup(fake.ctx, { keepDispatcher: false });
         expect(existsSync(tied)).toBe(false);
+        expect(existsSync(ours)).toBe(false);
+        expect(existsSync(other)).toBe(true);
         expect(existsSync(loose)).toBe(true);
         expect(done.join("\n")).toContain(`left in place: ${loose}`);
+        expect(done.join("\n")).toContain(`left in place: ${other}`);
       } finally {
-        rmSync(tied, { recursive: true, force: true });
-        rmSync(loose, { recursive: true, force: true });
+        for (const dir of [tied, ours, other, loose]) rmSync(dir, { recursive: true, force: true });
       }
     });
   });
@@ -398,6 +406,20 @@ describe("single-pane live script", () => {
       const undated = withDispatcher(undefined, {});
       await cleanup(undated.ctx, { keepDispatcher: false });
       expect(undated.calls.archived).toEqual([]);
+      // Its creation time cannot be read: treated as not this run's.
+      const unread = withDispatcher();
+      const read = unread.ctx.agent;
+      let first = true;
+      unread.ctx.agent = async (id: string) => {
+        if (id === "d1" && first) {
+          first = false;
+          throw new Error("socket closed");
+        }
+        return read(id);
+      };
+      const result = await cleanup(unread.ctx, { keepDispatcher: false });
+      expect(unread.calls.archived).toEqual([]);
+      expect(result.done.join("\n")).toMatch(/left in place: dispatcher d1.*could not be read/);
     });
 
     it("leaves it in place and lists it unless --yes-archive-dispatcher is given", async () => {

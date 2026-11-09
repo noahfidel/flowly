@@ -519,17 +519,27 @@ test("a start waiting in one project does not hold up a start in another", async
   await x.card("e", { projectId: "q", sourcePath: x.b, repoPaths: [x.b] }, "worktree");
   let open: (value?: unknown) => void = () => undefined;
   const gate = new Promise((resolve) => (open = resolve));
-  x.hooks.onCreate = () => gate;
+  let inside: () => void = () => undefined;
+  const reached = new Promise<void>((resolve) => (inside = resolve));
+  // The first start stops inside Paseo's worktree create until the gate opens.
+  x.hooks.onCreate = () => {
+    inside();
+    return gate;
+  };
   const blocked = x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
-  const waited = (job: Promise<unknown>) => Promise.race([job.then(() => "done"), new Promise((resolve) => setTimeout(() => resolve("waiting"), 300))]);
-  // Another project starts at once; another card of the same project waits for the first.
-  const other = x.starter.start({ ...x.caller, projectId: "q" }, { taskId: "e", idempotencyKey: "go" }, x.paseo);
-  const same = x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go" }, x.paseo);
-  expect(await waited(other)).toBe("done");
-  expect(await waited(same)).toBe("waiting");
+  await reached;
+  let sameSettled = false;
+  const same = x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go" }, x.paseo).finally(() => (sameSettled = true));
+  // Another project's start finishes while the gate is still closed (were it queued behind the first, this would never resolve).
+  const other = await x.starter.start({ ...x.caller, projectId: "q" }, { taskId: "e", idempotencyKey: "go" }, x.paseo);
+  expect(other).toMatchObject({ workspaceId: "ws-e" });
+  // The same project's start has not run: no session in its workspace, and it has not settled.
+  expect(sameSettled).toBe(false);
+  expect(x.createdSessions.map((s) => s.workspaceId)).toEqual(["ws-e"]);
   open();
   expect(await blocked).toMatchObject({ workspaceId: "created-1" });
   expect(await same).toMatchObject({ workspaceId: "ws-d" });
+  expect(x.createdSessions.map((s) => s.workspaceId)).toEqual(["ws-e", "created-1", "ws-d"]);
 });
 
 test("the directory workspace is kept when another card refers to it or Paseo does not archive it", async () => {

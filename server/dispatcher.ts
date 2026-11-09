@@ -216,23 +216,27 @@ export class Dispatcher {
     const workspaceId = await this.workspace(paseo, stored);
     const previous = await this.record();
     const agentId = randomUUID();
-    const [mcp, summary] = await Promise.all([this.deps.mcp({ agentId, workspaceId }), this.deps.summary()]);
-    if (previous.agentId) await this.retire(paseo, previous.agentId);
-    const now = this.deps.now?.() ?? Date.now();
-    const earlier = previous.agentId
-      ? [...(previous.previousAgentIds ?? []).filter((id) => id !== previous.agentId), previous.agentId].slice(-previousAgentIdLimit)
-      : previous.previousAgentIds;
-    this.held.clear();
+    // Held from before the board summary is taken: a note that arrives while it is written, or before the new id
+    // is stored, waits for the new session instead of reaching (and being dropped for) the dead one (§7).
     this.starting = agentId;
+    // What is held now is on the board the summary reads; later notes are kept (one may repeat the summary).
+    const covered = [...this.held];
     try {
+      const [mcp, summary] = await Promise.all([this.deps.mcp({ agentId, workspaceId }), this.deps.summary()]);
+      if (previous.agentId) await this.retire(paseo, previous.agentId);
+      const now = this.deps.now?.() ?? Date.now();
+      const earlier = previous.agentId
+        ? [...(previous.previousAgentIds ?? []).filter((id) => id !== previous.agentId), previous.agentId].slice(-previousAgentIdLimit)
+        : previous.previousAgentIds;
+      for (const [taskId, held] of covered) if (this.held.get(taskId) === held) this.held.delete(taskId);
       // Stored first: the session's first tool calls already pass the caller check (§4).
       await this.save((r) => ({ ...r, workspaceId, agentId, startedAt: new Date(now).toISOString(), ...(earlier ? { previousAgentIds: earlier } : {}) }));
       await this.create(paseo, { workspaceId, agentId, mcp, summary, input, previous });
     } finally {
       this.starting = null;
+      // Notes held meanwhile go out by the dispatcher's state now (the new one, or the one a refused start kept).
+      void this.serial(() => this.flush(paseo, false)).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
     }
-    // Notes that arrived while Paseo created it were held; deliver them by its state now.
-    void this.serial(() => this.flush(paseo, false)).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
     return { agentId };
   }
 
@@ -368,13 +372,14 @@ export class Dispatcher {
       this.held.clear();
       return this.stopChase();
     }
-    // A start stored this id and Paseo is still creating it: hold; the start delivers once it exists.
-    if (agentId && agentId === this.starting && isDeadDispatcher(agent)) return;
+    // A start is under way (summary, store, create): hold; the start delivers when it ends.
+    if (this.starting) return;
     const state = agentId ? dispatcherState(agent) : "none";
     if (state === "running" || (state === "idle" && agent?.pendingPermissions?.length)) {
       // The hook can fire before Paseo's snapshot leaves "running", and a later turn end may never come:
-      // after a turn end, keep looking with a growing delay until the notes go out.
-      if (this.chasing) this.recheck(paseo, recheckDelays[Math.min(this.chaseStep++, recheckDelays.length - 1)]);
+      // after a turn end, keep looking with a growing delay until the notes go out; without one (a batch that
+      // arrived while the snapshot said running), look again slowly.
+      this.recheck(paseo, this.chasing ? recheckDelays[Math.min(this.chaseStep++, recheckDelays.length - 1)] : RECHECK_MAX_MS);
       return;
     }
     if (state !== "idle" || !agentId) {
