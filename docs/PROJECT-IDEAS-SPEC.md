@@ -31,7 +31,7 @@ No board version bump: the fields default on read (IDEAS-SPEC §2.1), and files 
 - **No event.** Proposing, dismissing and restoring write no `BoardEvent`.
 - **Restoring** a dismissed project idea reapplies the unique-title rule among open project ideas; no per-card limit.
 - **Accepting** is New card only: `service.createTask({ ideaId })` marks the idea `accepted`, sets `acceptedTaskId`, and records `origin: { ideaId }` on the new card. It adds no `derived` link and no `idea_accepted` event (there is no source card).
-- **Continue in card** (IDEAS-SPEC §6.2, `ideas.adopt`) is not offered; the daemon refuses it with "This idea does not belong to a card."
+- **Continue in card** (IDEAS-SPEC §6.2, `ideas.adopt`) is not offered; the daemon refuses it with "A project idea has no card to continue in."
 - **Deleting a project or a card.** A project's delete removes all its ideas (they carry `projectId`). Deleting a card removes only the ideas whose `taskId` is that card; project ideas that the card was created from stay, with `acceptedTaskId` pointing at a deleted card, as for card ideas.
 
 ## 4. Interfaces
@@ -48,7 +48,7 @@ No board version bump: the fields default on read (IDEAS-SPEC §2.1), and files 
 - A card's own Ideas section lists only its card's ideas.
 - A project idea has no "From …" source line. In the grouped view its group header reads **Project** and does not link anywhere.
 - **Good idea** on a project idea opens New card directly (prefilled from the idea; no source card context).
-- The Ideas count on the board's overview bar counts card ideas only; project ideas show once the Ideas page is open.
+- The Ideas count on the board's overview bar counts the project's open ideas, card ideas and project ideas together. The overview carries `projectIdeas: [{ projectId, open }]` (one entry per project; `open` = open ideas without a card) next to the per-card `openIdeas`.
 
 ## 6. Acceptance criteria
 
@@ -61,3 +61,5 @@ No board version bump: the fields default on read (IDEAS-SPEC §2.1), and files 
 7. Board credentials list `flowly_propose_idea` and a call creates a project idea with the session's `agentId`.
 8. Search returns project ideas labelled with their project.
 9. The Ideas page's grouping puts the project group first, and sorting by card lists project ideas before card ideas.
+10. `boardOverview` reports each project's open project ideas in `projectIdeas`, and `projectOpenIdeaCount` adds them to the card ideas.
+11. `ideas.adopt` on a project idea fails with "A project idea has no card to continue in." and leaves it open.

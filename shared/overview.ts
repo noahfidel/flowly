@@ -28,6 +28,9 @@ export const cardFactsSchema = z.strictObject({
   sessions: z.array(sessionFactsSchema),
 });
 export type CardFacts = z.infer<typeof cardFactsSchema>;
+/** Open ideas that belong to a project, not to a card (PROJECT-IDEAS-SPEC §5); one entry per project. */
+export const projectIdeaFactsSchema = z.strictObject({ projectId: z.string(), open: z.number().int().nonnegative() });
+export type ProjectIdeaFacts = z.infer<typeof projectIdeaFactsSchema>;
 export const boardOverviewSchema = z.strictObject({
   version: z.literal(1),
   revision: z.number().int().nonnegative(),
@@ -36,6 +39,7 @@ export const boardOverviewSchema = z.strictObject({
   links: z.array(linkSchema),
   attentionDismissals: z.array(attentionDismissalSchema),
   cards: z.array(cardFactsSchema),
+  projectIdeas: z.array(projectIdeaFactsSchema),
 });
 export type BoardOverview = z.infer<typeof boardOverviewSchema>;
 const collection = <T extends z.ZodType>(item: T) => z.strictObject({ set: z.array(item), remove: z.array(z.string()), order: z.array(z.string()).optional() }).optional();
@@ -47,6 +51,7 @@ export const overviewPatchSchema = z.strictObject({
   links: collection(linkSchema),
   attentionDismissals: collection(attentionDismissalSchema),
   cards: collection(cardFactsSchema),
+  projectIdeas: collection(projectIdeaFactsSchema),
 });
 export type OverviewPatch = z.infer<typeof overviewPatchSchema>;
 export const overviewResponseSchema = z.strictObject({ etag: z.string(), value: boardOverviewSchema.optional(), patch: overviewPatchSchema.optional() });
@@ -58,6 +63,7 @@ export const overviewKeys = {
   links: (x: { id: string }) => x.id,
   attentionDismissals: (x: { taskId: string }) => x.taskId,
   cards: (x: { taskId: string }) => x.taskId,
+  projectIdeas: (x: { projectId: string }) => x.projectId,
 } as const;
 export type OverviewCollection = keyof typeof overviewKeys;
 export const overviewCollections = Object.keys(overviewKeys) as OverviewCollection[];

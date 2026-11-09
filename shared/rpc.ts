@@ -1,6 +1,7 @@
 import { cardDetailSchema, projectCardIndexSchema, projectIdeasSchema } from "./card-detail";
 import { attentionDismissInput, attentionDismissalSchema, attentionRestoreInput } from "./attention-dismiss";
 import { defineRpc } from "@getpaseo/plugin";
+import { importMarkdownLimit, importRowLimit, importRowSchema } from "./ideas-import";
 import { overviewResponseSchema } from "./overview";
 import { storageStatusSchema } from "./storage";
 import { sessionInsightViewSchema } from "./session-insights";
@@ -261,6 +262,18 @@ export const createProjectIdea = defineRpc({
   name: "ideas.create-project",
   input: z.strictObject({ projectId: z.string().min(1), idea: projectIdeaInputSchema }),
   output: ideaSchema,
+});
+/** Read pasted backlog markdown into review rows, flagging titles already open in the project (IDEAS-IMPORT-EXPORT-SPEC §3). */
+export const importIdeasPreview = defineRpc({
+  name: "ideas.import-preview",
+  input: z.strictObject({ projectId: z.string().min(1), markdown: z.string().max(importMarkdownLimit) }),
+  output: z.strictObject({ rows: z.array(importRowSchema), duplicates: z.array(z.number().int().nonnegative()) }),
+});
+/** Create the rows the user kept as project ideas; the same `operationId` returns the first result (§4). */
+export const importIdeas = defineRpc({
+  name: "ideas.import",
+  input: z.strictObject({ projectId: z.string().min(1), rows: z.array(importRowSchema).max(importRowLimit), operationId: z.string().min(1).max(200) }),
+  output: z.strictObject({ created: z.number().int().nonnegative(), skipped: z.array(z.strictObject({ line: z.number().int(), reason: z.string() })) }),
 });
 /** Hide a card from Attention until something new happens (ATTENTION-DISMISS-SPEC §5). */
 export const dismissAttention = defineRpc({

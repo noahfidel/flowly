@@ -7,6 +7,7 @@ import type { Idea, Project, Status, Task } from "../shared/model";
 import { eventPoint, useMenuOpener } from "./context-menu";
 import { groupByCard, ideaTabCounts, visibleIdeas, type IdeaQuery, type IdeaSort, type IdeaTab } from "./idea-rows";
 import { SourceLine } from "./content-card";
+import { IdeasImportModal } from "./ideas-import";
 import { Enter } from "./motion";
 import { usePageRows } from "./page-rows";
 import { StatusIcon } from "./status";
@@ -63,6 +64,7 @@ export const IdeasPage = memo(function IdeasPage({
   const [scopes, setScopes] = useState<ReadonlySet<"here" | "new">>(() => new Set());
   const [finishedOnly, setFinishedOnly] = useState(false);
   const [shown, setShown] = useState(PAGE);
+  const [importing, setImporting] = useState(false);
   const actions = useIdeaActions({ sessionsOf, onCreate, onNewSession, ideas, tasks });
   const { hidden } = actions;
   const lanes = useMemo(() => enabledStatuses(project), [project]);
@@ -166,9 +168,16 @@ export const IdeasPage = memo(function IdeasPage({
           {t("Ideas")}</Label>
         <AiMark label={t("AI generated")} />
         <View style={{ flex: 1 }} />
-        {/* Balances the Back button so the title stays centred. */}
-        <View style={{ width: compact ? 56 : 72 }} />
+        {/* Import also balances the Back button so the title stays centred. */}
+        <View style={{ minWidth: compact ? 56 : 72, alignItems: "flex-end" }}>
+          {!project.archivedAt && (
+            <Button quiet icon="Plus" label={t("Import ideas")} onPress={() => setImporting(true)}>
+              {compact ? "" : t("Import")}
+            </Button>
+          )}
+        </View>
       </View>
+      <IdeasImportModal projectId={project.id} open={importing} onClose={() => setImporting(false)} />
       <ScrollView
         {...verticalScroll}
         keyboardShouldPersistTaps="handled"

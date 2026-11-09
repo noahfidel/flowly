@@ -59,7 +59,14 @@ export function boardOverview(board: Board): BoardOverview {
       sessions,
     };
   });
-  return { version: 1, revision: board.revision, projects: board.projects, tasks: board.tasks, links: board.links, attentionDismissals: board.attentionDismissals, cards };
+  return { version: 1, revision: board.revision, projects: board.projects, tasks: board.tasks, links: board.links, attentionDismissals: board.attentionDismissals, cards, projectIdeas: projectIdeaFacts(board) };
+}
+
+/** Open project-level ideas per project (PROJECT-IDEAS-SPEC §5); a project with none still has an entry. */
+function projectIdeaFacts(board: Board) {
+  const open = new Map<string, number>();
+  for (const i of board.ideas) if (!i.taskId && i.status === "open") open.set(i.projectId, (open.get(i.projectId) ?? 0) + 1);
+  return board.projects.map(p => ({ projectId: p.id, open: open.get(p.id) ?? 0 }));
 }
 
 type Fingerprint = Record<OverviewCollection, { ids: string[]; hashes: Map<string, string> }>;

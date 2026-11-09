@@ -3,7 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { boardSchema } from "../shared/model";
 import { boardOverview, OverviewDeltas } from "../server/board-overview";
 import { boardKey, overviewQueryOptions } from "./queries";
-import { readOverviewDelta, overviewKey, projectOpenIdeaCount } from "./overview-query";
+import { applyOverviewPatch, readOverviewDelta, overviewKey, projectOpenIdeaCount } from "./overview-query";
 
 vi.mock("@getpaseo/plugin/client", () => ({ usePaseo: () => null, useRpc: () => null }));
 const full = () => boardSchema.parse({ events: [], version: 5, revision: 1, projects: [], tasks: [] });
@@ -47,4 +47,24 @@ test("the project Ideas count comes from the overview's card facts", () => {
   const overview = { ...view(), tasks: [{ id: "t", projectId: "p" }, { id: "x", projectId: "other" }], cards: [{ taskId: "t", openIdeas: 2 }, { taskId: "x", openIdeas: 1 }] } as unknown as ReturnType<typeof view>;
   expect(projectOpenIdeaCount(overview, "p")).toBe(2);
   expect(projectOpenIdeaCount(undefined, "p")).toBe(0);
+  // Open ideas of the project itself (no card) add to its cards' ideas, and only for that project.
+  const withOwn = { ...overview, projectIdeas: [{ projectId: "p", open: 3 }, { projectId: "other", open: 5 }] };
+  expect(projectOpenIdeaCount(withOwn, "p")).toBe(5);
+  expect(projectOpenIdeaCount(withOwn, "other")).toBe(6);
+});
+
+test("an overview patch that only changes project ideas changes the count and keeps cards and tasks identity", () => {
+  // The Ideas count memo depends on cards, tasks and projectIdeas: after an import only projectIdeas is new.
+  const base = { ...view(), tasks: [{ id: "t", projectId: "p" }], cards: [{ taskId: "t", openIdeas: 1 }], projectIdeas: [{ projectId: "p", open: 1 }] } as unknown as ReturnType<typeof view>;
+  const next = { ...base, revision: base.revision + 1, projectIdeas: [{ projectId: "p", open: 4 }] };
+  const deltas = new OverviewDeltas();
+  const first = deltas.read(base, {});
+  const second = deltas.read(next, { etag: first.etag });
+  expect(Object.keys(second.patch!).sort()).toEqual(["baseEtag", "projectIdeas", "revision"]);
+  const applied = applyOverviewPatch(base, second.patch!);
+  expect(applied.cards).toBe(base.cards);
+  expect(applied.tasks).toBe(base.tasks);
+  expect(applied.projectIdeas).not.toBe(base.projectIdeas);
+  expect(projectOpenIdeaCount(base, "p")).toBe(2);
+  expect(projectOpenIdeaCount(applied, "p")).toBe(5);
 });

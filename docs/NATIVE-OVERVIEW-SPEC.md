@@ -50,7 +50,7 @@ Overview/CardDetail/完整Board的类型、key、etag和fresh授权边界继续�
 
 新增 schema-validated `board.overview-changed`，输入 strict `{etag?: string}`，最大 200 字符。不带 since。当前 scope 为此 daemon 的全部项目/卡片，保留 archive 记录用于既有 filter；未来 project scope 须升契约/key，不在此阶段增加。
 
-`BoardOverview = {version:1, revision:number, projects:Project[], tasks:Task[], links:Link[], attentionDismissals:AttentionDismissal[], cards:CardFacts[]}`。
+`BoardOverview = {version:1, revision:number, projects:Project[], tasks:Task[], links:Link[], attentionDismissals:AttentionDismissal[], cards:CardFacts[], projectIdeas:{projectId, open}[]}`（`projectIdeas`：每个项目一条，`open` 为该项目自身（无卡片）的未处理 idea 数，见 PROJECT-IDEAS-SPEC §5；键为 projectId，与其他集合一样走 patch）。
 不含 events、ideas、artifacts、workpads、plans 集合，任何完整 Board schema 均不能接受该值。
 
 `CardFacts = {taskId, wrapped:boolean, questions:number, openIdeas:number, external?:{text,family}, workpad:WorkpadSignal|null, finishedAt:string, turnEndedAt?:string, hasArtifacts:boolean, hasExternal:boolean, hasWorkpad:boolean, hasNextMoves:boolean, sessions:SessionFacts[]}`。

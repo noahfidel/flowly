@@ -35,9 +35,10 @@ export async function readOverviewDelta(read: OverviewRead, cached: BoardOvervie
   return full;
 }
 
-/** Open ideas on a project's cards, from the overview's per-card counts. */
+/** Open ideas of a project: on its cards (the overview's per-card counts) plus the project's own. */
 export function projectOpenIdeaCount(board: BoardOverview | undefined, projectId: string | undefined) {
   if (!board || !projectId) return 0;
   const tasks = new Set(board.tasks.filter(task => task.projectId === projectId).map(task => task.id));
-  return board.cards.reduce((count, card) => count + (tasks.has(card.taskId) ? card.openIdeas : 0), 0);
+  const own = board.projectIdeas.find(facts => facts.projectId === projectId)?.open ?? 0;
+  return board.cards.reduce((count, card) => count + (tasks.has(card.taskId) ? card.openIdeas : 0), own);
 }

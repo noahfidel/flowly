@@ -17,6 +17,7 @@ type Push = (input: { taskId: string; agentId: string; text: string }, paseo: Pa
 export async function adoptIdea(store: BoardStore, push: Push, input: IdeaAdoption, paseo: PaseoApi) {
   const board = await store.read();
   const idea = board.ideas.find((i) => i.id === input.id);
+  if (idea && idea.status === "open" && !idea.taskId) throw new Error("A project idea has no card to continue in.");
   const task = idea && board.tasks.find((t) => t.id === idea.taskId);
   if (!idea || idea.status !== "open" || !task) throw new Error("This idea is no longer open.");
   if (!continuesInCard(task)) throw new Error(FINISHED_CARD_IDEA);

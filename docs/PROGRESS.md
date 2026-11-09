@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Ideas import (branch `feat/single-pane`, Task 2) — 2026-11-08
+
+- Paste a markdown backlog on the Ideas page (**Import**), review the rows, import the checked ones as project ideas. `parseBacklog` (`shared/ideas-import.ts`); `ProjectIdeas.preview/import` (`server/project-ideas.ts`: one write, duplicates and bad rows skipped with a reason, replay by `operationId` from a 50-entry in-memory cache); RPCs `ideas.import-preview` / `ideas.import`; `client/ideas-import.tsx`. [IDEAS-IMPORT-EXPORT-SPEC](IDEAS-IMPORT-EXPORT-SPEC.md)
+- Fixtures are synthetic (`shared/fixtures/backlogs/`, the repo is public): they reproduce each real line shape without copying text. A second test parses the real files from `FLOWLY_BACKLOG_DIR` or `~/.claude/backlogs` and is skipped when absent.
+- Task 1 follow-ups: `adoptIdea` on a project idea fails with "A project idea has no card to continue in."; the overview carries `projectIdeas: [{ projectId, open }]` (a new overview collection) and the overview bar's Ideas count includes project ideas (`projectOpenIdeaCount`). PROJECT-IDEAS-SPEC §5/§6 and NATIVE-OVERVIEW-SPEC updated.
+- Strings: 13 new, in all 9 catalogs. Onboarding: no tour row or tip: Import is a one-off action on a page the user already opened; revisit if a later task makes the Ideas page a headline feature. Telemetry: no heartbeat field.
+- Checks: new `shared/ideas-import.test.ts` (15, incl. the real-files test), extended `server/project-ideas.test.ts` (import, replay, preview, adopt, overview count), `client/overview-query.test.ts`; `npm run typecheck` exit 0, `npm test` exit 0 (161 files, 1427 passed, 1 skipped). Not run: the Import modal in the installed plugin (not installed per the plan's constraints); the client is covered by typecheck and the shared/server tests only.
+
 ## Project-level ideas (branch `feat/single-pane`, Task 1) — 2026-11-08
 
 - An idea can belong to a project instead of a card: `Idea.taskId`/`agentId`/`eventId` optional, new `source` (≤ 1000), `Task.origin.taskId` optional. No board version bump. `ProjectIdeas.propose/list` (`server/project-ideas.ts`): no open cap, unique open title per project (`DUPLICATE_IDEA`), `PROJECT_ARCHIVED` / `NOT_FOUND`, no board event. RPC `ideas.create-project`; `flowly_propose_idea` on board credentials (sessions outside cards; follows the Ideas switch, not the Cards switch). [PROJECT-IDEAS-SPEC](PROJECT-IDEAS-SPEC.md)
