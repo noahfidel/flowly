@@ -65,7 +65,7 @@ import { workspaceSession } from "./session";
 import { TaskProgress } from "./task-progress";
 import { TaskUsage } from "./task-usage";
 import { SessionMarkdown } from "./session-content";
-import { TaskIdeas } from "./task-ideas";
+import { TaskIdeas, type IdeaOther } from "./task-ideas";
 import { TaskMemorySection } from "./memory";
 import { LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
@@ -93,6 +93,8 @@ function TaskDrawerView({
   onEdit,
   onDelete,
   onCreateFromIdea,
+  onDiscussIdea,
+  quickTask = true,
   onLink,
   onFollowUp,
   onOpenTask,
@@ -126,7 +128,11 @@ function TaskDrawerView({
   /** Opens the permanent-delete confirmation (archived cards only). */
   onDelete?(): void;
   /** Opens the new-task form prefilled from an idea (IDEAS-SPEC §6). */
-  onCreateFromIdea?(idea: Idea): void;
+  onCreateFromIdea?(idea: Idea, other?: IdeaOther): void;
+  /** Puts a draft about an idea in the dispatcher chat (DISPATCHER-SPEC §9.5); absent: no Discuss. */
+  onDiscussIdea?(idea: Idea): void;
+  /** *Quick task for New task* is on (default on): a scope-new idea opens Quick task directly. */
+  quickTask?: boolean;
   /** Opens "Link to a card…" for this card (CARD-LINKS-SPEC §5.4). */
   onLink?(task: Task): void;
   /** Opens the new-task form as a follow-up of this card (CARD-LINKS-SPEC §5.5). */
@@ -870,6 +876,8 @@ function TaskDrawerView({
               // Ideas outlive the card: only an archived project makes them read-only (IDEAS-INBOX-SPEC §2.2).
               disabled={!active || !!project.archivedAt}
               onCreate={onCreateFromIdea}
+              onDiscuss={onDiscussIdea}
+              quick={quickTask}
               onAllIdeas={onAllIdeas && (() => onAllIdeas(task.id))}
               onNewSession={(idea) => {
                 setIdeaSession(idea);

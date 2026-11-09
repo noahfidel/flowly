@@ -11,7 +11,7 @@ import { IdeasImportModal } from "./ideas-import";
 import { Enter } from "./motion";
 import { usePageRows } from "./page-rows";
 import { StatusIcon } from "./status";
-import { ClosedIdea, IdeaCard, IdeaRow, sessionName, useExitList, useIdeaActions, type IdeaSession } from "./task-ideas";
+import { ClosedIdea, IdeaCard, IdeaRow, sessionName, useExitList, useIdeaActions, type IdeaOther, type IdeaSession } from "./task-ideas";
 import { AiMark, Button, Choices, Label, TextBox, font, radius, space, tint, touch, useTheme, verticalContent, verticalScroll, noFocusRing, pageBarHeight } from "./ui";
 import { t, msg, tn } from "../shared/i18n";
 
@@ -36,6 +36,8 @@ export const IdeasPage = memo(function IdeasPage({
   onOpenTask,
   onCreate,
   onNewSession,
+  onDiscuss,
+  quick,
   onBack,
 }: {
   project: Project;
@@ -50,8 +52,12 @@ export const IdeasPage = memo(function IdeasPage({
   sessionsOf(taskId: string): readonly IdeaSession[];
   onCardFilter(taskId: string): void;
   onOpenTask(id: string): void;
-  onCreate(idea: Idea): void;
+  onCreate(idea: Idea, other?: IdeaOther): void;
   onNewSession(idea: Idea): void;
+  /** Puts a draft about the idea in the dispatcher chat (DISPATCHER-SPEC §9.5); absent: no Discuss. */
+  onDiscuss?(idea: Idea): void;
+  /** *Quick task for New task* is on: a scope-new idea opens Quick task directly (IDEAS-SPEC §6). */
+  quick: boolean;
   onBack(): void;
 }) {
   usePerfRender("project.ideas.render");
@@ -65,7 +71,7 @@ export const IdeasPage = memo(function IdeasPage({
   const [finishedOnly, setFinishedOnly] = useState(false);
   const [shown, setShown] = useState(PAGE);
   const [importing, setImporting] = useState(false);
-  const actions = useIdeaActions({ sessionsOf, onCreate, onNewSession, ideas, tasks });
+  const actions = useIdeaActions({ sessionsOf, onCreate, onNewSession, ideas, tasks, quick });
   const { hidden } = actions;
   const lanes = useMemo(() => enabledStatuses(project), [project]);
   const cards = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
@@ -107,6 +113,7 @@ export const IdeasPage = memo(function IdeasPage({
           source={grouped ? undefined : source(row.item.taskId)}
           onGood={actions.choose}
           onDismiss={actions.dismiss}
+          onDiscuss={onDiscuss}
         />
       </IdeaRow>
     ));

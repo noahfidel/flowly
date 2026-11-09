@@ -62,7 +62,7 @@ Agents also keep a **Workpad** on the card: acceptance criteria, the checks they
 
 ### 4. Follow-up ideas
 
-Work an agent discovers along the way (a bug it tripped over, a limitation, the next step) lands in the project's **Ideas** inbox instead of being lost in a chat. **Good idea** gives you two paths: continue in the same session, or start a new card or new session with the context pre-filled. **Dismiss** removes it. Agents never create cards or start work on their own.
+Work an agent discovers along the way (a bug it tripped over, a limitation, the next step) lands in the project's **Ideas** inbox instead of being lost in a chat. **Good idea** gives you two paths: continue in the same session, or start a new card or new session with the context pre-filled. **Discuss** puts it in the dispatcher chat to talk it through first. **Dismiss** removes it. Agents never create cards or start work on their own.
 
 ![Ideas inbox with source cards](docs/promo/screenshots/04-ideas-inbox.png)
 ![Good idea: start a new task, continue in the session, or use a new session](docs/promo/screenshots/04b-good-idea-two-paths.png)

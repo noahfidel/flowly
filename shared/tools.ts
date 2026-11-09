@@ -182,6 +182,46 @@ export const ideaUpdateInputSchema = z.strictObject({
     .optional()
     .describe("dismissed: close the idea, e.g. when the user rejected it or it no longer applies. It stays under Closed, where the user can restore it."),
 });
+/** The dispatcher's flowly_list_ideas (DISPATCHER-SPEC §5.1): one project's ideas, card and project ideas together. */
+export const ideaListLimits = { max: 200, default: 50, query: 200 } as const;
+export const listIdeasInputSchema = z.strictObject({
+  status: z.enum([...ideaStatuses, "all"]).default("open").describe("open (default), accepted (became a card or continued in one), dismissed, or all."),
+  tag: z.string().max(200).optional().describe("Only ideas with this suggested tag."),
+  type: taskTypeSchema.optional().describe("Only ideas of this card type."),
+  query: z.string().max(ideaListLimits.query).default("").describe("Only ideas whose title or detail contains this text, ignoring case; empty matches all."),
+  limit: z.number().int().min(1).max(ideaListLimits.max).default(ideaListLimits.default),
+});
+/** An idea as the dispatcher's idea tools return it. */
+export const ideaViewSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  detail: z.string(),
+  rationale: z.string(),
+  context: z.string(),
+  type: taskTypeSchema.optional(),
+  priority: prioritySchema.optional(),
+  tags: z.array(z.string()),
+  status: z.enum(ideaStatuses),
+  /** Card ideas only: continue in the source card ("here") or a new card ("new"). */
+  scope: z.enum(["here", "new"]).optional(),
+  /** The card the idea was proposed on; absent for a project idea. */
+  taskId: z.string().optional(),
+  acceptedTaskId: z.string().optional(),
+  createdAt: z.string(),
+});
+export const listIdeasResultSchema = z.object({ ideas: z.array(ideaViewSchema), truncated: z.boolean() });
+/** The dispatcher's flowly_update_idea (DISPATCHER-SPEC §5.1): the card tool's fields without scope, plus tag add/remove. */
+export const dispatcherIdeaUpdateSchema = ideaUpdateInputSchema
+  .omit({ expectedRevision: true, request: true, id: true, scope: true })
+  .extend({
+    ideaId: z.string().min(1).max(200).describe("Idea id from flowly_list_ideas."),
+    tags: tagInputList.optional().describe("Replaces the idea's suggested tags; [] clears them. Not together with addTags or removeTags."),
+    addTags: tagInputList.optional().describe("Suggested tags to add."),
+    removeTags: tagInputList.optional().describe("Suggested tags to remove; a missing one is ignored."),
+  });
+export const updateIdeaResultSchema = z.object({ idea: ideaViewSchema, changed: z.boolean() });
+export type IdeaView = z.infer<typeof ideaViewSchema>;
+export type DispatcherIdeaUpdate = z.infer<typeof dispatcherIdeaUpdateSchema>;
 /** flowly_remove_idea (IDEAS-SPEC §3.1): delete an idea of this card that was proposed by mistake. */
 export const ideaRemovalSchema = z.strictObject({
   expectedRevision: revisionSchema,

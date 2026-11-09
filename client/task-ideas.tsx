@@ -5,13 +5,13 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { taskTypeLabels, type Idea } from "../shared/model";
-import { continuesInCard } from "../shared/ideas";
 import { eventPoint, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { CardBody, CardField, CardHeadline, CardMeta, CardMetaRow, CardText, ContentCard } from "./content-card";
 import { Disclosure, Section, type SectionState } from "./disclosure";
 import { FocusTarget, Marked, useFocusTarget, useMark } from "./drawer-focus";
 import { lerp, motionDuration, useReducedMotion } from "./motion";
 import { exitRows } from "./idea-rows";
+import { goodIdeaPlan, ideaOtherOptions, type CardBlock, type IdeaStep, type OtherOption } from "./idea-choice";
 import { useTaskDetail, invalidateCardViews } from "./card-detail-query";
 import type { CardReference } from "../shared/card-detail";
 import { useStableCallback } from "./stable";
@@ -20,6 +20,9 @@ import { Button, CueRing, Label, font, message, radius, relativeTime, space, tou
 import { t } from "../shared/i18n";
 
 export type IdeaSession = { id: string; title?: string | null; archivedAt?: string | null };
+
+/** A new task from an idea, with Quick task's Other options… for it (QUICK-TASK-SPEC §10). */
+export type IdeaOther = { options: OtherOption[]; run(option: OtherOption): void };
 
 /**
  * Drawer "Ideas": next steps agents proposed on this card (IDEAS-SPEC §5.2).
@@ -34,25 +37,31 @@ export function TaskIdeas({
   disabled,
   onCreate,
   onNewSession,
+  onDiscuss,
   onOpenTask,
   onAllIdeas,
   section,
+  quick,
 }: {
   taskId: string;
   /** This card's sessions, newest first (archived included, for names). */
   sessions: readonly IdeaSession[];
   disabled: boolean;
-  onCreate(idea: Idea): void;
+  onCreate(idea: Idea, other?: IdeaOther): void;
+  /** Puts a draft about the idea in the dispatcher chat (DISPATCHER-SPEC §9.5); absent: no Discuss. */
+  onDiscuss?(idea: Idea): void;
   /** Opens Start session prefilled with the idea (IDEAS-SPEC §6.3). */
   onNewSession(idea: Idea): void;
   onOpenTask(id: string): void;
   /** Opens the project Ideas page showing only this card (IDEAS-INBOX-SPEC §5). */
   onAllIdeas?(): void;
   section: SectionState;
+  /** *Quick task for New task* is on. */
+  quick: boolean;
 }) {
   const { detail } = useTaskDetail();
   const [closedOpen, setClosedOpen] = useState(false);
-  const actions = useIdeaActions({ sessionsOf: () => sessions, onCreate, onNewSession, ideas: detail?.ideas || [], tasks: detail?.relatedTasks || [] });
+  const actions = useIdeaActions({ sessionsOf: () => sessions, onCreate, onNewSession, ideas: detail?.ideas || [], tasks: detail?.relatedTasks || [], quick });
   const { hidden, restoring } = actions;
   const ideas = useMemo(() => (detail?.ideas || []).filter((i) => i.taskId === taskId), [detail?.ideas, taskId]);
   const open = useMemo(() => ideas.filter((i) => i.status === "open" && !hidden.has(i.id)), [ideas, hidden]);
@@ -88,7 +97,7 @@ export function TaskIdeas({
           {rows.map((row) => (
             <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} restored={actions.restored.has(row.item.id)}>
               <FocusTarget id={`idea:${row.item.id}`}>
-                <IdeaCard idea={row.item} disabled={disabled || row.leaving} onGood={actions.choose} onDismiss={actions.dismiss} />
+                <IdeaCard idea={row.item} disabled={disabled || row.leaving} onGood={actions.choose} onDismiss={actions.dismiss} onDiscuss={onDiscuss} />
               </FocusTarget>
             </IdeaRow>
           ))}
@@ -132,13 +141,17 @@ export function useIdeaActions({
   onCreate,
   onNewSession,
   ideas, tasks,
+  quick,
 }: {
   ideas: readonly Idea[];
   tasks: readonly CardReference[];
   /** The idea's card's sessions, newest first (archived included). */
   sessionsOf(taskId: string): readonly IdeaSession[];
-  onCreate(idea: Idea): void;
+  /** A new task from the idea (Quick task or the full form), with Quick task's Other options… for it. */
+  onCreate(idea: Idea, other: IdeaOther): void;
   onNewSession(idea: Idea): void;
+  /** *Quick task for New task* is on: a scope-new idea opens Quick task directly (IDEAS-SPEC §6). */
+  quick: boolean;
 }) {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -167,50 +180,38 @@ export function useIdeaActions({
     }
   };
   const name = (s: IdeaSession) => s.title || t("this card's session");
+  /** Runs one of Other options…' card actions; the full form is the board's (QUICK-TASK-SPEC §10). */
+  const runOther = (idea: Idea) => (option: OtherOption) => {
+    if (option.kind === "continue") void adopt(idea, option.session);
+    else if (option.kind === "new-session") onNewSession(idea);
+  };
   /**
    * Good idea (IDEAS-SPEC §6): continue in a session of this card (the
    * proposer's by default, or another one), start a new session in this card,
-   * or start a new card. The agent's suggestion leads. A finished or archived
-   * card only offers a new card (IDEAS-INBOX-SPEC §2.3).
+   * or start a new task. The agent's suggestion leads. A project idea, or one
+   * whose card is finished, archived or gone, can only become a new task, so
+   * it opens that directly (QUICK-TASK-SPEC §10, IDEAS-INBOX-SPEC §2.3).
    */
   const choose = useStableCallback((idea: Idea, at: Point) => {
-    // A project idea has no card to continue in: New card is the only action (PROJECT-IDEAS-SPEC §5).
-    if (!openMenu || !idea.taskId) return onCreate(idea);
-    const card = tasks.find((t) => t.id === idea.taskId);
-    if (!card || !continuesInCard(card))
-      return openMenu(at, t("Good idea"), [
-        { id: "card", label: t("Start a new task · Suggested"), icon: "SquarePlus", onPress: () => onCreate(idea) },
-        { kind: "separator", id: "divider" },
-        {
-          kind: "label",
-          id: "finished",
-          label: card
-            ? t(card.archivedAt ? "{title} is archived. Move it back to a work lane to continue in it." : "{title} is finished. Move it back to a work lane to continue in it.", { title: card.title })
-            : t("Its card is gone."),
-        },
-      ]);
-    const here = idea.scope === "here";
-    const live = sessionsOf(idea.taskId).filter((s) => !s.archivedAt);
-    // The session that proposed it keeps its context; otherwise the newest live one.
-    const session = live.find((s) => s.id === idea.agentId) || live[0];
-    const continueEntries: MenuEntry[] = [
-      ...(session
-        ? [{ id: "continue", label: `${t("Continue in {session}", { session: name(session) })}${here ? ` · ${t("Suggested")}` : ""}`, icon: "CornerDownRight", onPress: () => void adopt(idea, session) }]
-        : []),
-      ...(live.length > 1
-        ? [{
-            id: "other",
-            label: t("Send to another session…"),
-            icon: "MessagesSquare",
-            onPress: () =>
-              openMenu(at, t("Send to"), live.map((s) => ({ id: s.id, label: name(s), icon: s.id === session?.id ? "Check" : "MessageSquare", onPress: () => void adopt(idea, s) }))),
-          }]
-        : []),
-      { id: "session", label: `${t("Do it in a new session")}${here && !session ? ` · ${t("Suggested")}` : ""}`, icon: "Plus", onPress: () => onNewSession(idea) },
-    ];
-    const cardEntry: MenuEntry = { id: "card", label: `${t("Start a new task")}${here ? "" : ` · ${t("Suggested")}`}`, icon: "SquarePlus", onPress: () => onCreate(idea) };
-    const divider: MenuEntry = { kind: "separator", id: "divider" };
-    openMenu(at, t("Good idea"), here ? [...continueEntries, divider, cardEntry] : [cardEntry, divider, ...continueEntries]);
+    const card = idea.taskId ? tasks.find((t) => t.id === idea.taskId) : undefined;
+    const sessions = idea.taskId ? sessionsOf(idea.taskId) : [];
+    const create = () => onCreate(idea, { options: ideaOtherOptions(idea, card, sessions), run: runOther(idea) });
+    const plan = goodIdeaPlan(idea, card, sessions, quick);
+    if (!openMenu || plan.kind === "new-task") return create();
+    const entry = (step: IdeaStep | { kind: "separator" }): MenuEntry => {
+      if (step.kind === "separator") return { kind: "separator", id: "divider" };
+      if (step.kind === "new-task") return { id: "card", label: suggested(t("Start a new task"), step.suggested), icon: "SquarePlus", onPress: create };
+      if (step.kind === "send-other")
+        return {
+          id: "other",
+          label: ideaStepLabel(step),
+          icon: ideaStepIcon(step),
+          onPress: () =>
+            openMenu(at, t("Send to"), step.sessions.map((s) => ({ id: s.id, label: name(s), icon: s.id === step.current?.id ? "Check" : "MessageSquare", onPress: () => void adopt(idea, s) }))),
+        };
+      return { id: step.kind === "continue" ? "continue" : "session", label: ideaStepLabel(step), icon: ideaStepIcon(step), onPress: () => runOther(idea)(step) };
+    };
+    openMenu(at, t("Good idea"), plan.entries.map(entry));
   });
   const dismiss = useStableCallback(async (idea: Idea) => {
     restored.delete(idea.id);
@@ -239,6 +240,24 @@ export function useIdeaActions({
     }
   });
   return { hidden, restoring, restored: restored as ReadonlySet<string>, choose, dismiss, restore };
+}
+
+const suggested = (label: string, on: boolean) => (on ? `${label} · ${t("Suggested")}` : label);
+
+/** A card action's label in the Good idea menu and in Quick task's Other options…, with its Suggested mark. */
+export function ideaStepLabel(step: Exclude<IdeaStep, { kind: "new-task" }>): string {
+  if (step.kind === "continue") return suggested(t("Continue in {session}", { session: step.session.title || t("this card's session") }), step.suggested);
+  if (step.kind === "send-other") return t("Send to another session…");
+  return suggested(t("Do it in a new session"), step.suggested);
+}
+
+export const ideaStepIcon = (step: Exclude<IdeaStep, { kind: "new-task" }>) =>
+  step.kind === "continue" ? "CornerDownRight" : step.kind === "send-other" ? "MessagesSquare" : "Plus";
+
+/** Why the idea cannot continue in its card (IDEAS-INBOX-SPEC §2.3). */
+export function cardBlockLabel(block: CardBlock): string {
+  if (block.reason === "gone" || !block.title) return t("Its card is gone.");
+  return t(block.reason === "archived" ? "{title} is archived. Move it back to a work lane to continue in it." : "{title} is finished. Move it back to a work lane to continue in it.", { title: block.title });
 }
 
 const without = (set: ReadonlySet<string>, ids: readonly string[]) => {
@@ -442,6 +461,7 @@ export const IdeaCard = memo(function IdeaCard({
   source,
   onGood,
   onDismiss,
+  onDiscuss,
   cueGood = false,
 }: {
   idea: Idea;
@@ -452,6 +472,8 @@ export const IdeaCard = memo(function IdeaCard({
   cueGood?: boolean;
   onGood(idea: Idea, at: Point): void;
   onDismiss(idea: Idea): void;
+  /** Talk it through with the dispatcher first (DISPATCHER-SPEC §9.5); absent: no Discuss. */
+  onDiscuss?(idea: Idea): void;
 }) {
   const { colors } = useTheme();
   // A search hit on this idea marks its words and opens it past Show more (DRAWER-SPEC "Focus from search" 7).
@@ -480,7 +502,11 @@ export const IdeaCard = memo(function IdeaCard({
       after={source}
       openWhen={mark}
       footer={
-        <View style={{ flexShrink: 1, flexDirection: "row", justifyContent: "flex-end", gap: space[2] }}>
+        <View style={{ flexShrink: 1, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", columnGap: space[2], rowGap: space[1.5] }}>
+          {onDiscuss && (
+            <Button quiet disabled={disabled} label={t("Discuss {title} with the dispatcher", { title: idea.title })} onPress={() => onDiscuss(idea)}>
+              {t("Discuss")}</Button>
+          )}
           <Button quiet disabled={disabled} label={t("Dismiss {title}", { title: idea.title })} onPress={() => onDismiss(idea)}>
             {t("Dismiss")}</Button>
           <View>

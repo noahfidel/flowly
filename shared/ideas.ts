@@ -6,6 +6,10 @@ export const DESCRIPTION_MAX = 20000;
 /** Titles compare trimmed and case-insensitively (one open idea per title on a card). */
 export const ideaTitleKey = (title: string) => title.trim().toLowerCase();
 
+/** The Ideas page's default order (IDEAS-INBOX-SPEC §4), also flowly_list_ideas' (DISPATCHER-SPEC §5.1): newest first, then by id. */
+export const ideaNewestFirst = (a: Pick<Idea, "createdAt" | "id">, b: Pick<Idea, "createdAt" | "id">) =>
+  b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id);
+
 export const openIdeas = (ideas: readonly Idea[], taskId: string) =>
   ideas.filter((i) => i.taskId === taskId && i.status === "open");
 

@@ -91,7 +91,8 @@ tags are left to the agent's own setup step (CARD-SETUP-SPEC).
   the same choice, with that lane's status and project.
 - **Q** on the board (desktop shortcut): always Quick task.
 - Command Center **Flowly: Quick task**: opens the board and Quick task with the last quick-task project (§3).
-- Edit, follow-up, from-idea and from-suggestion keep the full form. The Linear board's **Start card** opens Quick task (§9).
+- Edit, follow-up and from-suggestion keep the full form. The Linear board's **Start card** opens Quick task (§9).
+  From an idea: Quick task when *Quick task for New task* is on, else the full form (§10).
 
 ## 6. Settings
 
@@ -134,3 +135,48 @@ Quick task can open with an external item attached (LINEAR-BOARD-SPEC §5). Only
 - **Text** is optional while an item is attached: empty sends the same default first message as the full form (`firstMessage`, UI-REFRESH-SPEC §7s, which names the attached item); typed text is sent as typed. Enter submits either way. Without an attached item the text is required (§1).
 - Agent, workspace, project and **More options…** work as in §1; More options… hands the item, the title and the typed text to the full form.
 - Tests: `client/quick-task.test.ts` (`quickCard`, `quickPrompt`), `client/linear-start.test.ts` (`linearQuickSeed`).
+
+## 10. Seeded from an idea (Good idea)
+
+With *Quick task for New task* on, every way of making a new card from an idea opens Quick task instead of the full
+form. With it off, each of them opens the full form prefilled as before (IDEAS-SPEC §6.1). The entry points:
+
+- **Good idea** on a project idea (no card to continue in, PROJECT-IDEAS-SPEC §5): Quick task directly.
+- **Good idea** on an idea whose card is Done, Cancelled, archived or gone (IDEAS-INBOX-SPEC §2.3): Quick task
+  directly, since a new card is its only action; the line saying why it cannot continue in its card moves into
+  **Other options…** (below).
+- **Good idea** on an idea whose card can still continue:
+  - `scope=new` (or no scope), with *Quick task for New task* on: Quick task directly, no menu. The card's own actions
+    stay reachable through **Other options…** (below): Continue in <session>, Send to another session… (only with more
+    than one live session), Do it in a new session, and the full form.
+  - `scope=new` (or no scope) with it off: the menu, Start a new task (Suggested) first, since there is no Other
+    options… to reach the card's actions.
+  - `scope=here`: the menu (IDEAS-SPEC §6), Continue in <session> (Suggested), Send to another session…, Do it in a
+    new session, then Start a new task; Start a new task opens Quick task (or the full form when it is off).
+- An idea link (`ideaInput`, the deep link to one idea).
+
+The dialog then opens with:
+
+- **Project**: the idea's project, locked (the Project picker lists only that project). If it is not live the dialog
+  has no project and Create and start stays disabled.
+- **Text**: the idea's title, a blank line and its detail (`ideaQuickText`; only the title when the detail is
+  blank). It is editable and is the first message as in §2.
+- **Card** (`tasks.create`, as in §2 otherwise): title = the idea's title, and **no `tasks.quick-title` call**, since
+  the idea already names the card (as §9); description = `ideaDescription()` (IDEAS-SPEC §6.1: detail, why,
+  context, the source card and its progress); type, priority and tags = the idea's when it has them, else the §2
+  defaults; and `ideaId`, so the daemon accepts the idea in the same write (IDEAS-SPEC §6.1 step 2) and refuses a
+  closed one before anything is created.
+- **More options…** hands all of that to the full form (the form reads "Create task from idea"), with the typed
+  text as the Instruction as in §1.
+- **Other options…** (only when seeded from an idea), next to More options…, expands a list in the dialog (as the
+  Project picker does). Each choice closes Quick task and does the following instead:
+  - **Open the full form**: the full form prefilled exactly as IDEAS-SPEC §6.1 (no instruction).
+  - For an idea whose card can still continue (from the drawer, the Ideas page or an idea link): the Good idea menu's own
+    card actions, with the same Suggested marks: Continue in <session>, Send to another session… (expands the
+    live sessions in the list) and Do it in a new session (IDEAS-SPEC §6.2, §6.3).
+  - For a finished, archived or gone card: the line saying why it cannot continue in it (no action).
+  - An idea link whose source card is not in the board's overview yet lists only Open the full form (the card is not
+    called gone, `ideaLinkOptions`).
+- Pure logic and tests: `client/idea-choice.ts` (`goodIdeaPlan`, `ideaOtherOptions`, `ideaLinkOptions`, `newTaskFromIdea`) and
+  `client/quick-task.ts` (`ideaQuickSeed`, `ideaQuickText`, `quickProjects`, `quickCard`, `quickCreateInput`,
+  `quickMoreSeed`), tested in `client/idea-choice.test.ts` and `client/quick-task.test.ts`.

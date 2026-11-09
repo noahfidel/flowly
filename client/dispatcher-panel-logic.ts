@@ -1,3 +1,4 @@
+import { nextMoveDraft } from "../shared/next-moves";
 import { noteMessagePrefix, summaryMessagePrefix, type ChatItem } from "../shared/dispatcher";
 import type { TailEntry } from "../shared/session-tail";
 import { groupTranscript, recentSessionOutput } from "./session-state";
@@ -93,4 +94,34 @@ export function sameItem(a: ChatItem, b: ChatItem): boolean {
  */
 export function answersWithText(item: Pick<Extract<ChatItem, { kind: "ask" }>, "askKind" | "requestId">): boolean {
   return item.askKind === "question_report" || item.askKind === "blocker_report" || (item.askKind === "permission" && !item.requestId);
+}
+
+/**
+ * Discuss on an idea (DISPATCHER-SPEC §9.5): the draft it puts in the dispatcher's message box. English, since it is a
+ * message to the agent; a blank detail is left out, and a title that already ends a sentence gets no extra period.
+ */
+export function discussIdeaText(idea: { id: string; title: string; detail: string }, projectTitle: string): string {
+  const title = idea.title.trim();
+  const detail = idea.detail.trim();
+  const sentence = /[.!?]$/.test(title) ? title : `${title}.`;
+  return `Let's talk about this idea (id ${idea.id}, project ${projectTitle}): ${sentence}${detail ? ` ${detail}` : ""}`;
+}
+
+/** The box's text after Discuss: never replaced; the draft goes after what is typed (as a picked next move), and only once (§9.5). */
+export function discussDraft(text: string, typed: string): string {
+  return typed.includes(text) ? typed : nextMoveDraft(text, typed);
+}
+
+/** Discuss shows where the board can open the dispatcher chat: a project board or All projects (the toolbar's rule). */
+export const discussAvailable = (where: { project: boolean; allView: boolean }) => where.project || where.allView;
+
+/**
+ * What the panel does with a Discuss fill: null when there is none or this mount already applied its key; else the
+ * key to report as used (the board then drops the fill, so a remounted panel never applies it again) and the box's
+ * new text, or null when the box already holds it (no change, no focus).
+ */
+export function discussFill(fill: { text: string; key: number } | null | undefined, applied: number, typed: string): { key: number; next: string | null } | null {
+  if (!fill || fill.key === applied) return null;
+  const next = discussDraft(fill.text, typed);
+  return { key: fill.key, next: next === typed ? null : next };
 }

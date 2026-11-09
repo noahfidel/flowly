@@ -1,23 +1,32 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { ideaNewestFirst } from "../shared/ideas";
 import { linkFor } from "../shared/links";
-import { linkSchema } from "../shared/model";
+import { linkSchema, tagLimits, type Idea } from "../shared/model";
+import { normalizeTag, normalizeTags } from "../shared/tags";
 import {
   agentCardLimits,
   createCardInputSchema,
   createCardResultSchema,
+  dispatcherIdeaUpdateSchema,
   getCardInputSchema,
   getCardResultSchema,
+  ideaListLimits,
   listCardsInputSchema,
   listCardsResultSchema,
+  listIdeasInputSchema,
+  listIdeasResultSchema,
   projectIdeaInputSchema,
   projectIdeaResultSchema,
   startCardInputSchema,
   startCardResultSchema,
   updateCardInputSchema,
   updateCardResultSchema,
+  updateIdeaResultSchema,
+  type IdeaView,
 } from "../shared/tools";
 import { rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
+import { changeIdea } from "./agent-service";
 import type { Dispatcher } from "./dispatcher";
 import { addLink, linkNote } from "./links";
 import type { ProjectIdeas } from "./project-ideas";
@@ -34,10 +43,19 @@ const withProject = <T extends z.ZodRawShape>(schema: z.ZodObject<T>) => schema.
 export const dispatcherInputs = {
   listCards: withProject(listCardsInputSchema),
   getCard: withProject(getCardInputSchema),
-  createCard: withProject(createCardInputSchema),
+  createCard: withProject(createCardInputSchema).extend({
+    ideaId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Create the card from this open idea of the project (from flowly_list_ideas); the idea is marked taken up."),
+  }),
   updateCard: withProject(updateCardInputSchema),
   startCard: withProject(startCardInputSchema),
   proposeIdea: withProject(projectIdeaInputSchema),
+  listIdeas: withProject(listIdeasInputSchema),
+  updateIdea: withProject(dispatcherIdeaUpdateSchema),
   linkCards: z.strictObject({
     projectId,
     taskId: z.string().min(1).max(200).describe("Card id from flowly_list_cards."),
@@ -55,6 +73,31 @@ const linkCardsResultSchema = z.object({ link: linkSchema, created: z.boolean() 
 const finished = (status: string) => status === "done" || status === "cancelled";
 /** The tool's input without `projectId`, for the card services' own strict schemas. */
 const rest = <T extends { projectId: string }>({ projectId: _, ...input }: T) => input;
+
+/** The idea as flowly_list_ideas and flowly_update_idea return it (§5.1). */
+function ideaView(i: Idea): IdeaView {
+  return {
+    id: i.id,
+    title: i.title,
+    detail: i.detail,
+    rationale: i.rationale,
+    context: i.context,
+    ...(i.type ? { type: i.type } : {}),
+    ...(i.priority ? { priority: i.priority } : {}),
+    tags: i.tags ?? [],
+    status: i.status,
+    ...(i.taskId ? { scope: i.scope ?? "new", taskId: i.taskId } : {}),
+    ...(i.acceptedTaskId ? { acceptedTaskId: i.acceptedTaskId } : {}),
+    createdAt: i.createdAt,
+  };
+}
+
+/** `addTags`/`removeTags` on an idea's tags, as the card CLI's tags --add/--remove: a present tag added or a missing one removed does nothing. */
+function editedTags(current: readonly string[], add: readonly string[], remove: readonly string[]) {
+  const kept = current.filter((t) => !remove.includes(t));
+  for (const t of add) if (!kept.includes(t)) kept.push(t);
+  return kept;
+}
 
 export class DispatcherTools {
   constructor(
@@ -106,6 +149,68 @@ export class DispatcherTools {
     if (!(await this.ideasOn()))
       throw new ToolError("IDEAS_DISABLED", "Ideas are turned off in Flowly settings. Mention the idea to the user instead.");
     return { idea: await this.ideas.propose(caller.projectId, rest(input), { actor: "agent", agentId: caller.agentId }) };
+  }
+
+  /** One project's ideas, card and project ideas together, newest first (§5.1). A read. */
+  async listIdeas(identity: DispatcherIdentity, raw: unknown) {
+    const input = dispatcherInputs.listIdeas.parse(raw);
+    const caller = await this.projectCaller(identity, input.projectId);
+    let tag: string | undefined;
+    try {
+      tag = input.tag === undefined ? undefined : normalizeTag(input.tag);
+    } catch (e) {
+      throw new ToolError("TAG_INVALID", e instanceof Error ? e.message : String(e));
+    }
+    const needle = input.query.trim().toLowerCase();
+    const found = (await this.store.read()).ideas
+      .filter(
+        (i) =>
+          i.projectId === caller.projectId &&
+          (input.status === "all" || i.status === input.status) &&
+          (!tag || (i.tags ?? []).includes(tag)) &&
+          (!input.type || i.type === input.type) &&
+          (!needle || i.title.toLowerCase().includes(needle) || i.detail.toLowerCase().includes(needle)),
+      )
+      .sort(ideaNewestFirst);
+    return { ideas: found.slice(0, input.limit).map(ideaView), truncated: found.length > input.limit };
+  }
+
+  /**
+   * Edits or dismisses any idea of the project, card ideas included, through the card sessions' edit rules (§5.1).
+   * A card idea's changes are events on its card; a project idea writes none.
+   */
+  async updateIdea(identity: DispatcherIdentity, raw: unknown) {
+    const { projectId, ideaId, addTags, removeTags, ...input } = dispatcherInputs.updateIdea.parse(raw);
+    const caller = await this.projectCaller(identity, projectId, true);
+    if (!(await this.ideasOn()))
+      throw new ToolError("IDEAS_DISABLED", "Ideas are turned off in Flowly settings. Tell the user what you would have changed instead.");
+    if (input.tags !== undefined && (addTags !== undefined || removeTags !== undefined))
+      throw new ToolError("INVALID_INPUT", "Pass either tags (the full set) or addTags/removeTags, not both.");
+    let full: string[] | undefined, add: string[] | undefined, remove: string[] | undefined;
+    try {
+      if (input.tags !== undefined) full = normalizeTags(input.tags);
+      if (addTags !== undefined || removeTags !== undefined) {
+        add = normalizeTags(addTags ?? []);
+        remove = normalizeTags(removeTags ?? []);
+        if (add.some((t) => remove!.includes(t))) throw new Error("A tag can't be both added and removed.");
+        // Empty lists are not a tag change; with nothing else given there is nothing to do.
+        if (!add.length && !remove.length) add = remove = undefined;
+      }
+    } catch (e) {
+      throw new ToolError("TAG_INVALID", e instanceof Error ? e.message : String(e));
+    }
+    return this.store.transaction((board) => {
+      const idea = board.ideas.find((i) => i.id === ideaId && i.projectId === caller.projectId);
+      if (!idea) throw new ToolError("IDEA_NOT_FOUND", `No idea ${ideaId} in this project. Use an id from flowly_list_ideas.`);
+      const tags = full ?? (add && remove ? editedTags(idea.tags ?? [], add, remove) : undefined);
+      if (tags && tags.length > tagLimits.perTask) throw new ToolError("TAG_INVALID", `An idea can have at most ${tagLimits.perTask} tags.`);
+      let changed = false;
+      changeIdea(board, idea, "idea_update", { ...input, ...(tags ? { tags } : {}) }, tags, new Date().toISOString(), (e) => {
+        changed = true;
+        return idea.taskId ? this.store.event(board, { taskId: idea.taskId, actor: "agent", agentId: caller.agentId, ...e }) : { id: "", at: "" };
+      });
+      return { value: { idea: ideaView(idea), changed }, changed };
+    });
   }
 
   async linkCards(identity: DispatcherIdentity, raw: unknown) {
@@ -178,12 +283,18 @@ export class DispatcherTools {
       "flowly_create_card",
       {
         description:
-          `Create a card in a project: one deliverable, one branch or PR. Use workspace="worktree" for repo work, then start it with flowly_start_card. Write the description for an agent that cannot see this conversation (goal, context, files, acceptance). Lands in Backlog (default) or Todo. Pass a unique idempotencyKey; retrying with the same key returns the same card. At most ${agentCardLimits.dispatcherPerHour} cards or starts per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
+          `Create a card in a project: one deliverable, one branch or PR. Use workspace="worktree" for repo work, then start it with flowly_start_card. Write the description for an agent that cannot see this conversation (goal, context, files, acceptance). Lands in Backlog (default) or Todo. Pass a unique idempotencyKey; retrying with the same key returns the same card. Pass ideaId to make it from an open idea of the project, which is then marked taken up (IDEA_NOT_FOUND, IDEA_CLOSED: not open). At most ${agentCardLimits.dispatcherPerHour} cards or starts per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.createCard,
         outputSchema: createCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       },
-      (raw) => inProject(dispatcherInputs.createCard, raw, (c, input) => this.cards.create(c, input), true),
+      (raw) =>
+        inProject(
+          dispatcherInputs.createCard,
+          raw,
+          (c, { ideaId, ...input }) => this.cards.create(c, input, ideaId ? { ideaId, ideasOn: this.ideasOn } : undefined),
+          true,
+        ),
     );
     mcp.registerTool(
       "flowly_update_card",
@@ -228,6 +339,27 @@ export class DispatcherTools {
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       },
       (raw) => toolResult(() => this.linkCards(identity, raw)),
+    );
+    mcp.registerTool(
+      "flowly_list_ideas",
+      {
+        description: `List one project's ideas, those proposed on its cards and its project ideas, newest first, with their full text, type, priority, tags, status and source card (taskId). Default only open ones; status accepted, dismissed or all for the others. Filter by tag, type, and query (text in the title or detail, any case). At most ${ideaListLimits.max} per call (limit, default ${ideaListLimits.default}); truncated says more matched. Read-only.`,
+        inputSchema: dispatcherInputs.listIdeas,
+        outputSchema: listIdeasResultSchema,
+        annotations: read,
+      },
+      (raw) => toolResult(() => this.listIdeas(identity, raw)),
+    );
+    mcp.registerTool(
+      "flowly_update_idea",
+      {
+        description:
+          "Edit an open idea of a project (card ideas included): title, detail, rationale, context, type, priority, and tags (tags replaces the set; or addTags/removeTags, not both), or dismiss it with status=dismissed (the user can restore it). Pass only what changes. IDEA_CLOSED: it was accepted, or it is dismissed and cannot be edited. IDEAS_DISABLED: the user turned Ideas off.",
+        inputSchema: dispatcherInputs.updateIdea,
+        outputSchema: updateIdeaResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      },
+      (raw) => toolResult(() => this.updateIdea(identity, raw)),
     );
   }
 }
