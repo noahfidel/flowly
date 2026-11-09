@@ -9,9 +9,9 @@ A backlog item that belongs to a project, not to any card, is an idea with no `t
 Non-goals:
 
 - Continuing a project idea in a session ("Continue in card"): there is no source card, so the action is hidden.
-- Editing an idea's text (title, detail, rationale, context) after it is proposed; only Dismiss and Restore, as for card ideas.
+- The user editing an idea's text (title, detail, rationale, context) after it is proposed; only Dismiss and Restore, as for card ideas. The dispatcher's `flowly_update_idea` can (DISPATCHER-SPEC §5.1).
 - A board event, receipt or Activity entry for a project idea: events require a card.
-- An agent updating or removing a project idea (`flowly_update_idea` / `flowly_remove_idea` stay card tools).
+- A card or board session updating or removing a project idea (their `flowly_update_idea` / `flowly_remove_idea` stay card tools). Only the dispatcher edits and dismisses project ideas (DISPATCHER-SPEC §5.1); no agent removes one.
 
 ## 2. Data
 
@@ -28,7 +28,7 @@ No board version bump: the fields default on read (IDEAS-SPEC §2.1), and files 
 - **No open cap.** The 10 open ideas per card limit does not apply, and project ideas are not pruned (a backlog import can bring dozens).
 - **Unique title.** A title (trimmed, case-insensitive) that equals the title of an open project-level idea of the same project is refused with `DUPLICATE_IDEA`. Card ideas are not compared.
 - **Archived project.** Proposing into an archived project fails with `PROJECT_ARCHIVED`; so does dismissing or restoring one of its ideas. An unknown project is `NOT_FOUND`.
-- **No event.** Proposing, dismissing and restoring write no `BoardEvent`.
+- **No event.** Proposing, editing, dismissing and restoring write no `BoardEvent`.
 - **Restoring** a dismissed project idea reapplies the unique-title rule among open project ideas; no per-card limit.
 - **Accepting** is New card only: `service.createTask({ ideaId })` marks the idea `accepted`, sets `acceptedTaskId`, and records `origin: { ideaId }` on the new card. It adds no `derived` link and no `idea_accepted` event (there is no source card).
 - **Continue in card** (IDEAS-SPEC §6.2, `ideas.adopt`) is not offered; the daemon refuses it with "A project idea has no card to continue in."
@@ -40,6 +40,7 @@ No board version bump: the fields default on read (IDEAS-SPEC §2.1), and files 
 - `projectIdeaInputSchema` = the card tool's idea input without `scope`, `expectedRevision` and `request`, plus `source`. Fields: `title`, `detail`, `rationale`, `context`, `type`, `priority`, `tags`, `source`.
 - RPC `ideas.create-project` `{ projectId, idea }` → `Idea` (a human proposing from the Ideas page or an import).
 - Agent tool `flowly_propose_idea` is registered for board credentials (sessions outside cards) with the project input and no `expectedRevision`/`request`: it calls `propose(caller.projectId, …, { actor: "agent", agentId })`. It follows the Ideas switch (`IDEAS_DISABLED`) and the same session checks as the other board tools. A card session's `flowly_propose_idea` is unchanged.
+- The dispatcher's `flowly_list_ideas`, `flowly_update_idea` and `flowly_create_card { ideaId }` read, edit, dismiss and accept a project's ideas, project ideas included (DISPATCHER-SPEC §5.1). An edit keeps the unique-title rule (`DUPLICATE_IDEA`).
 - Search finds project ideas (`idea` source) and labels them with the project: `projectIdeas: [{ ideaId, projectId, projectTitle, title, status, updatedAt, hits }]` in `search.query` results, only when there are hits.
 
 ## 5. UI
@@ -63,3 +64,4 @@ No board version bump: the fields default on read (IDEAS-SPEC §2.1), and files 
 9. The Ideas page's grouping puts the project group first, and sorting by card lists project ideas before card ideas.
 10. `boardOverview` reports each project's open project ideas in `projectIdeas`, and `projectOpenIdeaCount` adds them to the card ideas.
 11. `ideas.adopt` on a project idea fails with "A project idea has no card to continue in." and leaves it open.
+12. The dispatcher's `flowly_update_idea` edits and dismisses a project idea without an event; a title equal to another open project idea's is refused with `DUPLICATE_IDEA`.
