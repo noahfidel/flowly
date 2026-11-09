@@ -416,7 +416,8 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.dispatcherMarkSeen, async ({ revision, ids }) => ({ seenRevision: await tools.dispatcher.markSeen(revision, ids) }));
   server.handle(rpc.dispatcherWhatNext, async (_, { paseo }) => {
     tools.attach(paseo);
-    await tools.dispatcher.whatNext(paseo, whatNextMessage(await currentChange()));
+    const change = await currentChange();
+    await tools.dispatcher.whatNext(paseo, whatNextMessage(change), change?.kind === "change" ? { revision: change.revision, ids: change.ids } : undefined);
     return { sent: true as const };
   });
   tools.cards.on = async () => {

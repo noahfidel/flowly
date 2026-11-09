@@ -38,6 +38,7 @@ function fakePaseo() {
   const agentCreates: { workspaceId: string; options: Record<string, unknown> }[] = [];
   const sends: { id: string; text: string; options: unknown }[] = [];
   let createError: Error | null = null;
+  let sendError: Error | null = null;
   let agentCreateError: Error | null = null;
   const paseo = {
     workspaces: {
@@ -76,6 +77,7 @@ function fakePaseo() {
           return agent ? { agent: { ...agent } } : null;
         },
         send: async (text: string, options?: unknown) => {
+          if (sendError) throw sendError;
           sends.push({ id, text, options });
         },
         archive: async () => {
@@ -97,6 +99,7 @@ function fakePaseo() {
     sends,
     failCreate: (e: Error | null) => (createError = e),
     failAgentCreate: (e: Error | null) => (agentCreateError = e),
+    failSend: (e: Error | null) => (sendError = e),
   };
 }
 
@@ -951,4 +954,24 @@ test("a dispatcher saved with fewer tools than this build lists says a new one g
   expect(await status({})).toEqual({ state: "idle", agentId: "old" });
   // An ended one says nothing: Start gives a new one anyway.
   expect(await status({ savedTools: ["flowly_list_projects"] }, "closed")).toEqual({ state: "ended", agentId: "old" });
+});
+
+test("What should I do? marks the changed cards it sent as seen, only once it was sent (ruling 2026-11-09, §9.2)", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  const seen = { revision: 1_700_000_000_000, ids: ["e1", "e2"] };
+  // Not sent: nothing is marked, and the error reaches the caller.
+  x.failSend(new Error("socket closed"));
+  await expect(x.dispatcher.whatNext(x.paseo, "What should I do?", seen)).rejects.toThrow("socket closed");
+  expect((await x.dispatcher.record()).seenRevision).toBeUndefined();
+  // Down: refused before anything is marked.
+  x.failSend(null);
+  x.agents.get(agentId)!.status = "closed";
+  await expect(x.dispatcher.whatNext(x.paseo, "What should I do?", seen)).rejects.toMatchObject({ code: "DISPATCHER_DOWN" });
+  expect((await x.dispatcher.record()).seenRevision).toBeUndefined();
+  // Sent: marked with that line's revision and ids, as Mark seen does.
+  x.agents.get(agentId)!.status = "idle";
+  await x.dispatcher.whatNext(x.paseo, "What should I do?", seen);
+  expect(x.sends.at(-1)).toMatchObject({ id: agentId, text: "What should I do?" });
+  expect(await x.dispatcher.record()).toMatchObject({ seenRevision: seen.revision, seenIds: seen.ids });
 });

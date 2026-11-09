@@ -47,6 +47,7 @@
   - The live "Working" activity no longer turns into a finished block plus a generic running line when a note or the change line is the last row: the transcript takes the live block and the running line from the newest output row (`lastOutputRow`, `client/session-state.ts`), skipping the dispatcher's rows; the card view has none, so it is unchanged. DISPATCHER-SPEC §9.3. Checks: the new case in `client/dispatcher-panel-logic.test.ts` failed first (1 failed: no `lastOutputRow`). Unrun: a live client.
   - `shared/dispatcher.ts`: the server name and tool list moved off `userSendOptions`' doc comment.
   - Strings, onboarding, telemetry: one string (above); onboarding and telemetry unchanged.
+- What should I do? marks the changed cards seen (ruling, Noah 2026-11-09): after the message is sent, `Dispatcher.whatNext` marks the change line it sent (its `revision` and `ids`) as Mark seen does; a failed send or `DISPATCHER_DOWN` marks nothing and the chat shows the error. DISPATCHER-SPEC §9.2, §10. Checks: the new case in `server/dispatcher.test.ts` failed first (1 failed: nothing marked after a send). Strings, onboarding, telemetry: none.
 
 ## Live verification script for the single pane (branch `feat/single-pane`, Task 12) — 2026-11-08
 

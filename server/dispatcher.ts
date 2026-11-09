@@ -559,11 +559,13 @@ export class Dispatcher {
   }
 
   /** "What should I do?" (§9.2): only to a dispatcher that is up; always steered, as by the composer (`userSendOptions`). */
-  async whatNext(paseo: PaseoApi, text: string): Promise<void> {
+  async whatNext(paseo: PaseoApi, text: string, seen?: { revision: number; ids: readonly string[] }): Promise<void> {
     const { state, agentId } = await this.status(paseo);
     if (!agentId || (state !== "running" && state !== "idle"))
       throw new ToolError("DISPATCHER_DOWN", "The dispatcher is not running. Start it first.");
     await paseo.agents.ref(agentId).send(text, userSendOptions);
+    // The cards it asked about are seen, as Mark seen would mark them; only once the question was sent (ruling, §9.2).
+    if (seen) await this.markSeen(seen.revision, seen.ids);
   }
 
   /** One pending re-check at a time: an earlier one wins, a later one is replaced by a sooner request. */
