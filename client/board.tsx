@@ -618,7 +618,7 @@ function BoardContent(
   // The dispatcher chat: open by default on desktop, minimized when the user says so (remembered per host);
   // phones open it from the toolbar each time (DISPATCHER-SPEC §9.3).
   const chatOpen = compact ? chat.open : !!view.values && !view.values.chatMinimized && (!!project || allView);
-  const chatMotion = useMotionPresence(chatOpen ? true : undefined, chatOpen ? "dispatcher-chat" : "");
+  const chatMotion = useMotionPresence(chatOpen ? true : undefined, chatOpen ? "dispatcher-chat" : "", undefined, true);
   const chatMounted = useRef(false);
   // Desktop: the open card's lane is centred in the board left of the drawer when the drawer would hide it, on
   // opening, on moving to another lane, and on coming back to the board from a page (DRAWER-SPEC). Only the last:
@@ -1208,7 +1208,7 @@ function BoardContent(
               borderRightWidth: 1,
               borderRightColor: colors.border,
               display: chatShown ? "flex" : "none",
-              // The card sidebar's open and close, mirrored to the left; at rest no animated props (MotionReveal).
+              // Opens like the card sidebar, mirrored to the left; closing is instant (no exit tween), so the board never sits narrow under a fading panel. At rest no animated props (MotionReveal).
               ...(chatMotion.settled ? null : { opacity: chatMotion.progress, transform: [{ translateX: lerp(chatMotion.progress, [-32, 0]) }] }),
             }
       }
