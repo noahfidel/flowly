@@ -30,7 +30,7 @@ Status: user decisions 2026-11-08 (single-pane spec D1, D2; plan Decisions Q5, Q
 
 The dispatcher is one long-lived session: the provider compacts its context as it fills, and the board is its memory (§6). There is no "context full" state and no start-fresh flow; a new dispatcher starts only to recover from a dead one.
 
-A stored session is **dead** when Paseo does not return it, it is archived, or its status is `closed` (one predicate, `isDeadDispatcher`). Every other status is the live dispatcher, `error` included (undecided; counting it as dead is a one-line change).
+A stored session is **dead** when Paseo does not return it, it is archived, or its status is `closed` (one predicate, `isDeadDispatcher`). Every other status is the live dispatcher, `error` included (ruling, Noah 2026-11-09): a dispatcher in `error` is never replaced automatically; the user can archive it to start a new one.
 
 `status` → `{ state, agentId }`:
 
@@ -83,7 +83,7 @@ Hourly limit (a runaway brake): the dispatcher's card creations and `flowly_star
 
 - The event bus subscriber pushes only stops (`facts.filter(isStop)`, EVENT-BUS-SPEC §2) into the note batcher, so a later non-stop fact on a card never replaces its stop. Facts caused by the dispatcher (`event.agentId` equal to the stored `agentId`) are dropped by the batcher, so the dispatcher never wakes itself. `commitHandler` builds no facts while nothing subscribes.
 - Flowly never steers or interrupts the dispatcher's turn (single-pane spec, "never steer or interrupt"). Paseo's daemon treats a send without `activeTurnBehavior` as `interrupt` and answers (clears) pending permissions, so Flowly sends only after re-reading the agent just before sending and finding it `idle` with no pending permission.
-- Remaining race, accepted until Paseo offers a queued (or reject-if-busy) send: between the read that sees `idle` and the send, the user or the agent can start a turn or raise a permission; the send then lands on that turn and can interrupt it.
+- Remaining race, accepted (ruling, Noah 2026-11-09) until Paseo offers a queued (or reject-if-busy) send: between the read that sees `idle` and the send, the user or the agent can start a turn or raise a permission; the send then lands on that turn and can interrupt it.
 - A batch is delivered by state:
   - `idle`, no pending permission, send cooldown passed → one message with the held notes and the batch, sent without `activeTurnBehavior`.
   - `running`, or `idle` with a pending permission → held in memory, one note per card, until the dispatcher's `agent.turn_ended`, then delivered the same way. When the read at that turn end still holds them (the hook can arrive before Paseo's snapshot changes, and a later turn end may never come), Flowly reads again after 2 s, then 5 s, 15 s, 30 s and every 60 s after that, until the notes go out, the dispatcher dies or the plugin unloads. A batch held while the read says running with no turn end since (one ended with nothing held) is read again after 60 s, and every 60 s after that, by the same rule. A `dispatcher.status` read that sees `idle` also delivers what is held.
