@@ -234,7 +234,8 @@ test("an archived session shows session ended and no tick", async () => {
   const stored = await f.items.list();
   expect(stored.find((i) => i.kind === "ask")).toMatchObject({ signal: "q:e1", state: "session_ended" });
   expect(stored.some((i) => i.kind === "answer")).toBe(false);
-  // The stored state wins over the live ask in the chat, and a retry stays ended.
+  // The stored state wins over the live ask in the chat, and a retry stays ended (the list now shows it archived).
+  f.setAgents([{ ...live[0], archivedAt: later }, ...live.slice(1)]);
   const items = await f.asks.chatItems(stored, f.paseo);
   expect(items.filter((i) => i.kind === "ask" && i.signal === "q:e1").map((i) => i.kind === "ask" && i.state)).toEqual(["session_ended"]);
   expect(await answer(f, "q:e1", { text: "Postgres" })).toEqual({ delivered: false, state: "session_ended" });
@@ -305,7 +306,6 @@ test("after an answer the bell counts what the chat lists open, while the sessio
     },
   } as unknown as PaseoApi;
   expect(await f.asks.answer({ signal: "b:e2", answer: { text: "Rebased" } }, paseo)).toEqual({ delivered: false, state: "session_ended" });
-  f.setAgents(baseAgents());
   expect((await f.asks.count(f.paseo)).count).toBe(before - 3);
   expect((await f.asks.count(f.paseo)).count).toBe(await openInChat(f));
 });
@@ -379,21 +379,27 @@ test("after a reload with the chat closed, the bell (daemon's resolved signals, 
   await answer(f, "p:s2:r2", { optionIds: ["a1"] });
   // The session was archived after the list was read: the ask is recorded ended, and the board still shows the signal.
   const archived = { ...baseAgents()[0], archivedAt: later };
+  // The next listing (after the answer invalidated the shared one) sees it archived too.
+  let listed = baseAgents();
   const paseo = {
     agents: {
-      list: async () => ({ entries: baseAgents().map((a) => ({ agent: a })), pageInfo: {} }),
+      list: async () => ({ entries: listed.map((a) => ({ agent: a })), pageInfo: {} }),
       ref: (id: string) => ({ refresh: async () => ({ agent: id === "s1" ? archived : baseAgents().find((a) => a.id === id) }) }),
     },
   } as unknown as PaseoApi;
   expect(await f.asks.answer({ signal: "q:e1", answer: { text: "Postgres" } }, paseo)).toEqual({ delivered: false, state: "session_ended" });
+  listed = [archived, ...baseAgents().slice(1)];
   // Reload: a fresh client knows nothing; it reads the daemon's resolved signals.
-  const resolved = new Set(await f.asks.resolvedSignals());
+  const resolved = new Set(await f.asks.resolvedSignals(paseo));
   expect([...resolved].sort()).toEqual(["p:s2:r2", "q:e1"]);
-  const items = attentionFromSources({ board: f.board, agents: baseAgents(), receipts: [], readUnavailable: false })!;
+  const items = attentionFromSources({ board: f.board, agents: listed, receipts: [], readUnavailable: false })!;
   const badge = (await f.asks.count(paseo)).count;
   expect(openAskCount(items, resolved)).toBe(badge);
-  // Without the resolved set both still count: the board still lists the request and the report.
-  expect(openAskCount(items)).toBe(badge + 2);
+  // Without the resolved set the request still counts: the session still lists it.
+  expect(openAskCount(items)).toBe(badge + 1);
+  // A board that still lists the session unarchived leaves out both resolved signals too.
+  const stale = attentionFromSources({ board: f.board, agents: baseAgents(), receipts: [], readUnavailable: false })!;
+  expect(openAskCount(stale, resolved)).toBe(openAskCount(stale) - 2);
 });
 
 test("errors and unread turns are never answered or resolved, so their reused keys keep counting", async () => {
@@ -405,7 +411,7 @@ test("errors and unread turns are never answered or resolved, so their reused ke
   const unread = `u:${JSON.stringify(["s1", "finished", at])}`;
   await expect(answer(f, unread, { text: "ok" })).rejects.toThrow("no answer");
   expect(await f.items.list()).toEqual([]);
-  expect(await f.asks.resolvedSignals()).toEqual([]);
+  expect(await f.asks.resolvedSignals(f.paseo)).toEqual([]);
   // The same key again later counts.
   f.setAgents([...baseAgents().slice(0, 2), agent("s3", "w-c", { status: "error" } as never)]);
   expect((await f.asks.chatItems([], f.paseo)).find((i) => i.kind === "ask" && i.signal === "e:s3:status")).toMatchObject({ state: "open" });
@@ -467,6 +473,31 @@ test("a closed session's ask stays open, and answering it goes through (Paseo re
   // The answer is sent; Paseo reloads the session for it.
   expect(await answer(f, "q:e1", { text: "Postgres" })).toMatchObject({ delivered: true, state: "answered" });
   expect(f.send).toHaveBeenCalledWith("s1", "Postgres", expect.objectContaining({ activeTurnBehavior: "steer" }));
+});
+
+test("a session_ended row stored before closed sessions stayed live yields to the live ask while its session is present (§9.4)", async () => {
+  // Rows written by 16c91d9 recorded a closed session's ask as session_ended. Its session is still listed and not
+  // archived, and its report is still open: the ask is open in the chat and the bell, and an answer goes through.
+  const closed = () => [
+    agent("s1", "w-a", { status: "closed", requiresAttention: true, attentionReason: "finished", attentionTimestamp: at }),
+    ...baseAgents().slice(1),
+  ];
+  const f = fixture(baseBoard(), closed());
+  const live = asksFrom(f.board, closed(), [], []).find((a) => a.signal === "q:e1")!;
+  await f.items.put([{ id: "ask-q:e1", at, kind: "ask", signal: "q:e1", taskId: "a", projectId: "p", title: "Card a", state: "session_ended", askKind: "question_report", agentId: "s1", detail: live.detail, options: [], resolvedAt: at }]);
+  const items = await f.asks.chatItems(await f.items.list(), f.paseo);
+  expect(items.filter((i) => i.kind === "ask" && i.signal === "q:e1").map((i) => i.kind === "ask" && i.state)).toEqual(["open"]);
+  const resolved = new Set(await f.asks.resolvedSignals(f.paseo));
+  expect(resolved.has("q:e1")).toBe(false);
+  const open = items.filter((i) => i.kind === "ask" && i.state === "open").length;
+  expect(openAskCount(attentionFromSources({ board: f.board, agents: closed(), receipts: [], readUnavailable: false })!, resolved)).toBe(open);
+  expect((await f.asks.count(f.paseo)).count).toBe(open);
+  expect(await answer(f, "q:e1", { text: "Postgres" })).toMatchObject({ delivered: true, state: "answered" });
+  // Archived later, the stored row stands again (only archived or missing sessions end asks).
+  const g = fixture(baseBoard(), [agent("s1", "w-a", { archivedAt: later }), ...baseAgents().slice(1)]);
+  await g.items.put([{ id: "ask-q:e1", at, kind: "ask", signal: "q:e1", taskId: "a", projectId: "p", title: "Card a", state: "session_ended", askKind: "question_report", agentId: "s1", detail: live.detail, options: [], resolvedAt: at }]);
+  expect(await g.asks.resolvedSignals(g.paseo)).toContain("q:e1");
+  expect((await g.asks.chatItems(await g.items.list(), g.paseo)).find((i) => i.kind === "ask" && i.signal === "q:e1")).toMatchObject({ state: "session_ended" });
 });
 
 test("a deleted card's notes disappear from the chat, as its asks and answers do (ruling, Noah 2026-11-09)", async () => {

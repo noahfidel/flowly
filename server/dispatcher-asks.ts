@@ -1,4 +1,4 @@
-import type { PaseoApi } from "@getpaseo/client";
+import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import { asksFrom, openAsks, type Ask, type AskState } from "../shared/attention";
 import {
   askAnswerInputSchema,
@@ -69,6 +69,13 @@ const knownLimit = 5000;
 const noAnswer = "This ask has no answer; open the card.";
 /** Error (`e:`) and unread (`u:`) signals (ATTENTION-DISMISS-SPEC §2.2): never answered, never stored as resolved. */
 const unanswerable = (signal: string) => signal.startsWith("e:") || signal.startsWith("u:");
+/**
+ * A stored `session_ended` row whose session is still listed and not archived: written when a closed session's asks
+ * counted as ended (16c91d9). Only archived or missing sessions end asks (§9.4), so it is ignored on read and the
+ * live state stands.
+ */
+const stale = (item: StoredChatItem, agents: readonly PaseoAgent[]) =>
+  item.kind === "ask" && item.state === "session_ended" && !!item.agentId && agents.some((a) => a.id === item.agentId && !a.archivedAt);
 
 export class DispatcherAsks {
   /** One answer at a time, so a double press or a replay sees the first one's stored result. */
@@ -87,7 +94,7 @@ export class DispatcherAsks {
   }
 
   /** The live asks, from a fresh board, the (briefly shared) agent list and read state. */
-  async live(paseo: PaseoApi): Promise<{ board: Board; asks: Ask[] }> {
+  async live(paseo: PaseoApi): Promise<{ board: Board; asks: Ask[]; agents: PaseoAgent[] }> {
     const [board, agents, receipts] = await Promise.all([
       this.deps.store.read(),
       this.agents.list(paseo),
@@ -96,13 +103,17 @@ export class DispatcherAsks {
     const asks = asksFrom(board, agents, receipts?.receipts ?? [], board.attentionDismissals, !receipts);
     if (this.known.size > knownLimit) this.known.clear();
     for (const ask of asks) this.known.set(ask.signal, ask);
-    return { board, asks };
+    return { board, asks, agents };
   }
 
-  /** The signals the chat resolved: stored as answered, ended or dismissed, or answered in this daemon run. */
-  private resolved(stored: readonly StoredChatItem[]): Set<string> {
+  /**
+   * The signals the chat resolved: stored as answered, ended or dismissed, or answered in this daemon run. A stale
+   * ended row (its session still present) does not count.
+   */
+  private resolved(stored: readonly StoredChatItem[], agents: readonly PaseoAgent[]): Set<string> {
     const signals = new Set(this.done);
-    for (const item of stored) if (item.kind === "ask" && item.state !== "open" && !unanswerable(item.signal)) signals.add(item.signal);
+    for (const item of stored)
+      if (item.kind === "ask" && item.state !== "open" && !unanswerable(item.signal) && !stale(item, agents)) signals.add(item.signal);
     return signals;
   }
 
@@ -110,14 +121,15 @@ export class DispatcherAsks {
    * `asks.resolved`: the signals the chat resolved, sorted, for the board's bell, so it leaves them out as the
    * badge does without the chat open or after a reload (§9.4).
    */
-  async resolvedSignals(): Promise<string[]> {
-    return [...this.resolved(await this.deps.items.list())].sort();
+  async resolvedSignals(paseo: PaseoApi): Promise<string[]> {
+    const [stored, agents] = await Promise.all([this.deps.items.list(), this.agents.list(paseo)]);
+    return [...this.resolved(stored, agents)].sort();
   }
 
   /** `attention.count`: the open asks, exactly the chat's open rows (§9.4, ATTENTION-DISMISS-SPEC §7a). */
   async count(paseo: PaseoApi): Promise<{ count: number }> {
-    const stored = await this.deps.items.list();
-    return readAttentionCount(this.deps.store, this.deps.reads, paseo, { agents: this.agents, resolved: this.resolved(stored) });
+    const [stored, agents] = await Promise.all([this.deps.items.list(), this.agents.list(paseo)]);
+    return readAttentionCount(this.deps.store, this.deps.reads, paseo, { agents: this.agents, resolved: this.resolved(stored, agents) });
   }
 
   /**
@@ -126,10 +138,16 @@ export class DispatcherAsks {
    * run whose record failed shows as answered, as the bell counts it.
    */
   async chatItems(stored: readonly StoredChatItem[], paseo: PaseoApi): Promise<ChatItem[]> {
-    const { board, asks } = await this.live(paseo);
+    const { board, asks, agents } = await this.live(paseo);
     const cards = new Set(board.tasks.map((t) => t.id));
     const kept = stored.filter((item) =>
-      item.kind === "ask" || item.kind === "answer" ? cards.has(item.taskId) : item.kind === "note" ? cards.has(item.note.taskId) : true,
+      stale(item, agents)
+        ? false
+        : item.kind === "ask" || item.kind === "answer"
+          ? cards.has(item.taskId)
+          : item.kind === "note"
+            ? cards.has(item.note.taskId)
+            : true,
     );
     const storedAsks = new Set(kept.flatMap((item) => (item.kind === "ask" ? [item.signal] : [])));
     return [
@@ -152,8 +170,8 @@ export class DispatcherAsks {
    */
   async dismiss(raw: unknown, paseo: PaseoApi): Promise<{ taskId: string }> {
     const { signal } = askDismissInputSchema.parse(raw);
-    const [{ asks }, stored] = await Promise.all([this.live(paseo), this.deps.items.list()]);
-    const ended = stored.find((item): item is AskItem => item.kind === "ask" && item.signal === signal && item.state === "session_ended");
+    const [{ asks, agents }, stored] = await Promise.all([this.live(paseo), this.deps.items.list()]);
+    const ended = stored.find((item): item is AskItem => item.kind === "ask" && item.signal === signal && item.state === "session_ended" && !stale(item, agents));
     const ask = asks.find((a) => a.signal === signal);
     if (!ask && !ended) throw new Error("This ask is no longer open.");
     if (ask) {
@@ -180,7 +198,8 @@ export class DispatcherAsks {
     // 1. Answered or ended before: never again (a stale or replayed answer).
     if (this.done.has(input.signal)) return { delivered: false, state: "answered" };
     const prior = (await this.deps.items.list()).find((item): item is AskItem => item.kind === "ask" && item.signal === input.signal);
-    if (prior && (prior.state === "answered" || prior.state === "session_ended")) return { delivered: false, state: prior.state };
+    if (prior?.state === "answered") return { delivered: false, state: prior.state };
+    if (prior?.state === "session_ended" && !stale(prior, await this.agents.list(paseo))) return { delivered: false, state: prior.state };
 
     // 2. No longer a live ask: the session resolved it, or the card went away.
     const { board, asks } = await this.live(paseo);

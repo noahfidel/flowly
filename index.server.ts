@@ -403,7 +403,7 @@ export default function contribute(host: PluginServerContext) {
   });
   server.handle(rpc.asksAnswer, (input, { paseo }) => asks.answer(input, paseo));
   server.handle(rpc.asksDismiss, (input, { paseo }) => asks.dismiss(input, paseo));
-  server.handle(rpc.asksResolved, async ({ etag }) => ifChanged(await asks.resolvedSignals(), etag));
+  server.handle(rpc.asksResolved, async ({ etag }, { paseo }) => ifChanged(await asks.resolvedSignals(paseo), etag));
   server.handle(rpc.startAgain, async (input, { paseo }) => {
     tools.attach(paseo);
     const task = (await store.read()).tasks.find((t) => t.id === input.taskId);
