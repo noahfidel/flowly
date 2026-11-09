@@ -1102,6 +1102,77 @@ test("Replace whose create fails after the archive leaves an ended dispatcher, s
   expect(x.archived).toEqual(["agent:old"]);
 });
 
+test("an unguarded dispatcher's turn end sets no re-check timer and sends nothing (§3, §7)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  for (const agentStatus of ["running", "idle"]) {
+    const x = await oldDispatcher(undefined, agentStatus);
+    await x.dispatcher.deliver([note("a")], x.paseo);
+    await x.dispatcher.turnEnded("old", x.paseo);
+    expect(vi.getTimerCount(), agentStatus).toBe(0);
+    x.agents.get("old")!.status = "idle";
+    await vi.advanceTimersByTimeAsync(RECHECK_MAX_MS * 3);
+    expect(x.sends, agentStatus).toEqual([]);
+    x.dispatcher.dispose();
+  }
+});
+
+test("after Replace, the first send leaves out the notes its board summary already covers (§3, §7)", async () => {
+  let gated = false;
+  let summaryStarted!: () => void;
+  const started = new Promise<void>((resolve) => (summaryStarted = resolve));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const x = await oldDispatcher(undefined, "idle", async () => {
+    if (gated) {
+      summaryStarted();
+      await gate;
+    }
+    return "Board summary";
+  });
+  // Held for the unguarded one: on the board the new one's summary reads.
+  await x.dispatcher.deliver([note("a"), note("b")], x.paseo);
+  gated = true;
+  const replacing = x.dispatcher.replace(x.paseo, { agentId: "old" });
+  await started;
+  // Arrives while the summary is written: it may be in it or not, so it is kept.
+  await x.dispatcher.deliver([note("c")], x.paseo);
+  release();
+  const { agentId } = await replacing;
+  expect(x.agentCreates[0].options.prompt).toBe("Board summary");
+  x.agents.get(agentId)!.status = "idle";
+  await x.dispatcher.turnEnded(agentId, x.paseo);
+  expect(x.sends).toHaveLength(1);
+  expect(x.sends[0].id).toBe(agentId);
+  expect(x.sends[0].text).toContain("[c]");
+  expect(x.sends[0].text).not.toContain("[a]");
+  expect(x.sends[0].text).not.toContain("[b]");
+});
+
+test("Replace and Start share one queue: exactly one dispatcher is made, whichever is asked first (§3)", async () => {
+  // Replace first: the new dispatcher is live, so the Start behind it is refused.
+  const x = await oldDispatcher();
+  const [replaced, started] = await Promise.allSettled([x.dispatcher.replace(x.paseo, { agentId: "old" }), x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" })]);
+  expect(replaced.status).toBe("fulfilled");
+  expect(started).toMatchObject({ status: "rejected", reason: { code: "DISPATCHER_RUNNING" } });
+  expect(x.archived).toEqual(["agent:old"]);
+  expect(x.agentCreates).toHaveLength(1);
+  // Start first: refused (the unguarded one is live, Replace is the only route), then Replace goes through.
+  const y = await oldDispatcher();
+  const [started2, replaced2] = await Promise.allSettled([y.dispatcher.start(y.paseo, { provider: "claude/claude-sonnet-5-5" }), y.dispatcher.replace(y.paseo, { agentId: "old" })]);
+  expect(started2).toMatchObject({ status: "rejected", reason: { code: "DISPATCHER_RUNNING" } });
+  expect(replaced2.status).toBe("fulfilled");
+  expect(y.archived).toEqual(["agent:old"]);
+  expect(y.agentCreates).toHaveLength(1);
+  // The old one archived meanwhile: Start makes the new one, and the Replace behind it finds another dispatcher.
+  const z = await oldDispatcher();
+  z.agents.get("old")!.archivedAt = "2026-11-09T00:00:00.000Z";
+  const [started3, replaced3] = await Promise.allSettled([z.dispatcher.start(z.paseo, { provider: "claude/claude-sonnet-5-5" }), z.dispatcher.replace(z.paseo, { agentId: "old" })]);
+  expect(started3.status).toBe("fulfilled");
+  expect(replaced3).toMatchObject({ status: "rejected", reason: { code: "DISPATCHER_CHANGED" } });
+  expect(z.archived).toEqual([]);
+  expect(z.agentCreates).toHaveLength(1);
+});
+
 test("a started dispatcher records its guard; a refused create restores the earlier one (§1, §3)", async () => {
   const x = await setup();
   const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });

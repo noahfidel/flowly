@@ -69,6 +69,7 @@
 - Review (Low): the panel showed a permission's text box when it had no options, but the server takes text only when it has no request, so typed text could be thrown away. Chat ask rows now carry `requestId`, and `answersWithText` shows the box for a permission only when it has none. Tests red first (2 failed). Strings: none.
 - Review (Low): the text answer to a permission with no request now requires the session to be `closed`, as §9.4 says; a running or idle one is refused with "Open the card to answer this request." and nothing is sent or stored. Test red first (1 failed). Strings: none (daemon error).
 - Review: spec and test for e8498c6's rule: a session restored from the archive is alive again, so its asks stored as `session_ended` come back open, counted and answerable (§3, §9.4). The code already did this; the test passed on first run (no red step). Strings: none.
+- Review: missing tests added: an unguarded dispatcher's turn end sets no re-check timer (fake timers, running and idle); the first send after Replace leaves out the notes its board summary covers and keeps one that arrived while it was written; Replace and Start share one queue (Replace then Start, Start then Replace, and Start on an archived one then Replace: one dispatcher made each time). All passed first run; each fails against a deliberate break of the rule it covers (unguarded check limited to idle, covered notes kept, Replace outside the queue).
 
 ## Live verification script for the single pane (branch `feat/single-pane`, Task 12) — 2026-11-08
 
