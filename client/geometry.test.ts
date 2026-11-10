@@ -7,6 +7,7 @@ import {
   defaultDrawerShare,
   drawerShare,
   drawerWidth,
+  drawerFrame,
   dropSlot,
   placementUpdate,
   edgeScroll,
@@ -81,6 +82,12 @@ describe("board interaction geometry", () => {
     expect(drawerWidth(2400, 1600)).toBe(1288);
     expect(drawerWidth(Infinity, 1600)).toBe(1288);
     expect(drawerWidth(3000, 5120)).toBe(3000);
+  });
+  test("the card sidebar fills the height of the column it sits in, under the step-through bar (DRAWER-SPEC)", () => {
+    // It sits in a column (step-through bar above it), so only flex: 1 bounds its
+    // height; sized to its content, the session chat's message box fell below the window.
+    expect(drawerFrame(false, 480)).toMatchObject({ width: 480, flex: 1, minHeight: 0 });
+    expect(drawerFrame(true, 480)).toMatchObject({ width: "100%", flex: 1, minHeight: 0 });
   });
   test("the dispatcher chat opens at its default width and keeps a dragged width within bounds (DISPATCHER-SPEC §9.3)", () => {
     // Never dragged (0) or a bad value: the default.

@@ -46,6 +46,7 @@ import { RunningDots } from "./running-motion";
 import { sessionTree, subagentBucket, type SessionNode } from "../shared/subagents";
 import { SessionCreate } from "./session-create";
 import { SessionPreview } from "./session-preview";
+import { drawerFrame } from "./geometry";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
 import type { SessionEntry } from "./session-link";
@@ -906,14 +907,7 @@ function TaskDrawerView({
   perfEnd("switch.drawer.own", switchStart);
   return (
     <View
-      style={{
-        width: compact ? "100%" : width,
-        flex: compact ? 1 : undefined,
-        minHeight: 0,
-        flexShrink: 0,
-        maxWidth: "100%",
-        backgroundColor: colors.surface0,
-      }}
+      style={{ ...drawerFrame(compact, width), backgroundColor: colors.surface0 }}
     >
       <MotionReveal
         testID="task-session-motion"

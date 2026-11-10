@@ -85,6 +85,16 @@ export function drawerWidth(preferred: number, surfaceWidth: number): number {
   return Math.max(340, Math.min(surfaceWidth - 312, preferred));
 }
 
+/**
+ * The card sidebar's own frame. Its parent is a column (the step-through bar sits
+ * above it), so the sidebar takes the column's remaining height with flex: 1 on
+ * every layout; sized to its content instead, a long session transcript pushed the
+ * message box below the window.
+ */
+export function drawerFrame(compact: boolean, width: number) {
+  return { width: compact ? ("100%" as const) : width, flex: 1, minHeight: 0, maxWidth: "100%" as const };
+}
+
 /** The drawer's share of the Flowly area until it is dragged (UI-UX-SPEC §4). */
 export const defaultDrawerShare = 0.5;
 
