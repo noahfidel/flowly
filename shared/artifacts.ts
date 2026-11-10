@@ -50,7 +50,7 @@ export const artifactNoteLine = (artifact: Pick<Artifact, "role" | "title">) =>
   `${artifact.role === "input" ? "Input" : "Output"}: ${artifact.title}`;
 
 /** "- [user] Title: target — note"; the note is the user's word on how to use it, kept to one line. */
-function contextLine(a: Pick<Artifact, "id" | "title" | "target" | "note" | "createdBy" | "external">, unreadable: ReadonlySet<string>) {
+function contextLine(a: Pick<Artifact, "id" | "title" | "target" | "note" | "createdBy" | "external" | "origin">, unreadable: ReadonlySet<string>) {
   const note = a.note.replace(/\s+/g, " ").trim();
   // External links need a login: point the agent at the tool that reads them (CONNECTORS-SPEC §9).
   const label = a.external ? itemLabel(a.external.provider, itemTypeOf(a.external)) : "";
@@ -59,7 +59,7 @@ function contextLine(a: Pick<Artifact, "id" | "title" | "target" | "note" | "cre
     : unreadable.has(a.id)
       ? ` (${label}; its connection was removed in Flowly, so it can't be read: ask the user)`
       : ` (${label}; read it with flowly_read_external artifactId=${a.id})`;
-  return `- [${a.createdBy === "human" ? "user" : "agent"}] ${a.title}${external}: ${a.target}${note ? ` — ${note.length > 200 ? `${note.slice(0, 199)}…` : note}` : ""}`;
+  return `- [${a.origin ? "flowly" : a.createdBy === "human" ? "user" : "agent"}] ${a.title}${external}: ${a.target}${note ? ` — ${note.length > 200 ? `${note.slice(0, 199)}…` : note}` : ""}`;
 }
 
 /**

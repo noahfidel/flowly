@@ -237,6 +237,27 @@ export function artifactSettingsValues(values: unknown): ArtifactSettings {
   return { extraFolders: folders };
 }
 
+/** The default review ledger folder (REVIEW-LEDGERS-SPEC §5). */
+export const defaultReviewLedgerFolder = "~/.claude/reviews";
+/** Review ledgers attached to their cards (REVIEW-LEDGERS-SPEC §5). The folder must lie inside an extra artifact folder. */
+export const reviewLedgerSettings = defineSettings({
+  id: "review-ledgers",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    attach: z.boolean().catch(true).default(true),
+    folder: z.string().max(1000).catch(defaultReviewLedgerFolder).default(defaultReviewLedgerFolder),
+  }),
+});
+export type ReviewLedgerSettings = z.infer<typeof reviewLedgerSettings.schema>;
+/** Stored values with the folder trimmed (no trailing slash); an empty folder reads as the default. */
+export function reviewLedgerSettingsValues(values: unknown): ReviewLedgerSettings {
+  const parsed = reviewLedgerSettings.schema.safeParse(values ?? {});
+  const data = parsed.success ? parsed.data : reviewLedgerSettings.schema.parse({});
+  const folder = data.folder.trim().replace(/(.)[\\/]+$/, "$1");
+  return { attach: data.attach, folder: folder || defaultReviewLedgerFolder };
+}
+
 /** The Ideas feature (IDEAS-INBOX-SPEC §10): off hides every Ideas entry and refuses new proposals. */
 export const ideasSettings = defineSettings({
   id: "ideas",

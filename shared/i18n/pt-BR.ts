@@ -1627,5 +1627,11 @@ const catalog: Catalog = {
   "New group": "Novo grupo",
   "Group projects in Settings → Workflow and open each group from the project switcher as its own board: like All projects, for just those projects.": "Agrupe projetos em Configurações → Fluxo de trabalho e abra cada grupo pelo seletor de projetos como um quadro próprio: como Todos os projetos, só com esses projetos.",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "O Flowly aprende com os motivos pelos quais você devolve cartões (o segundo cartão com o mesmo problema vira uma diretriz do projeto), e a memória não precisa mais de confirmação.",
+  "Added by Flowly": "Adicionado pelo Flowly",
+  "Review ledgers": "Registros de revisão",
+  "Attach review ledgers": "Anexar registros de revisão",
+  "Review ledger folder": "Pasta de registros de revisão",
+  "Not used: this folder doesn't exist.": "Não usado: esta pasta não existe.",
+  "Not used: add this folder, or one that holds it, to Extra artifact folders.": "Não usado: adicione esta pasta, ou uma que a contenha, às pastas extras de artefatos.",
 };
 export default catalog;

@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Review ledgers on cards (branch `review-ledgers-on-cards`) — 2026-11-10
+
+- `server/review-ledgers.ts` (REVIEW-LEDGERS-SPEC): matching (`cardIdentity`, `LedgerFolder.find`), the newest-round summary parser (`parseLedgerSummary`), `applyLedger` (adds, updates the note, swaps or removes only `origin: "review-ledger"` records; actor `system` events) and `ReviewLedgers` (card open via `artifacts.status`, `flowly_get_task` via `AgentService.syncLedger`, a sweep 30 s after start then every 5 min; 30 s per-card throttle). Git facts come from the workspace descriptor, `git` (argument arrays) only fills gaps.
+- `Artifact.origin` (optional) added; Flowly's records are `createdBy: "human"` so agents cannot remove or edit them. `flowly_get_task` artifacts carry `origin`; context lines say `[flowly]`. Card details: "Added by Flowly" and a sync icon.
+- Host setting `review-ledgers` (*Attach review ledgers*, *Review ledger folder*) in Settings → AI features after Extra artifact folders; RPC `review-ledgers.check` tells the screen why the folder is not used. 6 new strings in all 9 catalogs.
+- Onboarding: no tour change or tip (a background attachment with a default-on switch; it shows up in Outputs where people already look). What's new: none (no release in this change). Telemetry: no heartbeat field.
+
 ## Archive PR review cards when their PR closes; `flowly_archive_card` (branch `auto-archive-review-cards`) — 2026-11-10
 
 - `server/pr-review-archive.ts` (PR-REVIEW-CARDS-SPEC §10): `PrReviewArchiver`, a timer (first check after 60 s, then every 10 min, `unref`, stopped on unload) that archives PR review cards in In review with a `prRef` once their PR is merged or closed. Lookups: the GitHub connector (`ConnectorService.summaries`, github.com connections without `authFailed`) then `gh pr view` through `execFile`; at most 20 per check, least recently checked first; cards in workspaces with a running session are skipped; a check where no lookup works logs once. The archive is a store transaction mirroring `editTask`'s archive (actor `system`, note "Archived: PR merged/closed"), rechecked inside the write. The card's workspace is never archived: PR review cards never own theirs, and archiving it would go past the "archiving plugin records doesn't archive Paseo resources" invariant.

@@ -444,6 +444,8 @@ export const artifactSchema = z.object({
   updatedAt: timestamp,
   /** A link to an item of a configured connection: a read-only input (CONNECTORS-SPEC §3.1). */
   external: externalRefSchema.optional(),
+  /** Added and kept in sync by Flowly itself, never by a person or an agent (REVIEW-LEDGERS-SPEC §3). */
+  origin: z.enum(["review-ledger"]).optional(),
 });
 export type Artifact = z.infer<typeof artifactSchema>;
 export type ArtifactRole = Artifact["role"];

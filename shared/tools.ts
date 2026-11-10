@@ -676,6 +676,8 @@ export const toolContextSchema = z.object({
       title: z.string(),
       note: z.string(),
       createdBy: z.enum(["human", "agent"]),
+      /** "review-ledger": the card's review ledger, attached and kept current by Flowly; its note is the newest round's status (REVIEW-LEDGERS-SPEC §3). */
+      origin: z.enum(["review-ledger"]).optional(),
       missing: z.boolean(),
       /** Added or edited since this session last called flowly_get_task (never for its own additions), or its external item's content changed. */
       unread: z.boolean(),

@@ -33,6 +33,9 @@ import {
   wrapupSettingsValues,
   deliverySettings,
   deliverySettingsValues,
+  defaultReviewLedgerFolder,
+  reviewLedgerSettings,
+  reviewLedgerSettingsValues,
 } from "../shared/settings";
 import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
 import { dispatcherDefaultModel, dispatcherProviderSupported } from "../shared/dispatcher";
@@ -515,6 +518,48 @@ function ExtraFoldersGroup() {
   );
 }
 
+/** Review ledgers on cards (REVIEW-LEDGERS-SPEC §5): the switch, the folder, and why the folder is not used. */
+function ReviewLedgerGroup() {
+  const stored = useStored(useSettings(reviewLedgerSettings), reviewLedgerSettingsValues);
+  const extra = useStored(useSettings(artifactSettings), artifactSettingsValues);
+  const check = useRpc(rpc.reviewLedgerCheck);
+  const values = stored.values;
+  const state = useQuery({
+    queryKey: ["flowly", "review-ledger-check", values?.attach, values?.folder, extra.values?.extraFolders.join("\n")],
+    queryFn: () => check({}),
+    enabled: !!values && !!extra.values,
+  });
+  const reason = values?.attach && state.data && !state.data.usable ? state.data.reason : undefined;
+  return (
+    <SettingsGroup title={t("Review ledgers")}>
+      <Problem text={stored.problem} />
+      <SettingSwitch
+        title={t("Attach review ledgers")}
+        value={values?.attach ?? true}
+        disabled={stored.busy}
+        onChange={(attach) => stored.save({ attach })}
+      />
+      {!!values && (
+        <View style={{ gap: space[1], padding: space[2] }}>
+          <Field
+            title={t("Review ledger folder")}
+            value={values.folder}
+            placeholder={defaultReviewLedgerFolder}
+            commitDelay={800}
+            editable={values.attach}
+            onChange={(folder) => void stored.saveSure({ folder: folder.trim() || defaultReviewLedgerFolder })}
+          />
+          {!!reason && (
+            <Label muted size={font.sm}>
+              {reason === "missing" ? t("Not used: this folder doesn't exist.") : t("Not used: add this folder, or one that holds it, to Extra artifact folders.")}
+            </Label>
+          )}
+        </View>
+      )}
+    </SettingsGroup>
+  );
+}
+
 /** AI features: what the plugin writes for you, and the ideas agents propose. */
 export function AiPage() {
   const summary = useStored(useSettings(summarySettings), summarySettingsValues);
@@ -602,6 +647,7 @@ export function AiPage() {
         />
       </SettingsGroup>
       <ExtraFoldersGroup />
+      <ReviewLedgerGroup />
       <SettingsGroup title={t("Cards")}>
         <SettingSwitch
           title={t("Agents create and edit cards")}

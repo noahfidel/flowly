@@ -1627,5 +1627,11 @@ const catalog: Catalog = {
   "New group": "新しいグループ",
   "Group projects in Settings → Workflow and open each group from the project switcher as its own board: like All projects, for just those projects.": "設定 → ワークフロー でプロジェクトをグループにまとめ、各グループをプロジェクト切り替えから専用のボードとして開けます。「すべてのプロジェクト」と同じように、そのプロジェクトだけを表示します。",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly はカードを差し戻した理由から学びます（同じ問題のカードが 2 枚目になるとプロジェクトのガイドラインになります）。また、メモリーは確認が不要になりました。",
+  "Added by Flowly": "Flowly が追加",
+  "Review ledgers": "レビュー記録",
+  "Attach review ledgers": "レビュー記録を添付",
+  "Review ledger folder": "レビュー記録のフォルダー",
+  "Not used: this folder doesn't exist.": "使用されていません: このフォルダーは存在しません。",
+  "Not used: add this folder, or one that holds it, to Extra artifact folders.": "使用されていません: このフォルダー、またはそれを含むフォルダーを追加の成果物フォルダーに加えてください。",
 };
 export default catalog;

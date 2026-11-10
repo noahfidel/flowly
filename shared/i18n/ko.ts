@@ -1627,5 +1627,11 @@ const catalog: Catalog = {
   "New group": "새 그룹",
   "Group projects in Settings → Workflow and open each group from the project switcher as its own board: like All projects, for just those projects.": "설정 → 워크플로에서 프로젝트를 그룹으로 묶고, 프로젝트 전환기에서 각 그룹을 별도의 보드로 여세요. '모든 프로젝트'와 같지만 그 프로젝트들만 보여 줍니다.",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly는 카드를 돌려보낸 이유에서 배웁니다(같은 문제의 두 번째 카드는 프로젝트 지침이 됩니다). 또한 메모리는 더 이상 확인이 필요 없습니다.",
+  "Added by Flowly": "Flowly가 추가함",
+  "Review ledgers": "리뷰 기록",
+  "Attach review ledgers": "리뷰 기록 첨부",
+  "Review ledger folder": "리뷰 기록 폴더",
+  "Not used: this folder doesn't exist.": "사용되지 않음: 이 폴더가 없습니다.",
+  "Not used: add this folder, or one that holds it, to Extra artifact folders.": "사용되지 않음: 이 폴더 또는 이를 포함하는 폴더를 추가 산출물 폴더에 추가하세요.",
 };
 export default catalog;

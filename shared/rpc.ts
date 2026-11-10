@@ -414,6 +414,12 @@ export const artifactStatus = defineRpc({
   input: z.strictObject({ taskId: z.string().min(1) }),
   output: z.object({ missing: z.array(z.string()) }),
 });
+/** Whether the review ledger folder can be read (REVIEW-LEDGERS-SPEC §5), for the settings screen. */
+export const reviewLedgerCheck = defineRpc({
+  name: "review-ledgers.check",
+  input: z.strictObject({}),
+  output: z.object({ attach: z.boolean(), usable: z.boolean(), reason: z.enum(["missing", "outside"]).optional() }),
+});
 export const previewArtifact = defineRpc({
   name: "artifacts.preview",
   input: z.strictObject({ id: z.string().min(1) }),

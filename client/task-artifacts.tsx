@@ -225,7 +225,9 @@ const ArtifactRow = memo(function ArtifactRow({
   // A search hit on this row unclips it and adds the full link or path (DRAWER-SPEC "Focus from search" 7).
   const mark = useMark(`artifact:${artifact.id}`);
   const agent = artifact.createdBy === "agent";
-  const source = agent ? t("Added by an agent") : t("Added by you");
+  // Flowly's own records (the review ledger, REVIEW-LEDGERS-SPEC §3) say so; their note is the latest review status.
+  const flowly = !!artifact.origin;
+  const source = flowly ? t("Added by Flowly") : agent ? t("Added by an agent") : t("Added by you");
   const role = artifact.role === "input" ? t("Input") : t("Output");
   const external = artifact.external;
   const detail = external
@@ -251,7 +253,7 @@ const ArtifactRow = memo(function ArtifactRow({
             <Label size={font.sm} muted mono selectable={false}><Marked text={artifact.target} terms={mark.terms} /></Label>
           )}
         </View>
-        {agent ? <AiMark size={12} /> : <Icon name="User" size={12} color={colors.foregroundMuted} />}
+        {flowly ? <Icon name="RefreshCw" size={12} color={colors.foregroundMuted} /> : agent ? <AiMark size={12} /> : <Icon name="User" size={12} color={colors.foregroundMuted} />}
       </Pressable>
       <IconButton icon="Pencil" size={touch ? 36 : 24} label={t("Edit artifact: {title}", { title: artifact.title })} disabled={disabled} onPress={() => onEdit(artifact)} />
       <IconButton icon="X" size={touch ? 36 : 24} label={t("Remove artifact: {title}", { title: artifact.title })} disabled={disabled} onPress={() => onRemove(artifact)} />

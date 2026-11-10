@@ -1627,5 +1627,11 @@ const catalog: Catalog = {
   "New group": "Новая группа",
   "Group projects in Settings → Workflow and open each group from the project switcher as its own board: like All projects, for just those projects.": "Объединяйте проекты в группы в Настройки → Рабочий процесс и открывайте каждую группу из переключателя проектов как отдельную доску: как «Все проекты», только для этих проектов.",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly учится на причинах, по которым вы возвращаете карточки (вторая карточка с той же проблемой становится правилом проекта), а память больше не требует подтверждения.",
+  "Added by Flowly": "Добавлено Flowly",
+  "Review ledgers": "Журналы ревью",
+  "Attach review ledgers": "Прикреплять журналы ревью",
+  "Review ledger folder": "Папка журналов ревью",
+  "Not used: this folder doesn't exist.": "Не используется: этой папки нет.",
+  "Not used: add this folder, or one that holds it, to Extra artifact folders.": "Не используется: добавьте эту папку или содержащую её в дополнительные папки артефактов.",
 };
 export default catalog;

@@ -6,7 +6,7 @@ import { BoardService, dataDirectory, migrateLegacyPluginData, paseoHome } from 
 import { readPaseoVersion } from "./server/paseo-version";
 import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./server/directories";
 import * as rpc from "./shared/rpc";
-import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, artifactSettings, artifactSettingsValues, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, modelSettingsValues, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues, prReviewSettings, prReviewSettingsValues, deliverySettings, deliverySettingsValues } from "./shared/settings";
+import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, artifactSettings, artifactSettingsValues, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, modelSettingsValues, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues, prReviewSettings, prReviewSettingsValues, deliverySettings, deliverySettingsValues, reviewLedgerSettings, reviewLedgerSettingsValues } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { openKanbanSession } from "./server/session-open";
 import { SessionReadStore, SessionReadService, daemonNativeAttention } from "./server/session-reads";
@@ -69,6 +69,7 @@ import { SearchService } from "./server/search";
 import { QuickTitleService } from "./server/quick-title";
 import { PrReviewCards } from "./server/pr-review-cards";
 import { PrReviewArchiver, connectorPrState, firstKnown, ghPrState } from "./server/pr-review-archive";
+import { ReviewLedgers } from "./server/review-ledgers";
 import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
 import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
@@ -98,6 +99,7 @@ export default function contribute(host: PluginServerContext) {
   const developerPrefs = server.registerSettings(developerSettings);
   const prReviewPrefs = server.registerSettings(prReviewSettings);
   const deliveryPrefs = server.registerSettings(deliverySettings);
+  const ledgerPrefs = server.registerSettings(reviewLedgerSettings);
   // Project memory and Insights as a whole (ONBOARDING-SETUP-SPEC §6); unreadable settings keep the defaults (on).
   const featurePrefs = server.registerSettings(featureSettings);
   const featureValues = async () => {
@@ -482,6 +484,16 @@ export default function contribute(host: PluginServerContext) {
     }
   };
   reviewArchiver.start();
+  // Review ledgers attached to their cards (REVIEW-LEDGERS-SPEC); unreadable settings keep the defaults.
+  const ledgers = new ReviewLedgers(store);
+  ledgers.settings = async () => {
+    const state = await ledgerPrefs.read().catch(() => null);
+    return reviewLedgerSettingsValues(state?.status === "ready" ? state.values : {});
+  };
+  ledgers.extraFolders = extraArtifactFolders;
+  ledgers.paseo = reviewArchiver.paseo;
+  ledgers.start();
+  tools.agents.syncLedger = (taskId, paseo) => ledgers.syncCard(taskId, paseo);
   const watchPrReview = (agentId: string, paseo: PaseoApi) => {
     hookPaseo = paseo;
     void prReviews.observe(agentId, paseo).catch((e) => logFailure("Flowly PR review card not made:", e, agentId));
@@ -762,7 +774,12 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.createArtifact, (input, { paseo }) => artifacts.create(input, paseo));
   server.handle(rpc.updateArtifact, (input) => artifacts.update(input));
   server.handle(rpc.deleteArtifact, (input) => artifacts.delete(input));
-  server.handle(rpc.artifactStatus, (input, { paseo }) => artifacts.status(input, paseo));
+  server.handle(rpc.artifactStatus, async (input, { paseo }) => {
+    // Opening a card's artifacts brings its review ledger up to date first (REVIEW-LEDGERS-SPEC §4).
+    await ledgers.syncCard(input.taskId, paseo);
+    return artifacts.status(input, paseo);
+  });
+  server.handle(rpc.reviewLedgerCheck, () => ledgers.check());
   server.handle(rpc.previewArtifact, (input, { paseo }) => artifacts.preview(input, paseo));
   server.handle(rpc.checkWorkpad, (input) => workpads.check(input));
   server.handle(rpc.deleteTask, async (input, { paseo }) => {
@@ -1021,6 +1038,7 @@ export default function contribute(host: PluginServerContext) {
     void store.close().catch((e) => logFailure("Flowly storage: close failed:", e));
     workflow.stop();
     reviewArchiver.stop();
+    ledgers.stop();
     telemetry.stop();
     setErrorSink(null);
     process.off("uncaughtExceptionMonitor", onUncaught);

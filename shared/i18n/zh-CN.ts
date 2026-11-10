@@ -1627,5 +1627,11 @@ const catalog: Catalog = {
   "New group": "新分组",
   "Group projects in Settings → Workflow and open each group from the project switcher as its own board: like All projects, for just those projects.": "在 设置 → 工作流 中把项目分组，并从项目切换器把每个分组作为独立看板打开：与“所有项目”相同，只显示这些项目。",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly 会从你退回卡片的原因中学习（同一问题出现在第二张卡片时会成为项目准则），记忆也不再需要确认。",
+  "Added by Flowly": "由 Flowly 添加",
+  "Review ledgers": "评审记录",
+  "Attach review ledgers": "附加评审记录",
+  "Review ledger folder": "评审记录文件夹",
+  "Not used: this folder doesn't exist.": "未使用：此文件夹不存在。",
+  "Not used: add this folder, or one that holds it, to Extra artifact folders.": "未使用：请把此文件夹或其上级文件夹加入额外的产物文件夹。",
 };
 export default catalog;

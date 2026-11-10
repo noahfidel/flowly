@@ -100,6 +100,8 @@ export class AgentService {
   /** The extra artifact folders from Settings (CARD-ARTIFACTS-SPEC, extra folders). Set by the plugin entry. */
   extraArtifactFolders: () => Promise<readonly string[]> = async () => [];
   private extraArtifactRoots = async () => resolveExtraRoots(await this.extraArtifactFolders());
+  /** Brings the card's review ledger record up to date before flowly_get_task reads it (REVIEW-LEDGERS-SPEC §4). Never throws. */
+  syncLedger: (taskId: string, paseo: PaseoApi) => Promise<void> = async () => {};
   /** The AI output language (AI-LANGUAGE-SPEC §5), returned by get_task as outputLanguage. */
   aiLanguage: () => Promise<LocaleCode> = async () => "en";
   /** The default delivery mode from Settings (DELIVERY-MODE-SPEC §2). Set by the plugin entry. */
@@ -323,6 +325,7 @@ export class AgentService {
     // Taken before reading the board: an artifact added meanwhile stays unread.
     const readAt = new Date(Math.max(Date.now(), this.clock())).toISOString();
     const lastRead = await this.artifactReads.lastRead(identity.agentId).catch(() => undefined);
+    if (recordAccess) await Promise.resolve().then(() => this.syncLedger(identity.taskId, this.api())).catch(() => undefined);
     const r = await this.resources(identity);
     const entries: { id: string; title: string; status: string }[] = [];
     let cursor: string | undefined,
@@ -420,6 +423,7 @@ export class AgentService {
               title: a.title,
               note: a.note,
               createdBy: a.createdBy,
+              ...(a.origin ? { origin: a.origin } : {}),
               missing: missing.has(a.id),
               // Added or edited since this session last read the card; its own additions never count.
               unread:
