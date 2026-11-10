@@ -158,7 +158,6 @@ function TextAnswer({ onSend, placeholder }: { onSend(text: string): void; place
           value=""
           multiline
           placeholder={placeholder ?? t("Type your answer")}
-          placeholderTextColor={colors.foregroundMuted}
           onChangeText={(next) => {
             text.current = next;
             setEmpty((was) => (was === !next.trim() ? was : !next.trim()));
@@ -225,7 +224,6 @@ function QuestionAnswer({ item, onSend, onOpenCard }: { item: AskItem; onSend(an
               value=""
               multiline
               placeholder={q.optionIds.length ? t("Other answer") : t("Type your answer")}
-              placeholderTextColor={colors.foregroundMuted}
               onChangeText={(next) => {
                 typed.current[index] = next;
                 const now = !!next.trim();

@@ -322,7 +322,6 @@ function QuestionItem({
           editable={!disabled}
           multiline
           placeholder={question.placeholder || (question.options.length ? t("Other…") : t("Type your answer"))}
-          placeholderTextColor={colors.foregroundMuted}
           {...(Platform.OS === "web"
             ? {
                 onKeyPress: (event: { nativeEvent: unknown; preventDefault(): void }) => {

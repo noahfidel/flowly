@@ -226,7 +226,6 @@ export const TagEditor = memo(function TagEditor({
             autoCapitalize="none"
             autoCorrect={false}
             placeholder={t("e.g. drawer, performance")}
-            placeholderTextColor={colors.foregroundMuted}
             onSubmitEditing={() => (draft.trim() ? add(draft) : close())}
             blurOnSubmit={false}
             returnKeyType="done"

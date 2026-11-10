@@ -79,7 +79,6 @@ export function LaneEditor({
                     value={lane.name ?? ""}
                     onChangeText={(name) => update(lane.status, { name })}
                     placeholder={statusLabels[lane.status]}
-                    placeholderTextColor={colors.foreground}
                     editable={!disabled}
                     maxLength={40}
                     style={{

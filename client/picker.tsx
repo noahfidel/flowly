@@ -153,7 +153,6 @@ export function OptionList({
                 onFocus={() => setSearching(true)}
                 onBlur={() => setSearching(false)}
                 placeholder={t("Search {title}", { title })}
-                placeholderTextColor={colors.foregroundMuted}
                 autoCorrect={false}
                 autoCapitalize="none"
                 style={{

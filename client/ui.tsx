@@ -279,6 +279,7 @@ type TextBoxProps = Omit<ComponentProps<typeof TextInput>, "value" | "defaultVal
  * blocks board shortcuts while focused (SHORTCUTS-SPEC §2.2).
  */
 export function TextBox({ value, onChangeText, commitDelay = 0, onFocus, onBlur, ...props }: TextBoxProps) {
+  const { colors } = useTheme();
   const native = Platform.OS !== "web";
   const [focused, setFocused] = useState(false);
   useShortcutBlock(focused);
@@ -309,6 +310,8 @@ export function TextBox({ value, onChangeText, commitDelay = 0, onFocus, onBlur,
   }, [value]);
   return (
     <TextInput
+      // Placeholders are dimmed everywhere; a caller can still pass its own colour.
+      placeholderTextColor={colors.foregroundMuted}
       {...props}
       key={native ? `text-${mount}` : undefined}
       {...(native ? { defaultValue: shown } : { value: shown })}
@@ -376,7 +379,6 @@ export function Field({
         editable={editable}
         autoFocus={autoFocus}
         placeholder={placeholder}
-        placeholderTextColor={colors.foregroundMuted}
         {...(secure ? { secureTextEntry: true, autoCorrect: false, autoCapitalize: "none" as const } : {})}
         {...(onSubmit
           ? Platform.OS === "web"
