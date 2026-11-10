@@ -51,3 +51,23 @@ test("a failure is logged and never thrown, so the session still opens", async (
   ).resolves.toBeUndefined();
   expect(error).toHaveBeenCalledWith("Kanban session tools unavailable:", "a", "disk");
 });
+test("the dispatcher gets only its own server (or nothing once saved), never card context or board tools", async () => {
+  const launch = vi.fn(async () => ({ contextFile: "/d/s.json", mcp }));
+  const board = vi.fn(async () => mcp);
+  const own = { attach: vi.fn(), sessionLaunch: launch, boardServer: board, dispatcherSession: vi.fn(async () => ({ mcp })) };
+  const opened = await openKanbanSession(request(), own, "/d", paseo);
+  expect(opened?.mcpServers).toEqual({ other: { type: "http", url: "http://other" }, "flowly-dispatcher": mcp });
+  expect(opened?.env).toEqual({ KEEP: "1" });
+  const saved = { ...own, dispatcherSession: vi.fn(async () => ({ mcp: null })) };
+  expect(await openKanbanSession(request(), saved, "/d", paseo)).toBeUndefined();
+  expect(launch).not.toHaveBeenCalled();
+  expect(board).not.toHaveBeenCalled();
+});
+test("a session outside a card gets the board server; a card session does not", async () => {
+  const board = vi.fn(async () => mcp);
+  const outside = { attach: vi.fn(), sessionLaunch: vi.fn(async () => null), boardServer: board, dispatcherSession: vi.fn(async () => null) };
+  expect((await openKanbanSession(request(), outside, "/d", paseo))?.mcpServers).toEqual({ other: { type: "http", url: "http://other" }, "flowly-board": mcp });
+  const card = { ...outside, sessionLaunch: vi.fn(async () => ({ contextFile: "/d/s.json", mcp })), boardServer: vi.fn(async () => mcp) };
+  expect((await openKanbanSession(request(), card, "/d", paseo))?.mcpServers).not.toHaveProperty("flowly-board");
+  expect(card.boardServer).not.toHaveBeenCalled();
+});

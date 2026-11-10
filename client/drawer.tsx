@@ -3,10 +3,11 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type
 import { isNoMoves, nextMovesAction } from "../shared/next-moves";
 import { workpadCheckedAction, workpadUpdatedAction } from "../shared/workpad";
 import type { PaseoAgent } from "@getpaseo/client";
-import { Linking, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { drawerNeedsBoard } from "./query-activity";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import {
+  openExternalUrl,
   usePaseo,
   useRpc,
   type PluginSurfaceProps,
@@ -982,7 +983,7 @@ function TaskDrawerView({
                 <IconButton
                   icon="GitPullRequest"
                   label={t("Open PR")}
-                  onPress={() => void Linking.openURL(prUrl).catch(() => toast.show(t("Could not open the link."), { variant: "error" }))}
+                  onPress={() => void openExternalUrl(prUrl).catch(() => toast.show(t("Could not open the link."), { variant: "error" }))}
                 />
               )}
               <IconButton icon="Pencil" label={t("Edit task")} disabled={!active || sending} onPress={onEdit} />
