@@ -20,7 +20,7 @@ const time = (value: string | undefined) => (value ? Date.parse(value) : NaN);
  * Note-batch messages are left out (their note rows stand for them); the board summary becomes one row.
  * An entry without a timestamp keeps its place right after the entry before it; ties keep the transcript first.
  * The chat is the conversation only (Ruling, Noah 2026-11-09): asks, answers and the change line live in the
- * dock's Attention tab, so only notes join the transcript here.
+ * need-you and updated step-throughs in the card sidebar, so only notes join the transcript here.
  */
 export function mergeTimeline(transcript: readonly TailEntry[], items: readonly ChatItem[]): Row[] {
   const firstKnown = transcript.map((e) => time(e.timestamp)).find((t) => Number.isFinite(t));

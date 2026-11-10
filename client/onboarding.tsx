@@ -111,7 +111,7 @@ function HowPage() {
       <Columns>
         {[
           <Legend key="n" title={t("Needs you")} text={t("When an agent asks, waits for approval or fails, its card says so.")} />,
-          <Legend key="b" title={t("The bell")} text={t("Counts every card that needs you.")} />,
+          <Legend key="b" title={t("Step through")} text={t("“N need you” opens each waiting card in turn, with what it asks on top.")} />,
           <Legend key="o" title={t("Open or dismiss")} text={t("Open a card to answer it, or dismiss it from the list.")} />,
         ]}
       </Columns>

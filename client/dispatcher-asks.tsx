@@ -11,7 +11,7 @@ import { answersWithText, sameItem } from "./dispatcher-panel-logic";
 import { markAsksAnswered } from "./answered-asks";
 import { startAgainMessage } from "./start-again";
 
-/** Asks in the dock's Attention tab, answered in place (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). */
+/** Asks pinned on top of the card sidebar during the need-you step-through, answered in place (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). */
 
 type AskItem = Extract<ChatItem, { kind: "ask" }>;
 type Answer = { optionIds?: string[]; text?: string; texts?: string[]; allow?: boolean };

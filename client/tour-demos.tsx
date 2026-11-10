@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Pressable, View, useWindowDimensions } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { statusLabels, type Idea, type NextMove, type Status, type Task } from "../shared/model";
-import { DockRail } from "./dock-rail";
 import { TaskCard } from "./card";
 import { CardFootnote, ContentCard } from "./content-card";
 import { Enter, MotionReveal, useReducedMotion } from "./motion";
@@ -14,10 +13,10 @@ import { NextMoves } from "./next-moves";
 import { StatusIcon } from "./status";
 import { SummaryBody } from "./task-progress";
 import { modelLabel } from "../shared/summary";
-import { ClosedIdea, IdeaCard, IdeaRow, useExitList } from "./task-ideas";
+import { ClosedIdea, IdeaCard } from "./task-ideas";
 import { ActivityBlock, TranscriptEntry } from "./session-transcript";
 import { groupTranscript, recentSessionOutput } from "./session-state";
-import { Button, CountPill, CueRing, Dot, IconButton, Label, Row, font, noFocusRing, radius, relativeTime, space, tint, touch, useTheme } from "./ui";
+import { Button, CueRing, Dot, IconButton, Label, Row, font, noFocusRing, radius, relativeTime, space, tint, touch, useTheme } from "./ui";
 import { t, tn } from "../shared/i18n";
 
 /*
@@ -86,75 +85,104 @@ function needDetail(need: Need) {
 }
 
 /**
- * The left dock's Attention tab (DISPATCHER-SPEC §9.4) and, minimized, its rail with the bell on the board's left edge
- * (§9.3; Ruling, Noah 2026-11-09). Opening or dismissing a card takes it off the list and the count follows; the rail's
- * bell opens the tab and Minimize closes it again.
+ * The overview's "N need you" chip and the step-through it starts in the card sidebar (DISPATCHER-SPEC §9.4; Ruling,
+ * Noah 2026-11-09): "1 of N" with ‹ Prev / Next ›, the card's ask on top. Answering or dismissing it leaves the card
+ * shown as Answered and offers Next card; the count follows. Nothing moves by itself.
  */
 export function AttentionDemo() {
   const { colors } = useTheme();
-  const [open, setOpen] = useState(true);
+  const [shown, setShown] = useState<string | null>(null);
   const [handled, setHandled] = useState<ReadonlySet<string>>(() => new Set());
-  const items = useMemo(() => needs.filter((need) => !handled.has(need.id)).map((need) => ({ id: need.id, need })), [handled]);
-  const rows = useExitList(items);
-  const handle = (id: string) => setHandled((current) => new Set(current).add(id));
+  const queue = useMemo(() => needs.filter((need) => !handled.has(need.id)), [handled]);
+  const current = shown ? needs.find((need) => need.id === shown) ?? null : null;
+  const index = current ? queue.findIndex((need) => need.id === current.id) : -1;
+  // Once answered the card stays; its neighbours are where it was in the full list.
+  const at = current ? needs.indexOf(current) : 0;
+  const prev = index >= 0 ? queue[index - 1] : [...queue].reverse().find((need) => needs.indexOf(need) < at);
+  const next = index >= 0 ? queue[index + 1] : queue.find((need) => needs.indexOf(need) > at);
+  const handle = (id: string) => setHandled((done) => new Set(done).add(id));
   const tone = (need: Need) =>
     need.kind === "error" ? colors.statusDanger : need.kind === "unread" ? colors.statusSuccess : colors.statusWarning;
   return (
     <View style={{ gap: space[2] }}>
-      <DemoControls hint={t("Try it: open or dismiss a card.")} canRestart={handled.size > 0 || !open} onStartOver={() => (setHandled(new Set()), setOpen(true))} />
+      <DemoControls hint={t("Try it: open or dismiss a card.")} canRestart={handled.size > 0 || !!shown} onStartOver={() => (setHandled(new Set()), setShown(null))} />
       <DemoFrame height={330}>
-        {open ? (
-          <Enter distance={0} style={{ flex: 1, minWidth: 0, padding: space[3] }}>
-            <View style={{ flex: 1, minHeight: 0, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface0, overflow: "hidden" }}>
-              {/* The dock's two tabs, Attention showing, and Minimize. */}
-              <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], paddingHorizontal: space[2], height: 40, borderBottomWidth: 1, borderColor: colors.border }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], paddingHorizontal: space[2] + 2, height: 28, borderRadius: radius.md, backgroundColor: colors.surface2 }}>
-                  <Label medium size={font.md} lines={1} selectable={false}>{t("Attention")}</Label>
-                  {!!items.length && <CountPill text={String(items.length)} />}
+        <View style={{ flex: 1, minWidth: 0, padding: space[3], gap: space[2] }}>
+          {/* The board's overview row: the merged need-you chip starts the step-through. */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <SideTitle>{t("Board")}</SideTitle>
+            </View>
+            {queue.length > 0 && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={tn(queue.length, "{n} ask waiting on you. Step through it", "{n} asks waiting on you. Step through them")}
+                onPress={() => setShown(queue[0].id)}
+                style={(state) => {
+                  const { hovered, pressed } = state as typeof state & { hovered?: boolean };
+                  return { ...noFocusRing, flexDirection: "row", alignItems: "center", gap: 6, height: touch ? 30 : 24, paddingHorizontal: space[1.5] + 2, borderRadius: radius.md, backgroundColor: hovered || pressed ? colors.surface2 : "transparent" };
+                }}
+              >
+                <Dot size={7} color={colors.statusWarning} />
+                <Label size={font.sm} medium selectable={false}>{tn(queue.length, "{n} needs you", "{n} need you")}</Label>
+              </Pressable>
+            )}
+          </View>
+          {current ? (
+            <Enter key="sidebar" distance={0} style={{ flex: 1, minHeight: 0 }}>
+              <View style={{ flex: 1, minHeight: 0, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface0, overflow: "hidden" }}>
+                {/* The step-through on top of the card sidebar. */}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], paddingLeft: space[3], paddingRight: space[2], paddingVertical: space[1.5], borderBottomWidth: 1, borderColor: colors.border, backgroundColor: colors.surface1 }}>
+                  <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "baseline", gap: space[2] }}>
+                    <Label medium size={font.md} lines={1} selectable={false}>{t("Needs you")}</Label>
+                    <Label muted size={font.sm} lines={1} selectable={false}>
+                      {index >= 0 ? t("{index} of {total}", { index: index + 1, total: queue.length }) : next ? t("Answered") : t("All caught up")}
+                    </Label>
+                  </View>
+                  <IconButton icon="ChevronLeft" label={t("Previous card")} disabled={!prev} onPress={() => prev && setShown(prev.id)} />
+                  {index < 0 && next ? (
+                    <Button small primary onPress={() => setShown(next.id)}>{t("Next card")}</Button>
+                  ) : index < 0 ? (
+                    <Button small onPress={() => setShown(null)}>{t("Done")}</Button>
+                  ) : (
+                    <IconButton icon="ChevronRight" label={t("Next card")} disabled={!next} onPress={() => next && setShown(next.id)} />
+                  )}
                 </View>
-                <View style={{ flex: 1, minWidth: 0, paddingHorizontal: space[2] + 2 }}>
-                  <Label medium muted size={font.md} lines={1} selectable={false}>{t("Dispatcher")}</Label>
-                </View>
-                <IconButton icon="PanelLeftClose" label={t("Minimize")} onPress={() => setOpen(false)} />
-              </View>
-              <View style={{ padding: space[1.5], gap: 2 }}>
-                {rows.map((row) => (
-                  <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} spacing={0}>
+                <View style={{ padding: space[1.5] }}>
+                  {index >= 0 ? (
                     <View style={{ flexDirection: "row", alignItems: "center" }}>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Row
-                          title={row.item.need.title()}
-                          detail={needDetail(row.item.need)}
-                          label={t("Open {title}", { title: row.item.need.title() })}
-                          leading={<Dot size={8} color={tone(row.item.need)} />}
-                          trailing={<Label muted size={font.xs} lines={1} selectable={false}>{relativeTime(ago(row.item.need.minutes))}</Label>}
-                          onPress={() => handle(row.item.id)}
+                          title={current.title()}
+                          detail={needDetail(current)}
+                          label={t("Open {title}", { title: current.title() })}
+                          leading={<Dot size={8} color={tone(current)} />}
+                          trailing={<Label muted size={font.xs} lines={1} selectable={false}>{relativeTime(ago(current.minutes))}</Label>}
+                          onPress={() => handle(current.id)}
                         />
                       </View>
-                      <IconButton icon="BellOff" label={t("Dismiss {title} from Attention", { title: row.item.need.title() })} onPress={() => handle(row.item.id)} />
+                      <IconButton icon="BellOff" label={t("Dismiss {title} from Attention", { title: current.title() })} onPress={() => handle(current.id)} />
                     </View>
-                  </IdeaRow>
-                ))}
-                {!rows.length && (
-                  <Enter>
-                    <View style={{ paddingVertical: space[4], alignItems: "center", gap: space[2] }}>
-                      <Icon name="BellOff" size={20} color={colors.foregroundMuted} />
-                      <Label muted>{t("Nothing needs your attention.")}</Label>
-                    </View>
-                  </Enter>
-                )}
+                  ) : (
+                    <Enter>
+                      <View style={{ paddingVertical: space[4], alignItems: "center", gap: space[2] }}>
+                        <Icon name={next ? "Check" : "BellOff"} size={20} color={colors.foregroundMuted} />
+                        <Label muted>{next ? current.title() : t("Nothing needs your attention.")}</Label>
+                      </View>
+                    </Enter>
+                  )}
+                </View>
               </View>
-            </View>
-          </Enter>
-        ) : (
-          // Minimized: the rail on the board's left edge, the board beside it.
-          <Enter distance={0} style={{ flex: 1, minWidth: 0, flexDirection: "row" }}>
-            <DockRail attentionCount={items.length} attentionShortcut="" onOpen={(pane) => pane === "attention" && setOpen(true)} />
-            <View style={{ flex: 1, minWidth: 0, padding: space[3] }}>
-              <SideTitle>{t("Board")}</SideTitle>
-            </View>
-          </Enter>
-        )}
+            </Enter>
+          ) : !queue.length ? (
+            <Enter>
+              <View style={{ paddingVertical: space[4], alignItems: "center", gap: space[2] }}>
+                <Icon name="BellOff" size={20} color={colors.foregroundMuted} />
+                <Label muted>{t("Nothing needs your attention.")}</Label>
+              </View>
+            </Enter>
+          ) : null}
+        </View>
       </DemoFrame>
     </View>
   );

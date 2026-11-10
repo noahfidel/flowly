@@ -38,18 +38,18 @@ export type BoardOverview = ReturnType<typeof boardOverview>;
 
 /**
  * Which chips and dividers the overview row shows (UI-REFRESH-SPEC §7u; Ruling, Noah 2026-11-09): the running chip
- * only while a card runs, needs you and errors when nonzero, no unread chip (Attention covers it). A divider sits
- * after the count only when something follows, and between the status chips and Ideas / Memory / Insights only when
- * both show.
+ * only while a card runs, one "N need you" chip for every open ask, and "N updated" for the cards that changed since
+ * you looked (never part of need-you). A divider follows the count only when something follows, and sits between the
+ * status chips and Ideas / Memory / Insights only when both show.
  */
 export function overviewRow(
-  o: Pick<BoardOverview, "runningTasks" | "needsYou" | "errors">,
+  o: { runningTasks: number; needYou: number; updated: number },
   tools: { ideas: boolean; memory: boolean; insights: boolean },
-): { running: boolean; needsYou: boolean; errors: boolean; statusDivider: boolean; toolsDivider: boolean } {
+): { running: boolean; needYou: boolean; updated: boolean; statusDivider: boolean; toolsDivider: boolean } {
   const running = o.runningTasks > 0;
-  const needsYou = o.needsYou > 0;
-  const errors = o.errors > 0;
-  const status = running || needsYou || errors;
+  const needYou = o.needYou > 0;
+  const updated = o.updated > 0;
+  const status = running || needYou || updated;
   const anyTool = tools.ideas || tools.memory || tools.insights;
-  return { running, needsYou, errors, statusDivider: status || anyTool, toolsDivider: status && anyTool };
+  return { running, needYou, updated, statusDivider: status || anyTool, toolsDivider: status && anyTool };
 }

@@ -7,12 +7,16 @@ import { overviewRow, type BoardOverview } from "./overview";
 import { t, tn } from "../shared/i18n";
 
 /**
- * Board header summary: how many cards, how many have agents working (only while some do), and what is waiting on
- * you. Attention items open the Attention list. No lane chips and no unread chip (Ruling, Noah 2026-11-09).
+ * Board header summary: how many cards, how many have agents working (only while some do), one "N need you" chip for
+ * every open ask and "N updated" for the cards changed since you looked; each starts a step-through in the card
+ * sidebar. No lane chips (Ruling, Noah 2026-11-09).
  */
 export function OverviewBar({
   overview,
-  onAttention,
+  needYou,
+  onNeedYou,
+  updated,
+  onUpdated,
   onInsights,
   insightsShortcut,
   openIdeas,
@@ -23,7 +27,12 @@ export function OverviewBar({
   memoryShortcut,
 }: {
   overview: BoardOverview;
-  onAttention(): void;
+  /** Every open ask on the board's cards, the bell's count (DISPATCHER-SPEC §9.4); a press starts the step-through. */
+  needYou: number;
+  onNeedYou(): void;
+  /** Cards the dispatcher saw change since you looked (§9.2); never part of needYou. */
+  updated: number;
+  onUpdated(): void;
   /** Open project Insights (PROJECT-INSIGHTS-SPEC §9). */
   /** Absent when Insights is off (ONBOARDING-SETUP-SPEC §6). */
   onInsights?(): void;
@@ -39,7 +48,7 @@ export function OverviewBar({
 }) {
   const { colors } = useTheme();
   const o = overview;
-  const row = overviewRow(o, { ideas: openIdeas !== null, memory: memoryCandidates !== null, insights: !!onInsights });
+  const row = overviewRow({ runningTasks: o.runningTasks, needYou, updated }, { ideas: openIdeas !== null, memory: memoryCandidates !== null, insights: !!onInsights });
   return (
     <View style={{ borderBottomWidth: 1, borderColor: colors.border }}>
       <ScrollView
@@ -69,14 +78,14 @@ export function OverviewBar({
             {t("{n} running", { n: o.runningTasks })}
           </Chip>
         )}
-        {row.needsYou && (
-          <Chip label={tn(o.needsYou, "{n} task waiting on you. Open Attention", "{n} tasks waiting on you. Open Attention")} icon={<Dot size={7} color={colors.statusWarning} />} onPress={onAttention} strong>
-            {tn(o.needsYou, "{n} needs you", "{n} need you")}
+        {row.needYou && (
+          <Chip label={tn(needYou, "{n} ask waiting on you. Step through it", "{n} asks waiting on you. Step through them")} icon={<Dot size={7} color={colors.statusWarning} />} onPress={onNeedYou} strong>
+            {tn(needYou, "{n} needs you", "{n} need you")}
           </Chip>
         )}
-        {row.errors && (
-          <Chip label={tn(o.errors, "{n} task with session errors. Open Attention", "{n} tasks with session errors. Open Attention")} icon={<Dot size={7} color={colors.statusDanger} />} onPress={onAttention}>
-            {tn(o.errors, "{n} error", "{n} errors")}
+        {row.updated && (
+          <Chip label={tn(updated, "{n} card changed since you looked. Step through it", "{n} cards changed since you looked. Step through them")} icon={<Dot size={7} color={colors.accent} />} onPress={onUpdated}>
+            {t("{n} updated", { n: updated })}
           </Chip>
         )}
         {row.toolsDivider && <Divider />}

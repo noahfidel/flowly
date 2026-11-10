@@ -40,12 +40,12 @@ test("overview counts live cards, working sessions and what needs you", () => {
   expect(boardOverview({ ...project, lanes }, tasks.filter((t) => t.status !== "done"), [], []).done).toBeNull();
 });
 
-test("the overview row: running only while something runs, no unread chip, dividers only between shown groups", () => {
-  const base = { runningTasks: 0, needsYou: 0, errors: 0 };
+test("the overview row: running only while something runs, one need-you chip, updated apart, dividers only between shown groups", () => {
+  const base = { runningTasks: 0, needYou: 0, updated: 0 };
   const none = { ideas: false, memory: false, insights: false };
-  expect(overviewRow(base, none)).toEqual({ running: false, needsYou: false, errors: false, statusDivider: false, toolsDivider: false });
-  expect(overviewRow(base, { ...none, ideas: true })).toEqual({ running: false, needsYou: false, errors: false, statusDivider: true, toolsDivider: false });
-  expect(overviewRow({ ...base, runningTasks: 2 }, none)).toEqual({ running: true, needsYou: false, errors: false, statusDivider: true, toolsDivider: false });
-  expect(overviewRow({ ...base, needsYou: 1, errors: 1 }, { ...none, insights: true })).toEqual({ running: false, needsYou: true, errors: true, statusDivider: true, toolsDivider: true });
-  expect(Object.keys(overviewRow({ ...base, runningTasks: 1 }, none))).not.toContain("unread");
+  expect(overviewRow(base, none)).toEqual({ running: false, needYou: false, updated: false, statusDivider: false, toolsDivider: false });
+  expect(overviewRow(base, { ...none, ideas: true })).toEqual({ running: false, needYou: false, updated: false, statusDivider: true, toolsDivider: false });
+  expect(overviewRow({ ...base, runningTasks: 2 }, none)).toEqual({ running: true, needYou: false, updated: false, statusDivider: true, toolsDivider: false });
+  expect(overviewRow({ ...base, needYou: 3 }, { ...none, insights: true })).toEqual({ running: false, needYou: true, updated: false, statusDivider: true, toolsDivider: true });
+  expect(overviewRow({ ...base, updated: 2 }, none)).toEqual({ running: false, needYou: false, updated: true, statusDivider: true, toolsDivider: false });
 });

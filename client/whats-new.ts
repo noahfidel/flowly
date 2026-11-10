@@ -28,8 +28,10 @@ export const whatsNew: WhatsNewRelease[] = [
       { icon: "Search", text: msg("Search past cards, summaries, notes, workpads, ideas and deliverables. Agents can search them too.") },
       // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the floating gear moved into the toolbar.
       { icon: "Settings", text: msg("Settings moved to the gear at the top of the board.") },
-      // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the desktop toolbar's bell and Dispatcher buttons moved to the dock's rail.
-      { icon: "PanelLeft", text: msg("On desktop, the bell and the dispatcher moved from the toolbar to a rail on the board's left edge, shown while the dock is minimized.") },
+      // DISPATCHER-SPEC §9.4 (Ruling, Noah 2026-11-09): the bell and Attention moved to the overview's chip and the card sidebar.
+      { icon: "BellRing", text: msg("The bell is now the “N need you” chip above the board: it opens each waiting card in turn in the card sidebar, with what it asks on top. “N updated” does the same for cards that changed.") },
+      // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the dock is the chat only; minimized, a rail reopens it.
+      { icon: "PanelLeft", text: msg("The left dock is just the dispatcher chat. Minimized on desktop, a rail on the board's left edge opens it again.") },
     ],
   },
   {

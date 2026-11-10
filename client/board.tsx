@@ -1,6 +1,6 @@
 import type { BoardOverview } from "../shared/overview";
 import { CardDetailProvider, detailQueryOptions, detailUnavailable, invalidateCardViews, useCardDetailQuery, useProjectIdeasQuery } from "./card-detail-query";
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Platform, Pressable, View, useWindowDimensions, type GestureResponderEvent } from "react-native";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { Modal, useAfterModalClose } from "./modal";
@@ -34,7 +34,6 @@ import {
   Choices,
   Notice,
   Row,
-  Dot,
   Badge,
   Divider,
   Actions,
@@ -50,20 +49,19 @@ import {
 import { StatusIcon, priorityLabels } from "./status";
 import { AttentionButton } from "./attention-button";
 import { DispatcherPanel } from "./dispatcher-panel";
-import { AttentionPanel } from "./attention-panel";
 import { LeftDock } from "./left-dock";
 import { DockRail } from "./dock-rail";
-import { attentionSectionOpen, bellPress, dispatcherPress, dockButtonPress, dockLayoutShown, paneShown, railPress, railShown, showAttention, sideDockMinWidth, toolbarDockButtons, type AttentionSection, type Dock, type DockLayout, type DockTab } from "./dock-logic";
-import { bellResolved, forgetAnsweredMissing, useAnsweredAsks } from "./answered-asks";
+import { railShown, toolbarDockButtons } from "./dock-logic";
+import { cardAsks, changeItem, needsCount, needsQueue, stepAt, stepPosition, updatedQueue, type Step, type StepKind } from "./step-through";
+import { StepThroughBar } from "./step-through-bar";
+import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
   attentionItemsWithFacts,
   attentionOpenToken,
   lastSessionSettings,
-  openAskCount,
   type AttentionItem,
 } from "./attention";
 import { relativeTime } from "./ui";
-import { IdeaRow, useExitList } from "./task-ideas";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
 import { QuickTaskForm } from "./quick-task-form";
 import { ideaQuickSeed, quickProject, quickProjects, type QuickTaskSeed } from "./quick-task";
@@ -75,7 +73,7 @@ import { waitingOn } from "../shared/links";
 import { LinkPicker } from "./task-links";
 import { TaskDrawer } from "./drawer";
 import { DeleteTaskDialog } from "./task-delete";
-import { useOverviewQuery, useLiveAgents, useMemoryCountsQuery, useResolvedAsksQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
+import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery, useOverviewQuery, useLiveAgents, useMemoryCountsQuery, useResolvedAsksQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
 import { projectOpenIdeaCount } from "./overview-query";
 import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
@@ -458,7 +456,7 @@ function BoardContent(
   useEffect(() => {
     if (!attentionToken || appliedAttentionTokens.has(attentionToken)) return;
     appliedAttentionTokens.add(attentionToken);
-    openAttentionMenu();
+    startNeeds();
   }, [attentionToken]);
   useEffect(() => {
     const target = resolvedLink.data;
@@ -770,15 +768,10 @@ function BoardContent(
     [projected, agents.data, receipts, readUnavailable, sessionFacts],
   );
   const attention = useMemo(() => allAttention.filter((i) => !i.dismissed), [allAttention]);
-  // The bell counts open asks (plan Q1), as the sidebar badge and the dispatcher chat do; rows stay per card.
-  // Asks resolved in the chat stay out of it until the live list drops them (DISPATCHER-SPEC §9.4): the daemon's
-  // list covers a closed chat and a reload, this client's own set the moments before that list catches up.
+  // Open asks (plan Q1) leave out the ones resolved in the chat until the live list drops them (DISPATCHER-SPEC §9.4):
+  // the daemon's list covers a closed chat and a reload, this client's own set the moments before it catches up.
   const answeredAsks = useAnsweredAsks();
   const resolvedAsks = useResolvedAsksQuery(auxiliaryActive);
-  const attentionCount = useMemo(
-    () => openAskCount(attention, bellResolved(resolvedAsks.data, answeredAsks)),
-    [attention, resolvedAsks.data, answeredAsks],
-  );
   const liveSignals = useMemo(
     () => (projected && agents.data ? new Set(allAttention.flatMap((i) => i.parts.map((p) => p.key))) : null),
     [allAttention, projected, agents.data],
@@ -820,31 +813,73 @@ function BoardContent(
     if (next.kind === "form") setTaskForm({ status: next.status });
     else setQuickTask({ status: next.status, ...(next.projectId ? { projectId: next.projectId } : {}), ...(next.recent ? { recent: true } : {}) });
   };
-  // The bell opens the left dock on its Attention tab (Ruling, Noah 2026-11-09). Where the board has no dock (no
-  // project and not All projects), it opens the Needs attention sheet instead.
   const rootRef = useRef<View>(null);
-  const toggleAttentionMenu = () => (dockAvailable ? bellToDock() : setMenu(menu === "attention" ? null : "attention"));
-  const openAttentionMenu = () => (dockAvailable ? attentionToDock() : setMenu("attention"));
-  // Phones: the Needs attention sheet is a Modal; the card and session open once it has closed.
+  // Phones: menus are Modals; what they open waits until they have closed.
   const afterModalClose = useAfterModalClose();
-  // A card in Attention (a dismissed row in the dock, or a row of the sheet): its card, and its session when only one needs you.
-  const openAttention = (item: AttentionItem) => {
-    const viaSheet = compact && menu === "attention";
+  // The step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). "N need you" (the overview
+  // chip, A, a notification's link, the phone's bell) walks the cards with open asks, newest first, each card's asks
+  // pinned on top; "N updated" walks the cards the dispatcher saw change. The queues follow the board shown (its
+  // project, or every project on All projects) and recompute live; closing the card or opening another ends it.
+  const dispatcherItems = useDispatcherItemsQuery(auxiliaryActive && (!!project || allView));
+  // Asks listed as answered, ended or dismissed leave the counts too, until the live list drops them (§9.4).
+  useEffect(() => {
+    markAsksAnswered((dispatcherItems.data ?? []).flatMap((item) => (item.kind === "ask" && item.state !== "open" ? [item.signal] : [])));
+  }, [dispatcherItems.data]);
+  const resolvedSignals = useMemo(() => bellResolved(resolvedAsks.data, answeredAsks), [resolvedAsks.data, answeredAsks]);
+  const stepScope = useMemo(() => (allView ? () => true : (projectId: string) => projectId === project?.id), [allView, project?.id]);
+  const needsIds = useMemo(() => needsQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
+  const needYouCount = useMemo(() => needsCount(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
+  const changed = useMemo(() => changeItem(dispatcherItems.data), [dispatcherItems.data]);
+  const updatedIds = useMemo(() => updatedQueue(changed, stepScope), [changed, stepScope]);
+  const [step, setStep] = useState<(Step & { kind: StepKind }) | null>(null);
+  const stepQueue = step?.kind === "updated" ? updatedIds : needsIds;
+  const stepWhere = step ? stepPosition(stepQueue, step) : null;
+  // Remember where the card sits while it is in the queue, to find its neighbours once it drops out.
+  useEffect(() => {
+    if (step && stepWhere?.index != null && stepWhere.index !== step.index) setStep({ ...step, index: stepWhere.index });
+  }, [step, stepWhere?.index]);
+  // Closing the card (Esc, its close button) or opening another one ends the step-through.
+  useEffect(() => {
+    if (step && taskId !== step.taskId) setStep(null);
+  }, [taskId]);
+  const stepAsks = useMemo(() => (step?.kind === "needs" ? cardAsks(dispatcherItems.data, step.taskId, answeredAsks) : []), [step?.kind, step?.taskId, dispatcherItems.data, answeredAsks]);
+  // A card of the step-through: its card, and for need-you its session when only one needs you.
+  const showStepCard = (kind: StepKind, id: string) => {
+    const queue = kind === "updated" ? updatedIds : needsIds;
+    setStep({ kind, ...stepAt(queue, id) });
     setMenu(null);
-    const go = () => {
-      focusProject(item.project.id);
-      setTask(item.task.id);
-      setMobileStatus(item.task.status);
-      if (item.sessionId)
-        setSessionEntry({
-          taskId: item.task.id,
-          sessionId: item.sessionId,
-          requestId: `attention-${Date.now()}`,
-        });
-    };
-    if (viaSheet) afterModalClose(go);
-    else go();
+    const item = kind === "needs" ? attentionByTask.get(id) : undefined;
+    if (!item) return openTaskById(id);
+    setDrawerFocus(null);
+    focusProject(item.project.id);
+    setTask(item.task.id);
+    setMobileStatus(item.task.status);
+    if (item.sessionId) setSessionEntry({ taskId: item.task.id, sessionId: item.sessionId, requestId: `attention-${Date.now()}` });
   };
+  // A start before the board and sessions are read (a notification's link at launch) waits for them.
+  const [needsPending, setNeedsPending] = useState(false);
+  const startStep = useStableCallback((kind: StepKind) => {
+    if (kind === "needs" && (!projected || !agents.data)) return setNeedsPending(true);
+    const queue = kind === "updated" ? updatedIds : needsIds;
+    if (!queue.length) return void toast.show(kind === "needs" ? t("Nothing needs your attention.") : t("Nothing changed since you looked."), { variant: "info" });
+    showStepCard(kind, queue[0]);
+  });
+  useEffect(() => {
+    if (needsPending && projected && agents.data) {
+      setNeedsPending(false);
+      startStep("needs");
+    }
+  }, [needsPending, !!projected, !!agents.data]);
+  const startNeeds = useStableCallback(() => startStep("needs"));
+  const startUpdated = useStableCallback(() => startStep("updated"));
+  const stepPrev = useStableCallback(() => step && stepWhere?.prev && showStepCard(step.kind, stepWhere.prev));
+  const stepNext = useStableCallback(() => step && stepWhere?.next && showStepCard(step.kind, stepWhere.next));
+  const endStep = useStableCallback(() => setStep(null));
+  const stepChanged = useStableCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: dispatcherItemsKey });
+    void queryClient.invalidateQueries({ queryKey: ["flowly", "attention-count"] });
+    void queryClient.invalidateQueries({ queryKey: asksResolvedKey });
+  });
   // The project's tag vocabulary, plus prefix options for hierarchical tags (CARD-TAGS-SPEC §6.4). All: the union.
   const projectTags = useMemo(() => {
     const ids = allView ? liveProjects.map((p) => p.id) : project ? [project.id] : [];
@@ -1185,94 +1220,19 @@ function BoardContent(
     if (target) { setDetailTarget(target); focusProject(target.projectId); }
     setTask(id);
   });
-  // The left dock's tab (remembered per host, default Dispatcher) and what the bell returns to (§9.3, §9.4).
-  const dockTab: DockTab = view.values?.dockTab ?? "dispatcher";
+  // The left dock is the dispatcher chat (§9.3; Ruling, Noah 2026-11-09): open or minimized (phones: the page shown).
   const dockAvailable = !!project || allView;
-  const dockBack = useRef<Dock | null>(null);
-  const setDock = useStableCallback((next: Dock) => {
-    const open = compact ? chat.open : chatOpen;
-    if (next.open && next.tab === "dispatcher" && !(open && dockTab === "dispatcher") && onboarding.values && !onboarding.values.tipsSeen.includes("dispatcher"))
-      void onboarding.markTipSeen("dispatcher"); // Opening the chat is acting on its tip.
+  const setDockOpen = useStableCallback((open: boolean) => {
+    const now = compact ? chat.open : chatOpen;
+    if (open && !now && onboarding.values && !onboarding.values.tipsSeen.includes("dispatcher")) void onboarding.markTipSeen("dispatcher"); // Opening the chat is acting on its tip.
     if (compact) {
-      if (next.open && task) setTask(""); // Phones: the dock page sits under an open card, so the card closes to show it.
-      setChat((c) => (c.open === next.open && c.mounted ? c : { open: next.open, mounted: c.mounted || next.open }));
-      if (next.tab !== dockTab) void view.update({ dockTab: next.tab });
-    } else {
-      const patch = { ...(next.tab !== dockTab ? { dockTab: next.tab } : {}), ...(next.open === chatOpen ? {} : { chatMinimized: !next.open }) };
-      if (Object.keys(patch).length) void view.update(patch);
-    }
+      if (open && task) setTask(""); // Phones: the dock page sits under an open card, so the card closes to show it.
+      setChat((c) => (c.open === open && c.mounted ? c : { open, mounted: c.mounted || open }));
+    } else if (open !== chatOpen) void view.update({ chatMinimized: !open });
   });
-  const dockNow = (): Dock => ({ tab: dockTab, open: compact ? chat.open : chatOpen });
-  // Attention's sections, folded or open per host (§9.4), and the scroll/jump requests for a split dock's panes.
-  const attentionOpen = view.values?.attentionOpen;
-  const needsOpen = attentionSectionOpen(attentionOpen, "needs");
-  const updatesOpen = attentionSectionOpen(attentionOpen, "updates");
-  const toggleAttentionSection = useStableCallback((id: AttentionSection) => {
-    const stored = view.values?.attentionOpen ?? {};
-    void view.update({ attentionOpen: { ...stored, [id]: !attentionSectionOpen(stored, id) } });
-  });
-  const [attentionScroll, setAttentionScroll] = useState(0);
-  const [dispatcherFocus, setDispatcherFocus] = useState(0);
-  // Attention shown by the bell or a chip: Needs you is unfolded and scrolled to (§9.4).
-  const revealNeeds = (next: Dock) => {
-    if (!next.open || next.tab !== "attention") return;
-    if (!attentionSectionOpen(view.values?.attentionOpen, "needs")) void view.update({ attentionOpen: { ...(view.values?.attentionOpen ?? {}), needs: true } });
-    setAttentionScroll((n) => n + 1);
-  };
-  const bellToDock = useStableCallback(() => {
-    const step = bellPress(dockNow(), dockBack.current, dockShown);
-    dockBack.current = step.back;
-    setDock(step.next);
-    revealNeeds(step.next);
-  });
-  const attentionToDock = useStableCallback(() => {
-    const step = showAttention(dockNow(), dockBack.current, dockShown);
-    dockBack.current = step.back;
-    setDock(step.next);
-    revealNeeds(step.next);
-  });
-  // Picking a tab, or minimizing, leaves nothing for the bell to return to.
-  const selectDockTab = useStableCallback((tab: DockTab) => {
-    dockBack.current = null;
-    setDock({ tab, open: true });
-  });
-  // A dock header button (§9.3): picks the pane in Single, focuses it in a split; Cmd/Ctrl-click splits or unsplits.
-  const pressDockPane = useStableCallback((pane: DockTab, toggleSplit: boolean) => {
-    const step = dockButtonPress({ layout: dockShown, tab: dockTab }, pane, toggleSplit && !compact);
-    dockBack.current = null;
-    if (step.layout !== dockShown) void view.update({ dockLayout: step.layout });
-    setDock({ tab: step.tab, open: true });
-    if (step.focus && pane === "attention") setAttentionScroll((n) => n + 1);
-    if (step.focus && pane === "dispatcher") setDispatcherFocus((n) => n + 1);
-  });
-  const chooseDockLayout = useStableCallback((layout: DockLayout) => {
-    if (layout !== dockStored) void view.update({ dockLayout: layout });
-  });
-  const openDockLayoutMenu = useStableCallback((event: GestureResponderEvent) =>
-    openMenu?.(eventPoint(event), t("Dock layout"), [
-      { id: "single", label: t("Single"), icon: "Square", checked: dockStored === "single", onPress: () => chooseDockLayout("single") },
-      { id: "stack", label: t("Stack"), icon: "Rows2", checked: dockStored === "stack", onPress: () => chooseDockLayout("stack") },
-      { id: "side", label: t("Side by side"), icon: "Columns2", checked: dockStored === "side", onPress: () => chooseDockLayout("side") },
-    ]),
-  );
-  const saveDockShare = useStableCallback((layout: "stack" | "side", share: number) =>
-    void view.update(layout === "side" ? { dockSideShare: share } : { dockStackShare: share }),
-  );
-  // A desktop rail button (the dock is minimized; §9.3, Ruling, Noah 2026-11-09): the dock on that pane; in a split
-  // the pane is focused too. Attention unfolds Needs you and scrolls to it, as the bell does.
-  const openFromRail = useStableCallback((pane: DockTab) => {
-    const step = railPress(pane, dockShown);
-    dockBack.current = null;
-    setDock(step.next);
-    if (pane === "attention") revealNeeds(step.next);
-    else if (step.focus) setDispatcherFocus((n) => n + 1);
-  });
-  // The phone header's Dispatcher button: in Single the dock on the Dispatcher tab, or minimized when it already shows;
-  // in a split the dock shown or minimized.
-  const toggleChat = useStableCallback(() => {
-    dockBack.current = null;
-    setDock(dispatcherPress(dockNow(), dockShown));
-  });
+  const openDock = useStableCallback(() => setDockOpen(true));
+  // The phone header's Dispatcher button: the chat page, or closed when it shows.
+  const toggleChat = useStableCallback(() => setDockOpen(!(compact ? chat.open : chatOpen)));
   // Discuss on an idea (DISPATCHER-SPEC §9.5): a draft for the chat's message box; the key makes each press distinct.
   const [chatDraft, setChatDraft] = useState<{ text: string; key: number } | null>(null);
   const canDiscuss = discussAvailable({ project: !!project, allView });
@@ -1283,14 +1243,9 @@ function BoardContent(
     // Opening the chat is acting on its tip, and pressing Discuss on the Discuss tip.
     const seen = onboarding.values?.tipsSeen;
     if (seen && !seen.includes("idea-discuss")) void onboarding.markTipSeen("idea-discuss");
-    dockBack.current = null;
-    setDock({ tab: "dispatcher", open: true });
+    setDockOpen(true);
   });
-  const closeChat = useStableCallback(() => {
-    dockBack.current = null;
-    setDock({ tab: dockTab, open: false });
-  });
-  const showDispatcherTab = useStableCallback(() => selectDockTab("dispatcher"));
+  const closeChat = useStableCallback(() => setDockOpen(false));
   const chatLaneOf = useStableCallback((projectId: string, status: string) =>
     laneName(board?.projects.find((p) => p.id === projectId) ?? null, status as Status),
   );
@@ -1300,14 +1255,10 @@ function BoardContent(
   // Desktop, docked: the dragged width, kept clear of the board's minimum and an open card sidebar, and re-clamped
   // whenever the window changes; the stored width is untouched by that (§9.3). Expanded ignores it.
   const chatReserved = drawer.active ? width + 8 : 0;
-  // The dock's layout (§9.3): phones show one pane; Side by side shows as Stack while the window has no room for it,
-  // and needs room for two panes.
-  const dockStored: DockLayout = view.values?.dockLayout ?? "single";
-  const dockShown = dockLayoutShown(dockStored, { compact, surfaceWidth: surfaceWidth || 1000, reserved: chatReserved });
   // Not until the board view is read, so a dock that is open never flashes the rail first.
-  const showRail = !!view.values && railShown({ compact, dockAvailable, open: chatShown, layout: dockShown });
+  const showRail = !!view.values && railShown({ compact, dockAvailable, open: chatShown });
   const toolbarButtons = toolbarDockButtons({ compact, dockAvailable });
-  const dockMin = dockShown === "side" ? sideDockMinWidth : minChatWidth;
+  const dockMin = minChatWidth;
   const chatDocked = chatWidth(chatPreferred, surfaceWidth || 1000, chatReserved, dockMin);
   const chatGrip = !compact && !chatExpanded && (
     <ResizeGrip
@@ -1332,86 +1283,6 @@ function BoardContent(
       }}
     />
   );
-  const attentionDetail = (item: AttentionItem) =>
-    `${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
-      item.questions && tn(item.questions, "{n} question", "{n} questions"),
-      item.blockers && tn(item.blockers, "{n} blocker", "{n} blockers"),
-      item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
-      item.errors && tn(item.errors, "{n} error", "{n} errors"),
-      item.unread &&
-        (item.silent
-          ? item.silent === item.unread
-            ? t("{unread} unread (no report)", { unread: item.unread })
-            : t("{unread} unread ({silent} no report)", { unread: item.unread, silent: item.silent })
-          : t("{unread} unread", { unread: item.unread })),
-    ]
-      .filter(Boolean)
-      .join(" · ")}`;
-  // The Dismiss button sits beside the row, so pressing it never opens the card. Dismissed cards are not listed: they
-  // come back on a new signal (ATTENTION-DISMISS-SPEC §2.3, §3.1; Ruling, Noah 2026-11-09).
-  const attentionRow = (item: AttentionItem) => (
-    <View key={item.task.id} style={{ flexDirection: "row", alignItems: "center" }}>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Row
-          title={item.task.title}
-          detail={attentionDetail(item)}
-          label={t("Open {title}", { title: item.task.title })}
-          leading={
-            <Dot
-              size={8}
-              color={
-                item.permissions || item.questions || item.blockers
-                  ? colors.statusWarning
-                  : item.errors
-                    ? colors.statusDanger
-                    : colors.statusSuccess
-              }
-            />
-          }
-          trailing={
-            <Label muted size={font.xs} lines={1} selectable={false}>
-              {relativeTime(item.updatedAt)}
-            </Label>
-          }
-          onPress={() => openAttention(item)}
-        />
-      </View>
-      <IconButton
-        icon="BellOff"
-        label={t("Dismiss {title} from Attention", { title: item.task.title })}
-        disabled={pending}
-        onPress={() => dismissFromAttention(item)}
-      />
-    </View>
-  );
-  const readNotice = readUnavailable && agents.data !== undefined && (
-    <Notice tone="warning">
-      {t("Read state is unavailable, so finished-but-unread sessions are not listed. Approvals and errors still are.")}</Notice>
-  );
-  // The Needs attention sheet, where the board has no dock (no project and not All projects).
-  const attentionList = (
-    <>
-      {readNotice && <View style={{ paddingBottom: space[2] }}>{readNotice}</View>}
-      {!board ? (
-        <View style={{ paddingVertical: space[6], alignItems: "center" }}>
-          {boardError ? <Notice>{message(boardError)}</Notice> : <Label muted>{t("Loading board…")}</Label>}
-        </View>
-      ) : agents.data === undefined ? (
-        <View style={{ paddingVertical: space[6], alignItems: "center" }}>
-          <Label muted>{agents.isError ? t("Session state unavailable") : t("Loading sessions…")}</Label>
-        </View>
-      ) : <AttentionRows
-        items={attention}
-        render={attentionRow}
-        empty={
-          <View style={{ paddingVertical: space[6], alignItems: "center", gap: space[2] }}>
-            <Icon name="BellOff" size={20} color={colors.foregroundMuted} />
-            <Label muted>{dismissedAttention.length ? t("Nothing new needs your attention.") : t("Nothing needs your attention.")}</Label>
-          </View>
-        }
-      />}
-    </>
-  );
   const chatPanel = (compact ? chat.mounted : chatMounted.current) && (
     <Animated.View
       pointerEvents={compact || chatOpen ? "auto" : "none"}
@@ -1429,37 +1300,9 @@ function BoardContent(
             }
       }
     >
-      <LeftDock
-        layout={dockShown}
-        storedLayout={dockStored}
-        tab={dockTab}
-        onPane={pressDockPane}
-        onLayoutMenu={compact ? undefined : openDockLayoutMenu}
-        stackShare={view.values?.dockStackShare ?? 0}
-        sideShare={view.values?.dockSideShare ?? 0}
-        onShare={saveDockShare}
-        onResizing={setChatResizing}
-        attentionCount={attentionCount}
-        compact={compact}
-        expanded={chatExpanded}
-        onToggleSize={toggleChatSize}
-        onClose={closeChat}
-        attention={
-          <AttentionPanel
-            visible={chatOpen && paneShown(dockShown, dockTab, "attention")}
-            laneOf={chatLaneOf}
-            onOpenCard={openTaskById}
-            onAskedDispatcher={showDispatcherTab}
-            notice={readNotice}
-            anyDismissed={dismissedAttention.length > 0}
-            needsOpen={needsOpen}
-            updatesOpen={updatesOpen}
-            onToggleSection={toggleAttentionSection}
-            scrollKey={attentionScroll}
-          />
-        }
-        dispatcher={<DispatcherPanel visible={chatOpen && paneShown(dockShown, dockTab, "dispatcher")} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} onOpenCard={openTaskById} focusKey={dispatcherFocus} />}
-      />
+      <LeftDock compact={compact} expanded={chatExpanded} onToggleSize={toggleChatSize} onClose={closeChat}>
+        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} onOpenCard={openTaskById} />
+      </LeftDock>
       {chatGrip}
     </Animated.View>
   );
@@ -1864,7 +1707,8 @@ function BoardContent(
         setMenu("filters");
         return true;
       case "attention":
-        toggleAttentionMenu();
+        if (!project && !allView) return false;
+        startNeeds();
         return true;
       case "projects":
       case "shortcuts":
@@ -1986,6 +1830,22 @@ function BoardContent(
         />
       )}
       <CardDetailProvider hostId={props.host.id} task={drawer.item.task} active={drawer.active} initialRead={false}>
+      <View style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+      {step && stepWhere && step.taskId === drawer.item.task.id && (
+        <StepThroughBar
+          kind={step.kind}
+          position={stepWhere}
+          onPrev={stepPrev}
+          onNext={stepNext}
+          onEnd={endStep}
+          asks={stepAsks}
+          asksLoading={!dispatcherItems.data}
+          onOpenCard={openTaskById}
+          onChanged={stepChanged}
+          change={changed}
+          onAskedDispatcher={openDock}
+        />
+      )}
       <TaskDrawer
         key={drawer.item.task.id}
         active={drawer.active}
@@ -2028,6 +1888,7 @@ function BoardContent(
         sectionOpen={JSON.stringify(view.values?.drawerOpen || {})}
         focus={drawerFocus?.taskId === drawer.item.task.id ? drawerFocus : undefined}
       />
+      </View>
       </CardDetailProvider>
     </Animated.View>
   );
@@ -2103,18 +1964,10 @@ function BoardContent(
                 onPress={() => setMenu("shortcuts")}
               />
             )}
-            {/* Desktop: the dock's rail on the board's left edge replaces these two (§9.3; Ruling, Noah 2026-11-09). */}
-            {toolbarButtons.dispatcher && (
-              <IconButton icon="Bot" label={t("Dispatcher")} active={chatShown && paneShown(dockShown, dockTab, "dispatcher")} onPress={toggleChat} />
-            )}
+            {/* Phones only: desktop has the dock's rail and the overview's need-you chip (§9.3, §9.4; Ruling, Noah 2026-11-09). */}
+            {toolbarButtons.dispatcher && <IconButton icon="Bot" label={t("Dispatcher")} active={chatShown} onPress={toggleChat} />}
             {toolbarButtons.bell && (
-              <AttentionButton
-                count={attentionCount}
-                compact={compact}
-                open={dockAvailable ? chatShown && paneShown(dockShown, dockTab, "attention") : menu === "attention"}
-                shortcut={shortcutsOn ? "A" : ""}
-                onPress={toggleAttentionMenu}
-              />
+              <AttentionButton count={needYouCount} compact={compact} open={step?.kind === "needs"} shortcut={shortcutsOn ? "A" : ""} onPress={startNeeds} />
             )}
             {/* Settings (the gear); its first-run callout hangs under it (ONBOARDING-SETUP-SPEC §5). */}
             <View onLayout={(e) => setGearBox(e.nativeEvent.layout)}>
@@ -2173,7 +2026,10 @@ function BoardContent(
           <View {...covered}>
           <OverviewBar
             overview={boardOverview(project, board.tasks, agents.data || [], attention)}
-            onAttention={openAttentionMenu}
+            needYou={needYouCount}
+            onNeedYou={startNeeds}
+            updated={updatedIds.length}
+            onUpdated={startUpdated}
             onInsights={features.insights ? () => togglePage("insights") : undefined}
             insightsShortcut={shortcutsOn ? "I" : ""}
             openIdeas={ideasOn ? projectOpenIdeas : null}
@@ -2261,7 +2117,7 @@ function BoardContent(
           <View style={{ flex: 1, minHeight: 0, flexDirection: "row", ...(resizing || chatResizing ? { userSelect: "none" } : null) } as never}>
             {/* Desktop: the dispatcher chat docks on the left; the board narrows beside it (DISPATCHER-SPEC §9). */}
             {!compact && chatPanel}
-            {showRail && <DockRail attentionCount={attentionCount} attentionShortcut={shortcutsOn ? "A" : ""} onOpen={openFromRail} />}
+            {showRail && <DockRail onOpen={openDock} />}
             {(
               <MotionReveal
                 transitionKey={`${viewKey}|${page || (compact ? mobileStatus : "columns")}`}
@@ -2599,19 +2455,6 @@ function BoardContent(
                 <Button primary onPress={() => setMenu(null)}>
                   {t("Done")}</Button>
               </Actions>
-            </Theme.Provider>
-          </Modal.Content>
-        </Modal>
-        <Modal
-          open={menu === "attention"}
-          title={t("Needs attention")}
-          onOpenChange={(open) => {
-            if (!open) setMenu(null);
-          }}
-        >
-          <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
-            <Theme.Provider value={props.theme}>
-              {attentionList}
             </Theme.Provider>
           </Modal.Content>
         </Modal>
@@ -3023,22 +2866,6 @@ function BoardContent(
     </Theme.Provider>
     </SettingsOpenerContext.Provider>
     </BoardOutputActive.Provider>
-  );
-}
-
-/** Attention rows that fade and collapse when a card is dismissed or restored, like the Ideas and Memory lists. */
-function AttentionRows({ items, render, empty }: { items: readonly AttentionItem[]; render(item: AttentionItem): ReactNode; empty?: ReactNode }) {
-  const keyed = useMemo(() => items.map((item) => ({ item, id: item.task.id })), [items]);
-  const rows = useExitList(keyed);
-  if (!rows.length) return <>{empty}</>;
-  return (
-    <>
-      {rows.map((row) => (
-        <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} spacing={0}>
-          {render(row.item.item)}
-        </IdeaRow>
-      ))}
-    </>
   );
 }
 

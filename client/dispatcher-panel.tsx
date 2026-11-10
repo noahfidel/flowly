@@ -25,7 +25,7 @@ import { chatRows, discussFill, modelLabel, newToolsNotice, replaceOffer, sameIt
 /**
  * The dispatcher chat next to the board (DISPATCHER-SPEC §9.3), on the card session view's own parts: the session
  * transcript (messages, streaming, tool calls, permissions) and the message box. Only the dispatcher's rows (notes and
- * the board summary) are its own; asks and the changed cards are in the dock's Attention tab (Ruling, Noah 2026-11-09).
+ * the board summary) are its own; asks and the changed cards are the overview's need-you and updated step-throughs (Ruling, Noah 2026-11-09).
  * The dock (left-dock.tsx) holds the tabs, Expand and Minimize.
  */
 
@@ -48,11 +48,9 @@ type Props = {
   fill?: { text: string; key: number } | null;
   /** The fill with this key is in the box: the board drops it, so a remounted panel does not add it again. */
   onFilled?(key: number): void;
-  /** A new value jumps to the latest message (a press on the pane's button in a split dock, §9.3). */
-  focusKey?: number;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, fill, onFilled, focusKey }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, fill, onFilled }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -189,9 +187,6 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     box.focusAfterChange();
     setDraft(step.next);
   }, [fill?.key]);
-  useEffect(() => {
-    if (focusKey) transcript.current?.jumpToLatest();
-  }, [focusKey]);
   const submit = useStableCallback(async () => {
     box.flush();
     const text = box.read();
@@ -354,7 +349,7 @@ function noteDetail(item: Extract<ChatItem, { kind: "note" }>, laneOf: Props["la
 /** A note the dispatcher received, as one line; it opens its card. */
 const NoteRow = memo(function NoteRow({ item, laneOf, onOpenCard }: { item: ChatItem; laneOf: Props["laneOf"]; onOpenCard(taskId: string): void }) {
   const { colors } = useTheme();
-  // Only notes reach the chat (chatRows); asks, answers and the change line are the Attention tab's.
+  // Only notes reach the chat (chatRows); asks, answers and the change line belong to the step-throughs.
   if (item.kind !== "note") return null;
   const kind = noteKinds[item.note.kind];
   const detail = noteDetail(item, laneOf);
