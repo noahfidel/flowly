@@ -5,7 +5,8 @@ Status: requested by the user on 2026-10-15 (card “优化project系统”).
 ## Behavior
 
 - **Desktop (non-compact) header** replaces the project switcher button with a row of project tabs in chooser order (`projectOrder`; archived projects only while *Show archived* is on, with an Archive icon). One click switches project. Active tab: `surface2` background and foreground text; others muted, `surface1` on hover. All tabs use the same font weight so switching never shifts widths. Tabs are capped at 220 pt with ellipsis; overflow scrolls horizontally and the active tab is scrolled into view when it changes from elsewhere (chooser, linked session).
-- Before the tabs, while available: **All**, the All projects board (ALL-PROJECTS-SPEC). After the tabs: **+** (New project) and **⇕ Manage projects** (the existing chooser: reorder, edit, archive; shortcut `P` unchanged; labelled *All projects* before the All tab existed).
+- Before the tabs, while available: **All**, the All projects board (ALL-PROJECTS-SPEC), then one tab per board
+  group (BOARD-GROUPS-SPEC §1). After the tabs: **+** (New project) and **⇕ Manage projects** (the existing chooser: reorder, edit, archive; shortcut `P` unchanged; labelled *All projects* before the All tab existed).
 - **Tab context menu** (card “project tab增加contextual menu”, 2026-10-19): right-click a tab (long-press on touch) opens the shared plugin menu (`client/context-menu.tsx`) titled with the project name:
   - *Project settings* (the project form: name, folder, lanes, auto status) · *New task* (disabled for an archived project)
   - *Insights* · *Ideas* (only while Ideas is on)

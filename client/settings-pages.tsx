@@ -38,6 +38,8 @@ import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults"
 import { dispatcherDefaultModel, dispatcherProviderSupported } from "../shared/dispatcher";
 import { deviceLocale, formatLocale, getLocale, locales, msg, t, tn } from "../shared/i18n";
 import { hideFinishedChoices } from "./finished-cards";
+import { BoardGroupsGroup } from "./board-groups-settings";
+import type { Project } from "../shared/model";
 import { deliveryModeLabels, deliveryModes, type DeliveryMode } from "../shared/delivery-mode";
 import { useBoardView } from "./board-view";
 import { sendBehaviors, sendBehaviorText, type SendBehavior } from "./send-queue";
@@ -349,7 +351,7 @@ export function SummaryModelGroup({ active, bare = false, extra }: { active: boo
 }
 
 /** Workflow: when cards move by themselves and what happens when they finish. */
-export function WorkflowPage() {
+export function WorkflowPage({ projects }: { projects: readonly Project[] }) {
   const status = useStored(useSettings(statusSettings), statusSettingsValues);
   const wrapup = useStored(useSettings(wrapupSettings), wrapupSettingsValues);
   const view = useStored(useSettings(boardViewSettings), boardViewValues);
@@ -377,6 +379,7 @@ export function WorkflowPage() {
           onChange={(prReviewCards) => prReview.save({ prReviewCards })}
         />
       </SettingsGroup>
+      <BoardGroupsGroup projects={projects} />
       <SettingsGroup title={t("Moving cards")}>
         <SettingSwitch
           title={t("Auto-update status from sessions")}

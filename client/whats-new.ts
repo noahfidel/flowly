@@ -23,7 +23,7 @@ export interface WhatsNewRelease {
  */
 export const whatsNew: WhatsNewRelease[] = [
   {
-    // SEARCH-SPEC §8, GUARDRAILS-SPEC §10, CONNECTORS-SPEC §15, DISPATCHER-SPEC §9.3-9.4.
+    // SEARCH-SPEC §8, GUARDRAILS-SPEC §10, CONNECTORS-SPEC §15, DISPATCHER-SPEC §9.3-9.4, BOARD-GROUPS-SPEC.
     version: "1.8.0",
     items: [
       { icon: "Search", text: msg("Search past cards, summaries, notes, workpads, ideas and deliverables. Agents can search them too.") },
@@ -33,11 +33,8 @@ export const whatsNew: WhatsNewRelease[] = [
         text: msg("Auto review checks every delivery before it reaches you and sends it back to the agent when it falls short. On for new projects."),
         action: { label: msg("Turn on for this project"), to: "auto-review" },
       },
-      {
-        icon: "Undo2",
-        text: msg("Flowly learns from what you send cards back for: the second card with the same problem turns it into a project guideline, checked on every delivery it applies to."),
-      },
-      { icon: "BookMarked", text: msg("Memory no longer needs confirming; what agents remember takes effect at once and retires by itself when unused.") },
+      // Merged to make room for Board groups within the 7-item cap (WHATS-NEW-SPEC).
+      { icon: "Undo2", text: msg("Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.") },
       {
         icon: "PlugZap",
         text: msg("Shortcut stories and epics can now be card inputs, next to Jira, Confluence, GitHub, GitLab and Azure DevOps."),
@@ -46,6 +43,8 @@ export const whatsNew: WhatsNewRelease[] = [
       // DISPATCHER-SPEC §9.4 (Rulings, Noah 2026-11-09): the bell and Attention moved to the overview's chip and the card sidebar; unread turns are in "N updated", not "N need you".
       { icon: "BellRing", text: msg("The bell is now the “N need you” chip above the board: it opens each card waiting on you in turn in the card sidebar, with what it asks on top. “N updated” does the same for what is new to read: cards that changed and finished turns you have not opened.") },
       // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the dock is the chat only (the toolbar's Dispatcher button, or D, reopens it when minimized); the gear moved into the toolbar.
+      // BOARD-GROUPS-SPEC (approved, Noah 2026-11-10).
+      { icon: "Layers", text: msg("Group projects in Settings → Workflow and open each group from the project switcher as its own board: like All projects, for just those projects."), action: { label: msg("Open settings"), to: "settings", section: "workflow" } },
       { icon: "PanelLeft", text: msg("The left dock is just the dispatcher chat. Minimized, it leaves nothing on the board: the Dispatcher button in the toolbar (or D) opens it again. Settings moved to the gear at the top of the board.") },
     ],
   },

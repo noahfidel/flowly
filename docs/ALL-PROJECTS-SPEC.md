@@ -1,7 +1,8 @@
 # All projects board
 
 Status: requested by Noah on 2026-11-05. Extends PROJECT-TABS-SPEC (tabs, which project opens) and
-QUICK-TASK-SPEC §3 (which project a new task starts in).
+QUICK-TASK-SPEC §3 (which project a new task starts in). Board groups (BOARD-GROUPS-SPEC) reuse this board
+scoped to a group's projects; All projects itself always shows every live project.
 
 One board that shows the cards of every live project. It is a view only: it adds no storage for cards,
 order or projects, and every write still goes through the card's own project.
@@ -13,9 +14,11 @@ order or projects, and every write still goes through the card's own project.
   entries are hidden, and a board that was showing All falls back as in §8.
 - **Desktop tabs:** a first tab **All** before the project tabs. It is not part of the drag order, has no
   context menu, and is never archived-styled. The chooser button after the tabs (opens the chooser) is now
-  labelled *Manage projects* so it is not confused with the All tab.
+  labelled *Manage projects* so it is not confused with the All tab. Board group tabs follow the All tab
+  (BOARD-GROUPS-SPEC §1).
 - **Compact/phone and the no-tab layouts:** the project switcher shows *All projects* as its title while All
-  is shown, and the chooser lists an **All projects** row at the top (above the projects).
+  is shown, and the chooser lists an **All projects** row after the board groups and the projects (Ruling, Noah
+  2026-11-10, BOARD-GROUPS-SPEC §1).
 - **Onboarding:** the one-time tip `all-projects` (ONBOARDING-SPEC tip table) announces it on a project board
   while it is available and no card is open, after `project-menu`.
 
@@ -82,7 +85,7 @@ order or projects, and every write still goes through the card's own project.
 
 ## 8. Which view opens
 
-- The PROJECT-TABS-SPEC rule with All as one more choice: an explicit choice in this board instance → the
+- The PROJECT-TABS-SPEC rule with All (and each board group, BOARD-GROUPS-SPEC §6) as one more choice: an explicit choice in this board instance → the
   choice last viewed during this app run (a project or All) → the first project. All only counts while it is
   available (§1); otherwise the next rule applies. When the board falls back from an explicit All choice
   because All is no longer available, that choice is replaced by the project shown, so the board does not

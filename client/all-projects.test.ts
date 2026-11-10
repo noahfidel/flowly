@@ -164,7 +164,7 @@ describe("which view opens (§8)", () => {
   test("All is restored as the last viewed choice while available", () => {
     rememberViewedProject(ALL_PROJECTS);
     expect(lastViewedProject()).toBe(ALL_PROJECTS);
-    expect(pickView(projects, "", lastViewedProject(), ok)).toEqual({ all: true });
+    expect(pickView(projects, "", lastViewedProject(), ok)).toEqual({ all: true, view: ALL_PROJECTS });
   });
   test("an explicit project choice wins over a remembered All", () => {
     expect(pickView(projects, "q", ALL_PROJECTS, ok)).toEqual({ all: false, project: { id: "q" } });
@@ -174,6 +174,6 @@ describe("which view opens (§8)", () => {
     expect(pickView(projects, ALL_PROJECTS, "q", { id: ALL_PROJECTS, ok: false })).toEqual({ all: false, project: { id: "q" } });
   });
   test("an explicit All choice wins over a remembered project", () => {
-    expect(pickView(projects, ALL_PROJECTS, "q", ok)).toEqual({ all: true });
+    expect(pickView(projects, ALL_PROJECTS, "q", ok)).toEqual({ all: true, view: ALL_PROJECTS });
   });
 });

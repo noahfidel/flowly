@@ -15,18 +15,21 @@ export function pickProject<T extends { id: string }>(projects: readonly T[], ch
 }
 
 /**
- * The board's view (ALL-PROJECTS-SPEC §8): `allId` ("All projects") counts as one more choice while `allOk`;
- * explicit choice, else the view last viewed in this run, else the first project.
+ * The board's view (ALL-PROJECTS-SPEC §8, BOARD-GROUPS-SPEC §6): `allId` ("All projects") counts as one more choice
+ * while `allOk`, and so does each group's view id in `groupViews`; explicit choice, else the view last viewed in this
+ * run, else the first project. A multi-project view returns its id in `view`.
  */
 export function pickView<T extends { id: string }>(
   projects: readonly T[],
   chosen: string,
   viewed: string,
   all: { id: string; ok: boolean },
-): { all: true; project?: undefined } | { all: false; project: T | undefined } {
-  const choice = (id: string) => (all.ok && id === all.id ? ("all" as const) : projects.find((p) => p.id === id));
+  groupViews: readonly string[] = [],
+): { all: true; view: string; project?: undefined } | { all: false; project: T | undefined } {
+  const multi = (id: string) => (all.ok && id === all.id) || (!!id && groupViews.includes(id));
+  const choice = (id: string) => (multi(id) ? id : projects.find((p) => p.id === id));
   const picked = choice(chosen) || choice(viewed);
-  if (picked === "all") return { all: true };
+  if (typeof picked === "string") return { all: true, view: picked };
   return { all: false, project: picked || projects[0] };
 }
 

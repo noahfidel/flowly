@@ -119,6 +119,7 @@ import { searchSources as allSearchSources, type SearchCard, type SearchHit, typ
 import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 import { lastViewedProject, pickView, rememberViewedProject, staleAllChoice } from "./project-memory";
+import { boardScope, groupMembers, groupOfView, groupQuickProject, groupViewId, membersFirst, staleGroupChoice, type BoardGroup } from "./board-groups";
 import { ALL_PROJECTS, allProjectsAvailable, allQuickProject, allStatuses, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { ProjectTabs } from "./project-tabs";
 import { RemoveProjectDialog } from "./project-remove";
@@ -210,6 +211,7 @@ type WebKeyEvent = {
 
 const noEvents: BoardEvent[] = [];
 const noTasks: Task[] = [];
+const noGroups: BoardGroup[] = [];
 const noAgents: PaseoAgent[] = [];
 const noTurnFacts: ReadonlyMap<string, { latestTurn?: { action: string; at: string } }> = new Map();
 
@@ -593,24 +595,40 @@ function BoardContent(
     void view.update({ boardSort: next });
   };
   // All projects (ALL-PROJECTS-SPEC): every live project's cards on one board, while the setting is on and 2+ projects are live.
-  const liveProjects = useMemo(() => includedProjects(board?.projects || []), [board?.projects]);
   const allOk = allProjectsAvailable(board?.projects || [], view.values?.allProjectsTab ?? true);
-  const shown = pickView(projects, projectId, lastViewedProject(), { id: ALL_PROJECTS, ok: allOk });
+  const allLiveProjects = useMemo(() => includedProjects(board?.projects || []), [board?.projects]);
+  // Board groups (BOARD-GROUPS-SPEC): each group opens a board that works like All, scoped to its live members.
+  const boardGroups = view.values?.boardGroups ?? noGroups;
+  const groupViews = useMemo(() => boardGroups.map((g) => groupViewId(g.id)), [boardGroups]);
+  const shown = pickView(projects, projectId, lastViewedProject(), { id: ALL_PROJECTS, ok: allOk }, groupViews);
+  // `allView`: a board of several projects (All or a group). Everything All does works there, over its own projects.
   const allView = shown.all;
-  // `project` is the board's one project; undefined on the All board, where each card uses its own (projectOf).
+  const group = shown.all ? groupOfView(boardGroups, shown.view) : undefined;
+  const groupKey = group ? `${group.id}|${group.projectIds.join(",")}` : "";
+  const liveProjects = useMemo(
+    () => (group ? groupMembers(group, board?.projects || []) : includedProjects(board?.projects || [])),
+    [board?.projects, groupKey],
+  );
+  // `project` is the board's one project; undefined on the All or a group board, where each card uses its own (projectOf).
   const project = shown.project;
-  const viewKey = allView ? ALL_PROJECTS : project?.id || "";
+  const viewKey = shown.all ? shown.view : project?.id || "";
   // Returning to the board in this app run reopens the view (a project or All) seen last; a cold start opens the first project.
   useEffect(() => rememberViewedProject(viewKey || undefined), [viewKey]);
   // An All choice the board fell back from is replaced by the project shown, so All does not return by itself.
   // Only with the full overview: a cold direct link's board holds just the card's project.
-  const choiceStale = staleAllChoice(projectId, { id: ALL_PROJECTS, ok: allOk }, !!overviewData.data && !!view.values);
+  const choiceStale =
+    staleAllChoice(projectId, { id: ALL_PROJECTS, ok: allOk }, !!overviewData.data && !!view.values) ||
+    staleGroupChoice(projectId, groupViews, !!overviewData.data && !!view.values);
   useEffect(() => {
     if (choiceStale) setProject(project?.id ?? "");
   }, [choiceStale, project?.id]);
   const chooseProject = (id: string) => { ignoredLink.current = linkKey; setProject(id); };
   const chooseAll = () => {
     chooseProject(ALL_PROJECTS);
+    setPage(null);
+  };
+  const chooseGroup = (id: string) => {
+    chooseProject(groupViewId(id));
     setPage(null);
   };
   const projectById = useMemo(() => new Map((board?.projects || []).map((p) => [p.id, p])), [board?.projects]);
@@ -857,7 +875,10 @@ function BoardContent(
     markAsksAnswered((dispatcherItems.data ?? []).flatMap((item) => (item.kind === "ask" && item.state !== "open" ? [item.signal] : [])));
   }, [dispatcherItems.data]);
   const resolvedSignals = useMemo(() => bellResolved(resolvedAsks.data, answeredAsks), [resolvedAsks.data, answeredAsks]);
-  const stepScope = useMemo(() => (allView ? () => true : (projectId: string) => projectId === project?.id), [allView, project?.id]);
+  const stepScope = useMemo(
+    () => boardScope(group ? { kind: "group", projectIds: [...includedIds] } : allView ? { kind: "all" } : { kind: "project", projectId: project?.id || "" }),
+    [allView, !!group, includedIds, project?.id],
+  );
   const needsIds = useMemo(() => needsQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const needYouCount = useMemo(() => needsCount(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const changed = useMemo(() => changeItem(dispatcherItems.data), [dispatcherItems.data]);
@@ -2064,7 +2085,7 @@ function BoardContent(
           >
             {compact || projects.length === 0 ? (
               <ProjectSwitcher
-                title={allView ? t("All projects") : project?.title || t("Projects")}
+                title={group ? group.name || t("Untitled group") : allView ? t("All projects") : project?.title || t("Projects")}
                 archived={!!project?.archivedAt}
                 shortcut={shortcutsOn ? "P" : ""}
                 onPress={() => setMenu("projects")}
@@ -2073,9 +2094,11 @@ function BoardContent(
               <ProjectTabs
                 projects={projects}
                 activeId={allView ? "" : project?.id || ""}
+                groups={boardGroups.map((g) => ({ id: g.id, name: g.name || t("Untitled group"), active: group?.id === g.id }))}
+                onSelectGroup={chooseGroup}
                 shortcut={shortcutsOn ? "P" : ""}
                 onSelect={chooseProject}
-                all={allOk ? { active: allView, onSelect: chooseAll } : undefined}
+                all={allOk ? { active: allView && !group, onSelect: chooseAll } : undefined}
                 onManage={() => setMenu("projects")}
                 onCreate={() => setProjectForm("new")}
                 menuFor={projectTabMenu}
@@ -2193,7 +2216,14 @@ function BoardContent(
           />
           </View>
         )}
-        {emptyProjectHint && (
+        {emptyProjectHint && group && !liveProjects.length ? (
+          // An empty group still opens (BOARD-GROUPS-SPEC §3): say how to fill it.
+          <GuideBanner
+            text={t("This group has no projects yet.")}
+            actionLabel={t("Edit groups")}
+            onAction={() => openSettingsAt("workflow")}
+          />
+        ) : emptyProjectHint && (
           <GuideBanner
             text={t("Add your first task. It gets its own workspace and sessions.")}
             actionLabel={t("New task")}
@@ -2398,19 +2428,22 @@ function BoardContent(
         >
           <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
             <Theme.Provider value={props.theme}>
-              {allOk && (
-                // All projects (ALL-PROJECTS-SPEC §1): the phone's way in, above the projects.
+              {boardGroups.length > 0 && (
+                // Board groups (BOARD-GROUPS-SPEC §1): above the projects; All projects comes last.
                 <>
-                  <Row
-                    title={t("All projects")}
-                    icon="SquareKanban"
-                    selected={allView}
-                    onPress={() => {
-                      chooseAll();
-                      setTask("");
-                      projectMenuClose();
-                    }}
-                  />
+                  {boardGroups.map((g) => (
+                    <Row
+                      key={g.id}
+                      title={g.name || t("Untitled group")}
+                      icon="Layers"
+                      selected={group?.id === g.id}
+                      onPress={() => {
+                        chooseGroup(g.id);
+                        setTask("");
+                        projectMenuClose();
+                      }}
+                    />
+                  ))}
                   <Divider style={{ marginVertical: space[1] }} />
                 </>
               )}
@@ -2456,6 +2489,22 @@ function BoardContent(
                   />
                 )}
               />
+              {allOk && (
+                // All projects (ALL-PROJECTS-SPEC §1): the catch-all, after the groups and projects (BOARD-GROUPS-SPEC §1).
+                <>
+                  <Divider style={{ marginVertical: space[1] }} />
+                  <Row
+                    title={t("All projects")}
+                    icon="SquareKanban"
+                    selected={allView && !group}
+                    onPress={() => {
+                      chooseAll();
+                      setTask("");
+                      projectMenuClose();
+                    }}
+                  />
+                </>
+              )}
               <Divider style={{ marginVertical: space[2] }} />
               {project && (
                 <>
@@ -2902,10 +2951,12 @@ function BoardContent(
           <QuickTaskForm
             key={quickTask.seed?.idea?.id || quickTask.seed?.externals[0]?.item.key || "quick"}
             seed={quickTask.seed}
-            projects={quickProjects(projects, quickTask.seed)}
+            projects={quickProjects(group ? membersFirst(projects, liveProjects.map((p) => p.id)) : projects, quickTask.seed)}
             initialProjectId={
               (allView && !quickTask.projectId
-                ? allQuickProject(projects, view.values?.lastQuickProjectId ?? "")
+                ? group
+                  ? groupQuickProject(liveProjects, projects, view.values?.lastQuickProjectId ?? "")
+                  : allQuickProject(projects, view.values?.lastQuickProjectId ?? "")
                 : quickProject(projects, { pinned: quickTask.projectId, last: quickTask.recent ? view.values?.lastQuickProjectId : undefined, current: project?.id || "" })
               )?.id || ""
             }
@@ -2969,6 +3020,7 @@ function BoardContent(
           open={menu === "settings"}
           section={settingsSection}
           theme={props.theme}
+          projects={allLiveProjects}
           onClose={() => setMenu(null)}
           onTour={() => {
             // One dialog at a time: Settings is its own modal, so let it close before the tour opens.

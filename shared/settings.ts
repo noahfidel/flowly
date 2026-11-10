@@ -14,6 +14,14 @@ import { memoryKinds } from "./memory";
 export const memorySorts = ["newest", "used", "recent"] as const;
 export type MemorySort = (typeof memorySorts)[number];
 
+/** One board group (BOARD-GROUPS-SPEC §2); members are project ids, which may outlive their project. */
+const boardGroupSchema = z.object({
+  id: z.string().min(1).max(100),
+  name: z.string().max(80).catch(""),
+  projectIds: z.array(z.string().max(200)).max(500).catch([]),
+});
+export type BoardGroup = z.infer<typeof boardGroupSchema>;
+
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
   id: "board-view",
@@ -35,6 +43,8 @@ export const boardViewSettings = defineSettings({
     lastQuickProjectId: z.string().max(200).catch("").default(""),
     /** The All projects tab / switcher entry (ALL-PROJECTS-SPEC §1). */
     allProjectsTab: z.boolean().catch(true).default(true),
+    /** Board groups: named sets of projects, each with an All-like board (BOARD-GROUPS-SPEC §2). */
+    boardGroups: z.array(boardGroupSchema).max(50).catch([]).default([]),
     /** Order of cards inside each column. */
     boardSort: z.enum(boardSorts).default("manual"),
     /** Desktop columns shown as a narrow strip. */

@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Board groups (branch `board-groups`) — 2026-11-10
+
+- Named groups of projects, stored in host `board-view.boardGroups` (BOARD-GROUPS-SPEC). A group's board is the All projects board with a narrower scope: `pickView` takes group view ids (`*group:<id>`), `liveProjects` becomes the group's live members, and the step-through queues/counts use one `boardScope` predicate (all / group / project). Pure logic in `client/board-groups.ts`.
+- Switcher: groups, then projects, then All projects last (Ruling, Noah 2026-11-10); desktop group tabs after All. Empty group: hint with *Edit groups* (opens Settings → Workflow). A deleted group's choice falls back like an unavailable All. Quick task on a group: last quick project when a member, else the first member; picker lists members first.
+- Settings → Workflow → Board groups editor (`client/board-groups-settings.tsx`): add, rename, delete, tick member chips. The "Show projects in no group" setting from the first brief was dropped (Ruling, Noah 2026-11-10).
+- Onboarding: More features row *Board groups*; no tip (What's new and the tour cover it). What's new 1.8.0: new Board groups item; to keep the 7-item cap, the two learning/memory items were merged into one. Telemetry: no field (off in this fork). Strings: 12 new in all 9 catalogs, 2 removed.
+
 ## Progress reads every chat of the card (branch `progress-by-workspace`) — 2026-11-09
 
 - A card's chats (TASK-SUMMARY-SPEC §2.1, `server/card-chats.ts`): its managed bindings plus the live sessions in its workspace that Flowly did not start (e.g. a PR review card's `pr-review-watch` session). The workspace part is skipped when another live card shares the workspace; sessions bound to another card, archived ones and helpers (`flowly: summarizer` / legacy `ultra-kanban: summarizer`, `flowly-dispatcher`, Paseo `internal`) never count. Manual Refresh uses it; new `summaries.chats` gives the count, and the drawer shows "No chats on this card yet." instead of Refresh when it is 0. The server error now reads "This card has no chats to summarize yet."

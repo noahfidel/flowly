@@ -24,6 +24,8 @@ export function ProjectTabs({
   onMove,
   reorderDisabled,
   all,
+  groups = [],
+  onSelectGroup,
 }: {
   projects: readonly Project[];
   activeId: string;
@@ -38,6 +40,9 @@ export function ProjectTabs({
   reorderDisabled: boolean;
   /** The All tab before the project tabs, while available (ALL-PROJECTS-SPEC §1); not draggable, no menu. */
   all?: { active: boolean; onSelect(): void };
+  /** Board groups after All, before the project tabs (BOARD-GROUPS-SPEC §1); not draggable, no menu. */
+  groups?: readonly { id: string; name: string; active: boolean }[];
+  onSelectGroup?(id: string): void;
 }) {
   const openMenu = useMenuOpener();
   const scroll = useRef<RNScrollView>(null);
@@ -58,6 +63,9 @@ export function ProjectTabs({
       {all && (
         <Tab title={t("All")} label={t("All projects")} archived={false} active={all.active} menu={noMenu} onPress={all.onSelect} />
       )}
+      {groups.map((g) => (
+        <Tab key={g.id} title={g.name} label={t("Group {name}", { name: g.name })} archived={false} active={g.active} menu={noMenu} onPress={() => onSelectGroup?.(g.id)} />
+      ))}
       <ScrollView
         ref={scroll as never}
         horizontal
