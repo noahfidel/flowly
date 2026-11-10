@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
+  boardProject,
   boardScope,
   defaultGroup,
+  focusFilter,
   groupMembers,
   groupOfProject,
   groupOfView,
@@ -12,6 +14,7 @@ import {
   mobileLane,
   pickGroupView,
   staleGroupChoice,
+  validProjectFilter,
 } from "./board-groups";
 import { allStatuses } from "./all-projects";
 import { needsCount, needsQueue, updatedQueue } from "./step-through";
@@ -173,6 +176,17 @@ describe("new task in a group", () => {
     expect(groupQuickProject(members, projects, "c")?.id).toBe("b");
     expect(groupQuickProject(members, projects, "")?.id).toBe("b");
   });
+  test("the project filter wins, then the last member, then the first; a non-member filter or last is ignored", () => {
+    const members = groupMembers(loadout, projects);
+    expect(groupQuickProject(members, projects, "a", "b")?.id).toBe("b");
+    expect(groupQuickProject(members, projects, "", "a")?.id).toBe("a");
+    expect(groupQuickProject(members, projects, "a", "c")?.id).toBe("a");
+    expect(groupQuickProject(members, projects, "c", "old")?.id).toBe("b");
+    expect(groupQuickProject(members, projects, "a", "")?.id).toBe("a");
+  });
+  test("the picker keeps members first with a filter set", () => {
+    expect(membersFirst([c, b, a], ["b", "a"]).map((p) => p.id)).toEqual(["b", "a", "c"]);
+  });
   test("an empty group falls back to All's rule", () => {
     expect(groupQuickProject([], projects, "c")?.id).toBe("c");
   });
@@ -187,5 +201,31 @@ describe("review fixes (2026-11-10)", () => {
     expect(mobileLane(["todo", "done"], "in_review")).toBe("todo");
     expect(mobileLane(["backlog", "done"], "in_review")).toBe("backlog");
     expect(mobileLane(["backlog", "done"], "done")).toBe("done");
+  });
+});
+
+describe("project filter", () => {
+  const f = { groupId: "g1", projectId: "a" };
+  test("valid while the group is shown and the project is a member", () => {
+    expect(validProjectFilter(f, "g1", ["a", "b"])).toBe("a");
+  });
+  test("cleared by no filter, another group or a project that left the group", () => {
+    expect(validProjectFilter(null, "g1", ["a", "b"])).toBe("");
+    expect(validProjectFilter(f, "g2", ["a", "b"])).toBe("");
+    expect(validProjectFilter(f, "g1", ["b"])).toBe("");
+    expect(validProjectFilter(f, "g1", [])).toBe("");
+  });
+  test("the filtered project is the board's project; a one-project group's only member is too", () => {
+    const members = groupMembers(loadout, projects);
+    expect(boardProject("a", members)?.id).toBe("a");
+    expect(boardProject("", members)).toBeUndefined();
+    expect(boardProject("zzz", members)).toBeUndefined();
+    expect(boardProject("", groupMembers(zen, projects))?.id).toBe("c");
+    expect(boardProject("", [])).toBeUndefined();
+  });
+  test("focusing a project in another group filters to it; in the shown group it leaves the filter alone", () => {
+    expect(focusFilter(null, "g1", "g2", "c")).toEqual({ groupId: "g2", projectId: "c" });
+    expect(focusFilter(f, "g1", "g1", "b")).toBe(f);
+    expect(focusFilter(null, "g1", "g1", "b")).toBeNull();
   });
 });

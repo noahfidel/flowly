@@ -798,12 +798,16 @@ export function GuideBanner({
   text,
   actionLabel,
   onAction,
+  secondaryLabel,
+  onSecondary,
   dismissLabel,
   onDismiss,
 }: {
   text: string;
   actionLabel?: string;
   onAction?(): void;
+  secondaryLabel?: string;
+  onSecondary?(): void;
   dismissLabel?: string;
   onDismiss?(): void;
 }) {
@@ -832,6 +836,11 @@ export function GuideBanner({
       {!!actionLabel && onAction && (
         <Button small primary onPress={onAction}>
           {actionLabel}
+        </Button>
+      )}
+      {!!secondaryLabel && onSecondary && (
+        <Button small quiet onPress={onSecondary}>
+          {secondaryLabel}
         </Button>
       )}
       {!!dismissLabel && onDismiss && (

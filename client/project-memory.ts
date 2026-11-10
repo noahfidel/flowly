@@ -19,6 +19,16 @@ export function rememberViewedGroupView(viewId: string | undefined) {
   if (viewId) lastGroupView = viewId;
 }
 
+/**
+ * The Project filter last set on a group board during this run (BOARD-GROUPS-SPEC §3). Module state like the above;
+ * always read through `validProjectFilter`, since the group or project may be gone.
+ */
+let lastFilter: { groupId: string; projectId: string } | null = null;
+export const lastProjectFilter = () => lastFilter;
+export function rememberProjectFilter(filter: { groupId: string; projectId: string } | null) {
+  lastFilter = filter;
+}
+
 /** Explicit choice, else the project last viewed in this run, else the first one. */
 export function pickProject<T extends { id: string }>(projects: readonly T[], chosen: string, viewed: string): T | undefined {
   return projects.find((p) => p.id === chosen) || projects.find((p) => p.id === viewed) || projects[0];

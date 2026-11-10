@@ -92,7 +92,6 @@ const catalog: Catalog = {
   "Delete permanently…": "Eliminar definitivamente…",
   "Projects": "Proyectos",
   "{n} shown": "{n} visibles",
-  "Project settings": "Ajustes del proyecto",
   "Keyboard shortcuts": "Atajos de teclado",
   "Sort cards": "Ordenar tarjetas",
   "Sort cards in each column": "Ordenar las tarjetas de cada columna",

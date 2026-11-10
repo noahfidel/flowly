@@ -92,7 +92,6 @@ const catalog: Catalog = {
   "Delete permanently…": "영구 삭제…",
   "Projects": "프로젝트",
   "{n} shown": "{n}개 표시 중",
-  "Project settings": "프로젝트 설정",
   "Keyboard shortcuts": "키보드 단축키",
   "Sort cards": "카드 정렬",
   "Sort cards in each column": "각 열의 정렬 기준",

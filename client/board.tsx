@@ -119,8 +119,8 @@ import { searchSources as allSearchSources, type SearchCard, type SearchHit, typ
 import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 // board-groups 3/7: group-only navigation (BOARD-GROUPS-SPEC §3).
-import { lastViewedGroupView, rememberViewedGroupView } from "./project-memory";
-import { boardScope, defaultGroup, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, pickGroupView, staleGroupChoice } from "./board-groups";
+import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, rememberViewedGroupView } from "./project-memory";
+import { boardProject, boardScope, defaultGroup, focusFilter, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, pickGroupView, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
 import { allStatuses, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { GroupTabs } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
@@ -603,16 +603,27 @@ function BoardContent(
     [serverGroups, groupOrderOverride],
   );
   const group = pickGroupView(boardGroups, board?.projects || [], projectId, lastViewedGroupView());
-  // Always a board of several projects; kept as a name so the multi-project branches below stay as they were.
-  const allView = true as boolean;
   const groupKey = group ? `${group.id}|${allLiveProjects.filter((p) => p.groupId === group.id).map((p) => p.id).join(",")}` : "";
   // No group known yet (a cold direct link's board holds just the card's project): show the live projects it has.
   const liveProjects = useMemo(
     () => (group ? groupMembers(group, board?.projects || []) : allLiveProjects),
     [board?.projects, groupKey, allLiveProjects],
   );
-  // `project` is a board's one project; none until the project filter (card 4), so each card uses its own (projectOf).
-  const project = undefined as Project | undefined;
+  // The Project filter (BOARD-GROUPS-SPEC §3): one project of the group shown, remembered for this app run. It is read
+  // through validProjectFilter (the group may differ or the project have left) and cleared once the group is known.
+  const [projectFilter, setProjectFilterState] = useState<ProjectFilter>(lastProjectFilter);
+  const setProjectFilter = useStableCallback((next: ProjectFilter) => {
+    rememberProjectFilter(next);
+    setProjectFilterState(next);
+  });
+  const validFilterId = validProjectFilter(projectFilter, group?.id ?? "", liveProjects.map((p) => p.id));
+  useEffect(() => {
+    if (projectFilter && group && overviewData.data && !validFilterId) setProjectFilter(null);
+  }, [groupKey, validFilterId, !!overviewData.data]);
+  // `project` is a board's one project: the filtered one, or the only one of a one-project group; none shows every
+  // project of the group, each card using its own (projectOf).
+  const project = boardProject(validFilterId, liveProjects);
+  const allView = !project;
   const viewKey = group ? groupViewId(group.id) : "";
   // Returning to the board in this app run reopens the group seen last; a cold start opens the default group.
   // Only with the full overview: until then no group is known, and the fallback must not replace a remembered group.
@@ -641,14 +652,19 @@ function BoardContent(
   const inView = (id: string) => includedIds.has(id);
   // Opening a card, a session chip, an idea link or a search result selects the card's project's group, unless shown.
   // `manual`: a user's own navigation, which supersedes the current session link (as setTask does).
-  const focusGroupOf = (id: string, manual = true) => {
+  const focusGroupOf = (id: string, manual = true, pin = false) => {
     // A project the board does not hold yet (just created, or a cold link's) waits for the refreshed board.
     if (!boardGroups.length || !projectById.has(id)) return void (pendingFocus.current = id);
     pendingFocus.current = "";
-    if (includedIds.has(id)) return;
     const target = groupOfProject(boardGroups, board?.projects || [], id);
-    if (!target || target.id === group?.id) return;
+    if (!target) return;
+    // `pin`: the board must act on this project (Memory, Ideas), so a board of several shows only it.
+    if (target.id === group?.id) {
+      if (pin && !(project && project.id === id)) setProjectFilter({ groupId: target.id, projectId: id });
+      return;
+    }
     if (manual) ignoredLink.current = linkKey;
+    setProjectFilter(focusFilter(projectFilter, group?.id ?? "", target.id, id));
     setProject(groupViewId(target.id));
   };
   useEffect(() => {
@@ -659,8 +675,8 @@ function BoardContent(
   }, [viewKey]);
   // Project pages (Insights, Ideas, Memory) need one project; Search works across all of them.
   useEffect(() => {
-    if (allView) setPage((current) => (current === "search" ? current : null));
-  }, [allView]);
+    if (!project) setPage((current) => (current === "search" ? current : null));
+  }, [project?.id]);
   const task = currentDetail?.task.id === taskId && inView(currentDetail.task.projectId) ? currentDetail.task : board?.tasks.find(
     (t) => t.id === taskId && inView(t.projectId),
   );
@@ -963,7 +979,8 @@ function BoardContent(
     Number(!!search) +
     Number(priority !== "all") +
     Number(taskType !== "all") +
-    Number(tagFilter.length > 0);
+    Number(tagFilter.length > 0) +
+    Number(!!validFilterId);
   const refresh = () => {
     if (taskId) void invalidateCardViews(queryClient);
     else void data.refetch();
@@ -1474,7 +1491,7 @@ function BoardContent(
   }, [linearInput, !!board, !!project, allView]);
   const openSearchMemory = useStableCallback((hit: SearchMemoryHit) => {
     ignoredLink.current = linkKey;
-    focusGroupOf(hit.projectId); // board-groups 3/7: the Memory page waits for the project filter (card 4)
+    focusGroupOf(hit.projectId, true, true); // the Memory page acts on that project
     setPage("memory");
   });
   const openSearch = (text: string) => {
@@ -1497,7 +1514,7 @@ function BoardContent(
   const showCardIdeas = useStableCallback((id: string) => {
     // Ideas is per project: from the All board, switch to the card's project first.
     const source = board?.tasks.find((x) => x.id === id);
-    if (source) focusGroupOf(source.projectId, false); // board-groups 3/7: the Ideas page waits for the project filter (card 4)
+    if (source) focusGroupOf(source.projectId, false, true); // the Ideas page acts on that project
     setIdeaCard(id);
     setPage("ideas");
     setTask("");
@@ -2114,14 +2131,6 @@ function BoardContent(
                 {t("{n} shown", { n: visible.length })}
               </Label>
             )}
-            {!!project && !compact && (
-              // Opens the project's own settings (name, lanes, auto status) at once; phones use the chooser's Edit row.
-              <IconButton
-                icon="SlidersHorizontal"
-                label={t("Project settings")}
-                onPress={() => setProjectForm("edit")}
-              />
-            )}
             {(compact || projects.length === 0) && <View style={{ flex: 1 }} />}
             {!compact && (
               <IconButton icon="CircleHelp" label={t("Welcome tour")} onPress={() => setWelcomeOpen(true)} />
@@ -2224,6 +2233,8 @@ function BoardContent(
             text={t("This group has no projects yet.")}
             actionLabel={t("New project")}
             onAction={() => setProjectForm("new")}
+            secondaryLabel={t("Group settings")}
+            onSecondary={() => onGroupSettings(group.id)}
           />
         ) : emptyProjectHint && (
           <GuideBanner
@@ -2500,6 +2511,17 @@ function BoardContent(
         >
           <Modal.Content>
             <Theme.Provider value={props.theme}>
+              {liveProjects.length > 1 && (
+                <Choices
+                  title={t("Project")}
+                  value={validFilterId}
+                  options={[
+                    { value: "", label: t("All") },
+                    ...liveProjects.map((p) => ({ value: p.id, label: p.title })),
+                  ]}
+                  onChange={(id) => setProjectFilter(id && group ? { groupId: group.id, projectId: id } : null)}
+                />
+              )}
               <Field
                 title={t("Search")}
                 value={search}
@@ -2590,6 +2612,7 @@ function BoardContent(
                   quiet
                   disabled={!filterCount}
                   onPress={() => {
+                    setProjectFilter(null);
                     setSearch("");
                     setPriority("all");
                     setTaskType("all");
@@ -2939,9 +2962,10 @@ function BoardContent(
             seed={quickTask.seed}
             projects={quickProjects(group ? membersFirst(projects, liveProjects.map((p) => p.id)) : projects, quickTask.seed)}
             initialProjectId={
-              // board-groups 3/7: every board is a group's (groupQuickProject falls back to All's rule for an empty one).
+              // Every board is a group's: the filtered project, else the last quick-task project when a member, else the first
+              // (groupQuickProject falls back to All's rule for an empty group).
               (allView && !quickTask.projectId
-                ? groupQuickProject(liveProjects, projects, view.values?.lastQuickProjectId ?? "")
+                ? groupQuickProject(liveProjects, projects, view.values?.lastQuickProjectId ?? "", validFilterId)
                 : quickProject(projects, { pinned: quickTask.projectId, last: quickTask.recent ? view.values?.lastQuickProjectId : undefined, current: project?.id || "" })
               )?.id || ""
             }

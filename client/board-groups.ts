@@ -70,9 +70,27 @@ export function staleGroupChoice(chosen: string, groups: readonly Pick<Group, "i
  * The project Quick task opens with on a group's board (§5): the last quick-task project when it is a live member,
  * else the first member; an empty group uses All's rule.
  */
-export function groupQuickProject(members: readonly Project[], projects: readonly Project[], lastQuickProjectId: string) {
+export function groupQuickProject(members: readonly Project[], projects: readonly Project[], lastQuickProjectId: string, filteredId = "") {
   if (!members.length) return allQuickProject(projects, lastQuickProjectId);
-  return quickProject(members, { last: lastQuickProjectId, current: "" });
+  return quickProject(members, { pinned: filteredId, last: lastQuickProjectId, current: "" });
+}
+
+/** The board's Project filter: a project of the group shown (§3); it lives with the group it was set in. */
+export type ProjectFilter = { groupId: string; projectId: string } | null;
+
+/** The filtered project's id while it applies: cleared ("") when no filter, another group is shown or the project left the group. */
+export function validProjectFilter(filter: ProjectFilter, groupId: string, memberIds: readonly string[]): string {
+  return filter && filter.groupId === groupId && memberIds.includes(filter.projectId) ? filter.projectId : "";
+}
+
+/** The board's one project: the filtered live member, else the only member of a one-project group, else none. */
+export function boardProject<P extends { id: string }>(filterProjectId: string, members: readonly P[]): P | undefined {
+  return members.find((p) => p.id === filterProjectId) ?? (members.length === 1 ? members[0] : undefined);
+}
+
+/** Focusing a project (card, idea, search hit) in another group filters that group's board to it; in the shown group nothing changes (§3). */
+export function focusFilter(current: ProjectFilter, shownGroupId: string, targetGroupId: string, projectId: string): ProjectFilter {
+  return targetGroupId !== shownGroupId ? { groupId: targetGroupId, projectId } : current;
 }
 
 /** The project picker on a group's board: the group's projects first, then the rest, each in its given order (§5). */

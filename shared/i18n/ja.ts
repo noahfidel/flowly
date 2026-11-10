@@ -92,7 +92,6 @@ const catalog: Catalog = {
   "Delete permanently…": "完全に削除…",
   "Projects": "プロジェクト",
   "{n} shown": "{n} 件表示中",
-  "Project settings": "プロジェクト設定",
   "Keyboard shortcuts": "キーボードショートカット",
   "Sort cards": "カードの並び順",
   "Sort cards in each column": "各列内の並び順",

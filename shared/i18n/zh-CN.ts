@@ -92,7 +92,6 @@ const catalog: Catalog = {
   "Delete permanently…": "永久删除…",
   "Projects": "项目",
   "{n} shown": "显示 {n} 张",
-  "Project settings": "项目设置",
   "Keyboard shortcuts": "键盘快捷键",
   "Sort cards": "排序卡片",
   "Sort cards in each column": "每列内的排序方式",
