@@ -401,6 +401,7 @@ const catalog: Catalog = {
   "Drag to reorder {lane}": "拖動以調整 {lane} 的順序",
   "{lane} lane name": "{lane} 泳道名稱",
   "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "泳道就是這個群組的工作流，群組內的每個專案都使用它：卡片、自動狀態和智慧體只會使用已開啟的泳道。直接在名稱上輸入即可重新命名泳道。有卡片的泳道不能關閉。",
+  "Lanes changed elsewhere. Your edits were kept; review and save again.": "泳道已在別處變更。你的編輯已保留；請檢查後再次儲存。",
   "Waiting on": "等待中",
   "Blocks": "阻塞了",
   "Follow-up of": "後續自",

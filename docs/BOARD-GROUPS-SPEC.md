@@ -114,7 +114,8 @@ Lane { status, enabled, name? }   (the existing lane shape: every built-in statu
   invariants: (1) each group has `lanes`; (2) every status a live (not archived) card of a live member project sits in
   is on in that group's lanes, turning it on when needed and bumping that group's revision; (3) every member project,
   archived ones too, has `lanes` equal to its group's. (2) is what makes a project move, a project restore and a
-  card restore safe; lane edits and card moves are refused before they could break it.
+  card restore safe; lane edits and card moves are refused before they could break it. A read applies the same
+  invariants to its copy without changing any revision.
 
 - `name`: 1–80 characters after trimming, unique ignoring case (a duplicate is refused). `position` orders tabs and
   the switcher. At most 50 groups.
@@ -229,7 +230,10 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 - **Lanes** on the group settings page: the lane editor the project form had (order by drag, or arrows on touch;
   on/off; an optional name), editing the group's lanes, with **Cancel** and **Save** (one `groups.update` with
   `lanes`). A lane that holds live cards of any live member, or the last lane on, can't be switched off there (the
-  server refuses the same, §2). Unsaved lane edits count as unsaved edits for the discard question. Edit project
+  server refuses the same, §2). Unsaved lane edits count as unsaved edits for the discard question. They survive a
+  change of the group that leaves its lanes as they were (rename, defaults, a project move); a lane change made
+  elsewhere reloads an untouched editor, and refuses the first Save of an edited one with "Lanes changed elsewhere.
+  Your edits were kept; review and save again." (a second Save overwrites). Edit project
   (a project whose group is not on the board yet) and the New project form have no lane editor.
 - **Entry:** every entry opens the page through one board entry point, `onGroupSettings(groupId, focus?)`: `focus`
   opens one project's section. The tab menu and the switcher row open their group with the filtered project's
@@ -316,7 +320,9 @@ next start (the record's session is still v1, the board has groups, so step 4 ru
 7. **Group lanes:** part of the same start write as steps 1–2, and also of every later write and read-time repair,
    for each group that has no `lanes` (every group of a board stored before group lanes; groups made by steps 1–2):
    - a status is on when any live (not archived) member project has it on (a project with no stored lanes has every
-     lane on), or when a live card of a live member sits in it; the list is in the default status order;
+     lane on, in the default order), or when a live card of a live member sits in it;
+   - the order is the members' own when every live member's full lane list (all statuses, on or off) has the same
+     order, so a group of one member keeps that member's order; otherwise it is the default status order;
    - a custom name is kept only when every live member that has the status on uses that same non-empty name;
      otherwise the built-in name applies (no name stored);
    - a group with no live member gets every lane, on, with built-in names.

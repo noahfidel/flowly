@@ -401,6 +401,7 @@ const catalog: Catalog = {
   "Drag to reorder {lane}": "ドラッグして {lane} を並べ替え",
   "{lane} lane name": "{lane} レーンの名前",
   "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "レーンはこのグループのワークフローで、グループ内のすべてのプロジェクトが使います。カード、自動ステータス、エージェントはオンのレーンだけを使います。名前の上に入力してレーン名を変更できます。カードがあるレーンはオフにできません。",
+  "Lanes changed elsewhere. Your edits were kept; review and save again.": "レーンが別の場所で変更されました。編集内容は残っています。確認してもう一度保存してください。",
   "Waiting on": "待機先",
   "Blocks": "ブロック先",
   "Follow-up of": "フォローアップ元",

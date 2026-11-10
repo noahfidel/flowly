@@ -401,6 +401,7 @@ const catalog: Catalog = {
   "Drag to reorder {lane}": "Glisser pour réordonner {lane}",
   "{lane} lane name": "Nom du couloir {lane}",
   "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "Les couloirs forment le workflow de ce groupe, utilisé par chacun de ses projets : les cartes, le statut automatique et les agents n’utilisent que les couloirs activés. Renommez un couloir en tapant par-dessus son nom. Un couloir qui contient des cartes ne peut pas être désactivé tant qu’elles n’ont pas été déplacées.",
+  "Lanes changed elsewhere. Your edits were kept; review and save again.": "Les couloirs ont été modifiés ailleurs. Vos modifications sont conservées ; vérifiez-les et enregistrez à nouveau.",
   "Waiting on": "En attente de",
   "Blocks": "Bloque",
   "Follow-up of": "Suite de",

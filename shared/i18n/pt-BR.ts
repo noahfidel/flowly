@@ -401,6 +401,7 @@ const catalog: Catalog = {
   "Drag to reorder {lane}": "Arraste para reordenar {lane}",
   "{lane} lane name": "Nome da raia {lane}",
   "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "As raias são o fluxo de trabalho deste grupo, usado por todos os seus projetos: cards, status automático e agentes só usam raias ativadas. Renomeie uma raia digitando sobre o nome. Uma raia com cards não pode ser desativada.",
+  "Lanes changed elsewhere. Your edits were kept; review and save again.": "As raias foram alteradas em outro lugar. Suas edições foram mantidas; revise e salve novamente.",
   "Waiting on": "Aguardando",
   "Blocks": "Bloqueia",
   "Follow-up of": "Acompanhamento de",

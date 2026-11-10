@@ -13,14 +13,18 @@ type LaneBoard = { groups: Board["groups"]; projects: Member[]; tasks: readonly 
 
 /**
  * The lanes a group gets when it has none (§7 step 7), from its live members and the statuses their live cards sit in:
- * a status is on when any live member has it on or a card sits in it, in the default order; a custom name is kept
- * only when every live member that has the status on uses that same name. No live member: every lane, built-in names.
+ * a status is on when any live member has it on or a card sits in it; the order is the members' when every live
+ * member's full lane list has the same order (so one member keeps its own), else the default order; a custom name is
+ * kept only when every live member that has the status on uses that same name. No live member: every lane, built-in
+ * names.
  */
 export function groupLanesFrom(members: readonly Pick<Member, "lanes" | "archivedAt">[], cardStatuses: Iterable<Status>): Lane[] {
   const live = members.filter((m) => !m.archivedAt).map((m) => projectLanes(m));
   if (!live.length) return statuses.map((status) => ({ status, enabled: true }));
   const held = new Set(cardStatuses);
-  return statuses.map((status) => {
+  const orders = new Set(live.map((lanes) => lanes.map((l) => l.status).join(",")));
+  const order: readonly Status[] = orders.size === 1 ? live[0].map((l) => l.status) : statuses;
+  return order.map((status) => {
     const using = live.map((lanes) => lanes.find((l) => l.status === status)!).filter((l) => l.enabled);
     const names = new Set(using.map((l) => l.name?.trim() || ""));
     const name = names.size === 1 ? [...names][0] : "";
@@ -37,16 +41,18 @@ export function groupLaneCounts(board: { projects: readonly Member[]; tasks: rea
 }
 
 /** Compares lane lists by content, not key order (parsed and freshly built objects order their keys differently). */
-const laneKey = (lanes: readonly Lane[] | undefined) => JSON.stringify(lanes?.map((l) => [l.status, l.enabled, l.name ?? ""]) ?? null);
+export const laneKey = (lanes: readonly Lane[] | undefined) => JSON.stringify(lanes?.map((l) => [l.status, l.enabled, l.name ?? ""]) ?? null);
 const copy = (lanes: readonly Lane[]): Lane[] => lanes.map((l) => ({ status: l.status, enabled: l.enabled, ...(l.name ? { name: l.name } : {}) }));
 
 /**
  * The lane invariants of §1, kept at the end of every write and on each read's copy: each group has lanes (computed
  * once by `groupLanesFrom` when absent, bumping nothing); a status a live card of a live member sits in is turned on
  * (the group's revision is bumped: its lanes changed); every member, archived ones too, mirrors its group's lanes.
- * `enabled` lists the groups that had a lane turned on for a card.
+ * `enabled` lists the groups that had a lane turned on for a card. `bumpRevision: false` (reads, which write nothing)
+ * turns the lane on in the copy without touching the group's revision or `updatedAt`.
  */
-export function syncGroupLanes(board: LaneBoard, now: string): { changed: boolean; enabled: string[] } {
+export function syncGroupLanes(board: LaneBoard, now: string, options: { bumpRevision?: boolean } = {}): { changed: boolean; enabled: string[] } {
+  const bump = options.bumpRevision !== false;
   let changed = false;
   const enabled: string[] = [];
   const membersOf = new Map<string, Member[]>();
@@ -75,8 +81,10 @@ export function syncGroupLanes(board: LaneBoard, now: string): { changed: boolea
         changed = true;
       }
       if (off.length) {
-        group.revision++;
-        group.updatedAt = now;
+        if (bump) {
+          group.revision++;
+          group.updatedAt = now;
+        }
         enabled.push(group.id);
       }
     }

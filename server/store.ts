@@ -205,7 +205,7 @@ export class BoardStore {
     const now = new Date().toISOString();
     const repair = ensureGroups(board, now, () => this.nextGroupId);
     // Group lanes (BOARD-GROUPS-SPEC §1, §7 step 7) on the copy too, so a read never shows a member out of step.
-    syncGroupLanes(board, now);
+    syncGroupLanes(board, now, { bumpRevision: false });
     const key = [...repair.projectIds, ...repair.groupIds].join(",");
     if (key && key !== this.loggedRepair) logGroupRepair("Flowly board groups repaired on read:", repair);
     this.loggedRepair = key;

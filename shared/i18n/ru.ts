@@ -401,6 +401,7 @@ const catalog: Catalog = {
   "Drag to reorder {lane}": "Перетащите, чтобы изменить порядок: {lane}",
   "{lane} lane name": "Название колонки «{lane}»",
   "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "Колонки задают рабочий процесс группы, общий для всех её проектов: карточки, автоматический статус и агенты используют только включённые колонки. Чтобы переименовать колонку, введите новое название поверх старого. Колонку с карточками нельзя выключить, пока их не переместят.",
+  "Lanes changed elsewhere. Your edits were kept; review and save again.": "Колонки изменились в другом месте. Ваши правки сохранены; проверьте их и сохраните ещё раз.",
   "Waiting on": "Ждёт",
   "Blocks": "Блокирует",
   "Follow-up of": "Продолжение",

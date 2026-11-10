@@ -5,6 +5,8 @@ import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc";
 import { groupLimits, type Group, type Lane, type Project, type Status } from "../shared/model";
 import { projectLanes } from "../shared/lanes";
+import { laneKey } from "../shared/group-lanes";
+import { laneEdit, laneEditDirty, laneEditSave, laneEditServer, type LaneEditState } from "./group-lanes-logic";
 import { LaneEditor } from "./lane-editor";
 import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
 import { deliverySettings, deliverySettingsValues, modelSettings, modelSettingsValues } from "../shared/settings";
@@ -205,7 +207,7 @@ export function GroupSettings({
                   invalidText={t("The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.")}
                 />
                 <GroupLanes
-                  key={`${group.id}:${group.revision}`}
+                  key={group.id}
                   group={group}
                   counts={laneCounts(group.id)}
                   busy={busy}
@@ -329,7 +331,8 @@ const lanesDirtyKey = "*lanes";
 
 /**
  * The group's lanes (BOARD-GROUPS-SPEC §5): the lane editor with Cancel and Save, one `groups.update` with the whole
- * list. Reseeded (remounted by its key) whenever the group's revision changes.
+ * list. Edits survive revision bumps that leave the lanes as they were; lanes changed elsewhere reseed an untouched
+ * editor, and refuse one Save of an edited one (`client/group-lanes-logic.ts`).
  */
 function GroupLanes({
   group,
@@ -344,21 +347,39 @@ function GroupLanes({
   onDirty(dirty: boolean): void;
   onSave(lanes: Lane[]): void;
 }) {
-  const [lanes, setLanes] = useState<Lane[]>(() => projectLanes(group));
-  const dirty = JSON.stringify(lanes) !== JSON.stringify(projectLanes(group));
+  const server = projectLanes(group);
+  const serverKey = laneKey(server);
+  const [state, setState] = useState<LaneEditState>(() => laneEdit(server));
+  const [conflict, setConflict] = useState(false);
+  const dirty = laneEditDirty(state);
+  useEffect(() => {
+    setState((current) => laneEditServer(current, server));
+  }, [serverKey]);
   useEffect(() => {
     onDirty(dirty);
+    if (!dirty) setConflict(false);
   }, [dirty]);
   useEffect(() => () => onDirty(false), []);
+  const save = () => {
+    const decision = laneEditSave(state, server);
+    if (decision.kind === "conflict") {
+      setState(decision.next);
+      setConflict(true);
+      return;
+    }
+    setConflict(false);
+    onSave(decision.lanes);
+  };
   return (
     <View style={{ gap: space[3] }}>
-      <LaneEditor lanes={lanes} counts={counts} disabled={busy} onChange={setLanes} />
+      <LaneEditor lanes={state.draft} counts={counts} disabled={busy} onChange={(draft) => setState((current) => ({ ...current, draft }))} />
+      {conflict && <Notice tone="warning">{t("Lanes changed elsewhere. Your edits were kept; review and save again.")}</Notice>}
       {dirty && (
         <Actions>
-          <Button quiet disabled={busy} onPress={() => setLanes(projectLanes(group))}>
+          <Button quiet disabled={busy} onPress={() => setState(laneEdit(server))}>
             {t("Cancel")}
           </Button>
-          <Button primary disabled={busy} onPress={() => onSave(lanes)}>
+          <Button primary disabled={busy} onPress={save}>
             {t("Save")}
           </Button>
         </Actions>

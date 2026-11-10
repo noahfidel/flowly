@@ -136,6 +136,26 @@ describe.each(["json", "sqlite"] as const)("group lanes in the store (%s)", (bac
     expect(JSON.stringify(await onDisk(backend, d))).toBe(before);
   });
 
+  if (backend === "json")
+    test("a read never bumps a revision: a live card in a group-off lane shows the lane on, and an edit at the stored revision succeeds", async () => {
+      const s = await ready();
+      const zen = byName(await s.read(), "Zen");
+      await s.updateGroup({ id: zen.id, revision: zen.revision, lanes: lanes((x) => x !== "test") });
+      // Stored data written past the store: a live card in Test, which the group has off.
+      const raw = JSON.parse(await readFile(join(s.directory, "board.json"), "utf8")) as Board;
+      raw.tasks.push(task("t3", "a", "test"));
+      await writeFile(join(s.directory, "board.json"), JSON.stringify(raw));
+      const stored = raw.groups.find((g) => g.name === "Zen")!;
+      const read = byName(await s.read(), "Zen");
+      expect(read.revision).toBe(stored.revision);
+      expect(read.updatedAt).toBe(stored.updatedAt);
+      expect(on(read)).toContain("test");
+      await expect(s.updateGroup({ id: read.id, revision: read.revision, name: "Zen 2" })).resolves.toMatchObject({ name: "Zen 2" });
+      const after = await onDisk(backend, s.directory);
+      expect(on(byName(after, "Zen 2"))).toContain("test");
+      expectInSync(after);
+    });
+
   test("a group lane edit is mirrored to every member; names are trimmed", async () => {
     const s = await ready();
     const zen = byName(await s.read(), "Zen");

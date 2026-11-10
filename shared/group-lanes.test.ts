@@ -77,6 +77,22 @@ describe("groupLanesFrom (the migration's union)", () => {
     const result = groupLanesFrom([project("a", "g", { lanes: lanes((s) => s === "todo") })], ["blocked"]);
     expect(on({ lanes: result })).toEqual(["todo", "blocked"]);
   });
+  test("one member's custom order is kept", () => {
+    const reversed = [...lanes((s) => s !== "backlog")].reverse();
+    const result = groupLanesFrom([project("a", "g", { lanes: reversed })], []);
+    expect(result.map((l) => l.status)).toEqual(reversed.map((l) => l.status));
+  });
+  test("members sharing a custom order keep it; members that disagree get the default order", () => {
+    const custom = (on: (s: Status) => boolean) => [...lanes(on)].reverse();
+    const same = groupLanesFrom([project("a", "g", { lanes: custom((s) => s === "todo") }), project("b", "g", { lanes: custom((s) => s === "done") })], []);
+    expect(same.map((l) => l.status)).toEqual([...statuses].reverse());
+    expect(on({ lanes: same })).toEqual(["done", "todo"]);
+    const mixed = groupLanesFrom([project("a", "g", { lanes: custom(() => true) }), project("b", "g", { lanes: lanes(() => true) })], []);
+    expect(mixed.map((l) => l.status)).toEqual([...statuses]);
+    // A member with no stored lanes has the default order, so it disagrees with a custom one.
+    const withDefault = groupLanesFrom([project("a", "g", { lanes: custom(() => true) }), project("b", "g")], []);
+    expect(withDefault.map((l) => l.status)).toEqual([...statuses]);
+  });
   test("no live member: every lane on, built-in names", () => {
     expect(groupLanesFrom([], [])).toEqual(statuses.map((status) => ({ status, enabled: true })));
   });
@@ -123,6 +139,17 @@ describe("syncGroupLanes", () => {
     expect(on(board.groups[0])).toEqual(["todo", "blocked"]);
     expect(board.groups[0]).toMatchObject({ revision: 2, updatedAt: later });
     expect(board.projects[0].lanes).toEqual(board.groups[0].lanes);
+  });
+  test("bumpRevision false (reads): the lane is turned on, the group's revision and updatedAt stay", () => {
+    const board: Lanes = {
+      groups: [group("g", { lanes: lanes((s) => s === "todo") })],
+      projects: [project("a", "g")],
+      tasks: [task("t1", "a", "blocked")],
+    };
+    const r = syncGroupLanes(board, "2026-11-11T00:00:00.000Z", { bumpRevision: false });
+    expect(r.changed).toBe(true);
+    expect(on(board.groups[0])).toEqual(["todo", "blocked"]);
+    expect(board.groups[0]).toMatchObject({ revision: 1, updatedAt: at });
   });
   test("cards of archived members do not turn lanes on", () => {
     const board: Lanes = {

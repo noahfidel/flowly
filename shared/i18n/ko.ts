@@ -401,6 +401,7 @@ const catalog: Catalog = {
   "Drag to reorder {lane}": "드래그하여 {lane} 순서 변경",
   "{lane} lane name": "{lane} 레인 이름",
   "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "레인은 이 그룹의 워크플로이며 그룹의 모든 프로젝트가 사용합니다. 카드, 자동 상태, 에이전트는 켜져 있는 레인만 사용합니다. 이름 위에 입력해 레인 이름을 바꿀 수 있습니다. 카드가 있는 레인은 끌 수 없습니다.",
+  "Lanes changed elsewhere. Your edits were kept; review and save again.": "레인이 다른 곳에서 변경되었습니다. 편집한 내용은 유지됩니다. 확인한 뒤 다시 저장하세요.",
   "Waiting on": "대기 중인 대상",
   "Blocks": "막고 있는 대상",
   "Follow-up of": "후속 원본",
