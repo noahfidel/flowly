@@ -14,6 +14,8 @@ export const tailItemSchema = z.object({
   messageId: z.string().optional(),
   clientMessageId: z.string().optional(),
   callId: z.string().optional(),
+  /** A prompt another agent sent to this session (Paseo's `agent_message` provenance). */
+  from: z.object({ id: z.string(), title: z.string().optional(), event: z.string() }).optional(),
 });
 export const tailEntrySchema = z.object({
   seqStart: z.number().optional(),
@@ -42,6 +44,16 @@ export function slimTimeline(
     for (const field of ["name", "status", "messageId", "clientMessageId", "callId"] as const) {
       const value = str(raw[field]);
       if (value !== undefined) item[field] = value;
+    }
+    const message = raw.agentMessage;
+    if (message && typeof message === "object") {
+      const { sender, text: said, event } = message as Record<string, unknown>;
+      const senderId = sender && typeof sender === "object" ? str((sender as Record<string, unknown>).id) : undefined;
+      if (senderId !== undefined && typeof said === "string") {
+        const title = str((sender as Record<string, unknown>).title);
+        item.from = { id: senderId, ...(title !== undefined ? { title } : {}), event: str(event) ?? "message" };
+        item.text = clip(said, TAIL_TEXT_MAX);
+      }
     }
     const out: TailEntry = { item };
     if (typeof entry.seqStart === "number") out.seqStart = entry.seqStart;

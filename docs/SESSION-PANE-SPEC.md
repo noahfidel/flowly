@@ -54,6 +54,7 @@ output: { entries: TailEntry[] (+ seqEnd),
 ```
 
 - `turn`: the daemon pages `before` in steps of 100 until it finds a `user_message`, `hasOlder` is false or `maxEntries` is reached, and returns the slim entries from that user message on.
+- A slim entry may carry `from { id, title?, event }` with the sent text: a prompt another agent sent to the session (Paseo's `agent_message` tool call). The transcript shows it as its own `From <agent title>` row (the id when untitled), outside activity blocks: one muted line with the first line of the text, press to expand the full text.
 - Membership check unchanged (session must be in the card's workspace).
 - Errors stay English daemon errors. A stale cursor (`staleCursor`) returns `reset: true` and the client reloads.
 

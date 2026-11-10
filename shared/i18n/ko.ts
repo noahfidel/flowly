@@ -1,6 +1,8 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "From {name}": "{name}에게서",
+  "From agent": "에이전트로부터",
   "Command": "명령",
   "Project default model": "프로젝트 기본 모델",
   "Review model": "검토 모델",

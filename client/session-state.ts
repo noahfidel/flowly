@@ -90,6 +90,7 @@ export function recentSessionOutput(
       messageId?: unknown;
       clientMessageId?: unknown;
       callId?: unknown;
+      from?: unknown;
     };
   }[],
 ) {
@@ -97,7 +98,12 @@ export function recentSessionOutput(
   return entries
     .flatMap((entry, index) => {
       const { item } = entry;
-      const tool = item.type === "tool_call" && typeof item.name === "string";
+      const from = item.from as { id?: unknown; title?: unknown } | undefined;
+      const sender =
+        from && typeof from === "object" && typeof from.id === "string"
+          ? (typeof from.title === "string" && from.title.trim()) || from.id
+          : undefined;
+      const tool = sender === undefined && item.type === "tool_call" && typeof item.name === "string";
       const text = tool
         ? `${item.name} · ${typeof item.status === "string" ? item.status : "activity"}`
         : item.text;
@@ -110,7 +116,9 @@ export function recentSessionOutput(
       // An image-only message from this client has empty text but a known ID.
       const imageOnly = item.type.includes("user") && !!messageId && typeof text === "string";
       if (typeof text !== "string" || (!text.trim() && !imageOnly)) return [];
-      const author = item.type.includes("user")
+      const author = sender !== undefined
+        ? msg("From agent")
+        : item.type.includes("user")
         ? msg("You")
         : item.type.includes("assistant")
           ? msg("Agent")
@@ -128,8 +136,9 @@ export function recentSessionOutput(
           key,
           author,
           text,
-          kind: tool ? "tool" : item.type,
+          kind: sender !== undefined ? "agent-message" : tool ? "tool" : item.type,
           messageId,
+          sender,
         },
       ];
     });

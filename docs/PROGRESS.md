@@ -97,6 +97,9 @@
 - The approval form (SESSION-QUESTION-SPEC §2) now shows what the request asks to do, from `request.input`: Bash command, Edit/MultiEdit/Write changes, a plan's markdown (`input.plan`, verified in Paseo's Claude provider), other input as JSON behind Show details. Blocks scroll inside themselves (max 240) so Allow/Deny stay visible. "Open in Paseo for the full details." became an **Open in Paseo** link (`navigation.openAgent`, hidden when absent) in the session view and the card drawer. Pure parser `approvalDetail` in `shared/permission-question.ts` with unit tests.
 - Strings: 3 new, 1 removed, all 9 catalogs. Onboarding: no change (the tour already says approvals are answered on the card or in the session); no tip. Telemetry: no field.
 - Checks: `npm run typecheck` exit 0; `npm test` exit 0 (194 files passed, 1 skipped; 1971 passed, 7 skipped). Unrun: live check in the session view and drawer, long-content scroll, plan approval, phone layout.
+## Prompts from other agents shown in chats (branch `kanban/show-messages-from-other-agents-in-the-d-19c398`) — 2026-11-10
+
+- Paseo records a prompt another agent sends as an `agent_message` tool call; Flowly dropped its text and folded it into the collapsed activity block. `slimTimeline` now keeps `from { id, title?, event }` and the text (validated, never throws); `recentSessionOutput` makes it an `agent-message` entry with a `sender` (title, else id) that stays its own block; both the dispatcher chat and card session chats render it as a `From <agent>` row (press to expand). Strings: `From {name}`, `From agent` in all 9 catalogs. Onboarding and telemetry: no change.
 
 ## Dispatcher creates projects, confirmed by the user (branch `feat/dispatcher-project-tools`) — 2026-11-10
 
