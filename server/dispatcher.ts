@@ -434,8 +434,9 @@ export class Dispatcher {
           // plugins'), none from Claude Code's user, project, plugin or cloud configuration.
           // The SDK's `options` is the session's `providerOptions`, validated by Claude's provider schema.
           options: { disallowedTools: [...dispatcherWithheldTools], extraArgs: { tools: dispatcherBuiltinTools.join(","), "strict-mcp-config": null } },
-          // Saved with the session and every tool preapproved, so its own tools never prompt (they are gated by the
+          // Saved with the session and its card tools preapproved, so they never prompt (they are gated by the
           // "Agents create and edit cards" switch); Paseo checks each grant's server is in this same request (§3).
+          // `dispatcherConfirmedToolNames` (flowly_create_project) are left out: the user confirms each call.
           mcpServers: { [dispatcherServerName]: mcp },
           toolPolicy: { preapproved: dispatcherToolNames.map((tool) => ({ kind: "mcp" as const, server: dispatcherServerName, tool })) },
         },

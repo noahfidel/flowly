@@ -1,8 +1,10 @@
+import { basename } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/server";
+import type { PaseoApi } from "@getpaseo/client";
 import { z } from "zod";
 import { ideaNewestFirst } from "../shared/ideas";
 import { linkFor } from "../shared/links";
-import { linkSchema, tagLimits, type Idea } from "../shared/model";
+import { linkSchema, projectInput, tagLimits, type Idea, type Project, type ProjectInput } from "../shared/model";
 import { normalizeTag, normalizeTags } from "../shared/tags";
 import {
   agentCardLimits,
@@ -30,6 +32,7 @@ import { changeIdea } from "./agent-service";
 import type { Dispatcher } from "./dispatcher";
 import { addLink, linkNote } from "./links";
 import type { ProjectIdeas } from "./project-ideas";
+import { directory } from "./service";
 import type { CardStarter } from "./start-card";
 import type { BoardStore } from "./store";
 import type { DispatcherIdentity } from "./tool-context";
@@ -64,7 +67,13 @@ export const dispatcherInputs = {
       .describe("blocks: taskId must land before otherTaskId. follow_up: otherTaskId continues taskId."),
     otherTaskId: z.string().min(1).max(200).describe("The other card's id, in the same project."),
   }),
+  createProject: z.strictObject({
+    path: z.string().trim().min(1).max(4096).describe("Absolute path of an existing folder (a leading ~/ is the user's home), usually a Git repository."),
+    title: z.string().trim().min(1).max(120).optional().describe("The project's name. Default: the folder's name."),
+    description: z.string().max(10000).optional().describe("Optional project description."),
+  }),
 };
+const createProjectResultSchema = z.object({ projectId: z.string(), title: z.string(), path: z.string() });
 const listProjectsResultSchema = z.object({
   projects: z.array(z.object({ projectId: z.string(), title: z.string(), rootAvailable: z.boolean(), openCards: z.number().int() })),
 });
@@ -100,6 +109,11 @@ function editedTags(current: readonly string[], add: readonly string[], remove: 
 }
 
 export class DispatcherTools {
+  /**
+   * The `projects.create` RPC's own path (the board service's create plus its follow-ups), set by the plugin entry
+   * (DISPATCHER-SPEC §5.2): the dispatcher's projects get the same checks, native registration and board write.
+   */
+  createProjectWith?: (input: ProjectInput, paseo: PaseoApi) => Promise<Project>;
   constructor(
     private readonly store: BoardStore,
     private readonly cards: AgentCards,
@@ -236,6 +250,29 @@ export class DispatcherTools {
     });
   }
 
+  /**
+   * A single-directory project from an existing folder, as the project form's Create project (DISPATCHER-SPEC §5.2).
+   * A write: the agent-cards switch applies. Never preapproved, so the user confirms each call (ruling, Noah 2026-11-10).
+   */
+  async createProject(identity: DispatcherIdentity, raw: unknown) {
+    const input = dispatcherInputs.createProject.parse(raw);
+    await this.caller(identity);
+    await this.cards.enabled();
+    const create = this.createProjectWith;
+    if (!create) throw new ToolError("PASEO_UNAVAILABLE", "Flowly is still starting; try again in a moment.", true);
+    const paseo = this.cards.api();
+    let project: Project;
+    try {
+      // The folder name is the default title; a path that is not a folder fails here as it does in the RPC.
+      const title = input.title ?? basename(await directory(input.path)).slice(0, 120);
+      project = await create(projectInput.parse({ title, description: input.description ?? "", primaryPath: input.path }), paseo);
+    } catch (e) {
+      if (e instanceof ToolError || e instanceof z.ZodError) throw e;
+      throw new ToolError("PROJECT_REFUSED", e instanceof Error ? e.message : String(e));
+    }
+    return { projectId: project.id, title: project.title, path: project.primaryPath };
+  }
+
   /** Registers the dispatcher tools on a dispatcher credential's MCP server; nothing else is registered there. */
   register(mcp: McpServer, identity: DispatcherIdentity) {
     const inProject = <T extends { projectId: string }>(
@@ -360,6 +397,18 @@ export class DispatcherTools {
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       },
       (raw) => toolResult(() => this.updateIdea(identity, raw)),
+    );
+    // Not preapproved (dispatcherConfirmedToolNames): every call shows a permission prompt the user answers.
+    mcp.registerTool(
+      "flowly_create_project",
+      {
+        description:
+          "Create a Flowly project from an existing folder on this computer (usually a Git repository), as the user's Create project does: Flowly registers the folder with Paseo and adds the project to the board. Use only when the user asks for a project. Each call asks the user to confirm it. Returns the new projectId. PROJECT_REFUSED: the folder is missing or not a folder, it is already a Flowly project, it is the dispatcher's own folder, or Paseo refused it (the message says which). AGENT_CARDS_DISABLED: the user turned this off.",
+        inputSchema: dispatcherInputs.createProject,
+        outputSchema: createProjectResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      },
+      (raw) => toolResult(() => this.createProject(identity, raw)),
     );
   }
 }

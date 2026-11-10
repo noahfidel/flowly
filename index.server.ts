@@ -22,6 +22,7 @@ import { chipBoard } from "./server/chip-board";
 import { cardBoard } from "./server/card-board";
 import { boardOverview, OverviewDeltas } from "./server/board-overview";
 import { perfLine } from "./shared/perf";
+import type { ProjectInput } from "./shared/model";
 import { catalogs } from "./shared/i18n-all";
 import { deviceLocale, type LocaleCode } from "./shared/i18n";
 import { resolveAiLanguage } from "./shared/ai-language";
@@ -579,11 +580,14 @@ export default function contribute(host: PluginServerContext) {
   // A new project's check commands join its guardrails as observing (GUARDRAILS-SPEC §4.5); never blocks the creation.
   const detectCommands = (projectId: string) =>
     void guardrails.detect(projectId).catch((e) => logFailure("Flowly guardrail commands not detected:", e, projectId));
-  server.handle(rpc.createProject, async (input, { paseo }) => {
+  const createProject = async (input: ProjectInput, paseo: PaseoApi) => {
     const project = await service.createProject(input, paseo);
     detectCommands(project.id);
     return project;
-  });
+  };
+  server.handle(rpc.createProject, (input, { paseo }) => createProject(input, paseo));
+  // The dispatcher's flowly_create_project takes exactly the RPC's path (DISPATCHER-SPEC §5.2).
+  tools.dispatcherTools.createProjectWith = createProject;
   server.handle(rpc.createTask, (input, { paseo }) =>
     service.createTask(input, paseo),
   );

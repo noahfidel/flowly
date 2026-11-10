@@ -1,5 +1,14 @@
 # Implementation progress
 
+## Dispatcher creates projects, confirmed by the user (branch `feat/dispatcher-project-tools`) — 2026-11-10
+
+- `flowly_create_project { path, title?, description? }` → `{ projectId, title, path }` (DISPATCHER-SPEC §5.2): a single-directory project from an existing folder through the `projects.create` RPC's own function (`createProject` in `index.server.ts`, handed to `DispatcherTools.createProjectWith`): the same board service call, dispatcher-folder refusal, native registration, duplicate refusal and guardrail command detection. Default title: the folder's name. Refusals of that path are `PROJECT_REFUSED` with the RPC's message; the caller check and `AGENT_CARDS_DISABLED` come first. Linked multi-repo creation and restoring a folder's saved `.flowly/` project are not offered.
+- Ruling (Noah, 2026-11-10): project and board-group tools are not preapproved. `dispatcherConfirmedToolNames` sits beside `dispatcherToolNames` (the preapproved list, which is also what `savedTools` records and `missesTools` checks), so the new tool prompts in the dispatcher chat and never raises the new-tools or unguarded warning; a dispatcher started before it lists it from its server and prompts too.
+- Board groups tool: not built. Groups live in the host-scoped `board-view` settings, which the plugin's daemon side can only read (`registerSettings` returns `read`/`subscribe`); writing them the Settings screen's way needs the plugin's own `settings.board-view.write` RPC over the local daemon connection, a new local-daemon exception for the user to decide.
+- Charter: create a project only when the user asks, from the folder they name; each call is confirmed; on `PROJECT_REFUSED` tell the user.
+  - Checks: `npm run typecheck` exit 0; `npm test` exit 0 (193 files passed, 1 skipped; 1961 passed, 7 skipped). A first full run had one failure in `server/auto-review.test.ts` (ENOTEMPTY removing its temp folder; that file passes alone and in the rerun; not touched here). Unrun: a live dispatcher showing the permission prompt for `flowly_create_project` and creating a project (no plugin reload in this task).
+  - Onboarding and telemetry: no change (agent-facing tool; no UI, switch or heartbeat field). Strings: none (agent-facing text stays English).
+
 ## Board groups (branch `board-groups`) — 2026-11-10
 
 - Named groups of projects, stored in host `board-view.boardGroups` (BOARD-GROUPS-SPEC). A group's board is the All projects board with a narrower scope: `pickView` takes group view ids (`*group:<id>`), `liveProjects` becomes the group's live members, and the step-through queues/counts use one `boardScope` predicate (all / group / project). Pure logic in `client/board-groups.ts`.

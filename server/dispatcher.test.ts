@@ -8,7 +8,7 @@ import { dispatcherSessionIds } from "./dispatcher-items";
 import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
 import { agentFixture } from "./agent-fixture";
-import { dispatcherBuiltinTools, dispatcherCharter, dispatcherGuardVersion, dispatcherToolNames, dispatcherWithheldTools, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
+import { dispatcherBuiltinTools, dispatcherCharter, dispatcherConfirmedToolNames, dispatcherGuardVersion, dispatcherToolNames, dispatcherWithheldTools, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
 import type { BoardEvent } from "../shared/model";
 
 const directories: string[] = [];
@@ -948,6 +948,8 @@ test("a dispatcher saved with fewer tools than this build lists says a new one g
   expect(await status({ savedTools: dispatcherToolNames.slice(0, -1) })).toEqual({ state: "idle", agentId: "old", newTools: true });
   // Saved with this build's list: nothing to say.
   expect(await status({ savedTools: [...dispatcherToolNames] })).toEqual({ state: "idle", agentId: "old" });
+  // Tools the user confirms each time are never saved preapproved, so missing them is not news (ruling, Noah 2026-11-10).
+  for (const tool of dispatcherConfirmedToolNames) expect(dispatcherToolNames).not.toContain(tool);
   // Saved with the first eight, by name or marked true: the idea tools came later (§5.1), so a new session gets them.
   const firstEight = ["flowly_list_projects", "flowly_list_cards", "flowly_get_card", "flowly_create_card", "flowly_update_card", "flowly_start_card", "flowly_propose_idea", "flowly_link_cards"];
   expect(await status({ savedTools: firstEight })).toEqual({ state: "idle", agentId: "old", newTools: true });

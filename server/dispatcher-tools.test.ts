@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { ToolServer } from "./tool-server";
 import { agentFixture } from "./agent-fixture";
 import { changeLine } from "./dispatcher-items";
+import { BoardService } from "./service";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -23,6 +24,8 @@ const dispatcherTools = [
   "flowly_link_cards",
   "flowly_list_ideas",
   "flowly_update_idea",
+  // Not preapproved: the user confirms each call (ruling, Noah 2026-11-10).
+  "flowly_create_project",
 ];
 
 async function setup() {
@@ -264,6 +267,8 @@ test("the Agents create and edit cards switch turns off every dispatcher write",
     ["flowly_propose_idea", { title: "Nope", detail: "x", rationale: "y" }],
   ];
   for (const [name, args] of writes) expect(code(await d.call(name, { projectId: "q", ...args })), name).toBe("AGENT_CARDS_DISABLED");
+  // Creating a project is a write too, refused before the folder is looked at.
+  expect(code(await d.call("flowly_create_project", { path: x.root }))).toBe("AGENT_CARDS_DISABLED");
   expect(JSON.stringify(await x.store.read())).toBe(before);
   // Reads stay allowed.
   expect(code(await d.call("flowly_list_projects", {}))).toBeUndefined();
@@ -299,11 +304,16 @@ test("a new dispatcher saves its tools with every one preapproved, so they never
   expect(server.type).toBe("http");
   const fresh = await x.connect(server.headers.Authorization.replace(/^Bearer /, ""));
   expect(code(await fresh.call("flowly_list_projects", {}))).toBeUndefined();
-  // Exactly the tools that credential lists, each preapproved by name on that server; nothing else.
+  // The tools that credential lists, each preapproved by name on that server, except the ones the user confirms
+  // each time (flowly_create_project, ruling, Noah 2026-11-10); nothing else.
   const listed = (await fresh.names()).sort();
   const policy = x.policies[agentId] as { preapproved: { kind: string; server: string; tool: string }[] };
-  expect(policy.preapproved.map((g) => g.tool).sort()).toEqual(listed);
+  expect(policy.preapproved.map((g) => g.tool).sort()).toEqual(listed.filter((name) => name !== "flowly_create_project"));
+  expect(listed).toContain("flowly_create_project");
   expect(policy.preapproved.every((g) => g.kind === "mcp" && g.server === "flowly-dispatcher")).toBe(true);
+  // Its saved tools are the preapproved ones, so the tool it was not given shows no new-tools warning.
+  expect((await x.server.dispatcher.record()).savedTools).not.toContain("flowly_create_project");
+  expect(await x.server.dispatcher.status(x.paseo)).not.toHaveProperty("newTools");
 });
 
 test("the dispatcher starts only on a provider that can withhold the routes to a card's asks (ruling, Noah 2026-11-09)", async () => {
@@ -641,4 +651,88 @@ test("the dispatcher's own idea edits do not show in its changed-since line (DIS
   expect(changeLine(board, mark, ["disp"])).toBeNull();
   // The same events from another session would count.
   expect(changeLine(board, mark, ["someone-else"])?.kind).toBe("change");
+});
+
+/** flowly_create_project through the projects.create path (a real board service), natives listed by a fake Paseo. */
+async function withProjects() {
+  const x = await setup();
+  const service = new BoardService(x.store);
+  service.reservedRoot = (path) => x.server.dispatcher.ownsRoot(path);
+  const natives: { projectId: string; projectRootPath: string; projectDisplayName: string }[] = [];
+  const passed: unknown[] = [];
+  x.server.dispatcherTools.createProjectWith = (input, paseo) => {
+    passed.push(paseo);
+    return service.createProject(input, { ...(paseo as object), projects: { list: async () => ({ projects: natives }) } } as unknown as PaseoApi);
+  };
+  const folder = await realpath(await mkdtemp(join(x.root, "repo-")));
+  natives.push({ projectId: "native-new", projectRootPath: folder, projectDisplayName: "repo" });
+  return { ...x, natives, passed, folder, d: await x.connect(x.dispatcherToken) };
+}
+
+test("flowly_create_project creates a single-directory project through the projects.create path (DISPATCHER-SPEC §5.2)", async () => {
+  const x = await withProjects();
+  const created = await x.d.call("flowly_create_project", { path: x.folder, description: "Made by the dispatcher" });
+  expect(code(created)).toBeUndefined();
+  const { projectId, title, path } = created.structuredContent;
+  // The folder's name is the default title.
+  expect({ title, path }).toEqual({ title: basename(x.folder), path: x.folder });
+  expect(x.passed).toEqual([x.paseo]);
+  const project = (await x.store.read()).projects.find((p) => p.id === projectId);
+  expect(project).toMatchObject({
+    title: basename(x.folder),
+    description: "Made by the dispatcher",
+    paseoProjectId: "native-new",
+    primaryPath: x.folder,
+    repos: [x.folder],
+    revision: 1,
+    archivedAt: null,
+    autoReview: { enabled: true, maxRounds: 2 },
+  });
+  // It is a live project the dispatcher can read and write in at once.
+  expect((await x.d.call("flowly_list_projects", {})).structuredContent.projects).toContainEqual({ projectId, title, rootAvailable: true, openCards: 0 });
+  // A given title wins.
+  const other = await realpath(await mkdtemp(join(x.root, "repo-")));
+  x.natives.push({ projectId: "native-other", projectRootPath: other, projectDisplayName: "other" });
+  const named = await x.d.call("flowly_create_project", { path: other, title: "  Named  " });
+  expect(named.structuredContent).toMatchObject({ title: "Named", path: other });
+});
+
+test("flowly_create_project refuses what the projects.create RPC refuses, and writes nothing (DISPATCHER-SPEC §5.2)", async () => {
+  const x = await withProjects();
+  expect(code(await x.d.call("flowly_create_project", { path: x.folder }))).toBeUndefined();
+  const before = JSON.stringify((await x.store.read()).projects);
+  const refused = async (args: Record<string, unknown>, message: string) => {
+    const result = await x.d.call("flowly_create_project", args);
+    expect(code(result), message).toBe("PROJECT_REFUSED");
+    expect(result.structuredContent.error.message).toContain(message);
+  };
+  // The same folder again: its native project is already on the board.
+  await refused({ path: x.folder, title: "Again" }, "already linked");
+  // A missing folder, and a file.
+  await refused({ path: join(x.root, "no-such-folder") }, "Expected an existing directory.");
+  await refused({ path: join(x.root, "no-such-folder"), title: "Named" }, "Expected an existing directory.");
+  const file = join(x.root, "a-file");
+  await writeFile(file, "x");
+  await refused({ path: file }, "Expected an existing directory.");
+  // The dispatcher's own folder (DISPATCHER-SPEC §2).
+  await refused({ path: join(x.root, "paseo-home", "flowly-dispatcher", "dispatcher") }, "Flowly dispatcher's folder");
+  // Bad input is the schema's refusal: no path, an over-long title, linked-project fields.
+  expect((await x.d.call("flowly_create_project", {})).isError).toBe(true);
+  expect((await x.d.call("flowly_create_project", { path: x.folder, title: "x".repeat(121) })).isError).toBe(true);
+  expect((await x.d.call("flowly_create_project", { path: x.folder, links: [x.folder] })).isError).toBe(true);
+  expect(JSON.stringify((await x.store.read()).projects)).toBe(before);
+});
+
+test("flowly_create_project is checked like every dispatcher write: replaced dispatcher, the switch, a card token (DISPATCHER-SPEC §4)", async () => {
+  const x = await withProjects();
+  const before = JSON.stringify((await x.store.read()).projects);
+  // A token of a replaced dispatcher.
+  const stale = await x.connect(x.server.secrets.dispatcherCredential({ agentId: "old", workspaceId: "dw" }));
+  expect(code(await stale.call("flowly_create_project", { path: x.folder }))).toBe("DISPATCHER_REPLACED");
+  // The Agents create and edit cards switch.
+  x.server.cards.on = async () => false;
+  expect(code(await x.d.call("flowly_create_project", { path: x.folder }))).toBe("AGENT_CARDS_DISABLED");
+  x.server.cards.on = async () => true;
+  expect(x.passed).toEqual([]);
+  expect(JSON.stringify((await x.store.read()).projects)).toBe(before);
 });
