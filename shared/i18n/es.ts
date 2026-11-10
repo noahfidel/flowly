@@ -127,6 +127,8 @@ const catalog: Catalog = {
   "Refresh": "Actualizar",
   "Done": "Hecho",
   "Needs attention": "Requiere atención",
+  "Step through what needs you": "Recorrer lo que te necesita",
+  "Step through what's new to read": "Recorrer lo nuevo por leer",
   "Nothing needs your attention.": "Nada requiere tu atención.",
   "{n} questions": {"one": "{n} pregunta", "other": "{n} preguntas"},
   "{n} approvals": {"one": "{n} aprobación", "other": "{n} aprobaciones"},

@@ -127,6 +127,8 @@ const catalog: Catalog = {
   "Refresh": "새로고침",
   "Done": "완료",
   "Needs attention": "확인 필요",
+  "Step through what needs you": "확인이 필요한 카드 차례로 보기",
+  "Step through what's new to read": "새로 읽을 카드 차례로 보기",
   "Nothing needs your attention.": "확인이 필요한 항목이 없습니다.",
   "{n} questions": "질문 {n}개",
   "{n} approvals": "승인 요청 {n}개",

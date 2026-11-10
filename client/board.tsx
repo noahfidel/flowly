@@ -1829,6 +1829,10 @@ function BoardContent(
         if (!project && !allView) return false;
         startNeeds();
         return true;
+      case "updated":
+        if (!project && !allView) return false;
+        startUpdated();
+        return true;
       case "projects":
       case "shortcuts":
         setMenu(intent);
@@ -2171,6 +2175,7 @@ function BoardContent(
             onNeedYou={startNeeds}
             updated={updatedIds.length}
             onUpdated={startUpdated}
+            updatedShortcut={shortcutsOn ? "U" : ""}
             onInsights={features.insights ? () => togglePage("insights") : undefined}
             insightsShortcut={shortcutsOn ? "I" : ""}
             openIdeas={ideasOn ? projectOpenIdeas : null}

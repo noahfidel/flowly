@@ -25,7 +25,8 @@
 | `P` | 打开项目切换弹层 | — |
 | `/` 或 `F` | 打开筛选/搜索弹层 | 存在当前项目 |
 | `S` | 打开 / 关闭 Search 页（SEARCH-SPEC §5） | 存在当前项目 |
-| `A` | 打开 Needs attention 弹层 | — |
+| `A` | 开始“N need you”逐张处理（与概览栏该按钮相同，`startStep("needs")`；帮助行 “Step through what needs you”） | 存在当前项目或 All projects |
+| `U` | 开始“N updated”逐张阅读（与概览栏该按钮相同，`startStep("updated")` 与 `stepStartTarget` 的重按规则；等待看板和 session 加载；无内容时 toast “Nothing new to read.”；帮助行 “Step through what's new to read”；该按钮显示快捷键提示 “U”）。Ruling (Noah, 2026-11-10) | 存在当前项目或 All projects |
 | `D` | 打开左侧 Dispatcher 聊天停靠栏并聚焦消息框；已打开时只聚焦消息框。`D` 从不关闭停靠栏，只有 `Esc` 关闭（Ruling, Noah 2026-11-09）；焦点在消息框内时输入 “d” | 看板有停靠栏（项目或 All projects） |
 | `?` | 打开快捷键帮助弹层 | — |
 | `Esc` | 作用于用户所在的区域（Ruling, Noah 2026-11-09）：先是打开的弹层；然后若停靠栏是活动区域（消息框获得焦点或在停靠栏内按下，之后未在看板别处按下）：消息框聚焦且有草稿 → 仅失焦（草稿保留，停靠栏仍为活动区域），否则关闭停靠栏并把焦点还给看板；再然后依次：侧栏在 session 预览中 → 返回卡片详情；侧栏在详情 → 关闭侧栏；在项目页 → 离开（停靠栏保持打开） | 见左 |

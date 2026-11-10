@@ -10,6 +10,7 @@ export type ShortcutAction =
   | "projects"
   | "filters"
   | "attention"
+  | "updated"
   | "shortcuts"
   | "welcome"
   | "escape"
@@ -38,7 +39,8 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["P"], title: msg("Switch project") },
   { keys: ["S"], title: msg("Search") },
   { keys: ["/", "F"], title: msg("Search and filter") },
-  { keys: ["A"], title: msg("Needs attention") },
+  { keys: ["A"], title: msg("Step through what needs you") },
+  { keys: ["U"], title: msg("Step through what's new to read") },
   { keys: ["I"], title: msg("Project insights") },
   { keys: ["B"], title: msg("Project ideas") },
   { keys: ["G"], title: msg("Guardrails") },
@@ -59,6 +61,7 @@ const letters: Record<string, ShortcutAction> = {
   p: "projects",
   f: "filters",
   a: "attention",
+  u: "updated",
   j: "next",
   k: "previous",
   h: "left",

@@ -17,6 +17,7 @@ export function OverviewBar({
   onNeedYou,
   updated,
   onUpdated,
+  updatedShortcut,
   onInsights,
   insightsShortcut,
   openIdeas,
@@ -36,6 +37,7 @@ export function OverviewBar({
   /** Cards the dispatcher saw change since you looked (§9.2); never part of needYou. */
   updated: number;
   onUpdated(): void;
+  updatedShortcut: string;
   /** Open project Insights (PROJECT-INSIGHTS-SPEC §9). */
   /** Absent when Insights is off (ONBOARDING-SETUP-SPEC §6). */
   onInsights?(): void;
@@ -91,7 +93,7 @@ export function OverviewBar({
           </Chip>
         )}
         {row.updated && (
-          <Chip label={tn(updated, "{n} card has something new to read. Step through it", "{n} cards have something new to read. Step through them")} icon={<Dot size={7} color={colors.accent} />} onPress={onUpdated}>
+          <Chip label={`${tn(updated, "{n} card has something new to read. Step through it", "{n} cards have something new to read. Step through them")}${updatedShortcut ? ` (${updatedShortcut})` : ""}`} icon={<Dot size={7} color={colors.accent} />} onPress={onUpdated}>
             {t("{n} updated", { n: updated })}
           </Chip>
         )}

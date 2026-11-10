@@ -24,6 +24,12 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "/" }, true)).toBe("filters");
     expect(resolveShortcut({ key: "f" }, true)).toBe("filters");
     expect(resolveShortcut({ key: "a" }, true)).toBe("attention");
+    expect(resolveShortcut({ key: "u" }, true)).toBe("updated");
+    expect(resolveShortcut({ key: "U" }, true)).toBe("updated");
+    expect(resolveShortcut({ key: "u", metaKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "u" }, false)).toBeNull();
+    expect(shortcutHelp.find((row) => row.keys.includes("A"))?.title).toBe("Step through what needs you");
+    expect(shortcutHelp.find((row) => row.keys.includes("U"))?.title).toBe("Step through what's new to read");
     expect(resolveShortcut({ key: "?", shiftKey: true }, true)).toBe("shortcuts");
     expect(resolveShortcut({ key: "Escape" }, true)).toBe("escape");
     expect(resolveShortcut({ key: "j" }, true)).toBe("next");

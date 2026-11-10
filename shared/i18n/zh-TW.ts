@@ -127,6 +127,8 @@ const catalog: Catalog = {
   "Refresh": "重新整理",
   "Done": "已完成",
   "Needs attention": "需要關注",
+  "Step through what needs you": "逐一查看需要你處理的卡片",
+  "Step through what's new to read": "逐一查看有新內容待讀的卡片",
   "Nothing needs your attention.": "沒有需要你關注的事項。",
   "{n} questions": "{n} 個問題",
   "{n} approvals": "{n} 個授權請求",
