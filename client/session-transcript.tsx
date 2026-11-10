@@ -75,6 +75,8 @@ type TranscriptProps = {
   requests: readonly PendingRequest[];
   requestsDisabled: boolean;
   onRespond(request: PendingRequest, reply: PermissionReply): void;
+  /** Opens the session in Paseo from an approval's link; absent when the host cannot. */
+  onOpenInPaseo?: () => void;
   /** The composer's keyboard lift (native driver, negative = up); the transcript moves with it. */
   lift: Animated.AnimatedInterpolation<number> | Animated.AnimatedMultiplication<number>;
   /** The settled lift, for reaching the oldest output while the keyboard is up. */
@@ -114,6 +116,7 @@ function SessionTranscriptView({
   requests,
   requestsDisabled,
   onRespond,
+  onOpenInPaseo,
   lift,
   inset,
   onStreamError,
@@ -308,7 +311,7 @@ function SessionTranscriptView({
   const asking =
     showOutput && requests.length ? (
       <View style={{ paddingTop: blocks.length ? space[4] : 0 }}>
-        <PendingRequests requests={requests} disabled={requestsDisabled} onRespond={onRespond} />
+        <PendingRequests requests={requests} disabled={requestsDisabled} onRespond={onRespond} onOpenInPaseo={onOpenInPaseo} />
       </View>
     ) : null;
   const bottom =

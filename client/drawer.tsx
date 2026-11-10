@@ -425,6 +425,7 @@ function TaskDrawerView({
     composer.saveDraft(task.id, id, text, expected !== undefined);
   });
   const backToTask = useStableCallback(() => setSelected(""));
+  const openInPaseo = useStableCallback((id: string) => openNativeSession(navigation, id, hostId));
   // A subagent picked from the session view's chip opens here when it is one of this card's sessions.
   const openCardSession = useStableCallback((sessionId: string) => {
     if (!sessions.data?.some((a) => a.id === sessionId)) return false;
@@ -1079,6 +1080,7 @@ function TaskDrawerView({
                 disabled={!active || sending || !!pendingSessions[a.id] || a.providerUnavailable || !!task.archivedAt}
                 onRespond={respondInCard}
                 onOpen={openSession}
+                onOpenInPaseo={typeof navigation?.openAgent === "function" ? openInPaseo : undefined}
               />
             ))}
             {releasePending && <ReleaseNotice disabled={!active} onRelease={() => setShowRelease(true)} />}
@@ -1265,6 +1267,7 @@ const CardRequests = memo(function CardRequests({
   disabled,
   onRespond,
   onOpen,
+  onOpenInPaseo,
 }: {
   agentId: string;
   title: string;
@@ -1273,8 +1276,10 @@ const CardRequests = memo(function CardRequests({
   disabled: boolean;
   onRespond(agentId: string, request: PendingRequest, reply: PermissionReply): void;
   onOpen(agentId: string): void;
+  onOpenInPaseo?: (agentId: string) => void;
 }) {
   const { colors } = useTheme();
+  const openNative = useMemo(() => (onOpenInPaseo ? () => onOpenInPaseo(agentId) : undefined), [agentId, onOpenInPaseo]);
   const respond = useCallback(
     (request: PendingRequest, reply: PermissionReply) => onRespond(agentId, request, reply),
     [agentId, onRespond],
@@ -1291,7 +1296,7 @@ const CardRequests = memo(function CardRequests({
         </View>
         <Button quiet icon="MessageSquare" onPress={() => onOpen(agentId)}>{t("Open")}</Button>
       </View>
-      <PendingRequests requests={requests} disabled={disabled} onRespond={respond} />
+      <PendingRequests requests={requests} disabled={disabled} onRespond={respond} onOpenInPaseo={openNative} />
     </View>
   );
 });

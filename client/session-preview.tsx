@@ -441,6 +441,7 @@ function SessionPreviewView({
     if (onOpenSession?.(agentId)) return;
     if (typeof navigation?.openAgent === "function") openNativeSession(navigation, agentId, hostId);
   });
+  const openInPaseo = useStableCallback(() => openNativeSession(navigation, sessionId, hostId));
   // Takes a queued message out of the queue and into the input (appended to what is already typed).
   const withdraw = (m: { id: string; text: string }) =>
     void composer.remove(sessionId, m.id).then(
@@ -744,6 +745,7 @@ function SessionPreviewView({
         requests={requests}
         requestsDisabled={!canWrite || busy}
         onRespond={respond}
+        onOpenInPaseo={typeof navigation?.openAgent === "function" ? openInPaseo : undefined}
         lift={keyboard.translate}
         inset={keyboard.inset}
         onStreamError={setError}

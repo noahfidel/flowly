@@ -73,6 +73,11 @@
 - New host setting *Archive review cards when the PR closes* (`archiveOnClose` in the `pr-review-cards` record, on by default), next to *Make cards for PR review agents*; 1 new string in all catalogs.
 - `flowly_archive_card { projectId, taskId, archived = true, reason? }` (DISPATCHER-SPEC §5), dispatcher only, preapproved (in `dispatcherToolNames`, so a running dispatcher shows the new-tools notice until replaced). `flowly_list_cards` cards carry `prRef` when set (card sessions see it too). Charter: archive only when the user asks. The dispatcher test's name guard (`/replace|archive|dispatcher/`) was narrowed to `/replace|dispatcher|archive_(session|agent|workspace)/`: the ruling it guards is about archiving the dispatcher, not cards.
 - Onboarding: no tour change or tip (a background tidy-up with a default-on switch; existing users see no new flow). Telemetry: no heartbeat field.
+## Approval requests show their details (card "show the request details") — 2026-11-10
+
+- The approval form (SESSION-QUESTION-SPEC §2) now shows what the request asks to do, from `request.input`: Bash command, Edit/MultiEdit/Write changes, a plan's markdown (`input.plan`, verified in Paseo's Claude provider), other input as JSON behind Show details. Blocks scroll inside themselves (max 240) so Allow/Deny stay visible. "Open in Paseo for the full details." became an **Open in Paseo** link (`navigation.openAgent`, hidden when absent) in the session view and the card drawer. Pure parser `approvalDetail` in `shared/permission-question.ts` with unit tests.
+- Strings: 3 new, 1 removed, all 9 catalogs. Onboarding: no change (the tour already says approvals are answered on the card or in the session); no tip. Telemetry: no field.
+- Checks: `npm run typecheck` exit 0; `npm test` exit 0 (194 files passed, 1 skipped; 1971 passed, 7 skipped). Unrun: live check in the session view and drawer, long-content scroll, plan approval, phone layout.
 
 ## Dispatcher creates projects, confirmed by the user (branch `feat/dispatcher-project-tools`) — 2026-11-10
 
