@@ -86,7 +86,8 @@ function DismissButton({ item, onChanged }: { item: AskItem; onChanged(): void }
         void dismiss({ signal: item.signal })
           .then(() => {
             markAsksAnswered([item.signal]);
-            toast.show(t("Snoozed. It comes back when something new happens."), { variant: "success" });
+            // An ended session has nothing that could bring it back: only a live ask promises that.
+            if (item.state === "open") toast.show(t("Snoozed. It comes back when something new happens."), { variant: "success" });
             onChanged();
           }, () => onChanged())
           .finally(() => setBusy(false));

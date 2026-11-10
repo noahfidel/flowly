@@ -423,7 +423,7 @@ Auto review                                   [开]
 
 ### 9.4 Attention
 
-- 新原因：review failed、review unavailable（只在卡片还停在该评审留下的位置时）。信号 key `review:<state>:<startedAt>`，供 Dismiss 判断“有新信号”（ATTENTION-DISMISS-SPEC §2.2）。Review failed 与提问、权限一样排在前面。
+- 新原因：review failed、review unavailable（只在卡片还停在该评审留下的位置时）。信号 key `review:<state>:<startedAt>`，供 Snooze 判断“有新信号”（ATTENTION-DISMISS-SPEC，信号 key 表；属于 Needs you 一侧）。Review failed 与提问、权限一样排在前面。
 - 通过不是单独的原因：评审期间压住的未读在通过后放开，Mark as read 照常清掉。
 
 ### 9.5 Insights 页

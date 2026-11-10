@@ -43,7 +43,7 @@ Per list, independently:
 
 - Snoozing a list stores that list's current keys.
 - A signal is snoozed when its key is in its list's stored set.
-- A list of a card is snoozed while the card has at least one current key of that list and all of them are stored. Any new key in that list brings that list back: every current signal of that list shows again, and the other list is untouched.
+- A list of a card is snoozed while the card has at least one current key of that list and all of them are stored. Any new key in that list brings that list back, and the other list is untouched. Asks whose own key was snoozed stay out of the counts and queues; only the new ones count.
 - Signals that disappear naturally (question answered, permission handled, session read) leave the rule unchanged.
 - A later snooze of the same list replaces that list's set. Unsnooze removes the card's record (both lists).
 - With read state unavailable, unread signals are not counted and the rule is unchanged.
@@ -99,7 +99,7 @@ attentionDismissals: [{
 - Records are deleted with the card (permanent delete, project Remove) and kept on archive.
 - No board, task or project revision change and no Activity event, but the board etag changes so other clients sync on their next read.
 - Files without the field read as `[]`. Board version unchanged.
-- **Migration:** a legacy record `{ taskId, signals, dismissedAt }` (one flat set) is read as snoozed in both lists: its non-`u:` keys become `needs`, its `u:` keys become `updated`, each list with `snoozedAt = dismissedAt` and omitted when empty. Nothing a card had hidden reappears or vanishes. The new shape is written on the record's next write.
+- **Migration:** a legacy record `{ taskId, signals, dismissedAt }` (one flat set) is read as snoozed in both lists: its non-`u:` keys become `needs`, its `u:` keys become `updated`, each list with `snoozedAt = dismissedAt` and omitted when empty. Nothing a card had hidden reappears or vanishes. The new shape is written on the next write of the board. The migration is one-way: an older Flowly cannot read the new record shape and refuses the board, so before going back to an older version, Unsnooze every card or restore a backup of the board from before the upgrade.
 
 ## 5. RPC
 
