@@ -1619,7 +1619,7 @@ const catalog: Catalog = {
   "Board groups": "看板分组",
   "Group name": "分组名称",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly 会从你退回卡片的原因中学习（同一问题出现在第二张卡片时会成为项目准则），记忆也不再需要确认。",
-  "All projects shows every project's cards on one board.": "所有项目会在一个看板上显示每个项目的卡片。",
+  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "“所有项目”在一个看板上显示所有项目的卡片。可在 设置 → 工作流 中关闭。",
   "Inherit: {value}": "继承：{value}",
   "Default group": "默认分组",
   "New projects join it.": "新项目会加入这个分组。",
@@ -1632,5 +1632,6 @@ const catalog: Catalog = {
   "Groups and projects can override it.": "分组和项目可以覆盖它。",
   "Groups can override it.": "分组可以覆盖它。",
   "Group {name} deleted": "分组 {name} 已删除",
+  "Remove “{title}”…": "移除“{title}”…",
 };
 export default catalog;

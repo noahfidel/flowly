@@ -1619,7 +1619,7 @@ const catalog: Catalog = {
   "Board groups": "Группы досок",
   "Group name": "Название группы",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly учится на причинах, по которым вы возвращаете карточки (вторая карточка с той же проблемой становится правилом проекта), а память больше не требует подтверждения.",
-  "All projects shows every project's cards on one board.": "«Все проекты» показывает карточки всех проектов на одной доске.",
+  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "«Все проекты» показывает карточки всех проектов на одной доске. Отключается в Настройки → Рабочий процесс.",
   "Inherit: {value}": "Наследовать: {value}",
   "Default group": "Группа по умолчанию",
   "New projects join it.": "Новые проекты попадают в неё.",
@@ -1632,5 +1632,6 @@ const catalog: Catalog = {
   "Groups and projects can override it.": "Группы и проекты могут его переопределить.",
   "Groups can override it.": "Группы могут его переопределить.",
   "Group {name} deleted": "Группа «{name}» удалена",
+  "Remove “{title}”…": "Удалить «{title}»…",
 };
 export default catalog;

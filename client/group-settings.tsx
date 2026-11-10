@@ -23,7 +23,8 @@ type GroupDefaultsEdit = { agentModel?: AgentModel | null; deliveryMode?: Delive
 /**
  * Group settings (BOARD-GROUPS-SPEC §5): the group's name, the Default flag, its defaults (new-card model, delivery
  * mode, dispatcher model), its member projects with a move to another group, one section per project, Add group and
- * Delete group…. `groupId` null opens on Add group; a created group opens here.
+ * Delete group…. `groupId` null opens on Add group; a created group opens here. Each project's section also offers
+ * Restore (archived projects) and Remove…, which the project switcher had before group tabs (3/7).
  */
 export function GroupSettings({
   groupId: initialId,
@@ -34,6 +35,7 @@ export function GroupSettings({
   reviewOn,
   onClose,
   onChanged,
+  onRemoveProject,
 }: {
   groupId: string | null;
   /** The board's groups and projects (archived ones too), from the overview. */
@@ -48,12 +50,15 @@ export function GroupSettings({
   onClose(): void;
   /** After a write: the board rereads its overview. */
   onChanged(): void;
+  /** Remove…: the board closes this page and opens its Remove project dialog. */
+  onRemoveProject(project: Project): void;
 }) {
   const theme = useTheme();
   const toast = useToast();
   const update = useRpc(rpc.updateGroup),
     remove = useRpc(rpc.deleteGroup),
-    setProjectGroup = useRpc(rpc.setProjectGroup);
+    setProjectGroup = useRpc(rpc.setProjectGroup),
+    updateProject = useRpc(rpc.updateProject);
   const modelPrefs = useSettings(modelSettings);
   const models = modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null;
   const hostModel = agentModelFromValues(models);
@@ -91,6 +96,14 @@ export function GroupSettings({
       const live = latestProjects.current.find((x) => x.id === p.id) ?? p;
       await setProjectGroup({ projectId: p.id, revision: currentRevision(live, savedRevisions.current[p.id]), groupId: to });
     });
+  // Restore, as the project switcher does: archiving was folded into Remove; older archived projects can still come back.
+  const restoreProject = (p: Project) =>
+    write(async () => {
+      const live = latestProjects.current.find((x) => x.id === p.id) ?? p;
+      const saved = await updateProject({ id: p.id, revision: currentRevision(live, savedRevisions.current[p.id]), archived: false });
+      savedRevisions.current[saved.id] = Math.max(savedRevisions.current[saved.id] ?? 0, saved.revision);
+    });
+  const removeProject = (p: Project) => guard(() => onRemoveProject(latestProjects.current.find((x) => x.id === p.id) ?? p));
   // Gone (deleted elsewhere): nothing left to show.
   useEffect(() => {
     if (groupId && !group) onClose();
@@ -213,8 +226,11 @@ export function GroupSettings({
                     laneCounts={laneCounts(p.id)}
                     initiallyOpen={p.id === focusProjectId}
                     reviewOn={reviewOn && p.id === focusProjectId}
+                    busy={busy}
                     onSaved={projectSaved}
                     onDirty={reportDirty}
+                    onRestore={() => restoreProject(p)}
+                    onRemove={() => removeProject(p)}
                   />
                 ))}
               </>
@@ -363,16 +379,23 @@ function ProjectSection({
   laneCounts,
   initiallyOpen,
   reviewOn,
+  busy,
   onSaved,
   onDirty,
+  onRestore,
+  onRemove,
 }: {
   project: Project;
   group: Group;
   laneCounts: Partial<Record<Status, number>>;
   initiallyOpen: boolean;
   reviewOn?: boolean;
+  /** A page write (move, restore) is running. */
+  busy: boolean;
   onSaved(project: Project): void;
   onDirty(projectId: string, dirty: boolean): void;
+  onRestore(): void;
+  onRemove(): void;
 }) {
   const [open, setOpen] = useState(initiallyOpen);
   // The project the fields were seeded from; a save or Cancel seeds them again.
@@ -401,6 +424,9 @@ function ProjectSection({
       }}
       onDirty={onDirty}
       onReseed={() => reseed(latest)}
+      busy={busy}
+      onRestore={onRestore}
+      onRemove={onRemove}
     />
   );
 }
@@ -418,6 +444,9 @@ function ProjectEditor({
   onSaved,
   onReseed,
   onDirty,
+  busy,
+  onRestore,
+  onRemove,
 }: {
   project: Project;
   title: string;
@@ -431,6 +460,9 @@ function ProjectEditor({
   onSaved(project: Project): void;
   onReseed(): void;
   onDirty(projectId: string, dirty: boolean): void;
+  busy: boolean;
+  onRestore(): void;
+  onRemove(): void;
 }) {
   const state = useProjectSettings(project);
   // Report unsaved edits to the page; an unmounted editor (moved, reseeded) has none.
@@ -462,6 +494,23 @@ function ProjectEditor({
             {state.pending ? t("Saving…") : t("Save project")}
           </Button>
         </Actions>
+        <SettingsGroup>
+          {archived && (
+            <SettingRow
+              title={t("Restore {title}", { title })}
+              // Save or cancel first: a restore changes the revision these fields would save with.
+              disabled={busy || state.pending || state.dirty}
+              onPress={onRestore}
+              trailing={<Icon name="ArchiveRestore" size={16} />}
+            />
+          )}
+          <SettingRow
+            title={t("Remove “{title}”…", { title })}
+            disabled={busy || state.pending}
+            onPress={onRemove}
+            trailing={<Icon name="Trash2" size={16} />}
+          />
+        </SettingsGroup>
       </View>
     </Disclosure>
   );

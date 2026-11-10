@@ -177,7 +177,7 @@ const tipText: Record<TipId, (compact?: boolean) => string> = {
   "jira-connect": () => t("Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them."),
   connectors: () => t("The Artifacts + now adds Confluence pages and GitHub or GitLab issues and pull requests too, besides files, links and Jira tickets. Connect services in Settings → Connections."),
   "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
-  "all-projects": () => t("All projects shows every project's cards on one board."),
+  "all-projects": () => t("All projects shows every project's cards on one board. Settings → Workflow turns it off."),
   subagents: () => t("When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo."),
   "summary-models": () => t("Choose summary models and their fallback order in Settings → Models. The default is Haiku, then Luna."),
   "ai-language": () => t("AI-written text follows Settings → AI features → AI output language. It starts as your interface language."),
@@ -2972,6 +2972,11 @@ function BoardContent(
             reviewOn={groupSettings.reviewOn}
             onClose={() => setGroupSettings(null)}
             onChanged={refresh}
+            onRemoveProject={(p) => {
+              // One dialog at a time: the Remove dialog opens once this page has closed.
+              setGroupSettings(null);
+              afterModalClose(() => setRemoving(p));
+            }}
           />
         )}
         {taskForm && formProject && (

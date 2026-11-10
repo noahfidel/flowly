@@ -1619,7 +1619,7 @@ const catalog: Catalog = {
   "Board groups": "보드 그룹",
   "Group name": "그룹 이름",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly는 카드를 돌려보낸 이유에서 배웁니다(같은 문제의 두 번째 카드는 프로젝트 지침이 됩니다). 또한 메모리는 더 이상 확인이 필요 없습니다.",
-  "All projects shows every project's cards on one board.": "모든 프로젝트는 모든 프로젝트의 카드를 한 보드에 보여 줍니다.",
+  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "'모든 프로젝트'는 모든 프로젝트의 카드를 한 보드에 표시합니다. 설정 → 워크플로에서 끌 수 있습니다.",
   "Inherit: {value}": "상속: {value}",
   "Default group": "기본 그룹",
   "New projects join it.": "새 프로젝트는 이 그룹에 들어갑니다.",
@@ -1632,5 +1632,6 @@ const catalog: Catalog = {
   "Groups and projects can override it.": "그룹과 프로젝트에서 바꿀 수 있습니다.",
   "Groups can override it.": "그룹에서 바꿀 수 있습니다.",
   "Group {name} deleted": "그룹 {name}을(를) 삭제했습니다",
+  "Remove “{title}”…": "“{title}” 제거…",
 };
 export default catalog;

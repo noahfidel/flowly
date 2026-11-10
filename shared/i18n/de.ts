@@ -1619,7 +1619,7 @@ const catalog: Catalog = {
   "Board groups": "Board-Gruppen",
   "Group name": "Gruppenname",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly lernt aus dem, wofür du Karten zurückschickst (die zweite Karte mit demselben Problem wird zur Projektrichtlinie), und Gedächtnis muss nicht mehr bestätigt werden.",
-  "All projects shows every project's cards on one board.": "Alle Projekte zeigt die Karten aller Projekte auf einem Board.",
+  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "Alle Projekte zeigt die Karten aller Projekte auf einem Board. Unter Einstellungen → Workflow abschaltbar.",
   "Inherit: {value}": "Erben: {value}",
   "Default group": "Standardgruppe",
   "New projects join it.": "Neue Projekte kommen in diese Gruppe.",
@@ -1632,5 +1632,6 @@ const catalog: Catalog = {
   "Groups and projects can override it.": "Gruppen und Projekte können ihn überschreiben.",
   "Groups can override it.": "Gruppen können ihn überschreiben.",
   "Group {name} deleted": "Gruppe {name} gelöscht",
+  "Remove “{title}”…": "„{title}“ entfernen …",
 };
 export default catalog;

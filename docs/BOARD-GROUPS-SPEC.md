@@ -167,14 +167,22 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 
 ## 5. Settings
 
-- **Group settings page** (from the tab menu, the switcher and the board's toolbar; replaces Settings → Workflow →
-  Board groups): the group's name, the Default flag, **Defaults** (new-card model, mode and thinking level;
+- **Group settings page** (from the tab menu's **Group settings**, the switcher's **Group settings** row for the
+  shown group and the empty-group hint; replaces Settings → Workflow → Board groups): the group's name, the Default flag, **Defaults** (new-card model, mode and thinking level;
   delivery mode; dispatcher model), the member projects (move a project to another group; archived ones shown
   muted), then **one section per project** holding that project's settings as the project form has them today
   (name, root, lanes, auto status, workpad, Linear, guardrail commands, auto review and its rework limit, memory,
   its own model default). Name, root, lanes and the repo-bound settings stay per project; there is no base branch
   or worktree setup stored per project today (the base ref is per card, worktree versus directory is a host
-  setting, setup is the repo's `paseo.json`) and none is added here.
+  setting, setup is the repo's `paseo.json`) and none is added here. Each project's section also has **Restore
+  {project}** (archived projects only; `projects.update` with `archived: false`) and **Remove “{project}”…**, which
+  closes the page and opens the Remove project dialog (PROJECT-REMOVE-SPEC); they replace the switcher's former
+  project rows. Unsaved edits in another section ask to be discarded first.
+- **Entry:** every entry opens the page through one board entry point, `onGroupSettings(groupId, focus?)`: `focus`
+  opens one project's section. The tab menu and the switcher row open their group with the filtered project's
+  section open when the board is filtered to a project of that group (§4); What's new's *Turn on for this project*
+  opens the project's section with Auto review switched on. A project whose group is not on the board yet (a cold
+  link's board, before the overview) keeps the Edit project dialog.
 - **Defaults chain:** `effectiveAgentModel` (`shared/agent-defaults.ts`) extends to host → group → project: the
   project's `agentModel` wins, then the group's `defaults.agentModel`, then the host's `models.default*`. Delivery
   mode: the card's, then the project's (new optional override), then the group's, then the host's
@@ -185,17 +193,10 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 - **New task delivery mode:** the New task form shows the mode the chain gives (card, project, group, host) and
   stores it as the card's own mode (the unchanged DELIVERY-MODE-SPEC §2 rule). Only cards without a stored mode
   (agent-created) resolve lazily, following later changes to their project's, group's and host's default.
-- **Add and delete groups** (ruling, Noah 2026-11-10): from 2/7 on, **Add group** is on the group settings page and
-  in the switcher, and **Delete group…** on the group settings page (not for the default group; the confirm says its
-  projects move to the default group and its dispatcher, if it has one, is archived). `GROUP_BUSY` and
-  `DISPATCHER_UNAVAILABLE` refusals show on the page.
-- **Interim until group tabs (3/7):** the board still shows project tabs and the v1 view groups. The project tab
-  menu's **Group settings** and the toolbar's settings button open the project's group with that project's section
-  open; the switcher's **Edit {project}** does the same, and the switcher adds **Group settings** (the current
-  project's group, else the default group) and **Add group**. What's new's *Turn on for this project* opens the
-  project's section with Auto review switched on. A project with no group on the board (before the migration has
-  run) keeps the Edit project dialog. With *Show All projects tab* gone, the All tab follows its stored value until
-  3/7 retires it.
+- **Add and delete groups** (ruling, Noah 2026-11-10): **Add group** is on the group settings page and in the
+  switcher, and **Delete group…** on the group settings page and in the tab menu (not for the default group; the
+  confirm says its projects move to the default group and its dispatcher, if it has one, is archived). `GROUP_BUSY`
+  and `DISPATCHER_UNAVAILABLE` refusals show on the page. Renaming a group is the page's name field.
 - **Interim dispatcher model until per-group dispatchers (5/7):** the one dispatcher uses the dispatcher model
   default of the group §7 step 4 would move it to (`dispatcherTarget`), then the host's.
 
