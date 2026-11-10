@@ -1,5 +1,16 @@
 # Implementation progress
 
+## Board groups v2, 5/7: one dispatcher per group — 2026-11-10
+
+- Task 5 of the board groups v2 plan (DISPATCHER-SPEC, BOARD-GROUPS-SPEC §6, §7 step 4). DISPATCHER-SPEC's §0 list is folded into §1–§10 and deleted.
+- Record v2 (`groups` map, global `previousAgentIds` capped at 100, `unassigned`, `legacyGroupId`) with the one-time v1 migration (session to the group with the most open cards, ties first group, independent of projects, run after the board's group migration, after a storage restore and lazily); v1 and v2 files are read, an unknown or invalid file is preserved.
+- `Dispatcher` is the shared hub (record, workspace, one queue for start, replace and group delete); each group has a lazily created `GroupDispatcher` (held notes, cooldown, timers, start window, its own note batcher). `status`, `start`, `replace` and every `dispatcher.*` RPC take `groupId`. Title `Flowly dispatcher · <group>`, labels `flowly-dispatcher-group`, model chain group → host → default (`effectiveDispatcherModel`).
+- Credential: optional `groupId` in the sealed identity, the group found from the record entry holding the token's `agentId`; `PROJECT_OUT_OF_GROUP` before the project checks on every call; `flowly_list_projects` and `flowly_create_project` follow the caller's group; the hourly buckets stay per session.
+- Notes: the group is stamped on the fact when the stop is built and each group has its own batcher; `exclude` covers every id ever recorded; held notes (batcher buffer and held map) move on `projectMoved` and are dropped when the target has no dispatcher. Chat notes are stamped with `groupId` and `agentId` and a chat shows only its own session's notes (ruling, Noah 2026-11-10: this replaced the BOARD-GROUPS-SPEC wording "filtered by the project's current group", now corrected); cap and pruning per key; change line, cache and seen mark per group.
+- `groups.delete` runs on the dispatcher queue: store pre-checks, refuse while running, archive, record, board; `DELETE_FAILED` on a failed archive; a late start writes nothing back. The interim v1 guard (`server/group-delete-guard.ts`) is gone.
+- Client: the dock follows the shown project's group, else the default group (`groups` is now part of the board overview); the panel copy is group wording in all catalogs. Group tabs and the switcher are task 3.
+- Onboarding, What's new and telemetry: none (one copy line; no switch or heartbeat field).
+
 ## Board groups v2, 1/7: groups in board data, invariants, RPCs, migration — 2026-11-10
 
 - Task 1 of the board groups v2 plan (BOARD-GROUPS-SPEC §1, §2, §7 steps 1, 2, 5, 6). No UI change: the client still reads the v1 `board-view` fields; dropping them from the settings parser is task 3.

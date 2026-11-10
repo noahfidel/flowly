@@ -115,8 +115,8 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 - `groups.delete { id, revision }` → refused with `DEFAULT_REQUIRED` for the default group; otherwise moves the
   group's projects to the default group, archives the group's dispatcher session when it has a live one (§6) and
   removes the group. Each moved project's revision is bumped; the result names the default group and the moved
-  projects. Until per-group dispatchers ship (§6), it instead refuses (`GROUP_BUSY`) the group the stored v1
-  dispatcher session would move to under §7 step 4 (ruling, Noah 2026-11-10).
+  projects. The order is DISPATCHER-SPEC §3 (refuse while that dispatcher is running, `DISPATCHER_RUNNING`; archive;
+  then the dispatcher record; then the board; a failed archive refuses with `DELETE_FAILED`).
 - `projects.set-group { projectId, revision, groupId }`: archived projects too; bumps the project's revision.
 - `projects.create` gains an optional `groupId` (default: the default group); the project form and
   `flowly_create_project` pass it.
@@ -193,11 +193,12 @@ Contract changes are in DISPATCHER-SPEC (§1, §3, §4, §5, §5.2, §6, §7, §
 - The credential adds `groupId`. A tool with a `projectId` outside the caller's group is refused with
   `PROJECT_OUT_OF_GROUP`; `flowly_list_projects` lists the group's members; `flowly_create_project` places the new
   project in the caller's group.
-- Notes go to the dispatcher of the card's project's group; a project that moves groups sends later notes to the
-  new group's dispatcher. Held notes of a card follow the card.
+- Notes go to the dispatcher of the card's project's group, resolved when the stop is pushed; a project that moves
+  groups sends later notes to the new group's dispatcher. Held notes of a card follow the card.
 - New confirmed tool `flowly_manage_groups` (§5.2 rules: not preapproved, prompting modes only, own hourly bucket).
 - The dock's chat shows the selected group's dispatcher (Start dispatcher when it has none); the chat items file
-  stays one file and is read filtered by each item's project's current group.
+  stays one file; a note is stamped with the group and session that received it and a chat shows only its own
+  session's notes (ruling, Noah 2026-11-10).
 - Deleting a group archives that group's dispatcher session (the confirm says so); Flowly never archives the
   workspace.
 
@@ -230,11 +231,13 @@ next start (the record's session is still v1, the board has groups, so step 4 ru
 4. **Dispatcher:** `dispatcher.json` v1 becomes v2: the one stored session moves to the group with the most open
    cards (not archived, not Done/Cancelled; ties: the first group), keeping `agentId`, `startedAt`, seen mark,
    `previousAgentIds`, `savedTools` and `guard`; the workspace is unchanged. A migrated session's token has no `groupId`
-   (DISPATCHER-SPEC §0 §4: the group is found from the record). The session keeps its title and its charter text
+   (DISPATCHER-SPEC §4: the group is found from the record). The session keeps its title and its charter text
    ("all projects") until the next replace: its tools already refuse other groups' projects, and the first board
-   note it gets after migration states its group and member projects. The chat items file is not rewritten: items
-   are read filtered by group (§6), so a note, ask or answer of a project now in another group moves to that
-   group's chat. The change-line mark stays with the migrated dispatcher; other groups start with no mark.
+   note it gets after migration states its group and member projects. The chat items file is not rewritten: an
+   unstamped v1 note is read as belonging to the migrated dispatcher's group (the record's `legacyGroupId`), the
+   notes stamped from then on belong to the session that received them (ruling, Noah 2026-11-10), and asks and
+   answers are not shown in the chat. The change-line mark stays with the migrated dispatcher; other groups start
+   with no mark.
 5. **View preferences:** a remembered `*all` or project view id (client module state, not persisted) opens the
    default group, or the project's group for a project id. `board-view.allProjectsTab`, `lastProjectId` and
    `boardGroups` are dropped on read (never written), keeping the settings parser's rule that one bad field never
@@ -253,7 +256,8 @@ Unit (server/shared, written with the follow-up cards):
   `boardGroups`; every project already grouped (first group becomes default); empty board; running twice changes
   nothing; a failed write leaves the old data.
 - Dispatcher migration: the old session lands on the group with most open cards (and the tie rule), its record
-  fields survive, other groups report `none`; chat items filter by the project's current group.
+  fields survive, other groups report `none`; chat notes filter by the session that received them (unstamped v1 notes
+  by the migrated group).
 - Defaults chain: project over group over host for model, mode, thinking and delivery mode; dispatcher model group
   over host; an empty value inherits and shows the inherited value.
 - Per-group dispatcher: start, replace, status and `DISPATCHER_RUNNING` per group; credentials of group A refused on
