@@ -1472,7 +1472,7 @@ const catalog: Catalog = {
   "Blocker": "Блокер",
   "Result": "Результат",
   "The dispatcher session ended.": "Сессия диспетчера завершилась.",
-  "Starts one agent session that works across all your projects.": "Запускает одну сессию агента, которая работает со всеми вашими проектами.",
+  "Starts one agent session for this group's projects.": "Запускает одну сессию агента для проектов этой группы.",
   "Start dispatcher": "Запустить диспетчера",
   "The dispatcher's provider is unavailable, so it can't take messages. Check that provider in Paseo's settings.": "Провайдер диспетчера недоступен, поэтому он не может принимать сообщения. Проверьте этого провайдера в настройках Paseo.",
   "Message the dispatcher": "Сообщение диспетчеру",

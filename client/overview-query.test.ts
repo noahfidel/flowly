@@ -68,3 +68,18 @@ test("an overview patch that only changes project ideas changes the count and ke
   expect(projectOpenIdeaCount(base, "p")).toBe(2);
   expect(projectOpenIdeaCount(applied, "p")).toBe(5);
 });
+
+test("the overview carries the board groups, and a rename reaches the client as a groups patch (DISPATCHER-SPEC §0)", () => {
+  const at = "2026-11-10T10:00:00.000Z";
+  const board = full();
+  board.groups.push({ id: "g", name: "Work", position: 0, isDefault: true, revision: 1, createdAt: at, updatedAt: at });
+  const base = boardOverview(board);
+  expect(base.groups.map((g) => g.name)).toEqual(["Work"]);
+  const next = boardOverview({ ...board, groups: [{ ...board.groups[0], name: "Clients", revision: 2 }] });
+  const deltas = new OverviewDeltas();
+  const second = deltas.read(next, { etag: deltas.read(base, {}).etag });
+  expect(Object.keys(second.patch!).sort()).toEqual(["baseEtag", "groups", "revision"]);
+  const applied = applyOverviewPatch(base, second.patch!);
+  expect(applied.groups.map((g) => g.name)).toEqual(["Clients"]);
+  expect(applied.tasks).toBe(base.tasks);
+});

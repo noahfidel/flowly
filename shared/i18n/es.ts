@@ -1472,7 +1472,7 @@ const catalog: Catalog = {
   "Blocker": "Bloqueo",
   "Result": "Resultado",
   "The dispatcher session ended.": "La sesión del dispatcher terminó.",
-  "Starts one agent session that works across all your projects.": "Inicia una sesión de agente que trabaja en todos tus proyectos.",
+  "Starts one agent session for this group's projects.": "Inicia una sesión de agente para los proyectos de este grupo.",
   "Start dispatcher": "Iniciar dispatcher",
   "The dispatcher's provider is unavailable, so it can't take messages. Check that provider in Paseo's settings.": "El proveedor del dispatcher no está disponible, así que no puede recibir mensajes. Revisa ese proveedor en los ajustes de Paseo.",
   "Message the dispatcher": "Escribe al dispatcher",

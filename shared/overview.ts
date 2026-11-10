@@ -43,6 +43,8 @@ export const boardOverviewSchema = z.strictObject({
   attentionDismissals: z.array(attentionDismissalSchema),
   cards: z.array(cardFactsSchema),
   projectIdeas: z.array(projectIdeaFactsSchema),
+  /** The board groups (BOARD-GROUPS-SPEC §1): which group's dispatcher the dock shows, and its name (DISPATCHER-SPEC §0). */
+  groups: z.array(groupSchema),
 });
 export type BoardOverview = z.infer<typeof boardOverviewSchema>;
 const collection = <T extends z.ZodType>(item: T) => z.strictObject({ set: z.array(item), remove: z.array(z.string()), order: z.array(z.string()).optional() }).optional();
@@ -56,6 +58,7 @@ export const overviewPatchSchema = z.strictObject({
   attentionDismissals: collection(attentionDismissalSchema),
   cards: collection(cardFactsSchema),
   projectIdeas: collection(projectIdeaFactsSchema),
+  groups: collection(groupSchema),
 });
 export type OverviewPatch = z.infer<typeof overviewPatchSchema>;
 export const overviewResponseSchema = z.strictObject({ etag: z.string(), value: boardOverviewSchema.optional(), patch: overviewPatchSchema.optional() });
@@ -69,6 +72,7 @@ export const overviewKeys = {
   attentionDismissals: (x: { taskId: string }) => x.taskId,
   cards: (x: { taskId: string }) => x.taskId,
   projectIdeas: (x: { projectId: string }) => x.projectId,
+  groups: (x: { id: string }) => x.id,
 } as const;
 export type OverviewCollection = keyof typeof overviewKeys;
 export const overviewCollections = Object.keys(overviewKeys) as OverviewCollection[];

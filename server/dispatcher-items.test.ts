@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ChangeLineCache, DispatcherItems, changeLine, seenMark, whatNextMessage, type SeenMark } from "./dispatcher-items";
+import { ChangeLineCache, DispatcherItems, changeLine, groupItems, groupProjectIds, noteItems, pruneItems, seenMark, whatNextMessage, type SeenMark } from "./dispatcher-items";
 import { logFailure } from "./error-report";
 import { Dispatcher } from "./dispatcher";
 import { chatItemLimit, type StoredChatItem as ChatItem } from "../shared/dispatcher";
@@ -134,11 +134,12 @@ test("items are capped and old answered asks expire", async () => {
   now.value = T0 + 6 * day;
   await items.put([note("late", T0)]);
   expect((await items.list()).map((i) => i.id)).toEqual(["old-open", "n-late-" + T0]);
-  // 600 notes: only the newest 500 items stay, oldest first.
+  // 600 more notes: only the newest 500 notes stay, oldest first; the ask is counted apart and stays.
   await items.put(Array.from({ length: 600 }, (_, i) => note(`t${i}`, T0 + i)));
   const kept = await items.list();
-  expect(kept).toHaveLength(chatItemLimit);
-  expect(kept[0].id).toBe("n-t100-" + (T0 + 100));
+  expect(kept).toHaveLength(chatItemLimit + 1);
+  expect(kept[0].id).toBe("old-open");
+  expect(kept[1].id).toBe("n-t100-" + (T0 + 100));
   expect(kept.at(-1)!.id).toBe("n-t599-" + (T0 + 599));
   // Stored atomically and read back by a fresh instance.
   const fresh = new DispatcherItems(dir, { now: () => now.value });
@@ -178,22 +179,85 @@ test("events in the same millisecond as the mark are not lost", async () => {
   expect(changeLine(b, await stored(dispatcher))).toBeNull();
 });
 
-test("the change line is scanned once per board revision and mark", () => {
+test("the change line is scanned once per board revision and mark, per group", () => {
   const scan = vi.fn(changeLine);
   const cache = new ChangeLineCache(scan);
   const b = board();
   b.revision = 7;
   b.events.push(event("t1", T0 + 1_000));
-  const first = cache.get(b, mark(T0), ["disp"]);
-  expect(cache.get(b, mark(T0), ["disp"])).toBe(first);
+  const first = cache.get("g1", b, mark(T0), ["disp"], ["p"]);
+  expect(cache.get("g1", b, mark(T0), ["disp"], ["p"])).toBe(first);
   expect(scan).toHaveBeenCalledTimes(1);
-  // A new board revision, a new mark or a new dispatcher scans again.
+  // Another group has its own entry (its own mark and projects), and does not evict the first one.
+  expect(cache.get("g2", b, mark(T0), ["disp"], [])).toBeNull();
+  expect(cache.get("g1", b, mark(T0), ["disp"], ["p"])).toBe(first);
+  expect(scan).toHaveBeenCalledTimes(2);
+  // A new board revision, a new mark, a new dispatcher or a changed member list scans again.
   b.events.push(event("t2", T0 + 2_000));
   b.revision = 8;
-  expect(cache.get(b, mark(T0), ["disp"])?.kind === "change").toBe(true);
-  cache.get(b, mark(T0 + 2_000), ["disp"]);
-  cache.get(b, mark(T0 + 2_000), ["disp2"]);
-  expect(scan).toHaveBeenCalledTimes(4);
+  expect(cache.get("g1", b, mark(T0), ["disp"], ["p"])?.kind === "change").toBe(true);
+  cache.get("g1", b, mark(T0 + 2_000), ["disp"], ["p"]);
+  cache.get("g1", b, mark(T0 + 2_000), ["disp2"], ["p"]);
+  cache.get("g1", b, mark(T0 + 2_000), ["disp2"], []);
+  expect(scan).toHaveBeenCalledTimes(6);
+  // A forgotten (deleted) group scans again.
+  cache.forget("g2");
+  cache.get("g2", b, mark(T0), ["disp"], []);
+  expect(scan).toHaveBeenCalledTimes(7);
+});
+
+test("the change line counts only the group's live projects' cards (§0)", () => {
+  const b = board();
+  const now = iso(T0);
+  b.projects.push({ ...b.projects[0], id: "q", groupId: "g2", createdAt: now } as never);
+  b.projects[0] = { ...b.projects[0], groupId: "g1" };
+  b.tasks.push({ ...b.tasks[0], id: "q1", projectId: "q", title: "Card q1" });
+  b.events.push(event("t1", T0 + 1_000), event("q1", T0 + 2_000));
+  const g1 = changeLine(b, mark(T0), [], groupProjectIds(b, "g1"));
+  expect(g1?.kind === "change" && g1.cards.map((c) => c.taskId)).toEqual(["t1"]);
+  const g2 = changeLine(b, mark(T0), [], groupProjectIds(b, "g2"));
+  expect(g2?.kind === "change" && g2.cards.map((c) => c.taskId)).toEqual(["q1"]);
+  // An archived member's cards never count, and a group without members has no line.
+  expect(groupProjectIds(b, "g2")).toEqual(["q"]);
+  b.projects[1] = { ...b.projects[1], groupId: "g1" };
+  expect(groupProjectIds(b, "g1")).toEqual(["p"]);
+  expect(changeLine(b, mark(T0), [], groupProjectIds(b, "nope"))).toBeNull();
+  // Without a member list every live project counts, as before.
+  expect(changeLine(b, mark(T0))?.kind === "change" && (changeLine(b, mark(T0)) as { cards: unknown[] }).cards).toHaveLength(2);
+});
+
+test("note rows are stamped with their group and session, and each group's chat shows only its own (§0, §9)", () => {
+  const notes = [(note("t1", T0) as Extract<ChatItem, { kind: "note" }>).note];
+  const [stamped] = noteItems(notes, iso(T0), { groupId: "g1", agentId: "a1" });
+  expect(stamped).toMatchObject({ kind: "note", groupId: "g1", agentId: "a1", at: iso(T0) });
+  const [plain] = noteItems(notes, iso(T0));
+  expect(plain).not.toHaveProperty("groupId");
+  const other = { ...stamped, id: "other", groupId: "g2", agentId: "a2" } as ChatItem;
+  const legacy = note("t2", T0);
+  const open = ask("q", T0, "open");
+  const items = [stamped, other, legacy, open];
+  // An unstamped (v1) note belongs to the migrated session's group; asks have no group.
+  expect(groupItems(items, "g1", "g1").map((i) => i.id)).toEqual([stamped.id, legacy.id, "q"]);
+  expect(groupItems(items, "g2", "g1").map((i) => i.id)).toEqual(["other", "q"]);
+  expect(groupItems(items, "g2", null).map((i) => i.id)).toEqual(["other", "q"]);
+});
+
+test("the cap keeps the 500 newest notes of each group; asks are counted apart (§0, §9.1)", () => {
+  const stampedNote = (groupId: string, i: number): ChatItem => ({ ...note(`${groupId}-${i}`, T0 + i), groupId, agentId: `a-${groupId}` }) as ChatItem;
+  // Group a's notes are all newer than b's: a global cap would drop every one of b's.
+  const items = [
+    ...Array.from({ length: 520 }, (_, i) => stampedNote("b", i)),
+    ...Array.from({ length: 600 }, (_, i) => stampedNote("a", 1_000 + i)),
+    ask("old-open", T0 - 1, "open"),
+  ];
+  const kept = pruneItems(items, T0 + 10_000);
+  const count = (groupId: string) => kept.filter((i) => i.kind === "note" && i.groupId === groupId).length;
+  expect(count("a")).toBe(chatItemLimit);
+  expect(count("b")).toBe(chatItemLimit);
+  expect(kept.some((i) => i.id === "old-open")).toBe(true);
+  // Each group keeps its newest, and the list stays oldest first.
+  expect(kept.find((i) => i.kind === "note" && i.groupId === "b")!.id).toBe(`n-b-20-${T0 + 20}`);
+  expect(kept.map((i) => i.at)).toEqual([...kept.map((i) => i.at)].sort());
 });
 
 test("concurrent first reads of a corrupt items file keep it aside once", async () => {

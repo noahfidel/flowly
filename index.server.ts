@@ -60,7 +60,6 @@ import { turnTimeline } from "./server/turn-timeline";
 import { cardOfChat, resolveCardChats } from "./server/card-chats";
 import { codedError, ToolError } from "./server/tool-error";
 import { legacyBoardViewPath, readLegacyBoardGroups } from "./server/legacy-board-groups";
-import { v1DispatcherGuard } from "./server/group-delete-guard";
 import { exportMarkdown } from "./shared/board-export";
 import type { MemoryEntry } from "./shared/memory";
 import { MemoryService, setMemoryEverywhere, memoryOn } from "./server/memory";
@@ -74,9 +73,10 @@ import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
 import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
 import { EventBus, commitHandler } from "./server/event-bus";
-import { wireDispatcher } from "./server/dispatcher";
+import { legacyNoteGroup, recordAgentIds, wireDispatcher, type DispatcherRecord } from "./server/dispatcher";
 import { dispatcherServerName } from "./shared/dispatcher";
-import { ChangeLineCache, DispatcherItems, dispatcherSessionIds, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
+import type { Board } from "./shared/model";
+import { ChangeLineCache, DispatcherItems, groupItems, groupProjectIds, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
 import { DispatcherAsks } from "./server/dispatcher-asks";
 
 export default function contribute(host: PluginServerContext) {
@@ -414,8 +414,9 @@ export default function contribute(host: PluginServerContext) {
   });
   // The chat panel (DISPATCHER-SPEC §9): note rows are what the dispatcher received; the change line is scanned
   // again only when the board, the mark or the dispatcher session changed.
-  tools.dispatcher.onSent = (notes, at) => {
-    void chatItems.put(noteItems(notes, at)).catch((e) => logFailure("Flowly dispatcher chat notes not recorded:", e, `${notes.length} notes`));
+  // Each note row is stamped with the group and session that received it (DISPATCHER-SPEC §0, §9).
+  tools.dispatcher.onSent = (notes, at, to) => {
+    void chatItems.put(noteItems(notes, at, to)).catch((e) => logFailure("Flowly dispatcher chat notes not recorded:", e, `${notes.length} notes`));
   };
   tails.dispatcher = async (groupId) => {
     const record = await tools.dispatcher.resolvedRecord();
@@ -423,15 +424,21 @@ export default function contribute(host: PluginServerContext) {
     return agentId && record.workspaceId ? { agentId, workspaceId: record.workspaceId } : null;
   };
   const changes = new ChangeLineCache();
-  // The group's mark; the actions of every dispatcher session are left out (the per-group card filter comes later).
-  const currentChange = async (groupId: string) => {
-    const [board, record] = await Promise.all([store.read(), tools.dispatcher.resolvedRecord()]);
-    const ids = [...new Set([...dispatcherSessionIds(record.groups[groupId] ?? { agentId: null }), ...tools.dispatcher.allAgentIds()])];
-    return changes.get(board, seenMark(record.groups[groupId] ?? {}), ids);
+  // The group's mark and its live projects' cards; the actions of every dispatcher session are left out (§0, §9.2).
+  const currentChange = async (groupId: string, read?: { board: Board; record: DispatcherRecord }) => {
+    const { board, record } = read ?? { board: await store.read(), record: await tools.dispatcher.resolvedRecord() };
+    const entry = record.groups[groupId];
+    // A group with no entry has no mark, so no change line.
+    return changes.get(groupId, board, seenMark(entry ?? {}), recordAgentIds(record), groupProjectIds(board, groupId));
   };
-  // Asks (DISPATCHER-SPEC §9.4): one source with the bell; answered on the daemon after a fresh check.
+  // Asks (DISPATCHER-SPEC §9.4): one source with the bell; answered on the daemon after a fresh check. Notes are the
+  // group's own (§0); asks and answers have no group.
   server.handle(rpc.dispatcherItemsChanged, async ({ etag, groupId }, { paseo }) => {
-    const [items, change] = await Promise.all([chatItems.list().then((stored) => asks.chatItems(stored, paseo)), currentChange(groupId)]);
+    const [board, record] = await Promise.all([store.read(), tools.dispatcher.resolvedRecord()]);
+    const [items, change] = await Promise.all([
+      chatItems.list().then((stored) => asks.chatItems(groupItems(stored, groupId, legacyNoteGroup(record, board)), paseo)),
+      currentChange(groupId, { board, record }),
+    ]);
     return ifChanged(change ? [...items, change] : items, etag);
   });
   server.handle(rpc.dispatcherReplace, (input, { paseo }) => {
@@ -619,8 +626,25 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.createGroup, (input) => coded(() => store.createGroup(input)));
   server.handle(rpc.updateGroup, (input) => coded(() => store.updateGroup(input)));
   server.handle(rpc.moveGroup, (input) => coded(() => store.moveGroup(input)));
-  server.handle(rpc.deleteGroup, (input) => coded(() => store.deleteGroup(input, v1DispatcherGuard(tools.dispatcher))));
-  server.handle(rpc.setProjectGroup, (input) => coded(() => store.setProjectGroup(input)));
+  // The delete archives the group's dispatcher session first, on the dispatcher's start queue (DISPATCHER-SPEC §0).
+  server.handle(rpc.deleteGroup, (input, { paseo }) =>
+    coded(async () => {
+      tools.attach(paseo);
+      const deleted = await tools.dispatcher.deleteGroup(paseo, input, store);
+      changes.forget(deleted.id);
+      return deleted;
+    }),
+  );
+  server.handle(rpc.setProjectGroup, (input) =>
+    coded(async () => {
+      const project = await store.setProjectGroup(input);
+      // The project's pending dispatcher notes follow it to its new group (DISPATCHER-SPEC §0, §7).
+      await tools.dispatcher
+        .projectMoved(project.id, project.groupId ?? input.groupId)
+        .catch((e) => logFailure("Flowly dispatcher notes not moved with their project:", e, project.id));
+      return project;
+    }),
+  );
   // The dispatcher's flowly_create_project takes exactly the RPC's path (DISPATCHER-SPEC §5.2).
   tools.dispatcherTools.createProjectWith = createProject;
   server.handle(rpc.createTask, (input, { paseo }) =>

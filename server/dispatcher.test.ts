@@ -14,6 +14,7 @@ import {
   type DispatcherRecord,
   dispatcherState,
   isDeadDispatcher,
+  legacyNoteGroup,
   wireDispatcher,
 } from "./dispatcher";
 import { dispatcherSessionIds } from "./dispatcher-items";
@@ -589,6 +590,7 @@ test("only stops reach the batcher and the dispatcher's own facts never do", asy
   const fact = (patch: Partial<BoardEvent>): BusFact => ({
     kind: "board",
     projectId: "p",
+    groupId: G,
     title: `Card ${patch.taskId}`,
     event: { id: `e${++seq}`, taskId: "t1", actor: "agent", action: "status_changed", at: "2026-11-08T10:00:00.000Z", ...patch },
   });
@@ -782,7 +784,7 @@ test("notes dropped before a Paseo connection and held notes lost on unload are 
   const bus = new EventBus();
   const deliver = vi.spyOn(x.hub, "deliver");
   const dispose = wireDispatcher(bus, x.hub, () => undefined);
-  bus.publish([{ kind: "board", projectId: "p", title: "Card t1", event: { id: "e1", taskId: "t1", actor: "agent", action: "status_changed", from: "todo", to: "blocked", at: "now" } }]);
+  bus.publish([{ kind: "board", projectId: "p", groupId: G, title: "Card t1", event: { id: "e1", taskId: "t1", actor: "agent", action: "status_changed", from: "todo", to: "blocked", at: "now" } }]);
   await vi.advanceTimersByTimeAsync(11_000);
   expect(deliver).not.toHaveBeenCalled();
   expect(errors.mock.calls.some((c) => String(c[0]) === "Flowly dispatcher notes dropped: no Paseo connection yet:")).toBe(true);
@@ -1448,7 +1450,7 @@ test("the v1 session moves to the group with the most open cards, every field wi
   await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(v1Record));
   await x.hub.migrate();
   const { version: _, workspaceId, ...entry } = v1Record;
-  expect(await readRaw(x)).toEqual({ version: 2, workspaceId, groups: { [H]: entry } });
+  expect(await readRaw(x)).toEqual({ version: 2, workspaceId, groups: { [H]: entry }, legacyGroupId: H });
   expect(await x.hub.status(x.paseo, H)).toEqual({ state: "idle", agentId: "old" });
   expect(await x.hub.status(x.paseo, G)).toEqual({ state: "none", agentId: null });
   // The moved session keeps its workspace and is the one the tools and the open hook know.
@@ -1495,7 +1497,7 @@ test("with no groups yet the v1 session waits as unassigned (written as v2), and
   x.state.board = groupBoard();
   x.agents.set("old", { id: "old", workspaceId: "dw-0", status: "idle", archivedAt: null });
   expect(await x.hub.status(x.paseo, G)).toEqual({ state: "idle", agentId: "old" });
-  expect(await readRaw(x)).toEqual({ version: 2, workspaceId, groups: { [G]: entry } });
+  expect(await readRaw(x)).toEqual({ version: 2, workspaceId, groups: { [G]: entry }, legacyGroupId: G });
 });
 
 test("the v1 migration is idempotent and never writes v1 again", async () => {
@@ -1692,40 +1694,368 @@ test("a group keeps its 20 newest earlier sessions; older ones join the global l
   expect(x.hub.allAgentIds()).toContain(agentId);
 });
 
-test("a batch from the bus reaches the dispatcher of each card's project's group (§7)", async () => {
-  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
-  const x = await setup();
+let stopSeq = 0;
+/** A stop on a card of `projectId`, committed while the project was in `groupId` (absent: a board without groups). */
+const stop = (taskId: string, projectId: string, groupId: string | undefined, extra: Partial<BoardEvent> = {}): BusFact => ({
+  kind: "board",
+  projectId,
+  ...(groupId ? { groupId } : {}),
+  title: `Card ${taskId}`,
+  event: { id: `s${++stopSeq}`, taskId, actor: "agent", action: "status_changed", from: "todo", to: "blocked", at: "2026-11-08T10:00:00.000Z", ...extra },
+});
+const startBoth = async (x: Awaited<ReturnType<typeof setup>>) => {
   x.state.board = twoGroupBoard();
   const a = await x.hub.start(x.paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
   const b = await x.hub.start(x.paseo, { groupId: H, provider: "claude/claude-sonnet-5-5" });
-  x.agents.get(a.agentId)!.status = "idle";
-  x.agents.get(b.agentId)!.status = "idle";
+  return { a: a.agentId, b: b.agentId };
+};
+
+test("a stop goes to the batcher of its project's group when it is pushed; each group's notes reach only its session (§0, §7)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const { a, b } = await startBoth(x);
+  x.agents.get(a)!.status = "idle";
+  x.agents.get(b)!.status = "idle";
   const sent: { groupId: string; agentId: string; notes: string[] }[] = [];
   x.hub.onSent = (notes, _, to) => void sent.push({ ...to, notes: notes.map((n) => n.taskId) });
-  await x.hub.deliverNotes([note("t1"), { ...note("t2"), projectId: "p2" }, { ...note("t3"), projectId: "unknown" }], x.paseo);
-  expect(x.sends.map((s) => [s.id, s.text.includes("[t1]"), s.text.includes("[t2]")]).sort()).toEqual(
+  const bus = new EventBus();
+  wireDispatcher(bus, x.hub, () => x.paseo);
+  bus.publish([stop("t1", "p", G), stop("t2", "p2", H), stop("t3", "p", undefined)]);
+  // The group is the commit's: moving the project on the board afterwards does not re-route a note already pushed.
+  x.state.board.projects.find((p) => p.id === "p")!.groupId = H;
+  await vi.advanceTimersByTimeAsync(11_000);
+  expect(x.sends.map((s) => [s.id, s.text.includes("[t1]"), s.text.includes("[t2]"), s.text.includes("[t3]")]).sort()).toEqual(
     [
-      [a.agentId, true, false],
-      [b.agentId, false, true],
+      [a, true, false, false],
+      [b, false, true, false],
     ].sort(),
   );
+  // Each chat row batch is stamped with the group and session that received it.
   expect(sent.sort((l, r) => l.groupId.localeCompare(r.groupId))).toEqual([
-    { groupId: G, agentId: a.agentId, notes: ["t1"] },
-    { groupId: H, agentId: b.agentId, notes: ["t2"] },
+    { groupId: G, agentId: a, notes: ["t1"] },
+    { groupId: H, agentId: b, notes: ["t2"] },
   ]);
-  // A turn end of one group's session delivers only that group's held notes.
-  x.agents.get(a.agentId)!.status = "running";
-  await x.hub.deliver(G, [note("t4")], x.paseo);
-  x.agents.get(a.agentId)!.status = "idle";
-  await x.hub.turnEnded(b.agentId, x.paseo);
-  expect(x.sends).toHaveLength(2);
-  await x.hub.turnEnded(a.agentId, x.paseo);
-  // After G's send cooldown.
-  await vi.advanceTimersByTimeAsync(8_000);
-  expect(x.sends).toHaveLength(3);
-  expect(x.sends.at(-1)).toMatchObject({ id: a.agentId });
-  expect(x.sends.at(-1)!.text).toContain("[t4]");
   x.hub.dispose();
+});
+
+test("one group's held notes, cooldown and turn end never affect another's (§0, §7)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const { a, b } = await startBoth(x);
+  x.agents.get(b)!.status = "idle";
+  const bus = new EventBus();
+  wireDispatcher(bus, x.hub, () => x.paseo);
+  // G runs: its note is held. H is idle: its note goes out now.
+  bus.publish([stop("t1", "p", G), stop("t2", "p2", H)]);
+  await vi.advanceTimersByTimeAsync(11_000);
+  expect(x.sends.map((s) => s.id)).toEqual([b]);
+  // H's cooldown holds H's next batch only; G's turn end delivers G's held note at once.
+  x.agents.get(a)!.status = "idle";
+  await x.hub.turnEnded(b, x.paseo);
+  expect(x.sends).toHaveLength(1);
+  await x.hub.turnEnded(a, x.paseo);
+  expect(x.sends.map((s) => s.id)).toEqual([b, a]);
+  expect(x.sends[1].text).toContain("[t1]");
+  await x.hub.deliver(H, [{ ...note("t9"), projectId: "p2" }], x.paseo);
+  await x.hub.deliver(G, [note("t8")], x.paseo);
+  // Both inside their own cooldowns now.
+  expect(x.sends).toHaveLength(2);
+  await vi.advanceTimersByTimeAsync(8_000);
+  expect(x.sends.slice(2).map((s) => [s.id, s.text.includes("[t9]"), s.text.includes("[t8]")]).sort()).toEqual(
+    [
+      [a, false, true],
+      [b, true, false],
+    ].sort(),
+  );
+  x.hub.dispose();
+});
+
+test("a group's start window holds only that group's notes (§0, §7)", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let summarizing = false;
+  const x = await setup(async (groupId) => {
+    if (groupId === H) {
+      summarizing = true;
+      await gate;
+    }
+    return "Board summary";
+  });
+  x.state.board = twoGroupBoard();
+  const a = await x.hub.start(x.paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(a.agentId)!.status = "idle";
+  const starting = x.hub.start(x.paseo, { groupId: H, provider: "claude/claude-sonnet-5-5" });
+  await vi.waitFor(() => expect(summarizing).toBe(true));
+  // H is starting; G's note still goes out at once.
+  await x.hub.deliver(G, [note("t1")], x.paseo);
+  await x.hub.deliver(H, [{ ...note("t2"), projectId: "p2" }], x.paseo);
+  expect(x.sends.map((s) => s.id)).toEqual([a.agentId]);
+  release();
+  const b = await starting;
+  // H's held note waits for its new session (running now): nothing reached G.
+  expect(x.sends.map((s) => s.id)).toEqual([a.agentId]);
+  x.agents.get(b.agentId)!.status = "idle";
+  await x.hub.turnEnded(b.agentId, x.paseo);
+  expect(x.sends.map((s) => s.id)).toEqual([a.agentId, b.agentId]);
+  expect(x.sends[1].text).toContain("[t2]");
+});
+
+test("every batcher drops the facts of any group's dispatcher session, past or current (§0)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  x.state.board = twoGroupBoard();
+  await writeFile(
+    join(x.directory, "dispatcher.json"),
+    JSON.stringify({
+      version: 2,
+      workspaceId: null,
+      groups: { [G]: { agentId: "g-now", startedAt: T, previousAgentIds: ["g-old"] }, [H]: { agentId: "h-now", startedAt: T } },
+      previousAgentIds: ["deleted-group"],
+    }),
+  );
+  await x.hub.resolvedRecord();
+  const delivered: [string, string[]][] = [];
+  vi.spyOn(x.hub, "deliver").mockImplementation(async (groupId, notes) => void delivered.push([groupId, notes.map((n) => n.taskId)]));
+  const bus = new EventBus();
+  wireDispatcher(bus, x.hub, () => x.paseo);
+  bus.publish([
+    stop("t1", "p", G, { agentId: "g-old" }),
+    stop("t2", "p", G, { agentId: "h-now" }),
+    stop("t3", "p2", H, { agentId: "deleted-group" }),
+    stop("t4", "p2", H, { agentId: "g-now" }),
+    stop("t5", "p", G, { agentId: "card-agent" }),
+  ]);
+  await vi.advanceTimersByTimeAsync(11_000);
+  expect(delivered).toEqual([[G, ["t5"]]]);
+  x.hub.dispose();
+});
+
+test("a project that changes group takes its pending notes along, both layers; none reach the old group (§0, §7)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const { a, b } = await startBoth(x);
+  const bus = new EventBus();
+  wireDispatcher(bus, x.hub, () => x.paseo);
+  // Both run. t1 is held by G's delivery; t2 still waits in G's batcher; t3 (another project of G) stays.
+  x.state.board.projects.push(boardProject("p3", G));
+  bus.publish([stop("t1", "p", G, { from: "development", to: "in_review" })]);
+  await vi.advanceTimersByTimeAsync(11_000);
+  bus.publish([stop("t2", "p", G), stop("t3", "p3", G)]);
+  x.state.board.projects.find((p) => p.id === "p")!.groupId = H;
+  await x.hub.projectMoved("p", H);
+  await vi.advanceTimersByTimeAsync(11_000);
+  // G's turn end sends only what stayed G's.
+  x.agents.get(a)!.status = "idle";
+  await x.hub.turnEnded(a, x.paseo);
+  expect(x.sends).toHaveLength(1);
+  expect(x.sends[0]).toMatchObject({ id: a });
+  expect(x.sends[0].text).toContain("[t3]");
+  expect(x.sends[0].text).not.toMatch(/\[t1\]|\[t2\]/);
+  // H's session gets both moved notes.
+  x.agents.get(b)!.status = "idle";
+  await x.hub.turnEnded(b, x.paseo);
+  expect(x.sends).toHaveLength(2);
+  expect(x.sends[1]).toMatchObject({ id: b });
+  expect(x.sends[1].text).toContain("[t1] in project p: status_changed — development → in_review");
+  expect(x.sends[1].text).toContain("[t2]");
+  x.hub.dispose();
+});
+
+test("a project's pending notes are dropped when its new group has no dispatcher (§0, §7)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const { a } = await startBoth(x);
+  x.state.board.groups.push(group("g3", "Empty", 2));
+  const bus = new EventBus();
+  wireDispatcher(bus, x.hub, () => x.paseo);
+  bus.publish([stop("t1", "p", G)]);
+  await vi.advanceTimersByTimeAsync(11_000);
+  bus.publish([stop("t2", "p", G)]);
+  x.state.board.projects.find((p) => p.id === "p")!.groupId = "g3";
+  await x.hub.projectMoved("p", "g3");
+  await vi.advanceTimersByTimeAsync(70_000);
+  x.agents.get(a)!.status = "idle";
+  await x.hub.turnEnded(a, x.paseo);
+  await vi.advanceTimersByTimeAsync(70_000);
+  expect(x.sends).toEqual([]);
+  // Nothing lingers to fire later.
+  expect(vi.getTimerCount()).toBe(0);
+  x.hub.dispose();
+});
+
+/** A store whose delete moves the group's projects to the default group of `x`'s board and removes it, as the real one does. */
+function deleteStore(x: { state: { board: Board } }, calls: string[] = []) {
+  return {
+    calls,
+    deleteGroup: vi.fn(async (input: { id: string; revision: number }) => {
+      calls.push("board");
+      const b = x.state.board;
+      const target = b.groups.find((g) => g.isDefault)!;
+      const projectIds = b.projects.filter((p) => p.groupId === input.id).map((p) => p.id);
+      b.projects = b.projects.map((p) => (p.groupId === input.id ? { ...p, groupId: target.id } : p));
+      b.groups = b.groups.filter((g) => g.id !== input.id);
+      return { id: input.id, movedTo: target.id, projectIds };
+    }),
+  };
+}
+/** Records the order of the delete's steps: the Paseo archive, the record write and the store's board write. */
+function traced(x: Awaited<ReturnType<typeof setup>>, calls: string[]) {
+  const hub = x.hub as unknown as { save: (change: unknown) => Promise<void> };
+  const save = hub.save.bind(x.hub);
+  vi.spyOn(hub, "save").mockImplementation((change) => (calls.push("record"), save(change)));
+  return {
+    ...x.paseo,
+    agents: {
+      ref: (id: string) => {
+        const ref = x.paseo.agents.ref(id);
+        return { ...ref, archive: async () => (calls.push(`archive:${id}`), ref.archive()) };
+      },
+    },
+  } as unknown as PaseoApi;
+}
+
+test("a group delete archives that group's session, then writes the record, then the board; its notes are dropped (§0)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const { a, b } = await startBoth(x);
+  x.agents.get(b)!.status = "idle";
+  const bus = new EventBus();
+  wireDispatcher(bus, x.hub, () => x.paseo);
+  // H holds one note (a pending permission keeps it from being sent) and has another in its batcher.
+  x.agents.get(b)!.pendingPermissions = [{ id: "perm" }];
+  bus.publish([stop("h1", "p2", H)]);
+  await vi.advanceTimersByTimeAsync(11_000);
+  x.agents.get(b)!.pendingPermissions = [];
+  bus.publish([stop("h2", "p2", H)]);
+  const calls: string[] = [];
+  const paseo = traced(x, calls);
+  const store = deleteStore(x, calls);
+  const workspaceArchives = x.archived.filter((id) => !id.startsWith("agent:")).length;
+  expect(await x.hub.deleteGroup(paseo, { id: H, revision: 1 }, store)).toEqual({ id: H, movedTo: G, projectIds: ["p2"] });
+  expect(calls).toEqual([`archive:${b}`, "record", "board"]);
+  // Only H's session; the shared workspace is never archived.
+  expect(x.archived.filter((id) => id.startsWith("agent:"))).toEqual([`agent:${b}`]);
+  expect(x.archived.filter((id) => !id.startsWith("agent:"))).toHaveLength(workspaceArchives);
+  const record = await x.hub.resolvedRecord();
+  expect(Object.keys(record.groups)).toEqual([G]);
+  expect(record.groups[G].agentId).toBe(a);
+  expect(record.previousAgentIds).toContain(b);
+  expect(x.hub.allAgentIds()).toContain(b);
+  // H's held and buffered notes are dropped, never moved to G with p2.
+  x.agents.get(a)!.status = "idle";
+  await x.hub.turnEnded(a, x.paseo);
+  await vi.advanceTimersByTimeAsync(70_000);
+  expect(x.sends).toEqual([]);
+  // A later stop of p2 is G's now (the commit says so).
+  bus.publish([stop("h3", "p2", G)]);
+  await vi.advanceTimersByTimeAsync(11_000);
+  expect(x.sends.map((s) => s.id)).toEqual([a]);
+  expect(x.sends[0].text).toContain("[h3]");
+  x.hub.dispose();
+});
+
+test("a group delete is refused while its dispatcher runs, and when the archive fails; nothing changes (§0)", async () => {
+  const x = await setup();
+  const { b } = await startBoth(x);
+  const before = await readFile(join(x.directory, "dispatcher.json"), "utf8");
+  const store = deleteStore(x);
+  // Running (and initializing) refuse.
+  for (const status of ["running", "initializing"]) {
+    x.agents.get(b)!.status = status;
+    await expect(x.hub.deleteGroup(x.paseo, { id: H, revision: 1 }, store)).rejects.toMatchObject({ code: "DISPATCHER_RUNNING" });
+  }
+  // An archive that fails refuses with DELETE_FAILED, logged under a fixed label.
+  x.agents.get(b)!.status = "idle";
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const failing = {
+    ...x.paseo,
+    agents: { ref: (id: string) => ({ ...x.paseo.agents.ref(id), archive: async () => Promise.reject(new Error("daemon busy")) }) },
+  } as unknown as PaseoApi;
+  await expect(x.hub.deleteGroup(failing, { id: H, revision: 1 }, store)).rejects.toMatchObject({ code: "DELETE_FAILED" });
+  expect(errors.mock.calls.some((c) => c[0] === "Flowly dispatcher not archived for a group delete:")).toBe(true);
+  expect(x.archived).toEqual([]);
+  expect(store.deleteGroup).not.toHaveBeenCalled();
+  expect(await readFile(join(x.directory, "dispatcher.json"), "utf8")).toBe(before);
+  expect(x.state.board.groups.map((g) => g.id)).toEqual([G, H]);
+});
+
+test("a group delete checks the store's refusals before it archives anything (§0)", async () => {
+  const x = await setup();
+  const { a, b } = await startBoth(x);
+  x.agents.get(a)!.status = "idle";
+  x.agents.get(b)!.status = "idle";
+  const store = deleteStore(x);
+  await expect(x.hub.deleteGroup(x.paseo, { id: G, revision: 1 }, store)).rejects.toMatchObject({ code: "DEFAULT_REQUIRED" });
+  await expect(x.hub.deleteGroup(x.paseo, { id: H, revision: 2 }, store)).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+  await expect(x.hub.deleteGroup(x.paseo, { id: "nope", revision: 1 }, store)).rejects.toMatchObject({ code: "GROUP_NOT_FOUND" });
+  expect(x.archived).toEqual([]);
+  expect(store.deleteGroup).not.toHaveBeenCalled();
+  expect(Object.keys((await x.hub.resolvedRecord()).groups).sort()).toEqual([G, H].sort());
+});
+
+test("a group delete archives no dead session and needs none (§0)", async () => {
+  const x = await setup();
+  const { b } = await startBoth(x);
+  x.agents.get(b)!.archivedAt = "2026-11-09T00:00:00.000Z";
+  const store = deleteStore(x);
+  await x.hub.deleteGroup(x.paseo, { id: H, revision: 1 }, store);
+  expect(x.archived).toEqual([]);
+  expect((await x.hub.resolvedRecord()).previousAgentIds).toEqual([b]);
+  // A group with no entry at all.
+  x.state.board.groups.push(group("g3", "Empty", 2));
+  await x.hub.deleteGroup(x.paseo, { id: "g3", revision: 1 }, store);
+  expect(store.deleteGroup).toHaveBeenCalledTimes(2);
+  expect(x.archived).toEqual([]);
+});
+
+test("a group delete is refused with DISPATCHER_UNAVAILABLE when the record can't be read (§0)", async () => {
+  const x = await setup();
+  x.state.board = twoGroupBoard();
+  // A directory where the file should be: reading fails with EISDIR.
+  await mkdir(join(x.directory, "dispatcher.json"));
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const store = deleteStore(x);
+  const failure = x.hub.deleteGroup(x.paseo, { id: H, revision: 1 }, store);
+  await expect(failure).rejects.toMatchObject({ code: "DISPATCHER_UNAVAILABLE" });
+  await expect(failure).rejects.not.toThrow(x.directory);
+  expect(errors.mock.calls.some((c) => c[0] === "Flowly dispatcher record not read for a group delete:")).toBe(true);
+  expect(store.deleteGroup).not.toHaveBeenCalled();
+  expect(x.state.board.groups.map((g) => g.id)).toEqual([G, H]);
+});
+
+test("a group delete shares the start queue: a start asked after it finds no group and makes nothing (§0)", async () => {
+  const x = await setup();
+  x.state.board = twoGroupBoard();
+  const store = deleteStore(x);
+  const deleting = x.hub.deleteGroup(x.paseo, { id: H, revision: 1 }, store);
+  const starting = x.hub.start(x.paseo, { groupId: H, provider: "claude/claude-sonnet-5-5" });
+  await deleting;
+  await expect(starting).rejects.toMatchObject({ code: "GROUP_NOT_FOUND" });
+  expect(x.agentCreates).toEqual([]);
+  expect((await x.hub.resolvedRecord()).groups[H]).toBeUndefined();
+  // And a delete asked after a start waits for it, then sees its (running) session.
+  x.state.board = twoGroupBoard();
+  const started = x.hub.start(x.paseo, { groupId: H, provider: "claude/claude-sonnet-5-5" });
+  const refused = x.hub.deleteGroup(x.paseo, { id: H, revision: 1 }, store);
+  await started;
+  await expect(refused).rejects.toMatchObject({ code: "DISPATCHER_RUNNING" });
+});
+
+test("unstamped (v1) chat notes belong to the group the v1 session moved to, else the default group (§0, §9)", async () => {
+  const x = await setup();
+  x.state.board = twoGroupBoard();
+  x.state.board.tasks.push(boardTask("b1", "p2"));
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(v1Record));
+  await x.hub.migrate();
+  const record = await x.hub.resolvedRecord();
+  expect(legacyNoteGroup(record, x.state.board)).toBe(H);
+  // Kept when that group's session is replaced by a new one.
+  x.agents.set("old", { id: "old", workspaceId: "dw-0", status: "idle", archivedAt: "2026-11-09T00:00:00.000Z" });
+  await x.hub.start(x.paseo, { groupId: H, provider: "claude/claude-sonnet-5-5" });
+  expect((await x.hub.resolvedRecord()).legacyGroupId).toBe(H);
+  // A record with nothing migrated: the default group.
+  expect(legacyNoteGroup({}, x.state.board)).toBe(G);
+  expect(legacyNoteGroup({}, emptyBoard())).toBeNull();
 });
 
 test("a group's first message summarizes only that group's live projects (§6)", () => {

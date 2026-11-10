@@ -168,7 +168,7 @@ export const dispatcherProviderReason =
  * permissions, which a status read as idle a moment ago cannot rule out (§9.3).
  */
 export const userSendOptions = { activeTurnBehavior: "steer" } as const;
-/** At most this many chat items are kept (DISPATCHER-SPEC §9.1). */
+/** At most this many chat items are kept per group: each group's notes, and the asks and answers together (DISPATCHER-SPEC §0, §9.1). */
 export const chatItemLimit = 500;
 /** Answered or dismissed asks are kept this long (DISPATCHER-SPEC §9.1). */
 export const resolvedAskMs = 7 * 86_400_000;
@@ -209,7 +209,14 @@ export type ChangedCard = z.infer<typeof changedCardSchema>;
  * the user's answers to them (stored), and the computed change line (never stored).
  */
 export const chatItemSchema = z.discriminatedUnion("kind", [
-  z.object({ ...itemBase, kind: z.literal("note"), note: dispatcherNoteSchema }),
+  z.object({
+    ...itemBase,
+    kind: z.literal("note"),
+    note: dispatcherNoteSchema,
+    /** The group and session that received it (§0, §9); absent on a v1 row, which belongs to the migrated session's group. */
+    groupId: z.string().min(1).max(200).optional(),
+    agentId: z.string().min(1).max(300).optional(),
+  }),
   z.object({
     ...itemBase,
     kind: z.literal("ask"),

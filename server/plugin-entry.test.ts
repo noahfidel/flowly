@@ -106,7 +106,7 @@ test("the plugin entry migrates board groups first and serves the group RPCs wit
   await expect(call("groups.create", { name: "first" })).rejects.toThrow(/^NAME_TAKEN: /);
 });
 
-test("groups.delete through the plugin entry refuses the v1 dispatcher's target group with GROUP_BUSY", async () => {
+test("groups.delete through the plugin entry archives the group's dispatcher session first (DISPATCHER-SPEC §0)", async () => {
   const root = await mkdtemp(join(tmpdir(), "flowly-entry-"));
   const env = { FLOWLY_DATA_DIR: process.env.FLOWLY_DATA_DIR, PASEO_HOME: process.env.PASEO_HOME };
   process.env.FLOWLY_DATA_DIR = join(root, "data");
@@ -122,12 +122,19 @@ test("groups.delete through the plugin entry refuses the v1 dispatcher's target 
   const { host, handlers } = fakeHost();
   const dispose = contribute(host);
   cleanups.push(() => dispose());
-  const call = (name: string, input: unknown) => handlers.get(name)!(input, { paseo: {} as PaseoApi }) as Promise<{ id: string; revision: number }>;
-  // With no open cards anywhere, the first group in order is the dispatcher's target; make the other one the default.
+  const archived: string[] = [];
+  const paseo = {
+    agents: { ref: (id: string) => ({ refresh: async () => ({ agent: { status: "idle", archivedAt: null } }), archive: async () => void archived.push(id) }) },
+  } as unknown as PaseoApi;
+  const call = (name: string, input: unknown) => handlers.get(name)!(input, { paseo }) as Promise<{ id: string; revision: number }>;
+  // With no open cards anywhere, the first group in order gets the v1 session; make the other one the default.
   const first = await call("groups.create", { name: "First" });
   const second = await call("groups.create", { name: "Second" });
   await call("groups.update", { id: second.id, revision: second.revision, isDefault: true });
-  await expect(call("groups.delete", { id: first.id, revision: first.revision })).rejects.toThrow(/^GROUP_BUSY: /);
   const third = await call("groups.create", { name: "Third" });
+  // A group without a session: nothing is archived.
   await expect(call("groups.delete", { id: third.id, revision: third.revision })).resolves.toMatchObject({ id: third.id, movedTo: second.id });
+  expect(archived).toEqual([]);
+  await expect(call("groups.delete", { id: first.id, revision: first.revision })).resolves.toMatchObject({ id: first.id, movedTo: second.id });
+  expect(archived).toEqual(["dispatcher-1"]);
 });

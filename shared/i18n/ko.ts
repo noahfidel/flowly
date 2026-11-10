@@ -1472,7 +1472,7 @@ const catalog: Catalog = {
   "Blocker": "차단 요인",
   "Result": "결과",
   "The dispatcher session ended.": "디스패처 세션이 종료되었습니다.",
-  "Starts one agent session that works across all your projects.": "모든 프로젝트에 걸쳐 작업하는 에이전트 세션 하나를 시작합니다.",
+  "Starts one agent session for this group's projects.": "이 그룹의 프로젝트를 위한 에이전트 세션 하나를 시작합니다.",
   "Start dispatcher": "디스패처 시작",
   "The dispatcher's provider is unavailable, so it can't take messages. Check that provider in Paseo's settings.": "디스패처의 제공자를 사용할 수 없어 메시지를 받을 수 없습니다. Paseo 설정에서 해당 제공자를 확인하세요.",
   "Message the dispatcher": "디스패처에게 메시지",

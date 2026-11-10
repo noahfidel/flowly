@@ -1472,7 +1472,7 @@ const catalog: Catalog = {
   "Blocker": "阻塞",
   "Result": "结果",
   "The dispatcher session ended.": "调度员会话已结束。",
-  "Starts one agent session that works across all your projects.": "启动一个跨你所有项目工作的智能体会话。",
+  "Starts one agent session for this group's projects.": "为这个分组的项目启动一个智能体会话。",
   "Start dispatcher": "启动调度员",
   "The dispatcher's provider is unavailable, so it can't take messages. Check that provider in Paseo's settings.": "调度员的提供方不可用，因此无法接收消息。请在 Paseo 设置中检查该提供方。",
   "Message the dispatcher": "给调度员发消息",

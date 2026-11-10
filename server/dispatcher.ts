@@ -26,12 +26,12 @@ import {
 } from "../shared/dispatcher";
 import { exportMarkdown } from "../shared/board-export";
 import { dispatcherTarget } from "../shared/groups";
-import type { Board, Group } from "../shared/model";
+import type { Board, Group, GroupRemoval } from "../shared/model";
 import { effectiveDispatcherModel, type AgentModel } from "../shared/agent-defaults";
 import type { OutgoingImage } from "../shared/composer";
 import { createDirectoryWorkspace } from "./background-workspace";
 import { logFailure } from "./error-report";
-import { EventBus, NoteBatcher, isStop } from "./event-bus";
+import { EventBus, NoteBatcher, isStop, type BusFact } from "./event-bus";
 import type { DispatcherIdentity } from "./tool-context";
 import { ToolError } from "./tool-error";
 
@@ -122,6 +122,11 @@ const recordSchema = z.strictObject({
   previousAgentIds: z.array(sessionId).max(globalPreviousAgentIdLimit).optional(),
   /** The v1 session until a group exists to hold it (BOARD-GROUPS-SPEC §7 step 4). */
   unassigned: entrySchema.optional(),
+  /**
+   * The group the v1 session moved to, written by the migration and kept after (also once that group's session is
+   * replaced): the chat's unstamped (v1) note rows belong to it (§0, §9).
+   */
+  legacyGroupId: z.string().min(1).max(200).optional(),
 });
 export type DispatcherRecord = z.infer<typeof recordSchema>;
 /** The tools a record marked `savedTools: true` was saved with. */
@@ -192,7 +197,17 @@ function assigned(record: DispatcherRecord, groupId: string): DispatcherRecord {
     ...rest,
     ...(displaced.length ? { previousAgentIds: appendGlobal(rest.previousAgentIds, displaced) } : {}),
     groups: { ...rest.groups, [groupId]: existing ? { ...existing, ...unassigned } : unassigned },
+    legacyGroupId: groupId,
   };
+}
+
+/**
+ * The group whose chat shows the unstamped (v1) note rows (§0, §9): the group the v1 session moved to, else (a record
+ * migrated before that was written, or none to migrate) the board's default group. Null when neither exists.
+ */
+export function legacyNoteGroup(record: Pick<DispatcherRecord, "legacyGroupId">, board: Pick<Board, "groups">): string | null {
+  if (record.legacyGroupId) return record.legacyGroupId;
+  return board.groups.find((g) => g.isDefault)?.id ?? null;
 }
 
 export type DispatcherMcpServer = { type: "http"; url: string; headers: Record<string, string> };
@@ -201,7 +216,7 @@ export type DispatcherDeps = {
   mcp: (identity: DispatcherIdentity) => Promise<DispatcherMcpServer>;
   /** The first message: the group's projects with their ids, open cards and ideas (§6). */
   summary: (groupId: string) => Promise<string>;
-  /** The board: its groups (each dispatcher's group, the v1 migration) and the projects' groups (note routing). */
+  /** The board: its groups (each dispatcher's group, the v1 migration, the group delete's checks). */
   board: () => Promise<Pick<Board, "groups" | "projects" | "tasks">>;
   now?: () => number;
 };
@@ -237,6 +252,12 @@ export function dispatcherState(agent: AgentSnapshot): Exclude<DispatcherState, 
 
 const dispatcherRunning = () => new ToolError("DISPATCHER_RUNNING", "This group's dispatcher is already running. Open its chat instead of starting another.");
 const groupNotFound = () => new ToolError("GROUP_NOT_FOUND", "No board group with that id.");
+const dispatcherUnavailable = () =>
+  new ToolError("DISPATCHER_UNAVAILABLE", "The dispatcher record could not be read, so the group was not deleted. Try again.");
+const deleteFailed = (e: unknown) =>
+  new ToolError("DELETE_FAILED", `Paseo did not archive the group's dispatcher, so the group was not deleted: ${e instanceof Error ? e.message : String(e)}`);
+/** What `groups.delete` returns: the group, the default group its projects moved to, and those projects. */
+export type GroupDeleted = { id: string; movedTo: string; projectIds: string[] };
 
 /** A group's dispatcher's first message (§0, §6): each live member project's id, then their open cards and ideas, without memory. */
 export function dispatcherSummary(board: Board, groupId: string): string {
@@ -277,7 +298,7 @@ type GroupHub = {
 
 /**
  * One group's note delivery (§7): notes held for its session, the send cooldown, the turn-end chase and the start
- * window. Created lazily by `Dispatcher`, disposed on unload (and, later, on the group's delete).
+ * window. Created lazily by `Dispatcher`, disposed on unload and on the group's delete.
  */
 class GroupDispatcher {
   /** Notes waiting for the dispatcher's turn to end, one per card (merged with `mergeNotes`). */
@@ -326,11 +347,25 @@ class GroupDispatcher {
     void this.serial(() => this.flush(paseo, false)).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
   }
 
-  /** No more sends or re-checks; held notes are dropped and logged (§7). */
-  dispose() {
+  /** Removes and returns the held notes of one project's cards (the project changed group, §0). */
+  takeProject(projectId: string): DispatcherNote[] {
+    const taken: DispatcherNote[] = [];
+    for (const [taskId, note] of this.held)
+      if (note.projectId === projectId) {
+        taken.push(note);
+        this.held.delete(taskId);
+      }
+    return taken;
+  }
+
+  /**
+   * No more sends or re-checks; held notes are dropped (§7). On unload that is logged; `quiet` for a deleted group,
+   * whose held notes are dropped by rule (§0).
+   */
+  dispose(quiet = false) {
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
-    if (!this.disposed && this.held.size)
+    if (!quiet && !this.disposed && this.held.size)
       logFailure("Flowly dispatcher held notes dropped on unload:", new Error("plugin unloaded"), `${this.held.size} notes`);
     this.held.clear();
     this.disposed = true;
@@ -432,6 +467,9 @@ export class Dispatcher {
   /** The one queue for starts and replaces of every group (§0), so the shared workspace is made once. */
   private starts: Promise<unknown> = Promise.resolve();
   private readonly perGroup = new Map<string, GroupDispatcher>();
+  /** One note batcher per group (§0, §7), made on a group's first stop once `batchWith` wired them. */
+  private readonly batchers = new Map<string, NoteBatcher>();
+  private batching: ((groupId: string) => NoteBatcher) | null = null;
   private disposed = false;
   /** The host's Dispatcher model setting (plan Q6); null falls back to `dispatcherDefaultModel`. Set by the plugin entry. */
   modelSetting: () => Promise<AgentModel | null> = async () => null;
@@ -555,7 +593,7 @@ export class Dispatcher {
    * Replace dispatcher (§3, ruling Noah 2026-11-09): the user's confirmed click on a group's unguarded dispatcher, or
    * on one that misses this build's tools. Archives exactly that session (the group's stored one, by the id the user
    * saw), then starts a new guarded one as Start does. Refused for a guarded dispatcher with every tool, or when the
-   * group's stored one is not the id given. With a group delete (later), the only ways Flowly archives a dispatcher.
+   * group's stored one is not the id given. With `deleteGroup`, the only ways Flowly archives a dispatcher.
    */
   replace(paseo: PaseoApi, raw: { groupId: string; agentId: string }): Promise<{ agentId: string }> {
     const { groupId, agentId } = dispatcherReplaceInputSchema.parse(raw);
@@ -658,8 +696,8 @@ export class Dispatcher {
 
   /**
    * A start that finished after its group was deleted (§0): its entry is removed (the ids join the global list) and
-   * the session just made is archived, as for a refused create. The group delete itself shares the start queue, so
-   * this covers only a delete that bypassed it.
+   * the session just made is archived, as for a refused create. `deleteGroup` shares the start queue, so this covers
+   * only a delete that bypassed it (a bare `store.deleteGroup`, or a board restore).
    */
   private async lateStart(paseo: PaseoApi, groupId: string, agentId: string) {
     if (await this.onBoard(groupId)) return;
@@ -841,26 +879,59 @@ export class Dispatcher {
     return this.groupState(groupId).deliver(notes, paseo);
   }
 
+  /** Wires one note batcher per group (§0, §7); `make` builds a group's batcher on its first stop. Set by `wireDispatcher`. */
+  batchWith(make: (groupId: string) => NoteBatcher) {
+    this.batching = make;
+  }
+
+  /** A group's batcher, made on first use; none before `batchWith` or after unload. */
+  private batcher(groupId: string): NoteBatcher | null {
+    if (this.disposed || !this.batching) return null;
+    let batcher = this.batchers.get(groupId);
+    if (!batcher) {
+      batcher = this.batching(groupId);
+      this.batchers.set(groupId, batcher);
+    }
+    return batcher;
+  }
+
   /**
-   * A batch from the note batcher: each note goes to the dispatcher of its project's group as the board has it now; a
-   * note of a project no longer on the board is dropped.
+   * Stops from the bus (§0, §7): each goes to the batcher of its project's group as the commit had it, so one group's
+   * notes, cooldown and start window never touch another's. A stop of a project with no group (a board before its
+   * group migration) has no dispatcher to hear it and is dropped.
    */
-  async deliverNotes(notes: readonly DispatcherNote[], paseo: PaseoApi): Promise<void> {
+  pushStops(facts: readonly BusFact[]) {
+    const byGroup = new Map<string, BusFact[]>();
+    for (const fact of facts) {
+      if (fact.kind !== "board" || !fact.groupId) continue;
+      const list = byGroup.get(fact.groupId);
+      if (list) list.push(fact);
+      else byGroup.set(fact.groupId, [fact]);
+    }
+    for (const [groupId, list] of byGroup) this.batcher(groupId)?.push(list);
+  }
+
+  /**
+   * A project changed group (§0: `projects.set-group`, a group delete moving it to the default): both layers of its
+   * cards' pending notes, every other group's held notes and batcher buffer, move to `toGroupId`'s batcher (held ones
+   * first, so the newer buffered note wins the merge). They are dropped when that group has no dispatcher session
+   * recorded and none starting; an ended one drops them at delivery, as it drops every note (§7).
+   */
+  async projectMoved(projectId: string, toGroupId: string): Promise<void> {
     if (this.disposed) return;
-    let board: Pick<Board, "projects">;
+    let live: boolean;
     try {
-      board = await this.deps.board();
-    } catch (e) {
-      logFailure("Flowly dispatcher notes dropped: board unreadable:", e, `${notes.length} notes`);
-      return;
+      live = !!(await this.resolvedRecord()).groups[toGroupId]?.agentId || !!this.perGroup.get(toGroupId)?.starting;
+    } catch {
+      // An unreadable record has no session to hear them either.
+      live = false;
     }
-    const groupOf = new Map(board.projects.map((p) => [p.id, p.groupId]));
-    const byGroup = new Map<string, DispatcherNote[]>();
-    for (const note of notes) {
-      const groupId = groupOf.get(note.projectId);
-      if (groupId) byGroup.set(groupId, [...(byGroup.get(groupId) ?? []), note]);
-    }
-    await Promise.all([...byGroup].map(([groupId, list]) => this.deliver(groupId, list, paseo)));
+    if (this.disposed) return;
+    const held: DispatcherNote[] = [];
+    const buffered: DispatcherNote[] = [];
+    for (const [groupId, group] of this.perGroup) if (groupId !== toGroupId) held.push(...group.takeProject(projectId));
+    for (const [groupId, batcher] of this.batchers) if (groupId !== toGroupId) buffered.push(...batcher.takeProject(projectId));
+    if (live) this.batcher(toGroupId)?.pushNotes([...held, ...buffered]);
   }
 
   /** `agent.turn_ended` of any session: a group's own dispatcher sends what it held. */
@@ -870,15 +941,72 @@ export class Dispatcher {
     if (own) await this.groupState(own.groupId).turnEnded(agentId, paseo);
   }
 
-  /** Drops a group's note delivery (held notes logged), e.g. when the group is gone. */
+  /** Drops a deleted group's note delivery and batcher; its held and buffered notes are dropped (§0). */
   forgetGroup(groupId: string) {
-    this.perGroup.get(groupId)?.dispose();
+    this.perGroup.get(groupId)?.dispose(true);
     this.perGroup.delete(groupId);
+    this.batchers.get(groupId)?.dispose();
+    this.batchers.delete(groupId);
   }
 
-  /** Plugin unload: no more sends or re-checks; held notes are dropped and logged (§7). */
+  /**
+   * `groups.delete` with its dispatcher (§0, BOARD-GROUPS-SPEC §2), on the start/replace queue so no start of that
+   * group runs meanwhile. In order: the store's own refusals checked first (so a doomed delete archives nothing);
+   * refused while the group's session is running (`DISPATCHER_RUNNING`); a live session archived (a failed archive
+   * refuses with `DELETE_FAILED`, nothing changed); the record written (entry removed, its ids kept in the global
+   * list); then the board (projects to the default group, the group removed, the revision checked again); then the
+   * group's delivery dropped and its projects' pending notes moved. A dead session is not archived, and the workspace
+   * never is. When the board write fails after the record write, the group stays with no entry and reads `none`.
+   */
+  deleteGroup(paseo: PaseoApi, input: GroupRemoval, store: { deleteGroup(input: GroupRemoval): Promise<GroupDeleted> }): Promise<GroupDeleted> {
+    return this.queued(async () => {
+      const board = await this.deps.board();
+      const group = board.groups.find((g) => g.id === input.id);
+      if (!group) throw groupNotFound();
+      if (group.revision !== input.revision) throw new ToolError("REVISION_CONFLICT", "This group changed. Reload it before saving.");
+      if (group.isDefault) throw new ToolError("DEFAULT_REQUIRED", "The default group can't be deleted. Make another group the default first.");
+      const record = await this.resolvedRecord().catch((e: unknown) => {
+        logFailure("Flowly dispatcher record not read for a group delete:", e);
+        throw dispatcherUnavailable();
+      });
+      // The v1 session could not move yet (its migration failed): the group it would move to keeps it (§7 step 4).
+      if (record.unassigned?.agentId && dispatcherTarget(board) === group.id) throw dispatcherUnavailable();
+      const agentId = record.groups[group.id]?.agentId;
+      if (agentId) await this.archiveForDelete(paseo, agentId);
+      await this.save((r) => withoutGroup(r, group.id));
+      const deleted = await store.deleteGroup(input);
+      this.forgetGroup(group.id);
+      for (const projectId of deleted.projectIds) await this.projectMoved(projectId, deleted.movedTo);
+      return deleted;
+    });
+  }
+
+  /** A group delete's archive of its session (§0): refused while it runs, skipped when it is dead; a failure refuses the delete. */
+  private async archiveForDelete(paseo: PaseoApi, agentId: string) {
+    const ref = paseo.agents.ref(agentId);
+    let agent: AgentSnapshot;
+    try {
+      agent = (await ref.refresh())?.agent;
+    } catch (e) {
+      logFailure("Flowly dispatcher not archived for a group delete:", e, agentId);
+      throw deleteFailed(e);
+    }
+    const state = dispatcherState(agent);
+    if (state === "ended") return;
+    if (state === "running") throw new ToolError("DISPATCHER_RUNNING", "This group's dispatcher is working. Wait for its turn to end, then delete the group.");
+    try {
+      await ref.archive();
+    } catch (e) {
+      logFailure("Flowly dispatcher not archived for a group delete:", e, agentId);
+      throw deleteFailed(e);
+    }
+  }
+
+  /** Plugin unload: no more sends or re-checks; held notes are dropped and logged, buffered ones dropped (§7). */
   dispose() {
     for (const group of this.perGroup.values()) group.dispose();
+    for (const batcher of this.batchers.values()) batcher.dispose();
+    this.batchers.clear();
     this.disposed = true;
   }
 
@@ -1003,26 +1131,28 @@ function withSession(
 }
 
 /**
- * Bus → batcher → dispatchers (§7): only stops are batched, facts of any dispatcher session ever recorded are dropped
- * by the batcher, and each batch goes to the dispatchers of its cards' groups with the Paseo API the plugin last saw.
- * Returns the unload cleanup.
+ * Bus → batchers → dispatchers (§0, §7): only stops are batched, each in the batcher of its project's group as the
+ * commit had it; every batcher drops the facts of any dispatcher session ever recorded, and each batch goes to its
+ * group's dispatcher with the Paseo API the plugin last saw. Returns the unload cleanup.
  */
 export function wireDispatcher(bus: EventBus, dispatcher: Dispatcher, paseo: () => PaseoApi | undefined) {
-  const batcher = new NoteBatcher({ ...noteBatching, exclude: () => dispatcher.allAgentIds() }, (notes) => {
-    const api = paseo();
-    if (!api) {
-      logFailure("Flowly dispatcher notes dropped: no Paseo connection yet:", new Error("no Paseo connection"), `${notes.length} notes`);
-      return;
-    }
-    void dispatcher.deliverNotes(notes, api).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
-  });
+  dispatcher.batchWith(
+    (groupId) =>
+      new NoteBatcher({ ...noteBatching, exclude: () => dispatcher.allAgentIds() }, (notes) => {
+        const api = paseo();
+        if (!api) {
+          logFailure("Flowly dispatcher notes dropped: no Paseo connection yet:", new Error("no Paseo connection"), `${notes.length} notes`);
+          return;
+        }
+        void dispatcher.deliver(groupId, notes, api).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
+      }),
+  );
   const off = bus.subscribe((facts) => {
     const stops = facts.filter(isStop);
-    if (stops.length) batcher.push(stops);
+    if (stops.length) dispatcher.pushStops(stops);
   });
   return () => {
     off();
-    batcher.dispose();
     dispatcher.dispose();
   };
 }

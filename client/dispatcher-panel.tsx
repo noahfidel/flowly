@@ -189,6 +189,16 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     setDraft((now) => (expected !== undefined && now !== expected ? now : text)),
   );
   const box = useComposerDraft({ sessionId: "dispatcher", draft, onDraftChange: draftChange, isMounted: () => mounted.current });
+  // One draft per group (DISPATCHER-SPEC §0): switching groups keeps each group's unsent text, an outside change for the box.
+  const drafts = useRef(new Map<string, string>());
+  const draftGroup = useRef(groupId);
+  useEffect(() => {
+    if (draftGroup.current === groupId) return;
+    box.flush();
+    drafts.current.set(draftGroup.current ?? "-", box.read());
+    draftGroup.current = groupId;
+    setDraft(drafts.current.get(groupId ?? "-") ?? "");
+  }, [groupId]);
   // D opened or pressed the dock (Ruling, Noah 2026-11-09): focus the message box once it shows (not on mount, not when hidden).
   const focusedFor = useRef(focusRequest);
   useEffect(() => {
@@ -324,7 +334,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
           !!state && (
             <View style={{ gap: space[2], alignItems: "flex-start" }}>
               <Label muted size={font.md}>
-                {state === "ended" ? t("The dispatcher session ended.") : t("Starts one agent session that works across all your projects.")}
+                {state === "ended" ? t("The dispatcher session ended.") : t("Starts one agent session for this group's projects.")}
               </Label>
               <Button primary icon="Play" disabled={starting} onPress={() => void start()}>
                 {t("Start dispatcher")}

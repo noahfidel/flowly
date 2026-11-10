@@ -171,7 +171,11 @@ export const createProject = defineRpc({
   input: projectInput,
   output: projectSchema,
 });
-/** Board groups (BOARD-GROUPS-SPEC §2). Refusals carry a code (`CODE: message`): REVISION_CONFLICT, NAME_TAKEN, GROUPS_FULL, DEFAULT_REQUIRED, GROUP_NOT_FOUND, GROUPS_UNAVAILABLE, GROUP_BUSY. */
+/**
+ * Board groups (BOARD-GROUPS-SPEC §2). Refusals carry a code (`CODE: message`): REVISION_CONFLICT, NAME_TAKEN, GROUPS_FULL,
+ * DEFAULT_REQUIRED, GROUP_NOT_FOUND, GROUPS_UNAVAILABLE; `groups.delete` also DISPATCHER_RUNNING, DELETE_FAILED and
+ * DISPATCHER_UNAVAILABLE (it archives the group's dispatcher session first, DISPATCHER-SPEC §0).
+ */
 export const createGroup = defineRpc({
   name: "groups.create",
   input: groupInput,

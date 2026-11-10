@@ -8,7 +8,7 @@ import { BoardStore, StoreInvalidError } from "./store";
 import { BoardService } from "./service";
 import { readDatabaseFile, type StorageOptions } from "./sqlite-storage";
 import { projectRecords } from "./project-folder";
-import { v1DispatcherGuard } from "./group-delete-guard";
+import { Dispatcher } from "./dispatcher";
 import { emptyBoard, groupInput, groupLimits, type Board, type Group, type Project, type Task } from "../shared/model";
 import { groupOrder, type LegacyGroup } from "../shared/groups";
 
@@ -257,35 +257,33 @@ describe.each(["json", "sqlite"] as const)("board groups in the store (%s)", (ba
     expect(after.projects.find((p) => p.id === "a")!.revision).toBe(a.revision + 1);
   });
 
-  test("delete refuses the group the v1 dispatcher session moves to, while one is stored", async () => {
-    const d = await directory();
-    // Zen has two open cards, Projects one: the session would move to Zen.
-    await seed(d, [project("a"), project("b")], [task("a1", "a"), task("a2", "a"), task("b1", "b")]);
-    const s = open(backend, d);
-    await s.migrateGroups(legacy([{ id: "z", name: "Zen", projectIds: ["a"] }]));
-    const extra = await s.createGroup({ name: "Extra" });
-    const zen = byName(await s.read(), "Zen");
-    const running = v1DispatcherGuard({ record: async () => ({ groups: {}, unassigned: { agentId: "dispatcher-1" } }) });
-    await expect(s.deleteGroup({ id: zen.id, revision: zen.revision }, running)).rejects.toMatchObject({ code: "GROUP_BUSY" });
-    expect(byName(await onDisk(backend, d), "Zen")).toBeDefined();
-    await s.deleteGroup({ id: extra.id, revision: extra.revision }, running);
-    const none = v1DispatcherGuard({ record: async () => ({ groups: {} }) });
-    await s.deleteGroup({ id: zen.id, revision: zen.revision }, none);
-    expect(layout(await onDisk(backend, d))).toEqual({ "Projects*": ["a", "b"] });
-  });
-
-  test("delete refuses a group that holds its own dispatcher session; others go", async () => {
-    const d = await directory();
-    await seed(d, [project("a"), project("b")], [task("a1", "a")]);
-    const s = open(backend, d);
-    await s.migrateGroups(legacy([{ id: "z", name: "Zen", projectIds: ["a"] }]));
-    const extra = await s.createGroup({ name: "Extra" });
-    const other = await s.createGroup({ name: "Other" });
-    const guard = v1DispatcherGuard({ record: async () => ({ groups: { [extra.id]: { agentId: "dispatcher-1" }, [other.id]: { agentId: null } } }) });
-    await expect(s.deleteGroup({ id: extra.id, revision: extra.revision }, guard)).rejects.toMatchObject({ code: "GROUP_BUSY" });
-    await s.deleteGroup({ id: other.id, revision: other.revision }, guard);
-    expect(byName(await onDisk(backend, d), "Extra")).toBeDefined();
-    expect(byName(await onDisk(backend, d), "Other")).toBeUndefined();
+  test("delete through the dispatcher archives only that group's session, removes its entry and moves its projects", async () => {
+    const s = await ready();
+    const board = await s.read();
+    const zen = byName(board, "Zen"),
+      fallback = byName(board, "Projects");
+    const home = await directory();
+    const data = join(home, "data");
+    await mkdir(data, { recursive: true });
+    await writeFile(
+      join(data, "dispatcher.json"),
+      JSON.stringify({ version: 2, workspaceId: "dw", groups: { [zen.id]: { agentId: "zen-1", startedAt: at }, [fallback.id]: { agentId: "default-1", startedAt: at } } }),
+    );
+    const dispatcher = new Dispatcher(data, { summary: async () => "", mcp: async () => ({ type: "http", url: "", headers: {} }), board: () => s.read() }, join(home, "flowly-dispatcher", "dispatcher"));
+    const archived: string[] = [];
+    const paseo = {
+      agents: { ref: (id: string) => ({ refresh: async () => ({ agent: { status: "idle", archivedAt: null } }), archive: async () => void archived.push(id) }) },
+    } as unknown as PaseoApi;
+    try {
+      expect(await dispatcher.deleteGroup(paseo, { id: zen.id, revision: zen.revision }, s)).toEqual({ id: zen.id, movedTo: fallback.id, projectIds: ["a", "old"] });
+      expect(archived).toEqual(["zen-1"]);
+      const record = await dispatcher.resolvedRecord();
+      expect(Object.keys(record.groups)).toEqual([fallback.id]);
+      expect(record.previousAgentIds).toEqual(["zen-1"]);
+      expect(layout(await onDisk(backend, s.directory))).toEqual({ "Projects*": ["a", "b", "c", "old"] });
+    } finally {
+      dispatcher.dispose();
+    }
   });
 
   test("set-group: moves a project and bumps its revision; stale revisions and unknown groups are refused", async () => {
@@ -378,18 +376,6 @@ describe.each(["json", "sqlite"] as const)("board groups in the store (%s)", (ba
     const after = await onDisk(backend, s.directory);
     expect(after.revision).toBe(board.revision);
     expect(byName(after, "Zen").revision).toBe(zen.revision);
-  });
-
-  test("delete fails with a fixed coded message when the dispatcher record cannot be read", async () => {
-    const s = await ready();
-    const zen = byName(await s.read(), "Zen");
-    const log = errors();
-    const broken = v1DispatcherGuard({ record: async () => Promise.reject(new Error("EIO /secret/path/dispatcher.json")) });
-    const failure = s.deleteGroup({ id: zen.id, revision: zen.revision }, broken);
-    await expect(failure).rejects.toMatchObject({ code: "DISPATCHER_UNAVAILABLE" });
-    await expect(failure).rejects.not.toThrow("/secret/path");
-    expect(log).toHaveBeenCalledWith("Flowly dispatcher record not read for a group delete:", "EIO /secret/path/dispatcher.json");
-    expect(byName(await onDisk(backend, s.directory), "Zen")).toBeDefined();
   });
 });
 

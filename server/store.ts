@@ -856,16 +856,16 @@ export class BoardStore {
     });
   }
   /**
-   * `groups.delete`: refused for the default group (`DEFAULT_REQUIRED`) and whatever `guard` refuses (the dispatcher's
-   * hold on the group); otherwise its projects, archived ones included, move to the default group and it is removed.
+   * `groups.delete`: refused for the default group (`DEFAULT_REQUIRED`); otherwise its projects, archived ones
+   * included, move to the default group and it is removed. The plugin entry calls it through `Dispatcher.deleteGroup`,
+   * which archives the group's dispatcher session first (DISPATCHER-SPEC §0).
    */
-  deleteGroup(input: GroupRemoval, guard?: (board: Board, groupId: string) => Promise<void> | void) {
-    return this.groupWrite(async (board) => {
+  deleteGroup(input: GroupRemoval) {
+    return this.groupWrite((board) => {
       const group = board.groups.find((g) => g.id === input.id);
       if (!group) throw groupNotFound();
       if (group.revision !== input.revision) throw groupConflict();
       if (group.isDefault) throw new ToolError("DEFAULT_REQUIRED", "The default group can't be deleted. Make another group the default first.");
-      await guard?.(board, group.id);
       const target = defaultGroupOf(board)!;
       const now = new Date().toISOString();
       const moved: string[] = [];
