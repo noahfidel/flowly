@@ -77,9 +77,14 @@ export function stepPosition(queue: readonly string[], step: Step): { index: num
   return { index: null, total: queue.length, prev: queue[at - 1] ?? null, next: queue[at] ?? null };
 }
 
-/** A card's asks to pin in its sidebar: open ones newest first, then those whose session ended; not ones just answered here. */
+/**
+ * A need-you card's asks to pin in its sidebar: open ones newest first, then those whose session ended; not ones just
+ * answered here, and no unread turns (they are in "N updated"; Ruling, Noah 2026-11-09).
+ */
 export function cardAsks(items: readonly ChatItem[] | undefined, taskId: string, answered: ReadonlySet<string> = new Set()): AskItem[] {
-  const asks = (items ?? []).filter((item): item is AskItem => item.kind === "ask" && item.taskId === taskId && !answered.has(item.signal));
+  const asks = (items ?? []).filter(
+    (item): item is AskItem => item.kind === "ask" && item.taskId === taskId && !answered.has(item.signal) && waitsOnYou(item.askKind ?? "unread"),
+  );
   const newest = (a: AskItem, b: AskItem) => time(b.at) - time(a.at);
   return [...asks.filter((a) => a.state === "open").sort(newest), ...asks.filter((a) => a.state === "session_ended").sort(newest)];
 }

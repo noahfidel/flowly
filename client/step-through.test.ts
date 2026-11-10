@@ -112,7 +112,7 @@ test("when the shown card drops out (answered), it stays shown and next is the c
   expect(stepPosition(["new", "a", "b", "c"], step)).toEqual({ index: 2, total: 4, prev: "a", next: "c" });
 });
 
-const ask = (signal: string, taskId: string, s: number, state: "open" | "answered" | "session_ended" = "open"): ChatItem => ({
+const ask = (signal: string, taskId: string, s: number, state: "open" | "answered" | "session_ended" = "open", askKind: "question_report" | "unread" = "question_report"): ChatItem => ({
   id: `ask-${signal}`,
   at: at(s),
   kind: "ask",
@@ -121,7 +121,7 @@ const ask = (signal: string, taskId: string, s: number, state: "open" | "answere
   projectId: "p",
   title: taskId,
   state,
-  askKind: "question_report",
+  askKind,
 });
 
 test("the card's pinned asks: its open asks newest first, then ended ones; answered and other cards' asks are not", () => {
@@ -129,6 +129,11 @@ test("the card's pinned asks: its open asks newest first, then ended ones; answe
   expect(cardAsks(items, "a").map((x) => x.signal)).toEqual(["2", "1", "4"]);
   expect(cardAsks(items, "a", new Set(["2"])).map((x) => x.signal)).toEqual(["1", "4"]);
   expect(cardAsks(undefined, "a")).toEqual([]);
+});
+
+test("a need-you card pins no unread turns: those are in N updated (Ruling, Noah 2026-11-09)", () => {
+  const items = [ask("q", "a", 1), ask("u", "a", 9, "open", "unread"), ask("u2", "a", 5, "session_ended", "unread")];
+  expect(cardAsks(items, "a").map((x) => x.signal)).toEqual(["q"]);
 });
 
 test("pressing the chip of the open step-through keeps the current card; the other kind starts at its first card", () => {
