@@ -400,7 +400,7 @@ const catalog: Catalog = {
   "Move {lane} down": "Descendre {lane}",
   "Drag to reorder {lane}": "Glisser pour réordonner {lane}",
   "{lane} lane name": "Nom du couloir {lane}",
-  "Lanes are this project's workflow: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "Les couloirs forment le workflow de ce projet : les cartes, le statut automatique et les agents n’utilisent que les couloirs activés. Renommez un couloir en tapant par-dessus son nom. Un couloir qui contient des cartes ne peut pas être désactivé.",
+  "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "Les couloirs forment le workflow de ce groupe, utilisé par chacun de ses projets : les cartes, le statut automatique et les agents n’utilisent que les couloirs activés. Renommez un couloir en tapant par-dessus son nom. Un couloir qui contient des cartes ne peut pas être désactivé tant qu’elles n’ont pas été déplacées.",
   "Waiting on": "En attente de",
   "Blocks": "Bloque",
   "Follow-up of": "Suite de",
@@ -1642,5 +1642,6 @@ const catalog: Catalog = {
   "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "Les projets sont regroupés en tableaux : le tableau d'un groupe affiche ensemble les cartes de ses projets, avec un filtre de projet pour le réduire.",
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "Chaque groupe a son propre dispatcher : son chat, ses notes et ses nouvelles cartes restent avec les projets de ce groupe.",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "Les onglets de groupe remplacent les onglets de projet : faites glisser un groupe pour le réordonner et ajoutez des groupes depuis le sélecteur de projets.",
+  "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "Les couloirs appartiennent désormais au groupe : chacun de ses projets utilise les mêmes couloirs, modifiés une seule fois dans les réglages du groupe.",
 };
 export default catalog;

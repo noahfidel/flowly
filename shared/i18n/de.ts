@@ -400,7 +400,7 @@ const catalog: Catalog = {
   "Move {lane} down": "{lane} nach unten",
   "Drag to reorder {lane}": "Zum Umordnen von {lane} ziehen",
   "{lane} lane name": "Name der Spalte {lane}",
-  "Lanes are this project's workflow: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "Die Spalten bilden den Workflow dieses Projekts: Karten, automatischer Status und Agenten nutzen nur aktivierte Spalten. Benenne eine Spalte um, indem du über ihren Namen tippst. Eine Spalte mit Karten lässt sich nicht ausschalten.",
+  "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "Die Spalten bilden den Workflow dieser Gruppe und gelten für jedes ihrer Projekte: Karten, automatischer Status und Agenten nutzen nur aktivierte Spalten. Benenne eine Spalte um, indem du über ihren Namen tippst. Eine Spalte mit Karten lässt sich nicht ausschalten.",
   "Waiting on": "Wartet auf",
   "Blocks": "Blockiert",
   "Follow-up of": "Folgeaufgabe von",
@@ -1642,5 +1642,6 @@ const catalog: Catalog = {
   "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "Projekte sind in Boards gruppiert: das Board einer Gruppe zeigt die Karten ihrer Projekte gemeinsam, ein Projektfilter grenzt es ein.",
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "Jede Gruppe hat ihren eigenen Dispatcher, damit Chat, Hinweise und neue Karten bei den Projekten dieser Gruppe bleiben.",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "Gruppen-Tabs ersetzen die Projekt-Tabs: Eine Gruppe lässt sich per Ziehen umordnen, neue Gruppen legst du im Projektumschalter an.",
+  "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "Spalten gehören jetzt zur Gruppe: Jedes ihrer Projekte nutzt dieselben Spalten, die du einmal in den Gruppeneinstellungen bearbeitest.",
 };
 export default catalog;

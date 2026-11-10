@@ -44,25 +44,12 @@ test("unpositioned (new) projects sort after ordered ones by creation", () => {
   expect([p("new", "2026-10-09"), p("x", "2026-10-01", 1), p("y", "2026-10-02", 0)].sort(projectOrder).map((q) => q.id)).toEqual(["y", "x", "new"]);
 });
 
-test("project lanes: turning a lane off needs it empty; disabled lanes reject cards", async () => {
+test("project lanes are not edited per project: projects.update refuses lanes (BOARD-GROUPS-SPEC §2)", async () => {
+  // Turning a lane off with cards in it and disabled lanes refusing cards moved to the group: server/store-group-lanes.test.ts.
   const store = await setup();
-  await store.mutate((b) => {
-    const now = "2026-10-01T00:00:00Z";
-    b.tasks.push({ id: "t1", projectId: "a", workspaceId: "w", sourcePath: "/a", repoPaths: ["/a"], title: "T", description: "", status: "blocked", priority: "normal", position: 0, revision: 1, operationId: "o", createdAt: now, updatedAt: now, archivedAt: null });
-  });
-  const lanes = (off: string[]) =>
-    (["backlog", "todo", "design", "development", "test", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({
-      status,
-      enabled: !off.includes(status),
-      ...(status === "todo" ? { name: "Ready" } : {}),
-    }));
   const rev = async () => (await store.read()).projects.find((p) => p.id === "a")!.revision;
-  await expect(store.updateProject({ id: "a", revision: await rev(), lanes: lanes(["blocked"]) })).rejects.toThrow(/Move the cards out of Blocked \(1\)/);
-  await store.editTask({ id: "t1", revision: 1, status: "todo", actor: "human" });
-  const saved = await store.updateProject({ id: "a", revision: await rev(), lanes: lanes(["blocked", "backlog"]) });
-  expect(saved.lanes?.find((l) => l.status === "todo")?.name).toBe("Ready");
-  await expect(store.editTask({ id: "t1", revision: 2, status: "blocked", actor: "human" })).rejects.toThrow(/Blocked is not a lane/);
-  await expect(store.placeTask({ id: "t1", revision: 2, status: "backlog", beforeId: null, afterId: null })).rejects.toThrow(/Backlog is not a lane/);
+  const lanes = (["backlog", "todo", "design", "development", "test", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: true }));
+  await expect(store.updateProject({ id: "a", revision: await rev(), lanes })).rejects.toMatchObject({ code: "LANES_IN_GROUP" });
 });
 
 test("a project's default model is set, replaced and cleared with the revision check", async () => {

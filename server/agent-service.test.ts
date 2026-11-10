@@ -12,6 +12,7 @@ import { putArtifact } from "./artifacts";
 import { ExternalError } from "./connectors/http";
 import { turnChecklist } from "../shared/turn-checklist";
 import { toolContextSchema } from "../shared/tools";
+import type { Lane } from "../shared/model";
 
 const roots: string[] = [];
 async function setup(seed?: Parameters<typeof agentFixture>[0]) {
@@ -328,19 +329,23 @@ test("session context signatures survive reload, reject rebinding and credential
     "invalid",
   );
 });
+/** Lanes are group-level (BOARD-GROUPS-SPEC §1): turn groups on and edit the project's group's lanes. */
+async function setGroupLanes(store: BoardStore, projectId: string, lanes: Lane[]) {
+  if (!store.groupsAvailable) await store.migrateGroups(async () => []);
+  const board = await store.read();
+  const group = board.groups.find((g) => g.id === board.projects.find((p) => p.id === projectId)!.groupId)!;
+  await store.updateGroup({ id: group.id, revision: group.revision, lanes });
+}
 test("agents only see and use the project's enabled lanes", async () => {
   const x = await setup();
   const board = await x.store.read();
   const project = board.projects[0];
-  await x.store.updateProject({
-    id: project.id,
-    revision: project.revision,
-    lanes: (["backlog", "todo", "design", "development", "test", "in_review", "committed", "integrated", "blocked", "done", "cancelled"] as const).map((status) => ({
+  await setGroupLanes(x.store, project.id, (["backlog", "todo", "design", "development", "test", "in_review", "committed", "integrated", "blocked", "done", "cancelled"] as const).map((status) => ({
       status,
       enabled: status !== "blocked" && status !== "committed" && status !== "integrated",
       ...(status === "in_review" ? { name: "QA" } : {}),
     })),
-  });
+  );
   const ctx = await x.service.get(x.identity);
   expect(ctx.allowedStatuses).toEqual(["design", "development", "test", "in_review"]);
   expect(ctx.lanes.find((l) => l.status === "in_review")?.name).toBe("QA");
@@ -1187,11 +1192,8 @@ test("committed is a delivery like In review: outputs and a Done move; refused w
   await x.store.editTask({ id: "t", revision: board.tasks[0]!.revision, status: "in_review", actor: "human" });
   board = await x.store.read();
   const project = board.projects[0]!;
-  await x.store.updateProject({
-    id: project.id,
-    revision: project.revision,
-    lanes: (["backlog", "todo", "design", "development", "test", "in_review", "committed", "integrated", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: status !== "committed" })),
-  });
+  await setGroupLanes(x.store, project.id, (["backlog", "todo", "design", "development", "test", "in_review", "committed", "integrated", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: status !== "committed" })),
+  );
   ctx = await x.service.get(x.identity);
   expect(ctx.allowedStatuses).not.toContain("committed");
   await expect(x.service.write(x.identity, "status", { ...input(ctx), status: "committed", nextMoves: [] })).rejects.toMatchObject({ code: "STATUS_UNAVAILABLE" });
@@ -1218,11 +1220,8 @@ test("integrated is a delivery like Committed, also straight from a work stage; 
   await x.store.editTask({ id: "t", revision: board.tasks[0]!.revision, status: "committed", actor: "human" });
   board = await x.store.read();
   const project = board.projects[0]!;
-  await x.store.updateProject({
-    id: project.id,
-    revision: project.revision,
-    lanes: (["backlog", "todo", "design", "development", "test", "in_review", "committed", "integrated", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: status !== "integrated" })),
-  });
+  await setGroupLanes(x.store, project.id, (["backlog", "todo", "design", "development", "test", "in_review", "committed", "integrated", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: status !== "integrated" })),
+  );
   ctx = await x.service.get(x.identity);
   expect(ctx.allowedStatuses).toEqual(["design", "development", "test", "blocked", "in_review", "committed"]);
   await expect(x.service.write(x.identity, "status", { ...input(ctx), status: "integrated", nextMoves: [] })).rejects.toMatchObject({ code: "STATUS_UNAVAILABLE" });

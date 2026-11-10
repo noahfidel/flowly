@@ -25,7 +25,8 @@ exactly one group. Individual projects are no longer top-level navigation.
 - Ruling (Noah, 2026-11-10): repo-bound settings stay per project (check commands, auto review and its rework
   limit, base branch and worktree setup, project memory). Preferences become group defaults that projects inherit
   and can override (new-card model, mode and thinking level, delivery mode, the group's dispatcher model). A group
-  settings page shows the group defaults plus a section per project.
+  settings page shows the group defaults plus a section per project. Lanes are not per project: see the lanes
+  ruling below.
 - Ruling (Noah, 2026-11-10): the bell and the Paseo sidebar badge keep counting across all groups.
 - Ruling (Noah, 2026-11-10): board groups move out of the per-host `board-view` settings into the board's own data,
   so the server can write them. A dispatcher tool for board groups (create, rename, set member projects, delete) is
@@ -82,6 +83,12 @@ exactly one group. Individual projects are no longer top-level navigation.
   treated as in no group.
 - Ruling (Noah, 2026-11-10): `isDefault: false` in `groups.update` is a no-op on a group that is not the default; it
   is refused with `DEFAULT_REQUIRED` only on the default group.
+- Ruling (Noah, 2026-11-10): lanes are group-level. A group owns its lanes (which built-in statuses are on, their
+  order, custom names) and every project in the group uses them; projects have no lane settings of their own and
+  lanes are edited once, on the group settings page. The group board, filtered or not, shows the group's lanes with
+  the group's names, and a drop onto any column is valid for every card of the group. A lane that holds a live card
+  of any live member can't be turned off. A project that moves to another group adopts that group's lanes, the group
+  first turning on every status the project's live cards sit in. The migration is §7 step 7.
 
 ## 1. Model
 
@@ -89,9 +96,25 @@ exactly one group. Individual projects are no longer top-level navigation.
 version bump; stored as a `groups` collection of the SQLite store), and `project.groupId`.
 
 ```
-Group { id, name, position, isDefault?: true, defaults?: GroupDefaults, revision, createdAt, updatedAt }
+Group { id, name, position, isDefault?: true, defaults?: GroupDefaults, lanes?: Lane[], revision, createdAt, updatedAt }
 GroupDefaults { agentModel?: AgentModel, deliveryMode?: DeliveryMode, dispatcherModel?: DispatcherModel }
+Lane { status, enabled, name? }   (the existing lane shape: every built-in status once, at least one enabled)
 ```
+
+- `lanes` is the group's workflow and the **only source of truth** for lanes: the built-in statuses in display
+  order, each on or off, optionally renamed (1–40 characters, trimmed; empty means the built-in name). It is
+  validated like a project's lanes were (`lanesSchema`: every status once, statuses a stored list predates filled in
+  by `completeLanes`, at least one on). It is absent only in data stored before group lanes; the read-time repair
+  and the next write fill it in (§7 step 7). A new group gets every lane, on, in the default order and names.
+- `project.lanes` is a **mirror** the server keeps equal to its group's `lanes` (a copy, same order and names) on
+  every write, so every reader of a project's lanes (Move to lists, start status, auto status, agent tools,
+  workpad, auto review, insights, summaries, PR review cards, quick task) resolves through the group without
+  knowing about it. Nothing else writes it; a stored value that differs is overwritten by the next write.
+- Lane invariants kept by the server at the end of every write, in the same serialized operation as the group
+  invariants: (1) each group has `lanes`; (2) every status a live (not archived) card of a live member project sits in
+  is on in that group's lanes, turning it on when needed and bumping that group's revision; (3) every member project,
+  archived ones too, has `lanes` equal to its group's. (2) is what makes a project move, a project restore and a
+  card restore safe; lane edits and card moves are refused before they could break it.
 
 - `name`: 1–80 characters after trimming, unique ignoring case (a duplicate is refused). `position` orders tabs and
   the switcher. At most 50 groups.
@@ -113,18 +136,27 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 
 - `groups.create { name, defaults? }` → group (appended; no members). The first group of an empty board is its
   default.
-- `groups.update { id, revision, name?, defaults?, isDefault? }`: setting `isDefault: true` moves the flag;
+- `groups.update { id, revision, name?, defaults?, isDefault?, lanes? }`: setting `isDefault: true` moves the flag;
   clearing it on the default group is refused (`DEFAULT_REQUIRED`; ruling above for other groups). In `defaults`, a
-  value sets a default and `null` clears it. An edit that changes nothing writes nothing and bumps no revision.
+  value sets a default and `null` clears it. `lanes` replaces the group's whole lane list (validated as in §1; names
+  trimmed, an empty name dropped) and is mirrored to every member in the same write. Turning off a lane that holds
+  live cards of live member projects is refused with `LANE_NOT_EMPTY: Move the cards out of {lane} ({n}) before
+  turning it off.` (several lanes: "{lane} ({n}), {lane} ({n}) … turning them off."; `{lane}` is the group's lane
+  name, `{n}` the count over all live members). An edit that changes nothing writes nothing and bumps no revision.
 - `groups.move { id, direction }` → renumbers `position` without bumping revisions (as `projects.move`).
 - `groups.delete { id, revision }` → refused with `DEFAULT_REQUIRED` for the default group; otherwise moves the
   group's projects to the default group, archives the group's dispatcher session when it has a live one (§6) and
   removes the group. Each moved project's revision is bumped; the result names the default group and the moved
   projects. The order is DISPATCHER-SPEC §3 (refuse while that dispatcher is running, `DISPATCHER_RUNNING`; archive;
   then the dispatcher record; then the board; a failed archive refuses with `DELETE_FAILED`).
-- `projects.set-group { projectId, revision, groupId }`: archived projects too; bumps the project's revision.
+- `projects.set-group { projectId, revision, groupId }`: archived projects too; bumps the project's revision. The
+  project adopts the target group's lanes; when the project is live, the target group first turns on every status its
+  live cards sit in (its revision is bumped, as for any membership change). The same holds for every project moved
+  by `groups.delete`, `set_members` and the repair of §1.
 - `projects.create` gains an optional `groupId` (default: the default group); the project form and
-  `flowly_create_project` pass it.
+  `flowly_create_project` pass it. The new project gets its group's lanes.
+- `projects.update` no longer takes lanes: a `lanes` field is refused with `LANES_IN_GROUP: Lanes belong to the
+  project's group. Edit them in Group settings.` and nothing is written.
 - The old `boardGroups` value in `board-view` is no longer read after migration (§7) and no longer written.
 
 ## 3. Navigation
@@ -152,11 +184,18 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 
 ## 4. The group board
 
-- It is the All projects board (ALL-PROJECTS-SPEC §2–§6, which remain the contract for columns, cards, Manual order
-  by project, drag rules, filters and tags) over the group's live member projects. An archived project is never
-  included, even with *Show archived* on.
+- It is the All projects board (ALL-PROJECTS-SPEC §3–§6, which remain the contract for cards, Manual order by
+  project, filters and tags) over the group's live member projects. An archived project is never included, even with
+  *Show archived* on.
+- **Columns:** the group's enabled lanes in the group's order, with the group's lane names, filtered or not (this
+  replaces ALL-PROJECTS-SPEC §2's union of statuses with default names). Every card action (Move to lists, "Moved to
+  …" toasts) uses the same names, since every member has the group's lanes.
+- **Drag:** dropping a card on another column changes its status (`tasks.place`, appended to the end of that
+  project's lane). Every column is a lane of every member, so the drop is always sent; the "{lane} is not a lane in
+  {project}." refusal of ALL-PROJECTS-SPEC §4 no longer occurs on a group board (a board shown before its group is
+  known keeps it). Reordering within a column follows ALL-PROJECTS-SPEC §4 unfiltered and the project rules filtered.
 - **Project filter:** a Project chip in the filter bar (with the Type, Priority and Tags filters) lists the group's
-  projects. A filtered board shows one project's cards and ideas, in that project's own lanes and lane names. The
+  projects. A filtered board shows one project's cards and ideas, in the group's lanes and lane names. The
   filter is per board instance, kept while the app runs, cleared when the project leaves the group or the group
   changes, and counted in "{n} shown".
 - **Overview bar:** shown on every group board with at least one live member, filtered or not. Its task count,
@@ -178,15 +217,20 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 
 - **Group settings page** (from the tab menu's **Group settings**, the switcher's **Group settings** row for the
   shown group and the empty-group hint; replaces Settings → Workflow → Board groups): the group's name, the Default flag, **Defaults** (new-card model, mode and thinking level;
-  delivery mode; dispatcher model), the member projects (move a project to another group; archived ones shown
+  delivery mode; dispatcher model), **Lanes** (below), the member projects (move a project to another group; archived ones shown
   muted), then **one section per project** holding that project's settings as the project form has them today
-  (name, root, lanes, auto status, workpad, Linear, guardrail commands, auto review and its rework limit, memory,
-  its own model default). Name, root, lanes and the repo-bound settings stay per project; there is no base branch
+  (name, root, auto status, workpad, Linear, guardrail commands, auto review and its rework limit, memory,
+  its own model default; no lanes). Name, root and the repo-bound settings stay per project; there is no base branch
   or worktree setup stored per project today (the base ref is per card, worktree versus directory is a host
   setting, setup is the repo's `paseo.json`) and none is added here. Each project's section also has **Restore
   {project}** (archived projects only; `projects.update` with `archived: false`) and **Remove “{project}”…**, which
   closes the page and opens the Remove project dialog (PROJECT-REMOVE-SPEC); they replace the switcher's former
   project rows. Unsaved edits in another section ask to be discarded first.
+- **Lanes** on the group settings page: the lane editor the project form had (order by drag, or arrows on touch;
+  on/off; an optional name), editing the group's lanes, with **Cancel** and **Save** (one `groups.update` with
+  `lanes`). A lane that holds live cards of any live member, or the last lane on, can't be switched off there (the
+  server refuses the same, §2). Unsaved lane edits count as unsaved edits for the discard question. Edit project
+  (a project whose group is not on the board yet) and the New project form have no lane editor.
 - **Entry:** every entry opens the page through one board entry point, `onGroupSettings(groupId, focus?)`: `focus`
   opens one project's section. The tab menu and the switcher row open their group with the filtered project's
   section open when the board is filtered to a project of that group (§4); What's new's *Turn on for this project*
@@ -267,7 +311,18 @@ next start (the record's session is still v1, the board has groups, so step 4 ru
    `boardGroups` are dropped on read (never written), keeping the settings parser's rule that one bad field never
    resets the others.
 6. **Project folder copies:** `<root>/.flowly/project.json` (PROJECT-FOLDER-SPEC) does not carry `groupId`; a
-   restored project is placed in the default group.
+   restored project is placed in the default group and takes its lanes (its copied lanes are overwritten, the group
+   first turning on the statuses its restored live cards sit in).
+7. **Group lanes:** part of the same start write as steps 1–2, and also of every later write and read-time repair,
+   for each group that has no `lanes` (every group of a board stored before group lanes; groups made by steps 1–2):
+   - a status is on when any live (not archived) member project has it on (a project with no stored lanes has every
+     lane on), or when a live card of a live member sits in it; the list is in the default status order;
+   - a custom name is kept only when every live member that has the status on uses that same non-empty name;
+     otherwise the built-in name applies (no name stored);
+   - a group with no live member gets every lane, on, with built-in names.
+   The members' `lanes` are then set to the group's (§1). A group that already has `lanes` is never recomputed, so a
+   second start writes nothing. Stored lanes that do not validate fail the board's parse as any invalid stored data
+   does (the data is kept, not reset). The migration bumps no group or project revision.
 
 ## 8. Acceptance
 
@@ -294,6 +349,14 @@ Unit (server/shared, written with the follow-up cards):
   back; a tool delete of a group with a live dispatcher is `GROUP_BUSY`.
 - Delivery mode: moving a project or editing a group default changes the default of cards without their own
   delivery mode, i.e. agent-created ones (resolution stays lazy, as `effectiveDeliveryMode` does today); a card's own mode never changes.
+- Group lanes: the §7 step 7 union (statuses on in any live member, plus statuses holding live cards), names kept
+  only when all agree, all lanes for an empty group, a second start writing nothing; after a group lane edit, a
+  project move (set-group, set_members, group delete), a project create and the migration, every member's lanes equal
+  its group's; a project's lanes as read by server paths (start status, `laneProblem` in task create and move) are
+  the group's; turning off a group lane holding a live card of any live member is `LANE_NOT_EMPTY`; a `lanes` edit
+  in `projects.update` is `LANES_IN_GROUP`; a moved project's live card statuses are turned on in the target group.
+- Group board: columns and names are the group's, filtered or not; a drop on any column is allowed for every card of
+  the group.
 
 Upkeep (the plan's last task): welcome-tour copy and tips, a What's new entry (All and project tabs and the global
 dispatcher go away for existing users), the telemetry decision, and every new string in all i18n catalogs.

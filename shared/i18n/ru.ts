@@ -400,7 +400,7 @@ const catalog: Catalog = {
   "Move {lane} down": "Вниз: {lane}",
   "Drag to reorder {lane}": "Перетащите, чтобы изменить порядок: {lane}",
   "{lane} lane name": "Название колонки «{lane}»",
-  "Lanes are this project's workflow: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "Колонки задают рабочий процесс проекта: карточки, автоматический статус и агенты используют только включённые колонки. Чтобы переименовать колонку, введите новое название поверх старого. Колонку с карточками выключить нельзя.",
+  "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "Колонки задают рабочий процесс группы, общий для всех её проектов: карточки, автоматический статус и агенты используют только включённые колонки. Чтобы переименовать колонку, введите новое название поверх старого. Колонку с карточками нельзя выключить, пока их не переместят.",
   "Waiting on": "Ждёт",
   "Blocks": "Блокирует",
   "Follow-up of": "Продолжение",
@@ -1642,5 +1642,6 @@ const catalog: Catalog = {
   "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "Проекты объединены в доски: доска группы показывает карточки её проектов вместе, а фильтр по проекту сужает её.",
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "У каждой группы свой диспетчер: её чат, заметки и новые карточки остаются за проектами этой группы.",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "Вкладки групп заменяют вкладки проектов: группу можно перетащить, чтобы изменить порядок, а группы добавляются в переключателе проектов.",
+  "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "Колонки теперь принадлежат группе: все её проекты используют одни и те же колонки, которые настраиваются один раз в настройках группы.",
 };
 export default catalog;

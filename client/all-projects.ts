@@ -1,5 +1,5 @@
-import { enabledStatuses, laneEnabled } from "../shared/lanes";
-import { projectOrder, statuses, type Project, type Status, type Task } from "../shared/model";
+import { enabledStatuses, laneEnabled, laneName } from "../shared/lanes";
+import { projectOrder, statuses, type Group, type Project, type Status, type Task } from "../shared/model";
 import { sortTasks, type BoardSort } from "../shared/sort";
 import { taskMatchesSearch, taskMatchesTagFilter } from "../shared/tags";
 import { quickProject } from "./quick-task";
@@ -15,6 +15,23 @@ export function includedProjects<P extends Pick<Project, "id" | "archivedAt" | "
 export function allStatuses(projects: readonly Pick<Project, "lanes" | "archivedAt">[]): Status[] {
   const enabled = new Set(projects.filter((p) => !p.archivedAt).flatMap((p) => enabledStatuses(p)));
   return statuses.filter((s) => enabled.has(s));
+}
+
+/**
+ * The board's columns and lane names (BOARD-GROUPS-SPEC §4): a group board, filtered or not, shows its group's enabled
+ * lanes in the group's order with the group's names. A board shown before its group is known keeps the old rules: the
+ * shown project's lanes, else the union of the live projects with default names (ALL-PROJECTS-SPEC §2).
+ */
+export function boardLanes(
+  group: Pick<Group, "lanes"> | null | undefined,
+  project: Pick<Project, "lanes"> | null | undefined,
+  projects: readonly Pick<Project, "lanes" | "archivedAt">[],
+): { statuses: Status[]; nameOf(status: Status): string } {
+  const source = group ?? project ?? null;
+  return {
+    statuses: source ? enabledStatuses(source) : allStatuses(projects),
+    nameOf: (status) => laneName(source, status),
+  };
 }
 
 export type BoardFilters = { search: string; priority: string; taskType: string; tags: readonly string[] };
@@ -51,8 +68,12 @@ export function reorderAllowed(all: boolean, sort: BoardSort) {
   return !all && sort === "manual";
 }
 
-/** A drop on `status` from All: refused when the card's own project has no such lane (§4). */
-export function dropAllowed(project: Pick<Project, "lanes"> | undefined, status: Status) {
+/**
+ * A drop on `status`: on a group board every column is a lane of every member, so a member's card may always drop
+ * (BOARD-GROUPS-SPEC §4); with no group known, refused when the card's own project has no such lane (ALL-PROJECTS-SPEC §4).
+ */
+export function dropAllowed(project: Pick<Project, "lanes" | "groupId"> | undefined, status: Status, group?: Pick<Group, "id" | "lanes"> | null) {
+  if (group) return !!project && project.groupId === group.id && laneEnabled(group, status);
   return !!project && laneEnabled(project, status);
 }
 

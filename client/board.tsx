@@ -123,12 +123,13 @@ import { MemoryPage, type MemoryPrefs } from "./memory";
 // board-groups 3/7: group-only navigation (BOARD-GROUPS-SPEC §3).
 import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, rememberViewedGroupView } from "./project-memory";
 import { boardProject, boardScope, defaultGroup, focusFilter, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, overviewScope, pickGroupView, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
-import { allStatuses, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
+import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { GroupTabs } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
 import { RemoveProjectDialog } from "./project-remove";
 import { boardOverview } from "./overview";
 import { enabledStatuses, laneName } from "../shared/lanes";
+import { groupLaneCounts } from "../shared/group-lanes";
 import { boardSortText, boardSorts, sortTasks, turnEndActivity, type BoardSort } from "../shared/sort";
 import { projectTagStats, tagPrefixes } from "../shared/tags";
 import {
@@ -731,9 +732,10 @@ function BoardContent(
     archived,
   );
   const visible = tasks.filter((t) => matchesFilters(t, { search, priority, taskType, tags: tagFilter }));
-  // The project's lanes are its workflow: enabled lanes in their configured order. All: the union, default names.
-  const shownStatuses = allView ? allStatuses(liveProjects) : enabledStatuses(project);
-  const nameOf = (status: Status) => laneName(allView ? null : project, status);
+  // Lanes are the group's (BOARD-GROUPS-SPEC §4): its enabled lanes in its order and names, filtered or not.
+  const lanesShown = boardLanes(group, project, liveProjects);
+  const shownStatuses = lanesShown.statuses;
+  const nameOf = lanesShown.nameOf;
   // A card's own lanes and lane names (its project's), for its menus and toasts.
   const cardStatuses = (card: Task) => enabledStatuses(projectOf(card));
   const cardLaneName = (card: Task, status: Status) => laneName(projectOf(card), status);
@@ -1049,8 +1051,9 @@ function BoardContent(
   const place = (input: Placement) => {
     const card = data.data?.tasks.find((t) => t.id === input.id);
     const from = card?.status;
-    // All projects: a column the card's own project has no lane for refuses the drop (ALL-PROJECTS-SPEC §4).
-    if (allView && card && !dropAllowed(projectOf(card), input.status)) {
+    // Every group column is a lane of every member (BOARD-GROUPS-SPEC §4); with no group known, a column the card's own
+    // project has no lane for refuses the drop (ALL-PROJECTS-SPEC §4).
+    if (allView && card && !dropAllowed(projectOf(card), input.status, group)) {
       toast.show(t("{lane} is not a lane in {project}.", { lane: nameOf(input.status), project: projectOf(card)?.title ?? "" }), { variant: "info" });
       return;
     }
@@ -1866,12 +1869,8 @@ function BoardContent(
   // A group's settings, with the filtered project's section open when the board shows one project of that group.
   const openGroupSettings = (groupId: string) =>
     onGroupSettings(groupId, project && groupOf(project)?.id === groupId ? { projectId: project.id } : undefined);
-  // Live cards per lane of one project, so Group settings can't turn off a lane in use.
-  const laneCountsOf = (projectId: string) => {
-    const counts: Partial<Record<Status, number>> = {};
-    for (const card of board?.tasks || noTasks) if (card.projectId === projectId && !card.archivedAt) counts[card.status] = (counts[card.status] ?? 0) + 1;
-    return counts;
-  };
+  // Live cards per lane over a group's live members, so Group settings can't turn off a lane in use (BOARD-GROUPS-SPEC §5).
+  const laneCountsOf = (groupId: string) => groupLaneCounts({ projects: board?.projects || noProjects, tasks: board?.tasks || noTasks }, groupId);
   const groupTabMenu = (g: Group, index: number): MenuEntry[] => [
     { id: "settings", label: t("Group settings"), icon: "SlidersHorizontal", onPress: () => openGroupSettings(g.id) },
     { id: "new-task", label: t("New task"), icon: "Plus", onPress: () => { chooseGroup(g.id); openNewTask("todo"); } },
@@ -2951,9 +2950,6 @@ function BoardContent(
             reviewOn={projectForm === "edit" && reviewOn}
             // board-groups 3/7: a new project goes to the group shown (BOARD-GROUPS-SPEC §3, the + and the empty-group hint).
             groupId={projectForm === "new" ? group?.id : undefined}
-            laneCounts={Object.fromEntries(
-              shownStatuses.map((s) => [s, tasks.filter((t) => t.projectId === project?.id && t.status === s && !t.archivedAt).length]),
-            )}
             showArchived={archived}
             onShowArchived={setArchived}
             onClose={() => {

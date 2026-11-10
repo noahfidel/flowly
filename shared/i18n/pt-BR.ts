@@ -400,7 +400,7 @@ const catalog: Catalog = {
   "Move {lane} down": "{lane} para baixo",
   "Drag to reorder {lane}": "Arraste para reordenar {lane}",
   "{lane} lane name": "Nome da raia {lane}",
-  "Lanes are this project's workflow: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "As raias são o fluxo de trabalho deste projeto: cards, status automático e agentes só usam raias ativadas. Renomeie uma raia digitando sobre o nome. Uma raia com cards não pode ser desativada.",
+  "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "As raias são o fluxo de trabalho deste grupo, usado por todos os seus projetos: cards, status automático e agentes só usam raias ativadas. Renomeie uma raia digitando sobre o nome. Uma raia com cards não pode ser desativada.",
   "Waiting on": "Aguardando",
   "Blocks": "Bloqueia",
   "Follow-up of": "Acompanhamento de",
@@ -1642,5 +1642,6 @@ const catalog: Catalog = {
   "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "Os projetos são agrupados em quadros: o quadro de um grupo mostra os cartões de seus projetos juntos, com um filtro de projeto para reduzi-lo.",
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "Cada grupo tem seu próprio dispatcher, então o chat, as notas e os cartões novos ficam com os projetos desse grupo.",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "As abas de grupo substituem as abas de projeto: arraste um grupo para reordená-lo e adicione grupos pelo seletor de projetos.",
+  "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "As raias agora pertencem ao grupo: todos os seus projetos usam as mesmas raias, editadas uma única vez nas configurações do grupo.",
 };
 export default catalog;

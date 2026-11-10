@@ -7,8 +7,8 @@ import { SortableList } from "./sortable-list";
 import { t } from "../shared/i18n";
 
 /**
- * A project's lanes: order (drag the grip on desktop, arrows on touch), on/off
- * and an optional name. A lane holding live cards cannot be turned off here;
+ * A board group's lanes (BOARD-GROUPS-SPEC §5): order (drag the grip on desktop,
+ * arrows on touch), on/off and an optional name. A lane holding live cards cannot be turned off here;
  * the server enforces the same rule.
  */
 export function LaneEditor({
@@ -108,7 +108,7 @@ export function LaneEditor({
         />
       </View>
       <Label muted size={font.xs}>
-        {t("Lanes are this project's workflow: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.")}</Label>
+        {t("Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.")}</Label>
     </View>
   );
 }

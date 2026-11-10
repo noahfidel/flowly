@@ -1,6 +1,5 @@
 import { linearTeamValue } from "../shared/linear-ticket";
-import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
-import { LaneEditor } from "./lane-editor";
+import { enabledStatuses, laneName } from "../shared/lanes";
 import { useBoardView } from "./board-view";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -18,7 +17,6 @@ import {
   taskTypes,
   taskTypeLabels,
   type TaskType,
-  type Lane,
   type Group,
   type Project,
   type Task,
@@ -78,7 +76,6 @@ export function useProjectSettings(project: Project) {
     [review, setReview] = useState<ReviewEdit>({ on: stored.enabled, rounds: String(stored.maxRounds) }),
     [agentModel, setAgentModel] = useState<AgentModel | null>(project.agentModel ?? null),
     [deliveryMode, setDeliveryMode] = useState<DeliveryMode | null>(storedDelivery),
-    [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
   const patch = {
@@ -91,7 +88,6 @@ export function useProjectSettings(project: Project) {
     ...(linearTicket !== (project.linearTicket === true) ? { linearTicket } : {}),
     ...(linearTeamValue(linearTeam) !== (project.linearTeam ?? "") ? { linearTeam: linearTeamValue(linearTeam) } : {}),
     ...(review.on !== stored.enabled || Number(review.rounds) !== stored.maxRounds ? { autoReview: autoReviewPatch(review) } : {}),
-    ...(JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
     ...(JSON.stringify(agentModel) !== JSON.stringify(project.agentModel ?? null) ? { agentModel } : {}),
     // An unknown stored mode shows as Inherit and is left as it is until another mode is chosen.
     ...(deliveryMode !== storedDelivery ? { deliveryMode } : {}),
@@ -117,7 +113,7 @@ export function useProjectSettings(project: Project) {
   return {
     title, setTitle, description, setDescription, links, setLinkList, autoStatus, setAutoStatus, workpad, setWorkpad,
     workflowInsights, setWorkflowInsights, memory, setMemory, linearTicket, setLinearTicket, linearTeam, setLinearTeam,
-    review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode, lanes, setLanes,
+    review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode,
     pending, error, dirty, valid, save, reviewPreset,
   };
 }
@@ -131,15 +127,12 @@ export function ProjectSettingsFields({
   project,
   state,
   group,
-  laneCounts = {},
   reviewOn,
 }: {
   project: Project;
   state: ProjectSettingsState;
   /** The project's group, for what an empty default inherits. */
   group: Group | null;
-  /** Live cards per lane, so lanes in use can't be turned off. */
-  laneCounts?: Partial<Record<Status, number>>;
   /** Opened from What's new to turn Auto review on: the section first, its switch on (GUARDRAILS-SPEC §10). */
   reviewOn?: boolean;
 }) {
@@ -162,7 +155,6 @@ export function ProjectSettingsFields({
       <Field title={t("Description")} value={s.description} onChange={s.setDescription} multiline />
       {!project.links && <Field title={t("Paseo project root")} value={project.primaryPath} onChange={noop} editable={false} />}
       {!!project.links && <LinkList links={s.links} root={project.primaryPath} disabled={s.pending} onChange={s.setLinkList} />}
-      <LaneEditor lanes={s.lanes} counts={laneCounts} disabled={s.pending} onChange={s.setLanes} />
       <ModelDefaultGroup
         title={t("Default model")}
         value={s.agentModel}
@@ -228,8 +220,6 @@ export function ProjectForm(props: {
   group?: Group | null;
   /** Opened from What's new to turn Auto review on: the section first, its switch on (GUARDRAILS-SPEC §10). */
   reviewOn?: boolean;
-  /** Live cards per lane, so lanes in use can't be turned off. */
-  laneCounts?: Partial<Record<Status, number>>;
   /** The board's Show archived view setting; edited here, stored with Save. */
   showArchived?: boolean;
   onShowArchived?: (next: boolean) => void;
@@ -246,7 +236,6 @@ export function ProjectForm(props: {
 function EditProjectForm({
   project,
   group = null,
-  laneCounts,
   showArchived,
   onShowArchived,
   onClose,
@@ -256,7 +245,6 @@ function EditProjectForm({
   project: Project;
   group?: Group | null;
   reviewOn?: boolean;
-  laneCounts?: Partial<Record<Status, number>>;
   showArchived?: boolean;
   onShowArchived?: (next: boolean) => void;
   onClose: () => void;
@@ -282,7 +270,7 @@ function EditProjectForm({
       <Modal.Content>
         <Theme.Provider value={theme}>
         <View style={{ gap: 16 }}>
-          <ProjectSettingsFields project={project} state={state} group={group} laneCounts={laneCounts} reviewOn={reviewOn} />
+          <ProjectSettingsFields project={project} state={state} group={group} reviewOn={reviewOn} />
           {onShowArchived && <Toggle title={t("Show archived")} value={archivedShown} onChange={setArchivedShown} />}
           <Actions>
             <Button quiet disabled={state.pending} onPress={onClose}>

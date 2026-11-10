@@ -400,7 +400,7 @@ const catalog: Catalog = {
   "Move {lane} down": "{lane} 아래로 이동",
   "Drag to reorder {lane}": "드래그하여 {lane} 순서 변경",
   "{lane} lane name": "{lane} 레인 이름",
-  "Lanes are this project's workflow: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "레인은 이 프로젝트의 워크플로입니다. 카드, 자동 상태, 에이전트는 켜져 있는 레인만 사용합니다. 이름 위에 입력해 레인 이름을 바꿀 수 있습니다. 카드가 있는 레인은 끌 수 없습니다.",
+  "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "레인은 이 그룹의 워크플로이며 그룹의 모든 프로젝트가 사용합니다. 카드, 자동 상태, 에이전트는 켜져 있는 레인만 사용합니다. 이름 위에 입력해 레인 이름을 바꿀 수 있습니다. 카드가 있는 레인은 끌 수 없습니다.",
   "Waiting on": "대기 중인 대상",
   "Blocks": "막고 있는 대상",
   "Follow-up of": "후속 원본",
@@ -1642,5 +1642,6 @@ const catalog: Catalog = {
   "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "프로젝트는 그룹별 보드로 묶이며, 그룹 보드에는 소속 프로젝트의 카드가 함께 표시됩니다. 프로젝트 필터로 좁힐 수 있습니다.",
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "그룹마다 자체 디스패처가 있어서, 채팅, 알림, 새 카드가 그 그룹의 프로젝트에 머뭅니다.",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "그룹 탭이 프로젝트 탭을 대신합니다. 그룹을 끌어서 순서를 바꾸고, 프로젝트 전환기에서 그룹을 추가하세요.",
+  "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "이제 레인은 그룹에 속합니다. 그룹의 모든 프로젝트가 같은 레인을 사용하며, 그룹 설정에서 한 번만 편집합니다.",
 };
 export default catalog;

@@ -1,5 +1,6 @@
 import { deliveryModeLocked, inDeliveryLane } from "../shared/delivery-mode";
-import { laneName, laneProblem } from "../shared/lanes";
+import { laneName, laneProblem, projectLanes } from "../shared/lanes";
+import { groupLaneCounts, syncGroupLanes } from "../shared/group-lanes";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -201,7 +202,10 @@ export class BoardStore {
   /** The read-time repair of §1 on the caller's copy (nothing is written); only after the migration. */
   private repaired(board: Board) {
     if (!this.groupsReady) return board;
-    const repair = ensureGroups(board, new Date().toISOString(), () => this.nextGroupId);
+    const now = new Date().toISOString();
+    const repair = ensureGroups(board, now, () => this.nextGroupId);
+    // Group lanes (BOARD-GROUPS-SPEC §1, §7 step 7) on the copy too, so a read never shows a member out of step.
+    syncGroupLanes(board, now);
     const key = [...repair.projectIds, ...repair.groupIds].join(",");
     if (key && key !== this.loggedRepair) logGroupRepair("Flowly board groups repaired on read:", repair);
     this.loggedRepair = key;
@@ -225,7 +229,9 @@ export class BoardStore {
           const now = new Date().toISOString();
           const migrated = !board.groups.length && board.projects.length ? migrateLegacyGroups(board, await load(), now, randomUUID) : false;
           const repair = ensureGroups(board, now, this.takeGroupId);
-          return { value: migrated ? { ...repair, projectIds: [] } : repair, changed: migrated || repair.changed };
+          // Group lanes (§7 step 7): computed once for groups that have none, then mirrored to their members.
+          const lanes = syncGroupLanes(board, now);
+          return { value: migrated ? { ...repair, projectIds: [] } : repair, changed: migrated || repair.changed || lanes.changed };
         }, true);
         // Set inside the queued job, so the next queued read or write already sees it.
         this.groupsReady = true;
@@ -288,7 +294,11 @@ export class BoardStore {
     if (!result.changed) return result.value;
     markDelivered(board);
     if (this.groupsReady || migrating) {
-      const repair = ensureGroups(board, new Date().toISOString(), this.takeGroupId);
+      const now = new Date().toISOString();
+      const repair = ensureGroups(board, now, this.takeGroupId);
+      // Lanes are group-level (BOARD-GROUPS-SPEC §1): moved, new and restored projects take their group's lanes, the
+      // group first turning on any status their live cards sit in.
+      syncGroupLanes(board, now);
       // New projects joining the default group are the normal path; only a broken group list is worth a log.
       if (!migrating && repair.groupIds.length) logGroupRepair("Flowly board groups repaired on write:", { projectIds: [], groupIds: repair.groupIds });
       assertGroupInvariants(board);
@@ -484,32 +494,15 @@ export class BoardStore {
    * data: no revision bump, so agent writes holding a project revision are
    * unaffected. All projects are renumbered 0..n in the resulting order.
    */
-  /**
-   * Project settings. A lane can only be turned off once it holds no live
-   * cards, so no card is ever left outside the project's workflow.
-   */
+  /** Project settings. Lanes are not among them: they belong to the project's group (BOARD-GROUPS-SPEC §2). */
   updateProject(input: ProjectEdit) {
     return this.mutate((board) => {
       const p = board.projects.find((p) => p.id === input.id);
       if (!p) throw new Error("Project not found.");
       if (p.revision !== input.revision)
         throw new Error("Revision conflict: reload the project before saving.");
-      if (input.lanes) {
-        const blocked = input.lanes
-          .filter((l) => !l.enabled)
-          .map((l) => ({
-            lane: l,
-            count: board.tasks.filter((t) => t.projectId === p.id && !t.archivedAt && t.status === l.status).length,
-          }))
-          .filter((x) => x.count);
-        if (blocked.length)
-          throw new Error(
-            `Move the cards out of ${blocked
-              .map((x) => `${laneName(p, x.lane.status)} (${x.count})`)
-              .join(", ")} before turning ${blocked.length === 1 ? "it" : "them"} off.`,
-          );
-        p.lanes = input.lanes.map((l) => ({ status: l.status, enabled: l.enabled, ...(l.name?.trim() ? { name: l.name.trim() } : {}) }));
-      }
+      if (input.lanes)
+        throw new ToolError("LANES_IN_GROUP", "Lanes belong to the project's group. Edit them in Group settings.");
       if (input.title !== undefined) p.title = input.title;
       if (input.description !== undefined) p.description = input.description;
       if (input.autoStatus !== undefined) p.autoStatus = input.autoStatus;
@@ -809,6 +802,7 @@ export class BoardStore {
         name,
         position: board.groups.reduce((max, g) => Math.max(max, g.position), -1) + 1,
         ...(board.groups.length ? {} : { isDefault: true as const }),
+        lanes: projectLanes(null),
         revision: 1,
         createdAt: now,
         updatedAt: now,
@@ -829,7 +823,21 @@ export class BoardStore {
       if (group.revision !== input.revision) throw groupConflict();
       if (input.isDefault === false && group.isDefault)
         throw new ToolError("DEFAULT_REQUIRED", "One group must stay the default. Make another group the default instead.");
-      const before = JSON.stringify({ name: group.name, defaults: group.defaults ?? {}, isDefault: !!group.isDefault });
+      const snapshot = () => JSON.stringify({ name: group.name, defaults: group.defaults ?? {}, isDefault: !!group.isDefault, lanes: projectLanes(group).map((l) => [l.status, l.enabled, l.name ?? ""]) });
+      const before = snapshot();
+      if (input.lanes) {
+        // Never lose a card: a lane holding live cards of any live member stays on (BOARD-GROUPS-SPEC §2).
+        const counts = groupLaneCounts(board, group.id);
+        const blocked = input.lanes.filter((l) => !l.enabled && counts[l.status]);
+        if (blocked.length)
+          throw new ToolError(
+            "LANE_NOT_EMPTY",
+            `Move the cards out of ${blocked
+              .map((l) => `${laneName(group, l.status)} (${counts[l.status]})`)
+              .join(", ")} before turning ${blocked.length === 1 ? "it" : "them"} off.`,
+          );
+        group.lanes = input.lanes.map((l) => ({ status: l.status, enabled: l.enabled, ...(l.name?.trim() ? { name: l.name.trim() } : {}) }));
+      }
       if (input.name !== undefined) {
         const name = normalizeGroupName(input.name);
         if (nameTaken(board.groups, name, group.id)) throw nameTakenError();
@@ -841,7 +849,7 @@ export class BoardStore {
         group.isDefault = true;
       }
       // An edit that changes nothing (the same name, `isDefault: false` on another group) writes nothing.
-      if (JSON.stringify({ name: group.name, defaults: group.defaults ?? {}, isDefault: !!group.isDefault }) === before)
+      if (snapshot() === before)
         return { value: group, changed: false };
       group.revision++;
       group.updatedAt = new Date().toISOString();

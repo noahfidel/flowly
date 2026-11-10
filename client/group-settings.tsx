@@ -3,7 +3,9 @@ import { View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc";
-import { groupLimits, type Group, type Project, type Status } from "../shared/model";
+import { groupLimits, type Group, type Lane, type Project, type Status } from "../shared/model";
+import { projectLanes } from "../shared/lanes";
+import { LaneEditor } from "./lane-editor";
 import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
 import { deliverySettings, deliverySettingsValues, modelSettings, modelSettingsValues } from "../shared/settings";
 import { deliveryModeLabels, deliveryModes, isDeliveryMode, type DeliveryMode } from "../shared/delivery-mode";
@@ -41,8 +43,8 @@ export function GroupSettings({
   /** The board's groups and projects (archived ones too), from the overview. */
   groups: readonly Group[];
   projects: readonly Project[];
-  /** Live cards per lane of a project, so lanes in use can't be turned off. */
-  laneCounts(projectId: string): Partial<Record<Status, number>>;
+  /** Live cards per lane over a group's live members, so lanes in use can't be turned off. */
+  laneCounts(groupId: string): Partial<Record<Status, number>>;
   /** A project whose section opens expanded (from its tab menu, the toolbar or What's new). */
   focusProjectId?: string;
   /** Opened from What's new to turn Auto review on in `focusProjectId` (GUARDRAILS-SPEC §10). */
@@ -202,6 +204,14 @@ export function GroupSettings({
                   allowProvider={dispatcherProviderSupported}
                   invalidText={t("The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.")}
                 />
+                <GroupLanes
+                  key={`${group.id}:${group.revision}`}
+                  group={group}
+                  counts={laneCounts(group.id)}
+                  busy={busy}
+                  onDirty={(isDirty) => reportDirty(lanesDirtyKey, isDirty)}
+                  onSave={(lanes) => write((g) => update({ id: g.id, revision: g.revision, lanes }))}
+                />
                 {members.length > 0 && (
                   <SettingsGroup title={t("Projects")}>
                     {members.map((p) => (
@@ -223,7 +233,6 @@ export function GroupSettings({
                     key={p.id}
                     project={p}
                     group={group}
-                    laneCounts={laneCounts(p.id)}
                     initiallyOpen={p.id === focusProjectId}
                     reviewOn={reviewOn && p.id === focusProjectId}
                     busy={busy}
@@ -315,6 +324,49 @@ export function GroupSettings({
   );
 }
 
+/** The key unsaved lane edits use among the page's unsaved sections (project ids otherwise). */
+const lanesDirtyKey = "*lanes";
+
+/**
+ * The group's lanes (BOARD-GROUPS-SPEC §5): the lane editor with Cancel and Save, one `groups.update` with the whole
+ * list. Reseeded (remounted by its key) whenever the group's revision changes.
+ */
+function GroupLanes({
+  group,
+  counts,
+  busy,
+  onDirty,
+  onSave,
+}: {
+  group: Group;
+  counts: Partial<Record<Status, number>>;
+  busy: boolean;
+  onDirty(dirty: boolean): void;
+  onSave(lanes: Lane[]): void;
+}) {
+  const [lanes, setLanes] = useState<Lane[]>(() => projectLanes(group));
+  const dirty = JSON.stringify(lanes) !== JSON.stringify(projectLanes(group));
+  useEffect(() => {
+    onDirty(dirty);
+  }, [dirty]);
+  useEffect(() => () => onDirty(false), []);
+  return (
+    <View style={{ gap: space[3] }}>
+      <LaneEditor lanes={lanes} counts={counts} disabled={busy} onChange={setLanes} />
+      {dirty && (
+        <Actions>
+          <Button quiet disabled={busy} onPress={() => setLanes(projectLanes(group))}>
+            {t("Cancel")}
+          </Button>
+          <Button primary disabled={busy} onPress={() => onSave(lanes)}>
+            {t("Save")}
+          </Button>
+        </Actions>
+      )}
+    </View>
+  );
+}
+
 /** The group's name, saved a moment after typing stops; an empty name is not saved. */
 function GroupName({ name, onRename }: { name: string; onRename(name: string): void }) {
   // The field owns its text; the stored name only seeds it.
@@ -376,7 +428,6 @@ function AddGroup({ onCreated, onCancel }: { onCreated(group: Group): void; onCa
 function ProjectSection({
   project,
   group,
-  laneCounts,
   initiallyOpen,
   reviewOn,
   busy,
@@ -387,7 +438,6 @@ function ProjectSection({
 }: {
   project: Project;
   group: Group;
-  laneCounts: Partial<Record<Status, number>>;
   initiallyOpen: boolean;
   reviewOn?: boolean;
   /** A page write (move, restore) is running. */
@@ -414,7 +464,6 @@ function ProjectSection({
       archived={!!latest.archivedAt}
       latestRevision={latest.revision}
       group={group}
-      laneCounts={laneCounts}
       reviewOn={reviewOn && epoch === 0}
       open={open}
       onOpen={setOpen}
@@ -437,7 +486,6 @@ function ProjectEditor({
   archived,
   latestRevision,
   group,
-  laneCounts,
   reviewOn,
   open,
   onOpen,
@@ -453,7 +501,6 @@ function ProjectEditor({
   archived: boolean;
   latestRevision: number;
   group: Group;
-  laneCounts: Partial<Record<Status, number>>;
   reviewOn?: boolean;
   open: boolean;
   onOpen(open: boolean): void;
@@ -477,7 +524,7 @@ function ProjectEditor({
   return (
     <Disclosure title={title} summary={archived ? t("Archived") : undefined} open={open} onChange={onOpen}>
       <View style={{ gap: 16 }}>
-        <ProjectSettingsFields project={project} state={state} group={group} laneCounts={laneCounts} reviewOn={reviewOn} />
+        <ProjectSettingsFields project={project} state={state} group={group} reviewOn={reviewOn} />
         <Actions>
           <Button quiet disabled={state.pending || !state.dirty} onPress={onReseed}>
             {t("Cancel")}

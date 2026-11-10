@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   allQuickProject,
   allStatuses,
+  boardLanes,
   dropAllowed,
   includedProjects,
   matchesFilters,
@@ -10,7 +11,7 @@ import {
   scopeTasks,
   sortAllColumn,
 } from "./all-projects";
-import { statuses, type Project, type Status, type Task } from "../shared/model";
+import { statuses, type Group, type Project, type Status, type Task } from "../shared/model";
 
 const project = (id: string, over: Partial<Project> = {}): Project =>
   ({
@@ -146,5 +147,43 @@ describe("new task (§5)", () => {
     expect(allQuickProject([a, b], "a")?.id).toBe("a");
     expect(allQuickProject([a, b, gone], "gone")?.id).toBe("b");
     expect(allQuickProject([a, b], "")?.id).toBe("b");
+  });
+});
+
+describe("group boards use the group's lanes (BOARD-GROUPS-SPEC §4)", () => {
+  const group = {
+    id: "g",
+    name: "G",
+    position: 0,
+    revision: 1,
+    createdAt: "2026-11-01T00:00:00.000Z",
+    updatedAt: "2026-11-01T00:00:00.000Z",
+    // The group's own order and names.
+    lanes: [...onlyLanes(["todo", "blocked", "done"])].reverse().map((l) => (l.status === "todo" ? { ...l, name: "Ready" } : l)),
+  } as Group;
+  // Members whose stored lanes are stale or differ: the group's win.
+  const x = project("x", { groupId: "g", lanes: onlyLanes(["todo"]) });
+  const y = project("y", { groupId: "g", lanes: onlyLanes(["backlog", "todo", "in_review"]) });
+  test("unfiltered: the group's enabled lanes in the group's order, with the group's names", () => {
+    const lanes = boardLanes(group, undefined, [x, y]);
+    expect(lanes.statuses).toEqual(["done", "blocked", "todo"]);
+    expect(lanes.nameOf("todo")).toBe("Ready");
+    expect(lanes.nameOf("done")).toBe("Done");
+  });
+  test("filtered to one project: still the group's lanes and names", () => {
+    const lanes = boardLanes(group, x, [x, y]);
+    expect(lanes.statuses).toEqual(["done", "blocked", "todo"]);
+    expect(lanes.nameOf("todo")).toBe("Ready");
+  });
+  test("no group known yet: the project's lanes, else the union with default names", () => {
+    expect(boardLanes(null, x, [x, y]).statuses).toEqual(["todo"]);
+    const union = boardLanes(null, undefined, [x, y]);
+    expect(union.statuses).toEqual(["backlog", "todo", "in_review"]);
+    expect(union.nameOf("todo")).toBe("Todo");
+  });
+  test("a drop on any group column is allowed for every member's card", () => {
+    for (const status of boardLanes(group, undefined, [x, y]).statuses)
+      for (const member of [x, y]) expect(dropAllowed(member, status, group)).toBe(true);
+    expect(dropAllowed(project("z", { groupId: "other" }), "todo", group)).toBe(false);
   });
 });

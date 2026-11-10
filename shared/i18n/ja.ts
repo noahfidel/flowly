@@ -400,7 +400,7 @@ const catalog: Catalog = {
   "Move {lane} down": "{lane} を下へ",
   "Drag to reorder {lane}": "ドラッグして {lane} を並べ替え",
   "{lane} lane name": "{lane} レーンの名前",
-  "Lanes are this project's workflow: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "レーンはこのプロジェクトのワークフローです。カード、自動ステータス、エージェントはオンのレーンだけを使います。名前の上に入力してレーン名を変更できます。カードがあるレーンはオフにできません。",
+  "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "レーンはこのグループのワークフローで、グループ内のすべてのプロジェクトが使います。カード、自動ステータス、エージェントはオンのレーンだけを使います。名前の上に入力してレーン名を変更できます。カードがあるレーンはオフにできません。",
   "Waiting on": "待機先",
   "Blocks": "ブロック先",
   "Follow-up of": "フォローアップ元",
@@ -1642,5 +1642,6 @@ const catalog: Catalog = {
   "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "プロジェクトはグループごとのボードにまとめられ、グループのボードには所属プロジェクトのカードが一緒に表示されます。プロジェクトで絞り込むこともできます。",
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "グループごとに専用のディスパッチャーがあり、そのチャット、通知、新しいカードはそのグループのプロジェクトに留まります。",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "グループのタブがプロジェクトのタブに代わります。ドラッグしてグループを並べ替えられ、グループはプロジェクト切り替えから追加できます。",
+  "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "レーンはグループのものになりました。グループ内のすべてのプロジェクトが同じレーンを使い、グループ設定で一度だけ編集します。",
 };
 export default catalog;

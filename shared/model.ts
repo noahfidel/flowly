@@ -91,10 +91,10 @@ export type TaskTag = z.infer<typeof taskTagSchema>;
 /** Raw tag input from people and agents; normalized by the daemon. */
 export const tagInputList = z.array(z.string().max(200)).max(tagLimits.perCall);
 /**
- * A project's lane configuration: the built-in statuses in display order, each
- * enabled or not, optionally renamed. Absent means every lane, default order and
- * names. Lanes define the project's workflow: people, rules and agents only use
- * enabled lanes.
+ * A lane configuration: the built-in statuses in display order, each enabled or
+ * not, optionally renamed. Absent means every lane, default order and names. A
+ * board group owns its lanes and each member project mirrors them (BOARD-GROUPS-SPEC §1).
+ * Lanes define the workflow: people, rules and agents only use enabled lanes.
  */
 export const laneSchema = z.strictObject({
   status: statusSchema,
@@ -314,6 +314,11 @@ export const groupSchema = z.object({
   /** Exactly one group carries it; new and ungrouped projects go there. */
   isDefault: z.literal(true).optional(),
   defaults: groupDefaultsSchema.optional(),
+  /**
+   * The group's lanes, the only source of truth for its members' workflow (BOARD-GROUPS-SPEC §1); each member's
+   * `lanes` mirrors it. Absent only in data stored before group lanes, filled in by the repair (§7 step 7).
+   */
+  lanes: lanesSchema.optional(),
   revision: z.number().int().positive(),
   createdAt: timestamp,
   updatedAt: timestamp,
@@ -771,6 +776,7 @@ export const projectEdit = z.strictObject({
   linearTicket: z.boolean().optional(),
   /** "" removes the team (LINEAR-TICKET-SPEC §1). */
   linearTeam: z.string().max(200).optional(),
+  /** Refused (`LANES_IN_GROUP`): lanes belong to the project's group (BOARD-GROUPS-SPEC §2). */
   lanes: lanesSchema.optional(),
   /** A model sets the project default; null removes it (the global default applies again). */
   agentModel: agentModelSchema.nullable().optional(),
@@ -798,6 +804,8 @@ export const groupEdit = z.strictObject({
   revision: z.number().int(),
   name: groupName.optional(),
   defaults: groupDefaultsInput.optional(),
+  /** The group's whole lane list (BOARD-GROUPS-SPEC §2), mirrored to every member. */
+  lanes: lanesSchema.optional(),
   isDefault: z.boolean().optional(),
 });
 export type GroupEdit = z.infer<typeof groupEdit>;

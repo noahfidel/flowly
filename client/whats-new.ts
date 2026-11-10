@@ -29,6 +29,7 @@ export const whatsNew: WhatsNewRelease[] = [
       { icon: "Layers", text: msg("Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.") },
       { icon: "Bot", text: msg("Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.") },
       { icon: "Columns3", text: msg("Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.") },
+      { icon: "ListOrdered", text: msg("Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.") },
     ],
   },
   {

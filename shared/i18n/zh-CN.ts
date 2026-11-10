@@ -400,7 +400,7 @@ const catalog: Catalog = {
   "Move {lane} down": "下移 {lane}",
   "Drag to reorder {lane}": "拖动以调整 {lane} 的顺序",
   "{lane} lane name": "{lane} 泳道名称",
-  "Lanes are this project's workflow: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "泳道就是这个项目的工作流：卡片、自动状态和智能体只会使用已开启的泳道。直接在名称上输入即可重命名泳道。有卡片的泳道不能关闭。",
+  "Lanes are this group's workflow, used by every project in it: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.": "泳道就是这个分组的工作流，分组内的每个项目都使用它：卡片、自动状态和智能体只会使用已开启的泳道。直接在名称上输入即可重命名泳道。有卡片的泳道不能关闭。",
   "Waiting on": "等待中",
   "Blocks": "阻塞了",
   "Follow-up of": "后续自",
@@ -1642,5 +1642,6 @@ const catalog: Catalog = {
   "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "项目按分组汇总到看板：分组看板将其项目的卡片合并显示，并可用项目筛选缩小范围。",
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "每个分组有自己的调度器，其聊天、提示和新卡片只属于该分组的项目。",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "分组标签页取代了项目标签页：拖动分组可调整顺序，并可在项目切换器中添加分组。",
+  "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "泳道现在属于分组：分组内的每个项目都使用相同的泳道，只需在分组设置中编辑一次。",
 };
 export default catalog;
