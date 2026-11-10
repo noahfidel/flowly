@@ -57,7 +57,7 @@ export function useComposerDraft({
   const flush = () => reporter.flush();
   const reportDraft = (text: string) => (ownInput ? reporter.change(text) : onDraftChange(sessionId, text));
   useEffect(() => () => reporter.flush(), []);
-  const inputRef = useRef<{ clear?(): void; focus?(): void } | null>(null);
+  const inputRef = useRef<{ clear?(): void; focus?(): void; blur?(): void } | null>(null);
   const refocus = useRef(false);
   // A picked next move remounts the native input with its text: focus that mount.
   const focusNext = useRef(false);
@@ -151,6 +151,7 @@ export function ComposerBox({
   onFocus,
   onSubmit,
   onStop,
+  onEscape,
   footer,
 }: {
   composer: ComposerDraft;
@@ -168,6 +169,8 @@ export function ComposerBox({
   onSubmit(alternate: boolean): void;
   /** Shown as Stop in place of Send while a turn runs and the box is empty; absent: no Stop. */
   onStop?(): void;
+  /** Esc in the box (web): the dispatcher chat blurs it so board shortcuts work again; the draft stays. */
+  onEscape?(): void;
   /** Quiet read-only text beside the attach button, such as the dispatcher's model. */
   footer?: string;
 }) {
@@ -249,6 +252,7 @@ export function ComposerBox({
           returnKeyType="send"
           onKeyPress={(event) => {
             if (Platform.OS !== "web") return;
+            if (onEscape && (event.nativeEvent as ComposerKey).key === "Escape") return onEscape();
             const action = composerEnterAction(event.nativeEvent as ComposerKey);
             if (action === "native") return;
             event.preventDefault();

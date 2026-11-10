@@ -5,7 +5,7 @@ export type Rect = Point & { width: number; height: number };
 export type ColumnBounds = { status: Status; x: number; width: number };
 export const columnWidth = 280;
 export const columnGap = 12;
-/** A collapsed lane's width; the desktop dock rail (DISPATCHER-SPEC §9.3) matches it. */
+/** A collapsed lane's width. */
 export const collapsedWidth = 44;
 
 export function columnAtPoint(

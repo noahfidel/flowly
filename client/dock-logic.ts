@@ -1,18 +1,22 @@
 /**
  * Pure parts of the left dock (DISPATCHER-SPEC §9.3; Ruling, Noah 2026-11-09): the dock is the dispatcher chat only;
- * minimized on desktop it leaves a rail on the board's left edge. No React.
+ * minimized on desktop it leaves nothing on the board, and the toolbar's Dispatcher button (or D) opens it again. No React.
  */
 
-/** Desktop with the dock minimized: the rail with the Dispatcher button. Phones keep their header buttons; a board with no dock has no rail. */
-export function railShown({ compact, dockAvailable, open }: { compact: boolean; dockAvailable: boolean; open: boolean }): boolean {
-  return !compact && dockAvailable && !open;
+/**
+ * The header's buttons. The Dispatcher button is on every board (project or All projects), desktop and phone; the bell is
+ * phones only (desktop has the overview's need-you chip for the step-through).
+ */
+export function toolbarDockButtons({ compact, dockAvailable }: { compact: boolean; dockAvailable: boolean }): { bell: boolean; dispatcher: boolean } {
+  return { bell: compact && dockAvailable, dispatcher: dockAvailable };
 }
 
 /**
- * The header's bell and Dispatcher button: phones only, and only on a board (project or All projects). Desktop has the
- * rail for the chat and the overview's need-you chip for the step-through.
+ * What D does: opens a minimized dock (and focuses its message box), or minimizes an open one. D never reaches here
+ * while a text field has focus (board shortcuts are blocked there), so an open dock with typing in it is left alone.
+ * Nothing on a board without a dock.
  */
-export function toolbarDockButtons({ compact, dockAvailable }: { compact: boolean; dockAvailable: boolean }): { bell: boolean; dispatcher: boolean } {
-  const on = compact && dockAvailable;
-  return { bell: on, dispatcher: on };
+export function dockShortcut({ dockAvailable, open }: { dockAvailable: boolean; open: boolean }): "open" | "minimize" | null {
+  if (!dockAvailable) return null;
+  return open ? "minimize" : "open";
 }

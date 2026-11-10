@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { Project, Task } from "../shared/model";
 import type { AttentionItem } from "../shared/attention";
 import type { ChatItem } from "../shared/dispatcher";
-import { cardAsks, needsCount, needsQueue, stepAt, stepPosition, updatedQueue, type ChangeItem } from "./step-through";
+import { cardAsks, needsCount, needsQueue, stepAt, stepPosition, stepStartTarget, updatedQueue, type ChangeItem } from "./step-through";
 
 /** The need-you and updated step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). */
 
@@ -92,4 +92,16 @@ test("the card's pinned asks: its open asks newest first, then ended ones; answe
   expect(cardAsks(items, "a").map((x) => x.signal)).toEqual(["2", "1", "4"]);
   expect(cardAsks(items, "a", new Set(["2"])).map((x) => x.signal)).toEqual(["1", "4"]);
   expect(cardAsks(undefined, "a")).toEqual([]);
+});
+
+test("pressing the chip of the open step-through keeps the current card; the other kind starts at its first card", () => {
+  const queue = ["a", "b", "c"];
+  const open = stepAt(queue, "b");
+  expect(stepStartTarget(open, "needs", "needs", queue)).toBe("b");
+  // Still the same card once it dropped out of the queue.
+  expect(stepStartTarget(open, "needs", "needs", ["a", "c"])).toBe("b");
+  expect(stepStartTarget(open, "needs", "updated", ["x", "y"])).toBe("x");
+  expect(stepStartTarget(null, null, "needs", queue)).toBe("a");
+  expect(stepStartTarget(null, null, "needs", [])).toBeNull();
+  expect(stepStartTarget(open, "needs", "updated", [])).toBeNull();
 });

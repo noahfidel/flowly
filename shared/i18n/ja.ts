@@ -1501,7 +1501,6 @@ const catalog: Catalog = {
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "あとで設定（ボード上部の歯車）からいつでも変更できます。このツアーもそこから開き直せます。",
   "This dispatcher started before some Flowly tools existed. Replace dispatcher archives its session and starts a new one with them.": "このディスパッチャーは一部の Flowly ツールより前に開始されました。「ディスパッチャーを置き換える」でセッションをアーカイブし、ツールを備えた新しいディスパッチャーを開始します。",
   "Nothing changed since you looked.": "前回確認してから変更はありません。",
-  "Open the dispatcher chat": "ディスパッチャーのチャットを開く",
   "Step through": "順に確認",
   "“N need you” opens each waiting card in turn, with what it asks on top.": "「N 件が対応待ち」は、待っているカードを 1 枚ずつ、質問を上に表示して開きます。",
   "{n} asks waiting on you. Step through them": "{n} 件の質問があなたを待っています。順に確認",
@@ -1616,6 +1615,6 @@ const catalog: Catalog = {
   "Back from session, then close sidebar, then leave a project page": "セッションから戻る → サイドバーを閉じる → プロジェクトページを離れる",
   "Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them.": "Jira、Confluence、GitHub、GitLab、Azure DevOps、Linear、Shortcut から作業を始めましょう。設定 → 接続 で接続し、「…から作成」でカードを作るか、成果物の + で項目を追加します。Flowly は読み取るだけです。",
   "Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, Linear issue, or Shortcut story or epic, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.": "Jira チケット、Confluence ページ、GitHub/GitLab の issue やプルリクエスト、Azure DevOps の作業項目、Linear の issue、Shortcut のストーリーやエピックからカードを作成するか、成果物の + で追加します。エージェントは毎ターン読み取り、Flowly は変更しません。",
-  "The left dock is just the dispatcher chat, reopened from a rail on the board's left edge when minimized, and Settings moved to the gear at the top of the board.": "左のドックはディスパッチャーのチャットだけになり、最小化するとボード左端のレールから再び開けます。設定はボード上部の歯車に移動しました。",
+  "The left dock is just the dispatcher chat. Minimized, it leaves nothing on the board: the Dispatcher button in the toolbar (or D) opens it again. Settings moved to the gear at the top of the board.": "左のドックはディスパッチャーのチャットだけになりました。最小化するとボードには何も残らず、ツールバーのディスパッチャーボタン（またはD）で再び開けます。設定はボード上部の歯車に移動しました。",
 };
 export default catalog;

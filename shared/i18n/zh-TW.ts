@@ -1501,7 +1501,6 @@ const catalog: Catalog = {
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "之後可以在設定（看板頂端的齒輪）裡修改這些。也可以在那裡重新開啟這個導覽。",
   "This dispatcher started before some Flowly tools existed. Replace dispatcher archives its session and starts a new one with them.": "此調度員啟動時部分 Flowly 工具尚不存在。“取代調度器”會封存其工作階段，並啟動一個帶有這些工具的新調度員。",
   "Nothing changed since you looked.": "自上次查看以來沒有變化。",
-  "Open the dispatcher chat": "打開調度員聊天",
   "Step through": "逐個處理",
   "“N need you” opens each waiting card in turn, with what it asks on top.": "「N 個需要你」會逐張打開等待中的卡片，它要問的內容置頂。",
   "{n} asks waiting on you. Step through them": "有 {n} 個詢問在等你。逐個處理",
@@ -1616,6 +1615,6 @@ const catalog: Catalog = {
   "Back from session, then close sidebar, then leave a project page": "退出工作階段，再關閉側欄，再離開專案頁面",
   "Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them.": "從 Jira、Confluence、GitHub、GitLab、Azure DevOps、Linear 或 Shortcut 開始工作：在 設定 → 連線 中連接它們，然後用「從…新增」建立卡片，或用產物的 + 加入項目。Flowly 只讀取它們。",
   "Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, Linear issue, or Shortcut story or epic, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.": "從 Jira 工單、Confluence 頁面、GitHub/GitLab 的 issue 或 PR、Azure DevOps 工作項目、Linear issue、Shortcut story 或 epic 建立卡片，或用產物的 + 加入。Agent 每個回合都會讀取，Flowly 不會修改它。",
-  "The left dock is just the dispatcher chat, reopened from a rail on the board's left edge when minimized, and Settings moved to the gear at the top of the board.": "左側停靠欄現在只是調度員聊天，最小化後可從看板左邊緣的直條再次打開；設定移到了看板頂端的齒輪。",
+  "The left dock is just the dispatcher chat. Minimized, it leaves nothing on the board: the Dispatcher button in the toolbar (or D) opens it again. Settings moved to the gear at the top of the board.": "左側停靠欄現在只是調度員聊天。最小化後看板上不留任何東西：點擊工具列中的調度員按鈕（或按 D）即可再次打開。設定移到了看板頂端的齒輪。",
 };
 export default catalog;

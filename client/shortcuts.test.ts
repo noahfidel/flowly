@@ -6,6 +6,7 @@ import {
   navigateGrid,
   parseBoardIntent,
   resolveShortcut,
+  shortcutHelp,
   taskGrid,
   adjacentStatus,
 } from "./shortcuts";
@@ -29,6 +30,14 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "k" }, true)).toBe("previous");
     expect(resolveShortcut({ key: "h" }, true)).toBe("left");
     expect(resolveShortcut({ key: "l" }, true)).toBe("right");
+  });
+  test("D is the dispatcher; it is inert while a text field blocks shortcuts, with chords, or shifted", () => {
+    expect(resolveShortcut({ key: "d" }, true)).toBe("dispatcher");
+    expect(resolveShortcut({ key: "D" }, true)).toBe("dispatcher");
+    expect(resolveShortcut({ key: "d" }, false)).toBeNull();
+    expect(resolveShortcut({ key: "d", metaKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "D", shiftKey: true }, true)).toBeNull();
+    expect(shortcutHelp.some((row) => row.keys.includes("D") && row.title === "Dispatcher")).toBe(true);
   });
   test("leaves host chords, shifted letters and unknown keys alone", () => {
     for (const mod of ["metaKey", "ctrlKey", "altKey"] as const) {

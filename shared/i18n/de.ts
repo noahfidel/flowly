@@ -1501,7 +1501,6 @@ const catalog: Catalog = {
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "Das alles kannst du später in den Einstellungen ändern, dem Zahnrad oben im Board. Dort kannst du diese Tour auch erneut öffnen.",
   "This dispatcher started before some Flowly tools existed. Replace dispatcher archives its session and starts a new one with them.": "Dieser Dispatcher wurde vor einigen Flowly-Werkzeugen gestartet. „Dispatcher ersetzen“ archiviert seine Sitzung und startet einen neuen mit ihnen.",
   "Nothing changed since you looked.": "Seit deinem letzten Blick hat sich nichts geändert.",
-  "Open the dispatcher chat": "Dispatcher-Chat öffnen",
   "Step through": "Der Reihe nach",
   "“N need you” opens each waiting card in turn, with what it asks on top.": "„N brauchen dich“ öffnet jede wartende Karte nacheinander, mit ihrer Frage oben.",
   "{n} asks waiting on you. Step through them": {"one": "{n} Frage wartet auf dich. Durchgehen", "other": "{n} Fragen warten auf dich. Der Reihe nach durchgehen"},
@@ -1616,6 +1615,6 @@ const catalog: Catalog = {
   "Back from session, then close sidebar, then leave a project page": "Zurück aus der Sitzung, dann Seitenleiste schließen, dann Projektseite verlassen",
   "Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them.": "Arbeite mit Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear oder Shortcut: Verbinde sie unter Einstellungen → Verbindungen und starte dann eine Karte mit Aus… oder füge Elemente mit dem + bei Artefakten hinzu. Flowly liest sie nur.",
   "Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, Linear issue, or Shortcut story or epic, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.": "Starte eine Karte aus einem Jira-Ticket, einer Confluence-Seite, einem GitHub/GitLab-Issue oder -Pull-Request, einem Azure-DevOps-Arbeitselement, einem Linear-Issue oder einer Shortcut-Story bzw. einem Shortcut-Epic, oder füge eines mit dem + bei Artefakten hinzu. Agenten lesen es in jeder Runde; Flowly ändert es nie.",
-  "The left dock is just the dispatcher chat, reopened from a rail on the board's left edge when minimized, and Settings moved to the gear at the top of the board.": "Das linke Dock ist nur noch der Dispatcher-Chat, minimiert über eine Leiste am linken Rand des Boards wieder zu öffnen, und die Einstellungen sind jetzt das Zahnrad oben im Board.",
+  "The left dock is just the dispatcher chat. Minimized, it leaves nothing on the board: the Dispatcher button in the toolbar (or D) opens it again. Settings moved to the gear at the top of the board.": "Das linke Dock ist nur noch der Dispatcher-Chat. Minimiert hinterlässt es nichts auf dem Board: Die Dispatcher-Schaltfläche in der Symbolleiste (oder D) öffnet es wieder. Die Einstellungen sind jetzt das Zahnrad oben im Board.",
 };
 export default catalog;

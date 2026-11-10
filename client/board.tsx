@@ -50,9 +50,9 @@ import { StatusIcon, priorityLabels } from "./status";
 import { AttentionButton } from "./attention-button";
 import { DispatcherPanel } from "./dispatcher-panel";
 import { LeftDock } from "./left-dock";
-import { DockRail } from "./dock-rail";
-import { railShown, toolbarDockButtons } from "./dock-logic";
-import { cardAsks, changeItem, needsCount, needsQueue, stepAt, stepPosition, updatedQueue, type Step, type StepKind } from "./step-through";
+import { lastCollapsed, rememberCollapsed, shownCollapsed } from "./collapsed-columns";
+import { dockShortcut, toolbarDockButtons } from "./dock-logic";
+import { cardAsks, changeItem, needsCount, needsQueue, stepAt, stepPosition, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
 import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
@@ -575,7 +575,12 @@ function BoardContent(
   const cardActivity = view.values?.cardActivity, cardHiddenKey = (view.values?.cardHidden || []).join(",");
   const display = useMemo(() => cardDisplay({ cardActivity, cardHidden: cardHiddenKey.split(",") }), [cardActivity, cardHiddenKey]);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>(undefined);
-  const collapsedColumns = view.values?.collapsedColumns || [];
+  // The lanes are drawn only once the collapsed set is known (stored, or last known for this host), so they never open and then shrink.
+  const storedCollapsed = view.values ? view.values.collapsedColumns || [] : undefined;
+  const { ready: columnsReady, collapsed: collapsedColumns } = shownCollapsed(storedCollapsed, lastCollapsed(props.host.id));
+  useEffect(() => {
+    if (storedCollapsed) rememberCollapsed(props.host.id, storedCollapsed);
+  }, [props.host.id, JSON.stringify(storedCollapsed)]);
   const toggleCollapse = (status: Status) => {
     if (!view.values) return;
     const next = collapsedColumns.includes(status)
@@ -887,7 +892,9 @@ function BoardContent(
     if (kind === "needs" && (!projected || !agents.data)) return setNeedsPending(true);
     const queue = kind === "updated" ? updatedIds : needsIds;
     if (!queue.length) return void toast.show(kind === "needs" ? t("Nothing needs your attention.") : t("Nothing changed since you looked."), { variant: "info" });
-    showStepCard(kind, queue[0]);
+    // Pressing the open step-through's own chip keeps its card (it would otherwise restart and mark every chat read).
+    const target = stepStartTarget(step, step?.kind ?? null, kind, queue);
+    if (target) showStepCard(kind, target);
   });
   useEffect(() => {
     if (needsPending && projected && agents.data) {
@@ -1256,6 +1263,8 @@ function BoardContent(
     } else if (open !== chatOpen) void view.update({ chatMinimized: !open });
   });
   const openDock = useStableCallback(() => setDockOpen(true));
+  // D opened the dock: the chat focuses its message box (each request is distinct).
+  const [chatFocus, setChatFocus] = useState(0);
   // The phone header's Dispatcher button: the chat page, or closed when it shows.
   const toggleChat = useStableCallback(() => setDockOpen(!(compact ? chat.open : chatOpen)));
   // Discuss on an idea (DISPATCHER-SPEC §9.5): a draft for the chat's message box; the key makes each press distinct.
@@ -1280,8 +1289,6 @@ function BoardContent(
   // Desktop, docked: the dragged width, kept clear of the board's minimum and an open card sidebar, and re-clamped
   // whenever the window changes; the stored width is untouched by that (§9.3). Expanded ignores it.
   const chatReserved = drawer.active ? width + 8 : 0;
-  // Not until the board view is read, so a dock that is open never flashes the rail first.
-  const showRail = !!view.values && railShown({ compact, dockAvailable, open: chatShown });
   const toolbarButtons = toolbarDockButtons({ compact, dockAvailable });
   const dockMin = minChatWidth;
   const chatDocked = chatWidth(chatPreferred, surfaceWidth || 1000, chatReserved, dockMin);
@@ -1326,7 +1333,7 @@ function BoardContent(
       }
     >
       <LeftDock compact={compact} expanded={chatExpanded} onToggleSize={toggleChatSize} onClose={closeChat}>
-        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} onOpenCard={openTaskById} />
+        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onOpenCard={openTaskById} />
       </LeftDock>
       {chatGrip}
     </Animated.View>
@@ -1812,6 +1819,13 @@ function BoardContent(
         if (!project || !features.memory) return false;
         togglePage("memory");
         return true;
+      case "dispatcher": {
+        const action = dockShortcut({ dockAvailable, open: chatShown });
+        if (!action) return false;
+        if (action === "open") setChatFocus((n) => n + 1);
+        setDockOpen(action === "open");
+        return true;
+      }
       case "search":
         if (!project && !allView) return false;
         if (page === "search") setPage(null);
@@ -2048,8 +2062,8 @@ function BoardContent(
                 onPress={() => setMenu("shortcuts")}
               />
             )}
-            {/* Phones only: desktop has the dock's rail and the overview's need-you chip (§9.3, §9.4; Ruling, Noah 2026-11-09). */}
-            {toolbarButtons.dispatcher && <IconButton icon="Bot" label={t("Dispatcher")} active={chatShown} onPress={toggleChat} />}
+            {/* Opens the dock, or minimizes it when open; a minimized dock leaves nothing else on the board (§9.3; Ruling, Noah 2026-11-09). */}
+            {toolbarButtons.dispatcher && <IconButton icon="Bot" label={withKey(t("Dispatcher"), "D")} active={chatShown} onPress={toggleChat} />}
             {toolbarButtons.bell && (
               <AttentionButton count={needYouCount} compact={compact} open={step?.kind === "needs"} shortcut={shortcutsOn ? "A" : ""} onPress={startNeeds} />
             )}
@@ -2205,7 +2219,6 @@ function BoardContent(
           <View style={{ flex: 1, minHeight: 0, flexDirection: "row", ...(resizing || chatResizing ? { userSelect: "none" } : null) } as never}>
             {/* Desktop: the dispatcher chat docks on the left; the board narrows beside it (DISPATCHER-SPEC §9). */}
             {!compact && chatPanel}
-            {showRail && <DockRail onOpen={openDock} />}
             {(
               <MotionReveal
                 transitionKey={`${viewKey}|${page || (compact ? (touch ? `pick${lanePick}` : mobileStatus) : "columns")}`}
@@ -2298,7 +2311,7 @@ function BoardContent(
                       renderLane(mobileStatus)
                     )}
                   </>
-                ) : (
+                ) : !columnsReady ? null : (
                   <DesktopColumns
                     statuses={shownStatuses}
                     tasks={visible}

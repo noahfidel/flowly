@@ -1501,7 +1501,6 @@ const catalog: Catalog = {
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "나중에 설정(보드 위쪽 톱니바퀴)에서 언제든 바꿀 수 있습니다. 이 투어도 그곳에서 다시 열 수 있습니다.",
   "This dispatcher started before some Flowly tools existed. Replace dispatcher archives its session and starts a new one with them.": "이 디스패처는 일부 Flowly 도구가 생기기 전에 시작되었습니다. 디스패처 교체를 누르면 세션을 보관하고 그 도구를 갖춘 새 디스패처를 시작합니다.",
   "Nothing changed since you looked.": "마지막으로 본 뒤 바뀐 것이 없습니다.",
-  "Open the dispatcher chat": "디스패처 채팅 열기",
   "Step through": "차례로 보기",
   "“N need you” opens each waiting card in turn, with what it asks on top.": "“N개가 기다림”은 기다리는 카드를 하나씩, 묻는 내용을 위에 두고 엽니다.",
   "{n} asks waiting on you. Step through them": "질문 {n}개가 기다리고 있습니다. 차례로 보기",
@@ -1616,6 +1615,6 @@ const catalog: Catalog = {
   "Back from session, then close sidebar, then leave a project page": "세션에서 돌아가기, 사이드바 닫기, 프로젝트 페이지 나가기 순",
   "Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them.": "Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear, Shortcut에서 작업을 시작하세요. 설정 → 연결에서 연결한 뒤 '…에서 만들기'로 카드를 만들거나 산출물의 +로 항목을 추가하세요. Flowly는 읽기만 합니다.",
   "Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, Linear issue, or Shortcut story or epic, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.": "Jira 티켓, Confluence 페이지, GitHub/GitLab 이슈나 풀 리퀘스트, Azure DevOps 작업 항목, Linear 이슈, Shortcut 스토리나 에픽으로 카드를 만들거나 산출물의 +로 추가하세요. 에이전트는 매 턴 읽고, Flowly는 변경하지 않습니다.",
-  "The left dock is just the dispatcher chat, reopened from a rail on the board's left edge when minimized, and Settings moved to the gear at the top of the board.": "왼쪽 독은 이제 디스패처 채팅만 담고, 최소화하면 보드 왼쪽 가장자리의 레일로 다시 엽니다. 설정은 보드 위쪽의 톱니바퀴로 옮겨졌습니다.",
+  "The left dock is just the dispatcher chat. Minimized, it leaves nothing on the board: the Dispatcher button in the toolbar (or D) opens it again. Settings moved to the gear at the top of the board.": "왼쪽 독은 이제 디스패처 채팅만 담습니다. 최소화하면 보드에 아무것도 남지 않고, 툴바의 디스패처 버튼(또는 D)으로 다시 엽니다. 설정은 보드 위쪽의 톱니바퀴로 옮겨졌습니다.",
 };
 export default catalog;

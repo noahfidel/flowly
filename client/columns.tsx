@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { sortTasks } from "../shared/sort";
+import { animatesCollapse } from "./collapsed-columns";
 import { Animated, Pressable, View, type ScrollView as NativeScrollView } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Status, Task } from "../shared/model";
@@ -35,9 +36,9 @@ export type Placement = NonNullable<ReturnType<typeof placementUpdate>>;
  * width is layout) and fades the new content in; the frame owns the layout
  * measurement used for drop targeting.
  */
-function LaneFrame({ status, collapsed, onLayout, frameRef, children }: { status: Status; collapsed: boolean; onLayout(x: number, width: number): void; frameRef(node: View | null): void; children: ReactNode }) {
+function LaneFrame({ status, collapsed, animate, onLayout, frameRef, children }: { status: Status; collapsed: boolean; animate: boolean; onLayout(x: number, width: number): void; frameRef(node: View | null): void; children: ReactNode }) {
   const { colors } = useTheme();
-  const open = useMotionValue(collapsed ? 0 : 1, collapsed ? motionDuration.reverse : motionDuration.forward, collapsed ? 0 : 1, true);
+  const open = useMotionValue(collapsed ? 0 : 1, !animate ? 0 : collapsed ? motionDuration.reverse : motionDuration.forward, collapsed ? 0 : 1, true);
   return (
     <Animated.View
       ref={frameRef}
@@ -119,7 +120,7 @@ export function DesktopColumns({
   manualOrder = true,
   onReorderBlocked = () => undefined,
   collapsed = [],
-  onToggleCollapse,
+  onToggleCollapse: toggleCollapseProp,
   nameOf = (status) => statusLabels[status],
   older = noOlder,
   olderShown = [],
@@ -176,9 +177,17 @@ export function DesktopColumns({
     order = useRef<Partial<Record<Status, string[]>>>({}),
     lists = useRef<Partial<Record<Status, View | null>>>({}),
     frames = useRef<Partial<Record<Status, View | null>>>({}),
+    toggled = useRef(new Set<Status>()),
     listTops = useRef<Partial<Record<Status, number>>>({}),
     scrollY = useRef<Partial<Record<Status, number>>>({}),
     listScrolls = useRef<Partial<Record<Status, NativeScrollView | null>>>({});
+  // A lane animates its collapse only for the user's own toggle, never when the stored settings arrive or on mount.
+  const onToggleCollapse = toggleCollapseProp
+    ? (status: Status) => {
+        toggled.current.add(status);
+        toggleCollapseProp(status);
+      }
+    : undefined;
   const live = useRef<DragState | null>(null);
   const sequence = useRef(0);
   const [dragging, setDragging] = useState<DragState | null>(null);
@@ -402,7 +411,7 @@ export function DesktopColumns({
           };
           if (collapsed.includes(status))
             return (
-              <LaneFrame key={status} status={status} collapsed onLayout={measure} frameRef={frameRef}>
+              <LaneFrame key={status} status={status} collapsed animate={animatesCollapse(toggled.current, status)} onLayout={measure} frameRef={frameRef}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={tn(column.length, "Expand {lane}, {n} task", "Expand {lane}, {n} tasks", { lane: nameOf(status) })}
@@ -436,7 +445,7 @@ export function DesktopColumns({
               </LaneFrame>
             );
           return (
-            <LaneFrame key={status} status={status} collapsed={false} onLayout={measure} frameRef={frameRef}>
+            <LaneFrame key={status} status={status} collapsed={false} animate={animatesCollapse(toggled.current, status)} onLayout={measure} frameRef={frameRef}>
             <View
               style={{
                 width: columnWidth,

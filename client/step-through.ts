@@ -63,3 +63,13 @@ export function cardAsks(items: readonly ChatItem[] | undefined, taskId: string,
   const newest = (a: AskItem, b: AskItem) => time(b.at) - time(a.at);
   return [...asks.filter((a) => a.state === "open").sort(newest), ...asks.filter((a) => a.state === "session_ended").sort(newest)];
 }
+
+/**
+ * What a press on a step-through chip (N need you / N updated, the A shortcut, the phone bell) does (Ruling, Noah
+ * 2026-11-09): with that kind already open it keeps the current card (restarting at the first one would silently mark
+ * every unread chat read, as each card's chat preview opens); otherwise it starts at the kind's first card.
+ */
+export function stepStartTarget(current: Step | null, currentKind: StepKind | null, kind: StepKind, queue: readonly string[]): string | null {
+  if (current && currentKind === kind) return current.taskId;
+  return queue[0] ?? null;
+}

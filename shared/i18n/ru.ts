@@ -1501,7 +1501,6 @@ const catalog: Catalog = {
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "Всё это можно изменить позже в настройках — шестерёнка вверху доски. Там же можно снова открыть этот обзор.",
   "This dispatcher started before some Flowly tools existed. Replace dispatcher archives its session and starts a new one with them.": "Этот диспетчер запущен до появления некоторых инструментов Flowly. «Заменить диспетчер» архивирует его сессию и запускает новый с ними.",
   "Nothing changed since you looked.": "С вашего последнего просмотра ничего не изменилось.",
-  "Open the dispatcher chat": "Открыть чат диспетчера",
   "Step through": "По очереди",
   "“N need you” opens each waiting card in turn, with what it asks on top.": "«Вас ждут N» открывает каждую ожидающую карточку по очереди, с её вопросом сверху.",
   "{n} asks waiting on you. Step through them": {"one": "Вас ждёт {n} вопрос. Пройти", "few": "Вас ждут {n} вопроса. Пройти по очереди", "many": "Вас ждут {n} вопросов. Пройти по очереди", "other": "Вас ждут {n} вопроса. Пройти по очереди"},
@@ -1616,6 +1615,6 @@ const catalog: Catalog = {
   "Back from session, then close sidebar, then leave a project page": "Назад из сессии, затем закрыть боковую панель, затем выйти со страницы проекта",
   "Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them.": "Начинайте работу из Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear или Shortcut: подключите их в Настройки → Подключения, затем создайте карточку через «Из…» или добавьте элементы кнопкой + в Артефактах. Flowly только читает их.",
   "Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, Linear issue, or Shortcut story or epic, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.": "Создайте карточку из тикета Jira, страницы Confluence, issue или pull request GitHub/GitLab, рабочего элемента Azure DevOps, issue Linear либо истории или эпика Shortcut или добавьте элемент кнопкой + в Артефактах. Агенты читают его на каждом ходу; Flowly его не меняет.",
-  "The left dock is just the dispatcher chat, reopened from a rail on the board's left edge when minimized, and Settings moved to the gear at the top of the board.": "Левый док теперь — только чат диспетчера; свёрнутый, он снова открывается полосой у левого края доски, а настройки теперь — шестерёнка вверху доски.",
+  "The left dock is just the dispatcher chat. Minimized, it leaves nothing on the board: the Dispatcher button in the toolbar (or D) opens it again. Settings moved to the gear at the top of the board.": "Левый док теперь — только чат диспетчера. Свёрнутый, он ничего не оставляет на доске: снова открыть его можно кнопкой «Диспетчер» на панели инструментов (или клавишей D). Настройки теперь — шестерёнка вверху доски.",
 };
 export default catalog;

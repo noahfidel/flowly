@@ -45,8 +45,8 @@ export const whatsNew: WhatsNewRelease[] = [
       },
       // DISPATCHER-SPEC §9.4 (Ruling, Noah 2026-11-09): the bell and Attention moved to the overview's chip and the card sidebar.
       { icon: "BellRing", text: msg("The bell is now the “N need you” chip above the board: it opens each waiting card in turn in the card sidebar, with what it asks on top. “N updated” does the same for cards that changed.") },
-      // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the dock is the chat only (a rail reopens it when minimized); the gear moved into the toolbar.
-      { icon: "PanelLeft", text: msg("The left dock is just the dispatcher chat, reopened from a rail on the board's left edge when minimized, and Settings moved to the gear at the top of the board.") },
+      // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the dock is the chat only (the toolbar's Dispatcher button, or D, reopens it when minimized); the gear moved into the toolbar.
+      { icon: "PanelLeft", text: msg("The left dock is just the dispatcher chat. Minimized, it leaves nothing on the board: the Dispatcher button in the toolbar (or D) opens it again. Settings moved to the gear at the top of the board.") },
     ],
   },
   {

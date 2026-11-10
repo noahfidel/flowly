@@ -24,7 +24,8 @@ export type ShortcutAction =
   | "ideas"
   | "guardrails"
   | "memory"
-  | "search";
+  | "search"
+  | "dispatcher";
 
 export type BoardIntent = Extract<
   ShortcutAction,
@@ -42,6 +43,7 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["B"], title: msg("Project ideas") },
   { keys: ["G"], title: msg("Guardrails") },
   { keys: ["M"], title: msg("Memory") },
+  { keys: ["D"], title: msg("Dispatcher") },
   { keys: ["J", "K"], title: msg("Next / previous card in column") },
   { keys: ["H", "L"], title: msg("Card in left / right column") },
   { keys: ["⇧H", "⇧L"], title: msg("Move the open card to the left / right column") },
@@ -67,6 +69,7 @@ const letters: Record<string, ShortcutAction> = {
   g: "guardrails",
   m: "memory",
   s: "search",
+  d: "dispatcher",
 };
 
 export interface ShortcutKey {
