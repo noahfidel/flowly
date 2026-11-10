@@ -29,7 +29,6 @@ test("transcript entries and chat items interleave by time", () => {
     // The note batch message is left out: its note rows stand for it.
     "n2",
     "n2 needs you.",
-    "change",
   ]);
   // Stable: the same input gives the same keys in the same order.
   expect(mergeTimeline(transcript, items).map((r) => r.key)).toEqual(rows.map((r) => r.key));
@@ -38,10 +37,13 @@ test("transcript entries and chat items interleave by time", () => {
   expect(tie.map((r) => r.key)).toEqual(["entry-1-assistant_message", "item-x", "item-y"]);
 });
 
-test("the change line stays at the end of the timeline, whatever its newest event time", () => {
+test("the chat is the conversation only: asks, answers and the change line are not in it (Ruling, Noah 2026-11-09)", () => {
   const change = { id: "change", at: at(1), kind: "change", revision: 1, ids: [], cards: [] } as ChatItem;
-  const rows = mergeTimeline([entry(1, "assistant_message", "a", 0), entry(2, "assistant_message", "b", 20)], [change, note("n1", 10)]);
-  expect(rows.map((r) => r.key)).toEqual(["entry-1-assistant_message", "item-n1", "entry-2-assistant_message", "item-change"]);
+  const ask = { id: "ask-q:a:e1", at: at(3), kind: "ask", signal: "q:a:e1", taskId: "t1", projectId: "p", title: "Card", state: "open" } as ChatItem;
+  const answer = { id: "answer-1", at: at(4), kind: "answer", signal: "q:a:e1", taskId: "t1", projectId: "p", text: "Yes", delivered: true } as ChatItem;
+  const rows = mergeTimeline([entry(1, "assistant_message", "a", 0), entry(2, "assistant_message", "b", 20)], [change, ask, answer, note("n1", 10)]);
+  expect(rows.map((r) => r.key)).toEqual(["entry-1-assistant_message", "item-n1", "entry-2-assistant_message"]);
+  expect(chatRows([entry(1, "assistant_message", "a", 0)], [ask, answer, change]).map((r) => r.kind)).toEqual(["entry"]);
 });
 
 test("transcript runs between items are grouped like the session pane", () => {
@@ -56,7 +58,7 @@ test("transcript runs between items are grouped like the session pane", () => {
   expect(new Set(shown.map((r) => r.key)).size).toBe(shown.length);
 });
 
-test("the board summary is one row of its own, and chatRows keeps item keys for the bell's jump", () => {
+test("the board summary is one row of its own, and chatRows keeps item keys", () => {
   const summary = entry(1, "user_message", "Flowly board summary. Pass the projectId to every tool.\n\nProjects…", 0);
   const shown = chatRows([summary, entry(2, "assistant_message", "Ready.", 2)], [note("n1", 5)]);
   expect(shown.map((r) => r.kind)).toEqual(["extra", "entry", "extra"]);
@@ -64,9 +66,8 @@ test("the board summary is one row of its own, and chatRows keeps item keys for 
   expect(shown[2].key).toBe("item-n1");
 });
 
-test("the live activity is the newest output row, not a note or the change line after it (DISPATCHER-SPEC §9.3)", () => {
-  const change = { id: "change", at: at(1), kind: "change", revision: 1, ids: [], cards: [] } as ChatItem;
-  const shown = chatRows([entry(1, "assistant_message", "Hi", 1), entry(2, "reasoning", "think", 3)], [note("n1", 5), change]);
+test("the live activity is the newest output row, not a note after it (DISPATCHER-SPEC §9.3)", () => {
+  const shown = chatRows([entry(1, "assistant_message", "Hi", 1), entry(2, "reasoning", "think", 3)], [note("n1", 5), note("n2", 6)]);
   expect(shown.map((r) => r.kind)).toEqual(["entry", "activity", "extra", "extra"]);
   // While the agent runs, that activity block shows "Working" and no separate running line is added.
   expect(lastOutputRow(shown)).toBe(shown[1]);

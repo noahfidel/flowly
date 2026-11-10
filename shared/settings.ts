@@ -9,6 +9,10 @@ import { linearColumns } from "./linear-board";
 import { defaultDeliveryMode, deliveryModes } from "./delivery-mode";
 import { agentModelSchema } from "./agent-defaults";
 
+/** The left dock's tabs (DISPATCHER-SPEC §9.3). */
+export const dockTabs = ["attention", "dispatcher"] as const;
+export type DockTab = (typeof dockTabs)[number];
+
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
   id: "board-view",
@@ -71,6 +75,8 @@ export const boardViewSettings = defineSettings({
     chatExpanded: z.boolean().catch(false).default(false),
     /** The docked dispatcher chat's width as last dragged, in points; 0 = never dragged, the default width (DISPATCHER-SPEC §9.3). */
     chatWidth: z.number().min(0).max(10000).catch(0).default(0),
+    /** The left dock's tab, Attention or Dispatcher; it starts on Dispatcher (DISPATCHER-SPEC §9.3). */
+    dockTab: z.enum(dockTabs).catch("dispatcher").default("dispatcher"),
   }),
 });
 

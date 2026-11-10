@@ -18,7 +18,8 @@ const time = (value: string | undefined) => (value ? Date.parse(value) : NaN);
  * The dispatcher's transcript and Flowly's chat items in one list, ordered by time and stable (§9.3).
  * Note-batch messages are left out (their note rows stand for them); the board summary becomes one row.
  * An entry without a timestamp keeps its place right after the entry before it; ties keep the transcript first.
- * The change line is not an event in the conversation: it is always the last row.
+ * The chat is the conversation only (Ruling, Noah 2026-11-09): asks, answers and the change line live in the
+ * dock's Attention tab, so only notes join the transcript here.
  */
 export function mergeTimeline(transcript: readonly TailEntry[], items: readonly ChatItem[]): Row[] {
   const firstKnown = transcript.map((e) => time(e.timestamp)).find((t) => Number.isFinite(t));
@@ -33,9 +34,8 @@ export function mergeTimeline(transcript: readonly TailEntry[], items: readonly 
     if (entry.item.type.includes("user") && text.startsWith(summaryMessagePrefix)) entries.push({ kind: "summary", key, at: carried });
     else entries.push({ kind: "entry", key, at: carried, entry });
   });
-  const change = items.filter((item) => item.kind === "change");
   const rows: Row[] = items
-    .filter((item) => item.kind !== "change")
+    .filter((item) => item.kind === "note")
     .map((item, index) => ({ item, index, at: time(item.at) }))
     .sort((a, b) => (a.at || 0) - (b.at || 0) || a.index - b.index)
     .map(({ item, at }) => ({ kind: "item", key: `item-${item.id}`, at, item }));
@@ -46,7 +46,6 @@ export function mergeTimeline(transcript: readonly TailEntry[], items: readonly 
     if (j >= rows.length || (i < entries.length && !(rows[j].at < entries[i].at))) merged.push(entries[i++]);
     else merged.push(rows[j++]);
   }
-  for (const item of change) merged.push({ kind: "item", key: `item-${item.id}`, at: Infinity, item });
   return merged;
 }
 

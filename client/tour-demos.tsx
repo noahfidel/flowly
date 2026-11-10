@@ -18,7 +18,7 @@ import { modelLabel } from "../shared/summary";
 import { ClosedIdea, IdeaCard, IdeaRow, useExitList } from "./task-ideas";
 import { ActivityBlock, TranscriptEntry } from "./session-transcript";
 import { groupTranscript, recentSessionOutput } from "./session-state";
-import { Button, CueRing, Dot, IconButton, Label, Row, font, noFocusRing, radius, relativeTime, space, tint, touch, useTheme } from "./ui";
+import { Button, CountPill, CueRing, Dot, IconButton, Label, Row, font, noFocusRing, radius, relativeTime, space, tint, touch, useTheme } from "./ui";
 import { t, tn } from "../shared/i18n";
 
 /*
@@ -87,8 +87,8 @@ function needDetail(need: Need) {
 }
 
 /**
- * The board's Attention button over its Needs attention dropdown. Opening or dismissing a card
- * takes it off the list and the count follows; the bell opens and closes the list.
+ * The board's Attention button over the left dock's Attention tab (DISPATCHER-SPEC §9.4). Opening or dismissing a
+ * card takes it off the list and the count follows; the bell opens and closes the tab.
  */
 export function AttentionDemo() {
   const { colors } = useTheme();
@@ -113,11 +113,15 @@ export function AttentionDemo() {
           </View>
           <Collapse open={open} id="tour-attention">
             <View style={{ borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface0, overflow: "hidden" }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], paddingHorizontal: space[3], height: 40, borderBottomWidth: 1, borderColor: colors.border }}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Label medium size={font.md} lines={1} selectable={false}>{t("Needs attention")}</Label>
+              {/* The dock's two tabs, Attention showing. */}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], paddingHorizontal: space[2], height: 40, borderBottomWidth: 1, borderColor: colors.border }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], paddingHorizontal: space[2] + 2, height: 28, borderRadius: radius.md, backgroundColor: colors.surface2 }}>
+                  <Label medium size={font.md} lines={1} selectable={false}>{t("Attention")}</Label>
+                  {!!items.length && <CountPill text={String(items.length)} />}
                 </View>
-                {!!items.length && <Label muted size={font.sm} selectable={false}>{tn(items.length, "{n} card", "{n} cards")}</Label>}
+                <View style={{ paddingHorizontal: space[2] + 2 }}>
+                  <Label medium muted size={font.md} lines={1} selectable={false}>{t("Dispatcher")}</Label>
+                </View>
               </View>
               <View style={{ padding: space[1.5], gap: 2 }}>
                 {rows.map((row) => (

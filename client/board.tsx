@@ -50,6 +50,9 @@ import {
 import { StatusIcon, priorityLabels } from "./status";
 import { AttentionButton } from "./attention-button";
 import { DispatcherPanel } from "./dispatcher-panel";
+import { AttentionPanel } from "./attention-panel";
+import { LeftDock } from "./left-dock";
+import { bellPress, showAttention, type Dock, type DockTab } from "./dock-logic";
 import { bellResolved, forgetAnsweredMissing, useAnsweredAsks } from "./answered-asks";
 import {
   attentionItemsWithFacts,
@@ -58,7 +61,6 @@ import {
   openAskCount,
   type AttentionItem,
 } from "./attention";
-import type { ChatItem } from "../shared/dispatcher";
 import { relativeTime } from "./ui";
 import { Chevron, Collapse } from "./disclosure";
 import { IdeaRow, useExitList, useHeld } from "./task-ideas";
@@ -73,7 +75,7 @@ import { waitingOn } from "../shared/links";
 import { LinkPicker } from "./task-links";
 import { TaskDrawer } from "./drawer";
 import { DeleteTaskDialog } from "./task-delete";
-import { dispatcherItemsKey, useOverviewQuery, useLiveAgents, useMemoryCountsQuery, useResolvedAsksQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
+import { useOverviewQuery, useLiveAgents, useMemoryCountsQuery, useResolvedAsksQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
 import { projectOpenIdeaCount } from "./overview-query";
 import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
@@ -95,7 +97,6 @@ import { SwitchModal, type SwitchDirection } from "./workspace-switch";
 import { performanceLogOn, performanceSettings, featureSettings, featureSettingsValues, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, wrapupSettings, wrapupSettingsValues } from "../shared/settings";
 import { pickOutputSession } from "./card-output";
 import { statusChanges } from "./changes";
-import { Popover, type PopoverPlace } from "./popover";
 import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuOpener, type MenuEntry } from "./context-menu";
 import { DesktopColumns, OlderToggle, type Placement } from "./columns";
 import { olderFinishedFromDates } from "./finished-cards";
@@ -822,49 +823,17 @@ function BoardContent(
     if (next.kind === "form") setTaskForm({ status: next.status });
     else setQuickTask({ status: next.status, ...(next.projectId ? { projectId: next.projectId } : {}), ...(next.recent ? { recent: true } : {}) });
   };
-  // Desktop: Attention drops down under the header bell; phones keep the sheet.
-  const rootRef = useRef<View>(null),
-    attentionRef = useRef<View>(null);
-  const [attentionPlace, setAttentionPlace] = useState<PopoverPlace | null>(null);
-  const openAttentionMenu = () => {
-    const anchor = attentionRef.current,
-      root = rootRef.current;
-    if (compact || !anchor || !root) {
-      setAttentionPlace(null);
-      setMenu("attention");
-      return;
-    }
-    root.measureInWindow((cx, cy, cw, ch) =>
-      anchor.measureInWindow((x, y, w, h) => {
-        // Not laid out yet (e.g. opened from a notification): fall back to the dialog.
-        setAttentionPlace(w && cw ? { anchor: { x, y, width: w, height: h }, container: { x: cx, y: cy, width: cw, height: ch } } : null);
-        setMenu("attention");
-      }),
-    );
-  };
-  const toggleAttentionMenu = () => (menu === "attention" ? setMenu(null) : openAttentionMenu());
-  const attentionDropdown = menu === "attention" && !compact ? attentionPlace : null;
-  // A resized surface moves the bell; close the dropdown rather than float in the wrong place.
-  const dropdownOpen = useRef(false);
-  dropdownOpen.current = !!attentionDropdown;
-  useEffect(() => {
-    if (dropdownOpen.current) setMenu(null);
-  }, [surfaceWidth]);
+  // The bell opens the left dock on its Attention tab (Ruling, Noah 2026-11-09). Where the board has no dock (no
+  // project and not All projects), it opens the Needs attention sheet instead.
+  const rootRef = useRef<View>(null);
+  const toggleAttentionMenu = () => (dockAvailable ? bellToDock() : setMenu(menu === "attention" ? null : "attention"));
+  const openAttentionMenu = () => (dockAvailable ? attentionToDock() : setMenu("attention"));
   // Phones: the Needs attention sheet is a Modal; the card and session open once it has closed.
   const afterModalClose = useAfterModalClose();
-  // A bell row's ask to scroll the open dispatcher chat to (DISPATCHER-SPEC §9.4); the key makes each press distinct.
-  const [chatFocus, setChatFocus] = useState<{ signal: string; key: number } | null>(null);
+  // A card in Attention (a dismissed row in the dock, or a row of the sheet): its card, and its session when only one needs you.
   const openAttention = (item: AttentionItem) => {
+    const viaSheet = compact && menu === "attention";
     setMenu(null);
-    // With the chat open, a card's first open ask that the chat lists is where the row goes; else the card opens.
-    const listed = chatOpen ? queryClient.getQueryData<ChatItem[]>(dispatcherItemsKey) : undefined;
-    const target = listed && item.parts.find((p) => !p.dismissed && listed.some((i) => i.kind === "ask" && i.state === "open" && i.signal === p.key));
-    if (target) {
-      const focus = () => setChatFocus({ signal: target.key, key: Date.now() });
-      if (compact) afterModalClose(focus);
-      else focus();
-      return;
-    }
     const go = () => {
       focusProject(item.project.id);
       setTask(item.task.id);
@@ -876,7 +845,7 @@ function BoardContent(
           requestId: `attention-${Date.now()}`,
         });
     };
-    if (compact) afterModalClose(go);
+    if (viaSheet) afterModalClose(go);
     else go();
   };
   // The project's tag vocabulary, plus prefix options for hierarchical tags (CARD-TAGS-SPEC §6.4). All: the union.
@@ -1219,11 +1188,44 @@ function BoardContent(
     if (target) { setDetailTarget(target); focusProject(target.projectId); }
     setTask(id);
   });
+  // The left dock's tab (remembered per host, default Dispatcher) and what the bell returns to (§9.3, §9.4).
+  const dockTab: DockTab = view.values?.dockTab ?? "dispatcher";
+  const dockAvailable = !!project || allView;
+  const dockBack = useRef<Dock | null>(null);
+  const setDock = useStableCallback((next: Dock) => {
+    const open = compact ? chat.open : chatOpen;
+    if (next.open && next.tab === "dispatcher" && !(open && dockTab === "dispatcher") && onboarding.values && !onboarding.values.tipsSeen.includes("dispatcher"))
+      void onboarding.markTipSeen("dispatcher"); // Opening the chat is acting on its tip.
+    if (compact) {
+      if (next.open && task) setTask(""); // Phones: the dock page sits under an open card, so the card closes to show it.
+      setChat((c) => (c.open === next.open && c.mounted ? c : { open: next.open, mounted: c.mounted || next.open }));
+      if (next.tab !== dockTab) void view.update({ dockTab: next.tab });
+    } else {
+      const patch = { ...(next.tab !== dockTab ? { dockTab: next.tab } : {}), ...(next.open === chatOpen ? {} : { chatMinimized: !next.open }) };
+      if (Object.keys(patch).length) void view.update(patch);
+    }
+  });
+  const dockNow = (): Dock => ({ tab: dockTab, open: compact ? chat.open : chatOpen });
+  const bellToDock = useStableCallback(() => {
+    const step = bellPress(dockNow(), dockBack.current);
+    dockBack.current = step.back;
+    setDock(step.next);
+  });
+  const attentionToDock = useStableCallback(() => {
+    const step = showAttention(dockNow(), dockBack.current);
+    dockBack.current = step.back;
+    setDock(step.next);
+  });
+  // Picking a tab, or minimizing, leaves nothing for the bell to return to.
+  const selectDockTab = useStableCallback((tab: DockTab) => {
+    dockBack.current = null;
+    setDock({ tab, open: true });
+  });
+  // The toolbar's Dispatcher button: the dock on the Dispatcher tab, or minimized when it already shows.
   const toggleChat = useStableCallback(() => {
-    // Opening the chat is acting on its tip.
-    if (!chatOpen && onboarding.values && !onboarding.values.tipsSeen.includes("dispatcher")) void onboarding.markTipSeen("dispatcher");
-    if (compact) setChat((c) => ({ open: !c.open, mounted: true }));
-    else void view.update({ chatMinimized: chatOpen });
+    const now = dockNow();
+    dockBack.current = null;
+    setDock(now.open && now.tab === "dispatcher" ? { ...now, open: false } : { tab: "dispatcher", open: true });
   });
   // Discuss on an idea (DISPATCHER-SPEC §9.5): a draft for the chat's message box; the key makes each press distinct.
   const [chatDraft, setChatDraft] = useState<{ text: string; key: number } | null>(null);
@@ -1234,18 +1236,15 @@ function BoardContent(
     setChatDraft({ text: discussIdeaText(idea, projectById.get(idea.projectId)?.title ?? ""), key: Date.now() });
     // Opening the chat is acting on its tip, and pressing Discuss on the Discuss tip.
     const seen = onboarding.values?.tipsSeen;
-    if (seen && !seen.includes("dispatcher")) void onboarding.markTipSeen("dispatcher");
     if (seen && !seen.includes("idea-discuss")) void onboarding.markTipSeen("idea-discuss");
-    if (compact) {
-      // Phones: the chat page sits under an open card, so the card closes to show it.
-      if (task) setTask("");
-      setChat({ open: true, mounted: true });
-    } else if (!chatOpen) void view.update({ chatMinimized: false });
+    dockBack.current = null;
+    setDock({ tab: "dispatcher", open: true });
   });
   const closeChat = useStableCallback(() => {
-    if (compact) setChat((c) => (c.open ? { ...c, open: false } : c));
-    else if (chatOpen) void view.update({ chatMinimized: true });
+    dockBack.current = null;
+    setDock({ tab: dockTab, open: false });
   });
+  const showDispatcherTab = useStableCallback(() => selectDockTab("dispatcher"));
   const chatLaneOf = useStableCallback((projectId: string, status: string) =>
     laneName(board?.projects.find((p) => p.id === projectId) ?? null, status as Status),
   );
@@ -1279,6 +1278,111 @@ function BoardContent(
       }}
     />
   );
+  const attentionDetail = (item: AttentionItem) =>
+    `${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
+      item.questions && tn(item.questions, "{n} question", "{n} questions"),
+      item.blockers && tn(item.blockers, "{n} blocker", "{n} blockers"),
+      item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
+      item.errors && tn(item.errors, "{n} error", "{n} errors"),
+      item.unread &&
+        (item.silent
+          ? item.silent === item.unread
+            ? t("{unread} unread (no report)", { unread: item.unread })
+            : t("{unread} unread ({silent} no report)", { unread: item.unread, silent: item.silent })
+          : t("{unread} unread", { unread: item.unread })),
+    ]
+      .filter(Boolean)
+      .join(" · ")}`;
+  // The Dismiss/Restore button sits beside the row, so pressing it never opens the card.
+  const attentionRow = (item: AttentionItem) => (
+    <View key={item.task.id} style={{ flexDirection: "row", alignItems: "center", opacity: item.dismissed ? 0.7 : 1 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Row
+          title={item.task.title}
+          detail={attentionDetail(item)}
+          label={t("Open {title}", { title: item.task.title })}
+          leading={
+            <Dot
+              size={8}
+              color={
+                item.dismissed
+                  ? colors.foregroundMuted
+                  : item.permissions || item.questions || item.blockers
+                    ? colors.statusWarning
+                    : item.errors
+                      ? colors.statusDanger
+                      : colors.statusSuccess
+              }
+            />
+          }
+          trailing={
+            <Label muted size={font.xs} lines={1} selectable={false}>
+              {relativeTime(item.updatedAt)}
+            </Label>
+          }
+          onPress={() => openAttention(item)}
+        />
+      </View>
+      {item.dismissed ? (
+        <IconButton
+          icon="Bell"
+          label={t("Restore {title} to Attention", { title: item.task.title })}
+          disabled={pending}
+          onPress={() => restoreToAttention(item.task.id)}
+        />
+      ) : (
+        <IconButton
+          icon="BellOff"
+          label={t("Dismiss {title} from Attention", { title: item.task.title })}
+          disabled={pending}
+          onPress={() => dismissFromAttention(item)}
+        />
+      )}
+    </View>
+  );
+  const readNotice = readUnavailable && agents.data !== undefined && (
+    <Notice tone="warning">
+      {t("Read state is unavailable, so finished-but-unread sessions are not listed. Approvals and errors still are.")}</Notice>
+  );
+  // Dismissed · N with Restore (ATTENTION-DISMISS-SPEC §3.1): in the dock's Attention tab, and in the sheet.
+  const dismissedSection = !!dismissedCount && (
+    <View style={{ paddingTop: space[2], borderTopWidth: 1, borderTopColor: colors.border, marginTop: space[2] }}>
+      <Row
+        title={t("Dismissed · {n}", { n: dismissedCount })}
+        label={dismissedOpen ? t("Hide dismissed cards") : t("Show dismissed cards")}
+        leading={<Chevron open={dismissedOpen} title="dismissed-attention" size={16} color={colors.foregroundMuted} />}
+        onPress={() => setDismissedOpen((open) => !open)}
+      />
+      <Collapse open={dismissedOpen} id="dismissed-attention">
+        <AttentionRows items={dismissedAttention} render={attentionRow} />
+      </Collapse>
+    </View>
+  );
+  // The Needs attention sheet, where the board has no dock (no project and not All projects).
+  const attentionList = (
+    <>
+      {readNotice && <View style={{ paddingBottom: space[2] }}>{readNotice}</View>}
+      {!board ? (
+        <View style={{ paddingVertical: space[6], alignItems: "center" }}>
+          {boardError ? <Notice>{message(boardError)}</Notice> : <Label muted>{t("Loading board…")}</Label>}
+        </View>
+      ) : agents.data === undefined ? (
+        <View style={{ paddingVertical: space[6], alignItems: "center" }}>
+          <Label muted>{agents.isError ? t("Session state unavailable") : t("Loading sessions…")}</Label>
+        </View>
+      ) : <AttentionRows
+        items={attention}
+        render={attentionRow}
+        empty={
+          <View style={{ paddingVertical: space[6], alignItems: "center", gap: space[2] }}>
+            <Icon name="BellOff" size={20} color={colors.foregroundMuted} />
+            <Label muted>{dismissedAttention.length ? t("Nothing new needs your attention.") : t("Nothing needs your attention.")}</Label>
+          </View>
+        }
+      />}
+      {dismissedSection}
+    </>
+  );
   const chatPanel = (compact ? chat.mounted : chatMounted.current) && (
     <Animated.View
       pointerEvents={compact || chatOpen ? "auto" : "none"}
@@ -1296,7 +1400,27 @@ function BoardContent(
             }
       }
     >
-      <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} focus={chatFocus} fill={chatDraft} onFilled={draftFilled} onOpenCard={openTaskById} onClose={closeChat} expanded={chatExpanded} onToggleSize={toggleChatSize} />
+      <LeftDock
+        tab={dockTab}
+        onTab={selectDockTab}
+        attentionCount={attentionCount}
+        compact={compact}
+        expanded={chatExpanded}
+        onToggleSize={toggleChatSize}
+        onClose={closeChat}
+        attention={
+          <AttentionPanel
+            visible={chatOpen && dockTab === "attention"}
+            laneOf={chatLaneOf}
+            onOpenCard={openTaskById}
+            onAskedDispatcher={showDispatcherTab}
+            notice={readNotice}
+            dismissed={dismissedSection}
+            anyDismissed={dismissedAttention.length > 0}
+          />
+        }
+        dispatcher={<DispatcherPanel visible={chatOpen && dockTab === "dispatcher"} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} onOpenCard={openTaskById} />}
+      />
       {chatGrip}
     </Animated.View>
   );
@@ -1678,11 +1802,6 @@ function BoardContent(
   const withKey = (text: string, key: string) =>
     shortcutsOn ? `${text} (${key})` : text;
   function runIntent(intent: BoardIntent | Exclude<ShortcutAction, BoardIntent>) {
-    // The dropdown is not a dialog, so shortcuts still reach the board: any other one closes it.
-    if (attentionDropdown && intent !== "attention") {
-      setMenu(null);
-      if (intent === "escape") return true;
-    }
     switch (intent) {
       case "new-task":
         if (!allView && (!project || project.archivedAt)) return false;
@@ -1784,109 +1903,6 @@ function BoardContent(
     consumedIntents.add(parsed.key);
     runIntent(parsed.intent);
   }, [props.params?.intent, props.params?.at, boardPending]);
-  const attentionDetail = (item: AttentionItem) =>
-    `${item.project.title} · ${laneName(item.project, item.task.status)} · ${[
-      item.questions && tn(item.questions, "{n} question", "{n} questions"),
-      item.blockers && tn(item.blockers, "{n} blocker", "{n} blockers"),
-      item.permissions && tn(item.permissions, "{n} approval", "{n} approvals"),
-      item.errors && tn(item.errors, "{n} error", "{n} errors"),
-      item.unread &&
-        (item.silent
-          ? item.silent === item.unread
-            ? t("{unread} unread (no report)", { unread: item.unread })
-            : t("{unread} unread ({silent} no report)", { unread: item.unread, silent: item.silent })
-          : t("{unread} unread", { unread: item.unread })),
-    ]
-      .filter(Boolean)
-      .join(" · ")}`;
-  // The Dismiss/Restore button sits beside the row, so pressing it never opens the card.
-  const attentionRow = (item: AttentionItem) => (
-    <View key={item.task.id} style={{ flexDirection: "row", alignItems: "center", opacity: item.dismissed ? 0.7 : 1 }}>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Row
-          title={item.task.title}
-          detail={attentionDetail(item)}
-          label={t("Open {title}", { title: item.task.title })}
-          leading={
-            <Dot
-              size={8}
-              color={
-                item.dismissed
-                  ? colors.foregroundMuted
-                  : item.permissions || item.questions || item.blockers
-                    ? colors.statusWarning
-                    : item.errors
-                      ? colors.statusDanger
-                      : colors.statusSuccess
-              }
-            />
-          }
-          trailing={
-            <Label muted size={font.xs} lines={1} selectable={false}>
-              {relativeTime(item.updatedAt)}
-            </Label>
-          }
-          onPress={() => openAttention(item)}
-        />
-      </View>
-      {item.dismissed ? (
-        <IconButton
-          icon="Bell"
-          label={t("Restore {title} to Attention", { title: item.task.title })}
-          disabled={pending}
-          onPress={() => restoreToAttention(item.task.id)}
-        />
-      ) : (
-        <IconButton
-          icon="BellOff"
-          label={t("Dismiss {title} from Attention", { title: item.task.title })}
-          disabled={pending}
-          onPress={() => dismissFromAttention(item)}
-        />
-      )}
-    </View>
-  );
-  const attentionList = (
-    <>
-      {readUnavailable && agents.data !== undefined && (
-        <View style={{ paddingBottom: space[2] }}>
-          <Notice tone="warning">
-            {t("Read state is unavailable, so finished-but-unread sessions are not listed. Approvals and errors still are.")}</Notice>
-        </View>
-      )}
-      {!board ? (
-        <View style={{ paddingVertical: space[6], alignItems: "center" }}>
-          {boardError ? <Notice>{message(boardError)}</Notice> : <Label muted>{t("Loading board…")}</Label>}
-        </View>
-      ) : agents.data === undefined ? (
-        <View style={{ paddingVertical: space[6], alignItems: "center" }}>
-          <Label muted>{agents.isError ? t("Session state unavailable") : t("Loading sessions…")}</Label>
-        </View>
-      ) : <AttentionRows
-        items={attention}
-        render={attentionRow}
-        empty={
-          <View style={{ paddingVertical: space[6], alignItems: "center", gap: space[2] }}>
-            <Icon name="BellOff" size={20} color={colors.foregroundMuted} />
-            <Label muted>{dismissedAttention.length ? t("Nothing new needs your attention.") : t("Nothing needs your attention.")}</Label>
-          </View>
-        }
-      />}
-      {!!dismissedCount && (
-        <View style={{ paddingTop: space[2], borderTopWidth: 1, borderTopColor: colors.border, marginTop: space[2] }}>
-          <Row
-            title={t("Dismissed · {n}", { n: dismissedCount })}
-            label={dismissedOpen ? t("Hide dismissed cards") : t("Show dismissed cards")}
-            leading={<Chevron open={dismissedOpen} title="dismissed-attention" size={16} color={colors.foregroundMuted} />}
-            onPress={() => setDismissedOpen((open) => !open)}
-          />
-          <Collapse open={dismissedOpen} id="dismissed-attention">
-            <AttentionRows items={dismissedAttention} render={attentionRow} />
-          </Collapse>
-        </View>
-      )}
-    </>
-  );
   const drawerView = drawer.item && (
     <Animated.View
       testID="task-drawer-motion"
@@ -2040,17 +2056,15 @@ function BoardContent(
               />
             )}
             {(!!project || allView) && (
-              <IconButton icon="Bot" label={t("Dispatcher")} active={chatOpen} onPress={toggleChat} />
+              <IconButton icon="Bot" label={t("Dispatcher")} active={chatShown && dockTab === "dispatcher"} onPress={toggleChat} />
             )}
-            <View ref={attentionRef} collapsable={false}>
-              <AttentionButton
-                count={attentionCount}
-                compact={compact}
-                open={!!attentionDropdown}
-                shortcut={shortcutsOn ? "A" : ""}
-                onPress={toggleAttentionMenu}
-              />
-            </View>
+            <AttentionButton
+              count={attentionCount}
+              compact={compact}
+              open={dockAvailable ? chatShown && dockTab === "attention" : menu === "attention"}
+              shortcut={shortcutsOn ? "A" : ""}
+              onPress={toggleAttentionMenu}
+            />
             <SortButton
               mode={boardSort}
               compact={compact}
@@ -2541,7 +2555,7 @@ function BoardContent(
           </Modal.Content>
         </Modal>
         <Modal
-          open={menu === "attention" && !attentionDropdown}
+          open={menu === "attention"}
           title={t("Needs attention")}
           onOpenChange={(open) => {
             if (!open) setMenu(null);
@@ -2961,20 +2975,6 @@ function BoardContent(
             }}
           />
         )}
-        <Popover
-          place={attentionDropdown}
-          title={t("Needs attention")}
-          trailing={
-            attention.length ? (
-              <Label muted size={font.sm} selectable={false}>
-                {tn(attention.length, "{n} card", "{n} cards")}
-              </Label>
-            ) : undefined
-          }
-          onClose={() => setMenu(null)}
-        >
-          {attentionList}
-        </Popover>
       </View>
     </Theme.Provider>
     </SettingsOpenerContext.Provider>

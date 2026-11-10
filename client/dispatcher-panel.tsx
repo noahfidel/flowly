@@ -5,11 +5,11 @@ import type { PaseoAgent } from "@getpaseo/client";
 import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
-import { msg, t, tn } from "../shared/i18n";
+import { msg, t } from "../shared/i18n";
 import type { ChatItem } from "../shared/dispatcher";
 import { maxImages } from "../shared/composer";
 import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
-import { Actions, Button, IconButton, Label, Notice, Theme, font, message, noFocusRing, radius, space, touch, useTheme } from "./ui";
+import { Actions, Button, Label, Notice, Theme, font, message, noFocusRing, space, useTheme } from "./ui";
 import { Modal } from "./modal";
 import { SessionTranscript, type TranscriptExtra, type TranscriptExtraRow, type TranscriptHandle, type TranscriptNotice } from "./session-transcript";
 import { ComposerBox, useComposerDraft } from "./session-composer";
@@ -18,23 +18,21 @@ import { dispatcherSessionState } from "./session-state";
 import { sessionTone } from "./status";
 import { RunningDots } from "./running-motion";
 import { newMessageId, rememberSentImages } from "./sent-images";
-import { Collapse } from "./disclosure";
 import { dispatcherStartMessage } from "./start-again";
 import { PulseDot, useReducedMotion } from "./motion";
 import { useKeyboardInset } from "./keyboard";
-import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery, useLiveAgents } from "./queries";
+import { useDispatcherItemsQuery, useLiveAgents } from "./queries";
 import { useStableCallback } from "./stable";
 import { chatRows, discussFill, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
-import { AnswerRow, AskRow } from "./dispatcher-asks";
-import { markAsksAnswered } from "./answered-asks";
 
 /**
  * The dispatcher chat next to the board (DISPATCHER-SPEC §9.3), on the card session view's own parts: the session
- * transcript (messages, streaming, tool calls, permissions) and the message box. Only the dispatcher's rows (notes,
- * asks with their ticks, answers, the board summary and the "changed since you looked" line) are its own.
+ * transcript (messages, streaming, tool calls, permissions) and the message box. Only the dispatcher's rows (notes and
+ * the board summary) are its own; asks and the changed cards are in the dock's Attention tab (Ruling, Noah 2026-11-09).
+ * The dock (left-dock.tsx) holds the tabs, Expand and Minimize.
  */
 
-const statusKey = ["flowly", "dispatcher", "status"] as const;
+export const dispatcherStatusKey = ["flowly", "dispatcher", "status"] as const;
 const noteKinds: Record<string, string> = {
   question: msg("Question"),
   blocker: msg("Blocker"),
@@ -49,20 +47,13 @@ type Props = {
   /** A card's lane name in its own project. */
   laneOf(projectId: string, status: string): string;
   onOpenCard(taskId: string): void;
-  /** Minimize (desktop) or close (phone) the chat. */
-  onClose(): void;
-  /** Desktop: the chat takes the whole board area; the toggle restores its docked width (§9.3). */
-  expanded?: boolean;
-  onToggleSize?(): void;
-  /** The bell's jump to an ask (§9.4): scroll to its row and outline it; a new `key` jumps again. */
-  focus?: { signal: string; key: number } | null;
   /** Discuss on an idea (§9.5): text for the message box, after what is typed; never sent. A new `key` adds it again. */
   fill?: { text: string; key: number } | null;
   /** The fill with this key is in the box: the board drops it, so a remounted panel does not add it again. */
   onFilled?(key: number): void;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, onClose, focus, fill, onFilled, expanded = false, onToggleSize }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, fill, onFilled }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -72,7 +63,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   const sendRpc = useRpc(rpc.dispatcherSend);
   const replaceRpc = useRpc(rpc.dispatcherReplace);
   const [confirmReplace, setConfirmReplace] = useState(false);
-  const status = useQuery({ queryKey: statusKey, queryFn: () => readStatus({}), enabled: visible, refetchInterval: visible ? 5_000 : false, placeholderData: (p) => p });
+  const status = useQuery({ queryKey: dispatcherStatusKey, queryFn: () => readStatus({}), enabled: visible, refetchInterval: visible ? 5_000 : false, placeholderData: (p) => p });
   const items = useDispatcherItemsQuery(visible);
   const state = status.data?.state;
   const agentId = status.data?.agentId ?? null;
@@ -107,7 +98,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     setStarting(true);
     try {
       await startRpc({});
-      await client.invalidateQueries({ queryKey: statusKey });
+      await client.invalidateQueries({ queryKey: dispatcherStatusKey });
     } catch (e) {
       // Refusals arrive as `CODE: message`; the provider refusal is shown in the user's words (DISPATCHER-SPEC §3, §8).
       setStartError(dispatcherStartMessage(message(e)));
@@ -123,49 +114,34 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     try {
       await replaceRpc({ agentId });
       setConfirmReplace(false);
-      await client.invalidateQueries({ queryKey: statusKey });
+      await client.invalidateQueries({ queryKey: dispatcherStatusKey });
     } catch (e) {
       setConfirmReplace(false);
       setStartError(dispatcherStartMessage(message(e)));
       // A create that failed after the archive leaves it ended: the panel shows Start with this error (§3).
-      void client.invalidateQueries({ queryKey: statusKey });
+      void client.invalidateQueries({ queryKey: dispatcherStatusKey });
     } finally {
       setStarting(false);
     }
   });
-  const refreshItems = useStableCallback(() => {
-    void client.invalidateQueries({ queryKey: dispatcherItemsKey });
-    void client.invalidateQueries({ queryKey: ["flowly", "attention-count"] });
-    void client.invalidateQueries({ queryKey: asksResolvedKey });
-  });
-  // An answer row is addressed to its card: the title comes from the ask it answers.
-  const askTitles = useMemo(() => new Map((items.data ?? []).flatMap((item) => (item.kind === "ask" ? [[item.signal, item.title] as const] : []))), [items.data]);
-  // Asks the chat lists as answered, ended or dismissed leave the bell too, until the live list drops them (§9.4).
-  useEffect(() => {
-    markAsksAnswered((items.data ?? []).flatMap((item) => (item.kind === "ask" && item.state !== "open" ? [item.signal] : [])));
-  }, [items.data]);
 
-  // The dispatcher's rows on the shared transcript, in time order with its output (§9.3).
-  const focusedKey = focus ? `item-ask-${focus.signal}` : "";
+  // The dispatcher's rows on the shared transcript, in time order with its output (§9.3): notes and the summary.
   const renderExtra = useCallback(
     (row: TranscriptExtraRow) => {
       const extra = row.item as ChatExtra;
       if (extra.kind === "summary") return <SummaryRow />;
-      const item = extra.item;
-      if (item.kind === "ask") return <AskRow item={item} focused={row.key === focusedKey} onOpenCard={onOpenCard} onChanged={refreshItems} />;
-      if (item.kind === "answer") return <AnswerRow item={item} title={askTitles.get(item.signal) ?? ""} onOpenCard={onOpenCard} />;
-      return <ItemRow item={item} laneOf={laneOf} locked={locked} onOpenCard={onOpenCard} onChanged={refreshItems} />;
+      return <NoteRow item={extra.item} laneOf={laneOf} onOpenCard={onOpenCard} />;
     },
-    [focusedKey, onOpenCard, refreshItems, askTitles, laneOf, locked],
+    [onOpenCard, laneOf],
   );
   const chatItems = items.data;
   const extra = useMemo<TranscriptExtra>(
     () => ({
       rows: (entries) => chatRows(entries, chatItems ?? []),
       render: renderExtra,
-      focus: focusedKey ? { key: focusedKey, seq: focus!.key } : null,
+      focus: null,
     }),
-    [chatItems, renderExtra, focusedKey, focus?.key],
+    [chatItems, renderExtra],
   );
 
   // Its permission requests, answered here as in a card's session view (never without the user's choice).
@@ -262,11 +238,11 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
 
   return (
     <View ref={keyboard.ref} onLayout={keyboard.onLayout} style={{ flex: 1, minHeight: 0, minWidth: 0, backgroundColor: colors.surface0 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], paddingHorizontal: space[2], paddingVertical: space[2], borderBottomWidth: 1, borderBottomColor: colors.border, flexShrink: 0, minWidth: 0 }}>
-        {session?.active && <RunningDots color={tone} seed="dispatcher" />}
-        <View style={{ flex: 1, minWidth: 0, paddingHorizontal: space[1] }}>
-          <Label medium size={font.base} lines={1} selectable={false}>{t("Dispatcher")}</Label>
-          {session && (
+      {/* The session's state under the dock's tabs; the tabs, Expand and Minimize are the dock's (left-dock.tsx). */}
+      {session && (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], paddingHorizontal: space[2], paddingVertical: space[1.5], borderBottomWidth: 1, borderBottomColor: colors.border, flexShrink: 0, minWidth: 0 }}>
+          {session.active && <RunningDots color={tone} seed="dispatcher" />}
+          <View style={{ flex: 1, minWidth: 0, paddingHorizontal: space[1] }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
               <PulseDot color={tone} size={7} active={session.active} />
               <View style={{ flexShrink: 1, minWidth: 0 }}>
@@ -278,13 +254,9 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
                 </Label>
               </View>
             </View>
-          )}
+          </View>
         </View>
-        {!compact && onToggleSize ? (
-          <IconButton icon={expanded ? "Minimize2" : "Maximize2"} label={expanded ? t("Restore size") : t("Expand")} onPress={onToggleSize} />
-        ) : null}
-        <IconButton icon={compact ? "X" : "PanelLeftClose"} label={compact ? t("Close") : t("Minimize")} onPress={onClose} />
-      </View>
+      )}
       <SessionTranscript
         handle={transcript}
         taskId="dispatcher"
@@ -394,82 +366,20 @@ function noteDetail(item: Extract<ChatItem, { kind: "note" }>, laneOf: Props["la
   return [lanes, note.later ? note.later : ""].filter(Boolean).join("; ");
 }
 
-const ItemRow = memo(function ItemRow({ item, laneOf, locked, onOpenCard, onChanged }: { item: ChatItem; laneOf: Props["laneOf"]; locked: boolean; onOpenCard(taskId: string): void; onChanged(): void }) {
+/** A note the dispatcher received, as one line; it opens its card. */
+const NoteRow = memo(function NoteRow({ item, laneOf, onOpenCard }: { item: ChatItem; laneOf: Props["laneOf"]; onOpenCard(taskId: string): void }) {
   const { colors } = useTheme();
-  if (item.kind === "change") return <ChangeRow item={item} laneOf={laneOf} locked={locked} onOpenCard={onOpenCard} onChanged={onChanged} />;
-  if (item.kind === "note") {
-    const kind = noteKinds[item.note.kind];
-    const detail = noteDetail(item, laneOf);
-    const line = [item.note.title, kind ? t(kind) : "", detail].filter(Boolean).join(" · ") + (item.note.earlier ? ` (+${item.note.earlier})` : "");
-    return (
-      <Pressable accessibilityRole="button" accessibilityLabel={line} onPress={() => onOpenCard(item.note.taskId)} style={{ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
-        <Icon name="CornerDownRight" size={12} color={colors.foregroundMuted} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label muted size={font.sm} lines={1} selectable={false}>{line}</Label>
-        </View>
-      </Pressable>
-    );
-  }
-  // Asks and answers render as AskRow / AnswerRow (dispatcher-asks.tsx); this one line is only a fallback.
+  // Only notes reach the chat (chatRows); asks, answers and the change line are the Attention tab's.
+  if (item.kind !== "note") return null;
+  const kind = noteKinds[item.note.kind];
+  const detail = noteDetail(item, laneOf);
+  const line = [item.note.title, kind ? t(kind) : "", detail].filter(Boolean).join(" · ") + (item.note.earlier ? ` (+${item.note.earlier})` : "");
   return (
-    <Pressable accessibilityRole="button" onPress={() => onOpenCard(item.taskId)} style={{ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
-      <Icon name={item.kind === "ask" ? "MessageCircleQuestion" : "Reply"} size={12} color={colors.foregroundMuted} />
+    <Pressable accessibilityRole="button" accessibilityLabel={line} onPress={() => onOpenCard(item.note.taskId)} style={{ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
+      <Icon name="CornerDownRight" size={12} color={colors.foregroundMuted} />
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Label size={font.sm} lines={1} selectable={false}>{item.kind === "ask" ? item.title : item.text}</Label>
+        <Label muted size={font.sm} lines={1} selectable={false}>{line}</Label>
       </View>
     </Pressable>
   );
-}, (a, b) => a.laneOf === b.laneOf && a.locked === b.locked && a.onOpenCard === b.onOpenCard && a.onChanged === b.onChanged && sameItem(a.item, b.item));
-
-/** "Changed since you looked" (§9.2): collapsed to its count; open, the cards plus Mark seen and What should I do?. */
-function ChangeRow({ item, laneOf, locked, onOpenCard, onChanged }: { item: Extract<ChatItem, { kind: "change" }>; laneOf: Props["laneOf"]; locked: boolean; onOpenCard(taskId: string): void; onChanged(): void }) {
-  const { colors } = useTheme();
-  const markSeen = useRpc(rpc.dispatcherMarkSeen);
-  const whatNext = useRpc(rpc.dispatcherWhatNext);
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const run = (job: () => Promise<unknown>) => {
-    setBusy(true);
-    setError("");
-    void job()
-      .then(onChanged, (e) => setError(dispatcherStartMessage(message(e))))
-      .finally(() => setBusy(false));
-  };
-  const count = tn(item.cards.length, "{n} card changed since you looked", "{n} cards changed since you looked");
-  return (
-    <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.surface1 }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        accessibilityLabel={count}
-        onPress={() => setOpen(!open)}
-        style={{ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: space[1.5], paddingHorizontal: space[2], minHeight: touch ? 36 : 30 }}
-      >
-        <Icon name={open ? "ChevronDown" : "ChevronRight"} size={12} color={colors.foregroundMuted} />
-        <Label medium size={font.sm} selectable={false}>{count}</Label>
-      </Pressable>
-      <Collapse open={open} id="dispatcher-change">
-        <View style={{ paddingHorizontal: space[2], paddingBottom: space[2], gap: space[1.5] }}>
-          {item.cards.map((card) => (
-            <Pressable key={card.taskId} accessibilityRole="button" onPress={() => onOpenCard(card.taskId)} style={{ ...noFocusRing, flexDirection: "row", gap: space[2], minWidth: 0 }}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Label size={font.sm} lines={1} selectable={false}>{card.title}</Label>
-              </View>
-              <Label muted size={font.sm} selectable={false}>{laneOf(card.projectId, card.status)}</Label>
-            </Pressable>
-          ))}
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[2], paddingTop: space[1] }}>
-            <Button small disabled={busy} onPress={() => run(() => markSeen({ revision: item.revision, ids: item.ids }))}>
-              {t("Mark seen")}
-            </Button>
-            <Button small primary disabled={busy || locked} onPress={() => run(() => whatNext({}))}>
-              {t("What should I do?")}
-            </Button>
-          </View>
-          {!!error && <Notice>{error}</Notice>}
-        </View>
-      </Collapse>
-    </View>
-  );
-}
+}, (a, b) => a.laneOf === b.laneOf && a.onOpenCard === b.onOpenCard && sameItem(a.item, b.item));

@@ -11,10 +11,9 @@ import { answersWithText, sameItem } from "./dispatcher-panel-logic";
 import { markAsksAnswered } from "./answered-asks";
 import { startAgainMessage } from "./start-again";
 
-/** Asks and answers in the dispatcher chat (DISPATCHER-SPEC §9.4). */
+/** Asks in the dock's Attention tab, answered in place (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). */
 
 type AskItem = Extract<ChatItem, { kind: "ask" }>;
-type AnswerItem = Extract<ChatItem, { kind: "answer" }>;
 type Answer = { optionIds?: string[]; text?: string; texts?: string[]; allow?: boolean };
 
 const kindNames: Record<AskKind, string> = {
@@ -301,30 +300,3 @@ function Ended({ item, onChanged }: { item: AskItem; onChanged(): void }) {
     </View>
   );
 }
-
-/** The user's answer, addressed to the card; the tick only once it was delivered. */
-export const AnswerRow = memo(function AnswerRow({ item, title, onOpenCard }: { item: AnswerItem; title: string; onOpenCard(taskId: string): void }) {
-  const { colors } = useTheme();
-  const text = item.text || (item.choice === "allow" ? t("Allowed") : item.choice === "deny" ? t("Denied") : "");
-  return (
-    <View style={{ alignItems: "flex-end" }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${title}: ${text}${item.delivered ? ` · ${t("Delivered")}` : ""}`}
-        onPress={() => onOpenCard(item.taskId)}
-        style={{ ...noFocusRing, maxWidth: "90%", borderRadius: radius.lg, backgroundColor: colors.surface2, paddingHorizontal: space[2], paddingVertical: space[1.5], gap: space[1] }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: space[1] }}>
-          <Icon name="CornerDownRight" size={12} color={colors.foregroundMuted} />
-          <Label muted size={font.xs} lines={1} selectable={false}>{title}</Label>
-        </View>
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space[1.5] }}>
-          <View style={{ flexShrink: 1, minWidth: 0 }}>
-            <Label size={font.md}>{text}</Label>
-          </View>
-          {item.delivered && <Icon name="Check" size={14} color={colors.statusSuccess} />}
-        </View>
-      </Pressable>
-    </View>
-  );
-}, (a, b) => a.title === b.title && a.onOpenCard === b.onOpenCard && sameItem(a.item, b.item));
