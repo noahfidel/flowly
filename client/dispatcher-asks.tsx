@@ -43,10 +43,10 @@ export const AskRow = memo(function AskRow({ item, focused, onOpenCard, onChange
   const head = [item.title, t(kindNames[kind])].join(" · ");
   if (item.state === "dismissed")
     return (
-      <Pressable accessibilityRole="button" accessibilityLabel={`${head} · ${t("Dismissed")}`} onPress={() => onOpenCard(item.taskId)} style={{ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0, opacity: 0.7 }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${head} · ${t("Snoozed")}`} onPress={() => onOpenCard(item.taskId)} style={{ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0, opacity: 0.7 }}>
         <Icon name="BellOff" size={12} color={colors.foregroundMuted} />
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Label muted size={font.sm} lines={1} selectable={false}>{`${head} · ${t("Dismissed")}`}</Label>
+          <Label muted size={font.sm} lines={1} selectable={false}>{`${head} · ${t("Snoozed")}`}</Label>
         </View>
       </Pressable>
     );
@@ -71,19 +71,22 @@ export const AskRow = memo(function AskRow({ item, focused, onOpenCard, onChange
   );
 }, (a, b) => a.focused === b.focused && a.onOpenCard === b.onOpenCard && a.onChanged === b.onChanged && sameItem(a.item, b.item));
 
+/** Snoozes one ask in its list (ATTENTION-DISMISS-SPEC, Needs you rows). */
 function DismissButton({ item, onChanged }: { item: AskItem; onChanged(): void }) {
   const dismiss = useRpc(rpc.asksDismiss);
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   return (
     <IconButton
       icon="BellOff"
-      label={t("Dismiss {title} from Attention", { title: item.title })}
+      label={t("Snooze {title}", { title: item.title })}
       disabled={busy}
       onPress={() => {
         setBusy(true);
         void dismiss({ signal: item.signal })
           .then(() => {
             markAsksAnswered([item.signal]);
+            toast.show(t("Snoozed. It comes back when something new happens."), { variant: "success" });
             onChanged();
           }, () => onChanged())
           .finally(() => setBusy(false));

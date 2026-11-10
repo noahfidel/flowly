@@ -6,6 +6,7 @@ import type { PaseoApi } from "@getpaseo/client";
 import type { Board } from "../shared/model";
 import { asksFrom, openAskCount, attentionFromSources } from "../shared/attention";
 import { askAnswerInputSchema } from "../shared/dispatcher";
+import { signalList } from "../shared/attention-dismiss";
 import { AttentionAgents, readAttentionCount } from "./attention-count";
 import { DispatcherAsks } from "./dispatcher-asks";
 import { DispatcherItems } from "./dispatcher-items";
@@ -56,11 +57,14 @@ function fixture(boardValue: Board, agentList: Agent[], cache = new AttentionAge
   const dismissals: { taskId: string; signals: string[]; current: string[] }[] = [];
   const store = {
     read: vi.fn(async () => board),
+    // Like the store: the key joins its own list's set (ATTENTION-DISMISS-SPEC, RPC, `asks.dismiss`).
     dismissAttentionSignal: vi.fn(async (input: { taskId: string; signal: string; current: readonly string[] }) => {
       const record = board.attentionDismissals.find((d) => d.taskId === input.taskId);
-      const signals = [...new Set([...(record?.signals ?? []), input.signal])];
+      const list = signalList(input.signal);
+      const signals = [...new Set([...(record?.[list]?.signals ?? []), input.signal])];
       dismissals.push({ taskId: input.taskId, signals, current: [...input.current] });
-      board = { ...board, attentionDismissals: [...board.attentionDismissals.filter((d) => d.taskId !== input.taskId), { taskId: input.taskId, signals, dismissedAt: at }] };
+      const next = { ...(record ?? { taskId: input.taskId }), [list]: { signals, snoozedAt: at } };
+      board = { ...board, attentionDismissals: [...board.attentionDismissals.filter((d) => d.taskId !== input.taskId), next] };
       return board.attentionDismissals.at(-1)!;
     }),
   };
@@ -281,6 +285,24 @@ test("dismissing one ask in the chat clears it from the bell", async () => {
   await f.asks.dismiss({ signal: "p:s2:r1" }, f.paseo);
   expect(attentionFromSources({ board: f.board, agents: baseAgents(), receipts: [], readUnavailable: false })!.map((i) => i.task.id)).not.toContain("b");
   await expect(f.asks.dismiss({ signal: "p:nobody:x" }, f.paseo)).rejects.toThrow();
+});
+
+test("snoozing an ask adds it to its own list; the card's unread turn stays in Updates", async () => {
+  const f = fixture(baseBoard(), baseAgents());
+  const unread = `u:${JSON.stringify(["s1", "finished", at])}`;
+  await f.asks.dismiss({ signal: "q:e1" }, f.paseo);
+  expect(f.board.attentionDismissals.find((d) => d.taskId === "a")).toEqual({ taskId: "a", needs: { signals: ["q:e1"], snoozedAt: at } });
+  const a = attentionFromSources({ board: f.board, agents: baseAgents(), receipts: [], readUnavailable: false })!.find((i) => i.task.id === "a")!;
+  expect(a.snoozed).toEqual({ needs: true, updated: false });
+  const states = Object.fromEntries(asksFrom(f.board, baseAgents(), []).filter((s) => s.taskId === "a").map((s) => [s.signal, s.state]));
+  expect(states).toEqual({ "q:e1": "dismissed", [unread]: "open" });
+  // The unread turn joins Updates; Needs you keeps its key.
+  await f.asks.dismiss({ signal: unread }, f.paseo);
+  expect(f.board.attentionDismissals.find((d) => d.taskId === "a")).toEqual({
+    taskId: "a",
+    needs: { signals: ["q:e1"], snoozedAt: at },
+    updated: { signals: [unread], snoozedAt: at },
+  });
 });
 
 test("asks.answer input is validated", () => {

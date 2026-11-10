@@ -44,6 +44,8 @@ function fixture(): Board {
   const { position: _, ...p1 } = project("p1", 0);
   b.projects.push(p1);
   b.tasks.push(task("t1", "p1", 0), task("t2", "p1", 1));
+  // A snooze record written before per-list Snooze: both stores read it migrated (ATTENTION-DISMISS-SPEC, Data).
+  (b.attentionDismissals as unknown[]).push({ taskId: "t2", signals: ["q:e1", "u:tok"], dismissedAt: at });
   return b;
 }
 
@@ -77,7 +79,8 @@ const steps: [string, (s: BoardStore) => Promise<unknown>][] = [
       }),
   ],
   ["dismiss an idea", (s) => s.updateIdea({ id: "i1", status: "dismissed" })],
-  ["dismiss attention", (s) => s.dismissAttention({ taskId: "t1", signals: ["question:1"] })],
+  ["snooze attention", (s) => s.dismissAttention({ taskId: "t1", list: "needs", signals: ["question:1"] })],
+  ["snooze the other list of a migrated record", (s) => s.dismissAttention({ taskId: "t2", list: "updated", signals: ["u:tok2"] })],
   ["delete a card", (s) => s.deleteTask({ id: "t4", revision: 1 })],
   ["remove a project", async (s) => s.removeProject({ id: "p2", revision: (await s.read()).projects.find((p) => p.id === "p2")!.revision })],
 ];
@@ -107,6 +110,10 @@ describe("board.json and flowly.sqlite", () => {
     const final = JSON.stringify(await json.read());
     expect(final).toContain("Renamed");
     expect(final).not.toContain('"p2"');
+    expect(JSON.parse(final).attentionDismissals).toEqual([
+      { taskId: "t1", needs: { signals: ["question:1"], snoozedAt: expect.any(String) } },
+      { taskId: "t2", needs: { signals: ["q:e1"], snoozedAt: at }, updated: { signals: ["u:tok2"], snoozedAt: expect.any(String) } },
+    ]);
     await sqlite.close();
     const reopened = new BoardStore(sqliteDir, { backend: "sqlite", storage: { checkVersion: false } });
     stores.push(reopened);

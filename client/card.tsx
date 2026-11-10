@@ -111,7 +111,7 @@ export function TaskCard({
   workpad = null,
   waiting = 0,
   waitingTitles = "",
-  attentionDismissed = false,
+  attentionSnoozed = false,
   projectLabel = "",
   display = defaultCardDisplay,
   flash = false,
@@ -153,8 +153,8 @@ export function TaskCard({
   /** Unresolved cards this one is blocked by, and their titles (CARD-LINKS-SPEC §5.1). */
   waiting?: number;
   waitingTitles?: string;
-  /** Dismissed from Attention; its signals still show (ATTENTION-DISMISS-SPEC §3.3). */
-  attentionDismissed?: boolean;
+  /** Snoozed in either Attention list; its signals still show (ATTENTION-DISMISS-SPEC, Card and sidebar). */
+  attentionSnoozed?: boolean;
   /** The card's project name, shown only on the All projects board (ALL-PROJECTS-SPEC §3). */
   projectLabel?: string;
   /** Which fields show (CARD-DISPLAY-SPEC); the accessibility label always lists everything. */
@@ -303,7 +303,7 @@ export function TaskCard({
           progress: progress ?? null,
           workpad: workpad ?? null,
           review: task.review && visibleReview(task) ? reviewLabel(task.review) : "",
-          attentionDismissed,
+          attentionSnoozed,
           priority: task.priority,
           type: task.type,
           workspace: workspace ? workspaceLabel(workspace) : "",
@@ -357,7 +357,7 @@ export function TaskCard({
           ideas={ideas}
           workpad={workpad}
           waiting={waiting}
-          attentionDismissed={attentionDismissed}
+          attentionSnoozed={attentionSnoozed}
           display={display}
         />
       </Pressable>
@@ -579,7 +579,7 @@ function CardSignals({
   ideas,
   workpad,
   waiting,
-  attentionDismissed,
+  attentionSnoozed,
   display,
 }: {
   task: Task;
@@ -594,7 +594,7 @@ function CardSignals({
   ideas: number;
   workpad: WorkpadSignal | null;
   waiting: number;
-  attentionDismissed: boolean;
+  attentionSnoozed: boolean;
   display: CardDisplay;
 }) {
   const { colors } = useTheme();
@@ -649,7 +649,7 @@ function CardSignals({
         text={reviewLabel(review)}
       />,
     );
-  if (attentionDismissed) items.push(<Signal key="dismissed" icon="BellOff" text={t("Dismissed")} />);
+  if (attentionSnoozed) items.push(<Signal key="snoozed" icon="BellOff" text={t("Snoozed")} />);
   if (workpad && display.workpad && workpadText(workpad)) items.push(<Signal key="workpad" icon="ListChecks" text={workpadText(workpad)} />);
   if (ideas && display.ideas) items.push(<Signal key="ideas" icon="Lightbulb" color={colors.statusWarning} text={`${ideas}`} />);
   if (task.archivedAt) items.push(<Badge key="archived">{t("Archived")}</Badge>);

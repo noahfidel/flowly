@@ -13,8 +13,11 @@ import { changeTags, mergeTagEdit, normalizeTags, tagChangeNote } from "../share
 import {
   addDismissedSignal,
   attentionDismissalSchema,
+  attentionDismissInput,
   attentionDismissLimits,
   dismissalSignals,
+  signalList,
+  type AttentionDismissal,
   type AttentionDismissInput,
   type AttentionRestoreInput,
 } from "../shared/attention-dismiss";
@@ -683,30 +686,33 @@ export class BoardStore {
     });
   }
   /**
-   * Hides a card from Attention until a signal not in `signals` appears
-   * (ATTENTION-DISMISS-SPEC §5). A display preference: no revision, no Activity.
+   * Snoozes one list of a card until a key of that list not in `signals` appears (ATTENTION-DISMISS-SPEC, RPC):
+   * replaces only that list's set; the other list is kept. A display preference: no revision, no Activity.
    */
-  dismissAttention(input: AttentionDismissInput) {
+  dismissAttention(raw: AttentionDismissInput) {
     return this.transaction((board) => {
+      const input = attentionDismissInput.parse(raw);
       const task = board.tasks.find((t) => t.id === input.taskId);
       const project = task && board.projects.find((p) => p.id === task.projectId);
       if (!task) throw new Error("Task not found.");
       if (task.archivedAt || !project || project.archivedAt) throw new Error("The card or its project is archived.");
       const signals = dismissalSignals(input.signals);
       const current = board.attentionDismissals.find((d) => d.taskId === task.id);
-      if (current && current.signals.length === signals.length && signals.every((s) => current.signals.includes(s)))
+      const stored = current?.[input.list]?.signals;
+      if (current && stored && stored.length === signals.length && signals.every((s) => stored.includes(s)))
         return { value: current, changed: false };
       const others = board.attentionDismissals.filter((d) => d.taskId !== task.id);
-      if (others.length >= attentionDismissLimits.records)
-        throw new Error(`Attention already has ${attentionDismissLimits.records} dismissed cards.`);
-      const record = { taskId: task.id, signals, dismissedAt: new Date().toISOString() };
+      if (!current && others.length >= attentionDismissLimits.records)
+        throw new Error(`Attention already has ${attentionDismissLimits.records} snoozed cards.`);
+      const record: AttentionDismissal = { ...(current ?? { taskId: task.id }), [input.list]: { signals, snoozedAt: new Date().toISOString() } };
       board.attentionDismissals = [...others, record];
       return { value: record, changed: true };
     });
   }
   /**
-   * Dismisses one signal (one ask) of a card: adds it to the card's set, keeping every key already there;
-   * `current` is the card's signals now, so only stale keys make room in a full set (ATTENTION-DISMISS-SPEC §7a).
+   * Snoozes one signal (one ask) of a card: adds it to its list's set, keeping every key already there; `current` is
+   * the card's signals now (filtered here to that list), so only stale keys make room in a full set
+   * (ATTENTION-DISMISS-SPEC, RPC, `asks.dismiss`).
    */
   dismissAttentionSignal(input: { taskId: string; signal: string; current: readonly string[] }) {
     return this.transaction((board) => {
@@ -714,18 +720,23 @@ export class BoardStore {
       const project = task && board.projects.find((p) => p.id === task.projectId);
       if (!task) throw new Error("Task not found.");
       if (task.archivedAt || !project || project.archivedAt) throw new Error("The card or its project is archived.");
+      const list = signalList(input.signal);
       const current = board.attentionDismissals.find((d) => d.taskId === task.id);
-      if (current?.signals.includes(input.signal)) return { value: current, changed: false };
+      if (current?.[list]?.signals.includes(input.signal)) return { value: current, changed: false };
       const others = board.attentionDismissals.filter((d) => d.taskId !== task.id);
       if (!current && others.length >= attentionDismissLimits.records)
-        throw new Error(`Attention already has ${attentionDismissLimits.records} dismissed cards.`);
-      const signals = addDismissedSignal(current?.signals ?? [], input.signal, input.current);
-      const record = attentionDismissalSchema.parse({ taskId: task.id, signals, dismissedAt: new Date().toISOString() });
+        throw new Error(`Attention already has ${attentionDismissLimits.records} snoozed cards.`);
+      const live = input.current.filter((key) => signalList(key) === list);
+      const signals = addDismissedSignal(current?.[list]?.signals ?? [], input.signal, live);
+      const record = attentionDismissalSchema.parse({
+        ...(current ?? { taskId: task.id }),
+        [list]: { signals, snoozedAt: new Date().toISOString() },
+      });
       board.attentionDismissals = [...others, record];
       return { value: record, changed: true };
     });
   }
-  /** Puts a dismissed card back into Attention; idempotent. */
+  /** Unsnoozes a card: deletes its record, both lists; idempotent. */
   restoreAttention(input: AttentionRestoreInput) {
     return this.transaction((board) => {
       if (!board.tasks.some((t) => t.id === input.taskId)) throw new Error("Task not found.");

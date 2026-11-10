@@ -27,7 +27,7 @@ export function taskCardLabel(card: {
   workpad: WorkpadSignal | null;
   /** The auto review's label when the card shows it, else empty (built by the caller). */
   review?: string;
-  attentionDismissed: boolean;
+  attentionSnoozed: boolean;
   priority: Task["priority"];
   type: Task["type"];
   /** Worktree or local, already localized, while the workspace is live (CARD-DISPLAY-SPEC §8). Empty when unknown. */
@@ -39,7 +39,7 @@ export function taskCardLabel(card: {
   output: CardOutput | null;
   outputTime: string;
 }): string {
-  const { title, lane, questions, ideas, waiting, waitingTitles, progress, workpad, review, attentionDismissed, summaryState, summary, output, outputTime } = card;
+  const { title, lane, questions, ideas, waiting, waitingTitles, progress, workpad, review, attentionSnoozed, summaryState, summary, output, outputTime } = card;
   return [
     t("Open task {title}", { title }),
     lane || "",
@@ -49,7 +49,7 @@ export function taskCardLabel(card: {
     progress ? t("Progress: {state}", { state: progress.state }) : "",
     workpad ? workpadText(workpad) : "",
     review || "",
-    attentionDismissed ? t("Dismissed from Attention") : "",
+    attentionSnoozed ? t("Snoozed") : "",
     [t("{priority} priority", { priority: priorityLabels[card.priority] }), card.type ? taskTypeLabels[card.type] : "", card.workspace || "", card.archivedAt ? t("archived") : "", card.legacy ? t("legacy scope") : ""].filter(Boolean).join(", "),
     summaryState === "ready" && summary
       ? t("{running} running, {finished} finished turns, {unread} unread sessions, {attention} need attention", { running: summary.running, finished: summary.finished, unread: summary.unread, attention: summary.attention })

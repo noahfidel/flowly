@@ -327,13 +327,13 @@ export const importIdeas = defineRpc({
   input: z.strictObject({ projectId: z.string().min(1), rows: z.array(importRowSchema).max(importRowLimit), operationId: z.string().min(1).max(200) }),
   output: z.strictObject({ created: z.number().int().nonnegative(), skipped: z.array(z.strictObject({ line: z.number().int(), reason: z.string() })) }),
 });
-/** Hide a card from Attention until something new happens (ATTENTION-DISMISS-SPEC §5). */
+/** Snooze one list of a card until something new happens in it (ATTENTION-DISMISS-SPEC, RPC). */
 export const dismissAttention = defineRpc({
   name: "attention.dismiss",
   input: attentionDismissInput,
   output: attentionDismissalSchema,
 });
-/** Put a dismissed card back into Attention. */
+/** Unsnooze a card: clears both lists (ATTENTION-DISMISS-SPEC, RPC). */
 export const restoreAttention = defineRpc({
   name: "attention.restore",
   input: attentionRestoreInput,
@@ -1098,7 +1098,7 @@ export const dispatcherSend = defineRpc({ name: "dispatcher.send", input: dispat
 export const dispatcherWhatNext = defineRpc({ name: "dispatcher.what-next", input: dispatcherGroupInputSchema, output: z.strictObject({ sent: z.literal(true) }) });
 /** Answers one ask from the chat, re-checked against its session; `delivered` only after the Paseo call resolved (DISPATCHER-SPEC §9.4). */
 export const asksAnswer = defineRpc({ name: "asks.answer", input: askAnswerInputSchema, output: askAnswerResultSchema });
-/** Dismisses one ask: its signal joins the card's dismissal set (ATTENTION-DISMISS-SPEC §7a). */
+/** Snoozes one ask: its signal joins its list's snoozed set (ATTENTION-DISMISS-SPEC, Needs you rows). */
 export const asksDismiss = defineRpc({ name: "asks.dismiss", input: askDismissInputSchema, output: z.strictObject({ taskId: z.string() }) });
 /** The signals the chat resolved (answered, ended or dismissed there), sorted, for the board's bell (DISPATCHER-SPEC §9.4). */
 export const asksResolved = defineRpc({

@@ -57,9 +57,14 @@ import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
   attentionItemsWithFacts,
+  attentionOpen,
   attentionOpenToken,
   lastSessionSettings,
+  listSignals,
+  openInList,
+  snoozeMenu,
   type AttentionItem,
+  type SnoozeList,
 } from "./attention";
 import { relativeTime } from "./ui";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
@@ -191,7 +196,7 @@ const tipText: Record<TipId, (compact?: boolean) => string> = {
     // Compact puts the Sort choices and Card display… in the Filters dialog.
     ? t("Cards too busy? Choose what they show in Settings → Cards, or from Filters → Card display.")
     : t("Cards too busy? Choose what they show in Settings → Cards, or from the Sort menu → Card display."),
-  "attention-dismiss": () => t("Not ready to decide? Dismiss a card from Attention. It comes back when something new happens."),
+  "attention-dismiss": () => t("Not ready to decide? Snooze it. It comes back when something new happens."),
   "sidebar-order": () => t("Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar."),
   "session-history": () => t("A session's output now starts at the beginning of its current turn. Press Load earlier at the top to read further back."),
   "settings-entry": () => t("Turn features on or off and change settings here."),
@@ -843,13 +848,14 @@ function BoardContent(
     [managed.data],
   );
   const readUnavailable = readState.isPending || readState.isError;
-  // Dismissed cards stay out of every count until something new happens (ATTENTION-DISMISS-SPEC).
+  // Snoozed signals stay out of every count until something new happens in their list (ATTENTION-DISMISS-SPEC).
   const allAttention = useMemo(
     () =>
       projected && agents.data ? attentionItemsWithFacts(projected, agents.data, receipts, readUnavailable, (task, agentId) => sessionFacts.get(task.id)?.get(agentId)) : [],
     [projected, agents.data, receipts, readUnavailable, sessionFacts],
   );
-  const attention = useMemo(() => allAttention.filter((i) => !i.dismissed), [allAttention]);
+  // Cards with something open in either list; one snoozed in a single list stays for the other.
+  const attention = useMemo(() => allAttention.filter(attentionOpen), [allAttention]);
   // Open asks (plan Q1) leave out the ones resolved in the chat until the live list drops them (DISPATCHER-SPEC §9.4):
   // the daemon's list covers a closed chat and a reload, this client's own set the moments before it catches up.
   const answeredAsks = useAnsweredAsks();
@@ -861,7 +867,11 @@ function BoardContent(
   useEffect(() => {
     if (liveSignals) forgetAnsweredMissing(liveSignals);
   }, [liveSignals]);
-  const dismissedAttention = useMemo(() => allAttention.filter((i) => i.dismissed), [allAttention]);
+  // Tip "attention-dismiss": three or more cards with an open need-you signal and none snoozed (ATTENTION-DISMISS-SPEC, Tip).
+  const crowdedAttention = useMemo(
+    () => allAttention.filter((i) => openInList(i, "needs")).length >= 3 && !allAttention.some((i) => i.snoozed.needs || i.snoozed.updated),
+    [allAttention],
+  );
   const attentionByTask = useMemo(() => new Map(allAttention.map((i) => [i.task.id, i])), [allAttention]);
   // The project's default model wins over the global one; with neither, the latest session's settings (MODEL-DEFAULTS-SPEC).
   const modelPrefs = useSettings(modelSettings);
@@ -1016,15 +1026,13 @@ function BoardContent(
   }
   const dismissRpc = useRpc(rpc.dismissAttention),
     restoreRpc = useRpc(rpc.restoreAttention);
-  const dismissFromAttention = useStableCallback((item: AttentionItem) =>
-    void doAction(
-      () => dismissRpc({ taskId: item.task.id, signals: item.signals }),
-      t("Dismissed. It comes back when something new happens."),
-    ),
-  );
-  const restoreToAttention = useStableCallback((taskId: string) =>
-    void doAction(() => restoreRpc({ taskId }), t("Back in Attention")),
-  );
+  // Snooze acts on one list with the card's current keys of that list; Unsnooze clears both (ATTENTION-DISMISS-SPEC, Card menu).
+  const snoozeList = useStableCallback((item: AttentionItem, list: SnoozeList) => {
+    const signals = listSignals(item, list);
+    if (!signals.length) return;
+    void doAction(() => dismissRpc({ taskId: item.task.id, list, signals }), t("Snoozed. It comes back when something new happens."));
+  });
+  const unsnooze = useStableCallback((taskId: string) => void doAction(() => restoreRpc({ taskId }), t("Unsnoozed.")));
   const move = (input: { id: string; revision: number; status: Status }) => {
     const card = data.data?.tasks.find((t) => t.id === input.id);
     const from = card?.status;
@@ -1606,7 +1614,7 @@ function BoardContent(
           hasWorkpad: !task && workpadEnabled(project) && projectTasks.some(x => factsByTask.get(x.id)?.hasWorkpad),
           busyBoard: !task && projectTasks.filter((x) => !x.archivedAt).length >= 6,
           hasSubagent: projectHasSubagent,
-          crowdedAttention: attention.length >= 3 && dismissedAttention.length === 0,
+          crowdedAttention,
           cardWithSession: !!task && !!cardIndex.agentsByWorkspace.get(task.workspaceId)?.length,
           fullSidebar: !!task && !!currentDetail && (!!currentDetail.artifacts.length || !!currentDetail.ideas.length),
           hasSummary: !task && !!summaries.data?.latest.some((e) => projectTasks.some((x) => x.id === e.taskId)),
@@ -1637,11 +1645,14 @@ function BoardContent(
   );
   const stableRefresh = useStableCallback(() => refresh());
   const drawerAttention = drawer.item ? attentionByTask.get(drawer.item.task.id) : undefined;
-  const toggleDrawerAttention = useStableCallback(() => {
-    if (!drawerAttention) return;
-    if (drawerAttention.dismissed) restoreToAttention(drawerAttention.task.id);
-    else dismissFromAttention(drawerAttention);
-  });
+  // Content-compared so the memoized drawer does not re-render for an unchanged offer.
+  const drawerSnoozeOffer = snoozeMenu(drawerAttention);
+  const drawerSnooze = useMemo(
+    () => (drawerAttention ? drawerSnoozeOffer : undefined),
+    [!!drawerAttention, drawerSnoozeOffer.needs, drawerSnoozeOffer.updated, drawerSnoozeOffer.snoozed],
+  );
+  const snoozeDrawer = useStableCallback((list: SnoozeList) => drawerAttention && snoozeList(drawerAttention, list));
+  const unsnoozeDrawer = useStableCallback(() => drawerAttention && unsnooze(drawerAttention.task.id));
   const sessionEntryConsumed = useStableCallback((requestId: string) =>
     setSessionEntry((current) =>
       current?.requestId === requestId &&
@@ -1684,7 +1695,7 @@ function BoardContent(
       sessions: sessions.length,
       summary: sessionAttentionSummaryFromTurns(sessions, t, receipts, sessionFacts.get(t.id) || noTurnFacts),
       summaryState,
-      attentionDismissed: !!attentionByTask.get(t.id)?.dismissed,
+      attentionSnoozed: snoozeMenu(attentionByTask.get(t.id)).snoozed,
       outputSession: pickOutputSession(sessions, t.workspaceId, managedIds),
       progress: cardProgress(summaries.data, t.id),
       questions: facts?.questions ?? 0,
@@ -2026,8 +2037,9 @@ function BoardContent(
           sessionEntry?.taskId === drawer.item.task.id && drawer.active ? sessionEntry : undefined
         }
         onSessionEntryConsumed={sessionEntryConsumed}
-        attention={drawerAttention ? (drawerAttention.dismissed ? "dismissed" : "active") : undefined}
-        onAttention={toggleDrawerAttention}
+        attention={drawerSnooze}
+        onSnooze={snoozeDrawer}
+        onUnsnooze={unsnoozeDrawer}
         sectionOrder={(view.values?.drawerOrder || []).join(",")}
         sectionOpen={JSON.stringify(view.values?.drawerOpen || {})}
         focus={drawerFocus?.taskId === drawer.item.task.id ? drawerFocus : undefined}

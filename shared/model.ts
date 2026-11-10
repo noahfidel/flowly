@@ -656,7 +656,7 @@ export const boardSchema = z.object({
   /** Absent in files written before workpads (WORKPAD-SPEC §2). */
   workpads: z.array(workpadSchema).default([]),
   plans: z.array(planSnapshotSchema).default([]),
-  /** Cards dismissed from Attention (ATTENTION-DISMISS-SPEC §4); absent in older files. */
+  /** Cards snoozed in Attention, per list (ATTENTION-DISMISS-SPEC, Data); absent in older files, legacy records migrated on read. */
   attentionDismissals: z.array(attentionDismissalSchema).max(attentionDismissLimits.records).default([]),
   /** Board groups (BOARD-GROUPS-SPEC §1); absent in files written before them, filled by the one-time migration (§7). */
   groups: z.array(groupSchema).max(groupLimits.groups).default([]),

@@ -103,7 +103,7 @@ export function AttentionDemo() {
     need.kind === "error" ? colors.statusDanger : need.kind === "unread" ? colors.statusSuccess : colors.statusWarning;
   return (
     <View style={{ gap: space[2] }}>
-      <DemoControls hint={t("Try it: open or dismiss a card.")} canRestart={handled.size > 0 || !!shown} onStartOver={() => (setHandled(new Set()), setShown(null))} />
+      <DemoControls hint={t("Try it: open or snooze a card.")} canRestart={handled.size > 0 || !!shown} onStartOver={() => (setHandled(new Set()), setShown(null))} />
       <DemoFrame height={330}>
         <View style={{ flex: 1, minWidth: 0, padding: space[3], gap: space[2] }}>
           {/* The board's overview row: the merged need-you chip starts the step-through. */}
@@ -159,7 +159,7 @@ export function AttentionDemo() {
                           onPress={() => handle(current.id)}
                         />
                       </View>
-                      <IconButton icon="BellOff" label={t("Dismiss {title} from Attention", { title: current.title() })} onPress={() => handle(current.id)} />
+                      <IconButton icon="BellOff" label={t("Snooze {title}", { title: current.title() })} onPress={() => handle(current.id)} />
                     </View>
                   ) : (
                     <Enter>

@@ -49,6 +49,7 @@ import { SessionPreview } from "./session-preview";
 import { drawerFrame } from "./geometry";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
+import type { SnoozeList } from "../shared/attention-dismiss";
 import type { SessionEntry } from "./session-link";
 import { Enter, MotionReveal, useReducedMotion, useSettled } from "./motion";
 import { DrawerFocusProvider, FOCUS_FALLBACK_MS, FOCUS_RING_MS, FocusTarget, Marked, activityStart, useMark, type DrawerFocus } from "./drawer-focus";
@@ -112,7 +113,8 @@ function TaskDrawerView({
   onFilterTag,
   escapeRequest,
   attention,
-  onAttention,
+  onSnooze,
+  onUnsnooze,
   sectionOrder,
   sectionOpen,
   focus,
@@ -159,10 +161,15 @@ function TaskDrawerView({
   onFilterTag?(tag: string): void;
   /** Changes on each board Esc shortcut: leave the session preview, else close. */
   escapeRequest?: string;
-  /** The card's Attention state when it has any (ATTENTION-DISMISS-SPEC §3.3). */
-  attention?: "active" | "dismissed";
-  /** Dismisses the card from Attention, or restores it when dismissed. */
-  onAttention?(): void;
+  /**
+   * What Snooze offers for the card when it is in Attention (ATTENTION-DISMISS-SPEC, Card menu and Card and sidebar):
+   * each list's Snooze while it has an open signal, Unsnooze while any list is snoozed. A stable object (compared by identity).
+   */
+  attention?: { needs: boolean; updated: boolean; snoozed: boolean };
+  /** Snoozes one list of the card. */
+  onSnooze?(list: SnoozeList): void;
+  /** Clears both lists' snooze. */
+  onUnsnooze?(): void;
   /** The stored section order, comma-joined so the memo compares it by value (DRAWER-SPEC, Section order). */
   sectionOrder?: string;
   /** The stored open/closed choices as JSON, compared by value (DRAWER-SPEC, Section order). */
@@ -509,13 +516,9 @@ function TaskDrawerView({
     ...(onFollowUp
       ? [{ id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: !active || !!task.archivedAt || !!project.archivedAt, onPress: () => onFollowUp(task) }]
       : []),
-    ...(attention && onAttention
-      ? [
-          attention === "dismissed"
-            ? { id: "attention-restore", label: t("Restore to Attention"), icon: "Bell", onPress: onAttention }
-            : { id: "attention-dismiss", label: t("Dismiss from Attention"), icon: "BellOff", onPress: onAttention },
-        ]
-      : []),
+    ...(attention?.needs && onSnooze ? [{ id: "attention-snooze-needs", label: t("Snooze in Needs you"), icon: "BellOff", onPress: () => onSnooze("needs") }] : []),
+    ...(attention?.updated && onSnooze ? [{ id: "attention-snooze-updated", label: t("Snooze in Updates"), icon: "BellOff", onPress: () => onSnooze("updated") }] : []),
+    ...(attention?.snoozed && onUnsnooze ? [{ id: "attention-unsnooze", label: t("Unsnooze"), icon: "Bell", onPress: onUnsnooze }] : []),
     ...(finished && !wrapped && !task.archivedAt && !project.archivedAt
       ? [{ id: "wrap", label: t("Wrap up…"), icon: "PackageCheck", onPress: () => setShowWrapup(true) }]
       : []),
@@ -1025,16 +1028,16 @@ function TaskDrawerView({
                 </View>
               </View>
             )}
-            {attention === "dismissed" && onAttention && (
+            {attention?.snoozed && onUnsnooze && (
               <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
                 <Icon name="BellOff" size={14} color={colors.foregroundMuted} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Label muted size={font.sm}>
-                    {t("Dismissed from Attention. It comes back when something new happens.")}
+                    {t("Snoozed. It comes back when something new happens.")}
                   </Label>
                 </View>
-                <Button small quiet icon="Bell" disabled={!active} onPress={onAttention}>
-                  {t("Restore")}
+                <Button small quiet icon="Bell" disabled={!active} onPress={onUnsnooze}>
+                  {t("Unsnooze")}
                 </Button>
               </View>
             )}
