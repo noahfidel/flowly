@@ -23,6 +23,7 @@ import {
   type DropSlot,
   type Point,
   type Rect,
+  collapsedWidth,
 } from "./geometry";
 import { t, tn } from "../shared/i18n";
 
@@ -56,7 +57,7 @@ function LaneFrame({ status, collapsed, onLayout, frameRef, children }: { status
     </Animated.View>
   );
 }
-const collapsedWidth = 44;
+
 const noOlder: ReadonlySet<string> = new Set();
 
 /** "Show N older" / "Hide older" row closing a Done/Cancelled lane (also used by the phone list). */

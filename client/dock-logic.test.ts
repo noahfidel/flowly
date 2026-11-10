@@ -9,10 +9,13 @@ import {
   dockButtonPress,
   dockLayoutShown,
   paneShown,
+  railPress,
+  railShown,
   showAttention,
   sideDockMinWidth,
   sideFits,
   splitSize,
+  toolbarDockButtons,
   type Dock,
 } from "./dock-logic";
 import { chatWidth, minChatWidth } from "./geometry";
@@ -189,4 +192,31 @@ test("Attention's sections: Needs you and Updates start open; bad stored values 
   expect(attentionSectionOpen({ dismissed: true }, "needs")).toBe(true);
   for (const bad of [undefined, null, "open", 3, { needs: "no" }, { needs: 0 }, []])
     expect(attentionSectionOpen(bad as never, "needs")).toBe(true);
+});
+
+const layouts = ["single", "stack", "side"] as const;
+
+test("desktop shows the rail exactly while the dock is minimized, in every layout; phones and boards without a dock never", () => {
+  for (const layout of layouts) {
+    expect(railShown({ compact: false, dockAvailable: true, open: false, layout })).toBe(true);
+    expect(railShown({ compact: false, dockAvailable: true, open: true, layout })).toBe(false);
+    expect(railShown({ compact: true, dockAvailable: true, open: false, layout })).toBe(false);
+    expect(railShown({ compact: false, dockAvailable: false, open: false, layout })).toBe(false);
+  }
+});
+
+test("a rail button opens the dock on its pane in Single; in a split it opens the dock and focuses that pane", () => {
+  expect(railPress("attention", "single")).toEqual({ next: { tab: "attention", open: true }, focus: false });
+  expect(railPress("dispatcher", "single")).toEqual({ next: { tab: "dispatcher", open: true }, focus: false });
+  for (const layout of ["stack", "side"] as const) {
+    expect(railPress("attention", layout)).toEqual({ next: { tab: "attention", open: true }, focus: true });
+    expect(railPress("dispatcher", layout)).toEqual({ next: { tab: "dispatcher", open: true }, focus: true });
+  }
+});
+
+test("the toolbar keeps the bell and Dispatcher buttons on phones only; a board without a dock keeps the bell", () => {
+  expect(toolbarDockButtons({ compact: true, dockAvailable: true })).toEqual({ bell: true, dispatcher: true });
+  expect(toolbarDockButtons({ compact: false, dockAvailable: true })).toEqual({ bell: false, dispatcher: false });
+  expect(toolbarDockButtons({ compact: false, dockAvailable: false })).toEqual({ bell: true, dispatcher: false });
+  expect(toolbarDockButtons({ compact: true, dockAvailable: false })).toEqual({ bell: true, dispatcher: false });
 });

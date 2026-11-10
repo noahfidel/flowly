@@ -2,10 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Pressable, View, useWindowDimensions } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { statusLabels, type Idea, type NextMove, type Status, type Task } from "../shared/model";
-import { AttentionButton } from "./attention-button";
+import { DockRail } from "./dock-rail";
 import { TaskCard } from "./card";
 import { CardFootnote, ContentCard } from "./content-card";
-import { Collapse } from "./disclosure";
 import { Enter, MotionReveal, useReducedMotion } from "./motion";
 import { loopAutoStep, memoryAutoStep, type LoopAutoStep, type MemoryPhase } from "./onboarding-logic";
 import { MemoryCard, SourceLine, type MemoryActions } from "./memory";
@@ -87,8 +86,9 @@ function needDetail(need: Need) {
 }
 
 /**
- * The board's Attention button over the left dock's Attention tab (DISPATCHER-SPEC §9.4). Opening or dismissing a
- * card takes it off the list and the count follows; the bell opens and closes the tab.
+ * The left dock's Attention tab (DISPATCHER-SPEC §9.4) and, minimized, its rail with the bell on the board's left edge
+ * (§9.3; Ruling, Noah 2026-11-09). Opening or dismissing a card takes it off the list and the count follows; the rail's
+ * bell opens the tab and Minimize closes it again.
  */
 export function AttentionDemo() {
   const { colors } = useTheme();
@@ -103,25 +103,19 @@ export function AttentionDemo() {
     <View style={{ gap: space[2] }}>
       <DemoControls hint={t("Try it: open or dismiss a card.")} canRestart={handled.size > 0 || !open} onStartOver={() => (setHandled(new Set()), setOpen(true))} />
       <DemoFrame height={330}>
-        <View style={{ flex: 1, minWidth: 0, padding: space[3], gap: space[2] }}>
-          {/* The board's top bar: its name on the left, the bell on the right. */}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <SideTitle>{t("Board")}</SideTitle>
-            </View>
-            <AttentionButton count={items.length} compact={false} open={open} shortcut="" onPress={() => setOpen(!open)} />
-          </View>
-          <Collapse open={open} id="tour-attention">
-            <View style={{ borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface0, overflow: "hidden" }}>
-              {/* The dock's two tabs, Attention showing. */}
+        {open ? (
+          <Enter distance={0} style={{ flex: 1, minWidth: 0, padding: space[3] }}>
+            <View style={{ flex: 1, minHeight: 0, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface0, overflow: "hidden" }}>
+              {/* The dock's two tabs, Attention showing, and Minimize. */}
               <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], paddingHorizontal: space[2], height: 40, borderBottomWidth: 1, borderColor: colors.border }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], paddingHorizontal: space[2] + 2, height: 28, borderRadius: radius.md, backgroundColor: colors.surface2 }}>
                   <Label medium size={font.md} lines={1} selectable={false}>{t("Attention")}</Label>
                   {!!items.length && <CountPill text={String(items.length)} />}
                 </View>
-                <View style={{ paddingHorizontal: space[2] + 2 }}>
+                <View style={{ flex: 1, minWidth: 0, paddingHorizontal: space[2] + 2 }}>
                   <Label medium muted size={font.md} lines={1} selectable={false}>{t("Dispatcher")}</Label>
                 </View>
+                <IconButton icon="PanelLeftClose" label={t("Minimize")} onPress={() => setOpen(false)} />
               </View>
               <View style={{ padding: space[1.5], gap: 2 }}>
                 {rows.map((row) => (
@@ -151,8 +145,16 @@ export function AttentionDemo() {
                 )}
               </View>
             </View>
-          </Collapse>
-        </View>
+          </Enter>
+        ) : (
+          // Minimized: the rail on the board's left edge, the board beside it.
+          <Enter distance={0} style={{ flex: 1, minWidth: 0, flexDirection: "row" }}>
+            <DockRail attentionCount={items.length} attentionShortcut="" onOpen={(pane) => pane === "attention" && setOpen(true)} />
+            <View style={{ flex: 1, minWidth: 0, padding: space[3] }}>
+              <SideTitle>{t("Board")}</SideTitle>
+            </View>
+          </Enter>
+        )}
       </DemoFrame>
     </View>
   );

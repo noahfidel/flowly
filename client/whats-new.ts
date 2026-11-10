@@ -27,7 +27,9 @@ export const whatsNew: WhatsNewRelease[] = [
     items: [
       { icon: "Search", text: msg("Search past cards, summaries, notes, workpads, ideas and deliverables. Agents can search them too.") },
       // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the floating gear moved into the toolbar.
-      { icon: "Settings", text: msg("Settings moved to the gear at the top of the board, next to the bell.") },
+      { icon: "Settings", text: msg("Settings moved to the gear at the top of the board.") },
+      // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the desktop toolbar's bell and Dispatcher buttons moved to the dock's rail.
+      { icon: "PanelLeft", text: msg("On desktop, the bell and the dispatcher moved from the toolbar to a rail on the board's left edge, shown while the dock is minimized.") },
     ],
   },
   {

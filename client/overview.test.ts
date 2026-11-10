@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { boardOverview } from "./overview";
+import { boardOverview, overviewRow } from "./overview";
 import type { Task, Project } from "../shared/model";
 import type { AttentionItem } from "./attention";
 
@@ -38,4 +38,14 @@ test("overview counts live cards, working sessions and what needs you", () => {
   // A Done lane that is off reports null (hidden), not zero. The In review / Blocked lane chips are gone (Ruling, Noah 2026-11-09).
   const lanes = (["backlog", "todo", "design", "development", "test", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: status !== "done" }));
   expect(boardOverview({ ...project, lanes }, tasks.filter((t) => t.status !== "done"), [], []).done).toBeNull();
+});
+
+test("the overview row: running only while something runs, no unread chip, dividers only between shown groups", () => {
+  const base = { runningTasks: 0, needsYou: 0, errors: 0 };
+  const none = { ideas: false, memory: false, insights: false };
+  expect(overviewRow(base, none)).toEqual({ running: false, needsYou: false, errors: false, statusDivider: false, toolsDivider: false });
+  expect(overviewRow(base, { ...none, ideas: true })).toEqual({ running: false, needsYou: false, errors: false, statusDivider: true, toolsDivider: false });
+  expect(overviewRow({ ...base, runningTasks: 2 }, none)).toEqual({ running: true, needsYou: false, errors: false, statusDivider: true, toolsDivider: false });
+  expect(overviewRow({ ...base, needsYou: 1, errors: 1 }, { ...none, insights: true })).toEqual({ running: false, needsYou: true, errors: true, statusDivider: true, toolsDivider: true });
+  expect(Object.keys(overviewRow({ ...base, runningTasks: 1 }, none))).not.toContain("unread");
 });

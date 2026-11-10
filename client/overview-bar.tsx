@@ -3,12 +3,12 @@ import { Pressable, View } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { Dot, Label, font, noFocusRing, radius, space, touch, useTheme } from "./ui";
 import { Enter, PulseDot } from "./motion";
-import type { BoardOverview } from "./overview";
+import { overviewRow, type BoardOverview } from "./overview";
 import { t, tn } from "../shared/i18n";
 
 /**
- * Board header summary: how many cards, how many have agents working, and
- * what is waiting on you. Attention items open the Attention list. No lane chips (Ruling, Noah 2026-11-09).
+ * Board header summary: how many cards, how many have agents working (only while some do), and what is waiting on
+ * you. Attention items open the Attention list. No lane chips and no unread chip (Ruling, Noah 2026-11-09).
  */
 export function OverviewBar({
   overview,
@@ -39,6 +39,7 @@ export function OverviewBar({
 }) {
   const { colors } = useTheme();
   const o = overview;
+  const row = overviewRow(o, { ideas: openIdeas !== null, memory: memoryCandidates !== null, insights: !!onInsights });
   return (
     <View style={{ borderBottomWidth: 1, borderColor: colors.border }}>
       <ScrollView
@@ -59,30 +60,26 @@ export function OverviewBar({
             <Label muted size={font.sm} selectable={false}>{t("· {n} done", { n: o.done })}</Label>
           )}
         </View>
-        <Divider />
-        <Chip
-          label={o.runningTasks ? (o.runningSessions > o.runningTasks ? t("{tasks} running ({sessions})", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks"), sessions: tn(o.runningSessions, "{n} session", "{n} sessions") }) : t("{tasks} running", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks") })) : t("Nothing running")}
-          icon={o.runningTasks ? <PulseDot color={colors.statusSuccess} size={7} /> : <Dot size={7} color={colors.border} />}
-          muted={!o.runningTasks}
-        >
-          {o.runningTasks ? t("{n} running", { n: o.runningTasks }) : t("Idle")}
-        </Chip>
-        {o.needsYou > 0 && (
+        {row.statusDivider && <Divider />}
+        {row.running && (
+          <Chip
+            label={o.runningSessions > o.runningTasks ? t("{tasks} running ({sessions})", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks"), sessions: tn(o.runningSessions, "{n} session", "{n} sessions") }) : t("{tasks} running", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks") })}
+            icon={<PulseDot color={colors.statusSuccess} size={7} />}
+          >
+            {t("{n} running", { n: o.runningTasks })}
+          </Chip>
+        )}
+        {row.needsYou && (
           <Chip label={tn(o.needsYou, "{n} task waiting on you. Open Attention", "{n} tasks waiting on you. Open Attention")} icon={<Dot size={7} color={colors.statusWarning} />} onPress={onAttention} strong>
             {tn(o.needsYou, "{n} needs you", "{n} need you")}
           </Chip>
         )}
-        {o.unread > 0 && (
-          <Chip label={tn(o.unread, "{n} task with unread results. Open Attention", "{n} tasks with unread results. Open Attention")} icon={<Dot size={7} color={colors.accent} />} onPress={onAttention}>
-            {t("{n} unread", { n: o.unread })}
-          </Chip>
-        )}
-        {o.errors > 0 && (
+        {row.errors && (
           <Chip label={tn(o.errors, "{n} task with session errors. Open Attention", "{n} tasks with session errors. Open Attention")} icon={<Dot size={7} color={colors.statusDanger} />} onPress={onAttention}>
             {tn(o.errors, "{n} error", "{n} errors")}
           </Chip>
         )}
-        <Divider />
+        {row.toolsDivider && <Divider />}
         {openIdeas !== null && (
         <Chip
           label={`${t("Project ideas: {openIdeas} open", { openIdeas })}${ideasShortcut ? ` (${ideasShortcut})` : ""}`}
@@ -119,14 +116,12 @@ function Chip({
   icon,
   label,
   onPress,
-  muted,
   strong,
   children,
 }: {
   icon: ReactNode;
   label: string;
   onPress?(): void;
-  muted?: boolean;
   strong?: boolean;
   children: ReactNode;
 }) {
@@ -134,7 +129,7 @@ function Chip({
   const content = (
     <>
       {icon}
-      <Label size={font.sm} medium={strong} muted={muted} selectable={false}>
+      <Label size={font.sm} medium={strong} selectable={false}>
         {children}
       </Label>
     </>

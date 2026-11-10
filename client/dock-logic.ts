@@ -32,10 +32,31 @@ export function showAttention(now: Dock, back: Dock | null, layout: DockLayout =
   return bellPress(now, back, layout);
 }
 
-/** The toolbar's Dispatcher button: Single shows the chat pane or minimizes it; a split shows or minimizes the dock. */
+/** The phone header's Dispatcher button (desktop has the rail): Single shows the chat pane or minimizes it; a split shows or minimizes the dock. */
 export function dispatcherPress(now: Dock, layout: DockLayout): Dock {
   if (split(layout)) return now.open ? { ...now, open: false } : { tab: "dispatcher", open: true };
   return now.open && now.tab === "dispatcher" ? { ...now, open: false } : { tab: "dispatcher", open: true };
+}
+
+/**
+ * Desktop with the dock minimized: a rail on the board's left edge with the Attention and Dispatcher buttons (§9.3;
+ * Ruling, Noah 2026-11-09), in every layout. Phones keep their header buttons; a board with no dock has no rail.
+ */
+export function railShown({ compact, dockAvailable, open }: { compact: boolean; dockAvailable: boolean; open: boolean; layout: DockLayout }): boolean {
+  return !compact && dockAvailable && !open;
+}
+
+/** A rail button (the dock is minimized): Single opens the dock on that pane; a split opens it and focuses that pane. */
+export function railPress(pane: DockTab, layout: DockLayout): { next: Dock; focus: boolean } {
+  return { next: { tab: pane, open: true }, focus: split(layout) };
+}
+
+/**
+ * The toolbar's bell and Dispatcher button: phones only, since the desktop rail replaces them (§9.3; Ruling, Noah
+ * 2026-11-09). A board with no dock keeps the bell, which opens the Needs attention sheet there.
+ */
+export function toolbarDockButtons({ compact, dockAvailable }: { compact: boolean; dockAvailable: boolean }): { bell: boolean; dispatcher: boolean } {
+  return { bell: compact || !dockAvailable, dispatcher: compact && dockAvailable };
 }
 
 /** The dock's divider is 8 points, like the grip on its right edge. */

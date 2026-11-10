@@ -1386,3 +1386,10 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 
 - Ruling (Noah, 2026-11-09), UI-REFRESH-SPEC §7u: the overview row's In review and Blocked lane chips and their divider are removed; `boardOverview` no longer counts those lanes. No strings were dead (the chips used lane names). No tour, tip or What's new change: the tour never showed them.
 - UNRUN: live look of the overview row on desktop and phone.
+
+## Dock rail; toolbar bell and Dispatcher moved; overview row trimmed — 2026-11-09
+
+- Rulings (Noah, 2026-11-09), DISPATCHER-SPEC §9.3, UI-REFRESH-SPEC §7u, ONBOARDING-SPEC, ONBOARDING-SETUP-SPEC: desktop shows a rail (collapsed-column width) with the Attention bell and its count and the Dispatcher button while the dock is minimized; the desktop toolbar loses both buttons (phones keep them; a board with no dock keeps the bell). The overview row loses the unread chip and shows the running chip only while something runs, with no orphan divider. What's new 1.8.0 gets a line for the moved buttons, and its gear line no longer says "next to the bell". The `dispatcher` tip text and the tour's Attention demo follow. Dead strings removed from every catalog: "Nothing running", "{n} tasks with unread results. Open Attention" and the two reworded texts.
+- Pure rules and tests: `railShown`, `railPress`, `toolbarDockButtons` (`client/dock-logic.ts`), `overviewRow` (`client/overview.ts`).
+- UNRUN: live look of the rail (alignment with the lanes, badge, hover tooltip), the toolbar without the bell, the overview row and the tour demo, on desktop and phone.
+

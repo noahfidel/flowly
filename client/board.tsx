@@ -52,7 +52,8 @@ import { AttentionButton } from "./attention-button";
 import { DispatcherPanel } from "./dispatcher-panel";
 import { AttentionPanel } from "./attention-panel";
 import { LeftDock } from "./left-dock";
-import { attentionSectionOpen, bellPress, dispatcherPress, dockButtonPress, dockLayoutShown, paneShown, showAttention, sideDockMinWidth, type AttentionSection, type Dock, type DockLayout, type DockTab } from "./dock-logic";
+import { DockRail } from "./dock-rail";
+import { attentionSectionOpen, bellPress, dispatcherPress, dockButtonPress, dockLayoutShown, paneShown, railPress, railShown, showAttention, sideDockMinWidth, toolbarDockButtons, type AttentionSection, type Dock, type DockLayout, type DockTab } from "./dock-logic";
 import { bellResolved, forgetAnsweredMissing, useAnsweredAsks } from "./answered-asks";
 import {
   attentionItemsWithFacts,
@@ -181,7 +182,7 @@ const tipText: Record<TipId, () => string> = {
   "sidebar-order": () => t("Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar."),
   "session-history": () => t("A session's output now starts at the beginning of its current turn. Press Load earlier at the top to read further back."),
   "settings-entry": () => t("Turn features on or off and change settings here."),
-  dispatcher: () => t("The dispatcher is one agent for all your projects. Open its chat from the toolbar, ask for work, and it makes the cards and starts them."),
+  dispatcher: () => t("The dispatcher is one agent for all your projects. Open its chat with the robot button, ask for work, and it makes the cards and starts them."),
   "first-workpad": () => t("This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself."),
 };
 
@@ -1257,7 +1258,16 @@ function BoardContent(
   const saveDockShare = useStableCallback((layout: "stack" | "side", share: number) =>
     void view.update(layout === "side" ? { dockSideShare: share } : { dockStackShare: share }),
   );
-  // The toolbar's Dispatcher button: in Single the dock on the Dispatcher tab, or minimized when it already shows;
+  // A desktop rail button (the dock is minimized; §9.3, Ruling, Noah 2026-11-09): the dock on that pane; in a split
+  // the pane is focused too. Attention unfolds Needs you and scrolls to it, as the bell does.
+  const openFromRail = useStableCallback((pane: DockTab) => {
+    const step = railPress(pane, dockShown);
+    dockBack.current = null;
+    setDock(step.next);
+    if (pane === "attention") revealNeeds(step.next);
+    else if (step.focus) setDispatcherFocus((n) => n + 1);
+  });
+  // The phone header's Dispatcher button: in Single the dock on the Dispatcher tab, or minimized when it already shows;
   // in a split the dock shown or minimized.
   const toggleChat = useStableCallback(() => {
     dockBack.current = null;
@@ -1294,6 +1304,9 @@ function BoardContent(
   // and needs room for two panes.
   const dockStored: DockLayout = view.values?.dockLayout ?? "single";
   const dockShown = dockLayoutShown(dockStored, { compact, surfaceWidth: surfaceWidth || 1000, reserved: chatReserved });
+  // Not until the board view is read, so a dock that is open never flashes the rail first.
+  const showRail = !!view.values && railShown({ compact, dockAvailable, open: chatShown, layout: dockShown });
+  const toolbarButtons = toolbarDockButtons({ compact, dockAvailable });
   const dockMin = dockShown === "side" ? sideDockMinWidth : minChatWidth;
   const chatDocked = chatWidth(chatPreferred, surfaceWidth || 1000, chatReserved, dockMin);
   const chatGrip = !compact && !chatExpanded && (
@@ -2090,17 +2103,20 @@ function BoardContent(
                 onPress={() => setMenu("shortcuts")}
               />
             )}
-            {(!!project || allView) && (
+            {/* Desktop: the dock's rail on the board's left edge replaces these two (§9.3; Ruling, Noah 2026-11-09). */}
+            {toolbarButtons.dispatcher && (
               <IconButton icon="Bot" label={t("Dispatcher")} active={chatShown && paneShown(dockShown, dockTab, "dispatcher")} onPress={toggleChat} />
             )}
-            <AttentionButton
-              count={attentionCount}
-              compact={compact}
-              open={dockAvailable ? chatShown && paneShown(dockShown, dockTab, "attention") : menu === "attention"}
-              shortcut={shortcutsOn ? "A" : ""}
-              onPress={toggleAttentionMenu}
-            />
-            {/* Settings (the gear), beside the bell; its first-run callout hangs under it (ONBOARDING-SETUP-SPEC §5). */}
+            {toolbarButtons.bell && (
+              <AttentionButton
+                count={attentionCount}
+                compact={compact}
+                open={dockAvailable ? chatShown && paneShown(dockShown, dockTab, "attention") : menu === "attention"}
+                shortcut={shortcutsOn ? "A" : ""}
+                onPress={toggleAttentionMenu}
+              />
+            )}
+            {/* Settings (the gear); its first-run callout hangs under it (ONBOARDING-SETUP-SPEC §5). */}
             <View onLayout={(e) => setGearBox(e.nativeEvent.layout)}>
               <IconButton icon="Settings" label={t("Flowly settings")} active={menu === "settings"} onPress={openSettingsFromToolbar} />
               {settingsHint && <HintOutline />}
@@ -2245,6 +2261,7 @@ function BoardContent(
           <View style={{ flex: 1, minHeight: 0, flexDirection: "row", ...(resizing || chatResizing ? { userSelect: "none" } : null) } as never}>
             {/* Desktop: the dispatcher chat docks on the left; the board narrows beside it (DISPATCHER-SPEC §9). */}
             {!compact && chatPanel}
+            {showRail && <DockRail attentionCount={attentionCount} attentionShortcut={shortcutsOn ? "A" : ""} onOpen={openFromRail} />}
             {(
               <MotionReveal
                 transitionKey={`${viewKey}|${page || (compact ? mobileStatus : "columns")}`}
