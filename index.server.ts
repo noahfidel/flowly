@@ -69,6 +69,7 @@ import { validZone } from "./shared/insights";
 import { SearchService } from "./server/search";
 import { QuickTitleService } from "./server/quick-title";
 import { PrReviewCards } from "./server/pr-review-cards";
+import { PrReviewArchiver, connectorPrState, firstKnown, ghPrState } from "./server/pr-review-archive";
 import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
 import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
@@ -490,8 +491,26 @@ export default function contribute(host: PluginServerContext) {
     const state = await prReviewPrefs.read().catch(() => null);
     return prReviewSettingsValues(state?.status === "ready" ? state.values : {}).prReviewCards;
   };
-  const watchPrReview = (agentId: string, paseo: PaseoApi) =>
+  // Review cards still in In review are archived once their PR is merged or closed (PR-REVIEW-CARDS-SPEC §10).
+  let hookPaseo: PaseoApi | null = null;
+  const reviewArchiver = new PrReviewArchiver(store, firstKnown(connectorPrState(connectors), ghPrState()));
+  reviewArchiver.enabled = async () => {
+    const state = await prReviewPrefs.read().catch(() => null);
+    return prReviewSettingsValues(state?.status === "ready" ? state.values : {}).archiveOnClose;
+  };
+  reviewArchiver.paseo = () => {
+    if (hookPaseo) return hookPaseo;
+    try {
+      return tools.cards.api();
+    } catch {
+      return null;
+    }
+  };
+  reviewArchiver.start();
+  const watchPrReview = (agentId: string, paseo: PaseoApi) => {
+    hookPaseo = paseo;
     void prReviews.observe(agentId, paseo).catch((e) => logFailure("Flowly PR review card not made:", e, agentId));
+  };
   server.addHook("agent.create.after", async (event, { paseo }) => watchPrReview(event.agent.id, paseo));
   // An agent created while the plugin was reloading has no created event here; its first turn catches it.
   server.addHook("agent.turn.before", async (event, { paseo }) => watchPrReview(event.agent.id, paseo));
@@ -1064,6 +1083,7 @@ export default function contribute(host: PluginServerContext) {
   return () => {
     void store.close().catch((e) => logFailure("Flowly storage: close failed:", e));
     workflow.stop();
+    reviewArchiver.stop();
     telemetry.stop();
     setErrorSink(null);
     process.off("uncaughtExceptionMonitor", onUncaught);

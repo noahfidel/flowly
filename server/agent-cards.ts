@@ -182,6 +182,7 @@ export class AgentCards {
           revision: t.revision,
           updatedAt: t.updatedAt,
           archived: !!t.archivedAt,
+          ...(t.prRef ? { prRef: t.prRef } : {}),
           description: cut ? t.description.slice(0, agentCardLimits.preview) : t.description,
           ...(cut ? { descriptionTruncated: true } : {}),
         };

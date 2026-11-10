@@ -86,6 +86,12 @@ export const dispatcherInputs = {
       .optional()
       .describe("Only when the card has several live sessions (SESSION_AMBIGUOUS lists them): the session to message."),
   }),
+  archiveCard: z.strictObject({
+    projectId,
+    taskId: z.string().min(1).max(200).describe("Card id from flowly_list_cards."),
+    archived: z.boolean().default(true).describe("true archives the card (default); false brings an archived card back."),
+    reason: z.string().trim().min(1).max(500).optional().describe("Why, in a few words; shown in the card's activity."),
+  }),
   createProject: z.strictObject({
     path: z
       .string()
@@ -146,6 +152,10 @@ const listProjectsResultSchema = z.object({
   projects: z.array(z.object({ projectId: z.string(), title: z.string(), rootAvailable: z.boolean(), openCards: z.number().int() })),
 });
 const linkCardsResultSchema = z.object({ link: linkSchema, created: z.boolean() });
+const archiveCardResultSchema = z.object({
+  card: z.object({ taskId: z.string(), title: z.string(), status: z.string(), archived: z.boolean(), revision: z.number().int() }),
+  changed: z.boolean(),
+});
 
 /** The tool's input without `projectId`, for the card services' own strict schemas. */
 const rest = <T extends { projectId: string }>({ projectId: _, ...input }: T) => input;
@@ -409,6 +419,34 @@ export class DispatcherTools {
       if (at >= 0) list.splice(at, 1);
       this.messageSlots.set(agentId, list);
     };
+  }
+
+  /**
+   * Archives or unarchives one card of the project as the board's Archive does (DISPATCHER-SPEC §5): only the card,
+   * never its sessions or workspace, and never a delete. A write: the agent-cards switch applies.
+   */
+  async archiveCard(identity: DispatcherIdentity, raw: unknown) {
+    const input = dispatcherInputs.archiveCard.parse(raw);
+    const caller = await this.projectCaller(identity, input.projectId, true);
+    return this.store.transaction((board) => {
+      const t = board.tasks.find((x) => x.id === input.taskId && x.projectId === caller.projectId);
+      if (!t) throw new ToolError("CARD_NOT_FOUND", `No card ${input.taskId} in this project. Use an id from flowly_list_cards (includeArchived: true lists archived ones).`);
+      const changed = !!t.archivedAt !== input.archived;
+      if (changed) {
+        const now = new Date().toISOString();
+        t.archivedAt = input.archived ? now : null;
+        t.revision++;
+        t.updatedAt = now;
+        this.store.event(board, {
+          taskId: t.id,
+          actor: "agent",
+          agentId: caller.agentId,
+          action: "archive_changed",
+          note: input.reason ?? (input.archived ? "Archived by the dispatcher" : "Unarchived by the dispatcher"),
+        });
+      }
+      return { value: { card: { taskId: t.id, title: t.title, status: t.status, archived: !!t.archivedAt, revision: t.revision }, changed }, changed };
+    });
   }
 
   /**
@@ -679,6 +717,17 @@ export class DispatcherTools {
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },
       (raw) => toolResult(() => this.messageCard(identity, raw)),
+    );
+    mcp.registerTool(
+      "flowly_archive_card",
+      {
+        description:
+          "Archive a card of a project (archived=true, default), or bring an archived one back (archived=false). Use only when the user asked, for example to clear review cards whose PR merged (flowly_list_cards shows a review card's prRef). Archives only the card, as the board's Archive does; its sessions and workspace are kept, and nothing is deleted. Returns the card's new state; changed=false when it already was. CARD_NOT_FOUND: no such card in this project. AGENT_CARDS_DISABLED: the user turned this off.",
+        inputSchema: dispatcherInputs.archiveCard,
+        outputSchema: archiveCardResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      (raw) => toolResult(() => this.archiveCard(identity, raw)),
     );
     // Not preapproved (dispatcherConfirmedToolNames): every call shows a permission prompt the user answers.
     mcp.registerTool(

@@ -31,7 +31,7 @@ The card is created through the New card path in *existing workspace* mode: no w
 - Tag: `pr-review`. Priority normal. The activity and tag are attributed to the review agent.
 - Its session is the review agent (the session in the card's workspace), so opening the card opens the review chat.
 
-Flowly never moves the card by itself because of this feature, except when a later review reuses it (§8): when the review ends, the card stays where it is until the user moves or closes it. (Auto-status rules apply only to sessions Flowly manages; the review agent is not one.)
+Flowly never moves the card by itself because of this feature, except when a later review reuses it (§8) or archives it once its PR closes (§10): when the review ends, the card stays where it is until the user moves or closes it. (Auto-status rules apply only to sessions Flowly manages; the review agent is not one.)
 
 ## 5. Linear ticket
 
@@ -40,6 +40,8 @@ A PR review card is never asked for a Linear ticket, even in a project with *Mak
 ## 6. Setting
 
 Settings → Workflow → Board → **Make cards for PR review agents**, host scope (`pr-review-cards`, `prReviewCards`), on by default. Off: Flowly does not read agents for this and makes no card. Turning it on does not backfill (§3).
+
+Settings → Workflow → Board → **Archive review cards when the PR closes**, same settings record (`archiveOnClose`), on by default. Off: the check of §10 does nothing.
 
 ## 8. A new review of the same PR reuses its card
 
@@ -61,6 +63,18 @@ The outcome is `reused` (with the card) instead of `created`.
 
 The card drawer's header shows an **Open PR** button (icon `GitPullRequest`) on a PR review card (§5) whose PR can be named: the stored `prRef`, else the `PR:` line of the description (§8). It opens `https://github.com/<owner>/<repo>/pull/<n>` in the browser; a failure shows the toast "Could not open the link." The URL in the description (original case) is used when it names the same PR; otherwise it is built from the key, which is lower case (GitHub ignores case). A loose label, or any other card, has no button.
 
+## 10. Archive when the PR closes
+
+With *Archive review cards when the PR closes* on (§6), Flowly checks about a minute after the plugin starts, then every 10 minutes. A check looks at each card that is all of:
+
+- a PR review card (operation id `pr-review:…`) with a stored `prRef` (`owner/repo#n`); a card that only has the `PR:` line of an older description is left alone;
+- not archived, in a live project, and in *In review* (a card the user moved to any other lane is left alone);
+- in a workspace with no running or starting session.
+
+It reads the PR's state: through the user's GitHub connector for github.com when one has a working token (CONNECTORS-SPEC), else with the GitHub CLI, `gh pr view <n> --repo <owner/repo> --json state,mergedAt` (an argument array, no shell). One check makes at most 20 lookups; cards looked at least recently go first, so a longer list is covered over the following checks. When neither source can tell (no token, `gh` missing or not signed in, PR not found, offline), nothing changes and one line is logged, again only after a check in which some lookup worked.
+
+A merged or closed PR archives the card as the board's Archive does (`archivedAt`, revision, event `archive_changed`), with the activity note "Archived: PR merged" or "Archived: PR closed", attributed to Flowly (`system`). The card is checked again in the same write and left alone if it was archived, moved out of In review, or rebound to another workspace or PR meanwhile. An open PR changes nothing. Only the card is archived: its workspace and sessions are kept, because a PR review card never owns its workspace (§3). A later review of the same PR makes a new card, since archived cards are never reused (§8). The user can unarchive the card as any other.
+
 ## 7. Acceptance
 
 - A new agent labelled `pr-review-watch=Zenlytic/zenlytic#9164` in a worktree of a project's repository gets one card in In review, tagged `pr-review`, bound to that workspace; opening it shows the review chat.
@@ -71,3 +85,4 @@ The card drawer's header shows an **Open PR** button (icon `GitPullRequest`) on 
 - A project with the Linear ticket requirement on: the PR review card's context has no Linear block; other cards still do.
 - A second review agent for the same PR in a new workspace: no second card; the card is bound to the new workspace, the old one is in its history, it is in In review and has the new title. A re-run of the first agent changes nothing. An archived card is not reused.
 - A PR review card for `owner/repo#n` shows Open PR in the drawer header, opening that pull request; a loose-label card and an ordinary card show none. The description's PR line is a markdown link.
+- Setting on: a PR review card in In review whose PR is merged is archived at the next check with the activity "Archived: PR merged" (closed: "Archived: PR closed"); an open PR, a card in another lane, a card without `prRef` and a card whose workspace has a running session stay. Setting off, or no way to read the PR: nothing is archived, and the failure is logged once.

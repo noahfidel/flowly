@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { sortTasks } from "../shared/sort";
 import { animatesCollapse } from "./collapsed-columns";
-import { Animated, Pressable, View, type ScrollView as NativeScrollView } from "react-native";
+import { Animated, PanResponder, Pressable, View, type ScrollView as NativeScrollView } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Status, Task } from "../shared/model";
 import { statusLabels } from "../shared/model";
@@ -11,6 +11,7 @@ import { StatusIcon } from "./status";
 import type { CardDrag } from "./card";
 import { Enter, motionDuration, useMotionPresence, useMotionValue, lerp } from "./motion";
 import {
+  boardPanDecision,
   columnAtPoint,
   columnGap,
   columnWidth,
@@ -19,7 +20,9 @@ import {
   edgeScroll,
   laneRevealOffset,
   cardRevealOffset,
+  panOffset,
   placementUpdate,
+  type BoardPress,
   type ColumnBounds,
   type DropSlot,
   type Point,
@@ -196,6 +199,36 @@ export function DesktopColumns({
     live.current = null;
     setDragging(null);
   };
+  // Board pan (desktop mouse only): a press on empty space moves the board sideways, immediately, no animation.
+  const press = useRef<BoardPress | null>(null);
+  const panStart = useRef<number | null>(null);
+  const [panning, setPanning] = useState(false);
+  const endPan = () => {
+    press.current = null;
+    panStart.current = null;
+    setPanning(false);
+  };
+  const [panResponder] = useState(() =>
+    PanResponder.create({
+      // Capture: asked before the cards' own responders; a press that began on a card never pans.
+      onMoveShouldSetPanResponderCapture: (_e, g) =>
+        !touch && !live.current && boardPanDecision(press.current, g.dx, g.dy) === "pan",
+      onPanResponderGrant: () => {
+        panStart.current = offset.current;
+        setPanning(true);
+      },
+      onPanResponderMove: (_e, g) => {
+        if (panStart.current === null) return;
+        const x = panOffset(panStart.current, g.dx, contentWidth.current, viewport.current.width);
+        if (x === offset.current) return;
+        offset.current = x;
+        scrollRef.current?.scrollTo({ x, animated: false });
+      },
+      onPanResponderRelease: endPan,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderTerminate: endPan,
+    }),
+  );
   const current = useRef({ disabled, onDrop, manualOrder, onReorderBlocked });
   current.current = { disabled, onDrop, manualOrder, onReorderBlocked };
   const target = (point: Point) =>
@@ -281,6 +314,7 @@ export function DesktopColumns({
   }));
   useEffect(() => {
     cancel();
+    endPan();
   }, [cancelKey, disabled]);
   useEffect(() => {
     if (!reveal?.n || Date.now() - reveal.at > 1000) return;
@@ -343,7 +377,22 @@ export function DesktopColumns({
   return (
     <View
       ref={viewportRef}
-      style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
+      style={{
+        flex: 1,
+        minHeight: 0,
+        overflow: "hidden",
+        ...(touch ? null : ({ cursor: panning ? "grabbing" : "grab", ...(panning ? { userSelect: "none" } : null) } as object)),
+      }}
+      {...(touch ? {} : panResponder.panHandlers)}
+      onPointerDownCapture={
+        touch
+          ? undefined
+          : (e) => {
+              press.current = { mouse: e.nativeEvent.pointerType === "mouse", primary: e.nativeEvent.button === 0, onCard: false };
+            }
+      }
+      onPointerUp={touch ? undefined : () => (press.current = null)}
+      onPointerCancel={touch ? undefined : () => (press.current = null)}
       onLayout={() => {
         cancel();
         viewportRef.current?.measureInWindow((x, y, width, height) => {
@@ -395,6 +444,9 @@ export function DesktopColumns({
           const cardSlot = (t: Task) => (
             <View
               key={t.id}
+              onPointerDown={() => {
+                if (press.current) press.current.onCard = true;
+              }}
               onLayout={(e) => {
                 const { y, height } = e.nativeEvent.layout;
                 cards.current[t.id] = { y, height };
@@ -469,7 +521,7 @@ export function DesktopColumns({
                   flexDirection: "row",
                   alignItems: "center",
                   gap: space[2],
-                  ...({ cursor: "default" } as object),
+                  ...({ cursor: touch ? "default" : "grab" } as object),
                 }}
               >
                 <StatusIcon status={status} />

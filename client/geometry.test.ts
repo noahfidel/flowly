@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
   columnAtPoint,
+  boardPanDecision,
+  panOffset,
+  dragThreshold,
   listDropIndex,
   listShift,
   contentY,
@@ -216,5 +219,34 @@ describe("cardRevealOffset", () => {
   test("scrolls a card above the list into view", () => {
     expect(cardRevealOffset({ y: 100, height: 80 }, 500, 400, 8)).toBe(92);
     expect(cardRevealOffset({ y: 2, height: 80 }, 500, 400, 8)).toBe(0);
+  });
+});
+
+describe("board pan", () => {
+  const mouse = { mouse: true, primary: true, onCard: false };
+  test("waits below the threshold so a click still works, pans from it on", () => {
+    expect(boardPanDecision(mouse, 0, 0)).toBe("wait");
+    expect(boardPanDecision(mouse, dragThreshold - 1, 0)).toBe("wait");
+    expect(boardPanDecision(mouse, dragThreshold, 0)).toBe("pan");
+    expect(boardPanDecision(mouse, -30, 2)).toBe("pan");
+    // The threshold is the diagonal distance: 5,5 is about 7.07, 6,6 about 8.49.
+    expect(boardPanDecision(mouse, 5, 5)).toBe("wait");
+    expect(boardPanDecision(mouse, 6, 6)).toBe("pan");
+  });
+  test("a press that began on a card never pans, however far it moves", () => {
+    expect(boardPanDecision({ ...mouse, onCard: true }, 0, 0)).toBe("none");
+    expect(boardPanDecision({ ...mouse, onCard: true }, 400, 0)).toBe("none");
+  });
+  test("only a primary mouse press can pan", () => {
+    expect(boardPanDecision(null, 100, 0)).toBe("none");
+    expect(boardPanDecision({ ...mouse, mouse: false }, 100, 0)).toBe("none");
+    expect(boardPanDecision({ ...mouse, primary: false }, 100, 0)).toBe("none");
+  });
+  test("pan offset follows the pointer opposite to the drag and stays in range", () => {
+    expect(panOffset(100, 30, 1000, 400)).toBe(70);
+    expect(panOffset(100, -50, 1000, 400)).toBe(150);
+    expect(panOffset(20, 90, 1000, 400)).toBe(0);
+    expect(panOffset(500, -400, 1000, 400)).toBe(600);
+    expect(panOffset(0, -50, 300, 400)).toBe(0);
   });
 });

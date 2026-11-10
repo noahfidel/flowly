@@ -373,6 +373,12 @@ export function WorkflowPage() {
           disabled={prReview.busy}
           onChange={(prReviewCards) => prReview.save({ prReviewCards })}
         />
+        <SettingSwitch
+          title={t("Archive review cards when the PR closes")}
+          value={prReview.values?.archiveOnClose ?? true}
+          disabled={prReview.busy}
+          onChange={(archiveOnClose) => prReview.save({ archiveOnClose })}
+        />
       </SettingsGroup>
       <SettingsGroup title={t("Moving cards")}>
         <SettingSwitch

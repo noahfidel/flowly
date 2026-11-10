@@ -1439,6 +1439,7 @@ const catalog: Catalog = {
   "Linear team": "Équipe Linear",
   "Team name or key (optional)": "Nom ou clé de l'équipe (facultatif)",
   "Make cards for PR review agents": "Créer des cartes pour les agents de revue de PR",
+  "Archive review cards when the PR closes": "Archiver les cartes de revue quand la PR est fermée",
   "{lane} is not a lane in {project}.": "{lane} n'est pas un couloir de {project}.",
   "Each project keeps its own order. Open the project to reorder its cards.": "Chaque projet garde son propre ordre. Ouvrez le projet pour réordonner ses cartes.",
   "Import ideas": "Importer des idées",
