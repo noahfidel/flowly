@@ -1,7 +1,7 @@
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 import { boardSorts } from "./sort";
-import { priorities, statusSchema, taskTypes } from "./model";
+import { priorities, statusSchema, statuses, taskTypes } from "./model";
 import { languageChoices, localeCodes } from "./i18n";
 import { aiLanguageChoices } from "./ai-language";
 import { cardActivityModes } from "./card-display";
@@ -33,7 +33,7 @@ export const boardViewSettings = defineSettings({
     /** Order of cards inside each column. */
     boardSort: z.enum(boardSorts).default("manual"),
     /** Desktop columns shown as a narrow strip. */
-    collapsedColumns: z.array(statusSchema).max(7).default([]),
+    collapsedColumns: z.array(statusSchema).max(statuses.length).default([]),
     /** Board filters, remembered between visits. */
     filterSearch: z.string().max(200).default(""),
     filterPriority: z.enum(["all", ...priorities]).default("all"),

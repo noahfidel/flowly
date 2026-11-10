@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { boardViewValues, statusSettingsValues } from "./settings";
+import { statuses } from "./model";
+import { boardViewSettings, boardViewValues, statusSettingsValues } from "./settings";
 
 test("older stored settings get defaults for newer fields; invalid values fall back", () => {
   expect(boardViewValues({ lastProjectId: "p" })).toEqual({ lastProjectId: "p", sendBehavior: "steer", startAgentOnCreate: true, quickTaskDefault: true, quickTaskAiTitle: true, quickTaskMode: "worktree", lastQuickProjectId: "", allProjectsTab: true, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, linearLayout: "auto", linearScope: "me", linearHidden: [], drawerShare: 0, chatMinimized: false, chatExpanded: false });
@@ -21,6 +22,17 @@ test("board sort is remembered and defaults to manual", () => {
 test("collapsed columns are remembered; unknown statuses invalidate", () => {
   expect(boardViewValues({ collapsedColumns: ["blocked"] }).collapsedColumns).toEqual(["blocked"]);
   expect(boardViewValues({ collapsedColumns: ["nope"] }).collapsedColumns).toEqual([]);
+});
+
+test("every status can be collapsed at once; more than that or a non-status is rejected", () => {
+  expect(statuses.length).toBeGreaterThan(7);
+  for (const n of [8, statuses.length]) {
+    const collapsedColumns = statuses.slice(0, n);
+    expect(boardViewSettings.schema.safeParse({ collapsedColumns }).success).toBe(true);
+    expect(boardViewValues({ collapsedColumns }).collapsedColumns).toEqual(collapsedColumns);
+  }
+  expect(boardViewSettings.schema.safeParse({ collapsedColumns: [...statuses, statuses[0]] }).success).toBe(false);
+  expect(boardViewSettings.schema.safeParse({ collapsedColumns: ["nope"] }).success).toBe(false);
 });
 
 test("filters are remembered with safe defaults", () => {
