@@ -503,6 +503,12 @@ function TaskDrawerView({
       disabled: unavailable || !!task.archivedAt,
       onPress: () => setShowNew(true),
     },
+    ...(onLink
+      ? [{ id: "link", label: t("Link to a card…"), icon: "Link", disabled: !active || !!task.archivedAt || !!project.archivedAt, onPress: () => onLink(task) }]
+      : []),
+    ...(onFollowUp
+      ? [{ id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: !active || !!task.archivedAt || !!project.archivedAt, onPress: () => onFollowUp(task) }]
+      : []),
     ...(attention && onAttention
       ? [
           attention === "dismissed"

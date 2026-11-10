@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Animated, PanResponder, Pressable, View } from "react-native";
+import { Animated, PanResponder, Pressable, View, type GestureResponderEvent } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { taskTypeLabels, type Review, type Task } from "../shared/model";
 import { AiMark, Badge, Dot, IconButton, Label, font, radius, relativeTime, space, tint, touch, useTheme, noFocusRing } from "./ui";
@@ -9,7 +9,7 @@ import type { SessionAttentionSummary } from "../shared/session-attention";
 import { PulseDot, motionDuration, useMotionValue, useReducedMotion } from "./motion";
 import { RunningDots } from "./running-motion";
 import { useCardOutput, type CardOutput, type OutputSession } from "./card-output";
-import { menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
+import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { shallowEqual } from "./stable";
 import { t, tn } from "../shared/i18n";
 import type { WorkpadSignal } from "../shared/workpad";
@@ -35,7 +35,7 @@ export type LiveTaskCardProps = Omit<TaskCardProps, "output" | "menu" | "onOpen"
   outputSession?: OutputSession | null;
   /** Stable handlers shared by all cards; they receive the card's task (PERFORMANCE-SPEC §3). */
   onOpen(task: Task): void;
-  onActions(task: Task): void;
+  onActions(task: Task, at: Point): void;
   /** Absent when the host cannot open workspaces; used only while the card's workspace is available. */
   onOpenWorkspace?(task: Task): void;
   menuFor?(task: Task): MenuEntry[];
@@ -76,7 +76,7 @@ export const LiveTaskCard = memo(function LiveTaskCard({
     [openMenu, menuFor, task],
   );
   const onOpen = useCallback(() => openTask(task), [openTask, task]);
-  const onActions = useCallback(() => taskActions(task), [taskActions, task]);
+  const onActions = useCallback((event: GestureResponderEvent) => taskActions(task, eventPoint(event)), [taskActions, task]);
   const onOpenWorkspace = useCallback(() => openTaskWorkspace?.(task), [openTaskWorkspace, task]);
   return (
     <TaskCard
@@ -165,7 +165,8 @@ export function TaskCard({
   disabled?: boolean;
   drag?: CardDrag;
   onOpen(): void;
-  onActions(): void;
+  /** The press opens the card's menu at the press point. */
+  onActions(event: GestureResponderEvent): void;
   /** Shows the Open workspace button under the actions button (CARD-DISPLAY-SPEC §7). */
   onOpenWorkspace?(): void;
   /** Context-menu handlers (right-click / long-press) for the card body. */

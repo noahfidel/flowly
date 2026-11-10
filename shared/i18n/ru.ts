@@ -134,8 +134,6 @@ const catalog: Catalog = {
   "Open {title}": "Открыть: {title}",
   "Board shortcuts work on desktop while focus is inside the board: click an empty part of the board or a card first. They pause while typing or while a dialog is open. From anywhere in Paseo, open the Command Center and search “Flowly”.": "Сочетания клавиш доски работают на компьютере, пока фокус находится внутри доски: сначала щёлкните по пустому месту доски или по карточке. Они приостанавливаются во время ввода текста и при открытом диалоге. Из любого места Paseo можно открыть Центр команд и найти «Flowly».",
   "Status": "Статус",
-  "Task actions": "Действия с задачей",
-  "Move to: {name}": "Переместить в: {name}",
   "{n} cards": {"one": "{n} карточка", "few": "{n} карточки", "many": "{n} карточек", "other": "{n} карточки"},
   "{title} removed from the board with {cards}, but Paseo kept the project: {error}": "«{title}» удалён с доски (вместе с: {cards}), но Paseo сохранил проект: {error}",
   "{title} removed from the board, but Paseo kept the project: {error}": "«{title}» удалён с доски, но Paseo сохранил проект: {error}",

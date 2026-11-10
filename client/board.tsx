@@ -100,7 +100,8 @@ import { SwitchModal, type SwitchDirection } from "./workspace-switch";
 import { performanceLogOn, performanceSettings, featureSettings, featureSettingsValues, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, wrapupSettings, wrapupSettingsValues } from "../shared/settings";
 import { pickOutputSession } from "./card-output";
 import { statusChanges } from "./changes";
-import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuOpener, type MenuEntry } from "./context-menu";
+import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuControl, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
+import { boardCardMenu } from "./card-menu";
 import { DesktopColumns, OlderToggle, type Placement } from "./columns";
 import { olderFinishedFromDates } from "./finished-cards";
 import { ResizeGrip } from "./resize";
@@ -381,7 +382,6 @@ function BoardContent(
     // Phones: a lane chosen from the status chooser fades in; a swiped one is already on screen (UI-UX-SPEC §5).
     [lanePick, setLanePick] = useState(0),
     [reveal, setReveal] = useState<{ status: Status; n: number; at: number; center?: boolean; taskId?: string }>({ status: "todo", n: 0, at: 0 }),
-    [actionTask, setActionTask] = useState<Task | null>(null),
     [projectForm, setProjectForm] = useState<"new" | "edit" | null>(null),
     // Group settings (BOARD-GROUPS-SPEC §5): `groupId` null opens on Add group; `projectId` opens that project's section.
     [groupSettings, setGroupSettings] = useState<{ groupId: string | null; projectId?: string; reviewOn?: boolean } | null>(null),
@@ -465,14 +465,12 @@ function BoardContent(
     ignoredLink.current = "";
     setSessionEntry(null);
     setMenu(null);
-    setActionTask(null);
     setTaskState("");
   }, [linkKey, input.error]);
   useEffect(() => {
     if (!resolvedLink.error || ignoredLink.current === linkKey) return;
     setSessionEntry(null);
     setMenu(null);
-    setActionTask(null);
     setTaskState("");
   }, [linkKey, resolvedLink.error]);
   const attentionToken = attentionOpenToken(props.params);
@@ -677,9 +675,6 @@ function BoardContent(
   useEffect(() => {
     if (pendingFocus.current) focusGroupOf(pendingFocus.current, false);
   }, [boardGroups, projectById]);
-  useEffect(() => {
-    setActionTask(null);
-  }, [viewKey]);
   // Project pages (Insights, Ideas, Memory) need one project; Search works across all of them.
   useEffect(() => {
     if (!project) setPage((current) => (current === "search" ? current : null));
@@ -1030,15 +1025,6 @@ function BoardContent(
   const restoreToAttention = useStableCallback((taskId: string) =>
     void doAction(() => restoreRpc({ taskId }), t("Back in Attention")),
   );
-  const attentionMenuEntry = (card: Task) => {
-    const item = attentionByTask.get(card.id);
-    if (!item) return [];
-    return [
-      item.dismissed
-        ? { id: "attention-restore", label: t("Restore to Attention"), icon: "Bell", disabled: pending, onPress: () => restoreToAttention(card.id) }
-        : { id: "attention-dismiss", label: t("Dismiss from Attention"), icon: "BellOff", disabled: pending, onPress: () => dismissFromAttention(item) },
-    ];
-  };
   const move = (input: { id: string; revision: number; status: Status }) => {
     const card = data.data?.tasks.find((t) => t.id === input.id);
     const from = card?.status;
@@ -1064,101 +1050,35 @@ function BoardContent(
     );
   };
   const openMenu = useMenuOpener();
+  const menuControl = useMenuControl();
   // Open the card's workspace in Paseo (CARD-DISPLAY-SPEC §7): only a host that can, only a live workspace.
   const canOpenWorkspace = typeof props.navigation?.openWorkspace === "function";
   const openCardWorkspace = useStableCallback((card: Task) => openNativeWorkspace(props.navigation, card.workspaceId, props.host.id));
-  const workspaceMenuEntry = (card: Task) =>
-    canOpenWorkspace && cardIndex.workspaceIds.has(card.workspaceId)
-      ? [{ id: "workspace", label: t("Open workspace"), icon: "ArrowUpRight", onPress: () => openCardWorkspace(card) }]
-      : [];
-  const switchMenuEntry = (card: Task) => {
-    const kind = cardIndex.workspaceKinds.get(card.workspaceId);
-    const own = projectOf(card);
-    if (!kind || pending || own?.archivedAt || card.archivedAt || finished(card.status) || (kind === "local" && own?.links?.length)) return [];
-    const direction: SwitchDirection = kind === "worktree" ? "to_local" : "to_worktree";
-    return [
-      {
-        id: "switch",
-        label: kind === "worktree" ? t("Switch to local…") : t("Switch to worktree…"),
-        icon: kind === "worktree" ? "Folder" : "GitBranch",
-        onPress: () => setSwitchRequest({ taskId: card.id, direction }),
-      },
-    ];
-  };
-  const cardMenu = (card: Task): MenuEntry[] => {
-    const ownArchived = !!projectOf(card)?.archivedAt;
-    const locked = pending || ownArchived || !!card.archivedAt;
-    return [
-      { id: "open", label: t("Open details"), icon: "PanelRightOpen", onPress: () => setTask(card.id) },
-      ...workspaceMenuEntry(card),
-      ...switchMenuEntry(card),
-      {
-        id: "start",
-        label: t("Start session"),
-        icon: "Play",
-        disabled: locked,
-        onPress: () => {
+  const cardMenu = (card: Task): MenuEntry[] =>
+    boardCardMenu({
+      card,
+      statuses: cardStatuses(card),
+      laneName: (status) => cardLaneName(card, status),
+      ownArchived: !!projectOf(card)?.archivedAt,
+      pending,
+      compact,
+      allView,
+      actions: {
+        open: () => setTask(card.id),
+        start: () => {
           setTask(card.id);
           setStartRequest({ taskId: card.id, key: `start-${Date.now()}` });
         },
-      },
-      { id: "link", label: t("Link to a card…"), icon: "Link", disabled: locked, onPress: () => setLinking(card) },
-      { id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: locked, onPress: () => followUp(card) },
-      ...attentionMenuEntry(card),
-      { kind: "separator", id: "s1" },
-      { kind: "label", id: "move", label: t("Move to") },
-      ...cardStatuses(card).map((status) => ({
-        id: `status-${status}`,
-        label: cardLaneName(card, status),
-        checked: status === card.status,
-        disabled: locked,
-        onPress: () => {
-          if (status !== card.status) move({ id: card.id, revision: card.revision, status });
-        },
-      })),
-      // Order is per project: no Move up/down on the All board (ALL-PROJECTS-SPEC §4).
-      ...(allView
-        ? []
-        : ([
-            { kind: "separator", id: "s2" },
-            {
-              id: "up",
-              label: t("Move up"),
-              icon: "ArrowUp",
-              disabled: locked,
-              onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "up" })),
-            },
-            {
-              id: "down",
-              label: t("Move down"),
-              icon: "ArrowDown",
-              disabled: locked,
-              onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "down" })),
-            },
-          ] as MenuEntry[])),
-      { kind: "separator", id: "s3" },
-      {
-        id: "archive",
-        label: card.archivedAt ? t("Restore card") : t("Archive card"),
-        icon: card.archivedAt ? "ArchiveRestore" : "Archive",
-        danger: !card.archivedAt,
-        disabled: pending || ownArchived,
-        onPress: () =>
+        move: (status) => move({ id: card.id, revision: card.revision, status }),
+        reorder: (direction) => void doAction(() => reorder({ id: card.id, revision: card.revision, direction })),
+        archive: () =>
           void doAction(
             () => updateTask({ id: card.id, revision: card.revision, archived: !card.archivedAt }),
             card.archivedAt ? t("Card restored") : t("Card archived"),
           ),
+        remove: () => setDeleting(card),
       },
-      {
-        id: "delete",
-        label: t("Delete permanently…"),
-        icon: "Trash2",
-        danger: true,
-        disabled: pending || ownArchived,
-        onPress: () => setDeleting(card),
-      },
-    ];
-  };
+    });
   // One pass over events/agents/workspaces per data change; cards only look up
   // (each card used to filter every event and agent on every render).
   const cardIndex = useMemo(() => {
@@ -1200,7 +1120,7 @@ function BoardContent(
     setDrawerFocus(null);
     setTask(t.id);
   });
-  const openCardActions = useStableCallback((t: Task) => setActionTask(t));
+  const openCardActions = useStableCallback((t: Task, at: Point) => openMenu?.(at, t.title, cardMenu(t)));
   const cardMenuFor = useStableCallback((t: Task) => cardMenu(t));
   // Stable drawer callbacks (memoized drawer).
   const closeDrawer = useStableCallback(() => {
@@ -1632,7 +1552,7 @@ function BoardContent(
     welcomeSeen: onboarding.values?.welcomeSeen ?? false,
     whatsNewSeen: onboarding.values?.whatsNewSeen ?? "",
     release: latestRelease,
-    blocked: dialogOpen || !!actionTask || !!taskId || welcomeOpen || welcome === "show" || settingsHint,
+    blocked: dialogOpen || menuControl.isOpen() || !!taskId || welcomeOpen || welcome === "show" || settingsHint,
   });
   const whatsNewShown = useRef(false);
   useEffect(() => {
@@ -1888,6 +1808,8 @@ function BoardContent(
   const withKey = (text: string, key: string) =>
     shortcutsOn ? `${text} (${key})` : text;
   function runIntent(intent: BoardIntent | Exclude<ShortcutAction, BoardIntent>) {
+    // An open menu takes every shortcut but Esc (it steps out or closes).
+    if (intent !== "escape" && menuControl.isOpen()) return false;
     switch (intent) {
       case "new-task":
         if (!allView && (!project || project.archivedAt)) return false;
@@ -1947,6 +1869,7 @@ function BoardContent(
         else openSearch("");
         return true;
       case "escape":
+        if (menuControl.escape()) return true;
         if (decideEsc(false, true) === "closeDock") {
           closeChat();
           return true;
@@ -2444,7 +2367,7 @@ function BoardContent(
                     statuses={shownStatuses}
                     tasks={visible}
                     disabled={pending || !!project?.archivedAt}
-                    cancelKey={`${viewKey}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!groupSettings}|${!!taskForm}|${!!quickTask}`}
+                    cancelKey={`${viewKey}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${projectForm}|${!!groupSettings}|${!!taskForm}|${!!quickTask}`}
                     sortColumn={sortColumn}
                     manualOrder={reorderAllowed(allView, boardSort)}
                     collapsed={collapsedColumns}
@@ -2738,163 +2661,6 @@ function BoardContent(
             </Theme.Provider>
           </Modal.Content>
         </Modal>
-        <Modal
-          open={!!actionTask}
-          title={actionTask?.title || t("Task actions")}
-          onOpenChange={(open) => {
-            if (!open) setActionTask(null);
-          }}
-        >
-          <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
-            <Theme.Provider value={props.theme}>
-              {actionTask && (
-                <>
-                  <Row
-                    title={t("Open details")}
-                    icon="PanelRightOpen"
-                    onPress={() => {
-                      setTask(actionTask.id);
-                      setActionTask(null);
-                    }}
-                  />
-                  {[...workspaceMenuEntry(actionTask), ...switchMenuEntry(actionTask)].map((entry) => (
-                    <Row
-                      key={entry.id}
-                      title={entry.label}
-                      icon={entry.icon}
-                      onPress={() => {
-                        setActionTask(null);
-                        entry.onPress();
-                      }}
-                    />
-                  ))}
-                  <Row
-                    title={t("Start session")}
-                    icon="Play"
-                    disabled={!!projectOf(actionTask)?.archivedAt || !!actionTask.archivedAt}
-                    onPress={() => {
-                      setTask(actionTask.id);
-                      setStartRequest({ taskId: actionTask.id, key: `start-${Date.now()}` });
-                      setActionTask(null);
-                    }}
-                  />
-                  <Row
-                    title={t("Link to a card…")}
-                    icon="Link"
-                    disabled={!!projectOf(actionTask)?.archivedAt || !!actionTask.archivedAt}
-                    onPress={() => {
-                      setLinking(actionTask);
-                      setActionTask(null);
-                    }}
-                  />
-                  <Row
-                    title={t("New follow-up task")}
-                    icon="CornerDownRight"
-                    disabled={!!projectOf(actionTask)?.archivedAt || !!actionTask.archivedAt}
-                    onPress={() => {
-                      followUp(actionTask);
-                      setActionTask(null);
-                    }}
-                  />
-                  {attentionMenuEntry(actionTask).map((entry) => (
-                    <Row
-                      key={entry.id}
-                      title={entry.label}
-                      icon={entry.icon}
-                      disabled={entry.disabled}
-                      onPress={() => {
-                        entry.onPress();
-                        setActionTask(null);
-                      }}
-                    />
-                  ))}
-                  {/* Order is per project: no Move up/down on the All board (ALL-PROJECTS-SPEC §4). */}
-                  {!allView && (["up", "down"] as const).map((direction) => (
-                    <Row
-                      key={direction}
-                      title={direction === "up" ? t("Move up") : t("Move down")}
-                      icon={direction === "up" ? "ArrowUp" : "ArrowDown"}
-                      disabled={
-                        pending ||
-                        !!projectOf(actionTask)?.archivedAt ||
-                        !!actionTask.archivedAt
-                      }
-                      onPress={() => {
-                        const t = actionTask;
-                        setActionTask(null);
-                        void doAction(() =>
-                          reorder({
-                            id: t.id,
-                            revision: t.revision,
-                            direction,
-                          }),
-                        );
-                      }}
-                    />
-                  ))}
-                  <Divider style={{ marginVertical: space[2] }} />
-                  <View style={{ paddingHorizontal: space[3], paddingBottom: space[1] }}>
-                    <Label medium muted size={font.sm} selectable={false}>
-                      {t("Move to")}</Label>
-                  </View>
-                  {cardStatuses(actionTask).map((s) => (
-                    <Row
-                      key={s}
-                      title={cardLaneName(actionTask, s)}
-                      label={t("Move to: {name}", { name: cardLaneName(actionTask, s) })}
-                      leading={<StatusIcon status={s} size={16} />}
-                      selected={s === actionTask.status}
-                      disabled={
-                        pending ||
-                        !!projectOf(actionTask)?.archivedAt ||
-                        !!actionTask.archivedAt
-                      }
-                      onPress={() => {
-                        if (s !== actionTask.status)
-                          move({
-                            id: actionTask.id,
-                            revision: actionTask.revision,
-                            status: s,
-                          });
-                        setActionTask(null);
-                      }}
-                    />
-                  ))}
-                </>
-              )}
-            </Theme.Provider>
-          </Modal.Content>
-        </Modal>
-        {/* board-groups 3/7: Add group and Delete group…; Group settings is its own page. */}
-        {groupDialog?.kind === "add" && (
-          <GroupNameDialog
-            title={t("Add group")}
-            saveLabel={t("Add group")}
-            theme={props.theme}
-            onClose={() => setGroupDialog(null)}
-            onSave={async (name) => {
-              const created = await createGroupRpc({ name });
-              // The new group must be on the board before it is chosen, or the choice reads as stale.
-              await overviewData.refetch();
-              setGroupDialog(null);
-              chooseGroup(created.id);
-            }}
-          />
-        )}
-        {groupDialog?.kind === "delete" && dialogGroup && (
-          <DeleteGroupDialog
-            name={dialogGroup.name}
-            defaultName={defaultGroup(boardGroups)?.name ?? ""}
-            theme={props.theme}
-            onClose={() => setGroupDialog(null)}
-            onDelete={async () => {
-              await deleteGroupRpc({ id: dialogGroup.id, revision: dialogGroup.revision });
-              setGroupDialog(null);
-              toast.show(t("{title} deleted", { title: dialogGroup.name }), { variant: "success" });
-              refresh();
-            }}
-          />
-        )}
         {removing && (
           <RemoveProjectDialog
             project={removing}

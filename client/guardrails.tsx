@@ -161,7 +161,7 @@ const GuardrailCard = memo(function GuardrailCard({
   ) : (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[2] }}>
       {items.flatMap((item) =>
-        item.kind !== "separator" && item.kind !== "label" ? [
+        item.kind !== "separator" && item.kind !== "label" && item.kind !== "submenu" ? [
           <Button key={item.id} small quiet danger={!!item.danger} icon={item.icon} disabled={busy} onPress={item.onPress}>
             {item.label}
           </Button>,

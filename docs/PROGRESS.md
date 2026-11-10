@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Slim board card menu, always on screen (branch `kanban/slim-the-board-card-menu-and-keep-it-on-d10cf3`) — 2026-11-10
+
+- Cause (reproduced on the installed build, `docs/verification/board-menu-repro.md`): the card's ⋯ opened a separate action sheet with no Archive/Delete; the right-click popover had both but was cut off and could not scroll in a ~600-point window.
+- One menu now (rulings, Noah 2026-11-10; UI-UX-SPEC §2, TASK-DELETE-SPEC §1): ⋯, right-click and long-press open the same `ContextMenuProvider` menu built by `client/card-menu.ts`: Open details, Start session, Move to ▸ (submenu with Back), Archive/Restore, Delete permanently… (danger, last). The phone sheet also keeps Move up/Move down (no card drag there; never on All). Switch, Link, Follow-up, Open workspace and Attention are not in it; Link and Follow-up were added to the sidebar ⋯ menu (`client/drawer.tsx`), the rest were already there or on the card.
+- Placement: `client/menu-placement.ts` opens below, else above, else pinned and scrolling; the popover measures its height and the keyboard-opened ⋯ anchors to the button. Trail logic in `client/menu-trail.ts`. While a menu is open every board shortcut except Esc is ignored, and a drag is cancelled; the menu control context is stable (no board re-render per open/close).
+- Strings: removed `Task actions` and `Move to: {name}` from all 9 catalogs; none added. Specs updated: UI-UX, TASK-DELETE, DRAWER, ALL-PROJECTS, CARD-LINKS. Onboarding/What's new/telemetry: no change (no tip or tour copy names the removed rows; patch-level UI tidy-up).
+- Checks: `npm run typecheck` exit 0; `npm test` exit 0 (197 files passed, 1 skipped; 1990 passed, 7 skipped). Unrun: the rebuilt plugin in a browser or on the phone (the repro ran on the installed build before the change); Android system Back inside the phone Move to submenu closes the whole sheet (the host Modal has no hook).
+
 ## Review ledgers on cards (branch `review-ledgers-on-cards`) — 2026-11-10
 
 - `server/review-ledgers.ts` (REVIEW-LEDGERS-SPEC): matching (`cardIdentity`, `LedgerFolder.find`), the newest-round summary parser (`parseLedgerSummary`), `applyLedger` (adds, updates the note, swaps or removes only `origin: "review-ledger"` records; actor `system` events) and `ReviewLedgers` (card open via `artifacts.status`, `flowly_get_task` via `AgentService.syncLedger`, a sweep 30 s after start then every 5 min; 30 s per-card throttle). Git facts come from the workspace descriptor, `git` (argument arrays) only fills gaps.

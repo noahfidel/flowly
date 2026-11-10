@@ -134,8 +134,6 @@ const catalog: Catalog = {
   "Open {title}": "{title} öffnen",
   "Board shortcuts work on desktop while focus is inside the board: click an empty part of the board or a card first. They pause while typing or while a dialog is open. From anywhere in Paseo, open the Command Center and search “Flowly”.": "Board-Kürzel funktionieren am Desktop, solange der Fokus im Board liegt: Klicke zuerst auf eine leere Stelle des Boards oder auf eine Karte. Sie pausieren beim Tippen oder bei geöffnetem Dialog. Von überall in Paseo kannst du die Befehlszentrale öffnen und nach „Flowly“ suchen.",
   "Status": "Status",
-  "Task actions": "Aufgabenaktionen",
-  "Move to: {name}": "Verschieben nach: {name}",
   "{n} cards": {"one": "{n} Karte", "other": "{n} Karten"},
   "{title} removed from the board with {cards}, but Paseo kept the project: {error}": "{title} wurde vom Board entfernt (mit {cards}), aber Paseo hat das Projekt behalten: {error}",
   "{title} removed from the board, but Paseo kept the project: {error}": "{title} wurde vom Board entfernt, aber Paseo hat das Projekt behalten: {error}",

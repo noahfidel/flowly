@@ -134,8 +134,6 @@ const catalog: Catalog = {
   "Open {title}": "打开 {title}",
   "Board shortcuts work on desktop while focus is inside the board: click an empty part of the board or a card first. They pause while typing or while a dialog is open. From anywhere in Paseo, open the Command Center and search “Flowly”.": "看板快捷键仅在桌面端、焦点位于看板内时有效：请先点击看板空白处或某张卡片。输入文字或对话框打开时会暂停。在 Paseo 任意位置都可以打开命令中心并搜索“Flowly”。",
   "Status": "状态",
-  "Task actions": "任务操作",
-  "Move to: {name}": "移动到：{name}",
   "{n} cards": "{n} 张卡片",
   "{title} removed from the board with {cards}, but Paseo kept the project: {error}": "{title} 已从看板移除（含 {cards}），但 Paseo 保留了该项目：{error}",
   "{title} removed from the board, but Paseo kept the project: {error}": "{title} 已从看板移除，但 Paseo 保留了该项目：{error}",
