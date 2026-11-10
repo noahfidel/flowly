@@ -900,7 +900,10 @@ function BoardContent(
   // card's asks pinned on top; "N updated" walks what is new to read: the cards the dispatcher saw change, then the cards
   // with an unread turn, each opening its unread chat. The queues follow the board shown (its project, or every project
   // on All projects) and recompute live; closing the card or opening another ends it.
-  const dispatcherItems = useDispatcherItemsQuery(auxiliaryActive && (!!project || allView));
+  // The dispatcher of the shown project's board group, else of the first shown project's group (DISPATCHER-SPEC §0).
+  // Interim until the board's group pages pass their group: the overview carries projects' groups, not the group list.
+  const dispatcherGroupId = project?.groupId ?? liveProjects.find((p) => p.groupId)?.groupId ?? null;
+  const dispatcherItems = useDispatcherItemsQuery(auxiliaryActive && (!!project || allView), dispatcherGroupId);
   // Asks listed as answered, ended or dismissed leave the counts too, until the live list drops them (§9.4).
   useEffect(() => {
     markAsksAnswered((dispatcherItems.data ?? []).flatMap((item) => (item.kind === "ask" && item.state !== "open" ? [item.signal] : [])));
@@ -1418,7 +1421,7 @@ function BoardContent(
       }
     >
       <LeftDock compact={compact} expanded={chatExpanded} onToggleSize={toggleChatSize} onClose={closeChat}>
-        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} />
+        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} groupId={dispatcherGroupId} />
       </LeftDock>
       {chatGrip}
     </Animated.View>
@@ -2030,6 +2033,7 @@ function BoardContent(
           onChanged={stepChanged}
           change={changed}
           onAskedDispatcher={openDock}
+          groupId={dispatcherGroupId}
         />
       )}
       <TaskDrawer

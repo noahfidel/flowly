@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { dispatcherDefaultModel } from "./dispatcher";
 
 /** A provider + model (+ optional reasoning effort) a new session starts with (MODEL-DEFAULTS-SPEC). */
 export const agentModelSchema = z.strictObject({
@@ -23,7 +24,19 @@ export function effectiveAgentModel(project: WithAgentModel, global: AgentModel 
   return null;
 }
 
-type LastSession = { provider: string; model: string; mode: string; thinking?: string; speed?: string } | null | undefined;
+/**
+ * The model a group's dispatcher starts with when Start passes none (DISPATCHER-SPEC §0, §3): the group's
+ * `defaults.dispatcherModel`, else the host's Dispatcher model setting (`models.dispatcherModel`), else the server
+ * default. Both stored values are `agentModelSchema` values; an absent or null one inherits.
+ */
+export function effectiveDispatcherModel(
+  group: { defaults?: { dispatcherModel?: AgentModel | null } | null } | null | undefined,
+  host: AgentModel | null | undefined,
+): AgentModel {
+  return group?.defaults?.dispatcherModel ?? host ?? { ...dispatcherDefaultModel };
+}
+
+type LastSession ={ provider: string; model: string; mode: string; thinking?: string; speed?: string } | null | undefined;
 
 /**
  * Starting point of the session form: the chosen default replaces provider,

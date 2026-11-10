@@ -159,6 +159,19 @@ export function migrateLegacyGroups(board: Groups, legacy: readonly LegacyGroup[
 
 /** Open cards: on a live project, not archived, not Done or Cancelled. */
 const isOpen = (status: string) => status !== "done" && status !== "cancelled";
+/** A card that counts as open (§7 step 4, DISPATCHER-SPEC §5): not archived, not Done or Cancelled. Its project is checked by the caller. */
+export const isOpenCard = (task: Pick<Board["tasks"][number], "archivedAt" | "status">) => !task.archivedAt && isOpen(task.status);
+
+/** Open cards per group: cards of live projects only, keyed by the project's `groupId`; a group without any is absent. */
+export function openCardsByGroup(board: Pick<Board, "projects" | "tasks">): Map<string, number> {
+  const groupOf = new Map(board.projects.filter((p) => !p.archivedAt && p.groupId).map((p) => [p.id, p.groupId!]));
+  const counts = new Map<string, number>();
+  for (const task of board.tasks) {
+    const group = groupOf.get(task.projectId);
+    if (group && isOpenCard(task)) counts.set(group, (counts.get(group) ?? 0) + 1);
+  }
+  return counts;
+}
 
 /**
  * The group the v1 dispatcher session moves to (§7 step 4): the one with the most open cards; ties go to the first
@@ -167,12 +180,7 @@ const isOpen = (status: string) => status !== "done" && status !== "cancelled";
 export function dispatcherTarget(board: Pick<Board, "groups" | "projects" | "tasks">): string | null {
   const ordered = orderedGroups(board.groups);
   if (!ordered.length) return null;
-  const groupOf = new Map(board.projects.filter((p) => !p.archivedAt && p.groupId).map((p) => [p.id, p.groupId!]));
-  const counts = new Map<string, number>();
-  for (const task of board.tasks) {
-    const group = groupOf.get(task.projectId);
-    if (group && !task.archivedAt && isOpen(task.status)) counts.set(group, (counts.get(group) ?? 0) + 1);
-  }
+  const counts = openCardsByGroup(board);
   let best = ordered[0];
   for (const group of ordered) if ((counts.get(group.id) ?? 0) > (counts.get(best.id) ?? 0)) best = group;
   return best.id;

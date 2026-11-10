@@ -72,6 +72,8 @@ import {
   askAnswerResultSchema,
   askDismissInputSchema,
   chatItemSchema,
+  dispatcherGroupId,
+  dispatcherGroupInputSchema,
   dispatcherStartInputSchema,
   dispatcherReplaceInputSchema,
   dispatcherSendInputSchema,
@@ -1058,7 +1060,7 @@ export const exportBoardMarkdown = defineRpc({
 });
 export const useSqliteStorage = defineRpc({ name: "storage.use-sqlite", input: z.strictObject({}), output: z.strictObject({}) });
 /** The dispatcher session's state (DISPATCHER-SPEC §3, §8). */
-export const dispatcherStatus = defineRpc({ name: "dispatcher.status", input: z.strictObject({}), output: dispatcherStatusSchema });
+export const dispatcherStatus = defineRpc({ name: "dispatcher.status", input: dispatcherGroupInputSchema, output: dispatcherStatusSchema });
 /** Starts a new dispatcher session; refused while one is up (DISPATCHER-SPEC §3, §8). */
 export const dispatcherStart = defineRpc({ name: "dispatcher.start", input: dispatcherStartInputSchema, output: dispatcherStartResultSchema });
 /** Replace an unguarded dispatcher: the user's confirmed click only; never a dispatcher tool (DISPATCHER-SPEC §3). */
@@ -1066,24 +1068,24 @@ export const dispatcherReplace = defineRpc({ name: "dispatcher.replace", input: 
 /** The chat's own items plus "Changed since you looked" (DISPATCHER-SPEC §9.1, §9.2). */
 export const dispatcherItemsChanged = defineRpc({
   name: "dispatcher.items-changed",
-  input: etagInput,
+  input: etagInput.extend({ groupId: dispatcherGroupId }),
   output: z.object({ etag: z.string(), value: z.array(chatItemSchema).optional() }),
 });
 /** The dispatcher's transcript: `sessions.tail` for the stored dispatcher session only (DISPATCHER-SPEC §9.3). */
-export const dispatcherTail = defineRpc({ name: "dispatcher.tail", input: sessionTail.input.omit({ taskId: true }), output: tailPageSchema });
+export const dispatcherTail = defineRpc({ name: "dispatcher.tail", input: sessionTail.input.omit({ taskId: true }).extend({ groupId: dispatcherGroupId }), output: tailPageSchema });
 /**
  * Mark seen: the change line counts from `revision` on, except the event `ids` seen at that very ms; never moves
  * back, clamped to the daemon's clock (DISPATCHER-SPEC §9.2).
  */
 export const dispatcherMarkSeen = defineRpc({
   name: "dispatcher.mark-seen",
-  input: z.strictObject({ revision: z.number().int().nonnegative(), ids: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional() }),
+  input: z.strictObject({ groupId: dispatcherGroupId, revision: z.number().int().nonnegative(), ids: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional() }),
   output: z.strictObject({ seenRevision: z.number().int().nonnegative() }),
 });
 /** The user's chat message to the dispatcher, sent by the daemon; refused for an unguarded one (DISPATCHER-SPEC §3, §9.3). */
 export const dispatcherSend = defineRpc({ name: "dispatcher.send", input: dispatcherSendInputSchema, output: z.strictObject({ sent: z.literal(true) }) });
 /** "What should I do?" with the changed cards, sent to the dispatcher (DISPATCHER-SPEC §9.2). */
-export const dispatcherWhatNext = defineRpc({ name: "dispatcher.what-next", input: z.strictObject({}), output: z.strictObject({ sent: z.literal(true) }) });
+export const dispatcherWhatNext = defineRpc({ name: "dispatcher.what-next", input: dispatcherGroupInputSchema, output: z.strictObject({ sent: z.literal(true) }) });
 /** Answers one ask from the chat, re-checked against its session; `delivered` only after the Paseo call resolved (DISPATCHER-SPEC §9.4). */
 export const asksAnswer = defineRpc({ name: "asks.answer", input: askAnswerInputSchema, output: askAnswerResultSchema });
 /** Dismisses one ask: its signal joins the card's dismissal set (ATTENTION-DISMISS-SPEC §7a). */

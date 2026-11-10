@@ -1,8 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { agentModelFromValues, agentModelSchema, effectiveAgentModel, providerBase, quickTaskMode, startingAgent, suggestedMode, suggestedThinking } from "./agent-defaults";
+import { agentModelFromValues, agentModelSchema, effectiveAgentModel, effectiveDispatcherModel, providerBase, quickTaskMode, startingAgent, suggestedMode, suggestedThinking } from "./agent-defaults";
+import { dispatcherDefaultModel } from "./dispatcher";
 
 const claude = { provider: "claude", model: "claude-sonnet-5-5", thinking: "high" };
 const codex = { provider: "codex", model: "gpt-6-luna" };
+
+describe("dispatcher model (DISPATCHER-SPEC §0, §3)", () => {
+  const opus = { provider: "claude", model: "claude-opus-5-5", mode: "default" };
+  it("prefers the group's default, then the host setting, then the server default", () => {
+    expect(effectiveDispatcherModel({ defaults: { dispatcherModel: opus } }, claude)).toEqual(opus);
+    expect(effectiveDispatcherModel({ defaults: {} }, claude)).toEqual(claude);
+    expect(effectiveDispatcherModel({ defaults: { dispatcherModel: null } }, claude)).toEqual(claude);
+    expect(effectiveDispatcherModel({}, null)).toEqual(dispatcherDefaultModel);
+    expect(effectiveDispatcherModel(undefined, undefined)).toEqual(dispatcherDefaultModel);
+  });
+  it("passes a group's other provider through: the start refuses it, not the chain", () => {
+    expect(effectiveDispatcherModel({ defaults: { dispatcherModel: codex } }, claude)).toEqual(codex);
+  });
+});
 
 describe("effective model default", () => {
   it("prefers the project's default over the global one", () => {

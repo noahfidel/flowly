@@ -105,18 +105,19 @@ export class NoteBatcher {
     private readonly opts: {
       windowMs: number;
       maxWaitMs: number;
-      /** The dispatcher's own session: what it causes is not news to it. */
-      exclude: () => string | null;
+      /** The dispatchers' own sessions: what they cause is not news to them. */
+      exclude: () => string | readonly string[] | null;
     },
     private readonly flush: (notes: DispatcherNote[]) => void,
   ) {}
 
   push(facts: BusFact[]) {
-    const own = this.opts.exclude();
+    const excluded = this.opts.exclude();
+    const own = new Set(typeof excluded === "string" ? [excluded] : (excluded ?? []));
     let added = false;
     for (const fact of facts) {
       if (fact.kind !== "board") continue;
-      if (own && fact.event.agentId === own) continue;
+      if (fact.event.agentId && own.has(fact.event.agentId)) continue;
       const key = fact.event.taskId,
         note = noteOf(fact),
         prev = this.pending.get(key);

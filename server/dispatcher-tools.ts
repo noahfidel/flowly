@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, sep } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { PaseoApi } from "@getpaseo/client";
 import { z } from "zod";
+import { isOpenCard } from "../shared/groups";
 import { ideaNewestFirst } from "../shared/ideas";
 import { linkFor } from "../shared/links";
 import { linkSchema, projectInput, tagLimits, type Idea, type Project, type ProjectInput } from "../shared/model";
@@ -99,7 +100,6 @@ const listProjectsResultSchema = z.object({
 });
 const linkCardsResultSchema = z.object({ link: linkSchema, created: z.boolean() });
 
-const finished = (status: string) => status === "done" || status === "cancelled";
 /** The tool's input without `projectId`, for the card services' own strict schemas. */
 const rest = <T extends { projectId: string }>({ projectId: _, ...input }: T) => input;
 
@@ -148,34 +148,45 @@ export class DispatcherTools {
     private readonly dispatcher: Dispatcher,
   ) {}
 
-  /** The stored dispatcher, live in its workspace; checked again on every call (§4). */
-  async caller(identity: DispatcherIdentity): Promise<{ agentId: string }> {
-    const record = await this.dispatcher.record();
-    if (!record.agentId || record.agentId !== identity.agentId || record.workspaceId !== identity.workspaceId)
-      throw new ToolError("DISPATCHER_REPLACED", "This dispatcher session was replaced by a newer one; its Flowly tools no longer work. Tell the user.");
+  /**
+   * The stored dispatcher of a group, live in its workspace; checked again on every call (§4). The group is the one
+   * whose record entry holds the session; a token that names a group must name that one. A session no group holds
+   * (replaced, or its group deleted) is refused.
+   */
+  async caller(identity: DispatcherIdentity): Promise<{ agentId: string; groupId: string }> {
+    const own = await this.dispatcher.sessionOf(identity.agentId);
+    const replaced = () =>
+      new ToolError("DISPATCHER_REPLACED", "This dispatcher session was replaced by a newer one; its Flowly tools no longer work. Tell the user.");
+    if (!own || own.workspaceId !== identity.workspaceId || (identity.groupId !== undefined && identity.groupId !== own.groupId)) throw replaced();
+    if (!(await this.store.read()).groups.some((g) => g.id === own.groupId)) throw replaced();
     const found = await this.cards.api().agents.ref(identity.agentId).refresh();
     if (!found?.agent || found.agent.archivedAt || found.agent.workspaceId !== identity.workspaceId)
       throw new ToolError("SESSION_MISMATCH", "The dispatcher session is unavailable, archived, or in another workspace.");
-    return { agentId: identity.agentId };
+    return { agentId: identity.agentId, groupId: own.groupId };
   }
 
-  /** The dispatcher acting on one live project (§4). */
+  /** The dispatcher acting on one live project of its group (§4); a project of another group is refused. */
   async projectCaller(identity: DispatcherIdentity, projectId: string, write = false): Promise<CardCaller> {
-    const { agentId } = await this.caller(identity);
+    const { agentId, groupId } = await this.caller(identity);
+    // Read now, so a project that moved to another group since the last call is refused too.
+    const project = (await this.store.read()).projects.find((p) => p.id === projectId);
+    if (project && project.groupId !== groupId)
+      throw new ToolError("PROJECT_OUT_OF_GROUP", "This project belongs to another board group; its own dispatcher handles it. Tell the user.");
     return this.cards.dispatcherCaller(projectId, agentId, write);
   }
 
+  /** The live projects of the dispatcher's group (§5). */
   async listProjects(identity: DispatcherIdentity) {
-    await this.caller(identity);
+    const { groupId } = await this.caller(identity);
     const board = await this.store.read();
     const projects = await Promise.all(
       board.projects
-        .filter((p) => !p.archivedAt)
+        .filter((p) => !p.archivedAt && p.groupId === groupId)
         .map(async (p) => ({
           projectId: p.id,
           title: p.title,
           rootAvailable: await rootAvailable(p.primaryPath),
-          openCards: board.tasks.filter((t) => t.projectId === p.id && !t.archivedAt && !finished(t.status)).length,
+          openCards: board.tasks.filter((t) => t.projectId === p.id && isOpenCard(t)).length,
         })),
     );
     return { projects };
@@ -281,7 +292,7 @@ export class DispatcherTools {
    */
   async createProject(identity: DispatcherIdentity, raw: unknown) {
     const input = dispatcherInputs.createProject.parse(raw);
-    const { agentId } = await this.caller(identity);
+    const { agentId, groupId } = await this.caller(identity);
     await this.cards.enabled();
     const create = this.createProjectWith;
     if (!create) throw new ToolError("PASEO_UNAVAILABLE", "Flowly is still starting; try again in a moment.", true);
@@ -302,7 +313,8 @@ export class DispatcherTools {
         await this.checkReserved(root);
         // The folder's name is the default title; a name with nothing but spaces (or "/") falls back to "Project".
         const title = input.title ?? (basename(root).trim().slice(0, 120).trim() || "Project");
-        project = await create(projectInput.parse({ title, description: input.description ?? "", primaryPath: root }), paseo);
+        // It joins the dispatcher's group (§5.2).
+        project = await create(projectInput.parse({ title, description: input.description ?? "", primaryPath: root, groupId }), paseo);
       } catch (e) {
         if (e instanceof ToolError) throw e;
         const message = e instanceof z.ZodError ? e.issues.map((i) => i.message).join("; ") : e instanceof Error ? e.message : String(e);
@@ -365,7 +377,7 @@ export class DispatcherTools {
     mcp.registerTool(
       "flowly_list_projects",
       {
-        description: "List the live Flowly projects with their projectId, whether their folder is available, and how many open cards they have. Read-only.",
+        description: "List the live Flowly projects of your board group with their projectId, whether their folder is available, and how many open cards they have. Read-only.",
         inputSchema: z.strictObject({}),
         outputSchema: listProjectsResultSchema,
         annotations: read,

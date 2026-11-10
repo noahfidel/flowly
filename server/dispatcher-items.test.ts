@@ -6,7 +6,7 @@ import { ChangeLineCache, DispatcherItems, changeLine, seenMark, whatNextMessage
 import { logFailure } from "./error-report";
 import { Dispatcher } from "./dispatcher";
 import { chatItemLimit, type StoredChatItem as ChatItem } from "../shared/dispatcher";
-import { emptyBoard, type Board, type BoardEvent } from "../shared/model";
+import { emptyBoard, type Board, type BoardEvent, type Group } from "../shared/model";
 
 vi.mock("./error-report", async (original) => ({ ...(await original<typeof import("./error-report")>()), logFailure: vi.fn() }));
 
@@ -32,6 +32,17 @@ function board(): Board {
   b.tasks.push(task("t1", "p") as never, task("t2", "p", { status: "in_review" }) as never, task("t3", "p", { archivedAt: now }) as never, task("t4", "gone") as never);
   return b;
 }
+/** A dispatcher of the one group "g1" (DISPATCHER-SPEC §0). */
+function groupDispatcher(dir: string, now?: () => number) {
+  const groups: Group[] = [{ id: "g1", name: "Projects", position: 0, isDefault: true, revision: 1, createdAt: iso(T0), updatedAt: iso(T0) }];
+  return new Dispatcher(
+    dir,
+    { summary: async () => "", mcp: async () => ({ type: "http", url: "", headers: {} }), board: async () => ({ ...emptyBoard(), groups }), ...(now ? { now } : {}) },
+    join(dir, "..", "unused-dispatcher-folder"),
+  );
+}
+/** The group's seen mark as stored. */
+const stored = async (d: Dispatcher) => seenMark((await d.record()).groups.g1 ?? {});
 const event = (taskId: string, at: number, extra: Partial<BoardEvent> = {}): BoardEvent => ({ id: `e-${taskId}-${at}`, taskId, actor: "agent", action: "progress_reported", at: iso(at), ...extra });
 const mark = (revision: number, ids: string[] = []): SeenMark => ({ revision, ids });
 
@@ -75,30 +86,32 @@ test("the change line counts cards changed since the seen revision", () => {
 test("Mark seen hides the change line until something new changes", async () => {
   const dir = await directory();
   const now = { value: T0 + 60_000 };
-  const dispatcher = new Dispatcher(dir, { summary: async () => "", mcp: async () => ({ type: "http", url: "", headers: {} }), now: () => now.value }, join(dir, "..", "unused-dispatcher-folder"));
+  const dispatcher = groupDispatcher(dir, () => now.value);
   // Before any dispatcher and any mark: no baseline.
-  expect(seenMark(await dispatcher.record())).toBeNull();
+  expect(await stored(dispatcher)).toBeNull();
   // The dispatcher's start is the mark until the user marks seen.
   expect(seenMark({ startedAt: iso(T0) })).toEqual(mark(T0));
   const b = board();
   b.events.push(event("t1", T0 + 1_000));
   const line = changeLine(b, mark(T0));
   expect(line?.kind === "change" && line.cards.length).toBe(1);
-  await dispatcher.markSeen(line!.kind === "change" ? line!.revision : 0, line!.kind === "change" ? line!.ids : []);
-  expect(changeLine(b, seenMark(await dispatcher.record()))).toBeNull();
+  await dispatcher.markSeen("g1", line!.kind === "change" ? line!.revision : 0, line!.kind === "change" ? line!.ids : []);
+  expect(changeLine(b, await stored(dispatcher))).toBeNull();
   // An older mark never moves it back.
-  await dispatcher.markSeen(T0 - 10);
-  expect((await dispatcher.record()).seenRevision).toBe(T0 + 1_000);
+  await dispatcher.markSeen("g1", T0 - 10);
+  expect((await dispatcher.record()).groups.g1.seenRevision).toBe(T0 + 1_000);
   // Something new shows the line again, with only the new change.
   b.events.push(event("t2", T0 + 2_000));
-  const next = changeLine(b, seenMark(await dispatcher.record()));
+  const next = changeLine(b, await stored(dispatcher));
   expect(next?.kind === "change" && next.cards.map((c) => c.taskId)).toEqual(["t2"]);
   // A mark from a client whose clock runs ahead is clamped to the daemon's time.
-  expect(await dispatcher.markSeen(T0 + 3_600_000)).toBe(T0 + 60_000);
-  expect(seenMark(await dispatcher.record())).toEqual(mark(T0 + 60_000));
+  expect(await dispatcher.markSeen("g1", T0 + 3_600_000)).toBe(T0 + 60_000);
+  expect(await stored(dispatcher)).toEqual(mark(T0 + 60_000));
   // The mark is stored and survives a reload.
-  const again = new Dispatcher(dir, { summary: async () => "", mcp: async () => ({ type: "http", url: "", headers: {} }) }, join(dir, "..", "unused-dispatcher-folder"));
-  expect((await again.record()).seenRevision).toBe(T0 + 60_000);
+  const again = groupDispatcher(dir);
+  expect((await again.record()).groups.g1.seenRevision).toBe(T0 + 60_000);
+  // An unknown group has no mark to set.
+  await expect(dispatcher.markSeen("nope", T0)).rejects.toMatchObject({ code: "GROUP_NOT_FOUND" });
 });
 
 const note = (taskId: string, at: number): ChatItem => ({ id: `n-${taskId}-${at}`, at: iso(at), kind: "note", note: { taskId, projectId: "p", title: `Card ${taskId}`, kind: "status_changed", detail: "a → b", at: iso(at) } });
@@ -147,22 +160,22 @@ test("a corrupt items file is preserved and read as empty", async () => {
 
 test("events in the same millisecond as the mark are not lost", async () => {
   const dir = await directory();
-  const dispatcher = new Dispatcher(dir, { summary: async () => "", mcp: async () => ({ type: "http", url: "", headers: {} }), now: () => T0 + 60_000 }, join(dir, "..", "unused-dispatcher-folder"));
+  const dispatcher = groupDispatcher(dir, () => T0 + 60_000);
   const b = board();
   const ms = T0 + 1_000;
   b.events.push(event("t1", ms, { id: "a" }));
   const line = changeLine(b, mark(T0));
   expect(line?.kind === "change" && line.ids).toEqual(["a"]);
-  await dispatcher.markSeen(ms, ["a"]);
+  await dispatcher.markSeen("g1", ms, ["a"]);
   // A second event lands in the same millisecond after the user looked: still news.
   b.events.push(event("t2", ms, { id: "b" }));
-  const after = changeLine(b, seenMark(await dispatcher.record()));
+  const after = changeLine(b, await stored(dispatcher));
   expect(after?.kind === "change" && after.cards.map((c) => [c.taskId, c.events])).toEqual([["t2", 1]]);
   // Marking it too keeps both ids at that millisecond; an older mark changes nothing.
-  await dispatcher.markSeen(ms, ["b"]);
-  await dispatcher.markSeen(ms - 5, ["zzz"]);
-  expect(seenMark(await dispatcher.record())).toEqual(mark(ms, ["a", "b"]));
-  expect(changeLine(b, seenMark(await dispatcher.record()))).toBeNull();
+  await dispatcher.markSeen("g1", ms, ["b"]);
+  await dispatcher.markSeen("g1", ms - 5, ["zzz"]);
+  expect(await stored(dispatcher)).toEqual(mark(ms, ["a", "b"]));
+  expect(changeLine(b, await stored(dispatcher))).toBeNull();
 });
 
 test("the change line is scanned once per board revision and mark", () => {

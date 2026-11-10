@@ -6,6 +6,7 @@ import {
   groupOrder,
   migrateLegacyGroups,
   nameTaken,
+  openCardsByGroup,
   type LegacyGroup,
 } from "./groups";
 import { emptyBoard, groupSchema, type Board, type Group, type Project, type Task } from "./model";
@@ -268,4 +269,8 @@ describe("dispatcherTarget (BOARD-GROUPS-SPEC §7 step 4)", () => {
     expect(dispatcherTarget(board)).toBe("two");
   });
   test("no groups: none", () => expect(dispatcherTarget(emptyBoard())).toBeNull());
+  test("open cards per group count live projects' open, unarchived cards only", () => {
+    expect(openCardsByGroup(b())).toEqual(new Map([["one", 1], ["two", 1]]));
+    expect(openCardsByGroup(emptyBoard()).size).toBe(0);
+  });
 });

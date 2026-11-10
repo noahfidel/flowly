@@ -14,7 +14,7 @@ import {
 } from "../shared/dispatcher";
 import type { Board } from "../shared/model";
 import { logFailure } from "./error-report";
-import type { DispatcherRecord } from "./dispatcher";
+import type { DispatcherEntry } from "./dispatcher";
 
 /** The dispatcher chat's own items (DISPATCHER-SPEC §9.1) and its "Changed since you looked" line (§9.2). */
 
@@ -38,7 +38,7 @@ export function noteItems(notes: readonly DispatcherNote[], at: string): Stored[
 /** Where "Changed since you looked" starts: a millisecond, and the events at exactly that ms already seen. */
 export type SeenMark = { revision: number; ids: readonly string[] };
 
-export function seenMark(record: Pick<DispatcherRecord, "seenRevision" | "seenIds" | "startedAt">): SeenMark | null {
+export function seenMark(record: Partial<Pick<DispatcherEntry, "seenRevision" | "seenIds" | "startedAt">>): SeenMark | null {
   if (typeof record.seenRevision === "number") return { revision: record.seenRevision, ids: record.seenIds ?? [] };
   const started = record.startedAt ? Date.parse(record.startedAt) : NaN;
   return Number.isFinite(started) ? { revision: started, ids: [] } : null;
@@ -92,9 +92,9 @@ export class ChangeLineCache {
   }
 }
 
-/** Every dispatcher session id the record names: the earlier ones, then the current one. */
-export function dispatcherSessionIds(record: Pick<DispatcherRecord, "agentId" | "previousAgentIds">): string[] {
-  return [...(record.previousAgentIds ?? []), ...(record.agentId ? [record.agentId] : [])];
+/** Every dispatcher session id a group's entry names: the earlier ones, then the current one. */
+export function dispatcherSessionIds(entry: Pick<DispatcherEntry, "agentId" | "previousAgentIds">): string[] {
+  return [...(entry.previousAgentIds ?? []), ...(entry.agentId ? [entry.agentId] : [])];
 }
 
 /** The "What should I do?" message: the question, then the changed cards (§9.2). Agent-facing, English. */

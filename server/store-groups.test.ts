@@ -265,13 +265,27 @@ describe.each(["json", "sqlite"] as const)("board groups in the store (%s)", (ba
     await s.migrateGroups(legacy([{ id: "z", name: "Zen", projectIds: ["a"] }]));
     const extra = await s.createGroup({ name: "Extra" });
     const zen = byName(await s.read(), "Zen");
-    const running = v1DispatcherGuard({ record: async () => ({ agentId: "dispatcher-1" }) });
+    const running = v1DispatcherGuard({ record: async () => ({ groups: {}, unassigned: { agentId: "dispatcher-1" } }) });
     await expect(s.deleteGroup({ id: zen.id, revision: zen.revision }, running)).rejects.toMatchObject({ code: "GROUP_BUSY" });
     expect(byName(await onDisk(backend, d), "Zen")).toBeDefined();
     await s.deleteGroup({ id: extra.id, revision: extra.revision }, running);
-    const none = v1DispatcherGuard({ record: async () => ({ agentId: null }) });
+    const none = v1DispatcherGuard({ record: async () => ({ groups: {} }) });
     await s.deleteGroup({ id: zen.id, revision: zen.revision }, none);
     expect(layout(await onDisk(backend, d))).toEqual({ "Projects*": ["a", "b"] });
+  });
+
+  test("delete refuses a group that holds its own dispatcher session; others go", async () => {
+    const d = await directory();
+    await seed(d, [project("a"), project("b")], [task("a1", "a")]);
+    const s = open(backend, d);
+    await s.migrateGroups(legacy([{ id: "z", name: "Zen", projectIds: ["a"] }]));
+    const extra = await s.createGroup({ name: "Extra" });
+    const other = await s.createGroup({ name: "Other" });
+    const guard = v1DispatcherGuard({ record: async () => ({ groups: { [extra.id]: { agentId: "dispatcher-1" }, [other.id]: { agentId: null } } }) });
+    await expect(s.deleteGroup({ id: extra.id, revision: extra.revision }, guard)).rejects.toMatchObject({ code: "GROUP_BUSY" });
+    await s.deleteGroup({ id: other.id, revision: other.revision }, guard);
+    expect(byName(await onDisk(backend, d), "Extra")).toBeDefined();
+    expect(byName(await onDisk(backend, d), "Other")).toBeUndefined();
   });
 
   test("set-group: moves a project and bumps its revision; stale revisions and unknown groups are refused", async () => {
