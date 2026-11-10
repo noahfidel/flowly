@@ -418,11 +418,8 @@ export default function contribute(host: PluginServerContext) {
   tools.dispatcher.onSent = (notes, at, to) => {
     void chatItems.put(noteItems(notes, at, to)).catch((e) => logFailure("Flowly dispatcher chat notes not recorded:", e, `${notes.length} notes`));
   };
-  tails.dispatcher = async (groupId) => {
-    const record = await tools.dispatcher.resolvedRecord();
-    const agentId = record.groups[groupId]?.agentId;
-    return agentId && record.workspaceId ? { agentId, workspaceId: record.workspaceId } : null;
-  };
+  // The group's session in the workspace it lives in, which may be older than the one new sessions start in (§2).
+  tails.dispatcher = (groupId) => tools.dispatcher.groupSession(groupId);
   const changes = new ChangeLineCache();
   // The group's mark and its live projects' cards; the actions of every dispatcher session are left out (§0, §9.2).
   const currentChange = async (groupId: string, read?: { board: Board; record: DispatcherRecord }) => {

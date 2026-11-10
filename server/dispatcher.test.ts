@@ -20,6 +20,8 @@ import {
 import { dispatcherSessionIds } from "./dispatcher-items";
 import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
+import { SessionTailService } from "./session-tail";
+import { ToolError } from "./tool-error";
 import { agentFixture } from "./agent-fixture";
 import type { DispatcherIdentity } from "./tool-context";
 import { dispatcherBuiltinTools, dispatcherCharter, dispatcherConfirmedToolNames, dispatcherGuardVersion, dispatcherToolNames, dispatcherWithheldTools, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
@@ -1449,8 +1451,9 @@ test("the v1 session moves to the group with the most open cards, every field wi
   x.agents.set("old", { id: "old", workspaceId: "dw-0", status: "idle", archivedAt: null });
   await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(v1Record));
   await x.hub.migrate();
-  const { version: _, workspaceId, ...entry } = v1Record;
-  expect(await readRaw(x)).toEqual({ version: 2, workspaceId, groups: { [H]: entry }, legacyGroupId: H });
+  // The entry keeps the workspace its session lives in (§1); the record's stays the one new sessions start in.
+  const { version: _, ...entry } = v1Record;
+  expect(await readRaw(x)).toEqual({ version: 2, workspaceId: entry.workspaceId, groups: { [H]: entry }, legacyGroupId: H });
   expect(await x.hub.status(x.paseo, H)).toEqual({ state: "idle", agentId: "old" });
   expect(await x.hub.status(x.paseo, G)).toEqual({ state: "none", agentId: null });
   // The moved session keeps its workspace and is the one the tools and the open hook know.
@@ -1486,7 +1489,8 @@ test("with no groups yet the v1 session waits as unassigned (written as v2), and
   x.state.board = emptyBoard();
   await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(v1Record));
   await x.hub.migrate();
-  const { version: _, workspaceId, ...entry } = v1Record;
+  const { version: _, ...entry } = v1Record;
+  const workspaceId = entry.workspaceId;
   expect(await readRaw(x)).toEqual({ version: 2, workspaceId, groups: {}, unassigned: entry });
   // Nothing to talk to yet: no group.
   await expect(x.hub.status(x.paseo, G)).rejects.toMatchObject({ code: "GROUP_NOT_FOUND" });
@@ -2069,4 +2073,202 @@ test("a group's first message summarizes only that group's live projects (§6)",
   expect(summary).toContain("Card b1");
   expect(summary).not.toContain("Card a1");
   expect(dispatcherSummary(b, "empty")).toContain("- none yet");
+});
+
+// ---- Review fixes: per-group workspace, flush re-check, delete re-check, late stops (DISPATCHER-SPEC §0-§2, §7) ----
+
+const sonnet = "claude/claude-sonnet-5-5";
+
+test("a group's session keeps the workspace it lives in when another group's start makes a new one (legacy folder, §1, §2)", async () => {
+  const x = await setup();
+  x.state.board = twoGroupBoard();
+  // The v1 dispatcher lives in the old in-data folder, which is never reused (§2); no guard, so Replace takes it.
+  const old = join(x.directory, "dispatcher");
+  await mkdir(old);
+  x.workspaces.set("old-ws", { id: "old-ws", archivingAt: null, workspaceDirectory: old });
+  x.agents.set("old", { id: "old", workspaceId: "old-ws", status: "idle", archivedAt: null });
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "old-ws", agentId: "old", startedAt: T }));
+  await x.hub.migrate();
+  expect((await x.hub.resolvedRecord()).groups[G]).toMatchObject({ agentId: "old", workspaceId: "old-ws" });
+  // Group H starts: a new workspace in the dispatcher folder, which becomes the one new sessions start in.
+  const b = await x.hub.start(x.paseo, { groupId: H, provider: sonnet });
+  expect(x.agentCreates.map((c) => c.workspaceId)).toEqual(["dw-1"]);
+  expect(await x.hub.resolvedRecord()).toMatchObject({
+    workspaceId: "dw-1",
+    groups: { [G]: { agentId: "old", workspaceId: "old-ws" }, [H]: { agentId: b.agentId, workspaceId: "dw-1" } },
+  });
+  // G's session is still the one its token, the open hook and its turn end name, in its own workspace.
+  expect(await x.hub.sessionOf("old")).toMatchObject({ groupId: G, workspaceId: "old-ws" });
+  expect(await x.hub.sessionOf(b.agentId)).toMatchObject({ groupId: H, workspaceId: "dw-1" });
+  // Both tails read.
+  const tails = new SessionTailService({} as never);
+  tails.dispatcher = (groupId) => x.hub.groupSession(groupId);
+  const tailPaseo = {
+    agents: {
+      ref: (id: string) => ({
+        timeline: { refetch: async () => ({ entries: [], epoch: 1, agent: { ...x.agents.get(id)! }, hasOlder: false, hasNewer: false, startCursor: null }) },
+        refresh: async () => null,
+      }),
+    },
+  } as unknown as PaseoApi;
+  await expect(tails.dispatcherTail({ groupId: G, agentId: "old", limit: 5 }, tailPaseo)).resolves.toMatchObject({ entries: [] });
+  await expect(tails.dispatcherTail({ groupId: H, agentId: b.agentId, limit: 5 }, tailPaseo)).resolves.toMatchObject({ entries: [] });
+  // Both workspaces stay out of a card's reach.
+  expect(await x.hub.owns("old-ws")).toBe(true);
+  expect(await x.hub.owns("dw-1")).toBe(true);
+  // G's dispatcher is still live: Start is refused.
+  await expect(x.hub.start(x.paseo, { groupId: G, provider: sonnet })).rejects.toMatchObject({ code: "DISPATCHER_RUNNING" });
+  // Replace archives G's session in its old workspace and starts the new one in the current workspace.
+  const c = await x.hub.replace(x.paseo, { groupId: G, agentId: "old" });
+  expect(x.archived).toEqual(["agent:old"]);
+  expect(x.created).toHaveLength(1);
+  expect(x.agentCreates.at(-1)!.workspaceId).toBe("dw-1");
+  expect((await x.hub.resolvedRecord()).groups[G]).toMatchObject({ agentId: c.agentId, workspaceId: "dw-1", previousAgentIds: ["old"] });
+  expect(await x.hub.owns("old-ws")).toBe(false);
+});
+
+test("an entry written without a workspace of its own keeps the earlier one when a new workspace is made (§1)", async () => {
+  const x = await setup();
+  x.state.board = twoGroupBoard();
+  x.agents.set("a", { id: "a", workspaceId: "gone-ws", status: "idle", archivedAt: null });
+  await writeFile(
+    join(x.directory, "dispatcher.json"),
+    JSON.stringify({ version: 2, workspaceId: "gone-ws", groups: { [G]: { agentId: "a", startedAt: T }, [H]: { agentId: null, startedAt: null, seenRevision: 5 } } }),
+  );
+  // Read as the record's workspace until then.
+  expect(await x.hub.sessionOf("a")).toMatchObject({ groupId: G, workspaceId: "gone-ws" });
+  await x.hub.start(x.paseo, { groupId: H, provider: sonnet });
+  const record = await x.hub.resolvedRecord();
+  expect(record.workspaceId).toBe("dw-1");
+  expect(record.groups[G]).toEqual({ agentId: "a", startedAt: T, workspaceId: "gone-ws" });
+  expect(await x.hub.sessionOf("a")).toMatchObject({ groupId: G, workspaceId: "gone-ws" });
+  expect(await x.hub.groupSession(G)).toEqual({ agentId: "a", workspaceId: "gone-ws" });
+});
+
+test("a refused create restores the group's earlier session with its own workspace (§1, §3)", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const x = await setup();
+  x.agents.set("old", { id: "old", workspaceId: "dw-0", status: "idle", archivedAt: "2026-11-09T00:00:00.000Z" });
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ version: 2, workspaceId: "dw-0", groups: { [G]: { agentId: "old", startedAt: T, workspaceId: "dw-0" } } }));
+  x.failAgentCreate(new Error("no"));
+  await expect(x.hub.start(x.paseo, { groupId: G, provider: sonnet })).rejects.toMatchObject({ code: "START_FAILED" });
+  const record = await x.hub.resolvedRecord();
+  expect(record.workspaceId).toBe("dw-1");
+  expect(record.groups[G]).toEqual({ agentId: "old", startedAt: T, workspaceId: "dw-0" });
+});
+
+test("a flush whose held notes were taken while it read the dispatcher's state sends nothing (§7)", async () => {
+  const x = await setup();
+  x.state.board = twoGroupBoard();
+  const { agentId } = await x.hub.start(x.paseo, { groupId: G, provider: sonnet });
+  x.agents.get(agentId)!.status = "idle";
+  let reading!: () => void;
+  const read = new Promise<void>((resolve) => (reading = resolve));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const paseo = {
+    ...x.paseo,
+    agents: {
+      ref: (id: string) => {
+        const ref = x.paseo.agents.ref(id);
+        return { ...ref, refresh: async () => (reading(), await gate, ref.refresh()) };
+      },
+    },
+  } as unknown as PaseoApi;
+  const delivering = x.hub.deliver(G, [note("t1")], paseo);
+  await read;
+  // The project moves to H (no dispatcher there) while G's delivery waits on Paseo: its note leaves G.
+  await x.hub.projectMoved("p", H);
+  release();
+  await delivering;
+  expect(x.sends).toEqual([]);
+});
+
+/** A store that refuses as the real one does (missing group, stale revision) before `deleteStore`'s delete. */
+function checkedStore(x: { state: { board: Board } }) {
+  const inner = deleteStore(x);
+  return {
+    deleteGroup: vi.fn(async (input: { id: string; revision: number }) => {
+      const found = x.state.board.groups.find((g) => g.id === input.id);
+      if (!found) throw new ToolError("GROUP_NOT_FOUND", "No board group with that id.");
+      if (found.revision !== input.revision) throw new ToolError("REVISION_CONFLICT", "This group changed. Reload it before saving.");
+      return inner.deleteGroup(input);
+    }),
+  };
+}
+const bumpGroup = (x: { state: { board: Board } }, id: string) => {
+  x.state.board.groups = x.state.board.groups.map((g) => (g.id === id ? { ...g, revision: g.revision + 1 } : g));
+};
+
+test("a group delete checks the group again right before the archive: an edit meanwhile archives nothing (§0)", async () => {
+  const x = await setup();
+  const { b } = await startBoth(x);
+  x.agents.get(b)!.status = "idle";
+  const store = checkedStore(x);
+  // The group is renamed while the delete reads its session's state.
+  const paseo = {
+    ...x.paseo,
+    agents: {
+      ref: (id: string) => {
+        const ref = x.paseo.agents.ref(id);
+        return { ...ref, refresh: async () => (id === b && bumpGroup(x, H), ref.refresh()) };
+      },
+    },
+  } as unknown as PaseoApi;
+  const before = await readFile(join(x.directory, "dispatcher.json"), "utf8");
+  await expect(x.hub.deleteGroup(paseo, { id: H, revision: 1 }, store)).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+  expect(x.archived).toEqual([]);
+  expect(store.deleteGroup).not.toHaveBeenCalled();
+  expect(await readFile(join(x.directory, "dispatcher.json"), "utf8")).toBe(before);
+});
+
+test("a group delete whose board write is refused after the archive says the session was already archived (§0)", async () => {
+  const x = await setup();
+  const { b } = await startBoth(x);
+  x.agents.get(b)!.status = "idle";
+  const store = checkedStore(x);
+  // The group is edited while Paseo archives its session.
+  const paseo = {
+    ...x.paseo,
+    agents: {
+      ref: (id: string) => {
+        const ref = x.paseo.agents.ref(id);
+        return { ...ref, archive: async () => (bumpGroup(x, H), ref.archive()) };
+      },
+    },
+  } as unknown as PaseoApi;
+  const failure = x.hub.deleteGroup(paseo, { id: H, revision: 1 }, store);
+  await expect(failure).rejects.toMatchObject({ code: "REVISION_CONFLICT", message: expect.stringContaining("already archived") });
+  expect(x.archived).toEqual([`agent:${b}`]);
+  // The group stays (at revision 2) with no session recorded: a refusal now archived nothing and says nothing of it.
+  const refusing = { deleteGroup: vi.fn(async (): Promise<never> => Promise.reject(new ToolError("REVISION_CONFLICT", "This group changed. Reload it before saving."))) };
+  await expect(x.hub.deleteGroup(x.paseo, { id: H, revision: 2 }, refusing)).rejects.toMatchObject({
+    code: "REVISION_CONFLICT",
+    message: "This group changed. Reload it before saving.",
+  });
+  expect(refusing.deleteGroup).toHaveBeenCalledOnce();
+  expect(x.archived).toEqual([`agent:${b}`]);
+});
+
+test("a stop of a deleted group pushed after its delete recreates no batcher or delivery; a restored group gets stops again (§0, §7)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const { b } = await startBoth(x);
+  x.agents.get(b)!.status = "idle";
+  const bus = new EventBus();
+  wireDispatcher(bus, x.hub, () => x.paseo);
+  await x.hub.deleteGroup(x.paseo, { id: H, revision: 1 }, deleteStore(x));
+  const maps = x.hub as unknown as { batchers: Map<string, unknown>; perGroup: Map<string, unknown> };
+  // Committed while p2 was still H's, pushed after the delete.
+  bus.publish([stop("late", "p2", H)]);
+  await vi.advanceTimersByTimeAsync(11_000);
+  expect(maps.batchers.has(H)).toBe(false);
+  expect(maps.perGroup.has(H)).toBe(false);
+  expect(x.sends).toEqual([]);
+  // A restore brings the group back; once it is read on the board, its stops are heard again.
+  x.state.board.groups.push(group(H, "Clients", 1));
+  await x.hub.status(x.paseo, H);
+  bus.publish([stop("back", "p2", H)]);
+  expect(maps.batchers.has(H)).toBe(true);
+  x.hub.dispose();
 });

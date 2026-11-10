@@ -922,6 +922,22 @@ test("a project moved to another group between calls is refused, and its new gro
   expect(projectIds(await b.call("flowly_list_projects", {}))).toEqual(["q", "r"]);
 });
 
+test("another group's start in a new workspace leaves a live dispatcher's tools and open hook working (DISPATCHER-SPEC §1, §2, §4)", async () => {
+  const x = await setup();
+  // The stored workspace is no longer in the dispatcher folder (as one in the old in-data folder): the next start makes a new one.
+  const workspaces = x.paseo.workspaces as unknown as { ref: (id: string) => Record<string, unknown> };
+  const ref = workspaces.ref;
+  workspaces.ref = (id) => (id === "dw" ? { ...ref(id), refresh: async () => ({ id: "dw", archivingAt: null, workspaceDirectory: x.root }) } : ref(id));
+  const { agentId, a, b } = await twoGroups(x);
+  expect(x.agents[agentId].workspaceId).toBe("created-1");
+  expect(code(await a.call("flowly_list_projects", {}))).toBeUndefined();
+  expect(code(await b.call("flowly_list_projects", {}))).toBeUndefined();
+  // The open hook still gives "disp" a credential for the workspace it lives in.
+  const hook = (await x.server.dispatcherSession("disp", x.paseo))?.mcp;
+  const token = hook!.headers.Authorization.replace(/^Bearer /, "");
+  expect(x.server.secrets.authenticateAny(token)).toMatchObject({ kind: "dispatcher", identity: { agentId: "disp", workspaceId: "dw" } });
+});
+
 test("a dispatcher whose group was deleted is refused as replaced (DISPATCHER-SPEC §4)", async () => {
   const x = await setup();
   const { clients, a, b } = await twoGroups(x);

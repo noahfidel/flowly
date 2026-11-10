@@ -91,8 +91,8 @@ export const previousAgentIdLimit = 20;
 export const globalPreviousAgentIdLimit = 100;
 
 const sessionId = z.string().min(1).max(300);
-/** One group's dispatcher session and marks; also the v1 record's fields. */
-const entryShape = {
+/** One group's dispatcher session and marks; also the v1 record's fields (the v1 workspace is the record's). */
+const sessionShape = {
   agentId: z.string().min(1).nullable(),
   startedAt: z.string().nullable(),
   /** The user's "Changed since you looked" mark, in event milliseconds (§9.2); absent in older files. */
@@ -109,13 +109,21 @@ const entryShape = {
   /** The guard its session was started with (§3): `dispatcherGuardVersion` and the provider part of its model; absent before. */
   guard: z.object({ version: z.number().int().nonnegative(), provider: z.string().min(1).max(100) }).optional(),
 };
-const entrySchema = z.strictObject(entryShape);
+const entrySchema = z.strictObject({
+  ...sessionShape,
+  /**
+   * The workspace its session was started in (§2); the session keeps it while the record's `workspaceId` moves on.
+   * Absent in entries written before it was kept: those use the record's `workspaceId` (`entryWorkspace`).
+   */
+  workspaceId: z.string().min(1).optional(),
+});
 export type DispatcherEntry = z.infer<typeof entrySchema>;
 /** The single-dispatcher record (v1); still read, never written again. */
-const recordV1Schema = z.strictObject({ version: z.literal(1), workspaceId: z.string().min(1).nullable(), ...entryShape });
-/** Record v2 (§0, §1): one workspace, one entry per board group. */
+const recordV1Schema = z.strictObject({ version: z.literal(1), workspaceId: z.string().min(1).nullable(), ...sessionShape });
+/** Record v2 (§0, §1): one entry per board group, each with the workspace its session lives in. */
 const recordSchema = z.strictObject({
   version: z.literal(2),
+  /** The workspace new sessions start in (§2), reused while Paseo returns it in the dispatcher folder. */
   workspaceId: z.string().min(1).nullable(),
   groups: z.record(z.string().min(1).max(200), entrySchema),
   /** Earlier sessions no group keeps: a group's overflow and a deleted group's ids, oldest first (§0). */
@@ -153,10 +161,35 @@ export function guarded(entry: ToolMarks) {
 
 const emptyRecord = (): DispatcherRecord => ({ version: 2, workspaceId: null, groups: {} });
 
-/** A v1 record as v2: its session waits in `unassigned` until the migration picks its group (BOARD-GROUPS-SPEC §7). */
-function fromV1({ version: _, workspaceId, ...entry }: z.infer<typeof recordV1Schema>): DispatcherRecord {
-  const kept = !!entry.agentId || !!entry.previousAgentIds?.length || entry.seenRevision !== undefined;
+/**
+ * A v1 record as v2: its session waits in `unassigned` until the migration picks its group (BOARD-GROUPS-SPEC §7),
+ * with the workspace it lives in, so a later start in a new workspace leaves it reachable.
+ */
+function fromV1({ version: _, workspaceId, ...session }: z.infer<typeof recordV1Schema>): DispatcherRecord {
+  const kept = !!session.agentId || !!session.previousAgentIds?.length || session.seenRevision !== undefined;
+  const entry: DispatcherEntry = { ...session, ...(session.agentId && workspaceId ? { workspaceId } : {}) };
   return { version: 2, workspaceId, groups: {}, ...(kept ? { unassigned: entry } : {}) };
+}
+
+/** The workspace an entry's session lives in: its own, else (an entry written before it was kept) the record's. */
+export function entryWorkspace(record: Pick<DispatcherRecord, "workspaceId">, entry: DispatcherEntry | undefined): string | null {
+  return entry?.workspaceId ?? record.workspaceId;
+}
+
+/**
+ * The record with `workspaceId` as the one new sessions start in. Entries with a session and no workspace of their own
+ * keep the earlier one, which they lived in until now.
+ */
+function movedWorkspace(record: DispatcherRecord, workspaceId: string): DispatcherRecord {
+  const old = record.workspaceId;
+  if (old === workspaceId) return record;
+  const pin = (entry: DispatcherEntry): DispatcherEntry => (old && entry.agentId && !entry.workspaceId ? { ...entry, workspaceId: old } : entry);
+  return {
+    ...record,
+    workspaceId,
+    groups: Object.fromEntries(Object.entries(record.groups).map(([id, entry]) => [id, pin(entry)])),
+    ...(record.unassigned ? { unassigned: pin(record.unassigned) } : {}),
+  };
 }
 
 /** Appends `ids` to the global list (dropping earlier copies), keeping the newest `globalPreviousAgentIdLimit`. */
@@ -258,6 +291,15 @@ const deleteFailed = (e: unknown) =>
   new ToolError("DELETE_FAILED", `Paseo did not archive the group's dispatcher, so the group was not deleted: ${e instanceof Error ? e.message : String(e)}`);
 /** What `groups.delete` returns: the group, the default group its projects moved to, and those projects. */
 export type GroupDeleted = { id: string; movedTo: string; projectIds: string[] };
+
+/** The group `input` deletes, after the store's own refusals (BOARD-GROUPS-SPEC §2), checked on `board`. */
+function deletable(board: Pick<Board, "groups">, input: GroupRemoval): Group {
+  const group = board.groups.find((g) => g.id === input.id);
+  if (!group) throw groupNotFound();
+  if (group.revision !== input.revision) throw new ToolError("REVISION_CONFLICT", "This group changed. Reload it before saving.");
+  if (group.isDefault) throw new ToolError("DEFAULT_REQUIRED", "The default group can't be deleted. Make another group the default first.");
+  return group;
+}
 
 /** A group's dispatcher's first message (§0, §6): each live member project's id, then their open cards and ideas, without memory. */
 export function dispatcherSummary(board: Board, groupId: string): string {
@@ -392,6 +434,8 @@ class GroupDispatcher {
       this.held.clear();
       return this.stopChase();
     }
+    // The reads let others run: a project's move (`takeProject`), the group's delete or unload may have emptied it.
+    if (this.disposed || !this.held.size) return this.stopChase();
     // A start is under way (summary, store, create): hold; the start delivers when it ends.
     if (this.starting) return;
     const state = agentId ? dispatcherState(agent) : "none";
@@ -470,6 +514,11 @@ export class Dispatcher {
   /** One note batcher per group (§0, §7), made on a group's first stop once `batchWith` wired them. */
   private readonly batchers = new Map<string, NoteBatcher>();
   private batching: ((groupId: string) => NoteBatcher) | null = null;
+  /**
+   * Groups whose delivery `forgetGroup` dropped: a stop of theirs pushed late recreates no batcher or delivery. A group
+   * read on the board again (a restore brought it back) leaves the set (`boardGroup`).
+   */
+  private readonly forgotten = new Set<string>();
   private disposed = false;
   /** The host's Dispatcher model setting (plan Q6); null falls back to `dispatcherDefaultModel`. Set by the plugin entry. */
   modelSetting: () => Promise<AgentModel | null> = async () => null;
@@ -532,11 +581,20 @@ export class Dispatcher {
     return this.record();
   }
 
-  /** The group whose stored session is `agentId` (§4), with its entry and the shared workspace; null for every other session. */
+  /** The group whose stored session is `agentId` (§4), with its entry and the workspace that session lives in; null for every other session. */
   async sessionOf(agentId: string): Promise<{ groupId: string; entry: DispatcherEntry; workspaceId: string | null } | null> {
     const record = await this.resolvedRecord();
-    for (const [groupId, entry] of Object.entries(record.groups)) if (entry.agentId === agentId) return { groupId, entry, workspaceId: record.workspaceId };
+    for (const [groupId, entry] of Object.entries(record.groups))
+      if (entry.agentId === agentId) return { groupId, entry, workspaceId: entryWorkspace(record, entry) };
     return null;
+  }
+
+  /** A group's stored session and the workspace it lives in (`dispatcher.tail`, §9.3); null while there is none. */
+  async groupSession(groupId: string): Promise<{ agentId: string; workspaceId: string } | null> {
+    const record = await this.resolvedRecord();
+    const entry = record.groups[groupId];
+    const workspaceId = entryWorkspace(record, entry);
+    return entry?.agentId && workspaceId ? { agentId: entry.agentId, workspaceId } : null;
   }
 
   /** Whether `path` is the dispatcher's folder, which never becomes a Flowly project (§2). */
@@ -553,10 +611,14 @@ export class Dispatcher {
     const current = new Set(Object.values(this.cached?.groups ?? {}).flatMap((e) => (e.agentId ? [e.agentId] : [])));
     return this.allAgentIds().filter((id) => !current.has(id));
   }
-  /** Whether `workspaceId` is the dispatcher's workspace; such a workspace is never bound to a card (§2). */
+  /**
+   * Whether `workspaceId` is a dispatcher workspace (the one new sessions start in, or one a recorded session lives
+   * in); such a workspace is never bound to a card (§2).
+   */
   async owns(workspaceId: string) {
-    const { workspaceId: own } = await this.record();
-    return !!own && own === workspaceId;
+    const record = await this.record();
+    const entries = [...Object.values(record.groups), ...(record.unassigned ? [record.unassigned] : [])];
+    return !!workspaceId && (record.workspaceId === workspaceId || entries.some((e) => e.workspaceId === workspaceId));
   }
 
   async status(paseo: PaseoApi, groupId: string): Promise<DispatcherStatus> {
@@ -620,6 +682,7 @@ export class Dispatcher {
   private async boardGroup(groupId: string): Promise<Group> {
     const group = (await this.deps.board()).groups.find((g) => g.id === groupId);
     if (!group) throw groupNotFound();
+    this.forgotten.delete(groupId);
     return group;
   }
 
@@ -673,6 +736,7 @@ export class Dispatcher {
       await this.save((r) =>
         withSession(r, groupId, {
           agentId,
+          workspaceId,
           startedAt: new Date(now).toISOString(),
           savedTools: [...dispatcherToolNames],
           guard: { version: dispatcherGuardVersion, provider: input.provider.split("/")[0] },
@@ -731,11 +795,12 @@ export class Dispatcher {
   /** Puts the group's earlier entry back (its session, marks and history) after a start that made no session. */
   private restore(groupId: string, workspaceId: string, previous: DispatcherEntry | undefined, previousGlobal: string[] | undefined) {
     return this.save((r) => {
-      const { previousAgentIds: _, savedTools: __, guard: ___, agentId: ____, startedAt: _____, ...marks } = r.groups[groupId] ?? {};
+      const { previousAgentIds: _, savedTools: __, guard: ___, agentId: ____, startedAt: _____, workspaceId: ________, ...marks } = r.groups[groupId] ?? {};
       const back: DispatcherEntry = {
         ...marks,
         agentId: previous?.agentId ?? null,
         startedAt: previous?.startedAt ?? null,
+        ...(previous?.workspaceId ? { workspaceId: previous.workspaceId } : {}),
         ...(previous?.savedTools ? { savedTools: previous.savedTools } : {}),
         ...(previous?.guard ? { guard: previous.guard } : {}),
         ...(previous?.previousAgentIds ? { previousAgentIds: previous.previousAgentIds } : {}),
@@ -811,7 +876,10 @@ export class Dispatcher {
     }
   }
 
-  /** The stored workspace while Paseo still returns it; else a new background directory workspace (§2). Never archived. */
+  /**
+   * The workspace new sessions start in while Paseo still returns it; else a new background directory workspace (§2).
+   * Never archived. Other groups' live sessions keep the workspace they live in (their entry's `workspaceId`).
+   */
   private async workspace(paseo: PaseoApi, record: DispatcherRecord) {
     await this.prepareFolder();
     if (record.workspaceId) {
@@ -825,7 +893,7 @@ export class Dispatcher {
       path: this.workspacePath,
       background: true,
     });
-    await this.save((r) => ({ ...r, workspaceId: id }));
+    await this.save((r) => movedWorkspace(r, id));
     return id;
   }
 
@@ -875,7 +943,7 @@ export class Dispatcher {
 
   /** Delivers a batch to a group's dispatcher by its state: idle → sent, running → held until its turn ends, down → dropped (§7). */
   deliver(groupId: string, notes: readonly DispatcherNote[], paseo: PaseoApi): Promise<void> {
-    if (this.disposed) return Promise.resolve();
+    if (this.disposed || this.forgotten.has(groupId)) return Promise.resolve();
     return this.groupState(groupId).deliver(notes, paseo);
   }
 
@@ -884,9 +952,9 @@ export class Dispatcher {
     this.batching = make;
   }
 
-  /** A group's batcher, made on first use; none before `batchWith` or after unload. */
+  /** A group's batcher, made on first use; none before `batchWith`, after unload, or for a deleted group. */
   private batcher(groupId: string): NoteBatcher | null {
-    if (this.disposed || !this.batching) return null;
+    if (this.disposed || !this.batching || this.forgotten.has(groupId)) return null;
     let batcher = this.batchers.get(groupId);
     if (!batcher) {
       batcher = this.batching(groupId);
@@ -898,7 +966,8 @@ export class Dispatcher {
   /**
    * Stops from the bus (§0, §7): each goes to the batcher of its project's group as the commit had it, so one group's
    * notes, cooldown and start window never touch another's. A stop of a project with no group (a board before its
-   * group migration) has no dispatcher to hear it and is dropped.
+   * group migration) has no dispatcher to hear it and is dropped, as is one of a deleted group (committed before the
+   * delete, pushed after it): `batcher` makes none for it.
    */
   pushStops(facts: readonly BusFact[]) {
     const byGroup = new Map<string, BusFact[]>();
@@ -941,8 +1010,9 @@ export class Dispatcher {
     if (own) await this.groupState(own.groupId).turnEnded(agentId, paseo);
   }
 
-  /** Drops a deleted group's note delivery and batcher; its held and buffered notes are dropped (§0). */
+  /** Drops a deleted group's note delivery and batcher; its held and buffered notes are dropped (§0), later stops too. */
   forgetGroup(groupId: string) {
+    this.forgotten.add(groupId);
     this.perGroup.get(groupId)?.dispose(true);
     this.perGroup.delete(groupId);
     this.batchers.get(groupId)?.dispose();
@@ -957,14 +1027,13 @@ export class Dispatcher {
    * list); then the board (projects to the default group, the group removed, the revision checked again); then the
    * group's delivery dropped and its projects' pending notes moved. A dead session is not archived, and the workspace
    * never is. When the board write fails after the record write, the group stays with no entry and reads `none`.
+   * The store's refusals are checked again on a fresh board read right before the archive, so a group edited meanwhile
+   * archives nothing; a board write refused after the archive says the session was already archived.
    */
   deleteGroup(paseo: PaseoApi, input: GroupRemoval, store: { deleteGroup(input: GroupRemoval): Promise<GroupDeleted> }): Promise<GroupDeleted> {
     return this.queued(async () => {
       const board = await this.deps.board();
-      const group = board.groups.find((g) => g.id === input.id);
-      if (!group) throw groupNotFound();
-      if (group.revision !== input.revision) throw new ToolError("REVISION_CONFLICT", "This group changed. Reload it before saving.");
-      if (group.isDefault) throw new ToolError("DEFAULT_REQUIRED", "The default group can't be deleted. Make another group the default first.");
+      const group = deletable(board, input);
       const record = await this.resolvedRecord().catch((e: unknown) => {
         logFailure("Flowly dispatcher record not read for a group delete:", e);
         throw dispatcherUnavailable();
@@ -972,17 +1041,30 @@ export class Dispatcher {
       // The v1 session could not move yet (its migration failed): the group it would move to keeps it (§7 step 4).
       if (record.unassigned?.agentId && dispatcherTarget(board) === group.id) throw dispatcherUnavailable();
       const agentId = record.groups[group.id]?.agentId;
-      if (agentId) await this.archiveForDelete(paseo, agentId);
+      const archived = agentId ? await this.archiveForDelete(paseo, agentId, async () => void deletable(await this.deps.board(), input)) : false;
       await this.save((r) => withoutGroup(r, group.id));
-      const deleted = await store.deleteGroup(input);
+      let deleted: GroupDeleted;
+      try {
+        deleted = await store.deleteGroup(input);
+      } catch (e) {
+        if (!archived) throw e;
+        const message = `${e instanceof Error ? e.message : String(e)} The group's dispatcher session was already archived.`;
+        throw e instanceof ToolError ? new ToolError(e.code, message, e.retryable) : new Error(message);
+      }
+      // By decision (2026-11-10): the deleted group's held and buffered notes are dropped, not moved with its
+      // projects: its delivery is forgotten before `projectMoved` runs, so there is nothing of it left to move.
       this.forgetGroup(group.id);
       for (const projectId of deleted.projectIds) await this.projectMoved(projectId, deleted.movedTo);
       return deleted;
     });
   }
 
-  /** A group delete's archive of its session (§0): refused while it runs, skipped when it is dead; a failure refuses the delete. */
-  private async archiveForDelete(paseo: PaseoApi, agentId: string) {
+  /**
+   * A group delete's archive of its session (§0): refused while it runs, skipped when it is dead; a failure refuses the
+   * delete. `verify` re-checks the delete on a fresh board read; nothing but the archive runs between it and the archive.
+   * Whether it archived the session.
+   */
+  private async archiveForDelete(paseo: PaseoApi, agentId: string, verify: () => Promise<void>): Promise<boolean> {
     const ref = paseo.agents.ref(agentId);
     let agent: AgentSnapshot;
     try {
@@ -992,10 +1074,12 @@ export class Dispatcher {
       throw deleteFailed(e);
     }
     const state = dispatcherState(agent);
-    if (state === "ended") return;
+    if (state === "ended") return false;
     if (state === "running") throw new ToolError("DISPATCHER_RUNNING", "This group's dispatcher is working. Wait for its turn to end, then delete the group.");
+    await verify();
     try {
       await ref.archive();
+      return true;
     } catch (e) {
       logFailure("Flowly dispatcher not archived for a group delete:", e, agentId);
       throw deleteFailed(e);
@@ -1116,10 +1200,10 @@ export class Dispatcher {
 function withSession(
   record: DispatcherRecord,
   groupId: string,
-  session: Required<Pick<DispatcherEntry, "agentId" | "startedAt" | "savedTools" | "guard">>,
+  session: Required<Pick<DispatcherEntry, "agentId" | "workspaceId" | "startedAt" | "savedTools" | "guard">>,
 ): DispatcherRecord {
   const prev = record.groups[groupId];
-  const { savedTools: _, guard: __, previousAgentIds: ___, ...marks } = prev ?? { agentId: null, startedAt: null };
+  const { savedTools: _, guard: __, previousAgentIds: ___, workspaceId: ____, ...marks } = prev ?? { agentId: null, startedAt: null };
   const all = prev?.agentId ? [...(prev.previousAgentIds ?? []).filter((id) => id !== prev.agentId), prev.agentId] : (prev?.previousAgentIds ?? []);
   const overflow = all.slice(0, Math.max(0, all.length - previousAgentIdLimit));
   const earlier = all.slice(-previousAgentIdLimit);
