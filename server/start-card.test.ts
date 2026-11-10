@@ -106,7 +106,7 @@ async function setup() {
       prepare: async (taskId, operationId) => {
         const task = (await x.store.read()).tasks.find((t) => t.id === taskId)!;
         const { agentId } = await x.secrets.prepared(taskId, task.workspaceId, operationId);
-        return { agentId, instructions: `INSTRUCTIONS ${taskId}`, contextFile: "/ctx.json", cliPath: "/flowly.mjs", skillPath: "/SKILL.md", mcp: { type: "http", url: "http://127.0.0.1/mcp", headers: { Authorization: "Bearer x" } } };
+        return { agentId, instructions: `INSTRUCTIONS ${taskId}`, contextFile: "/ctx.json", cliPath: "/flowly.mjs", skillPath: "/SKILL.md" };
       },
       preparedFor: (operationId) => x.secrets.preparedFor(operationId),
       keptWorktree: (operationId) => x.secrets.keptStart(operationId),
@@ -209,7 +209,8 @@ test("start_card starts a labelled session in the card's worktree", async () => 
   });
   // The New task defaults: the global model, and the provider's suggested mode.
   expect(created.config).toMatchObject({ provider: "claude/claude-sonnet-5-5", systemPrompt: "INSTRUCTIONS c", modeId: "auto" });
-  expect(created.config.mcpServers?.flowly).toMatchObject({ type: "http", url: "http://127.0.0.1/mcp" });
+  // No MCP server in the saved config: the agent.open.before hook adds it at launch (PASEO-SESSION-TOOLS-SPEC §4).
+  expect(created.config.mcpServers).toBeUndefined();
   // The project's own default wins, and a given prompt is sent as is.
   await x.store.mutate((board) => {
     board.projects[0].agentModel = { provider: "codex", model: "gpt-6", thinking: "high", mode: "full-access" };

@@ -361,7 +361,7 @@ test("manual refresh summarizes a workspace chat Flowly did not start (PR review
   expect(chats).toEqual(["pr"]);
   x.replies.push({ text: x.json("reviewed") });
   expect(await x.service.refresh("t", chats!, x.paseo)).toEqual({ queued: true });
-  await settle();
+  await x.service.settled("t");
   expect(x.created[0].prompt).toContain("User: review PR 1");
   expect((await x.store.latest("t"))?.agentIds).toEqual(["pr"]);
 });

@@ -403,7 +403,6 @@ export class CardStarter {
         config: {
           provider: `${model.provider}/${model.model}`,
           systemPrompt: preparation.instructions,
-          mcpServers: { flowly: preparation.mcp },
           ...(model.mode ? { modeId: model.mode } : {}),
           ...(model.thinking ? { thinkingOptionId: model.thinking } : {}),
         },

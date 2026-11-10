@@ -55,7 +55,7 @@ export function OverviewBar({
 }) {
   const { colors } = useTheme();
   const o = overview;
-  const row = overviewRow({ runningTasks: o.runningTasks, needYou, updated }, { ideas: openIdeas !== null, memory: memoryCandidates !== null, insights: !!onInsights });
+  const row = overviewRow({ runningTasks: o.runningTasks, needYou, updated }, { ideas: openIdeas !== null, memory: memoryCount !== null || guardrailCount !== null, insights: !!onInsights });
   return (
     <View style={{ borderBottomWidth: 1, borderColor: colors.border }}>
       <ScrollView
