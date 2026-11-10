@@ -28,7 +28,7 @@ afterEach(async () => {
 
 const stamp = "2026-11-10T09:00:00.000Z";
 
-type CardSpec = { id: string; prRef?: string; status?: Status; review?: boolean; archived?: boolean; workspaceId?: string; projectId?: string };
+type CardSpec = { id: string; prRef?: string; description?: string; status?: Status; review?: boolean; archived?: boolean; workspaceId?: string; projectId?: string };
 
 async function fixture(cards: CardSpec[], states: Record<string, PrState | null | "throw"> = {}) {
   const root = await mkdtemp(join(tmpdir(), "flowly-pr-archive-"));
@@ -56,7 +56,7 @@ async function fixture(cards: CardSpec[], states: Record<string, PrState | null 
         sourcePath: root,
         repoPaths: [],
         title: `Review ${c.id}`,
-        description: "",
+        description: c.description ?? "",
         status: c.status ?? "in_review",
         priority: "normal",
         position: i,
@@ -114,6 +114,22 @@ test("only live PR review cards in In review with a prRef are looked up", async 
   expect(await x.archiver.tick()).toEqual([{ taskId: "ok", state: "merged" }]);
   expect(x.looked).toEqual(["acme/widgets#1"]);
   expect(await x.archivedIds()).toEqual(["gone", "ok"]);
+});
+
+test("older review cards with no stored prRef are found by their PR: line", async () => {
+  const x = await fixture(
+    [
+      { id: "old", description: "PR: Acme/Widgets#21 (https://github.com/Acme/Widgets/pull/21)\n\nCreated automatically from a PR review agent." },
+      { id: "linked", description: "PR: [acme/widgets#22](https://github.com/acme/widgets/pull/22)" },
+      { id: "bullet", description: "- PR: https://github.com/acme/widgets/pull/23" },
+    ],
+    { "acme/widgets#21": "merged", "acme/widgets#22": "closed", "acme/widgets#23": "merged" },
+  );
+  expect(await x.archiver.tick()).toEqual([
+    { taskId: "old", state: "merged" },
+    { taskId: "linked", state: "closed" },
+  ]);
+  expect(x.looked).toEqual(["acme/widgets#21", "acme/widgets#22"]);
 });
 
 test("merged and closed PRs archive the card with an activity entry; open ones stay", async () => {

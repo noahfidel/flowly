@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import type { PaseoApi } from "@getpaseo/client";
 import { familyOf, type Connection, type ExternalRef } from "../shared/connectors";
-import { isPrReviewCard } from "../shared/pr-review";
+import { isPrReviewCard, prReviewCardKey } from "../shared/pr-review";
 import type { Task } from "../shared/model";
 import { refKey, type Summaries } from "./connectors/service";
 import { logFailure } from "./error-report";
@@ -27,9 +27,12 @@ export function prTarget(prRef: string | undefined): PrTarget | null {
   return m ? { key: prRef!, repo: m[1], number: Number(m[2]) } : null;
 }
 
-/** Whether the card is one the timer looks at: a live PR review card in In review with a stored `prRef` (§10). */
+/** The card's PR: its stored `prRef`, else (cards made before prRef existed) its description's `PR:` line (§10). */
+export const cardPr = (task: Task): PrTarget | null => prTarget(prReviewCardKey(task) ?? undefined);
+
+/** Whether the card is one the timer looks at: a live PR review card in In review that names its PR (§10). */
 export function archiveCandidate(task: Task): boolean {
-  return !task.archivedAt && task.status === "in_review" && isPrReviewCard(task) && !!prTarget(task.prRef);
+  return !task.archivedAt && task.status === "in_review" && isPrReviewCard(task) && !!cardPr(task);
 }
 
 /** The first source that can tell wins: the GitHub connector, then the `gh` CLI. */
@@ -155,7 +158,7 @@ export class PrReviewArchiver {
     const archived: ArchiveOutcome[] = [];
     let unknown = 0;
     for (const task of due) {
-      const pr = prTarget(task.prRef)!;
+      const pr = cardPr(task)!;
       const state = await this.lookup(pr).catch(() => null);
       this.checkedAt.set(task.id, this.clock());
       if (!state) {
@@ -179,7 +182,7 @@ export class PrReviewArchiver {
     return this.store.transaction<boolean>((board) => {
       const t = board.tasks.find((x) => x.id === read.id);
       const project = t && board.projects.find((p) => p.id === t.projectId);
-      if (!t || !project || project.archivedAt || !archiveCandidate(t) || t.prRef !== read.prRef || t.workspaceId !== read.workspaceId)
+      if (!t || !project || project.archivedAt || !archiveCandidate(t) || cardPr(t)?.key !== cardPr(read)?.key || t.workspaceId !== read.workspaceId)
         return { value: false, changed: false };
       const now = new Date().toISOString();
       t.archivedAt = now;
