@@ -25,6 +25,7 @@ const dispatcherTools = [
   "flowly_link_cards",
   "flowly_list_ideas",
   "flowly_update_idea",
+  "flowly_archive_card",
   // Not preapproved: the user confirms each call (ruling, Noah 2026-11-10).
   "flowly_create_project",
 ];
@@ -167,8 +168,9 @@ test("a dispatcher token can write to any live project", async () => {
   expect(await d.names()).toEqual(dispatcherTools);
   // None of them answers a card's ask (permission, question, blocker) or messages a card's session (ruling, Noah 2026-11-09).
   for (const name of await d.names()) expect(name).not.toMatch(/answer|respond|permission|approve|allow|deny|send|prompt|message/);
-  // Replacing or archiving a dispatcher is the user's confirmed click only, never one of its own tools (ruling, Noah 2026-11-09).
-  for (const name of await d.names()) expect(name).not.toMatch(/replace|archive|dispatcher/);
+  // Replacing or archiving a dispatcher (its session or workspace) is the user's confirmed click only, never one of its
+  // own tools (ruling, Noah 2026-11-09). Archiving a card (flowly_archive_card) is a board edit, not that.
+  for (const name of await d.names()) expect(name).not.toMatch(/replace|dispatcher|archive_(session|agent|workspace)/);
   const projects = (await d.call("flowly_list_projects", {})).structuredContent.projects;
   expect(projects).toEqual([
     { projectId: "p", title: "Project", rootAvailable: true, openCards: 1 },
@@ -223,6 +225,7 @@ test("an archived project is refused", async () => {
     ["flowly_start_card", { taskId: "z1", idempotencyKey: "s-z" }],
     ["flowly_propose_idea", { title: "Nope", detail: "x", rationale: "y" }],
     ["flowly_link_cards", { taskId: "z1", relation: "blocks", otherTaskId: "q1" }],
+    ["flowly_archive_card", { taskId: "z1" }],
   ];
   for (const [name, args] of attempts) expect(code(await d.call(name, { projectId: "z", ...args })), name).toBe("PROJECT_ARCHIVED");
   for (const [name, args] of attempts) expect(code(await d.call(name, { projectId: "nope", ...args })), name).toBe("NOT_FOUND");
@@ -266,6 +269,7 @@ test("the Agents create and edit cards switch turns off every dispatcher write",
     ["flowly_start_card", { taskId: "q1", idempotencyKey: "s-off" }],
     ["flowly_link_cards", { taskId: "q1", relation: "blocks", otherTaskId: "q2" }],
     ["flowly_propose_idea", { title: "Nope", detail: "x", rationale: "y" }],
+    ["flowly_archive_card", { taskId: "q1" }],
   ];
   for (const [name, args] of writes) expect(code(await d.call(name, { projectId: "q", ...args })), name).toBe("AGENT_CARDS_DISABLED");
   // Creating a project is a write too, refused before the folder is looked at.
@@ -362,12 +366,54 @@ test("a dispatcher token from a replaced dispatcher is refused", async () => {
   expect(code(await fresh.call("flowly_list_projects", {}))).toBe("SESSION_MISMATCH");
 });
 
+test("flowly_archive_card archives and unarchives one card of the project, only the card", async () => {
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  const archived = await d.call("flowly_archive_card", { projectId: "q", taskId: "q1", reason: "PR merged" });
+  expect(code(archived)).toBeUndefined();
+  expect(archived.structuredContent).toEqual({ card: { taskId: "q1", title: "Card q1", status: "todo", archived: true, revision: 2 }, changed: true });
+  let board = await x.store.read();
+  expect(board.tasks.find((t) => t.id === "q1")?.archivedAt).toBeTruthy();
+  expect(board.events.filter((e) => e.taskId === "q1").at(-1)).toMatchObject({ action: "archive_changed", actor: "agent", agentId: "disp", note: "PR merged" });
+  // Again: nothing changes.
+  expect((await d.call("flowly_archive_card", { projectId: "q", taskId: "q1" })).structuredContent).toMatchObject({ changed: false, card: { archived: true, revision: 2 } });
+  // Archived cards leave the default list and come back with includeArchived.
+  expect((await d.call("flowly_list_cards", { projectId: "q" })).structuredContent.cards.map((c: { taskId: string }) => c.taskId)).not.toContain("q1");
+  expect((await d.call("flowly_list_cards", { projectId: "q", includeArchived: true })).structuredContent.cards.map((c: { taskId: string }) => c.taskId)).toContain("q1");
+  const back = await d.call("flowly_archive_card", { projectId: "q", taskId: "q1", archived: false });
+  expect(back.structuredContent).toEqual({ card: { taskId: "q1", title: "Card q1", status: "todo", archived: false, revision: 3 }, changed: true });
+  board = await x.store.read();
+  expect(board.tasks.find((t) => t.id === "q1")?.archivedAt).toBeNull();
+  expect(board.events.filter((e) => e.taskId === "q1").at(-1)).toMatchObject({ action: "archive_changed", note: "Unarchived by the dispatcher" });
+  // Unknown card, or a card of another project: refused, nothing written. Never a delete.
+  expect(code(await d.call("flowly_archive_card", { projectId: "q", taskId: "nope" }))).toBe("CARD_NOT_FOUND");
+  expect(code(await d.call("flowly_archive_card", { projectId: "r", taskId: "q2" }))).toBe("CARD_NOT_FOUND");
+  expect(code(await d.call("flowly_archive_card", { projectId: "z", taskId: "z1" }))).toBe("PROJECT_ARCHIVED");
+  board = await x.store.read();
+  expect(board.tasks.map((t) => t.id)).toEqual(expect.arrayContaining(["q1", "q2", "z1"]));
+  expect(board.tasks.find((t) => t.id === "q2")?.archivedAt).toBeNull();
+});
+
+test("flowly_list_cards shows a PR review card's prRef", async () => {
+  const x = await setup();
+  await x.store.mutate((b) => {
+    const t = b.tasks.find((t) => t.id === "q2")!;
+    t.operationId = "pr-review:agent-9";
+    t.prRef = "acme/widgets#42";
+  });
+  const d = await x.connect(x.dispatcherToken);
+  const cards = (await d.call("flowly_list_cards", { projectId: "q" })).structuredContent.cards as { taskId: string; prRef?: string }[];
+  expect(cards.find((c) => c.taskId === "q2")?.prRef).toBe("acme/widgets#42");
+  expect(cards.find((c) => c.taskId === "q1")).not.toHaveProperty("prRef");
+});
+
 test("a card or board token cannot call dispatcher tools", async () => {
   const x = await setup();
   const card = await x.connect(x.server.secrets.credential(x.identity));
   const cardNames = await card.names();
   expect(cardNames).not.toContain("flowly_list_projects");
   expect(cardNames).not.toContain("flowly_link_cards");
+  expect(cardNames).not.toContain("flowly_archive_card");
   const listed = await card.mcp("tools/call", { name: "flowly_list_projects", arguments: {} });
   expect(listed.result?.isError ?? !!listed.error).toBe(true);
   // The card tools take no projectId: no reaching another project.
@@ -379,6 +425,7 @@ test("a card or board token cannot call dispatcher tools", async () => {
   const boardNames = await board.names();
   expect(boardNames).not.toContain("flowly_list_projects");
   expect(boardNames).not.toContain("flowly_link_cards");
+  expect(boardNames).not.toContain("flowly_archive_card");
   const crossBoard = await board.call("flowly_list_cards", { projectId: "q" });
   expect(crossBoard.isError).toBe(true);
   expect(JSON.stringify(crossBoard)).toMatch(/projectId|Unrecognized/);

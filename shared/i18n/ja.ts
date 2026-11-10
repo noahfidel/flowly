@@ -1448,6 +1448,7 @@ const catalog: Catalog = {
   "Team name or key (optional)": "チーム名またはキー（任意）",
   "Show All projects tab": "「すべてのプロジェクト」タブを表示",
   "Make cards for PR review agents": "PR レビューエージェントのカードを作成",
+  "Archive review cards when the PR closes": "PR がクローズされたらレビューカードをアーカイブ",
   "Manage projects": "プロジェクトを管理",
   "{lane} is not a lane in {project}.": "{lane} は {project} のレーンではありません。",
   "Each project keeps its own order. Open the project to reorder its cards.": "各プロジェクトは独自の並び順を保ちます。カードを並べ替えるにはそのプロジェクトを開いてください。",

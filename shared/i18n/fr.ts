@@ -1448,6 +1448,7 @@ const catalog: Catalog = {
   "Team name or key (optional)": "Nom ou clé de l'équipe (facultatif)",
   "Show All projects tab": "Afficher l'onglet Tous les projets",
   "Make cards for PR review agents": "Créer des cartes pour les agents de revue de PR",
+  "Archive review cards when the PR closes": "Archiver les cartes de revue quand la PR est fermée",
   "Manage projects": "Gérer les projets",
   "{lane} is not a lane in {project}.": "{lane} n'est pas un couloir de {project}.",
   "Each project keeps its own order. Open the project to reorder its cards.": "Chaque projet garde son propre ordre. Ouvrez le projet pour réordonner ses cartes.",

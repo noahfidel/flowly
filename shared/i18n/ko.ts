@@ -1448,6 +1448,7 @@ const catalog: Catalog = {
   "Team name or key (optional)": "팀 이름 또는 키(선택)",
   "Show All projects tab": "'모든 프로젝트' 탭 표시",
   "Make cards for PR review agents": "PR 리뷰 에이전트용 카드 만들기",
+  "Archive review cards when the PR closes": "PR이 닫히면 리뷰 카드 보관",
   "Manage projects": "프로젝트 관리",
   "{lane} is not a lane in {project}.": "{lane}은(는) {project}의 레인이 아닙니다.",
   "Each project keeps its own order. Open the project to reorder its cards.": "각 프로젝트는 자체 순서를 유지합니다. 카드 순서를 바꾸려면 해당 프로젝트를 여세요.",

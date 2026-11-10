@@ -545,6 +545,8 @@ const cardSummarySchema = z.object({
   revision: z.number().int(),
   updatedAt: z.string(),
   archived: z.boolean(),
+  /** A PR review card's pull request, `owner/repo#n` in lower case (PR-REVIEW-CARDS-SPEC §8). */
+  prRef: z.string().optional(),
   description: z.string(),
   descriptionTruncated: z.boolean().optional(),
 });
