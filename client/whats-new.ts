@@ -23,6 +23,15 @@ export interface WhatsNewRelease {
  */
 export const whatsNew: WhatsNewRelease[] = [
   {
+    // BOARD-GROUPS-SPEC §1, §2, §8 (the All view and the global dispatcher are retired for existing users).
+    version: "1.9.0",
+    items: [
+      { icon: "Layers", text: msg("Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.") },
+      { icon: "Bot", text: msg("Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.") },
+      { icon: "Columns3", text: msg("Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.") },
+    ],
+  },
+  {
     // SEARCH-SPEC §8, GUARDRAILS-SPEC §10, CONNECTORS-SPEC §15, DISPATCHER-SPEC §9.3-9.4, BOARD-GROUPS-SPEC.
     version: "1.8.0",
     items: [

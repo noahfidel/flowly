@@ -912,7 +912,6 @@ const catalog: Catalog = {
   "Testing\u2026": "Probando…",
   "Test connection": "Probar conexión",
   "Connection removed": "Conexión eliminada",
-  "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove.": "Arrastra una pestaña de proyecto para reordenarla. Haz clic derecho para ver sus ajustes, una nueva tarea, Análisis, Ideas o Quitar.",
   "Acceptance {done}/{total}": "Aceptación {done}/{total}",
   "Workpad": "Workpad",
   "Updated {time} by you": "Actualizado {time} por ti",
@@ -1619,7 +1618,6 @@ const catalog: Catalog = {
   "Board groups": "Grupos de tableros",
   "Group name": "Nombre del grupo",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly aprende de los motivos por los que devuelves tarjetas (la segunda tarjeta con el mismo problema se convierte en una pauta del proyecto), y la memoria ya no necesita confirmación.",
-  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "Todos los proyectos muestra las tarjetas de todos los proyectos en un solo tablero. Se desactiva en Ajustes → Flujo de trabajo.",
   "Inherit: {value}": "Heredar: {value}",
   "Default group": "Grupo predeterminado",
   "New projects join it.": "Los proyectos nuevos se unen a él.",
@@ -1633,5 +1631,9 @@ const catalog: Catalog = {
   "Groups can override it.": "Los grupos pueden cambiarlo.",
   "Group {name} deleted": "Grupo {name} borrado",
   "Remove “{title}”…": "Quitar “{title}”…",
+  "Projects sit in boards. Each group has its own tab, dispatcher and defaults; add a group from the project switcher.": "Los proyectos están en tableros. Cada grupo tiene su propia pestaña, dispatcher y valores predeterminados; añade un grupo desde el selector de proyectos.",
+  "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "Los proyectos se agrupan en tableros: el tablero de un grupo muestra las tarjetas de sus proyectos juntas, con un filtro de proyecto para acotarlo.",
+  "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "Cada grupo tiene su propio dispatcher, así que su chat, sus notas y sus tarjetas nuevas se quedan con los proyectos de ese grupo.",
+  "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "Las pestañas de grupo sustituyen a las de proyecto: arrastra un grupo para reordenarlo y añade grupos desde el selector de proyectos.",
 };
 export default catalog;

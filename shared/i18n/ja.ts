@@ -912,7 +912,6 @@ const catalog: Catalog = {
   "Testing\u2026": "テスト中…",
   "Test connection": "接続をテスト",
   "Connection removed": "接続は削除済み",
-  "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove.": "プロジェクトタブはドラッグで並べ替えられます。右クリックすると、設定、新しいタスク、インサイト、アイデア、削除を使えます。",
   "Acceptance {done}/{total}": "受け入れ {done}/{total}",
   "Workpad": "Workpad",
   "Updated {time} by you": "{time}にあなたが更新",
@@ -1619,7 +1618,6 @@ const catalog: Catalog = {
   "Board groups": "ボードグループ",
   "Group name": "グループ名",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly はカードを差し戻した理由から学びます（同じ問題のカードが 2 枚目になるとプロジェクトのガイドラインになります）。また、メモリーは確認が不要になりました。",
-  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "「すべてのプロジェクト」では全プロジェクトのカードを 1 つのボードに表示します。設定 → ワークフロー でオフにできます。",
   "Inherit: {value}": "継承: {value}",
   "Default group": "デフォルトのグループ",
   "New projects join it.": "新しいプロジェクトはこのグループに入ります。",
@@ -1633,5 +1631,9 @@ const catalog: Catalog = {
   "Groups can override it.": "グループで上書きできます。",
   "Group {name} deleted": "グループ {name} を削除しました",
   "Remove “{title}”…": "「{title}」を削除…",
+  "Projects sit in boards. Each group has its own tab, dispatcher and defaults; add a group from the project switcher.": "プロジェクトはボードにまとめられます。グループごとにタブ、ディスパッチャー、既定値を持ち、グループはプロジェクト切り替えから追加します。",
+  "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "プロジェクトはグループごとのボードにまとめられ、グループのボードには所属プロジェクトのカードが一緒に表示されます。プロジェクトで絞り込むこともできます。",
+  "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "グループごとに専用のディスパッチャーがあり、そのチャット、通知、新しいカードはそのグループのプロジェクトに留まります。",
+  "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "グループのタブがプロジェクトのタブに代わります。ドラッグしてグループを並べ替えられ、グループはプロジェクト切り替えから追加できます。",
 };
 export default catalog;

@@ -912,7 +912,6 @@ const catalog: Catalog = {
   "Testing\u2026": "Wird getestet…",
   "Test connection": "Verbindung testen",
   "Connection removed": "Verbindung entfernt",
-  "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove.": "Ziehe einen Projekt-Tab, um ihn umzusortieren. Ein Rechtsklick öffnet seine Einstellungen, eine neue Aufgabe, Insights, Ideen oder Entfernen.",
   "Acceptance {done}/{total}": "Akzeptanz {done}/{total}",
   "Workpad": "Workpad",
   "Updated {time} by you": "{time} von dir aktualisiert",
@@ -1619,7 +1618,6 @@ const catalog: Catalog = {
   "Board groups": "Board-Gruppen",
   "Group name": "Gruppenname",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly lernt aus dem, wofür du Karten zurückschickst (die zweite Karte mit demselben Problem wird zur Projektrichtlinie), und Gedächtnis muss nicht mehr bestätigt werden.",
-  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "Alle Projekte zeigt die Karten aller Projekte auf einem Board. Unter Einstellungen → Workflow abschaltbar.",
   "Inherit: {value}": "Erben: {value}",
   "Default group": "Standardgruppe",
   "New projects join it.": "Neue Projekte kommen in diese Gruppe.",
@@ -1633,5 +1631,9 @@ const catalog: Catalog = {
   "Groups can override it.": "Gruppen können ihn überschreiben.",
   "Group {name} deleted": "Gruppe {name} gelöscht",
   "Remove “{title}”…": "„{title}“ entfernen …",
+  "Projects sit in boards. Each group has its own tab, dispatcher and defaults; add a group from the project switcher.": "Projekte liegen in Boards. Jede Gruppe hat ihren eigenen Tab, Dispatcher und eigene Standards; Gruppen legst du im Projektumschalter an.",
+  "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "Projekte sind in Boards gruppiert: das Board einer Gruppe zeigt die Karten ihrer Projekte gemeinsam, ein Projektfilter grenzt es ein.",
+  "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "Jede Gruppe hat ihren eigenen Dispatcher, damit Chat, Hinweise und neue Karten bei den Projekten dieser Gruppe bleiben.",
+  "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "Gruppen-Tabs ersetzen die Projekt-Tabs: Eine Gruppe lässt sich per Ziehen umordnen, neue Gruppen legst du im Projektumschalter an.",
 };
 export default catalog;

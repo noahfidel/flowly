@@ -912,7 +912,6 @@ const catalog: Catalog = {
   "Testing\u2026": "테스트 중…",
   "Test connection": "연결 테스트",
   "Connection removed": "연결 제거됨",
-  "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove.": "프로젝트 탭을 드래그해 순서를 바꿀 수 있습니다. 오른쪽 클릭하면 설정, 새 작업, 인사이트, 아이디어, 제거를 사용할 수 있습니다.",
   "Acceptance {done}/{total}": "인수 {done}/{total}",
   "Workpad": "Workpad",
   "Updated {time} by you": "{time} 내가 업데이트",
@@ -1619,7 +1618,6 @@ const catalog: Catalog = {
   "Board groups": "보드 그룹",
   "Group name": "그룹 이름",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly는 카드를 돌려보낸 이유에서 배웁니다(같은 문제의 두 번째 카드는 프로젝트 지침이 됩니다). 또한 메모리는 더 이상 확인이 필요 없습니다.",
-  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "'모든 프로젝트'는 모든 프로젝트의 카드를 한 보드에 표시합니다. 설정 → 워크플로에서 끌 수 있습니다.",
   "Inherit: {value}": "상속: {value}",
   "Default group": "기본 그룹",
   "New projects join it.": "새 프로젝트는 이 그룹에 들어갑니다.",
@@ -1633,5 +1631,9 @@ const catalog: Catalog = {
   "Groups can override it.": "그룹에서 바꿀 수 있습니다.",
   "Group {name} deleted": "그룹 {name}을(를) 삭제했습니다",
   "Remove “{title}”…": "“{title}” 제거…",
+  "Projects sit in boards. Each group has its own tab, dispatcher and defaults; add a group from the project switcher.": "프로젝트는 보드로 묶입니다. 각 그룹은 자체 탭, 디스패처, 기본값을 가지며, 그룹은 프로젝트 전환기에서 추가합니다.",
+  "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "프로젝트는 그룹별 보드로 묶이며, 그룹 보드에는 소속 프로젝트의 카드가 함께 표시됩니다. 프로젝트 필터로 좁힐 수 있습니다.",
+  "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "그룹마다 자체 디스패처가 있어서, 채팅, 알림, 새 카드가 그 그룹의 프로젝트에 머뭅니다.",
+  "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "그룹 탭이 프로젝트 탭을 대신합니다. 그룹을 끌어서 순서를 바꾸고, 프로젝트 전환기에서 그룹을 추가하세요.",
 };
 export default catalog;

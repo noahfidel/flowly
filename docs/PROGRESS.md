@@ -1,5 +1,16 @@
 # Implementation progress
 
+## Board groups v2, 7/7: onboarding, What's new, catalogs, telemetry — 2026-11-10
+
+- Task 7 of the board groups v2 plan (BOARD-GROUPS-SPEC §8). Cards 1–6 are integrated; the branch was fast-forwarded to main first (it had been created before 1–6 landed).
+- Tips: `project-menu` and `all-projects` are retired (removed from `tipIds`, `tipFact`, priority order and `tipText`); their stored ids stay in `tipsSeen` and are never shown again. New tip `board-groups` (fact `groupTabs`: two or more projects, no card open) sits where `project-menu` was. The `allProjects` fact is gone. `onboarding-logic.test.ts` covers the new tip and the retired ids.
+- Tour: the Board groups page now says projects sit in boards, each group has its own tab, dispatcher and defaults, and groups are added from the project switcher.
+- What's new: 1.9.0 on top of `client/whats-new.ts` with three items (boards and the project filter, one dispatcher per group, group tabs replacing project tabs). The 1.8.0 entry is unchanged history. `package.json`, `package-lock.json` and `shared/version.ts` are 1.9.0.
+- Catalogs: four new strings in all 9 locales (the tip/tour sentence, three What's new items); two retired strings removed from all 9 (the project-tab tip and the All projects tip). The 1.8.0 Board groups line is still used and kept.
+- README: highlight 7, Board groups.
+- Telemetry: no `f_*`/`c_*` heartbeat field is added. `POSTHOG_KEY` stays empty in this fork (TELEMETRY-SPEC §6), so no §4, `heartbeatProperties` or key-set test changes.
+- Docs: ONBOARDING-SPEC tip table (`board-groups` row replaces `project-menu` and `all-projects`); SPEC-OUTLINE marks ALL-PROJECTS-SPEC retired.
+
 ## Board groups v2, 2/7: group settings page and defaults chain — 2026-11-10
 
 - Task 2 of the board groups v2 plan (BOARD-GROUPS-SPEC §5), rebased onto 3/7 (group tabs), 4/7 (project filter) and 5/7 (one dispatcher per group). Resolvers and server wiring (ca428ca): `effectiveAgentModel` is project → group → host, `resolveDeliveryMode` card → project → group → host; `flowly_get_task`, the session context and card starts use them. The dispatcher model (group → host → built-in default) is 5/7's `effectiveDispatcherModel`, already per group; 2/7's interim version (the `dispatcherTarget` group) was dropped when rebasing onto 5/7.

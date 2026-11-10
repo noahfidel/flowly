@@ -912,7 +912,6 @@ const catalog: Catalog = {
   "Testing\u2026": "Проверка…",
   "Test connection": "Проверить подключение",
   "Connection removed": "Подключение удалено",
-  "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove.": "Перетащите вкладку проекта, чтобы изменить порядок. Правый щелчок: настройки, новая задача, аналитика, идеи или удаление.",
   "Acceptance {done}/{total}": "Приёмка {done}/{total}",
   "Workpad": "Workpad",
   "Updated {time} by you": "Обновлено {time} вами",
@@ -1619,7 +1618,6 @@ const catalog: Catalog = {
   "Board groups": "Группы досок",
   "Group name": "Название группы",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly учится на причинах, по которым вы возвращаете карточки (вторая карточка с той же проблемой становится правилом проекта), а память больше не требует подтверждения.",
-  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "«Все проекты» показывает карточки всех проектов на одной доске. Отключается в Настройки → Рабочий процесс.",
   "Inherit: {value}": "Наследовать: {value}",
   "Default group": "Группа по умолчанию",
   "New projects join it.": "Новые проекты попадают в неё.",
@@ -1633,5 +1631,9 @@ const catalog: Catalog = {
   "Groups can override it.": "Группы могут его переопределить.",
   "Group {name} deleted": "Группа «{name}» удалена",
   "Remove “{title}”…": "Удалить «{title}»…",
+  "Projects sit in boards. Each group has its own tab, dispatcher and defaults; add a group from the project switcher.": "Проекты объединяются в доски. У каждой группы свои вкладка, диспетчер и значения по умолчанию; группу добавляют в переключателе проектов.",
+  "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "Проекты объединены в доски: доска группы показывает карточки её проектов вместе, а фильтр по проекту сужает её.",
+  "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "У каждой группы свой диспетчер: её чат, заметки и новые карточки остаются за проектами этой группы.",
+  "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "Вкладки групп заменяют вкладки проектов: группу можно перетащить, чтобы изменить порядок, а группы добавляются в переключателе проектов.",
 };
 export default catalog;

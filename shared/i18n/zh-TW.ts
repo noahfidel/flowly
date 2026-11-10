@@ -912,7 +912,6 @@ const catalog: Catalog = {
   "Testing\u2026": "測試中…",
   "Test connection": "測試連線",
   "Connection removed": "連線已移除",
-  "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove.": "拖曳專案分頁即可調整順序；按右鍵可開啟設定、新增任務、洞察、想法或移除。",
   "Acceptance {done}/{total}": "驗收 {done}/{total}",
   "Workpad": "Workpad",
   "Updated {time} by you": "{time}由你更新",
@@ -1619,7 +1618,6 @@ const catalog: Catalog = {
   "Board groups": "看板群組",
   "Group name": "群組名稱",
   "Flowly learns from what you send cards back for (the second card with the same problem becomes a project guideline), and memory no longer needs confirming.": "Flowly 會從你退回卡片的原因中學習（同一問題出現在第二張卡片時會成為專案準則），記憶也不再需要確認。",
-  "All projects shows every project's cards on one board. Settings → Workflow turns it off.": "「所有專案」在一個看板上顯示所有專案的卡片。可在 設定 → 工作流程 中關閉。",
   "Inherit: {value}": "繼承：{value}",
   "Default group": "預設群組",
   "New projects join it.": "新專案會加入這個群組。",
@@ -1633,5 +1631,9 @@ const catalog: Catalog = {
   "Groups can override it.": "群組可以覆寫它。",
   "Group {name} deleted": "群組 {name} 已刪除",
   "Remove “{title}”…": "移除“{title}”…",
+  "Projects sit in boards. Each group has its own tab, dispatcher and defaults; add a group from the project switcher.": "專案依看板分組。每個群組有自己的分頁、調度器和預設值；在專案切換器中新增群組。",
+  "Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.": "專案會依群組彙總到看板：群組看板把其中專案的卡片合併顯示，並可用專案篩選縮小範圍。",
+  "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "每個群組有自己的調度器，其聊天、提示和新卡片只屬於該群組的專案。",
+  "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "群組分頁取代了專案分頁：拖曳群組可調整順序，並可在專案切換器中新增群組。",
 };
 export default catalog;
