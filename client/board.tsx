@@ -1247,7 +1247,8 @@ function BoardContent(
   const openTaskById = useStableCallback((id: string) => {
     setDrawerFocus(null);
     const target = currentDetail?.relatedTasks.find(t => t.id === id) ?? board?.tasks.find(t => t.id === id);
-    if (!target && board) return void toast.show(t("This card no longer exists."), { variant: "info" });
+    // Only the full overview proves a card is gone: a cold direct link holds just its own card.
+    if (!target && overviewData.data) return void toast.show(t("This card no longer exists."), { variant: "info" });
     if (target) { setDetailTarget(target); focusGroupOf(target.projectId); } // board-groups 3/7
     setTask(id);
   });
