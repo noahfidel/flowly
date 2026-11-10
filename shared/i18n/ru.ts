@@ -1461,6 +1461,7 @@ const catalog: Catalog = {
   "Branch, I bless": "Ветка, я одобряю",
   "Draft PR": "Черновик PR",
   "Ready PR": "PR готов к ревью",
+  "Ship to main": "В main",
   "Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.": "Выбирайте для каждой карточки (значение по умолчанию — в Настройки → Рабочий процесс), оставит ли агент работу в ветке для вашей проверки или отправит её как черновик PR или PR, готовый к ревью. Перед отправкой он по-прежнему спросит у вас разрешения.",
   "The dispatcher is one agent for all your projects. Open its chat with the robot button, ask for work, and it makes the cards and starts them.": "Диспетчер — один агент для всех ваших проектов. Откройте его чат кнопкой с роботом, попросите о работе, и он создаст карточки и запустит их.",
   "One agent for all your projects, in a chat next to the board. It hears when cards stop, makes and starts cards for what you ask, and tells you what needs you.": "Один агент для всех ваших проектов, в чате рядом с доской. Он узнаёт, когда карточки останавливаются, создаёт и запускает карточки по вашим просьбам и говорит, что требует вашего участия.",

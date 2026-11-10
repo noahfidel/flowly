@@ -1674,3 +1674,11 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - `docs/promo/shot-lib.mjs`：`open()` 的 Flowly 入口与项目 tab 改为按横向带（侧栏 / 插件 tab 行）精确文本定点点击，找不到即抛错，不再静默停在错误项目；看板就绪等待改为 testID/aria-label（不依赖语言）。新增 `openCard(s, title)`（仅凭标题：`getByRole("button", { name: /^Open task {title}\./ })` 点击并等待 `task-drawer-motion` 显示该标题）与 `closeCard(s)`（Esc + 等 pointer-events 失效）。
 - 测试：`client/card-label.test.ts`（标题+泳道开头、无泳道省略、信号段顺序、优先级/类型段）。验证脚本 `docs/verification/board-card-open-2026-11-05/run.mjs`：真机 web 上仅凭标题连续 5 次打开并关闭指定卡片侧栏（真实 flowly 项目——本机 daemon 未建过 Tinylink fixture），详见该目录 report。
 - 引导：无 UI/入口变化，不加导览、提示或 What's new。遥测：不加字段。无新用户可见字符串（lane 名为已有本地化数据）。性能：仅多一个字符串段与既有 testID 属性，卡片 memo 比较含 lane 字符串。
+
+## 2026-11-10 交付模式 Ship to main（`ship_main`）
+- 第四种交付模式 `ship_main`（Noah 裁定 2026-11-10，`docs/DELIVERY-MODE-SPEC.md` §4 与 Ruling）：`shared/delivery-mode.ts` 加入 `deliveryModes`，标签 "Ship to main"（九个目录翻译），`deliveryLine` 写明检查、变基、`flowly_integrate`、`git push origin main`、停止条件。卡片、Edit、New task、主机默认与分组默认（Tooling 组）都经 `deliveryModes` 取得该值；组默认走既有 `resolveDeliveryMode` 链。
+- 交付后的 ship 步骤由 Auto review 通过触发：`server/auto-review.ts` 新增可选依赖 `deliveryMode`，通过且有效模式为 `ship_main` 时发送 `shared/auto-review.ts` 的 `shipMessage`（带 `[Flowly auto review` 标记，不计入对话）；其他情况不发消息。`index.server.ts` 按卡 → 项目 → 分组 → 主机解析模式。
+- 停止规则（agent 执行）：变基冲突、变基后检查失败、`flowly_integrate` 拒绝、主检出落后 origin、未决发现，卡停在 In review 并报告 blocker；推送被拒则设 integrated 并报告。只推 main，从不 force。
+- 工具与技能文本：`flowly_integrate` 描述、`done` 说明、技能 "Delivery mode" 行（`server/skill-source.ts` 与 `skills/flowly/SKILL.md` 同步）。AGENTS.md 的 `flowly_integrate` 例外已更新。
+- 测试：`shared/delivery-mode.test.ts`（模式、标签、行内容、分组解析与 taskInput/taskEdit 接受）；`server/auto-review.test.ts`（ship_main 通过发消息，branch 不发）。`npm run typecheck`、`npm test`（198 files passed, 1 skipped；2136 tests passed）、`make check` 均通过。
+- 引导与 What's new：不改（第四个值，随 Board groups 第 7/7 卡统一交代）。遥测：不加字段（交付模式无心跳字段）。

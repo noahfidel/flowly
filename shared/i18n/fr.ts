@@ -1461,6 +1461,7 @@ const catalog: Catalog = {
   "Branch, I bless": "Branche, je valide",
   "Draft PR": "PR brouillon",
   "Ready PR": "PR prête",
+  "Ship to main": "Livrer sur main",
   "Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.": "Choisissez par carte, avec une valeur par défaut dans Réglages → Flux de travail, si son agent laisse le travail sur une branche pour que vous le relisiez ou le pousse en PR brouillon ou prête. Le push vous demande toujours votre accord avant.",
   "The dispatcher is one agent for all your projects. Open its chat with the robot button, ask for work, and it makes the cards and starts them.": "Le dispatcher est un agent pour tous vos projets. Ouvrez son chat avec le bouton robot, demandez-lui du travail, et il crée les cartes et les démarre.",
   "One agent for all your projects, in a chat next to the board. It hears when cards stop, makes and starts cards for what you ask, and tells you what needs you.": "Un agent pour tous vos projets, dans un chat à côté du tableau. Il est prévenu quand les cartes s'arrêtent, crée et démarre des cartes pour ce que vous demandez, et vous dit ce qui a besoin de vous.",

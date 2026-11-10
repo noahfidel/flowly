@@ -71,7 +71,7 @@ const nextMoveList = z
       moveTo: z
         .enum(nextMoveTargets)
         .optional()
-        .describe("\"done\": picking it moves the card to Done (the user's decision; nothing is sent, no prompt). Only when all work is delivered and committed (in draft_pr or ready_pr also pushed, with the PR opened). At most one per call."),
+        .describe("\"done\": picking it moves the card to Done (the user's decision; nothing is sent, no prompt). Only when all work is delivered and committed (in draft_pr or ready_pr also pushed, with the PR opened; in ship_main also pushed to main). At most one per call."),
     }),
   )
   .max(nextMoveLimits.count)

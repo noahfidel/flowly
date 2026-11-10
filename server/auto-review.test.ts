@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agentFixture } from "./agent-fixture";
+import { shipMessage } from "../shared/auto-review";
 import {
   AutoReviewService,
   changedRepos,
@@ -95,6 +96,8 @@ async function setup(
     directory?: string;
     git?: Git;
     run?: RunCheck;
+    /** The card's effective delivery mode (DELIVERY-MODE-SPEC §2); default: branch. */
+    deliveryMode?: string;
   } = {},
 ) {
   const x = await agentFixture();
@@ -147,6 +150,7 @@ async function setup(
     git,
     guardrails,
     llm: options.llm ?? passAll,
+    deliveryMode: async () => options.deliveryMode ?? "branch",
     ...(options.conversation ? { conversation: options.conversation } : {}),
     ...(options.directory
       ? {}
@@ -206,6 +210,17 @@ test("no L1 any more: an unticked acceptance list delivers; a card without one g
   expect(String(refused.message)).toContain("no acceptance list");
   await x.service.write(x.identity, "status", { ...input(ctx, "Delivered"), status: "in_review", acknowledgeOpen: true });
   expect((await card(x)).status).toBe("in_review");
+});
+
+test("a pass on a Ship to main card sends the ship message; any other mode sends nothing (DELIVERY-MODE-SPEC §4)", async () => {
+  const ship = await setup({ deliveryMode: "ship_main" });
+  const shipped = await ship.deliver("development");
+  expect(shipped.tasks[0]).toMatchObject({ status: "in_review", review: { state: "passed" } });
+  expect(ship.sent).toEqual([{ agentId: "actor", text: shipMessage }]);
+  expect(shipMessage.startsWith("[Flowly auto review")).toBe(true);
+  const branch = await setup({ deliveryMode: "branch" });
+  await branch.deliver("development");
+  expect(branch.sent).toEqual([]);
 });
 
 test("a passing review leaves the card in In review; a person's move into In review starts none", async () => {

@@ -9,8 +9,9 @@ How a card's work is handed over: left on its branch for the user to review, or 
 | `branch` (default) | Branch, I bless | Commit on the card's branch; do not push or open a PR. The user reviews ("blesses") the branch. |
 | `draft_pr` | Draft PR | Push the card's branch and open a draft PR; register its URL as an output. |
 | `ready_pr` | Ready PR | Push the card's branch and open a PR ready for review; register its URL as an output. |
+| `ship_main` | Ship to main | After the checks pass and the review has no open findings: rebase the branch onto the latest main, rerun the checks, `flowly_integrate`, then `git push origin main`. |
 
-`deliveryModes = ["branch", "draft_pr", "ready_pr"]`. Labels are translated (`msg()`); the agent-facing lines are English.
+`deliveryModes = ["branch", "draft_pr", "ready_pr", "ship_main"]`. Labels are translated (`msg()`); the agent-facing lines are English.
 
 ## 2. Where the mode lives
 
@@ -27,8 +28,12 @@ How a card's work is handed over: left on its branch for the user to review, or 
 - branch: `Delivery: commit on the card's branch; do not push or open a PR. The user reviews ("blesses") the branch.`
 - draft_pr: `Delivery: push the card's branch and open a draft PR; register its URL as an output. Pushing and opening the PR still go through the user's permission prompt, which the user answers. Leave the PR a draft; never mark it ready.`
 - ready_pr: `Delivery: push the card's branch and open a PR ready for review; register its URL as an output. Pushing and opening the PR still go through the user's permission prompt, which the user answers. Never mark a PR ready while review notes are open.`
+- ship_main: `Delivery: ship to main only after the card's checks pass and its review has no open findings. Rebase the card's branch onto the latest main (fetch first), rerun the checks, call flowly_integrate, then git push origin main. Never force-push and never push any other branch. Pushing still goes through the user's permission prompt, which the user answers. Stop and report, leaving the card In review, when the rebase conflicts, checks fail after the rebase, flowly_integrate refuses, or a review finding is open; if the push is rejected, set integrated and report it. Do not update the installed plugin.`
 
 ## 4. Boundaries
+
+- **Ship to main** (ruling, Noah, 2026-11-10): the ship step runs only on a card whose effective mode is `ship_main`, after the Auto review (AUTO-REVIEW-SPEC) has passed for the delivery. A pass sends the card's session a marked ship message, which starts the ship turn. Without Auto review on, the card is not shipped: it stays In review and the reason is reported. The card must be a worktree card (`flowly_integrate` refuses `NOT_WORKTREE` otherwise). The steps: `git fetch`; stop if the main checkout's branch is not at `origin/main` (never fast-forward or reset the main checkout); rebase the card's branch onto `origin/main`; rerun the checks; `flowly_integrate`; `git push origin main` from the main checkout. The push is an explicit `git push origin main`: no force, no `+` refspec, never another branch; it goes through the user's `ask` rule like Draft and Ready PR. The review applies to the head before the rebase; the rerun checks gate the rebased head.
+- **Stop states:** rebase conflict, failed checks after the rebase, a refused `flowly_integrate`, main behind origin, or an open finding leave the card In review with a `kind=blocker` report. A rejected push, after a successful integrate, sets Integrated (the commits are in the main checkout's branch) and reports the push failure. Ship to main does not move a card to Blocked: these stops are fixable.
 
 - Flowly itself never pushes, opens a PR or marks one ready. The card's session does, with its own tools.
 - Delivery mode never bypasses the user's permission rules for `git push` and `gh pr create`. In Draft PR and Ready PR the session still asks, and the user answers the prompt.
@@ -50,3 +55,8 @@ How a card's work is handed over: left on its branch for the user to review, or 
 - `get_task` returns `deliveryMode`.
 - Edit changes the mode before delivery; once the card has been In review, Committed or Integrated the form shows it read-only and the daemon refuses a change, also after the card moves back to an earlier lane.
 - The draft and ready lines carry the permission and review-notes rules.
+- Ship to main: the pass sends the ship message only for a `ship_main` card; a failed or unavailable review sends nothing; the stop states above; the mode is listed in `get_task`'s `deliveryMode` enum and in every catalog.
+
+## 7. Rulings
+
+- Ruling: Noah, 2026-11-10. Ship to main (`ship_main`) is a fourth mode. It is available per card and as a default, and as a group default for the Tooling group. Updating the installed Paseo plugin is not part of the mode.

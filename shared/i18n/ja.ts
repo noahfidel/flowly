@@ -1461,6 +1461,7 @@ const catalog: Catalog = {
   "Branch, I bless": "ブランチ、私が承認",
   "Draft PR": "ドラフトPR",
   "Ready PR": "レビュー可能なPR",
+  "Ship to main": "mainへ出荷",
   "Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.": "カードごとに(既定は設定 → ワークフローで指定)、エージェントが作業をブランチに残してあなたがレビューするか、ドラフトPRまたはレビュー可能なPRとしてプッシュするかを選べます。プッシュの前には必ずあなたに確認します。",
   "The dispatcher is one agent for all your projects. Open its chat with the robot button, ask for work, and it makes the cards and starts them.": "ディスパッチャーは、すべてのプロジェクトを担当する 1 つのエージェントです。ロボットのボタンからチャットを開いて作業を頼むと、カードを作成して開始します。",
   "One agent for all your projects, in a chat next to the board. It hears when cards stop, makes and starts cards for what you ask, and tells you what needs you.": "すべてのプロジェクトを担当する 1 つのエージェントが、ボードの横のチャットにいます。カードが止まると知らせを受け、頼んだ作業のカードを作成・開始し、あなたの対応が必要なものを伝えます。",

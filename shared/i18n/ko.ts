@@ -1461,6 +1461,7 @@ const catalog: Catalog = {
   "Branch, I bless": "브랜치, 내가 승인",
   "Draft PR": "초안 PR",
   "Ready PR": "리뷰 준비 PR",
+  "Ship to main": "main으로 배포",
   "Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.": "카드별로(기본값은 설정 → 워크플로) 에이전트가 작업을 브랜치에 남겨 직접 검토하게 할지, 초안 PR 또는 리뷰 준비 PR로 푸시할지 고릅니다. 푸시 전에는 항상 먼저 사용자에게 묻습니다.",
   "The dispatcher is one agent for all your projects. Open its chat with the robot button, ask for work, and it makes the cards and starts them.": "디스패처는 모든 프로젝트를 맡는 하나의 에이전트입니다. 로봇 버튼으로 채팅을 열고 작업을 요청하면 카드를 만들고 시작합니다.",
   "One agent for all your projects, in a chat next to the board. It hears when cards stop, makes and starts cards for what you ask, and tells you what needs you.": "모든 프로젝트를 맡는 하나의 에이전트가 보드 옆 채팅에 있습니다. 카드가 멈추면 알림을 받고, 요청한 작업의 카드를 만들어 시작하며, 당신이 처리해야 할 일을 알려 줍니다.",

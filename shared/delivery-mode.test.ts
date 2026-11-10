@@ -3,10 +3,10 @@ import { defaultDeliveryMode, deliveryLine, deliveryModeLabels, deliveryModeLock
 import { deliverySettings, deliverySettingsValues } from "./settings";
 import { taskEdit, taskInput, taskSchema } from "./model";
 
-test("the three modes, with the branch default (DELIVERY-MODE-SPEC §1)", () => {
-  expect(deliveryModes).toEqual(["branch", "draft_pr", "ready_pr"]);
+test("the four modes, with the branch default (DELIVERY-MODE-SPEC §1)", () => {
+  expect(deliveryModes).toEqual(["branch", "draft_pr", "ready_pr", "ship_main"]);
   expect(defaultDeliveryMode).toBe("branch");
-  expect(deliveryModes.map((m) => deliveryModeLabels[m])).toEqual(["Branch, I bless", "Draft PR", "Ready PR"]);
+  expect(deliveryModes.map((m) => deliveryModeLabels[m])).toEqual(["Branch, I bless", "Draft PR", "Ready PR", "Ship to main"]);
 });
 
 test("each mode's agent-facing line (§3)", () => {
@@ -74,4 +74,20 @@ test("resolveDeliveryMode skips a level that is not a known mode", () => {
   expect(resolveDeliveryMode({ card: "from_the_future", project: 7, group: "ready_pr", host: "draft_pr" })).toEqual({ mode: "ready_pr", source: "group" });
   expect(resolveDeliveryMode({ card: "nope", project: "", group: null, host: "draft_pr" })).toEqual({ mode: "draft_pr", source: "host" });
   expect(resolveDeliveryMode({ card: "nope", host: "also_nope" })).toEqual({ mode: "branch", source: "host" });
+});
+
+test("the Ship to main line states the ship steps, the stop rules and the no-force rule (DELIVERY-MODE-SPEC §3, §4)", () => {
+  const line = deliveryLine("ship_main");
+  expect(line).toMatch(/^Delivery: ship to main only after the card's checks pass and its review has no open findings\./);
+  expect(line).toContain("git push origin main");
+  expect(line).toContain("Never force-push and never push any other branch");
+  expect(line).toContain("the user's permission prompt");
+  expect(line).toContain("leaving the card In review");
+});
+
+test("a Ship to main card or a group default of it resolves and survives (DELIVERY-MODE-SPEC §2, board groups §5)", () => {
+  expect(resolveDeliveryMode({ group: "ship_main", host: "branch" })).toEqual({ mode: "ship_main", source: "group" });
+  expect(effectiveDeliveryMode("ship_main")).toBe("ship_main");
+  expect(taskEdit.parse({ id: "t", revision: 1, deliveryMode: "ship_main" }).deliveryMode).toBe("ship_main");
+  expect(taskInput.parse({ projectId: "p", operationId: "o", title: "T", mode: "directory", deliveryMode: "ship_main" }).deliveryMode).toBe("ship_main");
 });

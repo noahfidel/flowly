@@ -47,6 +47,8 @@ import { SummaryService, SummaryStore } from "./server/summaries";
 import { UsageService } from "./server/usage";
 import { summarySettings, summarySettingsValues, summaryModelsOf } from "./shared/summary";
 import { enabledStatuses, laneEnabled } from "./shared/lanes";
+import { resolveDeliveryMode } from "./shared/delivery-mode";
+import { groupOfProject } from "./shared/groups";
 import { FlowLog } from "./server/flow-log";
 import { ProjectFolders, snapshotPath } from "./server/project-folder";
 import { GitStats } from "./server/git-stats";
@@ -781,6 +783,11 @@ export default function contribute(host: PluginServerContext) {
       return !!agent && !agent.archivedAt && agent.workspaceId === task.workspaceId;
     },
     send: (message, api) => composer.push(message, api),
+    deliveryMode: async (task) => {
+      const board = await store.read();
+      const project = board.projects.find((p) => p.id === task.projectId);
+      return resolveDeliveryMode({ card: task.deliveryMode, project: project?.deliveryMode, group: groupOfProject(board, project)?.defaults?.deliveryMode, host: await tools.agents.deliveryDefault() }).mode;
+    },
     conversation: readConversation,
     guardrails,
     // A temporary session judges the built-in check, guidelines and card items, hard-deleted after like the summarizer.

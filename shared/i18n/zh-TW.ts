@@ -1461,6 +1461,7 @@ const catalog: Catalog = {
   "Branch, I bless": "分支,由我審核",
   "Draft PR": "草稿 PR",
   "Ready PR": "可審查 PR",
+  "Ship to main": "發佈到 main",
   "Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.": "依卡片選擇(預設值在設定 → 工作流程中),代理是把工作留在分支上由你審查,還是推送為草稿 PR 或可審查的 PR。推送前仍會先徵求你的同意。",
   "The dispatcher is one agent for all your projects. Open its chat with the robot button, ask for work, and it makes the cards and starts them.": "調度員是負責你所有專案的一個智慧體。用機器人按鈕打開它的聊天，交給它工作，它會建立卡片並啟動。",
   "One agent for all your projects, in a chat next to the board. It hears when cards stop, makes and starts cards for what you ask, and tells you what needs you.": "負責你所有專案的一個智慧體，就在看板旁的聊天裡。卡片停下時它會收到通知，依你的要求建立並啟動卡片，並告訴你哪些事需要你處理。",
