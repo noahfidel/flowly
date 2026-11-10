@@ -60,9 +60,10 @@ exactly one group. Individual projects are no longer top-level navigation.
   the overview bar, Insights, Ideas, Memory and **I**, **B**, **M** act on that project. Unfiltered they stay
   hidden. Project settings live in the group settings page's per-project sections. (The overview bar's counts are
   amended by the next ruling.)
-- Ruling (Noah, 2026-11-10): the "N need you" and "N updated" counts and the **N** / **U** step-throughs always
-  show on a group board, unfiltered too, counting the group's live member projects (filtered: that project). Only the
-  genuinely per-project parts (Insights, Ideas, Memory, Guardrails, **I**, **B**, **M**) stay hidden unfiltered.
+- Ruling (Noah, 2026-11-10): every aggregate count of a group board shows unfiltered too, summed over the group's
+  live member projects (filtered: that project): the overview bar's task and Done counts, running, "N need you" and
+  "N updated" (with the **N** / **U** step-throughs), and the column counts. Only the genuinely per-project parts
+  (Insights, Ideas, Memory, Guardrails, **I**, **B**, **M**) stay hidden unfiltered.
 - Ruling (Noah, 2026-11-10): deleting a group archives its dispatcher session. The delete confirm says so. This is a
   new user-confirmed archive exception (AGENTS.md), like Replace dispatcher. A dispatcher cannot delete its own
   group.
