@@ -89,6 +89,8 @@ import { linearQuickSeed, parseLinearOpen, parseLinearStart } from "./linear-sta
 import { cardProgress, useSummaries } from "./task-progress";
 import { LocaleRoot } from "./i18n";
 import { agentModelFromValues, effectiveAgentModel, startingAgent } from "../shared/agent-defaults";
+import { groupOfProject as projectGroup } from "../shared/groups";
+import { GroupSettings } from "./group-settings";
 import { HintOutline, SettingsHint, SettingsModal, type SettingsSection } from "./summary-settings";
 import { NewTaskFab } from "./new-task-fab";
 import { SettingsOpenerContext } from "./settings-opener";
@@ -175,7 +177,7 @@ const tipText: Record<TipId, (compact?: boolean) => string> = {
   "jira-connect": () => t("Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them."),
   connectors: () => t("The Artifacts + now adds Confluence pages and GitHub or GitLab issues and pull requests too, besides files, links and Jira tickets. Connect services in Settings → Connections."),
   "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
-  "all-projects": () => t("All projects shows every project's cards on one board. Settings → Workflow turns it off."),
+  "all-projects": () => t("All projects shows every project's cards on one board."),
   subagents: () => t("When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo."),
   "summary-models": () => t("Choose summary models and their fallback order in Settings → Models. The default is Haiku, then Luna."),
   "ai-language": () => t("AI-written text follows Settings → AI features → AI output language. It starts as your interface language."),
@@ -215,6 +217,7 @@ const noEvents: BoardEvent[] = [];
 const noTasks: Task[] = [];
 // board-groups 3/7: the overview's groups, empty until it loads.
 const noGroups: Group[] = [];
+const noProjects: Project[] = [];
 const noAgents: PaseoAgent[] = [];
 const noTurnFacts: ReadonlyMap<string, { latestTurn?: { action: string; at: string } }> = new Map();
 
@@ -380,6 +383,8 @@ function BoardContent(
     [reveal, setReveal] = useState<{ status: Status; n: number; at: number; center?: boolean; taskId?: string }>({ status: "todo", n: 0, at: 0 }),
     [actionTask, setActionTask] = useState<Task | null>(null),
     [projectForm, setProjectForm] = useState<"new" | "edit" | null>(null),
+    // Group settings (BOARD-GROUPS-SPEC §5): `groupId` null opens on Add group; `projectId` opens that project's section.
+    [groupSettings, setGroupSettings] = useState<{ groupId: string | null; projectId?: string; reviewOn?: boolean } | null>(null),
     [removing, setRemoving] = useState<Project | null>(null),
     [deleting, setDeleting] = useState<Task | null>(null),
     [linking, setLinking] = useState<Task | null>(null),
@@ -545,6 +550,8 @@ function BoardContent(
   const detailMetadata = currentDetail ? { revision: currentDetail.revision, tasks: [currentDetail.task], projects: [currentDetail.project], links: currentDetail.links, attentionDismissals: currentDetail.attentionDismissal ? [currentDetail.attentionDismissal] : [] } : undefined;
   const board = overviewData.data ?? detailMetadata;
   const projected = board && "cards" in board ? board as BoardOverview : undefined;
+  // A project's own group (BOARD-GROUPS-SPEC §5): the defaults chain and Group settings; none until the overview has it.
+  const groupOf = (p: { groupId?: string } | null | undefined) => projectGroup({ groups: projected?.groups ?? noGroups }, p);
   // Card facts come from the overview; until it arrives (a cold direct link) cards show no derived facts.
   const factsByTask = useMemo(() => new Map((projected?.cards || []).map(c => [c.taskId, c])), [projected?.cards]);
   const sessionFacts = useMemo(() => new Map((projected?.cards || []).map(c => [c.taskId, new Map(c.sessions.map(s => [s.agentId, s]))])), [projected?.cards]);
@@ -637,8 +644,8 @@ function BoardContent(
   }, [choiceStale]);
   // A card opened before the groups are known (a cold link) selects its group once they arrive.
   const pendingFocus = useRef("");
-  // Add group, Rename group (the Group settings hook) and Delete group… dialogs.
-  const [groupDialog, setGroupDialog] = useState<{ kind: "add" } | { kind: "rename" | "delete"; groupId: string } | null>(null);
+  // Add group and Delete group… dialogs; Group settings is its own page (onGroupSettings).
+  const [groupDialog, setGroupDialog] = useState<{ kind: "add" } | { kind: "delete"; groupId: string } | null>(null);
   const chooseGroup = (id: string) => {
     ignoredLink.current = linkKey;
     pendingFocus.current = "";
@@ -863,9 +870,9 @@ function BoardContent(
   // The project's default model wins over the global one; with neither, the latest session's settings (MODEL-DEFAULTS-SPEC).
   const modelPrefs = useSettings(modelSettings);
   const globalModel = agentModelFromValues(modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null);
-  // The board payload carries no groups yet, so the group level is null here (client work follows).
-  // The open form's or card's own project first: on the All board there is no board project.
-  const defaultModel = effectiveAgentModel(formProject ?? taskProject ?? project, null, globalModel)?.model ?? null;
+  // The open form's or card's own project first: on the All board there is no board project. Then its group's default.
+  const modelProject = formProject ?? taskProject ?? project;
+  const defaultModel = effectiveAgentModel(modelProject, groupOf(modelProject), globalModel)?.model ?? null;
   const defaultModelKey = JSON.stringify(defaultModel);
   const sessionDefaults = useMemo(
     () =>
@@ -882,7 +889,7 @@ function BoardContent(
   const agentDefaultsFor = useStableCallback((p: Project) =>
     startingAgent(
       lastSessionSettings(agents.data || [], new Set((board?.tasks || []).map((t) => t.workspaceId))),
-      effectiveAgentModel(p, null, globalModel)?.model ?? null,
+      effectiveAgentModel(p, groupOf(p), globalModel)?.model ?? null,
     ),
   );
   // New task: Quick task unless the user turned that off (QUICK-TASK-SPEC §5), in the board's project unless pinned.
@@ -1566,7 +1573,7 @@ function BoardContent(
   const workflowTipDue = !!project && workflowOn && !!onboarding.values && !(onboarding.values.tipsSeen.includes("first-workflow-insight") && onboarding.values.tipsSeen.includes("first-skill-draft"));
   const workflowView = useWorkflowInsightsQuery(project?.id || "", boardActive && workflowTipDue, false);
   const inPanel = !!props.workspaceId;
-  const dialogOpen = !!menu || !!projectForm || !!taskForm || !!quickTask || !!removing || !!deleting || !!wrapPrompt || !!linking || !!switchRequest || !!groupDialog; // board-groups 3/7: group dialogs
+  const dialogOpen = !!menu || !!projectForm || !!groupSettings || !!taskForm || !!quickTask || !!removing || !!deleting || !!wrapPrompt || !!linking || !!switchRequest || !!groupDialog; // board-groups 3/7: group dialogs
   const welcome = welcomeDecision({
     settingsStatus: onboarding.status,
     welcomeSeen: onboarding.values?.welcomeSeen ?? false,
@@ -1634,11 +1641,10 @@ function BoardContent(
     setWhatsNewOpen(false);
     void onboarding.markWhatsNewSeen();
   };
-  // What's new "Turn on for this project": the current project's Edit project, Auto review first and switched on.
+  // What's new "Turn on for this project": the current project's section of Group settings, Auto review first and switched on.
   const turnOnReview = () => {
     if (!project) return;
-    setReviewOn(true);
-    setProjectForm("edit");
+    openProjectSettings(project, true);
   };
   const whatsNewAction = (action: NonNullable<WhatsNewItem["action"]>) => {
     closeWhatsNew();
@@ -1816,10 +1822,9 @@ function BoardContent(
   // board-groups 3/7: group order, the group tab menu and the group dialogs (BOARD-GROUPS-SPEC §2–§3).
   const moveGroupRpc = useRpc(rpc.moveGroup),
     createGroupRpc = useRpc(rpc.createGroup),
-    updateGroupRpc = useRpc(rpc.updateGroup),
     deleteGroupRpc = useRpc(rpc.deleteGroup);
   const dialogGroup = groupDialog && groupDialog.kind !== "add" ? boardGroups.find((g) => g.id === groupDialog.groupId) : undefined;
-  // board-groups 3/7: a rename/delete dialog whose group vanished (deleted elsewhere) closes instead of lingering invisibly.
+  // board-groups 3/7: a delete dialog whose group vanished (deleted elsewhere) closes instead of lingering invisibly.
   useEffect(() => {
     if (groupDialog && groupDialog.kind !== "add" && boardGroups.length && !dialogGroup) setGroupDialog(null);
   }, [groupDialog, dialogGroup, boardGroups.length]);
@@ -1839,10 +1844,29 @@ function BoardContent(
     setGroupOrderOverride(next);
     reorderGroup(id, { to });
   };
-  // Group settings: one hook; it renames the group until the group settings page (card 2) takes it over.
-  const onGroupSettings = (groupId: string) => setGroupDialog({ kind: "rename", groupId });
+  // The one way into Group settings (BOARD-GROUPS-SPEC §5): the tab menu, the switcher and the empty-group hint all come
+  // here. `groupId` null opens on Add group; `focus` opens a project's section (with Auto review switched on for What's new).
+  const onGroupSettings = (groupId: string | null, focus?: { projectId: string; reviewOn?: boolean }) =>
+    setGroupSettings({ groupId, ...(focus ? { projectId: focus.projectId, ...(focus.reviewOn ? { reviewOn: true } : {}) } : {}) });
+  // A project's settings live in its group's settings page, its section open; a project with no group on this board
+  // (a cold link's board, before the overview) keeps Edit project.
+  const openProjectSettings = (p: Project, review = false) => {
+    const g = groupOf(p);
+    if (g) return onGroupSettings(g.id, { projectId: p.id, reviewOn: review });
+    setReviewOn(review);
+    setProjectForm("edit");
+  };
+  // A group's settings, with the filtered project's section open when the board shows one project of that group.
+  const openGroupSettings = (groupId: string) =>
+    onGroupSettings(groupId, project && groupOf(project)?.id === groupId ? { projectId: project.id } : undefined);
+  // Live cards per lane of one project, so Group settings can't turn off a lane in use.
+  const laneCountsOf = (projectId: string) => {
+    const counts: Partial<Record<Status, number>> = {};
+    for (const card of board?.tasks || noTasks) if (card.projectId === projectId && !card.archivedAt) counts[card.status] = (counts[card.status] ?? 0) + 1;
+    return counts;
+  };
   const groupTabMenu = (g: Group, index: number): MenuEntry[] => [
-    { id: "settings", label: t("Group settings"), icon: "SlidersHorizontal", onPress: () => onGroupSettings(g.id) },
+    { id: "settings", label: t("Group settings"), icon: "SlidersHorizontal", onPress: () => openGroupSettings(g.id) },
     { id: "new-task", label: t("New task"), icon: "Plus", onPress: () => { chooseGroup(g.id); openNewTask("todo"); } },
     { kind: "separator", id: "order" },
     { id: "left", label: t("Move left"), icon: "ChevronLeft", disabled: index === 0 || pending, onPress: () => reorderGroup(g.id, { direction: "up" }) },
@@ -2239,7 +2263,7 @@ function BoardContent(
             actionLabel={t("New project")}
             onAction={() => setProjectForm("new")}
             secondaryLabel={t("Group settings")}
-            onSecondary={() => onGroupSettings(group.id)}
+            onSecondary={() => openGroupSettings(group.id)}
           />
         ) : emptyProjectHint && (
           <GuideBanner
@@ -2413,7 +2437,7 @@ function BoardContent(
                     statuses={shownStatuses}
                     tasks={visible}
                     disabled={pending || !!project?.archivedAt}
-                    cancelKey={`${viewKey}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!taskForm}|${!!quickTask}`}
+                    cancelKey={`${viewKey}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!groupSettings}|${!!taskForm}|${!!quickTask}`}
                     sortColumn={sortColumn}
                     manualOrder={reorderAllowed(allView, boardSort)}
                     collapsed={collapsedColumns}
@@ -2488,6 +2512,18 @@ function BoardContent(
                 )}
               />
               <Divider style={{ marginVertical: space[2] }} />
+              {group && (
+                // The shown group's settings page (BOARD-GROUPS-SPEC §3, §5): phones have no tab menu.
+                <Row
+                  title={t("Group settings")}
+                  detail={group.name}
+                  icon="SlidersHorizontal"
+                  onPress={() => {
+                    projectMenuClose();
+                    afterModalClose(() => openGroupSettings(group.id));
+                  }}
+                />
+              )}
               <Row
                 title={t("Add group")}
                 icon="Plus"
@@ -2822,7 +2858,7 @@ function BoardContent(
             </Theme.Provider>
           </Modal.Content>
         </Modal>
-        {/* board-groups 3/7: Add group, Rename group (the Group settings hook) and Delete group…. */}
+        {/* board-groups 3/7: Add group and Delete group…; Group settings is its own page. */}
         {groupDialog?.kind === "add" && (
           <GroupNameDialog
             title={t("Add group")}
@@ -2835,20 +2871,6 @@ function BoardContent(
               await overviewData.refetch();
               setGroupDialog(null);
               chooseGroup(created.id);
-            }}
-          />
-        )}
-        {groupDialog?.kind === "rename" && dialogGroup && (
-          <GroupNameDialog
-            title={t("Rename group")}
-            initial={dialogGroup.name}
-            saveLabel={t("Save")}
-            theme={props.theme}
-            onClose={() => setGroupDialog(null)}
-            onSave={async (name) => {
-              await updateGroupRpc({ id: dialogGroup.id, revision: dialogGroup.revision, name });
-              setGroupDialog(null);
-              refresh();
             }}
           />
         )}
@@ -2917,6 +2939,7 @@ function BoardContent(
           <ProjectForm
             key={`${projectForm}${reviewOn ? ":review" : ""}`}
             project={projectForm === "edit" ? project : undefined}
+            group={projectForm === "edit" ? groupOf(project) : null}
             reviewOn={projectForm === "edit" && reviewOn}
             // board-groups 3/7: a new project goes to the group shown (BOARD-GROUPS-SPEC §3, the + and the empty-group hint).
             groupId={projectForm === "new" ? group?.id : undefined}
@@ -2938,6 +2961,19 @@ function BoardContent(
             }}
           />
         )}
+        {groupSettings && (
+          <GroupSettings
+            key={`${groupSettings.groupId}|${groupSettings.projectId ?? ""}|${groupSettings.reviewOn ? "review" : ""}`}
+            groupId={groupSettings.groupId}
+            groups={boardGroups}
+            projects={board?.projects || noProjects}
+            laneCounts={laneCountsOf}
+            focusProjectId={groupSettings.projectId}
+            reviewOn={groupSettings.reviewOn}
+            onClose={() => setGroupSettings(null)}
+            onChanged={refresh}
+          />
+        )}
         {taskForm && formProject && (
           <TaskForm
             key={taskForm.task?.id || taskForm.seed?.ideaId || taskForm.seed?.insightFindingId || taskForm.seed?.followUpOf || taskForm.seed?.externals?.[0]?.item.key || taskForm.status}
@@ -2949,6 +2985,7 @@ function BoardContent(
             defaultStatus={taskForm.status}
             onClose={() => setTaskForm(null)}
             agentDefaults={sessionDefaults}
+            group={groupOf(formProject)}
             onSaved={(id, launch, status) => {
               if (taskForm.task && status) askWrapup(id, taskForm.task.status, status);
               setTask(id);

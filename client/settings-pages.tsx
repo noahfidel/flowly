@@ -204,6 +204,7 @@ export function ModelsPage({ active }: { active: boolean }) {
       <Problem text={models.problem} />
       <ModelDefaultGroup
         title={t("Default model")}
+        description={t("Groups and projects can override it.")}
         value={current}
         disabled={models.busy}
         noneLabel={t("Automatic")}
@@ -212,6 +213,7 @@ export function ModelsPage({ active }: { active: boolean }) {
       />
       <ModelDefaultGroup
         title={t("Dispatcher model")}
+        description={t("Groups can override it.")}
         value={models.values?.dispatcherModel ?? null}
         disabled={models.busy}
         noneLabel={t("Default")}
@@ -383,6 +385,7 @@ export function WorkflowPage() {
       <SettingsGroup title={t("Finishing cards")}>
         <SettingSelect
           title={t("Delivery mode")}
+          detail={t("Groups and projects can override it.")}
           value={delivery.values?.defaultMode ?? "branch"}
           placeholder={t(deliveryModeLabels[delivery.values?.defaultMode ?? "branch"])}
           disabled={delivery.busy}
