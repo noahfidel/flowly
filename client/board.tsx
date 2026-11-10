@@ -100,7 +100,7 @@ import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useM
 import { DesktopColumns, OlderToggle, type Placement } from "./columns";
 import { olderFinishedFromDates } from "./finished-cards";
 import { ResizeGrip } from "./resize";
-import { defaultDrawerShare, drawerShare, drawerWidth, isCompactLayout } from "./geometry";
+import { chatWidth, defaultDrawerShare, minChatWidth, drawerShare, drawerWidth, isCompactLayout } from "./geometry";
 import { useSessionReads } from "./session-reads";
 import { sessionAttentionSummaryFromTurns } from "../shared/session-attention";
 import { MotionProvider, MotionReveal, useMotionPresence, lerp } from "./motion";
@@ -381,7 +381,10 @@ function BoardContent(
     } | null>(null),
     [error, setError] = useState(""),
     [pending, setPending] = useState(false),
-    [preferredShare, setPreferredShare] = useState(defaultDrawerShare);
+    [preferredShare, setPreferredShare] = useState(defaultDrawerShare),
+    // The docked dispatcher chat's width as dragged; 0 = the default (DISPATCHER-SPEC §9.3).
+    [chatPreferred, setChatPreferred] = useState(0),
+    [chatResizing, setChatResizing] = useState(false);
   // Manual navigation supersedes the current link; its late success/error may only cache data.
   const setTask = (id: string) => { ignoredLink.current = linkKey; setTaskState(id); };
   const setTaskForm = useStableCallback((next: typeof taskForm) => {
@@ -400,6 +403,7 @@ function BoardContent(
     setTagFilterState(view.values.filterTags);
     setArchivedState(view.values.showArchived);
     if (view.values.drawerShare) setPreferredShare(view.values.drawerShare);
+    if (view.values.chatWidth) setChatPreferred(view.values.chatWidth);
   }, [!!view.values]);
   const searchSave = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -1248,6 +1252,33 @@ function BoardContent(
   // Desktop: shown in the same frame it opens, hidden (kept mounted) when closed so its draft stays. No motion either way.
   const chatShown = compact ? chat.open : chatOpen;
   if (!compact && chatShown) chatMounted.current = true;
+  // Desktop, docked: the dragged width, kept clear of the board's minimum and an open card sidebar, and re-clamped
+  // whenever the window changes; the stored width is untouched by that (§9.3). Expanded ignores it.
+  const chatReserved = drawer.active ? width + 8 : 0;
+  const chatDocked = chatWidth(chatPreferred, surfaceWidth || 1000, chatReserved);
+  const chatGrip = !compact && !chatExpanded && (
+    <ResizeGrip
+      width={chatDocked}
+      grows="right"
+      minWidth={minChatWidth}
+      maxWidth={chatWidth(Infinity, surfaceWidth || 1000, chatReserved)}
+      labels={{ drag: t("Drag to resize the dispatcher chat"), widen: t("Widen the dispatcher chat"), narrow: t("Narrow the dispatcher chat") }}
+      onStart={() => setChatResizing(true)}
+      onEnd={() => {
+        setChatResizing(false);
+        // Saved once, on release, never per frame.
+        if (chatPreferred !== (view.values?.chatWidth ?? 0)) void view.update({ chatWidth: chatPreferred });
+      }}
+      onChange={(next) => {
+        const clamped = Math.round(chatWidth(next, surfaceWidth || 1000, chatReserved));
+        if (clamped !== chatDocked) setChatPreferred(clamped);
+      }}
+      onReset={() => {
+        setChatPreferred(0);
+        if (view.values?.chatWidth) void view.update({ chatWidth: 0 });
+      }}
+    />
+  );
   const chatPanel = (compact ? chat.mounted : chatMounted.current) && (
     <Animated.View
       pointerEvents={compact || chatOpen ? "auto" : "none"}
@@ -1256,15 +1287,17 @@ function BoardContent(
           ? // Phone: a full-screen page under an open card's sidebar, so closing the card comes back to the chat.
             { position: "absolute", top: 0, bottom: 0, left: 0, right: 0, zIndex: 29, display: chat.open ? "flex" : "none" }
           : {
-              ...(chatExpanded ? { flex: 1, minWidth: 0 } : { width: 380, flexShrink: 0 }),
+              // Docked, the grip on its right edge is the divider; expanded, a plain border.
+              ...(chatExpanded
+                ? { flex: 1, minWidth: 0, borderRightWidth: 1, borderRightColor: colors.border }
+                : { width: chatDocked + 8, flexShrink: 0, flexDirection: "row" }),
               minHeight: 0,
-              borderRightWidth: 1,
-              borderRightColor: colors.border,
               display: chatShown ? "flex" : "none",
             }
       }
     >
       <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} focus={chatFocus} fill={chatDraft} onFilled={draftFilled} onOpenCard={openTaskById} onClose={closeChat} expanded={chatExpanded} onToggleSize={toggleChatSize} />
+      {chatGrip}
     </Animated.View>
   );
   const togglePage = (next: "insights" | "ideas" | "memory" | "search") => {
@@ -2164,7 +2197,7 @@ function BoardContent(
             </View>
           </View>
         ) : (
-          <View style={{ flex: 1, minHeight: 0, flexDirection: "row", ...(resizing ? { userSelect: "none" } : null) } as never}>
+          <View style={{ flex: 1, minHeight: 0, flexDirection: "row", ...(resizing || chatResizing ? { userSelect: "none" } : null) } as never}>
             {/* Desktop: the dispatcher chat docks on the left; the board narrows beside it (DISPATCHER-SPEC §9). */}
             {!compact && chatPanel}
             {(

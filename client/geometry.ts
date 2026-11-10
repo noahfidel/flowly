@@ -91,6 +91,21 @@ export function drawerShare(width: number, surfaceWidth: number): number {
   return drawerWidth(width, surfaceWidth) / surfaceWidth;
 }
 
+/** The docked dispatcher chat's width until it is dragged, and after a double-click on its grip (DISPATCHER-SPEC §9.3). */
+export const defaultChatWidth = 380;
+/** The narrowest docked chat: its message box and buttons still fit. */
+export const minChatWidth = 300;
+
+/**
+ * The docked chat's width: `preferred` (0, negative or not a number = never dragged, the default) kept between the
+ * minimum and what leaves the board 300 points beside the chat's 8-point grip and `reserved` (an open card sidebar
+ * with its grip). The minimum wins when the window has no room for both.
+ */
+export function chatWidth(preferred: number, surfaceWidth: number, reserved = 0): number {
+  const wanted = preferred > 0 ? preferred : defaultChatWidth;
+  return Math.max(minChatWidth, Math.min(surfaceWidth - reserved - 8 - 300, wanted));
+}
+
 export function isCompactLayout(width: number): boolean {
   // Use the same layout everywhere; unmeasured surfaces start compact.
   return width < 760;

@@ -69,6 +69,8 @@ export const boardViewSettings = defineSettings({
     chatMinimized: z.boolean().catch(false).default(false),
     /** The dispatcher chat expanded over the whole board area on desktop; it starts docked (DISPATCHER-SPEC §9.3). */
     chatExpanded: z.boolean().catch(false).default(false),
+    /** The docked dispatcher chat's width as last dragged, in points; 0 = never dragged, the default width (DISPATCHER-SPEC §9.3). */
+    chatWidth: z.number().min(0).max(10000).catch(0).default(0),
   }),
 });
 

@@ -14,6 +14,8 @@ import {
   keyboardOverlap,
   laneRevealOffset,
   cardRevealOffset,
+  chatWidth,
+  defaultChatWidth,
 } from "./geometry";
 
 const viewport = { x: 100, y: 80, width: 600, height: 500 };
@@ -79,6 +81,24 @@ describe("board interaction geometry", () => {
     expect(drawerWidth(2400, 1600)).toBe(1288);
     expect(drawerWidth(Infinity, 1600)).toBe(1288);
     expect(drawerWidth(3000, 5120)).toBe(3000);
+  });
+  test("the dispatcher chat opens at its default width and keeps a dragged width within bounds (DISPATCHER-SPEC §9.3)", () => {
+    // Never dragged (0) or a bad value: the default.
+    expect(chatWidth(0, 1600)).toBe(defaultChatWidth);
+    expect(chatWidth(Number.NaN, 1600)).toBe(defaultChatWidth);
+    expect(chatWidth(-50, 1600)).toBe(defaultChatWidth);
+    expect(chatWidth(520, 1600)).toBe(520);
+    // Never narrower than the composer needs.
+    expect(chatWidth(120, 1600)).toBe(300);
+    // The board keeps 300 points beside it and its grip.
+    expect(chatWidth(1500, 1600)).toBe(1292);
+    expect(chatWidth(Infinity, 1600)).toBe(1292);
+    // An open card sidebar (its width plus grip) is left room too.
+    expect(chatWidth(1000, 1600, 808)).toBe(484);
+    // Re-clamped to a narrower window; the minimum wins when there is no room at all.
+    expect(chatWidth(900, 1000)).toBe(692);
+    expect(chatWidth(900, 500)).toBe(300);
+    expect(chatWidth(0, 500, 400)).toBe(300);
   });
   test("the drawer opens at half the Flowly area and keeps a dragged width as a share of it", () => {
     expect(drawerWidth(defaultDrawerShare * 2080, 2080)).toBe(1040);
