@@ -32,8 +32,6 @@ export function boardOverview(
     needsYou: mine.filter((i) => i.questions || i.permissions).length,
     unread: mine.filter((i) => i.unread && !i.questions && !i.permissions).length,
     errors: mine.filter((i) => i.errors).length,
-    inReview: lane("in_review"),
-    blocked: lane("blocked"),
   };
 }
 export type BoardOverview = ReturnType<typeof boardOverview>;

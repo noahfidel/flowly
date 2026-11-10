@@ -1381,3 +1381,8 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - Rulings (Noah, 2026-11-09), DISPATCHER-SPEC §3, §9.3, §9.4; ATTENTION-DISMISS-SPEC §3.1; ONBOARDING-SPEC; ONBOARDING-SETUP-SPEC §5: the dock's Single / Stack / Side by side layouts with draggable dividers (Cmd/Ctrl-click splits, the bell in a split only shows Attention); the new-tools warning offers Replace dispatcher (`dispatcher.replace` now also takes a guarded dispatcher that misses tools); the settings gear moved into the toolbar beside the bell with its callout under it; Needs you and Updates fold and are remembered; the Dismissed group is gone (Dismiss is a snooze); the chat's status line is gone and the model shows in the message box's footer.
 - Tour and tips: the tour's Settings hint and the Auto summary notice say where the gear now is; the `settings-entry` callout anchors on the gear. What's new 1.8.0 gets one line for the moved gear. No telemetry field: the layout is a view preference, not a counted switch.
 - UNRUN: live UI on desktop and phone (layout menu, both dividers, Side by side falling back to Stack on a narrow window, Cmd-click, bell in each layout, folding, gear callout placement, the model label, Replace on a tool-missing dispatcher).
+
+## Overview row without lane chips — 2026-11-09
+
+- Ruling (Noah, 2026-11-09), UI-REFRESH-SPEC §7u: the overview row's In review and Blocked lane chips and their divider are removed; `boardOverview` no longer counts those lanes. No strings were dead (the chips used lane names). No tour, tip or What's new change: the tour never showed them.
+- UNRUN: live look of the overview row on desktop and phone.

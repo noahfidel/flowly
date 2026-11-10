@@ -642,8 +642,8 @@ function BoardContent(
   useEffect(() => { if (page) restoreChatSize(); }, [page, restoreChatSize]);
   const chatMounted = useRef(false);
   // Desktop: the open card's lane is centred in the board left of the drawer when the drawer would hide it, on
-  // opening, on moving to another lane, and on coming back to the board from a page (DRAWER-SPEC). Only the last:
-  // an In review / Blocked chip pressed in the same moment (it also leaves the page) keeps its own lane.
+  // opening, on moving to another lane, and on coming back to the board from a page (DRAWER-SPEC). A lane reveal
+  // asked in the same moment keeps its own lane.
   const revealedCard = useRef("");
   useEffect(() => {
     const key = task ? `${task.id}|${task.status}` : "";
@@ -2157,7 +2157,6 @@ function BoardContent(
           <View {...covered}>
           <OverviewBar
             overview={boardOverview(project, board.tasks, agents.data || [], attention)}
-            nameOf={nameOf}
             onAttention={openAttentionMenu}
             onInsights={features.insights ? () => togglePage("insights") : undefined}
             insightsShortcut={shortcutsOn ? "I" : ""}
@@ -2170,14 +2169,6 @@ function BoardContent(
             memoryCandidates={memoryCandidates}
             onMemory={() => togglePage("memory")}
             memoryShortcut={shortcutsOn ? "M" : ""}
-            onLane={(status) => {
-              setPage(null);
-              if (compact) setMobileStatus(status);
-              else {
-                if (collapsedColumns.includes(status)) toggleCollapse(status);
-                setReveal((r) => ({ status, n: r.n + 1, at: Date.now() }));
-              }
-            }}
           />
           </View>
         )}

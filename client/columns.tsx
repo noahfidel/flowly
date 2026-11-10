@@ -149,7 +149,7 @@ export function DesktopColumns({
   olderShown?: readonly Status[];
   onToggleOlder?(status: Status): void;
   /**
-   * Scrolls this lane into view each time `n` changes: to the left edge (the overview bar's In review / Blocked chips),
+   * Scrolls this lane into view each time `n` changes: to the left edge (a lane jump),
    * or with `center` centred, only when not fully visible (the open card's lane beside the drawer). A request older
    * than a second (`at`) is not replayed when the board mounts again, e.g. on leaving Insights.
    */

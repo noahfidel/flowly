@@ -1,22 +1,18 @@
 import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
-import type { Status } from "../shared/model";
 import { Dot, Label, font, noFocusRing, radius, space, touch, useTheme } from "./ui";
-import { StatusIcon } from "./status";
 import { Enter, PulseDot } from "./motion";
 import type { BoardOverview } from "./overview";
 import { t, tn } from "../shared/i18n";
 
 /**
  * Board header summary: how many cards, how many have agents working, and
- * what is waiting on you. Attention items open the Attention list.
+ * what is waiting on you. Attention items open the Attention list. No lane chips (Ruling, Noah 2026-11-09).
  */
 export function OverviewBar({
   overview,
-  nameOf,
   onAttention,
-  onLane,
   onInsights,
   insightsShortcut,
   openIdeas,
@@ -27,7 +23,6 @@ export function OverviewBar({
   memoryShortcut,
 }: {
   overview: BoardOverview;
-  nameOf(status: Status): string;
   onAttention(): void;
   /** Open project Insights (PROJECT-INSIGHTS-SPEC §9). */
   /** Absent when Insights is off (ONBOARDING-SETUP-SPEC §6). */
@@ -41,8 +36,6 @@ export function OverviewBar({
   memoryCandidates: number | null;
   onMemory(): void;
   memoryShortcut: string;
-  /** Jump to a lane (compact: switch tabs; desktop: expand it if collapsed). */
-  onLane(status: Status): void;
 }) {
   const { colors } = useTheme();
   const o = overview;
@@ -87,17 +80,6 @@ export function OverviewBar({
         {o.errors > 0 && (
           <Chip label={tn(o.errors, "{n} task with session errors. Open Attention", "{n} tasks with session errors. Open Attention")} icon={<Dot size={7} color={colors.statusDanger} />} onPress={onAttention}>
             {tn(o.errors, "{n} error", "{n} errors")}
-          </Chip>
-        )}
-        {(o.inReview || o.blocked) ? <Divider /> : null}
-        {!!o.inReview && (
-          <Chip label={`${nameOf("in_review")}: ${o.inReview}`} icon={<StatusIcon status="in_review" size={13} />} onPress={() => onLane("in_review")}>
-            {nameOf("in_review")} {o.inReview}
-          </Chip>
-        )}
-        {!!o.blocked && (
-          <Chip label={`${nameOf("blocked")}: ${o.blocked}`} icon={<StatusIcon status="blocked" size={13} />} onPress={() => onLane("blocked")}>
-            {nameOf("blocked")} {o.blocked}
           </Chip>
         )}
         <Divider />

@@ -34,10 +34,8 @@ test("overview counts live cards, working sessions and what needs you", () => {
     needsYou: 1,
     unread: 2,
     errors: 1,
-    inReview: 1,
-    blocked: 1,
   });
-  // Lanes that are off report null (hidden), not zero.
-  const lanes = (["backlog", "todo", "design", "development", "test", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: status !== "blocked" }));
-  expect(boardOverview({ ...project, lanes }, tasks.filter((t) => t.status !== "blocked"), [], []).blocked).toBeNull();
+  // A Done lane that is off reports null (hidden), not zero. The In review / Blocked lane chips are gone (Ruling, Noah 2026-11-09).
+  const lanes = (["backlog", "todo", "design", "development", "test", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: status !== "done" }));
+  expect(boardOverview({ ...project, lanes }, tasks.filter((t) => t.status !== "done"), [], []).done).toBeNull();
 });
