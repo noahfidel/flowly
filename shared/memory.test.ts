@@ -200,7 +200,6 @@ describe("finished-card review", () => {
       clues,
       recapLines: ["Root cause: Hermes loop binding"],
       states: [],
-      confusions: [],
       failedChecks: [],
       reports: [],
       existing: [{ id: "m1", kind: "pitfall", title: "Old" }],
@@ -214,7 +213,7 @@ describe("finished-card review", () => {
     expect(text).toContain("waiting for the user (do not repeat)\n- [decision] Pending one");
     expect(text).toContain("does not want these or anything of the same sort)\n- [convention] Turned down");
     // Instruction files come after the card material and do not count against its limit.
-    const withRules = retroMaterial({ project: "P", card: { title: "C", tags: [], description: "" }, clues, recapLines: [], states: [], confusions: [], failedChecks: [], reports: [], existing: [], instructions: "R".repeat(15000) });
+    const withRules = retroMaterial({ project: "P", card: { title: "C", tags: [], description: "" }, clues, recapLines: [], states: [], failedChecks: [], reports: [], existing: [], instructions: "R".repeat(15000) });
     expect(withRules).toContain("Q: Which one?");
     expect(withRules.endsWith("R".repeat(15000))).toBe(true);
   });

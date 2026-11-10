@@ -99,12 +99,6 @@ export function buildSearchIndex(data: SearchData): SearchIndex {
     const card = cards.get(w.taskId);
     if (!card) continue;
     for (const a of w.acceptance) doc(card.docs, "workpad", "acceptance", a.text, 2, { refId: a.id, at: w.updatedAt });
-    for (const v of w.validation) {
-      doc(card.docs, "workpad", "check", v.text, 2, { refId: v.id, at: w.updatedAt });
-      doc(card.docs, "workpad", "command", v.command, 2, { refId: v.id, at: w.updatedAt });
-      doc(card.docs, "workpad", "evidence", v.evidence, 2, { refId: v.id, at: w.updatedAt });
-    }
-    for (const c of w.confusions) doc(card.docs, "workpad", "confusion", c.text, 2, { refId: c.id, at: w.updatedAt });
   }
   const projectIdeas: ProjectIdeaDocs[] = [];
   for (const i of data.ideas as readonly Idea[]) {

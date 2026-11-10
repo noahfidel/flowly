@@ -22,6 +22,7 @@ export type ShortcutAction =
   | "edit"
   | "insights"
   | "ideas"
+  | "guardrails"
   | "memory"
   | "search";
 
@@ -39,13 +40,14 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["A"], title: msg("Needs attention") },
   { keys: ["I"], title: msg("Project insights") },
   { keys: ["B"], title: msg("Project ideas") },
-  { keys: ["M"], title: msg("Project memory") },
+  { keys: ["G"], title: msg("Guardrails") },
+  { keys: ["M"], title: msg("Memory") },
   { keys: ["J", "K"], title: msg("Next / previous card in column") },
   { keys: ["H", "L"], title: msg("Card in left / right column") },
   { keys: ["⇧H", "⇧L"], title: msg("Move the open card to the left / right column") },
   { keys: ["E"], title: msg("Edit the open card") },
   { keys: ["←", "→"], title: msg("Previous / next agent question") },
-  { keys: ["Esc"], title: msg("Back from session, then close sidebar, then leave Insights, Ideas or Memory") },
+  { keys: ["Esc"], title: msg("Back from session, then close sidebar, then leave a project page") },
   { keys: ["?"], title: msg("Show keyboard shortcuts") },
 ];
 
@@ -62,6 +64,7 @@ const letters: Record<string, ShortcutAction> = {
   e: "edit",
   i: "insights",
   b: "ideas",
+  g: "guardrails",
   m: "memory",
   s: "search",
 };

@@ -351,12 +351,12 @@ export function useWorkflowInsightsQuery(projectId: string, enabled: boolean, po
   });
 }
 
-/** A project's memory (PROJECT-MEMORY-SPEC §5.1): read while the Memory page or a drawer's Memory section is shown. */
-export const memoryKey = (projectId: string) => ["flowly", "memory", projectId] as const;
-export function useMemoryQuery(projectId: string, enabled: boolean) {
-  const read = useRpc(rpc.readMemory);
+/** A project's guardrails (GUARDRAILS-SPEC §7.4): read while the Guardrails page is shown. */
+export const guardrailsKey = (projectId: string) => ["flowly", "guardrails", projectId] as const;
+export function useGuardrailsQuery(projectId: string, enabled: boolean) {
+  const read = useRpc(rpc.readGuardrails);
   const client = useQueryClient();
-  const key = memoryKey(projectId);
+  const key = guardrailsKey(projectId);
   return useQuery({
     queryKey: key,
     queryFn: () => readChanged(client, key, (etag) => read({ projectId, ...(etag ? { etag } : {}) })),
@@ -398,14 +398,14 @@ export function useResolvedAsksQuery(enabled: boolean) {
     placeholderData: (previous) => previous,
   });
 }
-/** Candidates waiting per project, for the overview chip; read with the board, once a minute. */
-export const memoryCountsKey = ["flowly", "memory-counts"] as const;
-export function useMemoryCountsQuery(enabled: boolean) {
-  const read = useRpc(rpc.memoryCounts);
+/** Observing commands and guidelines learned this week per project, for the overview chip; read with the board, once a minute. */
+export const guardrailCountsKey = ["flowly", "guardrail-counts"] as const;
+export function useGuardrailCountsQuery(enabled: boolean) {
+  const read = useRpc(rpc.guardrailCounts);
   const client = useQueryClient();
   return useQuery({
-    queryKey: memoryCountsKey,
-    queryFn: () => readChanged(client, memoryCountsKey, (etag) => read(etag ? { etag } : {})),
+    queryKey: guardrailCountsKey,
+    queryFn: () => readChanged(client, guardrailCountsKey, (etag) => read(etag ? { etag } : {})),
     enabled,
     staleTime: 30_000,
     refetchInterval: enabled ? 60_000 : false,

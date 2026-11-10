@@ -1,5 +1,7 @@
 # 卡片 Workpad：验收、验证与交付门槛（WORKPAD-SPEC）
 
+> 2026-10-28：本文部分内容被 [GUARDRAILS-SPEC](GUARDRAILS-SPEC.md) 取代（§12）。被取代：§2.1 的 validation / confusions / env / head / delivery、§3 的输入、§4.2 环境戳、§5 全部、§6.1 卡面信号、§6.2 的 Checks / Confusions、§6.3 的验证操作、§7 skill；仍有效：§2.2 Plan、§2.4 两种 revision、§6.3 的 acceptance 勾选、§9 项目开关。
+
 状态：2026-10-19 用户审阅定稿并要求实现。卡片任务 `78fb25af`。来源：[SYMPHONY-RESEARCH](SYMPHONY-RESEARCH.md) §2.3、§2.4、§3 P1/P2。用户已选“精简版”：Plan 从原生 todo 派生；agent 只写 Acceptance、Validation（三态 + sha）、Confusions；不做 Notes；workpad 用独立 revision；交付门槛与 sha 过期检测包含在内。定稿决定：没有 workpad 的卡交付不检查（§5.3）；有验收标准时隐藏 summary 的 Target（§6.2）；人可以把验证标为 pass，用当前 HEAD 盖章（§6.3）。
 
 ## 1. 目的

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { isSummarizer, modelLabel, lastTurn, targetText, parseModelOutput, resolveModel, resolveModels, summaryModelsOf, summaryModelsSchema, summarySettings, summaryPrompt, summarySettingsValues, truncateTranscript, turnText } from "./summary";
+import { isSummarizer, modelLabel, readOnlyConfig, readOnlyMode, lastTurn, targetText, parseModelOutput, resolveModel, resolveModels, summaryModelsOf, summaryModelsSchema, summarySettings, summaryPrompt, summarySettingsValues, truncateTranscript, turnText } from "./summary";
 
 test("turn text keeps dialogue, reduces tools to names and drops reasoning", () => {
   const text = turnText([
@@ -131,3 +131,14 @@ test("model labels name Claude models by family and version", () => {
   }
   expect(summaryModelsSchema.parse([" a/b ", "c/d"])).toEqual(["a/b", "c/d"]);
  });
+
+test("temporary sessions run Claude in Plan Mode and leave other providers on their default mode", () => {
+  expect(readOnlyMode("claude/claude-haiku-5-5")).toBe("plan");
+  expect(readOnlyMode("codex/gpt-5.4-mini")).toBeUndefined();
+  expect(readOnlyMode("opencode/claude-sonnet")).toBeUndefined();
+  expect(readOnlyMode("claude-compass-smith-sqp/claude-sonnet-5-5")).toBe("plan");
+  expect(readOnlyMode("claude-aicodewith/claude-sonnet-5-5")).toBe("plan");
+  expect(readOnlyMode("codex-compass-smith-sqp/gpt-5.4")).toBeUndefined();
+  expect(readOnlyConfig("claude/claude-haiku-5-5")).toEqual({ provider: "claude/claude-haiku-5-5", modeId: "plan" });
+  expect(readOnlyConfig("codex/gpt-5.4-mini")).toEqual({ provider: "codex/gpt-5.4-mini" });
+});

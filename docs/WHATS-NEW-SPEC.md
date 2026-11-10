@@ -65,11 +65,20 @@ Settings → General → Welcome tour 组里加一行 **What's new**（有条目
 纯数据放 `client/whats-new.ts`（不含 React），文案用 `msg()` 标记、渲染时 `t()`，进全部 9 个语言目录：
 
 ```ts
-export interface WhatsNewItem { icon: string; text: string; action?: { label: string; to: "settings"; section: SettingsSection } | { label: string; to: "tour" } }
+export interface WhatsNewItem { icon: string; text: string; action?: { label: string; to: "settings"; section: SettingsSection } | { label: string; to: "tour" } | { label: string; to: "auto-review" } }
 export const whatsNew: { version: string; items: WhatsNewItem[] }[] = [ /* 新的在前，最早 1.5.0 */ ];
 ```
 
 版本号写**带上这些变化发布的那个版本**。条目写这个版本里用户可见的新功能和变化，每条一句话；能在设置里开关或调整的给 **Open settings**（落在对应设置页），导览相关的给 **Take the tour**。
+
+### 1.8.0
+
+| 图标 | 文案 | 按钮 |
+| --- | --- | --- |
+| `Search` | 搜索过去的卡片、总结、笔记、Workpad、想法和交付物；agent 也能搜（[SEARCH-SPEC](SEARCH-SPEC.md) §8） | — |
+| `ShieldCheck` | Auto review checks every delivery before it reaches you and sends it back to the agent when it falls short. On for new projects.（[GUARDRAILS-SPEC](GUARDRAILS-SPEC.md) §10） | **Turn on for this project**（`to: "auto-review"`：当前项目的 Edit project，Auto review 区块置顶、开关已打开；保存后由 daemon 识别命令；取代 AUTO-REVIEW-SPEC 的 `review-analysis`） |
+| `Undo2` | Flowly learns from what you send cards back for: the second card with the same problem turns it into a project guideline, checked on every delivery it applies to. | — |
+| `BookMarked` | Memory no longer needs confirming; what agents remember takes effect at once and retires by itself when unused. | — |
 
 ### 1.7.0（v1.6.0..v1.7.0，全部更新见 [release-notes/v1.7.0](release-notes/v1.7.0.md)）
 

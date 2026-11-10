@@ -22,7 +22,10 @@ export function OverviewBar({
   openIdeas,
   onIdeas,
   ideasShortcut,
-  memoryCandidates,
+  guardrailCount,
+  onGuardrails,
+  guardrailsShortcut,
+  memoryCount,
   onMemory,
   memoryShortcut,
 }: {
@@ -41,8 +44,12 @@ export function OverviewBar({
   openIdeas: number | null;
   onIdeas(): void;
   ideasShortcut: string;
-  /** Project memory candidates waiting for review (PROJECT-MEMORY-SPEC §8.1); null when memory is off for the project. */
-  memoryCandidates: number | null;
+  /** Observing commands plus guidelines learned this week (GUARDRAILS-SPEC §7.4); null when guardrails are off for the project. */
+  guardrailCount: number | null;
+  onGuardrails(): void;
+  guardrailsShortcut: string;
+  /** Memory added this week (GUARDRAILS-SPEC §7.4); null when guardrails are off for the project. */
+  memoryCount: number | null;
   onMemory(): void;
   memoryShortcut: string;
 }) {
@@ -98,13 +105,22 @@ export function OverviewBar({
           {openIdeas ? t("Ideas {openIdeas}", { openIdeas }) : t("Ideas")}
         </Chip>
         )}
-        {memoryCandidates !== null && (
+        {guardrailCount !== null && (
           <Chip
-            label={`${t("Project memory: {n} to review", { n: memoryCandidates })}${memoryShortcut ? ` (${memoryShortcut})` : ""}`}
-            icon={<Icon name="BookMarked" size={13} color={memoryCandidates ? colors.accent : colors.foregroundMuted} />}
+            label={`${guardrailCount ? t("Guardrails: {n} new or observing", { n: guardrailCount }) : t("Guardrails")}${guardrailsShortcut ? ` (${guardrailsShortcut})` : ""}`}
+            icon={<Icon name="ShieldCheck" size={13} color={guardrailCount ? colors.accent : colors.foregroundMuted} />}
+            onPress={onGuardrails}
+          >
+            {guardrailCount ? t("Guardrails {n}", { n: guardrailCount }) : t("Guardrails")}
+          </Chip>
+        )}
+        {memoryCount !== null && (
+          <Chip
+            label={`${memoryCount ? t("Memory: {n} added this week", { n: memoryCount }) : t("Memory")}${memoryShortcut ? ` (${memoryShortcut})` : ""}`}
+            icon={<Icon name="BookMarked" size={13} color={memoryCount ? colors.accent : colors.foregroundMuted} />}
             onPress={onMemory}
           >
-            {memoryCandidates ? t("Memory {n}", { n: memoryCandidates }) : t("Memory")}
+            {memoryCount ? t("Memory {n}", { n: memoryCount }) : t("Memory")}
           </Chip>
         )}
         {onInsights && (

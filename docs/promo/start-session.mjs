@@ -13,7 +13,7 @@ try {
   const s = await api.workspaces.ref(card.workspaceId).agents.create({
     agentId: prep.agentId, idempotencyKey: `promo:${prep.agentId}`, title: `Haiku · ${card.title.slice(0, 40)}`,
     labels: { 'ultra-kanban-task': card.id, 'ultra-kanban-project': fx.project.id },
-    config: { provider: 'claude/claude-haiku-5-5', modeId: 'bypassPermissions', systemPrompt: prep.instructions, mcpServers: { 'ultra-kanban': prep.mcp } },
+    config: { provider: 'claude/claude-haiku-5-5', modeId: 'bypassPermissions', systemPrompt: prep.instructions },
     env: { ULTRA_KANBAN_CONTEXT_FILE: prep.contextFile, ULTRA_KANBAN_CLI: prep.cliPath, ULTRA_KANBAN_SKILL: prep.skillPath },
     prompt: process.argv[3]
   });

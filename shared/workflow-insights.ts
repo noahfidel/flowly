@@ -537,11 +537,15 @@ export function buildMaterial(input: {
 // ---- Model call ---------------------------------------------------------------
 
 export const findingTargets = ["paseo_script", "worktree_setup", "repo_tool", "agents_md", "skill"] as const;
+/** Targets of auto review suggestions before guardrails; stored ones are dropped when read (GUARDRAILS-SPEC §7.2). */
+const retiredTargets = ["review_rule", "review_pause"];
+/** At most this many merges per run (GUARDRAILS-SPEC §7.3). */
+export const MAX_MERGES = 5;
 export type FindingTarget = (typeof findingTargets)[number];
 export const confidences = ["high", "medium", "low"] as const;
 export const findingLimits = { title: 120, evidence: 1000, proposal: 4000, benefit: 500 } as const;
 
-export function workflowPrompt(days: number, material: string, language: LocaleCode): string {
+export function workflowPrompt(days: number, material: string, language: LocaleCode, guardrails = false): string {
   return `You analyse how coding agents worked on one software project over the last ${days} days, from the shell commands they ran, so the project owner can turn repeated work into reusable project settings and tools.
 
 Targets you may recommend:
@@ -564,9 +568,15 @@ Rules:
 - For inline scripts, infer their purpose and cluster them; this is where most of the value is expected.
 - At most ${MAX_FINDINGS} findings, the most valuable first. Mark confidence honestly.
 - Suggestions the owner already accepted or dismissed are listed. Do not propose them again, even reworded or narrowed. This run's findings replace the open suggestions of earlier runs, so list everything still worth doing, not only what is new.
-- ${outputLanguageRule(language)}
+${
+    guardrails
+      ? `- Guardrails (see "# Guardrails" in the material) are what Flowly checks deliveries against; they grow only from what the owner sent cards back for. You never add guidelines or commands. A guideline marked "caught 5+ in 30 days" is a mistake agents keep making: suggest an "agents_md" rule or a "skill" that prevents it, citing the guideline's #id in the evidence.
+- When two active guidelines, or two active memories, say the same thing, merge them: "merges": [{"keep": "#id", "drop": "#id", "why": "one sentence"}], at most ${MAX_MERGES}. Only ids from the material, the same kind on both sides; leave it [] when nothing overlaps.
+`
+      : ""
+  }- ${outputLanguageRule(language)}
 - Do not use any tools. Answer with only one JSON object and nothing else:
-{"findings":[{"target":"paseo_script|worktree_setup|repo_tool|agents_md|skill","title":"short title","evidence":"counts and card short ids","proposal":"concrete snippet or interface","benefit":"what it saves","confidence":"high|medium|low","cards":["8-char ids"],"skill":{"name":"…","description":"…","body":"…","updates":false,"change":"…"}}],"noise":"what in the material was noise","verdict":"one or two sentences"}
+{"findings":[{"target":"paseo_script|worktree_setup|repo_tool|agents_md|skill","title":"short title","evidence":"counts and card short ids","proposal":"concrete snippet or interface","benefit":"what it saves","confidence":"high|medium|low","cards":["8-char ids"],"skill":{"name":"…","description":"…","body":"…","updates":false,"change":"…"}}],${guardrails ? '"merges":[{"keep":"#id","drop":"#id","why":"…"}],' : ""}"noise":"what in the material was noise","verdict":"one or two sentences"}
 "skill" only for target "skill".
 
 ${material}`;
@@ -595,17 +605,27 @@ export const workflowJsonSchema = {
   type: "object",
   additionalProperties: false,
   required: ["findings", "noise", "verdict"],
-  properties: { findings: { type: "array", items: finding }, noise: { type: "string" }, verdict: { type: "string" } },
+  properties: {
+    findings: { type: "array", items: finding },
+    merges: {
+      type: "array",
+      items: { type: "object", additionalProperties: false, required: ["keep", "drop", "why"], properties: { keep: { type: "string" }, drop: { type: "string" }, why: { type: "string" } } },
+    },
+    noise: { type: "string" },
+    verdict: { type: "string" },
+  },
 } as const;
 export const RETRY_PROMPT = "Reply again with only the JSON object described above, and nothing else.";
 
 export type RawSkill = { name: string; description: string; body: string; updates: boolean; change: string };
 export type RawFinding = { target: string; title: string; evidence: string; proposal: string; benefit: string; confidence: string; cards: string[]; skill?: RawSkill };
+/** Two guardrail entries the model says are one (GUARDRAILS-SPEC §7.3), by the ids it was shown; validated by the daemon. */
+export type RawMerge = { keep: string; drop: string; why: string };
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : Array.isArray(v) ? v.filter((x) => typeof x === "string").join("\n").trim() : "");
 
 /** The model's findings; null when the reply holds no JSON object (the caller retries once). */
-export function parseWorkflowOutput(reply: string | null | undefined): { findings: RawFinding[]; verdict: string } | null {
+export function parseWorkflowOutput(reply: string | null | undefined): { findings: RawFinding[]; merges: RawMerge[]; verdict: string } | null {
   const json = reply ? firstObject(reply) : null;
   if (!json) return null;
   let raw: unknown;
@@ -620,6 +640,11 @@ export function parseWorkflowOutput(reply: string | null | undefined): { finding
   if (!list) return null;
   return {
     verdict: text(o.verdict),
+    merges: (Array.isArray(o.merges) ? o.merges : [])
+      .filter((m): m is Record<string, unknown> => !!m && typeof m === "object")
+      .map((m) => ({ keep: text(m.keep), drop: text(m.drop), why: text(m.why).slice(0, 200) }))
+      .filter((m) => m.keep && m.drop)
+      .slice(0, MAX_MERGES),
     findings: list
       .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
       .map((f) => ({
@@ -742,8 +767,10 @@ export function validateFindings(
   const closed = ctx.existing.filter((f) => f.status === "accepted" || (f.status === "dismissed" && ctx.now - Date.parse(f.updatedAt) < DISMISS_COOLDOWN_DAYS * DAY_MS));
   const prints = new Set(closed.map((f) => f.fingerprint));
   const out: FindingDraft[] = [];
-  for (const f of raw) {
+  for (const given of raw) {
+    let f = given;
     if (out.length >= MAX_FINDINGS) break;
+    // Anything else, such as a guideline or command the model made up, is dropped (GUARDRAILS-SPEC §7.3).
     if (!(findingTargets as readonly string[]).includes(f.target)) continue;
     let skill: FindingDraft["skill"];
     if (f.target === "skill" && f.skill) {
@@ -871,13 +898,13 @@ export function lineDiff(before: string, after: string): DiffLine[] {
  * ones (INSIGHTS-REDESIGN-SPEC §3.1). Returns how many were removed (§5.3).
  */
 export function replaceOpen(findings: Finding[], projectId: string, added: readonly Finding[]): number {
-  const isSkill = (f: Finding) => f.target === "skill";
-  const skills = added.some(isSkill),
-    others = added.some((f) => !isSkill(f));
+  // Two kinds replace separately: skill drafts and the rest.
+  const kind = (f: Finding) => (f.target === "skill" ? "skill" : "other");
+  const kinds = new Set(added.map(kind));
   let removed = 0;
   for (let i = findings.length - 1; i >= 0; i--) {
     const f = findings[i];
-    if (f.projectId === projectId && f.status === "open" && (isSkill(f) ? skills : others)) {
+    if (f.projectId === projectId && f.status === "open" && kinds.has(kind(f))) {
       findings.splice(i, 1);
       removed++;
     }
@@ -922,7 +949,11 @@ export const workflowStateSchema = z.object({
   version: z.literal(1),
   revision: z.number().int().min(0),
   runs: z.array(runSchema),
-  findings: z.array(findingSchema),
+  /** Auto review suggestions stored before guardrails are dropped when read. */
+  findings: z.preprocess(
+    (v) => (Array.isArray(v) ? v.filter((f) => !retiredTargets.includes((f as { target?: string } | null)?.target ?? "")) : v),
+    z.array(findingSchema),
+  ),
   /** Skills Flowly wrote into a project: the only proof a skill is Flowly's (INSIGHTS-REDESIGN-SPEC §3.5). */
   installed: z.array(installedSkillSchema).default([]),
   /** When collecting started per project; the first scheduled run waits one interval after it (§3.1). */

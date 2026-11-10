@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { laneRows } from "./lane-rows";
+import { laneRows, settledPage } from "./lane-rows";
 
 const card = (id: string) => ({ id });
 const shape = (rows: ReturnType<typeof laneRows<{ id: string }>>) => rows.map((r) => (r.kind === "task" ? r.task.id : r.kind));
@@ -38,4 +38,13 @@ test("rows that did not change keep their identity", async () => {
   const withOlder = laneRows([], [a], false);
   expect(sameRows(first2, withOlder)).toBe(withOlder);
   expect(sameRows(undefined, first)).toBe(first);
+});
+
+test("a released lane pager rests on the nearest page within its lanes", () => {
+  expect(settledPage(0, 390, 7)).toBe(0);
+  expect(settledPage(390 * 2 + 120, 390, 7)).toBe(2);
+  expect(settledPage(390 * 2 + 250, 390, 7)).toBe(3);
+  expect(settledPage(-40, 390, 7)).toBe(0);
+  expect(settledPage(390 * 9, 390, 7)).toBe(6);
+  expect(settledPage(500, 0, 7)).toBe(0);
 });

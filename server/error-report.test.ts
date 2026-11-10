@@ -84,6 +84,22 @@ test("report: class and safe code only, never the message", () => {
   expect(exceptionReport(elsewhere, "x", true, ROOT).fingerprint).not.toBe(exceptionReport(failure(), "x", true, ROOT).fingerprint);
 });
 
+test("a Paseo RPC error reports which request failed and Paseo's code, never its message", () => {
+  // Shaped like @getpaseo/client's DaemonRpcError: the message repeats the server's error text.
+  const rpc = (requestType: unknown, code?: unknown) =>
+    Object.assign(failure("DaemonRpcError", undefined, `Agent /Users/alice/secret not found requestType=${String(requestType)} code=${String(code)}`), { requestType, code, requestId: "req-1" });
+  const report = exceptionReport(rpc("fetch_agent_timeline_request", "agent_refresh_failed"), "Flowly session insight rows not added", true, ROOT);
+  expect(report).toMatchObject({ type: "DaemonRpcError", value: "fetch_agent_timeline_request:agent_refresh_failed" });
+  expect(JSON.stringify(report)).not.toMatch(/alice|secret|not found|req-1/);
+  expect(exceptionReport(rpc("project.list.request", "WORKTREE_BUSY"), "x", true, ROOT).value).toBe("project.list.request:worktree_busy");
+  expect(exceptionReport(rpc("send_agent_message_request"), "x", true, ROOT).value).toBe("send_agent_message_request");
+  // Anything that is not wholly an identifier is dropped, not trimmed into one.
+  expect(exceptionReport(rpc("fetch /Users/alice", "bad code!"), "x", true, ROOT).value).toBe("");
+  expect(exceptionReport(rpc("x".repeat(61), "handler_error"), "x", true, ROOT).value).toBe(":handler_error");
+  // Another kind of report: requestType grouping splits the fingerprint.
+  expect(exceptionReport(rpc("a_request", "c"), "x", true, ROOT).fingerprint).not.toBe(exceptionReport(rpc("b_request", "c"), "x", true, ROOT).fingerprint);
+});
+
 test("expected RPC errors are not reported: tool errors and plain messages; bugs and system errors are", () => {
   expect(expectedRpcError(new ToolError("TAG_INVALID", "bad"))).toBe(true);
   expect(expectedRpcError(new Error("Task not found."))).toBe(true);

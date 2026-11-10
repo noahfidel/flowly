@@ -1,0 +1,93 @@
+Flowly
+Tinylink
+Attention
+5
+Recent activity
+Filter
+New task
+11
+tasks
+· 2 done
+Idle
+5 unread
+In review
+6
+Ideas 3
+Guardrails 1
+Insights
+Backlog
+1
+Low
+Chore
+Add Dockerfile and GitHub Actions workflow
+Todo
+1
+Feature
+Custom aliases for short links
+Design
+1
+Urgent
+Bug fix
+Expired links crash the server instead of returning an error
+Bug reproduced; waiting for user to choose 410 or 404
+10d ago
+Needs you
+Dismissed
+Development
+0
+No tasks
+Test
+0
+No tasks
+In review
+6
+Feature
+[guardrails-live A] Add GET /health
+已重跑 npm test 通过并交付 In review，待确认提交
+11m ago
+1 unread
+Checked
+Feature
+[guardrails-live D] Add a 450-line fixture
+已交付待审核：文件已 git add -N，待确认提交推送
+15m ago
+1 unread
+Checked
+Feature
+[guardrails-live C] Add GET /ping
+接口与测试已完成，争议已提交，等待用户决定 README
+16m ago
+1 unread
+Checked
+Feature
+[guardrails-live B] Add GET /version
+README 条目已补齐，已重新交付待审核
+18m ago
+1 unread
+Checked
+High
+Feature
+Add rate limiting to POST /shorten
+Delivered to In review; 13/13 tests passing
+10d ago
+1
+2
+Feature
+Add click counter and GET /stats/:code
+Done and delivered to In review; 13/13 tests pass on HEAD
+10d ago
+1
+1
+0
+Blocked
+Done
+2
+Feature
+[guardrails-live E] Add GET /echo/:word
+已提交 README 争议，等待用户裁定
+14m ago
+1 unread
+Show 1 older task
+Cancelled
+0
+No tasks

@@ -73,13 +73,15 @@ import { waitingOn } from "../shared/links";
 import { LinkPicker } from "./task-links";
 import { TaskDrawer } from "./drawer";
 import { DeleteTaskDialog } from "./task-delete";
-import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery, useOverviewQuery, useLiveAgents, useMemoryCountsQuery, useResolvedAsksQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
+import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery, useOverviewQuery, useLiveAgents, useGuardrailCountsQuery, useResolvedAsksQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
 import { projectOpenIdeaCount } from "./overview-query";
 import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
 import { LaneList } from "./lane-list";
 import { perfConfigure, perfMark, usePerfRender } from "./perf";
-import { laneRows, sameRows } from "./lane-rows";
+import { laneRows, sameRows, type LaneRow } from "./lane-rows";
+import { LanePager } from "./lane-pager";
+import { useAndroidBack } from "./android-back";
 import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
 import { openNativeWorkspace } from "./session-state";
 import { externalError, useConnections } from "./connectors";
@@ -88,6 +90,7 @@ import { cardProgress, useSummaries } from "./task-progress";
 import { LocaleRoot } from "./i18n";
 import { agentModelFromValues, effectiveAgentModel, startingAgent } from "../shared/agent-defaults";
 import { HintOutline, SettingsHint, SettingsModal, type SettingsSection } from "./summary-settings";
+import { NewTaskFab } from "./new-task-fab";
 import { SettingsOpenerContext } from "./settings-opener";
 import { findingDescription, workflowInsightsSettings, workflowSettingsValues, type Finding } from "../shared/workflow-insights";
 import { WrapupModal } from "./wrapup";
@@ -113,7 +116,8 @@ import { IdeasPage } from "./ideas-page";
 import { SearchPage } from "./search-page";
 import { focusOfHit, type DrawerFocus } from "./drawer-focus";
 import { searchSources as allSearchSources, type SearchCard, type SearchHit, type SearchMemoryHit } from "../shared/search";
-import { MemoryPage } from "./memory";
+import { GuardrailsPage } from "./guardrails";
+import { MemoryPage, type MemoryPrefs } from "./memory";
 import { lastViewedProject, pickView, rememberViewedProject, staleAllChoice } from "./project-memory";
 import { ALL_PROJECTS, allProjectsAvailable, allQuickProject, allStatuses, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { ProjectTabs } from "./project-tabs";
@@ -149,9 +153,11 @@ import { PROJECT_UNAVAILABLE, gone } from "../shared/card-detail";
 import { workpadEnabled } from "../shared/workpad";
 import { cardDisplay, cardWorkspace } from "../shared/card-display";
 import { parentOf } from "../shared/subagents";
+import { reviewLabel } from "./task-review";
+import { visibleReview } from "../shared/auto-review";
 
 /** One-time tip texts (ONBOARDING-SPEC §5). */
-const tipText: Record<TipId, () => string> = {
+const tipText: Record<TipId, (compact?: boolean) => string> = {
   "first-card": () => t("Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary."),
   "needs-you": () => t("A card is waiting for you. Reply goes straight to the session."),
   "first-idea": () => t("An agent suggested follow-up work. Good idea starts a card or continues here; Dismiss removes it."),
@@ -163,7 +169,7 @@ const tipText: Record<TipId, () => string> = {
   "next-move": () => t("When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send. Some steps act on the card, like Move to Done."),
   "older-finished": () => t("Cards that finished a while ago fold under “Show older” at the bottom of Done and Cancelled. Settings → Workflow sets how long they stay."),
   "first-ticket": () => t("A card has an item from a connected service as an input. Agents read it every turn and see when it changes. Flowly never changes it there, and its status doesn't move the card."),
-  "jira-connect": () => t("Work from Jira, Confluence, GitHub, GitLab, Azure DevOps or Linear: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them."),
+  "jira-connect": () => t("Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them."),
   connectors: () => t("The Artifacts + now adds Confluence pages and GitHub or GitLab issues and pull requests too, besides files, links and Jira tickets. Connect services in Settings → Connections."),
   "project-menu": () => t("Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove."),
   "all-projects": () => t("All projects shows every project's cards on one board. Settings → Workflow turns it off."),
@@ -173,15 +179,20 @@ const tipText: Record<TipId, () => string> = {
   "first-skill-draft": () => t("Insights drafted a skill from your cards. Open Insights to add it to the project."),
   search: () => t("Find past cards, notes, workpads and deliverables with the search button or S."),
   "quick-task": () => t("New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off."),
-  "first-memory-candidate": () => t("An agent suggested something to remember. Confirm it in Memory and new sessions on this project will know it; you can edit or delete it any time."),
   "first-workflow-insight": () => t("Workflow insights found repeated work worth keeping. Open Insights to turn a suggestion into a card."),
-  "card-display": () => t("Cards too busy? Choose what they show in Settings → Cards, or from the Sort menu → Card display."),
+  "lane-swipe": () => t("Swipe left or right to switch lanes."),
+  "card-display": (compact) => compact
+    // Compact puts the Sort choices and Card display… in the Filters dialog.
+    ? t("Cards too busy? Choose what they show in Settings → Cards, or from Filters → Card display.")
+    : t("Cards too busy? Choose what they show in Settings → Cards, or from the Sort menu → Card display."),
   "attention-dismiss": () => t("Not ready to decide? Dismiss a card from Attention. It comes back when something new happens."),
   "sidebar-order": () => t("Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar."),
   "session-history": () => t("A session's output now starts at the beginning of its current turn. Press Load earlier at the top to read further back."),
   "settings-entry": () => t("Turn features on or off and change settings here."),
   dispatcher: () => t("The dispatcher is one agent for all your projects. Open its chat with the robot button, ask for work, and it makes the cards and starts them."),
-  "first-workpad": () => t("This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself."),
+  "auto-review": () => t("Auto review checked this card after the agent delivered; open it to see each check's result."),
+  "first-guardrail": () => t("Flowly learned a check from a card you sent back. Open Guardrails to see what it checks now."),
+  "first-workpad": () => t("This card has a workpad: the agent's acceptance list. The card shows how many items are met; open it to tick items yourself and to see the latest review."),
 };
 
 /** RN-Web forwards React keyboard events on View; React Native's types omit them. */
@@ -342,11 +353,13 @@ function BoardContent(
     [tourClosed, setTourClosed] = useState(false),
     // What's new after an update (WHATS-NEW-SPEC): opened by itself once per release, or from Settings.
     [whatsNewOpen, setWhatsNewOpen] = useState(false),
+    // Edit project opened to suggest auto review checks from past cards (AUTO-REVIEW-SPEC §6.2).
+    [reviewOn, setReviewOn] = useState(false),
     // The user just moved a card into Done/Cancelled (drives the wrap-up tip).
     [movedToFinished, setMovedToFinished] = useState(false),
     [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
     // Project-level page over the board area: Insights or Ideas (IDEAS-INBOX-SPEC §3.3).
-    [page, setPage] = useState<"insights" | "ideas" | "memory" | "search" | null>(null),
+    [page, setPage] = useState<"insights" | "ideas" | "guardrails" | "memory" | "search" | null>(null),
     // The dispatcher chat (DISPATCHER-SPEC §9.3): mounted on first open, then hidden rather than unmounted.
     [chat, setChat] = useState<{ open: boolean; mounted: boolean }>({ open: false, mounted: false }),
     // Search page (SEARCH-SPEC §5): the text it opens with and a key that remounts it for a new seed.
@@ -358,6 +371,8 @@ function BoardContent(
     // `idea`: Start session prefilled from an idea on the Ideas page (IDEAS-SPEC §6.3).
     [startRequest, setStartRequest] = useState<{ taskId: string; key: string; idea?: Idea } | null>(null),
     [mobileStatus, setMobileStatus] = useState<Status>("todo"),
+    // Phones: a lane chosen from the status chooser fades in; a swiped one is already on screen (UI-UX-SPEC §5).
+    [lanePick, setLanePick] = useState(0),
     [reveal, setReveal] = useState<{ status: Status; n: number; at: number; center?: boolean; taskId?: string }>({ status: "todo", n: 0, at: 0 }),
     [actionTask, setActionTask] = useState<Task | null>(null),
     [projectForm, setProjectForm] = useState<"new" | "edit" | null>(null),
@@ -719,11 +734,21 @@ function BoardContent(
     const sorted = allView ? sortAllColumn(column, boardSort, taskActivity, projectRank) : sortTasks(column, boardSort, taskActivity);
     return older.size ? [...sorted.filter((t) => !older.has(t.id)), ...sorted.filter((t) => older.has(t.id))] : sorted;
   };
-  const laneAll = sortColumn(visible.filter((t) => t.status === mobileStatus));
-  const list = laneAll.filter((t) => !older.has(t.id));
-  const listOlder = laneAll.filter((t) => older.has(t.id));
-  const laneRowsRef = useRef<ReturnType<typeof laneRows<Task>> | undefined>(undefined);
-  const laneRowList = (laneRowsRef.current = sameRows(laneRowsRef.current, laneRows(list, listOlder, olderShown.includes(mobileStatus))));
+  // The phone's lanes: the selected one, plus its neighbours in the native lane pager (UI-UX-SPEC §5).
+  const laneRowsRef = useRef(new Map<Status, LaneRow<Task>[]>());
+  const lanesNow = new Map<Status, { count: number; olderCount: number; rows: LaneRow<Task>[] }>();
+  const laneOf = (status: Status) => {
+    const known = lanesNow.get(status);
+    if (known) return known;
+    const all = sortColumn(visible.filter((t) => t.status === status));
+    const recent = all.filter((t) => !older.has(t.id));
+    const olderCards = all.filter((t) => older.has(t.id));
+    const rows = sameRows(laneRowsRef.current.get(status), laneRows(recent, olderCards, olderShown.includes(status)));
+    laneRowsRef.current.set(status, rows);
+    const lane = { count: all.length, olderCount: olderCards.length, rows };
+    lanesNow.set(status, lane);
+    return lane;
+  };
   // Status-change flash: remember the last snapshot, emphasize cards that moved.
   const statusMemory = useRef<Map<string, string> | null>(null);
   const [flashing, setFlashing] = useState<ReadonlySet<string>>(new Set());
@@ -1306,19 +1331,15 @@ function BoardContent(
       {chatGrip}
     </Animated.View>
   );
-  const togglePage = (next: "insights" | "ideas" | "memory" | "search") => {
+  const togglePage = (next: "insights" | "ideas" | "guardrails" | "memory" | "search") => {
     ignoredLink.current = linkKey;
     // Opening Insights is acting on the skill-draft tip (INSIGHTS-REDESIGN-SPEC §5).
     if (next === "insights" && onboarding.values && !onboarding.values.tipsSeen.includes("first-skill-draft")) void onboarding.markTipSeen("first-skill-draft");
+    // Opening Guardrails is acting on the learned-guideline tip (GUARDRAILS-SPEC §10).
+    if (next === "guardrails" && onboarding.values && !onboarding.values.tipsSeen.includes("first-guardrail")) void onboarding.markTipSeen("first-guardrail");
     setPage((current) => (current === next ? null : next));
   };
   const closePage = useStableCallback(() => setPage(null));
-  const openMemoryPage = useStableCallback(() => {
-    ignoredLink.current = linkKey;
-    // Memory is per project: from the All board, switch to the open card's project first.
-    if (allView && task) setProject(task.projectId);
-    setPage("memory");
-  });
   // SEARCH-SPEC §5.3: a result opens its card, switching project first; the Search page stays open.
   const openSearchCard = useStableCallback((card: SearchCard, hit?: SearchHit) => {
     ignoredLink.current = linkKey;
@@ -1420,10 +1441,16 @@ function BoardContent(
   const projectIdeasData = useProjectIdeasQuery(props.host.id, project?.id || "", page === "ideas" && (!compact || !taskId));
   const projectIdeaList = useMemo(() => projectIdeasData.data?.ideas || [], [projectIdeasData.data]);
   const projectOpenIdeas = useMemo(() => projectOpenIdeaCount(projected, project?.id), [projected?.cards, projected?.tasks, projected?.projectIdeas, project?.id]);
-  // Project memory candidates waiting for review (PROJECT-MEMORY-SPEC §8.1); the chip hides when the project turned memory off.
-  const memoryCounts = useMemoryCountsQuery(boardActive && !!project && features.memory);
-  const memoryOn = features.memory && !!project && project.memory !== false;
-  const memoryCandidates = memoryOn ? (memoryCounts.data?.[project!.id] ?? 0) : null;
+  // Observing commands and guidelines learned this week (GUARDRAILS-SPEC §7.4); the chip hides when the project turned guardrails off.
+  const guardrailCounts = useGuardrailCountsQuery(boardActive && !!project && features.memory);
+  const guardrailsOn = features.memory && !!project && project.memory !== false;
+  const projectGuardrails = guardrailsOn ? guardrailCounts.data?.[project!.id] : undefined;
+  const guardrailCount = guardrailsOn ? (projectGuardrails ? projectGuardrails.observing + projectGuardrails.added : 0) : null;
+  const memoryCount = guardrailsOn ? (projectGuardrails?.notes ?? 0) : null;
+  // The Memory page's filter, sort and layout (board-view settings, GUARDRAILS-SPEC §7.4).
+  const memoryKind = view.values?.memoryKind ?? "all", memorySort = view.values?.memorySort ?? "newest", memoryLayout = view.values?.memoryLayout ?? "list";
+  const memoryPrefs = useMemo<MemoryPrefs>(() => ({ memoryKind, memorySort, memoryLayout }), [memoryKind, memorySort, memoryLayout]);
+  const saveMemoryPrefs = useStableCallback((patch: Partial<MemoryPrefs>) => void view.update(patch));
   const projectTasks = useMemo(() => (board?.tasks || []).filter((t) => t.projectId === project?.id), [board?.tasks, project?.id]);
   // A session of this project has a live Paseo child agent (SUBAGENTS-SPEC §7).
   const projectHasSubagent = useMemo(() => {
@@ -1511,10 +1538,16 @@ function BoardContent(
     setWhatsNewOpen(false);
     void onboarding.markWhatsNewSeen();
   };
+  // What's new "Turn on for this project": the current project's Edit project, Auto review first and switched on.
+  const turnOnReview = () => {
+    if (!project) return;
+    setReviewOn(true);
+    setProjectForm("edit");
+  };
   const whatsNewAction = (action: NonNullable<WhatsNewItem["action"]>) => {
     closeWhatsNew();
     // Settings and the tour are modals too: open them once this one has gone.
-    afterWhatsNew(() => (action.to === "settings" ? openSettingsAt(action.section) : setWelcomeOpen(true)));
+    afterWhatsNew(() => (action.to === "settings" ? openSettingsAt(action.section) : action.to === "auto-review" ? turnOnReview() : setWelcomeOpen(true)));
   };
   const seeSettingsHint = () => {
     if (settingsHint) void onboarding.markTipSeen("settings-entry");
@@ -1547,13 +1580,20 @@ function BoardContent(
           hasSummary: !task && !!summaries.data?.latest.some((e) => projectTasks.some((x) => x.id === e.taskId)),
           workflowSuggestion: features.insights && workflowTipDue && !!workflowView.data?.findings.some((f) => f.status === "open" && !(f.target === "skill" && f.skill)),
           skillDraft: features.insights && workflowTipDue && !!workflowView.data?.findings.some((f) => f.status === "open" && f.target === "skill" && !!f.skill),
-          memoryCandidate: !task && !!memoryCandidates,
           searchable: !task && projectTasks.filter((x) => !x.archivedAt).length >= 10,
           dispatcherIntro: !task && !chatOpen && projectTasks.some((x) => !x.archivedAt),
           ideaDiscuss: ideasOn && canDiscuss && projectOpenIdeas > 0,
+          reviewShown: !task && projectTasks.some((x) => !!visibleReview(x)),
+          learnedGuideline: !task && !!projectGuardrails?.added,
+          laneSwipe: touch && !task && !page && shownStatuses.length > 1 && projectTasks.some((x) => !x.archivedAt),
         },
         blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen || settingsHint || whatsNewOpen || whatsNewDue === "show",
       });
+  // A swipe to another lane shows the lane-swipe tip was not needed.
+  const settleLane = (next: Status) => {
+    if (next !== mobileStatus && onboarding.values && !onboarding.values.tipsSeen.includes("lane-swipe")) void onboarding.markTipSeen("lane-swipe");
+    setMobileStatus(next);
+  };
   const dismissTip = (id: TipId) => {
     if (id === "first-done") setMovedToFinished(false);
     void onboarding.markTipSeen(id);
@@ -1631,6 +1671,7 @@ function BoardContent(
     <LiveTaskCard
       key={t.id}
       {...derivedFor(t)}
+      lane={nameOf(t.status)}
       selected={taskId === t.id}
       display={display}
       flash={flashing.has(t.id)}
@@ -1641,6 +1682,38 @@ function BoardContent(
       onActions={openCardActions}
       onOpenWorkspace={canOpenWorkspace ? openCardWorkspace : undefined}
       menuFor={cardMenuFor}
+    />
+  );
+  const renderLane = (status: Status) => (
+    <LaneList
+      key={status}
+      data={laneOf(status).rows}
+      keyOf={(row) => row.key}
+      renderItem={(row) =>
+        row.kind === "task" ? (
+          renderCard(row.task)
+        ) : row.kind === "older" ? (
+          <OlderToggle count={laneOf(status).olderCount} shown={olderShown.includes(status)} onPress={() => toggleOlder(status)} />
+        ) : row.hasOlder ? (
+          <View style={{ paddingVertical: space[4], alignItems: "center" }}>
+            <Label muted selectable={false}>{t("No recent tasks")}</Label>
+          </View>
+        ) : (
+          <View style={{ paddingVertical: space[6], gap: space[3], alignItems: "center" }}>
+            <Label muted selectable={false}>
+              {filterCount
+                ? t("No tasks match these filters.")
+                : t("No tasks in {lane}.", { lane: nameOf(status) })}
+            </Label>
+            <Button
+              icon="Plus"
+              disabled={!!project?.archivedAt}
+              onPress={() => openNewTask(status, allView ? undefined : project?.id)}
+            >
+              {t("Add task")}</Button>
+          </View>
+        )
+      }
     />
   );
   const projectMenuClose = () => setMenu(null);
@@ -1677,7 +1750,12 @@ function BoardContent(
       ...(ideasOn
         ? [{ id: "ideas", label: t("Ideas"), icon: "Lightbulb", onPress: () => openIn(() => { setIdeaCard(""); setPage("ideas"); }) }]
         : []),
-      ...(features.memory && p.memory !== false ? [{ id: "memory", label: t("Memory"), icon: "BookMarked", onPress: () => openIn(() => setPage("memory")) }] : []),
+      ...(features.memory && p.memory !== false
+        ? [
+            { id: "guardrails", label: t("Guardrails"), icon: "ShieldCheck", onPress: () => openIn(() => setPage("guardrails")) },
+            { id: "memory", label: t("Memory"), icon: "BookMarked", onPress: () => openIn(() => setPage("memory")) },
+          ]
+        : []),
       { kind: "separator", id: "order" },
       { id: "left", label: t("Move left"), icon: "ChevronLeft", disabled: index === 0 || pending, onPress: () => reorderProject(p.id, { direction: "up" }) },
       { id: "right", label: t("Move right"), icon: "ChevronRight", disabled: index === projects.length - 1 || pending, onPress: () => reorderProject(p.id, { direction: "down" }) },
@@ -1725,6 +1803,10 @@ function BoardContent(
         if (!project || !ideasOn) return false;
         setIdeaCard("");
         togglePage("ideas");
+        return true;
+      case "guardrails":
+        if (!project || !features.memory) return false;
+        togglePage("guardrails");
         return true;
       case "memory":
         if (!project || !features.memory) return false;
@@ -1777,6 +1859,8 @@ function BoardContent(
     }
   };
   const keyboardProps = shortcutsOn ? { focusable: true, onKeyDown } : {};
+  // Same steps as Esc; on the bare board Back falls through to the host. Open host modals take Back first.
+  useAndroidBack(rootRef, () => runIntent("escape"));
   // Opening the board from the sidebar leaves keyboard focus on the host's sidebar row, which draws a
   // focus ring while the board scrolls. Hand focus to the board root (it draws no ring of its own).
   // Once per mount: a later compact -> wide resize must not pull focus out of an active control.
@@ -1877,7 +1961,7 @@ function BoardContent(
         }
         startIdea={startRequest?.taskId === drawer.item.task.id ? startRequest.idea : undefined}
         onAllIdeas={showCardIdeas}
-        onMemoryPage={features.memory ? openMemoryPage : undefined}
+        guardrails={features.memory && drawer.item.project.memory !== false}
         sessionEntry={
           sessionEntry?.taskId === drawer.item.task.id && drawer.active ? sessionEntry : undefined
         }
@@ -1945,8 +2029,8 @@ function BoardContent(
                 {t("{n} shown", { n: visible.length })}
               </Label>
             )}
-            {!!project && (
-              // Opens the project's own settings (name, lanes, auto status) at once, not through the chooser.
+            {!!project && !compact && (
+              // Opens the project's own settings (name, lanes, auto status) at once; phones use the chooser's Edit row.
               <IconButton
                 icon="SlidersHorizontal"
                 label={t("Project settings")}
@@ -1974,9 +2058,8 @@ function BoardContent(
               <IconButton icon="Settings" label={t("Flowly settings")} active={menu === "settings"} onPress={openSettingsFromToolbar} />
               {settingsHint && <HintOutline />}
             </View>
-            <SortButton
+            {!compact && <SortButton
               mode={boardSort}
-              compact={compact}
               onPress={(event) =>
                 openMenu?.(eventPoint(event), t("Sort cards"), [
                   { kind: "label", id: "label", label: t("Sort cards in each column") },
@@ -1999,17 +2082,19 @@ function BoardContent(
                   },
                 ])
               }
-            />
+            />}
             {(!!project || allView) && (
               <IconButton icon="Search" label={withKey(t("Search"), "S")} active={page === "search"} onPress={() => (page === "search" ? setPage(null) : openSearch(""))} />
             )}
             <FilterButton
               count={filterCount}
+              // Phones sort from the Filters dialog, so a non-manual sort lights its icon too.
+              lit={compact && boardSort !== "manual"}
               compact={compact}
               shortcut={shortcutsOn ? "/" : ""}
               onPress={() => setMenu("filters")}
             />
-            {(!!project || allView) && (
+            {(!!project || allView) && !compact && (
               <Button
                 primary
                 icon="Plus"
@@ -2017,7 +2102,7 @@ function BoardContent(
                 disabled={!!project?.archivedAt}
                 onPress={() => openNewTask("todo")}
               >
-                {compact ? "" : t("New task")}
+                {t("New task")}
               </Button>
             )}
           </View>
@@ -2038,7 +2123,10 @@ function BoardContent(
               togglePage("ideas");
             }}
             ideasShortcut={shortcutsOn ? "B" : ""}
-            memoryCandidates={memoryCandidates}
+            guardrailCount={guardrailCount}
+            onGuardrails={() => togglePage("guardrails")}
+            guardrailsShortcut={shortcutsOn ? "G" : ""}
+            memoryCount={memoryCount}
             onMemory={() => togglePage("memory")}
             memoryShortcut={shortcutsOn ? "M" : ""}
           />
@@ -2053,7 +2141,7 @@ function BoardContent(
         )}
         {!emptyProjectHint && !!tip && (
           <GuideBanner
-            text={tipText[tip]()}
+            text={tipText[tip](compact)}
             dismissLabel={t("Got it")}
             onDismiss={() => dismissTip(tip)}
           />
@@ -2120,7 +2208,7 @@ function BoardContent(
             {showRail && <DockRail onOpen={openDock} />}
             {(
               <MotionReveal
-                transitionKey={`${viewKey}|${page || (compact ? mobileStatus : "columns")}`}
+                transitionKey={`${viewKey}|${page || (compact ? (touch ? `pick${lanePick}` : mobileStatus) : "columns")}`}
                 direction={-1}
                 distance={compact ? 0 : 18}
                 {...covered}
@@ -2146,6 +2234,7 @@ function BoardContent(
                     onBack={closePage}
                     onCreateFromFinding={createFromFinding}
                     onOpenSettings={openAiSettings}
+                    onOpenGuardrails={guardrailsOn ? () => setPage("guardrails") : undefined}
                   />
                 ) : page === "ideas" && ideasOn && board && project ? (
                   <IdeasPage
@@ -2176,54 +2265,38 @@ function BoardContent(
                     onOpenMemory={openSearchMemory}
                     onBack={closePage}
                   />
+                ) : page === "guardrails" && board && project ? (
+                  <GuardrailsPage project={project} tasks={projectTasks} compact={compact} nameOf={nameOf} onOpenTask={openTaskById} onBack={closePage} />
                 ) : page === "memory" && board && project ? (
-                  <MemoryPage project={project} tasks={projectTasks} compact={compact} nameOf={nameOf} onOpenTask={openTaskById} onBack={closePage} />
+                  <MemoryPage project={project} tasks={projectTasks} compact={compact} prefs={memoryPrefs} nameOf={nameOf} onPrefs={saveMemoryPrefs} onOpenTask={openTaskById} onBack={closePage} />
                 ) : compact ? (
                   <>
                     <View style={{ paddingHorizontal: space[2], paddingTop: space[2] }}>
                       <Row
                         title={nameOf(mobileStatus)}
                         label={t("Choose task status")}
+                        testID="lane-chooser"
                         leading={<StatusIcon status={mobileStatus} size={16} />}
                         trailing={
                           <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
-                            <Label muted size={font.md} selectable={false}>{laneAll.length}</Label>
+                            <Label muted size={font.md} selectable={false}>{laneOf(mobileStatus).count}</Label>
                             <Icon name="ChevronsUpDown" size={14} color={colors.foregroundMuted} />
                           </View>
                         }
                         onPress={() => setMenu("status")}
                       />
                     </View>
-                    <LaneList
-                      key={mobileStatus}
-                      data={laneRowList}
-                      keyOf={(row) => row.key}
-                      renderItem={(row) =>
-                        row.kind === "task" ? (
-                          renderCard(row.task)
-                        ) : row.kind === "older" ? (
-                          <OlderToggle count={listOlder.length} shown={olderShown.includes(mobileStatus)} onPress={() => toggleOlder(mobileStatus)} />
-                        ) : row.hasOlder ? (
-                          <View style={{ paddingVertical: space[4], alignItems: "center" }}>
-                            <Label muted selectable={false}>{t("No recent tasks")}</Label>
-                          </View>
-                        ) : (
-                          <View style={{ paddingVertical: space[6], gap: space[3], alignItems: "center" }}>
-                            <Label muted selectable={false}>
-                              {filterCount
-                                ? t("No tasks match these filters.")
-                                : t("No tasks in {lane}.", { lane: nameOf(mobileStatus) })}
-                            </Label>
-                            <Button
-                              icon="Plus"
-                              disabled={!!project?.archivedAt}
-                              onPress={() => openNewTask(mobileStatus, allView ? undefined : project?.id)}
-                            >
-                              {t("Add task")}</Button>
-                          </View>
-                        )
-                      }
-                    />
+                    {touch ? (
+                      <LanePager<Status>
+                        lanes={shownStatuses}
+                        index={Math.max(0, shownStatuses.indexOf(mobileStatus))}
+                        active={!boardHidden}
+                        onSettle={settleLane}
+                        renderLane={renderLane}
+                      />
+                    ) : (
+                      renderLane(mobileStatus)
+                    )}
                   </>
                 ) : (
                   <DesktopColumns
@@ -2438,6 +2511,31 @@ function BoardContent(
                 ]}
                 onChange={setPriority}
               />
+              {compact && (
+                <View style={{ gap: space[1.5] }}>
+                  <Choices
+                    title={t("Sort cards")}
+                    value={boardSort}
+                    options={boardSorts.map((mode) => ({ value: mode, label: t(boardSortText[mode].label) }))}
+                    onChange={chooseSort}
+                  />
+                  <View style={{ flexDirection: "row" }}>
+                    <Button
+                      small
+                      quiet
+                      icon="LayoutList"
+                      onPress={() => {
+                        setMenu(null);
+                        afterModalClose(() => {
+                          setSettingsSection("cards");
+                          setMenu("settings");
+                        });
+                      }}
+                    >
+                      {t("Card display…")}</Button>
+                  </View>
+                </View>
+              )}
               <Actions>
                 <Button
                   quiet
@@ -2502,6 +2600,7 @@ function BoardContent(
                 <Row
                   key={s}
                   title={nameOf(s)}
+                  testID={`lane-tab-${s}`}
                   leading={<StatusIcon status={s} size={16} />}
                   selected={s === mobileStatus}
                   trailing={
@@ -2510,6 +2609,7 @@ function BoardContent(
                     </Label>
                   }
                   onPress={() => {
+                    if (s !== mobileStatus) setLanePick((n) => n + 1);
                     setMobileStatus(s);
                     setMenu(null);
                   }}
@@ -2694,17 +2794,22 @@ function BoardContent(
         )}
         {projectForm && (
           <ProjectForm
-            key={projectForm}
+            key={`${projectForm}${reviewOn ? ":review" : ""}`}
             project={projectForm === "edit" ? project : undefined}
+            reviewOn={projectForm === "edit" && reviewOn}
             laneCounts={Object.fromEntries(
               shownStatuses.map((s) => [s, tasks.filter((t) => t.projectId === project?.id && t.status === s && !t.archivedAt).length]),
             )}
             showArchived={archived}
             onShowArchived={setArchived}
-            onClose={() => setProjectForm(null)}
+            onClose={() => {
+              setProjectForm(null);
+              setReviewOn(false);
+            }}
             onSaved={(id, restored) => {
               chooseProject(id);
               setProjectForm(null);
+              setReviewOn(false);
               refresh();
               if (restored) toast.show(tn(restored.restored, "Restored {title} with {n} card.", "Restored {title} with {n} cards.", { title: restored.title }), { variant: "success" });
             }}
@@ -2789,6 +2894,9 @@ function BoardContent(
         )}
         {compact && chatPanel}
         {compact && drawerView}
+        {compact && !task && !page && !chat.open && (!!project || allView) && !project?.archivedAt && !!board && (
+          <NewTaskFab onPress={() => openNewTask("todo")} />
+        )}
         {settingsHint && gearBox && toolbarBottom > 0 && !(compact && (task || chat.open)) && (
           <SettingsHint
             text={tipText["settings-entry"]()}
@@ -2923,7 +3031,7 @@ const sortIcons: Record<BoardSort, string> = {
   title: "ArrowDownAZ",
 };
 
-function SortButton({ mode, compact, onPress }: { mode: BoardSort; compact: boolean; onPress(event: GestureResponderEvent): void }) {
+function SortButton({ mode, onPress }: { mode: BoardSort; onPress(event: GestureResponderEvent): void }) {
   const { colors } = useTheme();
   const custom = mode !== "manual";
   return (
@@ -2941,29 +3049,29 @@ function SortButton({ mode, compact, onPress }: { mode: BoardSort; compact: bool
           height: touch ? 44 : 32,
           minWidth: touch ? 44 : 32,
           justifyContent: "center",
-          paddingHorizontal: compact ? 0 : space[2] + 2,
+          paddingHorizontal: space[2] + 2,
           borderRadius: radius.md,
           backgroundColor: hover || pressed ? colors.surface2 : "transparent",
         };
       }}
     >
       <Icon name="ArrowUpDown" size={15} color={custom ? colors.foreground : colors.foregroundMuted} />
-      {!compact && (
-        <Label size={font.md} medium muted={!custom} selectable={false}>
-          {custom ? t(boardSortText[mode].label) : t("Sort")}
-        </Label>
-      )}
+      <Label size={font.md} medium muted={!custom} selectable={false}>
+        {custom ? t(boardSortText[mode].label) : t("Sort")}
+      </Label>
     </Pressable>
   );
 }
 
 function FilterButton({
   count,
+  lit = false,
   compact,
   shortcut,
   onPress,
 }: {
   count: number;
+  lit?: boolean;
   compact: boolean;
   shortcut: string;
   onPress(): void;
@@ -2991,7 +3099,7 @@ function FilterButton({
         };
       }}
     >
-      <Icon name="ListFilter" size={15} color={count ? colors.foreground : colors.foregroundMuted} />
+      <Icon name="ListFilter" size={15} color={count || lit ? colors.foreground : colors.foregroundMuted} />
       {!compact && (
         <Label size={font.md} medium muted={!count} selectable={false}>
           {t("Filter")}</Label>

@@ -629,6 +629,7 @@ export function Row({
   onPress,
   label,
   menu,
+  testID,
 }: {
   title: string;
   detail?: string;
@@ -642,11 +643,14 @@ export function Row({
   label?: string;
   /** Context-menu handlers (right-click / long-press). */
   menu?: object;
+  /** Stable id for automation (UI-UX-SPEC §2, automation names). */
+  testID?: string;
 }) {
   const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
+      testID={testID}
       accessibilityLabel={label || title}
       accessibilityState={{ selected, disabled }}
       disabled={disabled}
@@ -801,7 +805,8 @@ export function SectionHeader({
         <View style={{ ...titleBox, ...row }}>{heading}</View>
       )}
       {showSummary && (
-        <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, maxWidth: "60%", alignItems: "flex-end" }}>
+        // Pushed to the row's end, so every collapsed section's summary ends at one right edge.
+        <View style={{ flexShrink: 1, minWidth: 0, maxWidth: "60%", marginLeft: "auto" }}>
           <Label muted size={font.sm} lines={1} selectable={false}>
             {summary}
           </Label>

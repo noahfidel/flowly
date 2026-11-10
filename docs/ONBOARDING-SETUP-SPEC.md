@@ -81,21 +81,20 @@ Status: **已实现，用户 2026-10-22 确认设计**（卡片“重设计onboa
 - **自动演示**（2026-10-22 用户反馈：保留人工交互的形式，默认自动点击展示整个流程）：打开这一页就自动播放，按真人操作的顺序按下同样的控件，每次先在要按的那个控件上画一圈强调色描边约 0.7 秒再按（具体到 Run tests 这一个建议、发送按钮、Good idea 按钮；`NextMoves` 的 `cue` 与 `IdeaCard` 的 `cueGood` 可选属性，共用 `CueRing`，别处不传则无变化）：约 1.5 秒后选 Run tests → 约 0.8 秒后点发送 → 想法出现约 1.5 秒后点 Good idea → 任务出现 4 秒后重新开始，循环。提示行为 “Playing it for you. Press anything to try it yourself.”，旁边 **Pause / Play** 切换。你自己按任何一个控件（建议、发送、关闭建议、Good idea、Dismiss、Restore）就停止自动播放、接着手动；Start over 保留当前的播放状态。系统开了 Reduce Motion 时默认暂停。下一步的判断是纯函数 `loopAutoStep`（`client/onboarding-logic.ts`，有单测）。
 - 演示框高 360（原 520，2026-10-22 用户反馈“稍微减少 demo 高度，让下面的内容能被看到，引导用户滚动并进行设置”）：桌面窗口里第一屏就能看到下方设置的第一行，加上 “Settings below” 胶囊。
 - 框下面一行三列说明（名称 + 一句话）：Progress “Rewritten after every agent turn.”、Next steps “Your likely next message, one tap away.”、Ideas “Follow-ups the agent found, yours to decide.”
+- 三列下面一句 **Auto review**（不加开关，GUARDRAILS-SPEC §10、B3）：“Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; turn it off per project.”
 - 三列下面是设置：
   - 一个设置组（不带说明）：**Progress model**（Summary model：Provider，默认 Auto；选了 Provider 后出现 Model；与 Settings → Models 同一设置、同一组件）和 **AI output language**（`ai-language`，默认 “Same as interface language”）；
   - Progress model 一行的说明是成本预估（§3.3）。
   - 分组 **Also in sessions outside Flowly**，组说明即成本（D2）：“For sessions Flowly doesn't manage, the summary model runs once after each of their turns and reads the recent conversation (sent to that model's provider).”，后接成本预估（§3.3），三行开关 Progress / Next steps / Ideas（默认开），对应 `outsideProgress` / `outsideNextMoves` / `outsideIdeas`。
 
-### 第 3 页：Project memory（高级）
+### 第 3 页：Guardrails（高级）
 
-- 导语 “Later cards start knowing what earlier ones learned.”
-- （2026-10-22 用户反馈“memory 这边样式乱七八糟，重设计”：原来两张高矮不一的卡片并排，状态混在一起。）改为和第 2 页同样的**一个完整案例**（`MemoryDemo`）：左边 **Project memory**，右边 **A later card's session**，同一套框和控制行。
-  1. 开始时左边是完成卡片复盘建议的一条坑（真实 `MemoryCard`，“Suggested by the finished-card review”）：“Never open a dialog in the frame another one closes.” / “It freezes Paseo. Open the next one after the first has finished closing.”，下面是来源行 “From ✓ Fix Settings freeze · Done”（真实 `SourceLine`）。右边空着：“A later card starts once you confirm.” 提示 “Try it: Confirm shares it with the project's later cards.”
-  2. **Confirm**：卡片变成已确认（“Not used yet”）；约 0.9 秒后右边一张后来的卡片开始：一行 “Started with 1 project memory”、你的请求 “Add a Jira connection dialog to Settings.”、思考与工具调用逐步出现、回复说明因为项目记忆而等设置关完再开对话框。左边卡片变成 “Used 1m ago · 1 card”。
-  3. **Dismiss**：左边 “Dismissed. No later card will see it.”，右边 “Later cards start without it.”
-  - 自动演示同第 2 页：约 1.5 秒后在 **Confirm** 按钮上描边 0.7 秒再按（`MemoryCard` 的可选 `cueConfirm`），后面的会话自己跑完，4 秒后重新开始；自己按 Confirm / Dismiss 就接管；Reduce Motion 默认暂停。判断是纯函数 `memoryAutoStep`（有单测）。
-- 框下面一行三列说明：Agents suggest “Agents, and a review of each finished card, propose what is worth keeping.”、You confirm “Nothing reaches a session until you confirm it.”、Later cards use it “New sessions on the project start with what you confirmed.”
-- 开关组放在导语下面、演示上面（2026-10-22 用户反馈“三四页两个功能开关放在最上面”）。开关 **Project memory**（默认开）。子项 **Find memories in finished cards**（`retroEnabled`，默认开；Memory 关时禁用），说明是成本预估（§3.3）。导览里不显示其他详细说明，Settings 里照旧。
+（GUARDRAILS-SPEC §10，2026-10-28 取代原来的 Project memory 页与 `MemoryDemo` 自动演示。）
+
+- 导语 “What you send a card back for is checked on the next ones.”
+- 开关组放在导语下面：开关 **Guardrails**（`features.memory`，默认开），说明 “Flowly remembers what you send cards back for and checks the next cards for it. Learning uses a few tokens per card.”；子项 **Find memory in finished cards**（2026-10-29 由 Find notes 改名，GUARDRAILS-SPEC D10）（`retroEnabled`，默认开；Guardrails 关时禁用），说明是成本预估（§3.3）。
+- 示例是静态的两行（`GuardrailsExample`，不再有自动演示）：**You send card A back** + 原话 “New text needs every language too.”；**Card B is sent back before it reaches you** + “✗ 原话 zh-TW has no entry for “Rerun”.”。
+- 框下面一行三列说明：You send it back “Say what is wrong, as you would anyway.”、Flowly learns “The second card with the same problem makes it a project guideline.”、Later cards are checked “Checked does not mean right: Done is still yours.”
 
 ### 第 4 页：Insights（高级）
 
@@ -107,7 +106,7 @@ Status: **已实现，用户 2026-10-22 确认设计**（卡片“重设计onboa
 
 ### 第 5 页：Ready when you are
 
-保留现有清单和 **Create project** / **Not now**（或 **Done**）。原第 2 页 “What makes it different” 的内容拆开：Needs you 在第 1 页讲；Run summaries、Next steps 移到第 2 页；其余（Workpad、Inputs and outputs、Tickets…、Tags、Saved with your project）放进本页的 **More features**（2026-10-22 用户反馈：不折叠，直接列出）。底部提示改为 “Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.”（Ruling (Noah, 2026-11-09)：设置按钮移到看板顶部工具栏铃铛旁边）
+保留现有清单和 **Create project** / **Not now**（或 **Done**）。原第 2 页 “What makes it different” 的内容拆开：Needs you 在第 1 页讲；Run summaries、Next steps 移到第 2 页；其余（Workpad、Inputs and outputs、Tickets…、Tags、Saved with your project）放进本页的 **More features**（2026-10-22 用户反馈：不折叠，直接列出）。More features 的 Workpad 一句是验收清单：“Agents set the card's type and tags and write an acceptance list before they start; the card shows how many items are met, next to the latest review.”；Auto review 一句不提建议检查（GUARDRAILS-SPEC §10）。底部提示改为 “Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.”（Ruling (Noah, 2026-11-09)：设置按钮移到看板顶部工具栏铃铛旁边）
 
 ## 4. 设置何时写入
 

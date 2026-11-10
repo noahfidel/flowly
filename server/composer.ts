@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { BackgroundJobs } from "./background-jobs";
 import type { PaseoApi } from "@getpaseo/client";
 import type { BoardStore } from "./store";
 import { composerStateSchema, type ComposerState, type OutgoingImage } from "../shared/composer";
@@ -97,6 +98,11 @@ const defaultSend: Send = async (paseo, agentId, text, steer, images, messageId)
 
 export class ComposerService {
   private draining = new Set<string>();
+  private jobs = new BackgroundJobs();
+  /** Resolves once no background drain check is left. */
+  idle() {
+    return this.jobs.idle();
+  }
   private lastDrain = new Map<string, number>();
   constructor(
     readonly store: ComposerStore,
@@ -152,7 +158,7 @@ export class ComposerService {
       throw error;
     }
     // The turn may already have ended between the client's check and now.
-    void this.drain(input.agentId, paseo);
+    this.jobs.track(this.drain(input.agentId, paseo));
     return item;
   }
 
@@ -256,6 +262,6 @@ export class ComposerService {
     }
     const state = await this.store.read();
     for (const [agentId, entry] of Object.entries(state.sessions))
-      if (entry.queue.length) void this.drain(agentId, paseo);
+      if (entry.queue.length) this.jobs.track(this.drain(agentId, paseo));
   }
 }

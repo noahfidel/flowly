@@ -18,7 +18,7 @@ summary 是系统写的描述文字，**不改**卡片业务状态（lane），�
 - 回合文本：取 hook 自带的 `timeline`；Paseo 0.13 起 `agent.turn_ended` 的 `timeline` 恒为空数组（0.12 有内容），此时由 `server/turn-timeline.ts` 读该 session timeline 最新一页（`tail`、200 条、`projected`）并取最后一轮，与手动 Refresh 同一做法；读取失败保持空，本轮不生成。`user_message` → `User:`，`assistant_message` → `Assistant:`，`tool_call` 只记名字（连续调用合并为一行 `Tools: a, b ×3`），`error` 记一行，其余（reasoning、todo、compaction、plugin、notification）忽略。总长 ≤12000 字，超出时保留开头 3000 字与结尾，中间标注省略。
 - 调用：`paseo.workspaces.ref(<卡片 workspace>).agents.create`（2026-10-15 修订，用户选 B）
   - 作为**刚结束回合的 session 的子 session**（`parent`）运行在卡片自己的 workspace 中，不新建原生 project 或 workspace；
-  - `config.provider`：设置中的 Summary model（§4）；
+  - `config.provider`：设置中的 Summary model（§4）；`config.modeId`：`readOnlyMode(provider)`（`shared/summary.ts`，2026-10-30）——`claude/*` 和 `claude-*` 自定义 provider（如 `claude-compass-smith-sqp`）用 `plan`（Plan Mode，只分析不执行工具、不改文件，不会停在权限确认上），其他 provider 不设（没有只读模式；绝不用 full-access），这类 session 停在权限确认时由 `finishRefusingPermissions` 回 deny 后继续（AUTO-REVIEW-SPEC §4.4）。卡片 summarizer、记忆复盘、Insights 日报、workflow insights、guardrails 补学、外部 session 的 insights 和评审 session 都按这条创建；
   - `title`：`Kanban summary · <卡片标题>`；`labels`：`{"flowly": "summarizer", "flowly-task": <taskId>}`；
   - `prompt` 与 `outputSchema`（§3）；
   - `waitForFinish(120000)`；无论成功、失败、超时，都在 `finally` 中移除该 session（硬删除失败时回退归档，见 §10）。

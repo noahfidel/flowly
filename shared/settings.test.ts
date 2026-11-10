@@ -10,6 +10,8 @@ test("older stored settings get defaults for newer fields; invalid values fall b
   expect(boardViewValues({ dockLayout: "side", dockStackShare: 0.3, attentionOpen: { needs: false }, dockTab: "attention", lastProjectId: "p" })).toEqual(boardViewValues({ lastProjectId: "p" }));
   // Quick task (QUICK-TASK-SPEC §6): a bad value falls back to its default, not the whole document.
   expect(boardViewValues({ quickTaskMode: "nope", quickTaskDefault: false, lastProjectId: "p" })).toMatchObject({ quickTaskMode: "worktree", quickTaskDefault: false, lastProjectId: "p" });
+  expect(boardViewValues({ memoryKind: "pitfall", memorySort: "used", memoryLayout: "grid" })).toMatchObject({ memoryKind: "pitfall", memorySort: "used", memoryLayout: "grid" });
+  expect(boardViewValues({ memoryKind: "bogus", memorySort: "bogus", memoryLayout: "bogus", lastProjectId: "p" })).toMatchObject({ memoryKind: "all", memorySort: "newest", memoryLayout: "list", lastProjectId: "p" });
   expect(boardViewValues({ sendBehavior: "queue", startAgentOnCreate: false })).toMatchObject({ sendBehavior: "queue", startAgentOnCreate: false });
   // All projects tab (ALL-PROJECTS-SPEC §1): on by default; a bad value falls back to on.
   expect(boardViewValues({ allProjectsTab: false }).allProjectsTab).toBe(false);
@@ -75,6 +77,7 @@ test("card display options default to auto and all shown; a bad value does not r
   expect(boardViewValues({ linearHidden: ["done"] }).linearHidden).toEqual([]);
   expect(boardViewValues({ boardSort: "priority", drawerShare: 1.5 })).toMatchObject({ boardSort: "priority", drawerShare: 0 });
   expect(boardViewValues({ drawerWidth: 1290 })).not.toHaveProperty("drawerWidth");
+  expect(boardViewValues({ drawerOpen: { workpad: "no" } })).toMatchObject({ memoryKind: "all", memorySort: "newest", memoryLayout: "list" });
 });
 
 test("the timing log is off unless the host setting says so", async () => {

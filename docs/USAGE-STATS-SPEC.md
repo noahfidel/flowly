@@ -5,7 +5,7 @@
 ## 1. 范围
 
 - 只统计 token，不计算金额。
-- 数据源是 provider 写在本机的会话日志（外部方式，不是 Paseo 公开接口）。v1 支持 Claude Code 与 Codex，包括 `extends: claude` / `extends: codex` 的变体，它们共用同一个 CLI 和日志目录。其他 provider 显示“无本地用量记录”。
+- 数据源是 provider 写在本机的会话日志（外部方式，不是 Paseo 公开接口）。v1 支持 Claude Code 与 Codex，包括 `extends: claude` / `extends: codex` 的变体，它们共用同一个 CLI 和日志目录。dsh-web（2026-11-07 起）读取 dsh-web provider 写在 `<PASEO_HOME>/plugin-data/dsh-web-provider/usage/<sessionId>.jsonl` 的每回合用量行（负数 token 按 0 计；provider 在每个回合结束时追加一行 `{time, turnId, inputTokens, cachedInputTokens, outputTokens, startedAt?, endedAt?}`）。其他 provider 显示“无本地用量记录”。
 - 统计对象：卡片 workspace 中的全部 session（含已归档）。卡片的 session 就是其 workspace 中的 session。progress summarizer（标签 `ultra-kanban=summarizer`）单独小计。
 - 只读：不修改、不复制日志；不记录日志内容；结果不落盘。
 
@@ -40,7 +40,7 @@
 `usage.task { taskId }` →
 
 ```
-{ sessions: [{ agentId, title, provider, model, summarizer, source: "claude"|"codex"|null,
+{ sessions: [{ agentId, title, provider, model, summarizer, source: "claude"|"codex"|"dsh-web"|null,
                tokens: {input, cacheRead, cacheWrite, output, reasoning} | null,
                turns, activeMs, note }],
   total, work, summarizer: TokenUsage   // 合计、工作 session、summarizer

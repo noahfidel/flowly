@@ -1,5 +1,7 @@
 # Insights 重设计第三版：项目活跃度与 Skills
 
+> 2026-10-28：本文部分内容被 [GUARDRAILS-SPEC](GUARDRAILS-SPEC.md) 取代（§12）。被取代：§2.5 的工作流摘要行（换成页面顶部的闭环账，按模型的几行默认收起）；其余仍有效。
+
 状态：**第三版 spec，用户 2026-10-25 审阅通过，实现中**（2026-10-25，卡片 `ccefebbe` “Insights重设计”）。本版取代第二版的页面部分（§10 决定记录说明了前两版的去留）。第二版的实现在本地分支 `feat/insights-redesign`（提交 8176912）和工作区里，**从未合入 main**。用户现在用的是 main 上的第一版页面（[PROJECT-INSIGHTS-SPEC](PROJECT-INSIGHTS-SPEC.md) §9）。第三版在第二版代码的基础上实现。文中“第二版 §x”指第二版 spec，全文见 `git show feat/insights-redesign:docs/INSIGHTS-REDESIGN-SPEC.md`。
 
 ## 0. 用户的原话与已定的事

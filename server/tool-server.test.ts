@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
@@ -105,9 +105,16 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "flowly_update_card",
     "flowly_start_card",
   ]);
-  // The soft delivery gate and the workpad's own revision are part of the tool schemas (WORKPAD-SPEC §3, §5.3).
+  // flowly_propose_review_rules is gone (GUARDRAILS-SPEC §9).
+  // The setup gate and the workpad's own revision are part of the tool schemas (WORKPAD-SPEC §3, CARD-SETUP-SPEC §3.4).
   const listed = (await mcp("tools/list", {})).result.tools as { name: string; description: string; inputSchema: { properties: Record<string, unknown> } }[];
+  const described = (name: string) => listed.find((t) => t.name === name)!.description;
   expect(listed.find((t) => t.name === "flowly_update_status")!.inputSchema.properties).toHaveProperty("acknowledgeOpen");
+  // Disputed findings ride on the delivery (GUARDRAILS-SPEC §6.1).
+  expect(listed.find((t) => t.name === "flowly_update_status")!.inputSchema.properties).toHaveProperty("disputes");
+  expect(described("flowly_update_status")).not.toMatch(/WORKPAD_OPEN|WORKPAD_FAILING/);
+  expect(described("flowly_recall")).toContain("guidelines");
+  expect(described("flowly_remember")).toContain("takes effect at once");
   // The delivery call carries the next moves, and an empty list is a valid choice on every entry (NEXT-MOVES-SPEC §8.2).
   const allowsEmpty = (schema: unknown) => ((schema as { minItems?: number }).minItems ?? 0) === 0;
   for (const name of ["flowly_update_status", "flowly_report_progress"]) {
@@ -117,7 +124,6 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   }
   expect(allowsEmpty(listed.find((t) => t.name === "flowly_suggest_next_moves")!.inputSchema.properties.moves)).toBe(true);
   // The text agents read says where the next moves go (NEXT-MOVES-SPEC §8.6).
-  const described = (name: string) => listed.find((t) => t.name === name)!.description;
   expect(described("flowly_update_status")).toMatch(/pass nextMoves/);
   expect(described("flowly_report_progress")).toMatch(/pass nextMoves/);
   expect(described("flowly_suggest_next_moves")).toMatch(/middle of a turn/);
@@ -176,9 +182,13 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(described("flowly_get_task")).toContain("setup.missing");
   for (const name of ["flowly_set_type", "flowly_set_tags", "flowly_update_workpad"])
     expect(described(name), name).toContain("at the start of the work, before you change code");
-  expect(Object.keys(listed.find((t) => t.name === "flowly_update_workpad")!.inputSchema.properties)).toEqual(
-    expect.arrayContaining(["workpadRevision", "acceptance", "validation", "confusions"]),
-  );
+  expect(Object.keys(listed.find((t) => t.name === "flowly_update_workpad")!.inputSchema.properties).sort()).toEqual(["acceptance", "expectedRevision", "request", "workpadRevision"]);
+  // The skill (GUARDRAILS-SPEC §9): no self-reported checks, no review rules, the guardrails paragraph.
+  for (const gone of ["WORKPAD_OPEN", "WORKPAD_FAILING", "flowly_propose_review_rules", "reviewRules", "dirty=true", "fresh=stale", "memory.candidates"]) expect(skillText).not.toContain(gone);
+  expect(skillText).toContain("`flowly_get_task.guardrails` lists what this delivery will be checked against");
+  expect(skillText).toContain("deliver with `disputes=[{id, reason}]`");
+  expect(skillText).toContain("write 3–5 acceptance criteria with flowly_update_workpad");
+  expect(skillText).toContain("What you remember takes effect at once.");
   const cold = await mcp("tools/call", {
     name: "flowly_get_task",
     arguments: {},
@@ -340,7 +350,9 @@ test("prepared ID and scoped files are stable, selected existing actor verified"
     x.server.prepareSession("t", "operation", x.paseo),
   ]);
   expect(a.agentId).toBe(b.agentId);
-  expect(a.mcp.url).toBe(x.url + "mcp");
+  // A new session gets the MCP server at launch, not in its saved config.
+  expect(a).not.toHaveProperty("mcp");
+  expect(await x.server.secrets.contextMethods(a.agentId)).toEqual(["launch-mcp"]);
   await expect(
     x.server.prepareExisting("t", "wrong", x.paseo),
   ).rejects.toMatchObject({ code: "SESSION_MISMATCH" });
@@ -512,6 +524,11 @@ test("CLI runs a complete scoped flow; replay, wrong env, snapshots and flags", 
     ],
     ["status", "done", "--request-file", snapshot, "--note", "unauthorized"],
     ["note", "--request-file", snapshot, "--note", " "],
+    // GUARDRAILS-SPEC §9: no review-rules command; the workpad takes only {acceptance}; disputes only on status in_review.
+    ["review-rules", "--request-file", snapshot, "--rules", "[]", "--note", "n"],
+    ["workpad", "--request-file", snapshot, "--workpad-revision", "0", "--workpad", JSON.stringify({ acceptance: [], validation: [] })],
+    ["status", "development", "--request-file", snapshot, "--note", "n", "--disputes", "[]"],
+    ["status", "in_review", "--request-file", snapshot, "--note", "n", "--disputes", "{}"],
   ]) {
     await expect(cli(...args)).rejects.toMatchObject({ code: 1 });
   }
@@ -666,14 +683,79 @@ test("port collision preserves discovery/key/board; after conflict removal liste
 test("session_open injection is limited to Kanban-managed sessions", async () => {
   const x = await setup();
   // A session in the card workspace that the plugin never prepared gets nothing.
-  expect(await x.server.sessionContext("unmanaged-agent", x.identity.workspaceId, x.paseo)).toBeNull();
+  expect(await x.server.sessionLaunch("unmanaged-agent", x.identity.workspaceId, x.paseo)).toBeNull();
   expect(await x.server.secrets.hasContext("unmanaged-agent")).toBe(false);
   expect(await x.server.secrets.hasContext("../escape")).toBe(false);
-  // Once prepared (card launch or explicit opt-in), reopening refreshes its context.
-  await x.server.secrets.writeContext(x.identity, "mcp");
-  const path = await x.server.sessionContext(x.identity.agentId, x.identity.workspaceId, x.paseo);
-  expect(path).toBe(x.server.secrets.contextFile(x.identity.agentId));
-  expect(JSON.parse(await readFile(path!, "utf8")).methods).toEqual(["mcp", "cli"]);
+  // Launched from the card: each open refreshes its context and adds the MCP server.
+  await x.server.secrets.writeContext(x.identity, "launch-mcp");
+  const launch = await x.server.sessionLaunch(x.identity.agentId, x.identity.workspaceId, x.paseo);
+  expect(launch?.contextFile).toBe(x.server.secrets.contextFile(x.identity.agentId));
+  expect(launch?.mcp).toEqual({
+    type: "http",
+    url: x.url + "mcp",
+    headers: { Authorization: x.authorization },
+  });
+  expect(JSON.parse(await readFile(launch!.contextFile, "utf8")).methods).toEqual(["launch-mcp", "cli"]);
+  expect((await x.server.accessState("t", "actor", x.paseo)).methods).toEqual(["mcp", "cli"]);
+});
+test("session_open never adds a second flowly server or one not confirmed for the provider (§4.3)", async () => {
+  const x = await setup();
+  // Saved in the agent config before launch injection: adding it again would fail the open.
+  await x.server.secrets.writeContext(x.identity, "mcp", "launch-mcp");
+  const saved = await x.server.sessionLaunch(x.identity.agentId, x.identity.workspaceId, x.paseo);
+  expect(saved?.mcp).toBeNull();
+  // Opted in through the CLI only: no MCP until the provider is known to take it.
+  const other = { ...x.identity, agentId: "second" };
+  await x.server.secrets.writeContext(other, "cli");
+  expect((await x.server.sessionLaunch("second", other.workspaceId, x.paseo))?.mcp).toBeNull();
+  // Unknown values written by a newer version are kept, not reset.
+  await writeFile(
+    x.server.secrets.contextFile("second"),
+    JSON.stringify({ ...JSON.parse(await readFile(x.server.secrets.contextFile("second"), "utf8")), methods: ["future"] }),
+  );
+  await x.server.sessionLaunch("second", other.workspaceId, x.paseo);
+  expect(await x.server.secrets.contextMethods("second")).toEqual(["future", "cli"]);
+});
+test("opting in an existing session records MCP only once its provider is known to take it", async () => {
+  const x = await setup();
+  // Idle: reopened now; the reloaded (live) snapshot confirms MCP support.
+  x.actors.actor.capabilities = { supportsMcpServers: true };
+  await x.server.prepareExisting("t", "actor", x.paseo);
+  expect(x.reloads).toEqual(["actor"]);
+  expect(await x.server.secrets.contextMethods("actor")).toEqual(["cli", "launch-mcp"]);
+  expect((await x.server.sessionLaunch("actor", "w", x.paseo))?.mcp).not.toBeNull();
+  // Already has it: sending again does not reopen the session.
+  await x.server.prepareExisting("t", "actor", x.paseo);
+  expect(x.reloads).toEqual(["actor"]);
+  // Idle, but the provider takes no MCP servers: the mark is removed again.
+  x.actors.second.capabilities = { supportsMcpServers: false };
+  await x.server.prepareExisting("t", "second", x.paseo);
+  expect(x.reloads).toEqual(["actor", "second"]);
+  expect(await x.server.secrets.contextMethods("second")).toEqual(["cli"]);
+  expect((await x.server.sessionLaunch("second", "w", x.paseo))?.mcp).toBeNull();
+});
+test("opting in never interrupts a running turn; a failed reopen leaves the CLI", async () => {
+  const x = await setup();
+  // Running and loaded: no reload; the next open adds MCP.
+  x.actors.actor.status = "running";
+  x.actors.actor.capabilities = { supportsMcpServers: true };
+  await x.server.prepareExisting("t", "actor", x.paseo);
+  expect(x.reloads).toEqual([]);
+  expect(await x.server.secrets.contextMethods("actor")).toEqual(["cli", "launch-mcp"]);
+  // Running with unconfirmed capabilities: CLI only.
+  x.actors.second.status = "running";
+  await x.server.prepareExisting("t", "second", x.paseo);
+  expect(await x.server.secrets.contextMethods("second")).toEqual(["cli"]);
+  // Idle, reload fails: logged, the instructions still go out over the CLI.
+  x.actors.second.status = "idle";
+  x.actors.second.capabilities = { supportsMcpServers: true };
+  const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const ref = x.paseo.agents.ref;
+  x.paseo.agents.ref = ((id: string) => ({ ...ref(id), reload: async () => { throw new Error("busy"); } })) as typeof ref;
+  await expect(x.server.prepareExisting("t", "second", x.paseo)).resolves.toMatchObject({ agentId: "second" });
+  expect(await x.server.secrets.contextMethods("second")).toEqual(["cli"]);
+  expect(error).toHaveBeenCalledWith("Kanban session reload for MCP failed:", "second", "busy");
+  error.mockRestore();
 });
 test("only the stored dispatcher's session gets a dispatcher credential (DISPATCHER-SPEC §3)", async () => {
   const x = await setup();

@@ -1,0 +1,111 @@
+Flowly
+Tinylink
+Attention
+3
+Recent activity
+Filter
+New task
+9
+tasks
+· 1 done
+Idle
+3 unread
+In review
+5
+Ideas 3
+Memory
+Insights
+Board
+Of the 5 cards delivered in the last 14 days, you sent 4 back to the agent after delivery.
+P3 fixture 2 (temp)
+「REWORK: add a test for the expired link case.」
+P3 fixture 1 (temp)
+「REWORK: the README must mention the new limit.」
+P3 fixture 3 (temp)
+「REWORK: the README is missing the new endpoint.」
+Auto review can catch these before they reach you and send them back to the agent.
+Set up auto review
+Not now
+Activity
+Mon
+Wed
+Fri
+Nov
+Dec
+Jan
+Feb
+Mar
+Apr
+May
+Jun
+Jul
+Aug
+Sep
+Oct
+Less
+More
+Today
+6 turns · 3 cards · agent 9m · 4.3M tokens
+Generate a summary of today so far.
+Generate summary
+P3 fixture 2 (temp)
+2 turns · 3m · 1.8M
+P3 fixture 1 (temp)
+2 turns · 3m · 1.5M
+P3 fixture 3 (temp)
+2 turns · 3m · 1M
+Skills
+12h ago
+Run now
+Skipped: not enough new activity since the last run.
+Workflow
+Too few cards finished in the last 7 days
+No finished cards to compare.
+Edit project
+Auto review
+When an agent delivers a card to In review, Flowly runs these checks in the card's workspace. A failure sends the card back to its work stage with a rework message to that session; past the limit it goes to Blocked. Every delivery runs an LLM review and uses tokens.
+Checks from past cards
+5 cards delivered in the last 90 days; you sent 4 back after delivery.
+README not updated for new limit or endpoint · 2 cards
+#bd0c
+#344b
+「the README must mention the new limit.」
+Does what you asked
+Tests
+npm run test
+README documents API changes
+If the diff adds or changes an endpoint, rate limit or other user-visible API behavior, README.md must be updated in the same diff to describe it.
+2 cards
+Two cards were sent back because the README did not mention the new rate limit or the new endpoint.
+Use these and turn on
+Discard
+Adjust with AI
+Name
+Description
+Paseo project root
+Lanes
+1
+card
+1
+card
+1
+card
+5
+cards
+1
+card
+Lanes are this project's workflow: cards, automatic status and agents only use lanes that are on. Rename a lane by typing over its name. A lane with cards can't be turned off until they move.
+Default model
+Provider
+Global default (claude · claude-opus-5-5)
+Saved in project folder
+/Users/bofan.wang/Developer/personal/flowly-test/tinylink/.flowly/project.json, saved 1m ago. Git ignores it unless you change .flowly/.gitignore.
+Auto-update status in this project
+Card workpad
+Agents keep acceptance criteria and checks on each card, and delivering with open items needs a note. Off hides it and stops these checks; what agents wrote is kept.
+Skills
+Project memory
+Share confirmed decisions and pitfalls with new sessions on this project. Off stops injecting them and stops new suggestions; what is remembered is kept.
+Show archived
+Cancel
+Save project

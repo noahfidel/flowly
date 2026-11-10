@@ -444,49 +444,34 @@ test("next moves: recorded per session without a revision change; the latest win
   await expect(bad([{ label: "ok", prompt: "p" }])).rejects.toMatchObject({ code: "TASK_FINISHED" });
 });
 
-/** A repository stand-in for the workpad: HEAD, dirty state and the commits it knows (WORKPAD-SPEC §4.2, §5.1). */
-function fakeGit(state: { head: string | null; dirty?: boolean; commits?: string[] }) {
-  return async (_cwd: string, args: string[]) => {
-    if (!state.head) throw new Error("not a git repository");
-    const key = args.join(" ");
-    if (key === "rev-parse --short=12 HEAD") return `${state.head}\n`;
-    if (key === "rev-parse --abbrev-ref HEAD") return "main\n";
-    if (key === "status --porcelain") return state.dirty ? " M file\n" : "";
-    if (args[0] === "rev-parse" && args[1] === "--verify") {
-      const want = args.at(-1)!.replace("^{commit}", "");
-      const hit = [state.head, ...(state.commits || [])].find((c) => c.startsWith(want));
-      if (hit) return `${hit}\n`;
-      throw new Error("unknown revision");
-    }
-    throw new Error(`unexpected git ${key}`);
-  };
-}
-const workpadInput = (
-  ctx: Awaited<ReturnType<AgentService["get"]>>,
-  body: { acceptance?: unknown[]; validation?: unknown[]; confusions?: unknown[] },
-  workpadRevision = ctx.workpad?.revision ?? 0,
-) => ({ expectedRevision: ctx.revision, request: ctx.request, workpadRevision, acceptance: [], validation: [], confusions: [], ...body });
+const workpadInput = (ctx: Awaited<ReturnType<AgentService["get"]>>, body: { acceptance?: unknown[] } & Record<string, unknown>, workpadRevision = ctx.workpad?.revision ?? 0) => ({
+  expectedRevision: ctx.revision,
+  request: ctx.request,
+  workpadRevision,
+  acceptance: [],
+  ...body,
+});
 
-test("workpad: replace with its own revision; task revision and status untouched; replay returns the receipt", async () => {
+test("workpad: replace the acceptance list with its own revision; task revision and status untouched; replay returns the receipt", async () => {
   const x = await setup({ workpad: false });
-  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
   const ctx = await x.service.get(x.identity);
   expect(ctx.workpad).toBeNull();
-  const body = {
-    acceptance: [{ text: "Card shows Checks n/m", done: false }],
-    validation: [{ id: "unit", text: "Unit tests", command: "npm test", state: "pass" }],
-    confusions: [{ text: "Unclear whether Notes stay" }],
-  };
+  const body = { acceptance: [{ text: "Card shows Acceptance n/m", done: false }] };
   const first = await x.service.write(x.identity, "workpad", workpadInput(ctx, body));
   expect(first.receipt).toMatchObject({ action: "workpad", workpadRevision: 1, taskRevision: ctx.revision.task });
   const stored = (await x.store.read()).workpads[0]!;
-  expect(stored).toMatchObject({ revision: 1, updatedBy: "agent", agentId: "actor", head: { sha: "aaaaaaaaaaaa", branch: "main", dirty: false } });
-  expect(stored.validation[0]).toMatchObject({ id: "unit", state: "pass", sha: "aaaaaaaaaaaa", command: "npm test" });
-  expect(stored.env).toMatchObject({ path: x.a, head: { sha: "aaaaaaaaaaaa" } });
+  expect(stored).toEqual({
+    taskId: "t",
+    projectId: "p",
+    revision: 1,
+    acceptance: [{ id: "card-shows-acceptance-n", text: "Card shows Acceptance n/m", done: false, by: "agent", at: expect.any(String) }],
+    updatedAt: expect.any(String),
+    updatedBy: "agent",
+    agentId: "actor",
+  });
   expect((await x.store.read()).tasks[0]!.revision).toBe(ctx.revision.task);
-  expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "workpad_updated", actor: "agent", note: "Acceptance 0/1 · Checks 1/1 · 1 confusion" });
-  expect(first.current?.workpad).toMatchObject({ revision: 1, open: { unchecked: 1, total: 1 } });
-  expect(first.current?.workpad?.validation[0]?.fresh).toBe("fresh");
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "workpad_updated", actor: "agent", note: "Acceptance 0/1" });
+  expect(first.current?.workpad).toEqual({ revision: 1, acceptance: stored.acceptance });
   const replay = await x.service.write(x.identity, "workpad", workpadInput(ctx, body));
   expect(replay.replayed).toBe(true);
   expect((await x.store.read()).workpads[0]!.revision).toBe(1);
@@ -494,12 +479,11 @@ test("workpad: replace with its own revision; task revision and status untouched
 
 test("workpad: a person's tick bumps the workpad revision only; the agent's stale copy conflicts, other tools do not", async () => {
   const x = await setup({ workpad: false });
-  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
   const ctx = await x.service.get(x.identity);
   await x.service.write(x.identity, "workpad", workpadInput(ctx, { acceptance: [{ id: "a", text: "A", done: false }] }));
   const { WorkpadService } = await import("./workpad");
-  const human = new WorkpadService(x.store, fakeGit({ head: "aaaaaaaaaaaa" }));
-  await human.check({ taskId: "t", section: "acceptance", itemId: "a", done: true }, x.paseo);
+  const human = new WorkpadService(x.store);
+  await human.check({ taskId: "t", section: "acceptance", itemId: "a", done: true });
   const after = await x.service.get(x.identity);
   expect(after.revision.task).toBe(ctx.revision.task);
   expect(after.workpad).toMatchObject({ revision: 2, acceptance: [{ id: "a", done: true, by: "human" }] });
@@ -514,91 +498,51 @@ test("workpad: a person's tick bumps the workpad revision only; the agent's stal
   expect((await x.store.read()).workpads[0]!.acceptance[0]).toMatchObject({ done: true, by: "human" });
 });
 
-test("workpad: commits are verified; no sha outside git; limits are WORKPAD_INVALID", async () => {
+test("workpad: only acceptance; validation, confusions or any other field is WORKPAD_INVALID and nothing is written (GUARDRAILS-SPEC §7.1)", async () => {
   const x = await setup();
-  x.service.git = fakeGit({ head: "aaaaaaaaaaaa", commits: ["bbbbbbbbbbbb"] });
   const ctx = await x.service.get(x.identity);
-  await x.service.write(x.identity, "workpad", workpadInput(ctx, { validation: [{ text: "Old run", state: "fail", sha: "bbbbbbb", dirty: true }] }));
-  expect((await x.store.read()).workpads[0]!.validation[0]).toMatchObject({ sha: "bbbbbbbbbbbb", dirty: true, state: "fail" });
-  const next = await x.service.get(x.identity);
-  expect(next.workpad?.validation[0]?.fresh).toBe("stale");
-  await expect(x.service.write(x.identity, "workpad", workpadInput(next, { validation: [{ text: "x", state: "pass", sha: "cccccccc" }] }))).rejects.toMatchObject({
-    code: "WORKPAD_INVALID",
-  });
+  const before = await readFile(x.store.path, "utf8");
+  for (const extra of [{ validation: [] }, { confusions: [{ text: "?" }] }, { validation: [{ text: "Tests", state: "pass", sha: "abc1234" }], env: null }]) {
+    const refused = await x.service.write(x.identity, "workpad", workpadInput(ctx, { acceptance: [{ text: "A", done: false }], ...extra })).catch((e) => e);
+    expect(refused).toMatchObject({ code: "WORKPAD_INVALID" });
+    for (const key of Object.keys(extra)) expect(String(refused.message)).toContain(key);
+  }
   await expect(
-    x.service.write(x.identity, "workpad", workpadInput(next, { acceptance: [{ id: "a", text: "a", done: false }, { id: "a", text: "b", done: false }] })),
+    x.service.write(x.identity, "workpad", workpadInput(ctx, { acceptance: [{ id: "a", text: "a", done: false }, { id: "a", text: "b", done: false }] })),
   ).rejects.toMatchObject({ code: "WORKPAD_INVALID" });
-  x.service.git = fakeGit({ head: null });
-  await expect(x.service.write(x.identity, "workpad", workpadInput(next, { validation: [{ text: "x", state: "pass", sha: "bbbbbbb" }] }))).rejects.toMatchObject({
-    code: "WORKPAD_INVALID",
-  });
-  // Without git a check still records, with no commit (freshness unknown).
-  await x.service.write(x.identity, "workpad", workpadInput(next, { validation: [{ text: "x", state: "pass" }] }));
-  const noGit = await x.service.get(x.identity);
-  expect(noGit.workpad?.validation[0]?.fresh).toBe("unknown");
-  expect(noGit.workpad?.head).toBeNull();
+  expect(await readFile(x.store.path, "utf8")).toBe(before);
 });
 
-test("workpad: delivering with open items needs acknowledgeOpen; the snapshot marks the delivery", async () => {
-  const x = await setup({ workpad: false });
-  const repo = { head: "aaaaaaaaaaaa" };
-  x.service.git = fakeGit(repo);
+test("workpad: unticked criteria never refuse a delivery and leave no snapshot (no WORKPAD_OPEN, GUARDRAILS-SPEC §6.1)", async () => {
+  const x = await setup();
   let ctx = await x.service.get(x.identity);
   await x.service.write(x.identity, "status", { ...input(ctx), status: "development" });
   ctx = await x.service.get(x.identity);
-  await x.service.write(x.identity, "workpad", workpadInput(ctx, { validation: [{ id: "unit", text: "Unit tests", state: "pass" }, { id: "e2e", text: "E2E", state: "unrun" }] }));
-  // A new commit after the run makes the pass out of date at delivery.
-  repo.head = "cccccccccccc";
+  await x.service.write(x.identity, "workpad", workpadInput(ctx, { acceptance: [{ text: "Works", done: false }, { text: "Fast", done: false }] }));
   ctx = await x.service.get(x.identity);
-  const refused = await x.service.write(x.identity, "status", { ...input(ctx, "Delivered"), status: "in_review" }).catch((e) => e);
-  expect(refused).toMatchObject({ code: "WORKPAD_OPEN" });
-  expect(String(refused.message)).toContain("check not run: E2E");
-  expect(String(refused.message)).toContain("out of date");
-  expect((await x.store.read()).tasks[0]!.status).toBe("development");
-  // Same request, now acknowledged: nothing was committed, so it is not a reuse.
-  const ok = await x.service.write(x.identity, "status", { ...input(ctx, "Delivered; E2E not run, unit tests predate the last commit"), status: "in_review", acknowledgeOpen: true });
+  const ok = await x.service.write(x.identity, "status", { ...input(ctx, "Delivered"), status: "in_review" });
   expect(ok.receipt.status).toBe("in_review");
   const board = await x.store.read();
-  const moved = board.events.find((e) => e.id === ok.receipt.eventId)!;
-  expect(moved.workpad).toEqual({ unchecked: 0, failed: 0, unrun: 1, stale: 1, total: 2, revision: 1 });
-  expect(board.workpads[0]!.delivery).toMatchObject({ total: 2, eventId: moved.id });
-  expect(board.workpads[0]!.head?.sha).toBe("cccccccccccc");
-});
-
-test("workpad: nothing open delivers without acknowledgement", async () => {
-  const x = await setup();
-  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
-  let ctx = await x.service.get(x.identity);
-  await x.service.write(x.identity, "status", { ...input(ctx), status: "in_review" });
-  ctx = await x.service.get(x.identity);
-  await x.service.write(x.identity, "status", { ...input(ctx), status: "development" });
-  ctx = await x.service.get(x.identity);
-  await x.service.write(x.identity, "workpad", workpadInput(ctx, { acceptance: [{ text: "Done", done: true }], validation: [{ text: "Tests", state: "pass" }] }));
-  ctx = await x.service.get(x.identity);
-  const ok = await x.service.write(x.identity, "status", { ...input(ctx), status: "in_review" });
-  expect((await x.store.read()).events.find((e) => e.id === ok.receipt.eventId)?.workpad?.total).toBe(0);
+  expect(board.events.find((e) => e.id === ok.receipt.eventId)?.workpad).toBeUndefined();
 });
 
 test("workpad: off for the project — tool refused, no gate, get_task hides it; data kept and back when on", async () => {
   const x = await setup({ workpad: false });
-  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
   let ctx = await x.service.get(x.identity);
   expect(ctx.workpadEnabled).toBe(true);
-  await x.service.write(x.identity, "workpad", workpadInput(ctx, { validation: [{ id: "e2e", text: "E2E", state: "unrun" }] }));
+  await x.service.write(x.identity, "workpad", workpadInput(ctx, { acceptance: [{ id: "e2e", text: "E2E", done: false }] }));
   const off = await x.store.updateProject({ id: "p", revision: 1, workpad: false });
   expect(off.workpad).toBe(false);
   ctx = await x.service.get(x.identity);
   expect(ctx).toMatchObject({ workpadEnabled: false, workpad: null, plan: [] });
   await expect(x.service.write(x.identity, "workpad", workpadInput(ctx, {}, 1))).rejects.toMatchObject({ code: "WORKPAD_DISABLED" });
-  // The open E2E check does not stop delivery and no snapshot is taken.
   await x.service.write(x.identity, "status", { ...input(ctx), status: "development" });
   ctx = await x.service.get(x.identity);
   const ok = await x.service.write(x.identity, "status", { ...input(ctx), status: "in_review" });
-  expect((await x.store.read()).events.find((e) => e.id === ok.receipt.eventId)?.workpad).toBeUndefined();
-  expect((await x.store.read()).workpads[0]!.delivery).toBeUndefined();
+  expect(ok.receipt.status).toBe("in_review");
   await x.store.updateProject({ id: "p", revision: 2, workpad: true });
   ctx = await x.service.get(x.identity);
-  expect(ctx.workpad).toMatchObject({ revision: 1, validation: [{ id: "e2e" }] });
+  expect(ctx.workpad).toMatchObject({ revision: 1, acceptance: [{ id: "e2e" }] });
 });
 
 test("get_task lists the project's paseo.json scripts by name and type only (WORKFLOW-INSIGHTS-SPEC §5.4)", async () => {
@@ -741,24 +685,19 @@ test("next moves: a Done move is only accepted with a delivery to In review; not
   await expect(x.service.write(x.identity, "progress", { ...input(ctx), kind: "result", nextMoves: [] })).rejects.toMatchObject({ code: "TASK_FINISHED" });
 });
 
-test("next moves: a delivery refused for open workpad items records no suggestion; the resend with the same moves does", async () => {
-  const x = await setup();
-  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
+test("next moves: a delivery refused for missing setup records no suggestion; the resend with the same moves does", async () => {
+  const x = await setup({ tags: false });
   let ctx = await x.service.get(x.identity);
   await x.service.write(x.identity, "status", { ...input(ctx), status: "development" });
   ctx = await x.service.get(x.identity);
-  await x.service.write(x.identity, "workpad", workpadInput(ctx, { validation: [{ id: "e2e", text: "E2E", state: "unrun" }] }));
-  ctx = await x.service.get(x.identity);
-  const call = { ...input(ctx, "Delivered; E2E not run"), status: "in_review", nextMoves: [commitMove] };
-  await expect(x.service.write(x.identity, "status", call)).rejects.toMatchObject({ code: "WORKPAD_OPEN" });
+  const call = { ...input(ctx, "Delivered; no tags"), status: "in_review", nextMoves: [commitMove] };
+  await expect(x.service.write(x.identity, "status", call)).rejects.toMatchObject({ code: "SETUP_INCOMPLETE" });
   let board = await x.store.read();
   expect(board.tasks[0]!.status).toBe("development");
   expect(suggestions(board)).toHaveLength(0);
-  const ok = await x.service.write(x.identity, "status", { ...call, acknowledgeOpen: true });
+  await x.service.write(x.identity, "status", { ...call, acknowledgeOpen: true });
   board = await x.store.read();
   expect(board.events.slice(-2).map((e) => e.action)).toEqual(["status_changed", "next_moves_suggested"]);
-  // The delivery snapshot still points at the status event, not at the suggestion.
-  expect(board.workpads[0]!.delivery?.eventId).toBe(ok.receipt.eventId);
   expect(openNextMoves(board.events, x.identity.agentId)?.moves).toEqual([commitMove]);
 });
 
@@ -906,11 +845,10 @@ const pad = async (x: Rig, body: Parameters<typeof workpadInput>[1] = { acceptan
 
 test("setup: get_task names the missing items first; each clears once set, by anyone", async () => {
   const x = await bare();
-  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
   let ctx = await x.service.get(x.identity);
   expect(Object.keys(ctx).slice(0, 2)).toEqual(["identity", "setup"]);
   expect(ctx.setup).toEqual({ typeMissing: true, tagsMissing: true, workpadMissing: true, stage: "todo", missing: ["type", "tags", "workpad"] });
-  // An empty workpad is still missing.
+  // An empty acceptance list is still missing.
   await pad(x, {});
   expect((await x.service.get(x.identity)).setup?.missing).toEqual(["type", "tags", "workpad"]);
   await setType(x);
@@ -930,7 +868,6 @@ test("setup: get_task names the missing items first; each clears once set, by an
 
 test("setup: every write succeeds and reminds of what is still missing; a set type is not mentioned again", async () => {
   const x = await bare();
-  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
   const all = setupReminder(["type", "tags", "workpad"]);
   const moved = await x.service.write(x.identity, "status", { ...input(await x.service.get(x.identity)), status: "development" });
   expect(moved.receipt.status).toBe("development");
@@ -979,21 +916,9 @@ test("setup: delivering with missing setup is SETUP_INCOMPLETE until acknowledge
 
 test("setup: no workpad blocks delivery while the project has it on; off, type and tags alone are enough", async () => {
   const x = await setup({ workpad: false });
-  await expect(deliver(x)).rejects.toMatchObject({ code: "SETUP_INCOMPLETE", message: expect.stringContaining("no workpad") });
+  await expect(deliver(x)).rejects.toMatchObject({ code: "SETUP_INCOMPLETE", message: expect.stringContaining("no acceptance list") });
   await x.store.updateProject({ id: "p", revision: 1, workpad: false });
   expect((await deliver(x)).receipt.status).toBe("in_review");
-});
-
-test("setup: open workpad items and missing setup come back in one WORKPAD_OPEN that names both", async () => {
-  const x = await setup({ type: false, workpad: false });
-  x.service.git = fakeGit({ head: "aaaaaaaaaaaa" });
-  await pad(x, { validation: [{ id: "e2e", text: "E2E", state: "unrun" }] });
-  const refused = await deliver(x).catch((e) => e);
-  expect(refused).toMatchObject({ code: "WORKPAD_OPEN" });
-  expect(String(refused.message)).toMatch(/no type \(flowly_set_type[\s\S]*check not run: E2E/);
-  const ok = await deliver(x, { acknowledgeOpen: true, note: "Delivered; E2E not run; type left to the user" });
-  const event = (await x.store.read()).events.find((e) => e.id === ok.receipt.eventId)!;
-  expect(event).toMatchObject({ setup: { missing: ["type"] }, workpad: { unrun: 1 } });
 });
 
 test("outputs: delivery and result atomically register files and PR/MR links, deduplicate, preserve receipts across reload", async () => {
@@ -1111,17 +1036,13 @@ test("outputs: recognized external keeps output role; unreadable private metadat
   expect(await readFile(x.store.path, "utf8")).toBe(before);
 });
 
-test("gate: pre-acknowledgement refuses, same-state retry succeeds; pad/HEAD/revision/turn/expiry/reload/session invalidate it", async () => {
-  for (const change of ["none", "pad", "head", "dirty", "task", "project", "turn", "expiry", "reload", "session"] as const) {
+test("gate: pre-acknowledgement refuses, same-state retry succeeds; pad/revision/turn/expiry/reload/session invalidate it", async () => {
+  for (const change of ["none", "pad", "task", "project", "turn", "expiry", "reload", "session"] as const) {
     const x = await setup({ tags: false });
-    const repo = { head: "aaaaaaaaaaaa", dirty: false };
-    x.service.git = fakeGit(repo);
     const before = await readFile(x.store.path, "utf8");
     await expect(deliver(x, { acknowledgeOpen: true })).rejects.toMatchObject({ code: "SETUP_INCOMPLETE", message: expect.stringContaining("first attempt is always refused") });
     expect(await readFile(x.store.path, "utf8")).toBe(before);
     if (change === "pad") await pad(x, { acceptance: [{ text: "New criterion", done: true }] });
-    if (change === "head") repo.head = "bbbbbbbbbbbb";
-    if (change === "dirty") repo.dirty = true;
     if (change === "task") await x.store.editTask({ id: "t", revision: 1, title: "new", actor: "human" });
     if (change === "project") await x.store.updateProject({ id: "p", revision: 1, title: "new" });
     if (change === "turn") {
@@ -1132,7 +1053,7 @@ test("gate: pre-acknowledgement refuses, same-state retry succeeds; pad/HEAD/rev
     if (change === "expiry") x.advance(15 * 60 * 1000 + 1);
     if (change === "reload") {
       const next = new AgentService(x.store, x.secrets);
-      next.attach(x.paseo); next.git = fakeGit(repo);
+      next.attach(x.paseo);
       Object.assign(x, { service: next });
     }
     if (change === "session") Object.assign(x, { identity: { ...x.identity, agentId: "second" } });
@@ -1140,14 +1061,6 @@ test("gate: pre-acknowledgement refuses, same-state retry succeeds; pad/HEAD/rev
     const result = await deliver(x, { acknowledgeOpen: true, note: "No tags: intentionally omitted for this controlled gate check" });
     expect(result.receipt.status, change).toBe("in_review");
   }
-});
-
-test("gate: initial acknowledgeOpen also refuses open checks, fixing them needs no override", async () => {
-  const x = await setup();
-  await pad(x, { validation: [{ text: "E2E", state: "unrun" }] });
-  await expect(deliver(x, { acknowledgeOpen: true })).rejects.toMatchObject({ code: "WORKPAD_OPEN" });
-  await pad(x, { validation: [{ text: "E2E", state: "pass" }] });
-  expect((await deliver(x)).receipt.status).toBe("in_review");
 });
 
 // An agent manages its card's ideas (IDEAS-SPEC §3.1).

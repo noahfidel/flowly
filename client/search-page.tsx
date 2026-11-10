@@ -15,7 +15,7 @@ import { useStableCallback } from "./stable";
 import { Button, Choices, Label, Notice, TextBox, font, message, noFocusRing, pageBarHeight, radius, space, tint, touch, useTheme, verticalContent, verticalScroll } from "./ui";
 import { t, msg } from "../shared/i18n";
 
-/** The Search page (SEARCH-SPEC §5). Replaces the board area while open, like Ideas and Memory. */
+/** The Search page (SEARCH-SPEC §5). Replaces the board area while open, like Ideas and Guardrails. */
 
 const sourceChips: Record<SearchSource, { label: string; icon: string }> = {
   card: { label: msg("Cards"), icon: "SquareKanban" },

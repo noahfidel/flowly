@@ -1,5 +1,7 @@
 # Phase 2：Agent tools 与 skill 实施合约
 
+2026-11-06 Paseo 0.14 增量：`flowly` MCP server 不再写进 agent 创建配置，改由 `agent.session_open` 在每次启动时注入；“Send Kanban work instructions” 加入的空闲 session 重开后也有 MCP。下文中“创建时写入 MCP 配置”“已有 session 只有 CLI”的描述以 [PASEO-SESSION-TOOLS-SPEC](PASEO-SESSION-TOOLS-SPEC.md) 为准。
+
 2026-10-22 回合清单增量：skill 与实时 get_task 共用简短动作清单，旧会话通过读卡获得最新规则；输出字段为可选的兼容增量，不新增写入闸门。统计脚本同步校准，见 [TURN-CHECKLIST-SPEC](TURN-CHECKLIST-SPEC.md)。
 
 2026-10-22 交付约束增量：交付/结果支持原子登记 outputs，acknowledgeOpen 改为首次拒绝后确认；MCP、CLI 与 skill 同步，见 [DELIVERY-CONSTRAINTS-SPEC](DELIVERY-CONSTRAINTS-SPEC.md)。

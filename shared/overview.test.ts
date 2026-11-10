@@ -110,17 +110,11 @@ test("explicit empty next moves and later start do not resurrect suggestions", (
   expect(boardOverview(board).cards[0].hasNextMoves).toBe(false);
 });
 
-test("workpad summary retains failed/stale/finished semantics without its acceptance or command bodies", () => {
+test("workpad summary is Acceptance n/m without the criteria's text (GUARDRAILS-SPEC §7.1)", () => {
   const board = fixture();
-  board.workpads = [{ taskId: "t", projectId: "p", revision: 1, acceptance: [], confusions: [],
-    validation: [{ id: "v", text: "private validation text", command: "private command", state: "pass", sha: "aaaaaaaaaaaa", by: "agent", at: at(5) }],
-    env: null, head: { sha: "bbbbbbbbbbbb", dirty: false, at: at(6) }, updatedAt: at(6), updatedBy: "agent" }];
-  expect(boardOverview(board).cards[0].workpad).toEqual({ kind: "stale", done: 0, total: 1, count: 1 });
-  board.tasks[0].status = "done";
-  expect(boardOverview(board).cards[0].workpad).toEqual({ kind: "checks", done: 1, total: 1, count: 0 });
-  board.workpads[0].validation[0].state = "fail";
+  board.workpads = [{ taskId: "t", projectId: "p", revision: 1, updatedAt: at(6), updatedBy: "agent",
+    acceptance: [{ id: "a", text: "private criterion", done: true, by: "agent", at: at(5) }, { id: "b", text: "other", done: false, by: "agent", at: at(5) }] }];
   const view = boardOverview(board);
-  expect(view.cards[0].workpad).toEqual({ kind: "failed", done: 0, total: 1, count: 1 });
-  expect(JSON.stringify(view)).not.toContain("private validation");
-  expect(JSON.stringify(view)).not.toContain("private command");
+  expect(view.cards[0].workpad).toEqual({ kind: "acceptance", done: 1, total: 2 });
+  expect(JSON.stringify(view.cards)).not.toContain("private criterion");
 });

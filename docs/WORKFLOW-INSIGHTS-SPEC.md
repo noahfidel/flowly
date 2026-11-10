@@ -1,5 +1,7 @@
 # Workflow insights：从 agent 的命令里找出可复用的脚本、工具与流程
 
+> 2026-10-28：本文部分内容被 [GUARDRAILS-SPEC](GUARDRAILS-SPEC.md) 取代（§12）。被取代：无被取代的部分；§3.2 的命令记录多了一个消费者（GUARDRAILS-SPEC §4.5 的每周重识别）。
+
 状态：**已实现，待用户验收**（2026-10-19，卡片 `3df1723e` “paseo project settings互通”；用户当天确认本 spec 及 §11 的全部决定）。用户确认方向：“这个洞见功能做成开关，也增加模型配置和洞察周期设置，token 充裕可以设置为每天定时，不充足可以拉长周期”。本 spec 是 [PROJECT-INSIGHTS-SPEC](PROJECT-INSIGHTS-SPEC.md) 的扩展，不改变其已有行为。
 
 > 2026-10-25：[INSIGHTS-REDESIGN-SPEC](INSIGHTS-REDESIGN-SPEC.md) 第三版取代本文的以下部分：§2 的默认开关（改为默认开启）与设置名称（改为 Skills）、§4.1 的安静期与首次运行时机、§4.2 的素材（新增卡片、用户原话、记忆、已有 skill）、§4.3 中 skill 一类的 prompt、§4.4 的 skill 校验、§5.2 的区块摆放（skill 草稿进 Skills 区块，其余进“其它建议”）、§5.3 的替换（按类别）、§8 的提示和 §11.1。

@@ -45,6 +45,12 @@ export const isDeliveryStatus = (status: string | undefined): status is (typeof 
 /** Retired status: only found in history (events, receipts) written before board v4. */
 export const legacyStatus = "in_progress" as const;
 export const priorities = ["low", "normal", "high", "urgent"] as const;
+export const priorityLabels: Record<(typeof priorities)[number], string> = localizedLabels({
+  urgent: msg("Urgent"),
+  high: msg("High"),
+  normal: msg("Normal"),
+  low: msg("Low"),
+});
 /** What kind of work a card is (TASK-TYPE-SPEC). Optional on a task. */
 export const taskTypes = ["feature", "bugfix", "research", "refactor", "docs", "chore"] as const;
 export const taskTypeLabels: Record<TaskType, string> = localizedLabels({
@@ -117,6 +123,142 @@ export const lanesSchema = z
   .refine((lanes) => lanes.some((l) => l.enabled), "Keep at least one lane enabled.");
 export type Lane = z.infer<typeof laneSchema>;
 
+/** A project's automatic review of agent deliveries (AUTO-REVIEW-SPEC, GUARDRAILS-SPEC §8). */
+export const autoReviewLimits = {
+  name: 80, args: 30, arg: 500, tail: 4096, reason: 500, maxRounds: 5, detail: 600,
+} as const;
+const reviewMaxRounds = z.number().int().min(0).max(autoReviewLimits.maxRounds);
+/** What a project-settings save sends (GUARDRAILS-SPEC §8): the switch and the rework rounds. */
+export const autoReviewInput = z.strictObject({
+  enabled: z.boolean(),
+  /** Automatic rework rounds before the card goes to Blocked. */
+  maxRounds: reviewMaxRounds,
+});
+/**
+ * As stored. Projects saved before guardrails may still carry `rules`, `checks`, `goal` and `guidance`: they are
+ * kept as they are (the one-time guardrails migration reads them, GUARDRAILS-SPEC §3.6) and otherwise ignored;
+ * the next save of the project drops them.
+ */
+export const autoReviewSchema = z.looseObject({
+  enabled: z.boolean(),
+  maxRounds: reviewMaxRounds,
+});
+export type AutoReview = z.infer<typeof autoReviewSchema>;
+export type AutoReviewInput = z.infer<typeof autoReviewInput>;
+export const reviewStates = ["running", "passed", "rework", "failed", "unavailable", "cancelled"] as const;
+export type ReviewState = (typeof reviewStates)[number];
+export const ruleStates = ["queued", "running", "passed", "failed", "na", "skipped", "unavailable"] as const;
+export type RuleState = (typeof ruleStates)[number];
+/** One rule's result in a review written before guardrails (AUTO-REVIEW-SPEC §12.5); read only. */
+export const ruleResultSchema = z.object({
+  id: z.string().max(40),
+  kind: z.enum(["command", "llm"]),
+  name: z.string().max(autoReviewLimits.name),
+  state: z.enum(ruleStates),
+  ms: z.number().int().nonnegative().optional(),
+  argv: z.array(z.string()).max(autoReviewLimits.args).optional(),
+  exitCode: z.number().int().nullable().optional(),
+  timedOut: z.boolean().optional(),
+  /** The end of its output; kept only for a command that failed or could not finish. */
+  tail: z.string().max(autoReviewLimits.tail).optional(),
+  /** The LLM's reasoning, kept for passes too. */
+  detail: z.string().max(autoReviewLimits.detail).optional(),
+  file: z.string().max(300).optional(),
+  line: z.number().int().nonnegative().optional(),
+  /** Why it was skipped or unavailable. */
+  reason: z.string().max(autoReviewLimits.reason).optional(),
+});
+export type RuleResult = z.infer<typeof ruleResultSchema>;
+/** The size band of a delivery's changes (GUARDRAILS-SPEC §6.2). */
+export const changeSizes = ["s", "m", "l"] as const;
+export type ChangeSize = (typeof changeSizes)[number];
+/** What a delivery changed, measured when its review starts (GUARDRAILS-SPEC §6.2). */
+export const changeShapeSchema = z.object({
+  files: z.number().int().nonnegative(),
+  lines: z.number().int().nonnegative(),
+  size: z.enum(changeSizes),
+});
+export type ChangeShape = z.infer<typeof changeShapeSchema>;
+export const reviewItemKinds = ["command", "goal", "guideline", "item"] as const;
+export const reviewItemStates = ["queued", "running", "passed", "failed", "na", "disputed", "skipped", "unavailable"] as const;
+export type ReviewItemState = (typeof reviewItemStates)[number];
+/** One checked item of a review (GUARDRAILS-SPEC §6.4); replaces `rules`. */
+export const reviewItemSchema = z.object({
+  id: z.string().max(40),
+  kind: z.enum(reviewItemKinds),
+  /** The command's name, the guideline's text or the card item's text. */
+  name: z.string().max(200),
+  /** false for an observing command: run and shown, not part of the verdict. */
+  gating: z.boolean(),
+  state: z.enum(reviewItemStates),
+  ms: z.number().int().nonnegative().optional(),
+  argv: z.array(z.string()).max(autoReviewLimits.args).optional(),
+  exitCode: z.number().int().nullable().optional(),
+  timedOut: z.boolean().optional(),
+  tail: z.string().max(autoReviewLimits.tail).optional(),
+  detail: z.string().max(autoReviewLimits.detail).optional(),
+  file: z.string().max(300).optional(),
+  line: z.number().int().nonnegative().optional(),
+  /** Evidence quoted from the card or the user's words (§6.3). */
+  quote: z.string().max(300).optional(),
+  reason: z.string().max(autoReviewLimits.reason).optional(),
+  disputeReason: z.string().max(300).optional(),
+});
+export type ReviewItem = z.infer<typeof reviewItemSchema>;
+/** A failed finding the agent disputed on delivery; kept until the card is Done or Cancelled (GUARDRAILS-SPEC §6.1, B7). */
+export const disputeLimits = { perTask: 10, reason: 300 } as const;
+export const disputeSchema = z.object({
+  id: z.string().max(40),
+  kind: z.enum(reviewItemKinds),
+  name: z.string().max(200),
+  reason: z.string().max(disputeLimits.reason),
+  round: z.number().int().min(1),
+  at: timestamp,
+});
+export type Dispute = z.infer<typeof disputeSchema>;
+/** A review written before guardrails has `rules` only: read them as items (command, the built-in goal, else a guideline). */
+function legacyReview(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray((value as { items?: unknown }).items)) return value;
+  const rules = (value as { rules?: unknown }).rules;
+  if (!Array.isArray(rules)) return { ...value, items: [] };
+  const items = rules.map((r: { id?: unknown; kind?: unknown }) => ({
+    ...r,
+    kind: r.kind === "command" ? "command" : r.id === "goal" ? "goal" : "guideline",
+    gating: true,
+  }));
+  return { ...value, items };
+}
+/** The card's latest automatic review; a new one replaces it (AUTO-REVIEW-SPEC §6, GUARDRAILS-SPEC §6.4). */
+export const reviewSchema = z.preprocess(legacyReview, z.object({
+  /** The delivery that started it, or a person's Rerun (`eventId` empty). `from` is the status before In review. */
+  trigger: z.object({ eventId: z.string(), agentId: z.string(), from: historyStatusSchema }),
+  round: z.number().int().min(1),
+  maxRounds: reviewMaxRounds,
+  state: z.enum(reviewStates),
+  reason: z.string().max(autoReviewLimits.reason).optional(),
+  fingerprint: z.object({
+    taskRevision: z.number().int().nonnegative(),
+    workpadRevision: z.number().int().nonnegative(),
+    sha: z.string().max(40).optional(),
+    /** A linked root: each repository's commit by name; `sha` is then a digest of them (GUARDRAILS-SPEC §6.2). */
+    repos: z.record(z.string().max(300), z.string().max(40)).optional(),
+    dirty: z.boolean(),
+  }),
+  /** The workspace is not a worktree: other cards' uncommitted changes are in it too. */
+  shared: z.boolean(),
+  /** Reviews written before guardrails: the rules with their results; never written now (read as `items`). */
+  rules: z.array(ruleResultSchema).max(20).optional(),
+  /** What the delivery changed (GUARDRAILS-SPEC §6.2); absent on reviews written before guardrails. */
+  shape: changeShapeSchema.optional(),
+  /** Every checked item with its result (GUARDRAILS-SPEC §6.4), in the order they ran. */
+  items: z.array(reviewItemSchema).max(40),
+  /** The review session's model, when one ran. */
+  model: z.string().max(200).optional(),
+  startedAt: timestamp,
+  finishedAt: timestamp.optional(),
+}));
+export type Review = z.infer<typeof reviewSchema>;
+
 export const projectSchema = z.object({
   id: z.string(),
   title: z.string().trim().min(1).max(120),
@@ -147,6 +289,8 @@ export const projectSchema = z.object({
   agentModel: agentModelSchema.optional(),
   /** Linked multi-repo project: symlinks the plugin created inside its own root (PROJECT-PICKER-SPEC). */
   links: z.array(z.object({ name: z.string(), target: z.string() })).optional(),
+  /** Automatic review of agent deliveries (AUTO-REVIEW-SPEC, GUARDRAILS-SPEC §8). Absent means off. */
+  autoReview: autoReviewSchema.optional(),
 });
 /** Workspace switch (WORKSPACE-SWITCH-SPEC §7.1). */
 export const switchLimits = { previousWorkspaces: 10, handoverFiles: 500, handoverPath: 500, handoverNotes: 20000 } as const;
@@ -202,6 +346,8 @@ export const taskSchema = z.object({
   archivedAt: timestamp.nullable(),
   /** The plugin created this workspace for the card (not linked to an existing one). Absent on older cards. */
   ownsWorkspace: z.boolean().optional(),
+  /** A worktree card's base ref at creation (e.g. `refs/heads/main`), for its own change (GUARDRAILS-SPEC §6.2). Absent on directory, linked and older cards. */
+  baseRef: z.string().optional(),
   /** Created from an idea proposed on another card (IDEAS-SPEC §2.2). */
   /** Where the card came from: an idea (and the card it hung on); a project-level idea has no source card (PROJECT-IDEAS-SPEC §2). */
   origin: z.object({ taskId: z.string().optional(), ideaId: z.string() }).optional(),
@@ -217,6 +363,10 @@ export const taskSchema = z.object({
   deliveryMode: z.string().optional(),
   /** When the card first entered In review, Committed or Integrated; kept when it moves back, so the mode stays fixed (DELIVERY-MODE-SPEC §2). */
   deliveredAt: timestamp.optional(),
+  /** The latest automatic review (AUTO-REVIEW-SPEC §6); written without a task revision. */
+  review: reviewSchema.optional(),
+  /** Review findings the agent disputed (GUARDRAILS-SPEC §6.1); written without a task revision, cleared at Done/Cancelled. */
+  disputes: z.array(disputeSchema).max(disputeLimits.perTask).optional(),
 });
 /** A follow-up an agent proposed on its card; the user may turn it into a card (IDEAS-SPEC). */
 export const ideaStatuses = ["open", "accepted", "dismissed"] as const;
@@ -318,20 +468,13 @@ export const artifactEdit = z.strictObject({
   note: artifactNote.optional(),
 });
 export type ArtifactEdit = z.infer<typeof artifactEdit>;
-/** The card's workpad: acceptance criteria, checks and confusions an agent keeps current (WORKPAD-SPEC §2). */
+/** The card's workpad: the acceptance list an agent keeps current (WORKPAD-SPEC §2, GUARDRAILS-SPEC §7.1). */
 export const workpadLimits = {
   text: 300,
-  command: 300,
-  evidence: 600,
-  confusion: 600,
   acceptance: 20,
-  validation: 20,
-  confusions: 10,
   planItems: 50,
   planText: 300,
 } as const;
-export const checkStates = ["pass", "fail", "unrun"] as const;
-export type CheckState = (typeof checkStates)[number];
 export const workpadItemId = z.string().min(1).max(40).regex(/^[a-z0-9][a-z0-9-]*$/);
 const shortSha = z.string().regex(/^[0-9a-f]{4,40}$/);
 export const acceptanceItemSchema = z.object({
@@ -341,25 +484,6 @@ export const acceptanceItemSchema = z.object({
   by: z.enum(["agent", "human"]),
   at: timestamp,
 });
-export const validationItemSchema = z.object({
-  id: workpadItemId,
-  text: z.string().min(1).max(workpadLimits.text),
-  command: z.string().max(workpadLimits.command).optional(),
-  state: z.enum(checkStates),
-  /** The commit it ran on (pass/fail only). */
-  sha: shortSha.optional(),
-  /** It ran with uncommitted changes in the working tree. */
-  dirty: z.boolean().optional(),
-  ranAt: timestamp.optional(),
-  evidence: z.string().max(workpadLimits.evidence).optional(),
-  by: z.enum(["agent", "human"]),
-  at: timestamp,
-});
-export const confusionItemSchema = z.object({
-  id: workpadItemId,
-  text: z.string().min(1).max(workpadLimits.confusion),
-  at: timestamp,
-});
 /** What git said about the card's workspace; every field optional when git is unavailable. */
 export const gitHeadSchema = z.object({
   sha: shortSha.optional(),
@@ -367,7 +491,7 @@ export const gitHeadSchema = z.object({
   dirty: z.boolean(),
   at: timestamp,
 });
-/** Open items when an agent delivered to In review (WORKPAD-SPEC §5.3). */
+/** Open workpad items at an agent's delivery, on deliveries recorded before guardrails (WORKPAD-SPEC §5.3); read only. */
 export const deliverySchema = z.object({
   unchecked: z.number().int().nonnegative(),
   failed: z.number().int().nonnegative(),
@@ -376,28 +500,21 @@ export const deliverySchema = z.object({
   total: z.number().int().nonnegative(),
   revision: z.number().int().nonnegative(),
 });
-export type Delivery = z.infer<typeof deliverySchema>;
+/**
+ * Workpads written before guardrails also hold `validation`, `confusions`, `env`, `head` and `delivery`: they are
+ * dropped when read (GUARDRAILS-SPEC §7.1).
+ */
 export const workpadSchema = z.object({
   taskId: z.string(),
   projectId: z.string(),
   revision: z.number().int().positive(),
   acceptance: z.array(acceptanceItemSchema).max(workpadLimits.acceptance),
-  validation: z.array(validationItemSchema).max(workpadLimits.validation),
-  confusions: z.array(confusionItemSchema).max(workpadLimits.confusions),
-  /** Where the agent last wrote it from: host, workspace path and git state then. */
-  env: z.object({ host: z.string().max(300), path: z.string().max(4096), head: gitHeadSchema.nullable() }).nullable(),
-  /** The workspace HEAD at the last refresh, for out-of-date checks (§5.2). */
-  head: gitHeadSchema.nullable(),
-  /** The latest agent delivery to In review and its open items (§5.3). */
-  delivery: deliverySchema.extend({ eventId: z.string(), at: timestamp }).optional(),
   updatedAt: timestamp,
   updatedBy: z.enum(["agent", "human"]),
   agentId: z.string().optional(),
 });
 export type Workpad = z.infer<typeof workpadSchema>;
 export type AcceptanceItem = z.infer<typeof acceptanceItemSchema>;
-export type ValidationItem = z.infer<typeof validationItemSchema>;
-export type ConfusionItem = z.infer<typeof confusionItemSchema>;
 export type GitHead = z.infer<typeof gitHeadSchema>;
 export const planStatuses = ["pending", "in_progress", "completed"] as const;
 /** A session's plan, read from its native todo list at turn end (WORKPAD-SPEC §2.2). */
@@ -410,13 +527,12 @@ export const planSnapshotSchema = z.object({
   at: timestamp,
 });
 export type PlanSnapshot = z.infer<typeof planSnapshotSchema>;
-/** Human edits of one workpad item (WORKPAD-SPEC §6.3). */
+/** A person ticks an acceptance criterion (WORKPAD-SPEC §6.3). */
 export const workpadCheck = z.strictObject({
   taskId: z.string().min(1),
-  section: z.enum(["acceptance", "validation"]),
+  section: z.literal("acceptance").default("acceptance"),
   itemId: workpadItemId,
-  done: z.boolean().optional(),
-  state: z.enum(checkStates).optional(),
+  done: z.boolean(),
 });
 export type WorkpadCheck = z.infer<typeof workpadCheck>;
 export const ideaEdit = z.strictObject({
@@ -444,6 +560,17 @@ export const nextMoveSchema = z.object({
   moveTo: z.enum(nextMoveTargets).optional(),
 });
 export type NextMove = z.infer<typeof nextMoveSchema>;
+/** Project guardrail events (GUARDRAILS-SPEC §7.6): in the flow log for Insights, never in the card's activity timeline. */
+export const guardrailLearnedAction = "guardrail_learned";
+export const guardrailRetiredAction = "guardrail_retired";
+export const guardrailChanges = ["item", "guideline", "revived", "widened", "paused", "archived", "displaced", "merged"] as const;
+export const guardrailChangeSchema = z.object({
+  change: z.enum(guardrailChanges),
+  kind: z.enum(["command", "guideline", "note", "item"]),
+  /** The entry or card item it concerns. */
+  id: z.string().max(40),
+});
+export type GuardrailChange = z.infer<typeof guardrailChangeSchema>;
 export const eventSchema = z.object({
   id: z.string(),
   taskId: z.string(),
@@ -474,6 +601,10 @@ export const eventSchema = z.object({
   workpad: deliverySchema.optional(),
   /** status_changed into In review by an agent that acknowledged missing card setup (CARD-SETUP-SPEC §3.4). */
   setup: z.object({ missing: z.array(z.enum(["type", "tags", "workpad"])) }).optional(),
+  /** review_finished: each item's result and kind, for the Insights counts (GUARDRAILS-SPEC §6.4); `gating: false` marks an observing command. */
+  results: z.array(z.object({ id: z.string().max(40), state: z.string().max(20), kind: z.enum(reviewItemKinds).optional(), gating: z.literal(false).optional() })).max(40).optional(),
+  /** guardrail_learned / guardrail_retired: what changed (GUARDRAILS-SPEC §7.6). */
+  guardrail: guardrailChangeSchema.optional(),
   at: timestamp,
 });
 export const boardSchema = z.object({
@@ -510,7 +641,8 @@ export const receiptSchema = z.object({
   agentId: z.string(),
   taskId: z.string(),
   payloadHash: z.string(),
-  action: z.enum(["status", "progress", "idea", "idea_update", "idea_remove", "remember", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "handover"]),
+  /** `review_rules`: receipts of the tool removed with guardrails (GUARDRAILS-SPEC §9); they expire within 7 days. */
+  action: z.enum(["status", "progress", "idea", "idea_update", "idea_remove", "remember", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "handover", "review_rules"]),
   /** Empty when an artifact write changed nothing (same target already recorded). */
   eventId: z.string(),
   /** Stable result identity for idea writes, even after the idea is removed or pruned. */
@@ -608,6 +740,7 @@ export const projectEdit = z.strictObject({
   lanes: lanesSchema.optional(),
   /** A model sets the project default; null removes it (the global default applies again). */
   agentModel: agentModelSchema.nullable().optional(),
+  autoReview: autoReviewInput.optional(),
 });
 export const taskInput = z.strictObject({
   projectId: z.string(),

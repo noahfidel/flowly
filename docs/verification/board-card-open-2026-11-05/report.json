@@ -1,0 +1,49 @@
+{
+  "check": "Open a card sidebar by title only, 5 consecutive times (+1 second card)",
+  "project": "flowly",
+  "title": "看板卡片补齐可访问名称，让 UI 自动化验证可定位",
+  "secondTitle": "Recognize ui blocks in flowly's session preview",
+  "date": "2026-11-05T07:11:52.615Z",
+  "script": "docs/verification/board-card-open-2026-11-05/run.mjs",
+  "command": "/opt/homebrew/Cellar/node/26.13.0_1/bin/node /private/tmp/flowly-upstream-pr/docs/verification/board-card-open-2026-11-05/run.mjs --shot --second Recognize ui blocks in flowly's session preview",
+  "passed": true,
+  "runs": [
+    {
+      "run": 1,
+      "title": "看板卡片补齐可访问名称，让 UI 自动化验证可定位",
+      "ok": true,
+      "ms": 683
+    },
+    {
+      "run": 2,
+      "title": "看板卡片补齐可访问名称，让 UI 自动化验证可定位",
+      "ok": true,
+      "ms": 300
+    },
+    {
+      "run": 3,
+      "title": "看板卡片补齐可访问名称，让 UI 自动化验证可定位",
+      "ok": true,
+      "ms": 316
+    },
+    {
+      "run": 4,
+      "title": "看板卡片补齐可访问名称，让 UI 自动化验证可定位",
+      "ok": true,
+      "ms": 322
+    },
+    {
+      "run": 5,
+      "title": "看板卡片补齐可访问名称，让 UI 自动化验证可定位",
+      "ok": true,
+      "ms": 345
+    },
+    {
+      "run": "second-card",
+      "title": "Recognize ui blocks in flowly's session preview",
+      "ok": true,
+      "ms": 334
+    }
+  ],
+  "pageErrors": []
+}

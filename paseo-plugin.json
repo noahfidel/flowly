@@ -12,7 +12,7 @@
     "assets/screenshots/06-next-moves.png"
   ],
   "requirements": {
-    "paseo": ">=0.13.2"
+    "paseo": ">=0.15.0"
   },
   "build": [
     [

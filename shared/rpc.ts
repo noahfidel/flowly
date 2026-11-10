@@ -23,8 +23,6 @@ import {
   artifactSchema,
   workpadSchema,
   workpadCheck,
-  workpadItemId,
-  gitHeadSchema,
   ideaSchema,
   boardSchema,
   projectInput,
@@ -56,7 +54,8 @@ import { summaryEntrySchema, summaryOverviewSchema } from "./summary";
 import { taskUsageSchema } from "./usage";
 import { TURN_MAX_ENTRIES, tailPageSchema, timelineCursorSchema } from "./session-tail";
 import { digestViewSchema } from "./digest";
-import { memoryEntrySchema, memoryInputFields, memoryKeywordsSchema, memoryTagsSchema, memoryViewSchema } from "./memory";
+import { memoryInputFields, memoryKeywordsSchema, memoryKinds, memoryTagsSchema } from "./memory";
+import { guardrailEntrySchema, guardrailLimits, guardrailScopeSchema, guardrailStates, guardrailsLedgerSchema, guardrailsViewSchema } from "./guardrails";
 import { perfReportSchema } from "./perf";
 import { localeCodes } from "./i18n";
 import { workflowOverviewSchema, workflowViewSchema } from "./workflow-insights";
@@ -397,21 +396,17 @@ export const deleteArtifact = defineRpc({
   input: z.strictObject({ id: z.string().min(1) }),
   output: z.object({ id: z.string() }),
 });
-/** Workpad edits by a person and HEAD refresh (WORKPAD-SPEC §6.3). */
+/** A person ticks an acceptance criterion (WORKPAD-SPEC §6.3). */
 export const checkWorkpad = defineRpc({
   name: "workpads.check",
   input: workpadCheck,
   output: workpadSchema,
 });
-export const resolveConfusion = defineRpc({
-  name: "workpads.resolve-confusion",
-  input: z.strictObject({ taskId: z.string().min(1), itemId: workpadItemId }),
-  output: workpadSchema,
-});
-export const refreshWorkpad = defineRpc({
-  name: "workpads.refresh",
+/** A person's Rerun of a card's automatic review (AUTO-REVIEW-SPEC §7). */
+export const rerunReview = defineRpc({
+  name: "reviews.rerun",
   input: z.strictObject({ taskId: z.string().min(1) }),
-  output: z.object({ head: gitHeadSchema.nullable() }),
+  output: z.object({ ok: z.literal(true) }),
 });
 /** Ids of a card's file artifacts that no longer exist (CARD-ARTIFACTS-SPEC §9). */
 export const artifactStatus = defineRpc({
@@ -928,6 +923,12 @@ export const installSkill = defineRpc({
   input: z.strictObject({ projectId: z.string().min(1).max(200), findingId: z.string().min(1).max(100), expectedRevision: z.number().int().min(0) }),
   output: z.object({ revision: z.number(), path: z.string(), linked: z.boolean(), notice: z.string().optional() }),
 });
+/** The closed loop's numbers for the top of Insights (GUARDRAILS-SPEC §7.2, §7.5); `tz` is the client's IANA zone. */
+export const guardrailsInsights = defineRpc({
+  name: "insights.guardrails",
+  input: z.strictObject({ ...insightsDay }),
+  output: guardrailsLedgerSchema,
+});
 export const workflowInsightsOverview = defineRpc({
   name: "workflow-insights.overview",
   input: z.strictObject({}),
@@ -942,55 +943,67 @@ export const purgeWorkflowCommands = defineRpc({
 // ---- Search (SEARCH-SPEC §4) ----
 export const searchQuery = defineRpc({ name: "search.query", input: searchInputSchema, output: searchResultSchema });
 
-// ---- Project memory (PROJECT-MEMORY-SPEC §5.1) ----
-const memoryRef = { id: z.string().min(1).max(200), revision: z.number().int().positive() };
-const memoryEdits = z.strictObject({
-  kind: memoryInputFields.kind.optional(),
-  title: memoryInputFields.title.optional(),
-  body: memoryInputFields.body.optional(),
-  tags: memoryTagsSchema.optional(),
-  keywords: memoryKeywordsSchema.optional(),
-});
-export const readMemory = defineRpc({
-  name: "memory.read",
+// ---- Project guardrails (GUARDRAILS-SPEC §7.5) ----
+const guardrailRef = { id: z.string().min(1).max(200), revision: z.number().int().positive() };
+const commandName = z.string().trim().min(1).max(guardrailLimits.commandName);
+const commandArgv = z.array(z.string().min(1).max(guardrailLimits.arg)).min(1).max(guardrailLimits.args);
+const commandTimeout = z.number().int().min(guardrailLimits.minTimeout).max(guardrailLimits.maxTimeout);
+export const readGuardrails = defineRpc({
+  name: "guardrails.read",
   input: z.strictObject({ projectId: z.string().min(1).max(200), etag: z.string().max(200).optional() }),
-  output: z.object({ etag: z.string(), value: memoryViewSchema.optional() }),
+  output: z.object({ etag: z.string(), value: guardrailsViewSchema.optional() }),
 });
-export const memoryCounts = defineRpc({
-  name: "memory.counts",
+/** The overview chips: per project, observing commands, guidelines learned this week and memory added this week. */
+export const guardrailCounts = defineRpc({
+  name: "guardrails.counts",
   input: etagInput,
-  output: z.object({ etag: z.string(), value: z.record(z.string(), z.number()).optional() }),
+  output: z.object({ etag: z.string(), value: z.record(z.string(), z.object({ observing: z.number(), added: z.number(), notes: z.number() })).optional() }),
 });
-export const createMemory = defineRpc({
-  name: "memory.create",
-  input: z.strictObject({ projectId: z.string().min(1).max(200), ...memoryInputFields, pinned: z.boolean().default(false) }),
-  output: memoryEntrySchema,
+/** A person's command or note, active at once; guidelines only grow from cards sent back (§7.4). */
+export const createGuardrail = defineRpc({
+  name: "guardrails.create",
+  input: z.discriminatedUnion("kind", [
+    z.strictObject({ projectId: z.string().min(1).max(200), kind: z.literal("command"), text: commandName, argv: commandArgv, timeoutSec: commandTimeout.optional() }),
+    z.strictObject({
+      projectId: z.string().min(1).max(200),
+      kind: z.literal("note"),
+      noteKind: z.enum(memoryKinds),
+      text: memoryInputFields.title,
+      body: memoryInputFields.body.optional(),
+      tags: memoryTagsSchema.optional(),
+      keywords: memoryKeywordsSchema.optional(),
+      pinned: z.boolean().optional(),
+    }),
+  ]),
+  output: guardrailEntrySchema,
 });
-export const updateMemory = defineRpc({
-  name: "memory.update",
-  input: memoryEdits.extend({ ...memoryRef, pinned: z.boolean().optional() }),
-  output: memoryEntrySchema,
+export const updateGuardrail = defineRpc({
+  name: "guardrails.update",
+  input: z.strictObject({
+    ...guardrailRef,
+    text: z.string().trim().min(1).max(guardrailLimits.guidelineText).optional(),
+    body: z.string().trim().max(guardrailLimits.body).optional(),
+    argv: commandArgv.optional(),
+    timeoutSec: commandTimeout.optional(),
+    scope: guardrailScopeSchema.optional(),
+    tags: memoryTagsSchema.optional(),
+    keywords: memoryKeywordsSchema.optional(),
+    pinned: z.boolean().optional(),
+    state: z.enum(guardrailStates).optional(),
+    stateReason: z.string().trim().max(guardrailLimits.stateReason).optional(),
+  }),
+  output: guardrailEntrySchema,
 });
-export const confirmMemory = defineRpc({
-  name: "memory.confirm",
-  input: z.strictObject({ ...memoryRef, edits: memoryEdits.optional() }),
-  output: memoryEntrySchema,
+export const deleteGuardrail = defineRpc({ name: "guardrails.delete", input: z.strictObject(guardrailRef), output: z.object({ id: z.string() }) });
+/** The project's check commands found in its root, added as observing; never runs them (§4.5). */
+export const detectGuardrails = defineRpc({
+  name: "guardrails.detect",
+  input: z.strictObject({ projectId: z.string().min(1).max(200) }),
+  output: z.object({ found: z.array(z.string()), added: z.array(guardrailEntrySchema) }),
 });
-export const dismissMemory = defineRpc({ name: "memory.dismiss", input: z.strictObject(memoryRef), output: memoryEntrySchema });
-export const restoreMemory = defineRpc({ name: "memory.restore", input: z.strictObject(memoryRef), output: memoryEntrySchema });
-export const archiveMemory = defineRpc({
-  name: "memory.archive",
-  input: z.strictObject({ ...memoryRef, reason: z.enum(["retired", "promoted"]) }),
-  output: memoryEntrySchema,
-});
-export const archiveStaleMemory = defineRpc({
-  name: "memory.archive-many",
-  input: z.strictObject({ projectId: z.string().min(1).max(200), ids: z.array(z.strictObject(memoryRef)).max(200) }),
-  output: z.object({ archived: z.number() }),
-});
-export const deleteMemory = defineRpc({ name: "memory.delete", input: z.strictObject(memoryRef), output: z.object({ id: z.string() }) });
-export const reviewForMemory = defineRpc({
-  name: "memory.retro",
+/** The finished-card review by hand (for developers; not in the UI). */
+export const retroGuardrails = defineRpc({
+  name: "guardrails.retro",
   input: z.strictObject({ taskId: z.string().min(1).max(200) }),
   output: z.object({ queued: z.boolean() }),
 });

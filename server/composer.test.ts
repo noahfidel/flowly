@@ -7,7 +7,6 @@ import { BoardStore } from "./store";
 import { ComposerService, ComposerStore } from "./composer";
 
 const roots: string[] = [];
-const settle = () => new Promise((r) => setTimeout(r, 50));
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
 });
@@ -44,7 +43,7 @@ test("drafts and queued messages persist across a new service instance (plugin r
   const x = await setup();
   await x.service.saveDraft({ taskId: "t", agentId: "a", text: "half typed" });
   await x.service.push({ taskId: "t", agentId: "a", text: "after this turn" }, x.paseo);
-  await settle();
+  await x.service.idle();
   const reloaded = new ComposerService(new ComposerStore(x.board.directory), x.board);
   const state = await reloaded.read();
   expect(state.sessions.a).toMatchObject({ draft: "half typed", queue: [{ text: "after this turn" }] });
@@ -54,7 +53,7 @@ test("queue drains one message per idle turn; running sessions wait", async () =
   const x = await setup("running");
   await x.service.push({ taskId: "t", agentId: "a", text: "one" }, x.paseo);
   await x.service.push({ taskId: "t", agentId: "a", text: "two" }, x.paseo);
-  await settle(); // pushes trigger a background drain check
+  await x.service.idle(); // pushes trigger a background drain check
   expect(await x.service.drain("a", x.paseo)).toBe(false);
   x.agent.status = "idle";
   expect(await x.service.drain("a", x.paseo)).toBe(true);
@@ -69,7 +68,7 @@ test("send now steers the running turn; failures go back to the front with an er
   const x = await setup("running");
   const a = await x.service.push({ taskId: "t", agentId: "a", text: "first" }, x.paseo);
   await x.service.push({ taskId: "t", agentId: "a", text: "second" }, x.paseo);
-  await settle();
+  await x.service.idle();
   await x.service.sendNow({ taskId: "t", agentId: "a", id: a.id }, x.paseo);
   expect(x.sent).toEqual([{ text: "first", steer: true }]);
   x.agent.status = "idle";
@@ -85,7 +84,7 @@ test("pushes are checked against the card workspace; corrupt files are preserved
   const x = await setup();
   x.agent.workspaceId = "other";
   await expect(x.service.push({ taskId: "t", agentId: "a", text: "x" }, x.paseo)).rejects.toThrow(/different workspace/);
-  await settle();
+  await x.service.idle();
   const store = new ComposerStore(x.board.directory);
   await writeFile(store.path, "{broken");
   await expect(store.read()).rejects.toThrow(/preserved/);
@@ -109,7 +108,7 @@ test("queued images are kept as daemon files, sent with their message, then dele
   const dir = join(x.board.directory, "composer-images");
   expect(item.images).toEqual([{ file: `${item.id}-0.png`, mimeType: "image/png" }]);
   expect((await readFile(join(dir, `${item.id}-0.png`))).toString()).toBe("png-bytes");
-  await settle();
+  await x.service.idle();
   x.agent.status = "idle";
   expect(await x.service.drain("a", x.paseo)).toBe(true);
   expect(x.images).toEqual([png]);

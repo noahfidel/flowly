@@ -105,17 +105,6 @@ export const memoryStateSchema = z.object({
 export type MemoryState = z.infer<typeof memoryStateSchema>;
 export const emptyMemoryState = (): MemoryState => ({ version: 1, revision: 0, entries: [], errors: [], retros: [], recallStats: {}, clues: [] });
 
-/** What the Memory page and the drawer read (memory.read). */
-export const memoryViewSchema = z.object({
-  entries: z.array(memoryEntrySchema),
-  errors: z.array(memoryErrorSchema),
-  running: z.array(z.string()),
-  recall: z.object({ queries: z.number(), empty: z.number() }),
-  enabled: z.boolean(),
-  retroEnabled: z.boolean(),
-});
-export type MemoryView = z.infer<typeof memoryViewSchema>;
-
 export const memoryInputFields = {
   kind: z.enum(memoryKinds),
   title: z.string().trim().min(1).max(memoryLimits.title),
@@ -229,8 +218,8 @@ export function memoryContextLines(selection: MemorySelection, titleOf: (taskId:
   if (!selection.entries.length) return [];
   const shown = selection.entries.length;
   const header = selection.all
-    ? `Project memory (confirmed by the user; all ${shown} entries):`
-    : `Project memory (confirmed by the user; ${shown} of ${selection.total} shown, flowly_recall finds the others):`;
+    ? `Project memory (all ${shown} entries):`
+    : `Project memory (${shown} of ${selection.total} shown, flowly_recall finds the others):`;
   return [header, ...selection.entries.map((e) => memoryLine(e, titleOf(e.source.taskId)))];
 }
 
@@ -274,7 +263,7 @@ export function leastUsed(entries: readonly MemoryEntry[], projectId: string, n 
     .slice(0, n);
 }
 /** Records that a card used these entries; at most 20 distinct cards, the latest kept. */
-export function noteUse(entry: MemoryEntry, taskId: string, at: string) {
+export function noteUse(entry: { usedAt?: string; usedBy?: { taskId: string; at: string }[] }, taskId: string, at: string) {
   entry.usedAt = at;
   const list = (entry.usedBy || []).filter((u) => u.taskId !== taskId);
   list.push({ taskId, at });
@@ -286,9 +275,9 @@ export const agentsRule = (entry: Pick<MemoryEntry, "title" | "body">) => `- ${e
 // ---- Clues (§4.0) ------------------------------------------------------------------
 
 /** The user's own words worth keeping for the review, or null (short, a picked suggestion, a secret). */
-export function clueText(value: string, picked: readonly string[] = []): string | null {
+export function clueText(value: string, picked: readonly string[] = [], min: number = memoryLimits.clueMin): string | null {
   const trimmed = value.trim();
-  if (trimmed.length < memoryLimits.clueMin) return null;
+  if (!trimmed || trimmed.length < min) return null;
   if (picked.some((p) => p.trim() === trimmed)) return null;
   if (containsSecret(trimmed)) return null;
   return trimmed.length > memoryLimits.clueText ? `${trimmed.slice(0, memoryLimits.clueText - 1)}…` : trimmed;
@@ -426,7 +415,6 @@ export type RetroMaterial = {
   /** Recap lines of every summary version, deduplicated, oldest first. */
   recapLines: readonly string[];
   states: readonly string[];
-  confusions: readonly string[];
   failedChecks: readonly string[];
   reports: readonly string[];
   existing: readonly { id: string; kind: MemoryKind; title: string }[];
@@ -455,8 +443,7 @@ export function retroMaterial(m: RetroMaterial): string {
     `# Latest progress summary\n${m.summary ? `Target: ${m.summary.target}\nRecap:\n${m.summary.recap}\nNext: ${m.summary.next}` : "(none)"}`,
     `# Every recap line the summary ever had\n${m.recapLines.map((l) => `- ${l}`).join("\n") || "(none)"}`,
     `# Earlier states\n${m.states.map((s) => `- ${s}`).join("\n") || "(none)"}`,
-    `# Workpad confusions\n${m.confusions.map((s) => `- ${s}`).join("\n") || "(none)"}`,
-    `# Checks that failed at some point\n${m.failedChecks.map((s) => `- ${s}`).join("\n") || "(none)"}`,
+    `# Checks that failed in the latest auto review\n${m.failedChecks.map((s) => `- ${s}`).join("\n") || "(none)"}`,
     `# Agent questions, blockers and results\n${m.reports.map((s) => `- ${clip(s, 500)}`).join("\n") || "(none)"}`,
     `# Existing project memory (do not repeat; use supersedes to replace one)\n${m.existing.map((e) => `- ${e.id} [${e.kind}] ${e.title}`).join("\n") || "(none)"}`,
     `# Suggestions already waiting for the user (do not repeat)\n${(m.waiting || []).map((e) => `- [${e.kind}] ${e.title}`).join("\n") || "(none)"}`,
@@ -542,16 +529,4 @@ export function fitCandidate(c: RetroCandidate) {
     evidence: clip(c.evidence.trim(), memoryLimits.evidence),
     ...(c.supersedes ? { supersedes: c.supersedes } : {}),
   };
-}
-
-/** Recall counts of the last 30 days (§6.4). */
-export function recallTotals(stats: MemoryState["recallStats"][string] | undefined, now: number) {
-  let queries = 0,
-    empty = 0;
-  for (const [day, v] of Object.entries(stats?.days || {}))
-    if (now - Date.parse(`${day}T00:00:00Z`) <= 31 * DAY) {
-      queries += v.queries;
-      empty += v.empty;
-    }
-  return { queries, empty };
 }

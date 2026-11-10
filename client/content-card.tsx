@@ -26,6 +26,7 @@ export function ContentCard({
   defaultOpen = false,
   openWhen,
   clampHeight = CLAMP_HEIGHT,
+  stripe,
   children,
 }: {
   footer?: ReactNode;
@@ -36,11 +37,13 @@ export function ContentCard({
   openWhen?: unknown;
   /** Collapsed body height; the drawer's Progress card uses PROGRESS_CLAMP_HEIGHT. */
   clampHeight?: number;
+  /** A 3 pt left edge in this color (the Memory page's kind). */
+  stripe?: string;
   children: ReactNode;
 }) {
   const { colors } = useTheme();
   return (
-    <View style={cardFrameStyle(colors)}>
+    <View style={stripe ? [cardFrameStyle(colors), { borderLeftWidth: 3, borderLeftColor: stripe }] : cardFrameStyle(colors)}>
       <View style={{ padding: space[3], paddingBottom: space[3] }}>
         <Clamped background={colors.surface1} footer={footer} defaultOpen={defaultOpen} openWhen={openWhen} clampHeight={clampHeight}>
           {children}
@@ -249,7 +252,9 @@ export function SourceLine({ task, nameOf, onOpenTask }: { task: Task | undefine
       <View style={{ flexShrink: 1, minWidth: 0 }}>
         <Label size={font.sm} lines={1} selectable={false}>{task.title}</Label>
       </View>
-      <Label muted size={font.xs} selectable={false}>· {task.archivedAt ? t("Archived") : nameOf(task.status)}</Label>
+      <View style={{ flexShrink: 0 }}>
+        <Label muted size={font.xs} lines={1} selectable={false}>· {task.archivedAt ? t("Archived") : nameOf(task.status)}</Label>
+      </View>
       <View style={{ flex: 1 }} />
       <Icon name="ChevronRight" size={13} color={colors.foregroundMuted} />
     </Pressable>

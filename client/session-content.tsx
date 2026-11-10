@@ -1,13 +1,28 @@
 import { memo, useMemo, useState } from "react";
-import { Linking, Platform, ScrollView, Text, View } from "react-native";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { openExternalUrl } from "@getpaseo/plugin/client";
+import { Icon, copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import {
+  isInlineUiFence,
   parseSessionInline,
   parseSessionMarkdown,
   type MarkdownBlock,
 } from "./session-markdown";
-import { Label, useTheme } from "./ui";
+import { Chevron, Collapse } from "./disclosure";
+import { Label, noFocusRing, useTheme } from "./ui";
 import { t } from "../shared/i18n";
+
+/** A local file cannot be opened from a plugin, so pressing its link copies the absolute path. */
+function localPath(url: string) {
+  const file = /^file:\/\//i.test(url);
+  const raw = file ? url.replace(/^file:\/\//i, "") : url;
+  if (!file && !/^(\/|~\/|[A-Za-z]:[\\/])/.test(raw)) return null;
+  try {
+    return file ? decodeURIComponent(raw) : raw;
+  } catch {
+    return raw;
+  }
+}
 
 const mono = Platform.OS === "ios" ? "Menlo" : "monospace";
 
@@ -22,6 +37,7 @@ const Inline = memo(function Inline({
   bold?: boolean;
 }) {
   const { colors } = useTheme();
+  const toast = useToast();
   const [linkError, setLinkError] = useState(false);
   const parts = useMemo(() => parseSessionInline(text), [text]);
   return (
@@ -37,8 +53,10 @@ const Inline = memo(function Inline({
         }}
       >
         {parts.map((part, index) => {
+          const path = part.kind === "link" ? localPath(part.url!) : null;
           const link =
-            part.kind === "link" && /^https?:\/\//i.test(part.url || "");
+            part.kind === "link" &&
+            (!!path || /^https?:\/\//i.test(part.url || ""));
           return (
             <Text
               key={index}
@@ -46,9 +64,18 @@ const Inline = memo(function Inline({
               onPress={
                 link
                   ? () => {
-                      void Linking.openURL(part.url!).catch(() =>
-                        setLinkError(true),
-                      );
+                      if (path)
+                        void copyText(path).then(
+                          () =>
+                            toast.show(t("Path copied"), {
+                              variant: "success",
+                            }),
+                          () => setLinkError(true),
+                        );
+                      else
+                        void openExternalUrl(part.url!).catch(() =>
+                          setLinkError(true),
+                        );
                     }
                   : undefined
               }
@@ -145,6 +172,75 @@ const TableBlock = memo(function TableBlock({
   );
 });
 
+/**
+ * A ui/app fence renders live in the host session view but never here, so it
+ * becomes one compact notice; expanding reveals the selectable source.
+ */
+const UiFenceBlock = memo(function UiFenceBlock({
+  block,
+}: {
+  block: Extract<MarkdownBlock, { kind: "code" }>;
+}) {
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  const notice = t("Inline UI — open in Paseo to view it live");
+  return (
+    <View
+      style={{
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface1,
+        minWidth: 0,
+      }}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${notice}. ${open ? t("Collapse") : t("Expand")}`}
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(!open)}
+        style={(state) => {
+          const { hovered } = state as typeof state & { hovered?: boolean };
+          return {
+            ...noFocusRing,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            padding: 10,
+            borderRadius: 8,
+            opacity: state.pressed ? 0.7 : 1,
+            backgroundColor: hovered ? colors.surface2 : "transparent",
+          };
+        }}
+      >
+        <Chevron open={open} title={notice} color={colors.foregroundMuted} size={14} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label muted size={12} selectable={false}>
+            {notice}
+          </Label>
+        </View>
+      </Pressable>
+      <Collapse
+        open={open}
+        id="ui-fence"
+        style={{ paddingHorizontal: 12, paddingBottom: 12 }}
+      >
+        <Text
+          selectable
+          style={{
+            color: colors.foreground,
+            fontSize: 12,
+            lineHeight: 19,
+            fontFamily: mono,
+          }}
+        >
+          {block.text}
+        </Text>
+      </Collapse>
+    </View>
+  );
+});
+
 export const SessionMarkdown = memo(function SessionMarkdown({ text }: { text: string }) {
   const { colors } = useTheme();
   const blocks = useMemo(() => parseSessionMarkdown(text), [text]);
@@ -163,7 +259,9 @@ export const SessionMarkdown = memo(function SessionMarkdown({ text }: { text: s
             />
           );
         if (block.kind === "code")
-          return (
+          return isInlineUiFence(block.language) ? (
+            <UiFenceBlock key={index} block={block} />
+          ) : (
             <View
               key={index}
               style={{

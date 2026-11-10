@@ -17,6 +17,12 @@ import {
 } from "../shared/tools";
 import { ToolError } from "./tool-error";
 
+/**
+ * How a managed session reaches the tools. `mcp`: `flowly` is saved in the
+ * agent's own config (sessions created before Paseo 0.14 launch injection);
+ * `launch-mcp`: the session_open hook adds it at each launch; `cli`: the CLI.
+ */
+export type ContextMethod = "cli" | "mcp" | "launch-mcp";
 export const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 export async function writePrivate(path: string, data: string, mode = 0o600) {
@@ -240,7 +246,23 @@ export class ToolSecrets {
       return null;
     }
   }
-  async writeContext(identity: ToolIdentity, method: "mcp" | "cli" = "cli") {
+  /** Recorded methods of a managed session (`[]` when none); unknown values are kept as they are. */
+  async contextMethods(agentId: string): Promise<string[]> {
+    try {
+      const data = JSON.parse(await readFile(this.contextFile(agentId), "utf8"));
+      return z.array(z.string()).parse(data.methods || []);
+    } catch {
+      return [];
+    }
+  }
+  /** Removes one recorded method of a managed session; the binding and other methods stay. */
+  async dropContextMethod(identity: ToolIdentity, method: ContextMethod) {
+    return this.writeContext(identity, { drop: method });
+  }
+  async writeContext(identity: ToolIdentity, ...added: (ContextMethod | { drop: ContextMethod })[]) {
+    const drop = added.flatMap((m) => (typeof m === "object" ? [m.drop] : [])),
+      adds = added.filter((m): m is ContextMethod => typeof m === "string"),
+      method = adds.length || drop.length ? adds : (["cli"] as const);
     const job = this.files.then(async () => {
       const path = this.contextFile(identity.agentId);
       let methods: string[] = [];
@@ -254,7 +276,7 @@ export class ToolSecrets {
             "SESSION_MISMATCH",
             "Existing session context has a different card binding.",
           );
-        methods = z.array(z.enum(["cli", "mcp"])).parse(old.methods || []);
+        methods = z.array(z.string()).parse(old.methods || []);
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
       }
@@ -265,7 +287,7 @@ export class ToolSecrets {
           identity,
           credential: this.credential(identity),
           discoveryFile: join(this.directory, "tool-endpoint.json"),
-          methods: [...new Set([...methods, method])],
+          methods: [...new Set([...methods, ...method])].filter((m) => !drop.includes(m as ContextMethod)),
         }),
       );
       return path;

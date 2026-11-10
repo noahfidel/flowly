@@ -1,0 +1,161 @@
+{
+  "created": [
+    {
+      "at": "2026-10-28T16:07:00.248Z",
+      "kind": "guardrail-entry",
+      "note": "created by guardrails.detect in probe.mjs (observing \"Tests\")",
+      "id": "ec4340c2-3e0f-41ff-bc98-f52166a9305b",
+      "projectId": "3db2ad5b-e6c4-4054-b2ed-a13a8dfa0663"
+    },
+    {
+      "at": "2026-10-28T16:07:00.283Z",
+      "kind": "project-setting",
+      "note": "Tinylink autoReview was absent (off); set enabled, maxRounds 2. Restore to off at the end.",
+      "projectId": "3db2ad5b-e6c4-4054-b2ed-a13a8dfa0663"
+    },
+    {
+      "at": "2026-10-28T16:07:00.304Z",
+      "kind": "guardrail-state",
+      "note": "Tests command set active (observing -> active) so a failure gates the card",
+      "id": "ec4340c2-3e0f-41ff-bc98-f52166a9305b"
+    },
+    {
+      "at": "2026-10-28T16:07:07.566Z",
+      "kind": "card",
+      "key": "A",
+      "id": "7f6077d9-c067-47ad-b2b7-cbbbf46d085a",
+      "workspaceId": "wks_e1038abb97192171",
+      "title": "[guardrails-live A] Add GET /health"
+    },
+    {
+      "at": "2026-10-28T16:07:08.908Z",
+      "kind": "card",
+      "key": "B",
+      "id": "60718c69-8c08-4551-b7c0-182d333e72a8",
+      "workspaceId": "wks_21e598b7a3887d8c",
+      "title": "[guardrails-live B] Add GET /version"
+    },
+    {
+      "at": "2026-10-28T16:07:10.226Z",
+      "kind": "card",
+      "key": "C",
+      "id": "2dd527dd-4228-4b09-8369-f19ed1e53750",
+      "workspaceId": "wks_9371ec88057ca865",
+      "title": "[guardrails-live C] Add GET /ping"
+    },
+    {
+      "at": "2026-10-28T16:07:11.538Z",
+      "kind": "card",
+      "key": "D",
+      "id": "40587c44-25b7-4e99-878d-22fe598a0e97",
+      "workspaceId": "wks_8e732e27daa333dd",
+      "title": "[guardrails-live D] Add a 450-line fixture"
+    },
+    {
+      "at": "2026-10-28T16:07:12.848Z",
+      "kind": "card",
+      "key": "E",
+      "id": "05e20e75-3ae3-4057-9c61-6b0a8dfc6d59",
+      "workspaceId": "wks_d09420d5f8b451ad",
+      "title": "[guardrails-live E] Add GET /echo/:word"
+    },
+    {
+      "at": "2026-10-28T16:07:24.746Z",
+      "kind": "session",
+      "key": "A",
+      "agentId": "023f99c0-d0cb-4edb-aa5c-afe7b9b0b4ee",
+      "cardId": "7f6077d9-c067-47ad-b2b7-cbbbf46d085a",
+      "workspaceId": "wks_e1038abb97192171"
+    },
+    {
+      "at": "2026-10-28T16:56:57.483Z",
+      "kind": "session",
+      "key": "B",
+      "agentId": "728f3678-57ad-4f7c-b076-55cc459c749a",
+      "cardId": "60718c69-8c08-4551-b7c0-182d333e72a8",
+      "workspaceId": "wks_21e598b7a3887d8c"
+    },
+    {
+      "at": "2026-10-28T16:59:10.731Z",
+      "kind": "session",
+      "key": "C",
+      "agentId": "ca9eb07d-c283-47a7-b081-9677486b3c40",
+      "cardId": "2dd527dd-4228-4b09-8369-f19ed1e53750",
+      "workspaceId": "wks_9371ec88057ca865"
+    },
+    {
+      "at": "2026-10-28T16:59:11.288Z",
+      "kind": "session",
+      "key": "D",
+      "agentId": "b6a5d88d-7542-4514-aa7d-4c63b8ffc3af",
+      "cardId": "40587c44-25b7-4e99-878d-22fe598a0e97",
+      "workspaceId": "wks_8e732e27daa333dd"
+    },
+    {
+      "at": "2026-10-28T17:01:31.763Z",
+      "kind": "session",
+      "key": "E",
+      "agentId": "1550c50d-5573-462c-9477-eb97f72ed53f",
+      "cardId": "05e20e75-3ae3-4057-9c61-6b0a8dfc6d59",
+      "workspaceId": "wks_d09420d5f8b451ad"
+    },
+    {
+      "at": "2026-10-28T17:19:42.502Z",
+      "kind": "cleanup",
+      "note": "card deleted with archive (sessions and worktree workspace)",
+      "key": "A",
+      "id": "7f6077d9-c067-47ad-b2b7-cbbbf46d085a",
+      "out": "{\"id\":\"7f6077d9-c067-47ad-b2b7-cbbbf46d085a\",\"backup\":\"~/.paseo/plugin-data/flowly/removed/task-7f6077d9-c067-47ad-b2b7-cbbbf46d085a-2026-10-28T17-19-42-450Z.json\",\"archived\":{\"sessions\":1,\"workspace\":true}}"
+    },
+    {
+      "at": "2026-10-28T17:19:43.627Z",
+      "kind": "cleanup",
+      "note": "card deleted with archive (sessions and worktree workspace)",
+      "key": "B",
+      "id": "60718c69-8c08-4551-b7c0-182d333e72a8",
+      "out": "{\"id\":\"60718c69-8c08-4551-b7c0-182d333e72a8\",\"backup\":\"~/.paseo/plugin-data/flowly/removed/task-60718c69-8c08-4551-b7c0-182d333e72a8-2026-10-28T17-19-43-573Z.json\",\"archived\":{\"sessions\":1,\"workspace\":true}}"
+    },
+    {
+      "at": "2026-10-28T17:19:44.826Z",
+      "kind": "cleanup",
+      "note": "card deleted with archive (sessions and worktree workspace)",
+      "key": "C",
+      "id": "2dd527dd-4228-4b09-8369-f19ed1e53750",
+      "out": "{\"id\":\"2dd527dd-4228-4b09-8369-f19ed1e53750\",\"backup\":\"~/.paseo/plugin-data/flowly/removed/task-2dd527dd-4228-4b09-8369-f19ed1e53750-2026-10-28T17-19-44-752Z.json\",\"archived\":{\"sessions\":1,\"workspace\":true}}"
+    },
+    {
+      "at": "2026-10-28T17:19:46.091Z",
+      "kind": "cleanup",
+      "note": "card deleted with archive (sessions and worktree workspace)",
+      "key": "D",
+      "id": "40587c44-25b7-4e99-878d-22fe598a0e97",
+      "out": "{\"id\":\"40587c44-25b7-4e99-878d-22fe598a0e97\",\"backup\":\"~/.paseo/plugin-data/flowly/removed/task-40587c44-25b7-4e99-878d-22fe598a0e97-2026-10-28T17-19-46-034Z.json\",\"archived\":{\"sessions\":1,\"workspace\":true}}"
+    },
+    {
+      "at": "2026-10-28T17:19:47.482Z",
+      "kind": "cleanup",
+      "note": "card deleted with archive (sessions and worktree workspace)",
+      "key": "E",
+      "id": "05e20e75-3ae3-4057-9c61-6b0a8dfc6d59",
+      "out": "{\"id\":\"05e20e75-3ae3-4057-9c61-6b0a8dfc6d59\",\"backup\":\"~/.paseo/plugin-data/flowly/removed/task-05e20e75-3ae3-4057-9c61-6b0a8dfc6d59-2026-10-28T17-19-47-437Z.json\",\"archived\":{\"sessions\":1,\"workspace\":true}}"
+    },
+    {
+      "at": "2026-10-28T17:19:47.515Z",
+      "kind": "cleanup",
+      "note": "Tinylink autoReview set back to enabled:false (was absent)",
+      "id": "3db2ad5b-e6c4-4054-b2ed-a13a8dfa0663"
+    },
+    {
+      "at": "2026-10-28T17:19:47.535Z",
+      "kind": "cleanup",
+      "note": "guardrail entry created by this run deleted",
+      "id": "ec4340c2-3e0f-41ff-bc98-f52166a9305b"
+    },
+    {
+      "at": "2026-10-28T17:19:47.545Z",
+      "kind": "cleanup",
+      "note": "guardrail entry created by this run deleted",
+      "id": "09e1edb5-b57f-4d0f-aeba-79b86834e182"
+    }
+  ]
+}

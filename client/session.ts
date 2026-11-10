@@ -100,7 +100,6 @@ export async function launchKanbanSession(
       contextFile: string;
       cliPath: string;
       skillPath: string;
-      mcp: { type: "http"; url: string; headers: Record<string, string> };
     }>;
   },
   task: { id: string; title: string; workspaceId: string },
@@ -127,8 +126,8 @@ export async function launchKanbanSession(
     idempotencyKey: `ultra-kanban-session:${preparation.agentId}`,
     config: {
       provider: `${choice.provider}/${choice.model}`,
+      // No `flowly` MCP server here: the session_open hook adds it at each launch.
       systemPrompt: preparation.instructions,
-      mcpServers: { flowly: preparation.mcp },
       ...(choice.mode ? { modeId: choice.mode } : {}),
       ...(choice.thinking ? { thinkingOptionId: choice.thinking } : {}),
       ...(choice.featureValues ? { featureValues: choice.featureValues } : {}),

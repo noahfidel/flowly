@@ -4,7 +4,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer } from "ws";
-import { daemonTarget, LocalDaemonUnavailable, openLocalDaemon } from "./local-daemon";
+import { outsideError } from "./error-report";
+import { daemonTarget, LocalDaemonUnavailable, openLocalDaemon, readListen } from "./local-daemon";
 
 const dirs: string[] = [];
 const servers: Server[] = [];
@@ -55,4 +56,56 @@ test("a daemon on a Unix socket is reached through that socket with the local cr
   const opened = openLocalDaemon(home, "flowly-test", [], "").catch((e: unknown) => e);
   expect(await hello).toContain(token);
   expect(await opened).toBeInstanceOf(Error);
+});
+
+async function paseoHome(pid?: string) {
+  const home = await mkdtemp(join(tmpdir(), "flowly-ld-"));
+  dirs.push(home);
+  if (pid !== undefined) await writeFile(join(home, "paseo.pid"), pid);
+  return home;
+}
+
+test("paseo.pid read while Paseo rewrites it in place is retried until it is complete", async () => {
+  const home = await paseoHome("");
+  const read = readListen(home, 200);
+  // Written after the first read saw it empty, well before the retries run out.
+  await new Promise((r) => setTimeout(r, 25));
+  await writeFile(join(home, "paseo.pid"), '{"pid":1,"listen":"127.0.0.1:6767"}');
+  expect(await read).toBe("127.0.0.1:6767");
+});
+
+test("a paseo.pid that is missing, or still empty or half written after the retries, means no daemon to reach", async () => {
+  await expect(readListen(await paseoHome(), 1)).rejects.toBeInstanceOf(LocalDaemonUnavailable);
+  for (const pid of ["", '{"pid":1,"lis', "null"])
+    await expect(readListen(await paseoHome(pid), 1)).rejects.toBeInstanceOf(LocalDaemonUnavailable);
+});
+
+test("a refused connection to the daemon is unavailable, not a Flowly failure", async () => {
+  const server = createServer();
+  servers.push(server);
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const { port } = server.address() as { port: number };
+  // Nothing listens there any more: the connection is refused.
+  await new Promise((r) => server.close(r));
+  servers.splice(servers.indexOf(server), 1);
+  const home = await paseoHome(JSON.stringify({ pid: 1, listen: `127.0.0.1:${port}` }));
+  await writeFile(join(home, "local-credential"), "a".repeat(43));
+  const error = await openLocalDaemon(home, "flowly-test", [], "").catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(LocalDaemonUnavailable);
+  expect(outsideError(error)).toBe(true);
+});
+
+test("a daemon that rejects the local credential is reported, not treated as unavailable", async () => {
+  const home = await paseoHome();
+  const socketPath = join(home, "d.sock");
+  await writeFile(join(home, "paseo.pid"), JSON.stringify({ pid: 1, listen: socketPath }));
+  await writeFile(join(home, "local-credential"), "a".repeat(43));
+  const server = createServer();
+  servers.push(server);
+  new WebSocketServer({ server, path: "/ws" }).on("connection", (socket) => socket.close(4001, "Incorrect password"));
+  await new Promise<void>((r) => server.listen(socketPath, r));
+  const error = await openLocalDaemon(home, "flowly-test", [], "").catch((e: unknown) => e);
+  expect(error).not.toBeInstanceOf(LocalDaemonUnavailable);
+  expect((error as Error).name).toBe("DaemonAuthenticationError");
+  expect(outsideError(error)).toBe(false);
 });

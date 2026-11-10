@@ -11,15 +11,17 @@ import { BoardService } from "./service";
 import type { SummarySettings } from "../shared/summary";
 import type { CommandRecord, WorkflowSettings } from "../shared/workflow-insights";
 import { BackgroundWorkspaces } from "./background-workspace";
+import { GuardrailsService } from "./guardrails";
+import { emptyCounts, type GuardrailEntry, type GuardrailsState } from "../shared/guardrails";
+import type { RepoFiles } from "./review-detect";
 
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
 });
 const NOW = Date.parse("2026-10-19T12:00:00.000Z");
-const settle = async (service: WorkflowInsightsService, projectId = "p") => {
-  for (let i = 0; i < 100 && (await service.view(projectId)).running; i++) await new Promise((r) => setTimeout(r, 10));
-};
+// Waits for the background backfills and queued analyses themselves, not for a fixed time.
+const settle = (service: WorkflowInsightsService) => service.idle();
 
 async function setup() {
   const root = await realpath(await mkdtemp(join(tmpdir(), "flowly-workflow-")));
@@ -102,6 +104,7 @@ async function setup() {
     removed,
     setSettings: (s: Partial<WorkflowSettings>) => (settings = { ...settings, ...s }),
     setNow: (t: number) => (now = t),
+    now: () => now,
   };
 }
 
@@ -446,3 +449,177 @@ for (const secondLookupFails of [false, true]) {
     expect(x.archived()).toBe(0);
   });
 }
+
+// ---- Guardrails in the weekly run (GUARDRAILS-SPEC §7.3) ---------------------------------
+const day = 86_400_000;
+const g = (id: string, extra: Partial<GuardrailEntry> = {}): GuardrailEntry => ({
+  id,
+  projectId: "p",
+  kind: "guideline",
+  text: `Guideline ${id}`,
+  scope: { types: ["feature"], sizes: ["s"] },
+  state: "active",
+  stateAt: new Date(NOW - day).toISOString(),
+  counts: emptyCounts(),
+  sources: [{ taskId: "aaaaaaaa-1", at: new Date(NOW - day).toISOString(), quote: `words ${id}` }],
+  by: "learned",
+  revision: 1,
+  createdAt: new Date(NOW - day).toISOString(),
+  updatedAt: new Date(NOW - day).toISOString(),
+  ...extra,
+});
+const note = (id: string, extra: Partial<GuardrailEntry> = {}): GuardrailEntry => ({ ...g(id), kind: "note", noteKind: "pitfall", scope: undefined, by: "agent", text: `Note ${id}`, counts: { ...emptyCounts(), usedAt: new Date(NOW - day).toISOString() }, ...extra });
+
+async function withGuardrails(files: Partial<RepoFiles> = {}) {
+  const x = await setup();
+  const guardrails = new GuardrailsService(x.board, () => x.now(), async () => [], () => [], async () => ({ lockfiles: [], cargo: false, goMod: false, packageJson: null, makefile: null, ...files }));
+  x.service.guardrails = guardrails;
+  const seed = (entries: GuardrailEntry[], clues: GuardrailsState["clues"] = []) =>
+    guardrails.store.update((state) => {
+      state.entries.push(...entries);
+      state.clues.push(...clues);
+      return { value: undefined, changed: true };
+    });
+  const entry = async (id: string) => (await guardrails.store.read()).entries.find((e) => e.id === id)!;
+  return { ...x, guardrails, seed, entry };
+}
+
+test("the weekly run reads the Guardrails section, applies valid merges and drops what the model makes up (§7.3)", async () => {
+  const x = await withGuardrails();
+  const caught = new Date(NOW - 2 * day).toISOString();
+  await x.seed([
+    g("11111111-keep", { counts: { ...emptyCounts(), reviews: 4, passes: 3, caught: 1, lastCaughtAt: caught } }),
+    g("22222222-drop", { scope: { types: ["bugfix"], sizes: ["m"] }, counts: { ...emptyCounts(), reviews: 2, caught: 2, misfire: 1, misfireAt: [caught] }, sources: [{ taskId: "bbbbbbbb-2", at: caught, quote: "same thing" }] }),
+    g("33333333-paused", { state: "paused", stateReason: "misfired twice in 30 days" }),
+    note("44444444-note"),
+    note("55555555-note"),
+  ]);
+  await x.log.append("p", records(6, 3));
+  x.replies.push(
+    JSON.stringify({
+      findings: [
+        { target: "guideline", title: "Always run e2e", evidence: "", proposal: "x", benefit: "", confidence: "high", cards: ["aaaaaaaa", "bbbbbbbb"] },
+        { target: "review_rule", title: "Catalog check", evidence: "", proposal: "x", benefit: "", confidence: "high", cards: ["aaaaaaaa", "bbbbbbbb"], rule: { id: "c", name: "C", kind: "llm", prompt: "p" } },
+        { target: "agents_md", title: "Put strings in every catalog", evidence: "#11111111 caught 5+", proposal: "- Every new UI string goes into every catalog.", benefit: "", confidence: "high", cards: ["aaaaaaaa", "bbbbbbbb"] },
+      ],
+      merges: [
+        { keep: "#11111111", drop: "#22222222", why: "Same rule." },
+        { keep: "#44444444", drop: "#11111111", why: "Kinds differ." },
+        { keep: "#11111111", drop: "#33333333", why: "Paused." },
+        { keep: "#44444444", drop: "#99999999", why: "Unknown." },
+        { keep: "#44444444", drop: "#44444444", why: "Itself." },
+      ],
+      guidelines: [{ text: "A guideline the model invented" }],
+      noise: "",
+      verdict: "ok",
+    }),
+  );
+  x.service.run("p", x.paseo, true);
+  await settle(x.service);
+  const prompt = x.created[0]!.prompt;
+  expect(prompt).toContain("# Guardrails");
+  expect(prompt).toContain("#11111111 Guideline 11111111-keep [feature, s] caught 1");
+  expect(prompt).toContain("#44444444 [pitfall] Note 44444444-note");
+  expect(prompt).toContain('"merges"');
+  expect(prompt).toContain("You never add guidelines or commands.");
+  // Only the AGENTS.md suggestion stays; a guideline or rule the model made up is dropped.
+  expect((await x.service.view("p")).findings.map((f) => f.target)).toEqual(["agents_md"]);
+  const kept = await x.entry("11111111-keep");
+  expect(kept).toMatchObject({ state: "active", counts: { reviews: 6, passes: 3, caught: 3, misfire: 1, lastCaughtAt: caught }, scope: { types: ["feature", "bugfix"], sizes: ["s", "m"] } });
+  expect(kept.sources.map((s) => s.taskId)).toEqual(["aaaaaaaa-1", "bbbbbbbb-2"]);
+  expect(await x.entry("22222222-drop")).toMatchObject({ state: "archived", stateReason: "merged", supersededBy: "11111111-keep" });
+  expect(await x.entry("33333333-paused")).toMatchObject({ state: "paused" });
+  expect(await x.entry("44444444-note")).toMatchObject({ state: "active" });
+  const state = await x.guardrails.store.read();
+  expect(state.entries.filter((e) => e.kind === "guideline")).toHaveLength(3);
+  const events = (await x.board.read()).events.filter((e) => e.action === "guardrail_retired");
+  expect(events.map((e) => e.guardrail)).toEqual([{ change: "merged", kind: "guideline", id: "22222222-drop" }]);
+  // Guardrails off for the project: no section, no merges.
+  await x.board.mutate((b) => {
+    b.projects[0]!.memory = false;
+  });
+  x.service.run("p", x.paseo, true);
+  await settle(x.service);
+  expect(x.created.at(-1)!.prompt).not.toContain("# Guardrails");
+});
+
+test("weekly step 1: retirement over every entry, and a guideline caught 5+ times in 30 days is marked for an AGENTS.md rule", async () => {
+  const x = await withGuardrails();
+  const old = new Date(NOW - 100 * day).toISOString();
+  await x.seed([g("66666666-hot"), note("77777777-stale", { createdAt: old, counts: emptyCounts() }), note("88888888-pinned", { createdAt: old, counts: emptyCounts(), pinned: true }), g("99999999-idle", { counts: { ...emptyCounts(), reviews: 20 } })]);
+  const review = (taskId: string, hoursAgo: number, state: string) => ({ id: `rv${taskId}${hoursAgo}`, taskId, at: new Date(NOW - hoursAgo * 3_600_000).toISOString(), actor: "system", action: "review_finished", results: [{ id: "66666666-hot", state, kind: "guideline" }] });
+  const flow = ["aaaaaaaa-1", "bbbbbbbb-2", "cccccccc-3"].flatMap((id, i) => [review(id, 100 + i, "failed"), review(id, 90 + i, "passed"), review(id, 80 + i, "failed"), review(id, 70 + i, "passed")]);
+  await x.board.flow!.append(flow as never, await x.board.read());
+  await x.log.append("p", records(6, 3));
+  x.service.run("p", x.paseo, true);
+  await settle(x.service);
+  expect(x.created[0]!.prompt).toContain("#66666666 Guideline 66666666-hot [feature, s] caught 0 · missed 0 · misfire 0 · reviews 0 · caught 5+ in 30 days");
+  expect(await x.entry("77777777-stale")).toMatchObject({ state: "archived", stateReason: "unused for 90 days" });
+  expect(await x.entry("88888888-pinned")).toMatchObject({ state: "active" });
+  expect(await x.entry("99999999-idle")).toMatchObject({ state: "archived", stateReason: "never caught anything" });
+  const events = (await x.board.read()).events.filter((e) => e.action === "guardrail_retired");
+  expect(events.map((e) => e.guardrail?.id).sort()).toEqual(["77777777-stale", "99999999-idle"]);
+});
+
+test("weekly re-detect: a whitelisted script agents ran on 3 cards in 30 days joins as observing; 2 cards or Auto review off adds none; a missing script pauses (§4.5)", async () => {
+  const packageJson = JSON.stringify({ scripts: { test: "vitest", "test:e2e": "playwright", "lint:css": "stylelint", "dev:watch": "x", build: "tsc" } });
+  const x = await withGuardrails({ packageJson });
+  await x.seed([
+    { ...g("aaaaaaaa-tests"), kind: "command", text: "Tests", argv: ["npm", "run", "test"], scope: undefined, by: "detect" },
+    { ...g("bbbbbbbb-gone"), kind: "command", text: "Typecheck", argv: ["npm", "run", "typecheck"], scope: undefined, by: "detect" },
+  ]);
+  const ran = (n: number, cards: number, action: string, daysAgo = 1): CommandRecord[] =>
+    Array.from({ length: n }, (_, i) => ({ ...records(1, 1)[0]!, id: `${action}:${i}`, at: new Date(NOW - daysAgo * day).toISOString(), taskId: ["aaaaaaaa-1", "bbbbbbbb-2", "cccccccc-3"][i % cards]!, actions: [action] }));
+  const off = await x.guardrails.weekly("p", { records: ran(3, 3, "npm run test:e2e"), commands: false });
+  expect(off.added).toEqual([]);
+  const result = await x.guardrails.weekly("p", { records: [...ran(3, 3, "npm run test:e2e"), ...ran(2, 2, "pnpm run lint:css"), ...ran(3, 3, "npm test")], commands: true });
+  expect(result.added.map((e) => [e.text, e.argv, e.state, e.by, e.observe])).toEqual([["test:e2e", ["npm", "run", "test:e2e"], "observing", "detect", { reviews: 0, passed: 0 }]]);
+  expect(await x.entry("bbbbbbbb-gone")).toMatchObject({ state: "paused", stateReason: "script missing" });
+  expect(await x.entry("aaaaaaaa-tests")).toMatchObject({ state: "active" });
+  // Older than 30 days is no evidence; the same command is never added twice.
+  const again = await x.guardrails.weekly("p", { records: [...ran(3, 3, "npm run test:e2e"), ...ran(3, 3, "yarn lint:css", 40)], commands: true });
+  expect(again.added).toEqual([]);
+});
+
+test("catch-up learning: with card summaries off, one Summary-model call over the week's rework words learns through the same bookkeeping (§7.3)", async () => {
+  const x = await withGuardrails();
+  x.summary.summaryEnabled = false;
+  const at = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
+  const clue = (id: string, taskId: string, h: number, text: string, kind: "feedback" | "message" = "feedback") => ({ id, taskId, projectId: "p", at: at(h), kind, text });
+  await x.seed(
+    [g("12121212-known", { scope: { types: "all", sizes: "all" } })],
+    [
+      clue("c1", "aaaaaaaa-1", 30, "新文案也要进所有语言，zh-TW 又漏了"),
+      clue("c2", "bbbbbbbb-2", 20, "谢谢，提交并推送吧"),
+      clue("c3", "cccccccc-3", 10, "the same i18n problem as before, add the entries"),
+      clue("c4", "cccccccc-3", 5, "A plain follow-up message", "message"),
+      clue("c5", "aaaaaaaa-1", 24 * 9, "an old correction from last month"),
+    ],
+  );
+  await x.log.append("p", records(6, 3));
+  x.replies.push(JSON.stringify({ corrections: [{ n: 1, kind: "new", text: "Every new UI string is in all catalogs" }, { n: 2, kind: "none" }, { n: 3, kind: "same", matches: "#12121212" }] }));
+  x.service.run("p", x.paseo, true);
+  await settle(x.service);
+  expect(x.created).toHaveLength(2);
+  const catchUp = x.created[0]!;
+  expect(catchUp.workspaceId).toBe("bg-ws");
+  expect(catchUp.prompt).toContain("1. (card aaaaaaaa) 新文案也要进所有语言");
+  expect(catchUp.prompt).toContain("#12121212 guideline: Guideline 12121212-known");
+  expect(catchUp.prompt).not.toContain("A plain follow-up message");
+  expect(catchUp.prompt).not.toContain("an old correction");
+  expect(x.removed[0]).toBe("run-1");
+  const state = await x.guardrails.store.read();
+  expect(state.items.map((i) => [i.taskId, i.text, i.quote])).toEqual([["aaaaaaaa-1", "Every new UI string is in all catalogs", "新文案也要进所有语言，zh-TW 又漏了"]]);
+  expect(state.entries.find((e) => e.id === "12121212-known")!.sources.map((s) => s.taskId)).toEqual(["aaaaaaaa-1", "cccccccc-3"]);
+  expect(state.learnedUntil).toEqual({ p: at(10) });
+  // The next run does not learn from the same words again.
+  x.service.run("p", x.paseo, true);
+  await settle(x.service);
+  expect(x.created).toHaveLength(3);
+  // With card summaries on there is no catch-up call.
+  x.summary.summaryEnabled = true;
+  await x.seed([], [clue("c6", "bbbbbbbb-2", 1, "another correction worth learning")]);
+  x.service.run("p", x.paseo, true);
+  await settle(x.service);
+  expect(x.created).toHaveLength(4);
+});

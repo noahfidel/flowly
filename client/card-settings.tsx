@@ -254,7 +254,7 @@ function CardPreview({ display }: { display: ReturnType<typeof cardDisplay> }) {
           progress={sample.progress}
           ideas={1}
           externalKey="SHOP-142"
-          workpad={{ kind: "checks", done: 2, total: 3, count: 0 }}
+          workpad={{ kind: "acceptance", done: 2, total: 3 }}
           display={display}
           onOpen={noop}
           onActions={noop}

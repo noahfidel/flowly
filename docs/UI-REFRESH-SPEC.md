@@ -282,7 +282,7 @@ Verified live: collapse widths 280→141→89→48→44 and expand 44→111→18
 
 ## 7ac. Prominent card priority (2026-10-15, user request)
 
-- Urgent and High cards have a 4 px stripe down the card's left edge (danger red / warning amber) and a tinted pill at the start of the card's signal row (icon + bold label in the same colour). Low shows a muted icon and the word "Low". Normal shows nothing.
+- Urgent and High cards have a 4 px stripe down the card's left edge (danger red / warning amber) and a tinted pill at the start of the card's signal row (icon + bold label in the same colour). Low shows a muted down arrow and the word "Low"; where Normal is shown explicitly (the drawer's priority chip) it is a muted dash. Normal shows nothing.
 - The High glyph is now an amber up arrow (`ArrowUp`, `statusWarning`) instead of a grey signal icon, everywhere `PriorityIcon` is used (card and drawer property chip). `priorityAccent()` in `client/status.tsx` defines which priorities are emphasized.
 - Verified on the live board (`docs/verification/card-priority.png`).
 

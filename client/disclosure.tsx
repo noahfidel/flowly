@@ -38,7 +38,7 @@ export function Disclosure({ title, summary, titleMinWidth, open, disabled, flus
           <Label bold size={font.md} selectable={false}>{title}</Label>
         </View>
         {!!summary && (
-          <View style={titleMinWidth ? { flex: 1, minWidth: 0 } : { flexGrow: 1, flexShrink: 1, minWidth: 0, maxWidth: "50%", alignItems: "flex-end" }}>
+          <View style={titleMinWidth ? { flex: 1, minWidth: 0 } : { flexShrink: 1, minWidth: 0, maxWidth: "50%", marginLeft: "auto" }}>
             <Label muted size={font.sm} lines={1} selectable={false}>{summary}</Label>
           </View>
         )}

@@ -1,6 +1,6 @@
 {
   "name": "paseo-flowly",
-  "version": "1.7.2",
+  "version": "1.8.0",
   "description": "Flowly: the agent-native workflow for Paseo",
   "keywords": [
     "paseo",
@@ -43,14 +43,14 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude 'docs/verification/**'",
-    "dev": "vitest --exclude 'docs/verification/**'",
+    "test": "vitest run --testTimeout=15000 --exclude 'docs/verification/**' --exclude '.claude/**'",
+    "dev": "vitest --exclude 'docs/verification/**' --exclude '.claude/**'",
     "test:ci": "node --test server/ci/release.checks.mjs",
     "ci:package": "node server/ci/package.mjs"
   },
   "devDependencies": {
-    "@getpaseo/plugin": "0.13.2",
-    "@getpaseo/protocol": "0.13.2",
+    "@getpaseo/plugin": "0.15.0",
+    "@getpaseo/protocol": "0.15.0",
     "@tanstack/react-query": "^5.90.11",
     "@types/node": "^22.0.0",
     "@types/react": "~19.2.0",
@@ -61,7 +61,7 @@
     "zod": "^4.4.3"
   },
   "dependencies": {
-    "@getpaseo/client": "0.13.2",
+    "@getpaseo/client": "0.15.0",
     "@modelcontextprotocol/node": "2.1.1",
     "@modelcontextprotocol/server": "2.3.1",
     "ws": "8.22.0"

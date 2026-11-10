@@ -147,6 +147,82 @@ const exists = (path: string) =>
     () => null,
   );
 
+/**
+ * One row of the dsh-web provider's per-session usage log
+ * (`<PASEO_HOME>/plugin-data/dsh-web-provider/usage/<sessionId>.jsonl`): the
+ * provider appends one row per finished turn (USAGE-STATS-SPEC §dsh-web).
+ */
+interface DshUsageRow {
+  time?: unknown;
+  turnId?: unknown;
+  inputTokens?: unknown;
+  cachedInputTokens?: unknown;
+  outputTokens?: unknown;
+  startedAt?: unknown;
+  endedAt?: unknown;
+}
+
+/**
+ * The session id the dsh-web provider keys its usage log by: the DSH session
+ * id, which for a plugin provider arrives inside the persistence handle Paseo
+ * exposes as runtimeInfo.sessionId — `plugin:{"version":1,"data":{"sessionId":
+ * "session-…"}}`. Anything else (a bare UUID-shaped id from older records) is
+ * used as-is; path-unsafe shapes are refused.
+ */
+export function dshLookupId(sessionId: string): string | null {
+  if (sessionId.startsWith("plugin:")) {
+    try {
+      const handle = JSON.parse(sessionId.slice("plugin:".length)) as {
+        data?: { sessionId?: unknown };
+      };
+      const inner = handle.data?.sessionId;
+      return typeof inner === "string" && /^[A-Za-z0-9_-]+$/.test(inner) ? inner : null;
+    } catch {
+      return null;
+    }
+  }
+  return /^[A-Za-z0-9_-]+$/.test(sessionId) ? sessionId : null;
+}
+
+/**
+ * Aggregates the dsh-web provider's per-session usage log (one JSON row per
+ * finished turn). Only provider-authored rows — those carrying a non-empty
+ * `turnId` — count as turns, so stray JSON lines in the log cannot inflate the
+ * count; tokenless turn rows still count (a failed turn is a turn) but enter
+ * no bucket, so zero-token rows never pollute the 15-minute buckets.
+ */
+export async function readDshLog(path: string): Promise<LogUsage> {
+  const tokens = zeroUsage();
+  let turns = 0;
+  let activeMs = 0;
+  const buckets: TokenBuckets = new Map();
+  for await (const row of lines(path) as AsyncGenerator<DshUsageRow>) {
+    if (row === null || typeof row !== "object" || Array.isArray(row)) continue;
+    if (typeof row.turnId !== "string" || row.turnId === "") continue;
+    turns += 1;
+    const rowTokens = {
+      input: Math.max(0, num(row.inputTokens)),
+      cacheRead: Math.max(0, num(row.cachedInputTokens)),
+      cacheWrite: 0,
+      output: Math.max(0, num(row.outputTokens)),
+      reasoning: 0,
+    };
+    tokens.input += rowTokens.input;
+    tokens.cacheRead += rowTokens.cacheRead;
+    tokens.output += rowTokens.output;
+    const carriesTokens = rowTokens.input + rowTokens.cacheRead + rowTokens.output > 0;
+    const rowTime = time(row.time);
+    const at = Number.isFinite(rowTime) ? rowTime : time(row.endedAt);
+    if (carriesTokens && Number.isFinite(at)) addTo(buckets, at, rowTokens);
+    const started = time(row.startedAt);
+    const ended = time(row.endedAt);
+    if (Number.isFinite(started) && Number.isFinite(ended) && ended > started) {
+      activeMs += ended - started;
+    }
+  }
+  return { tokens, turns, activeMs, buckets };
+}
+
 /** Finds provider logs by session ID, independent of the Paseo provider name. */
 export class LogLocator {
   private codexIndex = new Map<string, string>();
@@ -155,7 +231,16 @@ export class LogLocator {
     readonly claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
     readonly codexHome = process.env.CODEX_HOME || join(homedir(), ".codex"),
     private now = () => Date.now(),
+    readonly dshUsageHome = process.env.PASEO_HOME || join(homedir(), ".paseo"),
   ) {}
+
+  /** The dsh-web provider's per-session usage log, when one exists. */
+  async dsh(sessionId: string): Promise<string | null> {
+    const id = dshLookupId(sessionId);
+    if (id === null) return null;
+    const path = join(this.dshUsageHome, "plugin-data", "dsh-web-provider", "usage", `${id}.jsonl`);
+    return (await exists(path))?.isFile() ? path : null;
+  }
 
   async claude(sessionId: string): Promise<{ path: string; subagents: string[] } | null> {
     const projects = join(this.claudeHome, "projects");
@@ -262,7 +347,12 @@ export class UsageService {
         const usage = await this.cached([codex], () => readCodexLog(codex));
         return { ...base, source: "codex", tokens: usage.tokens, turns: usage.turns, activeMs: usage.activeMs };
       }
-      return { ...base, note: "No local Claude Code or Codex log for this session." };
+      const dsh = await this.locator.dsh(sessionId);
+      if (dsh) {
+        const usage = await this.cached([dsh], () => readDshLog(dsh));
+        return { ...base, source: "dsh-web", tokens: usage.tokens, turns: usage.turns, activeMs: usage.activeMs };
+      }
+      return { ...base, note: "No local Claude Code, Codex or dsh-web log for this session." };
     } catch (e) {
       return { ...base, note: `Could not read its log: ${e instanceof Error ? e.message : String(e)}` };
     }
@@ -278,8 +368,10 @@ export class UsageService {
       return this.cache.get(claude.path)?.value.buckets || null;
     }
     const codex = await this.locator.codex(sessionId);
-    if (!codex) return null;
-    return (await this.cached([codex], () => readCodexLog(codex))).buckets;
+    if (codex) return (await this.cached([codex], () => readCodexLog(codex))).buckets;
+    const dsh = await this.locator.dsh(sessionId);
+    if (!dsh) return null;
+    return (await this.cached([dsh], () => readDshLog(dsh))).buckets;
   }
 
   async task(taskId: string, paseo: PaseoApi): Promise<TaskUsage> {

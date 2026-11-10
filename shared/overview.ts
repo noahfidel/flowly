@@ -20,7 +20,7 @@ export const cardFactsSchema = z.strictObject({
   questions: z.number().int().nonnegative(),
   openIdeas: z.number().int().nonnegative(),
   external: z.strictObject({ text: z.string(), family: z.enum(connectorFamilies) }).optional(),
-  workpad: z.strictObject({ kind: z.enum(["delivered", "failed", "stale", "checks", "acceptance"]), done: z.number(), total: z.number(), count: z.number() }).nullable(),
+  workpad: z.strictObject({ kind: z.literal("acceptance"), done: z.number(), total: z.number() }).nullable(),
   finishedAt: z.string(),
   turnEndedAt: z.string().optional(),
   hasArtifacts: z.boolean(),

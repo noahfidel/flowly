@@ -8,6 +8,11 @@ import { cardActivityModes } from "./card-display";
 import { linearColumns } from "./linear-board";
 import { defaultDeliveryMode, deliveryModes } from "./delivery-mode";
 import { agentModelSchema } from "./agent-defaults";
+import { memoryKinds } from "./memory";
+
+/** The Memory page's sort orders (GUARDRAILS-SPEC §7.4). */
+export const memorySorts = ["newest", "used", "recent"] as const;
+export type MemorySort = (typeof memorySorts)[number];
 
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
@@ -71,6 +76,10 @@ export const boardViewSettings = defineSettings({
     chatExpanded: z.boolean().catch(false).default(false),
     /** The docked dispatcher chat's width as last dragged, in points; 0 = never dragged, the default width (DISPATCHER-SPEC §9.3). */
     chatWidth: z.number().min(0).max(10000).catch(0).default(0),
+    /** The Memory page's kind filter, sort and wide-screen layout (GUARDRAILS-SPEC §7.4). */
+    memoryKind: z.enum(["all", ...memoryKinds]).catch("all").default("all"),
+    memorySort: z.enum(memorySorts).catch("newest").default("newest"),
+    memoryLayout: z.enum(["list", "grid"]).catch("list").default("list"),
   }),
 });
 

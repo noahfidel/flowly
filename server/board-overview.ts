@@ -50,7 +50,7 @@ export function boardOverview(board: Board): BoardOverview {
       questions: cardQuestions(task, own).length,
       openIdeas: board.ideas.filter(i => i.taskId === task.id && i.status === "open").length,
       ...(external.length ? { external: { ...external[0], text: external.length > 1 ? `${external[0].text} +${external.length - 1}` : external[0].text } } : {}),
-      workpad: workpadSignal(task, workpad, own),
+      workpad: workpadSignal(workpad),
       finishedAt,
       ...(turnEndedAt ? { turnEndedAt } : {}),
       hasArtifacts: artifacts.length > 0,

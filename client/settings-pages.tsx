@@ -220,7 +220,57 @@ export function ModelsPage({ active }: { active: boolean }) {
         invalidText={t("The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.")}
       />
       <SummaryModelGroup active={active} />
+      <ReviewModelGroup active={active} />
     </SettingsPage>
+  );
+}
+
+/** The auto review session's model (AUTO-REVIEW-SPEC §12.4); Default: the project's default model, then the summary models. */
+function ReviewModelGroup({ active }: { active: boolean }) {
+  const paseo = usePaseo();
+  const summary = useStored(useSettings(summarySettings), summarySettingsValues);
+  const stored = summary.values?.reviewModel || AUTO;
+  const storedProvider = stored ? stored.slice(0, stored.indexOf("/")) : AUTO;
+  const [provider, setProvider] = useState(storedProvider);
+  useEffect(() => setProvider(storedProvider), [storedProvider]);
+  const providers = useQuery({ queryKey: ["flowly", "providers"], queryFn: () => paseo.providers.listAvailable(), enabled: active });
+  const providerInfo = useQuery({ queryKey: ["flowly", "providerSnapshot"], queryFn: () => paseo.providers.snapshot(), enabled: active, staleTime: 60000 });
+  const models = useQuery({
+    queryKey: ["flowly", "review-models", provider],
+    queryFn: async () => {
+      const result = await paseo.providers.listModels(provider);
+      if (result.error) throw new Error(result.error);
+      return result;
+    },
+    enabled: active && provider !== AUTO,
+  });
+  const defaultLabel = t("Project default model");
+  return (
+    <SettingsGroup title={t("Review model")}>
+      <SettingSelect
+        title={t("Provider")}
+        value={provider}
+        placeholder={defaultLabel}
+        disabled={summary.busy}
+        loading={providers.isPending}
+        options={[{ value: AUTO, label: defaultLabel }, ...providerOptions(providers.data?.providers || [], providerInfo.data?.entries || [])]}
+        onChange={(next) => {
+          setProvider(next);
+          if (next === AUTO) summary.save({ reviewModel: "" });
+        }}
+      />
+      {provider !== AUTO && (
+        <SettingSelect
+          title={t("Model")}
+          value={stored.startsWith(`${provider}/`) ? stored.slice(provider.length + 1) : ""}
+          placeholder={t("Choose a model")}
+          disabled={summary.busy}
+          loading={models.isPending}
+          options={modelOptions(models.data?.models || [])}
+          onChange={(model) => summary.save({ reviewModel: `${provider}/${model}` })}
+        />
+      )}
+    </SettingsGroup>
   );
 }
 
@@ -556,23 +606,24 @@ export function AiPage() {
   );
 }
 
-/** Project memory as a whole and its finished-card review (Settings → AI features and the welcome tour). */
+/** Guardrails as a whole (the `memory` feature key) and the finished-card review (Settings → AI features and the welcome tour). */
 export function MemoryFeatureGroup({ bare = false }: { bare?: boolean }) {
   const summary = useStored(useSettings(summarySettings), summarySettingsValues);
   const features = useStored(useSettings(featureSettings), featureSettingsValues);
   const on = features.values?.memory ?? true;
   return (
     <SettingsGroup
-      title={bare ? undefined : t("Project memory")}
+      title={bare ? undefined : t("Guardrails")}
     >
       <SettingSwitch
-        title={t("Project memory")}
+        title={t("Guardrails")}
+        detail={t("Flowly remembers what you send cards back for and checks the next cards for it. Learning uses a few tokens per card.")}
         value={on}
         disabled={features.busy}
         onChange={(memory) => features.save({ memory })}
       />
       <SettingSwitch
-        title={t("Find memories in finished cards")}
+        title={t("Find memory in finished cards")}
         detail={aiCostText("memoryReview", summaryModelOf(summary.values))}
         value={on && (summary.values?.retroEnabled ?? true)}
         disabled={summary.busy || !on}

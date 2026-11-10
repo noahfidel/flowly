@@ -3,6 +3,7 @@ import { openReport, silentTurn } from "./progress";
 import { parseQuestions, pendingRequests, showsTextInput, type PendingRequest } from "./permission-question";
 import { sessionSpeed, type ProviderFeature } from "./agent-speed";
 import { isDismissed, sessionSignalParts, type AskKind, type AskState, type AttentionDismissal, type SignalPart } from "./attention-dismiss";
+import { reviewSignal, reviewing } from "./auto-review";
 
 export { askStates, type AskKind, type AskState } from "./attention-dismiss";
 import {
@@ -25,6 +26,8 @@ export type AttentionItem = {
   asks: number;
   /** Unread sessions whose last turn ended without any Kanban report (M2). */
   silent: number;
+  /** A finished automatic review waiting for a person (AUTO-REVIEW-SPEC §7). */
+  review: "failed" | "unavailable" | null;
   /** Set when exactly one session needs attention, so it can be opened directly. */
   sessionId: string | null;
   updatedAt: string;
@@ -87,6 +90,9 @@ export function attentionItemsWithFacts(
     const project = board.projects.find((p) => p.id === task.projectId);
     if (!project || project.archivedAt) continue;
     const record = board.attentionDismissals?.find((d) => d.taskId === task.id);
+    // A running review holds the card's unread sessions back until it finishes (AUTO-REVIEW-SPEC §3.2).
+    const held = reviewing(task);
+    const review = reviewSignal(task);
     const flagged = agents
       .filter((a) => a.workspaceId === task.workspaceId && !a.archivedAt)
       .map((agent) => ({
@@ -95,7 +101,7 @@ export function attentionItemsWithFacts(
       }))
       .map(({ agent, facts }) => {
         const state = sessionAttentionFromTurn(agent, task.id, receipts, facts?.latestTurn);
-        const unread = !readUnavailable && state.unread && !state.permission && !state.error;
+        const unread = !readUnavailable && !held && state.unread && !state.permission && !state.error;
         const requests = state.permission ? pendingRequests(agent) : [];
         const parts = sessionSignalParts({
           agent,
@@ -122,7 +128,7 @@ export function attentionItemsWithFacts(
         };
       })
       .filter((s) => s.permission || s.error || s.question || s.blocker || s.unread);
-    if (!flagged.length) continue;
+    if (!flagged.length && !review) continue;
     const parts: AttentionPart[] = flagged.flatMap((s) =>
       s.parts.map((p) => ({
         ...p,
@@ -130,7 +136,9 @@ export function attentionItemsWithFacts(
         dismissed: !!record?.signals.includes(p.key),
       })),
     );
-    const signals = parts.map((p) => p.key);
+    // A finished review waiting for a person is a signal of the card, not of one session: it counts for dismissal
+    // but is not one of the sessions' asks (AUTO-REVIEW-SPEC §7).
+    const signals = [...parts.map((p) => p.key), ...(review ? [review.key] : [])];
     items.push({
       task,
       project,
@@ -141,11 +149,12 @@ export function attentionItemsWithFacts(
       asks: flagged.filter((s) => s.asks).length,
       blockers: flagged.filter((s) => s.blocker).length,
       silent: flagged.filter((s) => s.silent && !s.question && !s.blocker).length,
+      review: review?.state ?? null,
       sessionId: flagged.length === 1 ? flagged[0].agent.id : null,
       updatedAt: flagged
         .map((s) => s.agent.updatedAt || "")
         .sort()
-        .at(-1) || "",
+        .at(-1) || (review ? task.review?.finishedAt || "" : ""),
       signals,
       parts,
       dismissed: isDismissed(signals, record),
@@ -153,8 +162,8 @@ export function attentionItemsWithFacts(
   }
   return items.sort(
     (a, b) =>
-      Number(!!(b.permissions || b.errors || b.questions || b.blockers)) -
-        Number(!!(a.permissions || a.errors || a.questions || a.blockers)) ||
+      Number(!!(b.permissions || b.errors || b.questions || b.blockers || b.review === "failed")) -
+        Number(!!(a.permissions || a.errors || a.questions || a.blockers || a.review === "failed")) ||
       b.updatedAt.localeCompare(a.updatedAt),
   );
 }

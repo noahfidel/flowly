@@ -5,8 +5,17 @@ import { githubAdapter } from "./github";
 import { gitlabAdapter } from "./gitlab";
 import { jiraAdapter } from "./jira";
 import { linearAdapter } from "./linear";
+import { shortcutAdapter } from "./shortcut";
 import type { ConnectorAdapter } from "./types";
 
-const adapters = { jira: jiraAdapter, confluence: confluenceAdapter, github: githubAdapter, gitlab: gitlabAdapter, azure: azureAdapter, linear: linearAdapter } as const;
+const adapters = {
+  jira: jiraAdapter,
+  confluence: confluenceAdapter,
+  github: githubAdapter,
+  gitlab: gitlabAdapter,
+  azure: azureAdapter,
+  linear: linearAdapter,
+  shortcut: shortcutAdapter,
+} as const;
 
 export const adapterFor = (provider: ConnectorProvider): ConnectorAdapter => adapters[familyOf(provider)];

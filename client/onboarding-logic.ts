@@ -1,6 +1,6 @@
 /** Pure decisions for first-run guidance (ONBOARDING-SPEC). No React, no storage. */
 
-/** How it works, Built in, Project memory, Insights, Ready (ONBOARDING-SETUP-SPEC §3). */
+/** How it works, Built in, Guardrails, Insights, Ready (ONBOARDING-SETUP-SPEC §3). */
 export const welcomePageCount = 5;
 
 /** Page index after a Back/Next step, kept inside the tour. */
@@ -29,7 +29,7 @@ export function welcomeDecision(input: {
   return input.blocked ? "wait" : "show";
 }
 
-export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents", "card-display", "first-workflow-insight", "attention-dismiss", "sidebar-order", "connectors", "session-history", "ai-language", "summary-models", "first-skill-draft", "first-memory-candidate", "search", "quick-task", "all-projects", "settings-entry", "dispatcher", "idea-discuss"] as const;
+export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "project-menu", "first-workpad", "subagents", "card-display", "first-workflow-insight", "attention-dismiss", "sidebar-order", "connectors", "session-history", "ai-language", "summary-models", "first-skill-draft", "search", "quick-task", "all-projects", "settings-entry", "dispatcher", "idea-discuss", "lane-swipe", "auto-review", "first-guardrail"] as const;
 export type TipId = (typeof tipIds)[number];
 
 export interface TipFacts {
@@ -80,14 +80,18 @@ export interface TipFacts {
   /** The current project has 3 or more finished cards and no card is open, so Insights has history to show (INSIGHTS-REDESIGN-SPEC §8). */
   /** An open skill draft in the current project, Insights and Skills on (INSIGHTS-REDESIGN-SPEC §5). */
   skillDraft: boolean;
-  /** The current project has a project-memory candidate waiting for review (PROJECT-MEMORY-SPEC §11). */
-  memoryCandidate: boolean;
   /** The current project shows 10 or more cards and no card is open, so there is history to search (SEARCH-SPEC §8). */
   searchable: boolean;
   /** The current project has a card, no card is open and the dispatcher chat is closed (DISPATCHER-SPEC §9.3). */
   dispatcherIntro: boolean;
   /** The current project has an open idea and the board can open the dispatcher chat (DISPATCHER-SPEC §9.5). */
   ideaDiscuss: boolean;
+  /** A card of the current project shows an automatic review state and no card is open (AUTO-REVIEW-SPEC §9.1). */
+  reviewShown: boolean;
+  /** The current project learned a guideline from cards sent back, this week, and no card is open (GUARDRAILS-SPEC §10). */
+  learnedGuideline: boolean;
+  /** A phone board (iOS/Android) shows two or more lanes, the project has cards, and no card or page is open (UI-UX-SPEC §5, lane swipe). */
+  laneSwipe: boolean;
 }
 
 /** Banner tips; `settings-entry` is the callout by the settings button instead (settingsHintDue). */
@@ -116,18 +120,20 @@ const tipFact: Record<Exclude<TipId, "settings-entry">, keyof TipFacts> = {
   "ai-language": "hasSummary",
   "summary-models": "hasSummary",
   "first-skill-draft": "skillDraft",
-  "first-memory-candidate": "memoryCandidate",
   search: "searchable",
   "quick-task": "hasCard",
   dispatcher: "dispatcherIntro",
   "idea-discuss": "ideaDiscuss",
+  "auto-review": "reviewShown",
+  "first-guardrail": "learnedGuideline",
+  "lane-swipe": "laneSwipe",
 };
 
 /** The one tip to show now: first in priority order whose fact holds and that was not shown before. */
 export function nextTip(input: { tipsSeen: readonly string[]; facts: TipFacts; blocked: boolean }): TipId | null {
   if (input.blocked) return null;
   // Waiting for the user outranks introductions; the answer-in-session tip is the more specific one.
-  const order: Exclude<TipId, "settings-entry">[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "first-workpad", "subagents", "first-idea", "idea-discuss", "first-memory-candidate", "first-skill-draft", "first-workflow-insight", "ai-language", "summary-models", "first-artifact", "first-ticket", "first-tag", "first-card", "dispatcher", "card-display", "search", "connectors", "session-history", "sidebar-order", "project-menu", "all-projects", "jira-connect", "quick-task"];
+  const order: Exclude<TipId, "settings-entry">[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "auto-review", "first-guardrail", "first-workpad", "subagents", "first-idea", "idea-discuss", "first-skill-draft", "first-workflow-insight", "ai-language", "summary-models", "first-artifact", "first-ticket", "first-tag", "first-card", "dispatcher", "lane-swipe", "card-display", "search", "connectors", "session-history", "sidebar-order", "project-menu", "all-projects", "jira-connect", "quick-task"];
   return order.find((id) => input.facts[tipFact[id]] && !input.tipsSeen.includes(id)) ?? null;
 }
 
@@ -207,16 +213,5 @@ export function loopAutoStep(s: {
   if (s.idea === "task" || s.idea === "dismissed") return { cue: "restart", wait: 4000 };
   if (s.idea === "open") return { cue: "idea", wait: 1500 };
   if (s.turn === 0) return s.draft ? { cue: "send", wait: 800 } : { cue: "move", wait: 1500 };
-  return null;
-}
-
-/** The Project memory demo (page 3): suggested → confirmed → a new card's session uses it. */
-export type MemoryPhase = "suggested" | "confirmed" | "working" | "used" | "dismissed";
-export type MemoryAutoStep = { cue: "confirm" | "restart"; wait: number };
-
-/** Autoplay presses Confirm, lets the new card's session run by itself, then starts over. */
-export function memoryAutoStep(phase: MemoryPhase): MemoryAutoStep | null {
-  if (phase === "suggested") return { cue: "confirm", wait: 1500 };
-  if (phase === "used" || phase === "dismissed") return { cue: "restart", wait: 4000 };
   return null;
 }

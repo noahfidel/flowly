@@ -36,7 +36,7 @@ export const sessionUsageSchema = z.object({
   provider: z.string(),
   model: z.string(),
   summarizer: z.boolean(),
-  source: z.enum(["claude", "codex"]).nullable(),
+  source: z.enum(["claude", "codex", "dsh-web"]).nullable(),
   tokens: tokenUsageSchema.nullable(),
   turns: z.number(),
   activeMs: z.number(),

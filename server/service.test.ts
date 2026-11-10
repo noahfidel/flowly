@@ -123,6 +123,8 @@ test("new board project links the exact native Paseo root and persists only that
     paseoProjectId: "new-native",
     primaryPath: nativeRoot,
     repos: [nativeRoot],
+    // Auto review is on for new projects (GUARDRAILS-SPEC D1).
+    autoReview: { enabled: true, maxRounds: 2 },
   });
   await expect(
     x.service.createProject(
@@ -173,6 +175,8 @@ test("worktree originates from native root and default base resolves its named b
     x.paseo,
   );
   expect(card.sourcePath).toBe(x.a);
+  // Kept on the card for the review's own change (GUARDRAILS-SPEC §6.2).
+  expect(card.baseRef).toBe("refs/heads/root-main");
   expect(x.create.mock.calls[0][0]).toMatchObject({
     source: {
       kind: "worktree",

@@ -1,11 +1,13 @@
 import { localizedLabels, msg, t } from "../shared/i18n";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { legacyStatus, type HistoryStatus, type Status, type Task, type TaskType } from "../shared/model";
+import { legacyStatus, priorityLabels, type HistoryStatus, type Status, type Task, type TaskType } from "../shared/model";
 import type { CardWorkspace } from "../shared/card-display";
 import { tint, useTheme } from "./ui";
 
 type Colors = PluginTheme["colors"];
+
+export { priorityLabels };
 
 const statusGlyph: Record<Status, { icon: string; color(c: Colors): string }> = {
   backlog: { icon: "CircleDashed", color: (c) => c.foregroundMuted },
@@ -33,14 +35,8 @@ const priorityGlyph: Record<Priority, { icon: string; color(c: Colors): string }
   urgent: { icon: "TriangleAlert", color: (c) => c.statusDanger },
   high: { icon: "ArrowUp", color: (c) => c.statusWarning },
   normal: null,
-  low: { icon: "SignalLow", color: (c) => c.foregroundMuted },
+  low: { icon: "ArrowDown", color: (c) => c.foregroundMuted },
 };
-export const priorityLabels: Record<Priority, string> = localizedLabels({
-  urgent: msg("Urgent"),
-  high: msg("High"),
-  normal: msg("Normal"),
-  low: msg("Low"),
-});
 
 /** The emphasis colour of a priority that deserves attention (Urgent, High), else null. */
 export function priorityAccent(colors: Colors, priority: Priority): string | null {
@@ -50,7 +46,7 @@ export function priorityAccent(colors: Colors, priority: Priority): string | nul
 /** Renders nothing for Normal priority: the default carries no signal. */
 export function PriorityIcon({ priority, size = 14, always = false }: { priority: Priority; size?: number; always?: boolean }) {
   const { colors } = useTheme();
-  const glyph = priorityGlyph[priority] || (always ? { icon: "SignalMedium", color: (c: Colors) => c.foregroundMuted } : null);
+  const glyph = priorityGlyph[priority] || (always ? { icon: "Minus", color: (c: Colors) => c.foregroundMuted } : null);
   if (!glyph) return null;
   return <Icon name={glyph.icon} size={size} color={glyph.color(colors)} />;
 }

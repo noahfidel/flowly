@@ -17,16 +17,8 @@ const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
 });
-// Wait until a background run has stored its entry or error; a fixed sleep is too short on a loaded CI runner.
-const settle = async (x: { digests: DigestStore }) => {
-  const deadline = Date.now() + 10_000;
-  for (;;) {
-    const state = await x.digests.read();
-    if (state.entries.length || state.errors.length) return;
-    if (Date.now() > deadline) throw new Error("background run did not finish");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-};
+// Waits for the background digest runs themselves, not for a fixed time.
+const settle = (x: { service: InsightsService }) => x.service.idle();
 const NOW = Date.parse("2026-10-16T12:00:00.000Z");
 
 async function setup() {
@@ -174,14 +166,7 @@ test("one digest per project at a time: days picked meanwhile generate only the 
   expect(waiting.running).toBe(false);
   x.service.refresh({ projectId: "p", tz: "UTC", day: "2026-10-13" }, x.paseo);
   expect((await x.service.digest({ projectId: "p", tz: "UTC", day: "2026-10-13" }, x.paseo)).running).toBe(true);
-  // Both runs are done once 10-15 stored its entry and 10-13 its error.
-  const deadline = Date.now() + 10_000;
-  for (;;) {
-    const done = await x.digests.read();
-    if (done.entries.length && done.errors.length) break;
-    if (Date.now() > deadline) throw new Error("background runs did not finish");
-    await new Promise((r) => setTimeout(r, 10));
-  }
+  await settle(x);
   const state = await x.digests.read();
   expect(state.entries.map((e) => e.day)).toEqual(["2026-10-15"]);
   // 10-14 was replaced while waiting and never ran; 10-13 ran after 10-15 (and found nothing to summarize).

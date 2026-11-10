@@ -72,6 +72,9 @@ export type WindowCounts = {
   c_memory_proposed: number;
   c_memory_confirmed: number;
   c_wrapups: number;
+  c_reviews: number;
+  c_reviews_failed: number;
+  c_user_actions: number;
   models: Record<string, number>;
 };
 
@@ -93,11 +96,15 @@ export function countWindow(events: readonly FlowEntry[], memoryConfirmedAt: rea
     c_memory_proposed: 0,
     c_memory_confirmed: 0,
     c_wrapups: 0,
+    c_reviews: 0,
+    c_reviews_failed: 0,
+    c_user_actions: 0,
     models: {},
   };
   const models = new Map<string, number>();
   for (const e of events) {
     if (!inside(e.at)) continue;
+    if (e.actor === "human" || (e.action === "agent.turn_ended" && e.byUser)) c.c_user_actions++;
     switch (e.action) {
       case "created": c.c_cards_created++; break;
       case "agent.turn_ended":
@@ -113,6 +120,11 @@ export function countWindow(events: readonly FlowEntry[], memoryConfirmedAt: rea
       case "idea_dismissed": c.c_ideas_dismissed++; break;
       case "memory_proposed": c.c_memory_proposed++; break;
       case "wrapped_up": c.c_wrapups++; break;
+      case "review_finished":
+        if (!e.results?.length) break;
+        c.c_reviews++;
+        if (e.results.some((r) => r.gating !== false && r.state === "failed")) c.c_reviews_failed++;
+        break;
     }
   }
   c.c_memory_confirmed = memoryConfirmedAt.filter(inside).length;
@@ -156,8 +168,12 @@ export type TelemetrySnapshot = {
     archiveOnDelete: boolean;
     workflowInsights: boolean;
     summary: boolean;
+    /** Some active project has Auto review on (AUTO-REVIEW-SPEC). */
+    autoReview: boolean;
   };
   projects: number;
+  /** Active guidelines across unarchived projects (GUARDRAILS-SPEC §10). */
+  guardrails: number;
   cardsOpen: number;
 };
 
@@ -183,7 +199,9 @@ export function heartbeatProperties(s: TelemetrySnapshot, counts: WindowCounts, 
     f_archive_on_delete: s.features.archiveOnDelete,
     f_workflow_insights: s.features.workflowInsights,
     f_summary: s.features.summary,
+    f_auto_review: s.features.autoReview,
     projects: bucket(s.projects),
+    c_guardrails: bucket(s.guardrails),
     cards_open: bucket(s.cardsOpen),
     ...counts,
     ...(windowDays !== undefined ? { window_days: windowDays } : {}),
@@ -242,7 +260,7 @@ export type TelemetryDeps = {
   /** The `telemetry` setting; unreadable settings count as on (the default). */
   enabled(): Promise<boolean>;
   snapshot(): Promise<TelemetrySnapshot>;
-  /** Flow-log entries of every project, and memory confirmation times. */
+  /** Flow-log entries of every project, and when each active note became active. */
   activity(): Promise<{ events: FlowEntry[]; memoryConfirmedAt: string[] }>;
 };
 

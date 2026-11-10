@@ -4,6 +4,7 @@ import { relations } from "./links";
 import { setupItems } from "./card-setup";
 import { connectorProviderSchema, itemTypeSchema } from "./connectors";
 import { memoryKinds, memoryLimits } from "./memory";
+import { guardrailScopeSchema } from "./guardrails";
 import { agentSearchSources, searchLimits } from "./search";
 import {
   taskSchema,
@@ -27,12 +28,14 @@ import {
   nextMoveTargets,
   workpadLimits,
   workpadItemId,
-  checkStates,
   acceptanceItemSchema,
-  validationItemSchema,
-  confusionItemSchema,
-  gitHeadSchema,
   planStatuses,
+  reviewStates,
+  reviewSchema,
+  reviewItemKinds,
+  reviewItemStates,
+  changeShapeSchema,
+  disputeLimits,
 } from "./model";
 
 export const agentStatuses = ["design", "development", "test", "blocked", "in_review", "committed", "integrated"] as const;
@@ -111,8 +114,18 @@ export const statusInputSchema = z.strictObject({
     .boolean()
     .optional()
     .describe(
-      "Only after this session has received WORKPAD_OPEN or SETUP_INCOMPLETE for the current card/workpad/HEAD: review the list, finish what you can, then retry with true and a note explaining every remaining item. Pre-setting true on the first attempt never bypasses the gate.",
+      "Only after this session has received SETUP_INCOMPLETE for the current card and acceptance list: set what you can, then retry with true and a note explaining why the rest is still missing. Pre-setting true on the first attempt never bypasses it.",
     ),
+  disputes: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1).max(40).describe("The id of a finding that failed in this card's latest auto review (get_task guardrails.lastReview), or one you already disputed."),
+        reason: z.string().trim().min(1).max(disputeLimits.reason).describe("Why the finding is wrong, for the user."),
+      }),
+    )
+    .max(disputeLimits.perTask)
+    .optional()
+    .describe("Only with status in_review: findings of the latest auto review you think are wrong. They are not judged again; the user decides."),
   nextMoves: deliveryMoves,
   outputs: deliveryOutputs,
 });
@@ -247,9 +260,9 @@ export const rememberInputSchema = z.strictObject({
     .describe("Search words for recall: synonyms, the English and the user's-language name, file or module names."),
   supersedes: z.string().min(1).max(200).optional().describe("The id of an active memory this one replaces (from get_task memory or flowly_recall)."),
 });
-/** flowly_recall (PROJECT-MEMORY-SPEC §6.4): read-only search of the project's confirmed memory. */
+/** flowly_recall (PROJECT-MEMORY-SPEC §6.4, GUARDRAILS-SPEC §5.3): read-only search of the project's notes and guidelines. */
 export const recallInputSchema = z.strictObject({
-  query: z.string().max(200).default("").describe("Words about the area you are starting on; empty lists the latest confirmed entries."),
+  query: z.string().max(200).default("").describe("Words about the area you are starting on; empty lists the latest entries."),
   kind: z.enum(memoryKinds).optional(),
   limit: z.number().int().min(1).max(memoryLimits.recallMax).default(memoryLimits.recallDefault),
 });
@@ -263,7 +276,12 @@ const memoryItemSchema = z.object({
   sourceTaskId: z.string().optional(),
   confirmedAt: z.string().optional(),
 });
-export const recallResultSchema = z.object({ entries: z.array(memoryItemSchema), total: z.number() });
+/** `guidelines`: the project's active guidelines matching the query (GUARDRAILS-SPEC §5.3), what deliveries are checked against. */
+export const recallResultSchema = z.object({
+  entries: z.array(memoryItemSchema),
+  total: z.number(),
+  guidelines: z.array(z.object({ id: z.string(), text: z.string(), scope: guardrailScopeSchema, quote: z.string().optional(), caught: z.number() })).optional(),
+});
 /** flowly_search (SEARCH-SPEC §6): read-only search of this project's other cards. */
 export const agentSearchInputSchema = z.strictObject({
   query: z.string().trim().min(1).max(searchLimits.query).describe('Words to look for; every word must appear in the card. "Quoted phrases" and #tag filters work.'),
@@ -354,8 +372,14 @@ export const nextMovesInputSchema = z.strictObject({
 const itemId = workpadItemId
   .optional()
   .describe("Keep the id from get_task when you update an item; omit it for a new one.");
-/** flowly_update_workpad (WORKPAD-SPEC §3): replace the card's acceptance criteria, checks and confusions. */
-export const workpadInputSchema = z.strictObject({
+/** The fields flowly_update_workpad takes (GUARDRAILS-SPEC §7.1); anything else is WORKPAD_INVALID. */
+export const workpadInputKeys = ["expectedRevision", "request", "workpadRevision", "acceptance"] as const;
+/**
+ * flowly_update_workpad (WORKPAD-SPEC §3, GUARDRAILS-SPEC §7.1): replace the card's acceptance list. Loose at the
+ * transport, so a session started with the older skill that still sends validation or confusions gets WORKPAD_INVALID
+ * from the daemon instead of a schema error.
+ */
+export const workpadInputSchema = z.looseObject({
   expectedRevision: revisionSchema,
   request: requestSchema,
   workpadRevision: z
@@ -372,30 +396,7 @@ export const workpadInputSchema = z.strictObject({
       }),
     )
     .max(workpadLimits.acceptance)
-    .describe("Acceptance criteria: what must be true for the card to be done."),
-  validation: z
-    .array(
-      z.strictObject({
-        id: itemId,
-        text: z.string().trim().min(1).max(workpadLimits.text).describe("What the check verifies."),
-        command: z.string().trim().max(workpadLimits.command).optional().describe("The exact command, e.g. npm test."),
-        state: z.enum(checkStates).describe("pass or fail only after you actually ran it; unrun otherwise."),
-        sha: z
-          .string()
-          .trim()
-          .regex(/^[0-9a-fA-F]{4,40}$/)
-          .optional()
-          .describe("The commit it ran on (git rev-parse --short HEAD). Omitted: the previous one when unchanged, else the current HEAD."),
-        dirty: z.boolean().optional().describe("It ran with uncommitted changes."),
-        evidence: z.string().trim().max(workpadLimits.evidence).optional().describe("Short output summary or the failure."),
-      }),
-    )
-    .max(workpadLimits.validation)
-    .describe("Validation checks with their state."),
-  confusions: z
-    .array(z.strictObject({ id: itemId, text: z.string().trim().min(1).max(workpadLimits.confusion) }))
-    .max(workpadLimits.confusions)
-    .describe("What in the card was unclear and what you assumed."),
+    .describe("3-5 acceptance criteria: what must be true for the card to be done, ticked as you meet them."),
 });
 /** flowly_add_artifact (CARD-ARTIFACTS-SPEC §4.1): register an input or a deliverable of this card. */
 export const artifactInputSchema = z.strictObject({
@@ -633,16 +634,27 @@ export const toolContextSchema = z.object({
       acceptedAgentId: z.string().optional(),
     }),
   ),
-  /**
-   * Project memory the user confirmed on earlier cards (PROJECT-MEMORY-SPEC §6.3), chosen for this card;
-   * `candidates` are the ones proposed from this card, to avoid duplicates.
-   */
+  /** Project memory (the guardrails' notes, PROJECT-MEMORY-SPEC §6.3), chosen for this card. */
   memory: z
     .object({
       enabled: z.boolean(),
       total: z.number(),
       entries: z.array(memoryItemSchema),
-      candidates: z.array(z.object({ id: z.string(), title: z.string(), status: z.string() })),
+    })
+    .optional(),
+  /**
+   * What a delivery of this card is checked against (GUARDRAILS-SPEC §5.2): the project's commands (active and
+   * observing), the active guidelines in scope for the card's current shape and the card's own open items.
+   * Guidelines and items are empty while Guardrails is off.
+   */
+  guardrails: z
+    .object({
+      enabled: z.boolean(),
+      maxRounds: z.number(),
+      commands: z.array(z.object({ id: z.string(), name: z.string(), argv: z.array(z.string()), state: z.enum(["active", "observing"]) })),
+      guidelines: z.array(z.object({ id: z.string(), text: z.string(), scope: guardrailScopeSchema })),
+      items: z.array(z.object({ id: z.string(), text: z.string(), count: z.number() })),
+      lastReview: reviewSchema.optional(),
     })
     .optional(),
   /** Scripts in the project root's paseo.json (WORKFLOW-INSIGHTS-SPEC §5.4); absent when it has none. */
@@ -673,16 +685,43 @@ export const toolContextSchema = z.object({
   ),
   /** false: the user turned the workpad off for this project (WORKPAD-SPEC §9); flowly_update_workpad returns WORKPAD_DISABLED. */
   workpadEnabled: z.boolean().optional(),
-  /** The card's workpad (WORKPAD-SPEC §4.1); `fresh` is null for unrun checks. */
+  /** The card's latest automatic review (GUARDRAILS-SPEC §6.4); absent when it never had one. */
+  review: z
+    .object({
+      state: z.enum(reviewStates),
+      round: z.number(),
+      maxRounds: z.number(),
+      reason: z.string().optional(),
+      items: z.array(
+        z.object({
+          id: z.string(),
+          kind: z.enum(reviewItemKinds),
+          name: z.string(),
+          /** false: an observing command, shown but not part of the verdict. */
+          gating: z.boolean(),
+          state: z.enum(reviewItemStates),
+          command: z.string().optional(),
+          exitCode: z.number().nullable().optional(),
+          timedOut: z.boolean().optional(),
+          tail: z.string().optional(),
+          detail: z.string().optional(),
+          file: z.string().optional(),
+          line: z.number().optional(),
+          quote: z.string().optional(),
+          reason: z.string().optional(),
+          disputeReason: z.string().optional(),
+        }),
+      ),
+      shape: changeShapeSchema.optional(),
+      startedAt: z.string(),
+      finishedAt: z.string().optional(),
+    })
+    .optional(),
+  /** The card's acceptance list (WORKPAD-SPEC §4.1, GUARDRAILS-SPEC §7.1). */
   workpad: z
     .object({
       revision: z.number(),
       acceptance: z.array(acceptanceItemSchema),
-      validation: z.array(validationItemSchema.extend({ fresh: z.enum(["fresh", "stale", "unknown"]).nullable() })),
-      confusions: z.array(confusionItemSchema),
-      env: z.object({ host: z.string(), path: z.string(), head: gitHeadSchema.nullable() }).nullable(),
-      head: gitHeadSchema.nullable(),
-      open: z.object({ unchecked: z.number(), failed: z.number(), unrun: z.number(), stale: z.number(), total: z.number() }),
     })
     .nullable()
     .optional(),
@@ -746,11 +785,6 @@ export const preparationSchema = z.object({
   cliPath: z.string(),
   skillPath: z.string(),
   instructions: z.string(),
-  mcp: z.object({
-    type: z.literal("http"),
-    url: z.string(),
-    headers: z.record(z.string(), z.string()),
-  }),
 });
 export type ToolContext = z.infer<typeof toolContextSchema>;
 export type ToolResult = z.infer<typeof toolResultSchema>;

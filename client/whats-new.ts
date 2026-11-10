@@ -6,7 +6,8 @@ export interface WhatsNewItem {
   icon: string;
   /** One sentence, msg()-marked; translated at render. */
   text: string;
-  action?: { label: string; to: "settings"; section: SettingsSection } | { label: string; to: "tour" };
+  /** `auto-review`: the current project's Edit project with Auto review switched on (GUARDRAILS-SPEC §10). */
+  action?: { label: string; to: "settings"; section: SettingsSection } | { label: string; to: "tour" } | { label: string; to: "auto-review" };
 }
 
 export interface WhatsNewRelease {
@@ -22,16 +23,30 @@ export interface WhatsNewRelease {
  */
 export const whatsNew: WhatsNewRelease[] = [
   {
-    // SEARCH-SPEC §8.
+    // SEARCH-SPEC §8, GUARDRAILS-SPEC §10, CONNECTORS-SPEC §15, DISPATCHER-SPEC §9.3-9.4.
     version: "1.8.0",
     items: [
       { icon: "Search", text: msg("Search past cards, summaries, notes, workpads, ideas and deliverables. Agents can search them too.") },
-      // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the floating gear moved into the toolbar.
-      { icon: "Settings", text: msg("Settings moved to the gear at the top of the board.") },
+      // GUARDRAILS-SPEC §10 (D1): on for new projects; existing ones turn it on here.
+      {
+        icon: "ShieldCheck",
+        text: msg("Auto review checks every delivery before it reaches you and sends it back to the agent when it falls short. On for new projects."),
+        action: { label: msg("Turn on for this project"), to: "auto-review" },
+      },
+      {
+        icon: "Undo2",
+        text: msg("Flowly learns from what you send cards back for: the second card with the same problem turns it into a project guideline, checked on every delivery it applies to."),
+      },
+      { icon: "BookMarked", text: msg("Memory no longer needs confirming; what agents remember takes effect at once and retires by itself when unused.") },
+      {
+        icon: "PlugZap",
+        text: msg("Shortcut stories and epics can now be card inputs, next to Jira, Confluence, GitHub, GitLab and Azure DevOps."),
+        action: { label: msg("Open settings"), to: "settings", section: "connections" },
+      },
       // DISPATCHER-SPEC §9.4 (Ruling, Noah 2026-11-09): the bell and Attention moved to the overview's chip and the card sidebar.
       { icon: "BellRing", text: msg("The bell is now the “N need you” chip above the board: it opens each waiting card in turn in the card sidebar, with what it asks on top. “N updated” does the same for cards that changed.") },
-      // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the dock is the chat only; minimized, a rail reopens it.
-      { icon: "PanelLeft", text: msg("The left dock is just the dispatcher chat. Minimized on desktop, a rail on the board's left edge opens it again.") },
+      // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the dock is the chat only (a rail reopens it when minimized); the gear moved into the toolbar.
+      { icon: "PanelLeft", text: msg("The left dock is just the dispatcher chat, reopened from a rail on the board's left edge when minimized, and Settings moved to the gear at the top of the board.") },
     ],
   },
   {

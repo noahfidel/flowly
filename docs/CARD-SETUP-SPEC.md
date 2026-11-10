@@ -1,5 +1,7 @@
 # 卡片开工设置：type / tags / workpad 的提醒与软卡（CARD-SETUP-SPEC）
 
+> 2026-10-28：本文部分内容被 [GUARDRAILS-SPEC](GUARDRAILS-SPEC.md) 取代（§12）。被取代：“workpad 缺失”改为“acceptance 缺失”；其余仍有效。
+
 2026-10-22：Start of every turn 改为共享六项动作清单，实时 get_task 返回相同的 `turnChecklist`；仍先补 setup.missing，小卡不例外。现有缺项校验、提醒和权限不变。见 [TURN-CHECKLIST-SPEC](TURN-CHECKLIST-SPEC.md)。
 
 状态：2026-10-21 用户审阅通过并要求实现；已实现，Luna 6 验证通过（[报告](verification/card-setup-2026-10-21.md)：Sonnet 5.5 medium 与 Luna 都在首次改文件前补齐了三项；真实 session 的 `SETUP_INCOMPLETE` 拒绝未触发，仅单测覆盖）。卡片 `ee717828`（“Flowly 流程约束强化”，“发布v1.5.0”的跟进）。

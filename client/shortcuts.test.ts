@@ -17,6 +17,8 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "q" }, true)).toBe("quick-task");
     expect(resolveShortcut({ key: "b" }, true)).toBe("ideas");
     expect(resolveShortcut({ key: "i" }, true)).toBe("insights");
+    expect(resolveShortcut({ key: "g" }, true)).toBe("guardrails");
+    expect(resolveShortcut({ key: "m" }, true)).toBe("memory");
     expect(resolveShortcut({ key: "p" }, true)).toBe("projects");
     expect(resolveShortcut({ key: "/" }, true)).toBe("filters");
     expect(resolveShortcut({ key: "f" }, true)).toBe("filters");

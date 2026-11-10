@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { TIPS_SEEN_MAX, firstRunOutside, loopAutoStep, memoryAutoStep, nextTip, outsidePatch, outsideShown, settingsHintDue, stepPage, tipIds, tourKey, welcomeDecision, welcomePageCount, withTipSeen, type TipFacts } from "./onboarding-logic";
+import { TIPS_SEEN_MAX, firstRunOutside, loopAutoStep, nextTip, outsidePatch, outsideShown, settingsHintDue, stepPage, tipIds, tourKey, welcomeDecision, welcomePageCount, withTipSeen, type TipFacts } from "./onboarding-logic";
 import { featureSettingsValues, nativeSessionSettingsValues, onboardingSettingsValues } from "../shared/settings";
 
 const base = { settingsStatus: "ready", welcomeSeen: false, boardLoaded: true, projectCount: 0, blocked: false };
@@ -32,12 +32,12 @@ test("tour paging stays inside the pages", () => {
 });
 
 describe("tips", () => {
-  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, allProjects: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, skillDraft: false, memoryCandidate: false, searchable: false, dispatcherIntro: false, ideaDiscuss: false };
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, allProjects: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, skillDraft: false, searchable: false, dispatcherIntro: false, ideaDiscuss: false, reviewShown: false, learnedGuideline: false, laneSwipe: false };
   test("nothing to show without a fact", () => {
     expect(nextTip({ tipsSeen: [], facts: none, blocked: false })).toBeNull();
   });
   test("one tip at a time, waiting-for-you first", () => {
-    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, allProjects: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, skillDraft: false, memoryCandidate: false, searchable: false, dispatcherIntro: false, ideaDiscuss: false };
+    const facts = { hasCard: true, needsYou: true, openIdea: true, movedToFinished: false, hasArtifact: true, hasAgentTag: true, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, allProjects: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, skillDraft: false, searchable: false, dispatcherIntro: false, ideaDiscuss: false, reviewShown: false, learnedGuideline: false, laneSwipe: false };
     expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("needs-you");
     expect(nextTip({ tipsSeen: ["needs-you"], facts, blocked: false })).toBe("first-idea");
     expect(nextTip({ tipsSeen: ["needs-you", "first-idea"], facts, blocked: false })).toBe("first-artifact");
@@ -79,13 +79,6 @@ describe("tips", () => {
     expect(nextTip({ tipsSeen: ["next-move"], facts, blocked: false })).toBe("first-workpad");
     expect(nextTip({ tipsSeen: ["next-move", "first-workpad"], facts, blocked: false })).toBe("first-idea");
     expect(nextTip({ tipsSeen: ["first-workpad"], facts: { ...none, hasWorkpad: true }, blocked: false })).toBeNull();
-  });
-  test("a project-memory candidate is announced after ideas, before the workflow-insights tip", () => {
-    const facts = { ...none, openIdea: true, memoryCandidate: true, workflowSuggestion: true };
-    expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("first-idea");
-    expect(nextTip({ tipsSeen: ["first-idea"], facts, blocked: false })).toBe("first-memory-candidate");
-    expect(nextTip({ tipsSeen: ["first-idea", "first-memory-candidate"], facts, blocked: false })).toBe("first-workflow-insight");
-    expect(nextTip({ tipsSeen: ["first-memory-candidate"], facts: { ...none, memoryCandidate: true }, blocked: false })).toBeNull();
   });
   test("quick task is announced once on a board with cards, when no other tip is due (QUICK-TASK-SPEC)", () => {
     expect(nextTip({ tipsSeen: [], facts: { ...none, hasCard: true }, blocked: false })).toBe("first-card");
@@ -160,6 +153,13 @@ describe("tips", () => {
     expect(nextTip({ tipsSeen: [], facts: { ...none, fullSidebar: true }, blocked: false })).toBe("sidebar-order");
     expect(nextTip({ tipsSeen: [], facts: { ...none, busyBoard: true, fullSidebar: true }, blocked: false })).toBe("card-display");
     expect(nextTip({ tipsSeen: ["card-display"], facts: { ...none, fullSidebar: true, projectTabs: true }, blocked: false })).toBe("sidebar-order");
+  });
+  test("a phone board with several lanes points to lane swipe after the first-card tip, before card display", () => {
+    const facts = { ...none, hasCard: true, laneSwipe: true, busyBoard: true };
+    expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("first-card");
+    expect(nextTip({ tipsSeen: ["first-card"], facts, blocked: false })).toBe("lane-swipe");
+    expect(nextTip({ tipsSeen: ["first-card", "lane-swipe"], facts, blocked: false })).toBe("card-display");
+    expect(nextTip({ tipsSeen: [], facts: { ...none, busyBoard: true }, blocked: false })).toBe("card-display");
   });
   test("Jira tickets: the attached-ticket tip follows artifacts; connecting Jira is announced last", () => {
     const facts = { ...none, hasCard: true, hasArtifact: true, hasTicket: true, noConnection: true };
@@ -251,7 +251,7 @@ describe("tour setup (ONBOARDING-SETUP-SPEC)", () => {
     expect(settingsHintDue({ tipsSeen: ["settings-entry"], tourClosed: true, blocked: false })).toBe(false);
   });
   test("the settings callout is never a banner tip", () => {
-    const facts: Array<keyof TipFacts> = ["hasCard", "needsYou", "openIdea", "movedToFinished", "hasArtifact", "hasAgentTag", "agentQuestion", "olderHidden", "nextMove", "hasTicket", "noConnection", "projectTabs", "allProjects", "hasWorkpad", "busyBoard", "hasSubagent", "workflowSuggestion", "crowdedAttention", "fullSidebar", "cardOpen", "cardWithSession", "hasSummary", "skillDraft", "memoryCandidate", "searchable", "dispatcherIntro", "ideaDiscuss"];
+    const facts: Array<keyof TipFacts> = ["hasCard", "needsYou", "openIdea", "movedToFinished", "hasArtifact", "hasAgentTag", "agentQuestion", "olderHidden", "nextMove", "hasTicket", "noConnection", "projectTabs", "allProjects", "hasWorkpad", "busyBoard", "hasSubagent", "workflowSuggestion", "crowdedAttention", "fullSidebar", "cardOpen", "cardWithSession", "hasSummary", "skillDraft", "searchable", "dispatcherIntro", "ideaDiscuss", "reviewShown", "learnedGuideline", "laneSwipe"];
     const all = Object.fromEntries(facts.map((k) => [k, true])) as unknown as TipFacts;
     const seen: string[] = [];
     for (let tip = nextTip({ tipsSeen: seen, facts: all, blocked: false }); tip; tip = nextTip({ tipsSeen: seen, facts: all, blocked: false })) seen.push(tip);
@@ -302,12 +302,28 @@ describe("Built in demo autoplay (ONBOARDING-SETUP-SPEC §3)", () => {
   });
 });
 
-describe("Project memory demo autoplay (ONBOARDING-SETUP-SPEC §3)", () => {
-  test("confirms the suggestion, waits for the new card's session, then starts over", () => {
-    expect(memoryAutoStep("suggested")?.cue).toBe("confirm");
-    expect(memoryAutoStep("confirmed")).toBeNull();
-    expect(memoryAutoStep("working")).toBeNull();
-    expect(memoryAutoStep("used")?.cue).toBe("restart");
-    expect(memoryAutoStep("dismissed")?.cue).toBe("restart");
-  });
+test("auto-review tip: shown once when a card shows a review state, after next moves and before the workpad tip", () => {
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, skillDraft: false, searchable: false, reviewShown: false, learnedGuideline: false, laneSwipe: false };
+  const facts = { ...none, reviewShown: true, hasWorkpad: true, nextMove: true };
+  expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("next-move");
+  expect(nextTip({ tipsSeen: ["next-move"], facts, blocked: false })).toBe("auto-review");
+  expect(nextTip({ tipsSeen: ["next-move", "auto-review"], facts, blocked: false })).toBe("first-workpad");
+  expect(nextTip({ tipsSeen: [], facts: none, blocked: false })).toBeNull();
+});
+
+
+test("first-guardrail tip: shown once when the project learned a guideline, right after the auto-review tip and before the workpad tip", () => {
+  const none: TipFacts = { hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, projectTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, skillDraft: false, searchable: false, reviewShown: false, learnedGuideline: false, laneSwipe: false };
+  expect(nextTip({ tipsSeen: [], facts: none, blocked: false })).toBeNull();
+  const facts = { ...none, reviewShown: true, learnedGuideline: true, hasWorkpad: true };
+  expect(nextTip({ tipsSeen: [], facts, blocked: false })).toBe("auto-review");
+  expect(nextTip({ tipsSeen: ["auto-review"], facts, blocked: false })).toBe("first-guardrail");
+  expect(nextTip({ tipsSeen: ["auto-review", "first-guardrail"], facts, blocked: false })).toBe("first-workpad");
+  expect(nextTip({ tipsSeen: ["first-guardrail"], facts: { ...none, learnedGuideline: true }, blocked: false })).toBeNull();
+  expect(nextTip({ tipsSeen: [], facts, blocked: true })).toBeNull();
+});
+
+test("the retired memory-candidate and review-suggest tips are gone", () => {
+  expect(tipIds).not.toContain("first-memory-candidate");
+  expect(tipIds).not.toContain("review-suggest");
 });

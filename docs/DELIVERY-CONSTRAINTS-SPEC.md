@@ -1,5 +1,7 @@
 # 交付产物与先拒后确认（2026-10-22）
 
+> 2026-10-28：本文部分内容被 [GUARDRAILS-SPEC](GUARDRAILS-SPEC.md) 取代（§12）。被取代：§2 的 `WORKPAD_OPEN` 部分；`SETUP_INCOMPLETE` 的先拒后放与 outputs 仍有效。
+
 范围：接续“流程约束不足”卡片，实施调查报告建议 2。规则由插件提供，适用于所有项目、provider 和模型，不依赖项目 AGENTS.md。先完成本规范，再实现。
 
 ## 1. 交付调用的 outputs

@@ -6,6 +6,7 @@ Status: **已实现，待随 1.7.0 发布**（2026-10-26，卡片“遥测建设
 - 设置里只放简要说明，不提供逐字段预览，具体内容以开源代码和本 spec 为准；
 - 不提供重置 ID；
 - 不做 IP 地理解析，i18n 需要的语言分布由 `ui_locale` 提供。
+- 2026-11-10 追加（卡片“Posthog遥测补全”）：§4.3 新增 `c_user_actions`（区分“daemon 在跑”和“有人在用”）与 `c_reviews` / `c_reviews_failed`。不加 `$pageview`：PostHog Web analytics 的 Installation Health 检查按网站设计，Flowly 不在界面埋点（§1、§2），该检查的告警忽略即可。客户端平台仍按 §10 推迟。
 - 2026-10-26 追加：上报 daemon 端遇到的错误，用单独的 `$exception` 事件，只带错误类型、安全的错误码、来源标签和 Flowly 自身代码的堆栈帧，不带错误消息和用户路径，每种错误每天最多一次（第 11 节）。客户端（界面）错误不上报。
 
 ## 1. 目的与反目标
@@ -105,14 +106,16 @@ Content-Type: application/json
 | `f_auto_wrapup` / `f_archive_on_delete` | `wrap-up` 设置 | 布尔值 |
 | `f_workflow_insights` | `workflow-insights.enabled`，且 Insights 开着（Workflow insights 是 host 级开关，不是按项目） | 布尔值 |
 | `f_summary` | `task-summary.summaryEnabled` | 布尔值 |
+| `f_auto_review` | 是否有未归档项目开启了 Auto review（`project.autoReview.enabled`，AUTO-REVIEW-SPEC） | 布尔值 |
 | `projects` | 未归档项目数，按 §4.5 分桶 | |
+| `c_guardrails` | 未归档项目的 active 准则总数（`guardrails.json` 中 `kind: "guideline"`、`state: "active"`，GUARDRAILS-SPEC §10），按 §4.5 分桶；只有数字，不含文字 | 发送时的快照，不是窗口计数 |
 | `cards_open` | 所有项目中未归档、且不在 Done/Cancelled 的卡片数，按 §4.5 分桶 | |
 
 新增设置**不会**自动进入心跳。要加字段，必须先修改本节表格。
 
 ### 4.3 计数（窗口内）
 
-窗口是 `[windowStart, 发送时刻)`。数据来自 `flow/<projectId>.jsonl`，不读 `board.json` 的事件（每卡只保留 100 条，见项目记忆里的这条坑），以及 `memory.json`。所有项目的数字加在一起：
+窗口是 `[windowStart, 发送时刻)`。数据来自 `flow/<projectId>.jsonl`，不读 `board.json` 的事件（每卡只保留 100 条，见项目记忆里的这条坑），以及 `guardrails.json` 的备忘。所有项目的数字加在一起：
 
 | 字段 | 统计的是 |
 |---|---|
@@ -122,8 +125,10 @@ Content-Type: application/json
 | `c_next_moves` | `next_moves_suggested` 中 moves 非空的次数 |
 | `c_next_moves_picked` | 带 `pick` 的 `agent.turn_ended` |
 | `c_ideas_proposed` / `c_ideas_accepted` / `c_ideas_dismissed` | `idea_proposed` / `idea_accepted` 与 `idea_adopted` / `idea_dismissed` |
-| `c_memory_proposed` / `c_memory_confirmed` | `memory_proposed` 事件 / `memory.json` 中 `confirmedAt` 落在窗口内的条目 |
+| `c_memory_proposed` / `c_memory_confirmed` | `memory_proposed` 事件 / `guardrails.json` 中状态为 active、且在窗口内变为 active 的备忘（`stateAt`）。备忘写入即生效（GUARDRAILS-SPEC D2），所以它现在是窗口内新生效的备忘数，键名保留 |
 | `c_wrapups` | `wrapped_up` |
+| `c_reviews` / `c_reviews_failed` | 带 `results` 的 `review_finished` / 其中有 gating 项（`gating` 不为 `false`）`state = failed` 的次数（AUTO-REVIEW-SPEC） |
+| `c_user_actions` | `actor = human` 的事件，加上 `byUser` 的 `agent.turn_ended`（用户发的消息）。`> 0` 表示这个安装在窗口内有人实际使用，是 DAU 的依据（§8） |
 | `models` | `agent.turn_ended.model` 的计数表，例如 `{"claude/claude-sonnet-5-5": 12}` |
 
 `models` 的限制：
@@ -202,7 +207,9 @@ Content-Type: application/json
   - 升级曲线：新版本发布后各版本的占比；
   - 功能开启率：各 `f_*` 的占比；
   - 使用频率：各 `c_*` 的中位数和 P90，以及 DAU/WAU。
-- 看板：PostHog 项目 688543 的 **Flowly** 看板（2026-10-26 建）。
+  - 活跃：在运行的安装 = 每天 `flowly_heartbeat` 的独立 `distinct_id`；**活跃用户（DAU）** = 其中 `c_user_actions > 0` 的独立 `distinct_id`。心跳每 20 h 以上发一次，所以一个安装偶尔一天有两条，按独立 `distinct_id` 统计即可；功能的使用规模用对应 `c_*` 按天求和，以及 `c_* > 0` 的独立 `distinct_id`。
+- PostHog 的 **Web analytics**（`$pageview`、Installation Health）不适用：Flowly 没有网页埋点，所有图表用 Product analytics（Trends / SQL）基于 `flowly_heartbeat` 做。
+- 看板：PostHog 项目 688543 的 **Flowly** 看板（2026-10-26 建）。2026-11-10 加了：运行安装 vs 活跃用户、核心行为次数、核心行为人数、Ideas 接受率 / Next moves 点击率、Auto review 失败率（趋势图开测试账户过滤，SQL 图在 WHERE 里排除测试 ID）。
 - 排除测试安装：在项目设置的 test account filters 里加 HogQL 过滤 `distinct_id != '<installId>'`，并默认勾选；趋势类图打开 *Filter out internal and test users*，SQL 图在 WHERE 里写同样的条件。事件不建 person profile（`$process_person_profile: false`），所以 cohort 和 person 属性过滤无效；`type: event` 的 `distinct_id` 过滤匹配的是事件属性，也无效。已排除：Coder 测试机 `0d645af4-…`（它的 Usage data 开关也已关闭）。
 - 还原错误帧的 bundle 行号：`node scripts/map-bundle-lines.mjs --flowly <版本或 --ref 提交> --paseo <Paseo 版本> <行号>...`（行号可写 `104683`、`:104683:10` 或 `flowly-bundle.js:104683`）。脚本按 Paseo 0.13 `compiler.js` 的 `compileTarget` 选项（bundle、cjs、platform node、target node20、treeShaking，外部模块同 `SERVER_HOST_MODULES`）加 `wrapCommonJsBundle` 的 3 行头重建服务端 bundle，esbuild 用 Paseo 依赖的版本（`--esbuild` 可指定），再用同一次构建的 source map 查出 `server/*.ts` 的文件和行，并和 bundle 里的 `// server/xxx.ts` 模块注释核对；不带 source map 的构建与带 source map 的输出必须逐字相同，否则报错。`--paseo` 用事件的 `paseo_version`。源码取自 `v<版本>` 标签（或 `--ref`、`--dir`）并 `npm ci`。行号只在版本、依赖和 Paseo 的 esbuild 都一致时有效：事件里的 `flowly_version` 只是版本号，开发中的提交可能也叫同一个版本，对不上时用 `--ref` 试对应的提交，`--grep <文本>` 可列出 bundle 里含该文本的行来核对函数名。2026-10-26 的示例事件（`:104683 listDirectories`、`:102566 directory`）在 `13f9905` + Paseo 0.13.0 + esbuild 0.25.12 下对应 `server/directories.ts:16` 和 `server/service.ts:142`。
 - 查某个 Paseo 版本的错误：HogQL `select properties.paseo_version, count() from events where event = '$exception' group by 1`（旧事件没有这个键，为空）。
@@ -250,7 +257,7 @@ Content-Type: application/json
 **Flowly 之外的失败**（`outsideError`，`server/error-report.ts`）在 RPC 和 `logFailure` 两处都只记日志、不上报（2026-10-27，卡片“遥测错误分析”：前两天 34 条事件里约一半属于这类，代码修不了）：
 
 - `DaemonConnectionError`：到 Paseo daemon 的连接断开（daemon 重启时进行中的请求）。宿主的 client 是另一份代码，所以按 `name` 判断；
-- `LocalDaemonUnavailable`：本地连接（`server/local-daemon.ts`）没有地址（Paseo 的 supervisor 正在重启 daemon，`paseo.pid` 的 `listen` 为 `null`）或没有本地凭据；
+- `LocalDaemonUnavailable`：本地连接（`server/local-daemon.ts`）没有地址（Paseo 的 supervisor 正在重启 daemon，`paseo.pid` 的 `listen` 为 `null`）、没有 `paseo.pid`（daemon 没在运行）、`paseo.pid` 重试后仍是空的或写了一半（Paseo 原地改写这个文件，见 WORKSPACE-RESTORE-SPEC 第 1 步）、daemon 不应答连接（超时、拒绝、连接关闭；关了自动重连的 client 这时抛普通 `Error`），或没有本地凭据。daemon 拒绝本地凭据（`DaemonAuthenticationError`）和连上之后 Paseo 版本缺少所需方法的错误照常上报（2026-11-10，卡片“近期error排查”）；
 - `SummaryModelError`：所有摘要模型都失败或没有可用模型（provider 的问题，卡片或洞察里会显示错误）。
 
 ### 11.3 事件内容（白名单）
@@ -270,6 +277,7 @@ Content-Type: application/json
 - `paseo_version`：插件 SDK 不提供宿主版本（`COMPAT(sdk-paseo-version)`），所以用 `server/paseo-version.ts` 开一次短连接（同 `server/local-daemon.ts`，AGENTS.md 的本地连接例外），读 daemon 在连接时发来的 `server_info.version`，只保留符合 `^\d+\.\d+\.\d+(?:[-+.][\w.-]{1,20})?$` 的值。成功后在内存里缓存到 daemon 重启；取不到（连不上、没有凭据、格式不符）时发 `""`，下一条错误再试，不影响上报。bundle 行号取决于 Paseo 的版本（它自带的 esbuild 和包装头），所以还原行号时用这个值作 `--paseo`。
 - `type`：`error.name`，符合标识符格式（`^[A-Za-z_$][\w$]{0,60}$`）才用，否则为 `Error`；抛出的不是 `Error` 时为 `NonError`。
 - `value`：`error.code` 符合 `^[A-Z][A-Z0-9_]{1,40}$`（如 `ENOENT`、`SQLITE_BUSY`）时为它，否则为 `""`。**从不发送错误消息**：消息里常有路径、标题或命令。
+  - 例外：`DaemonRpcError`（Paseo RPC 返回错误，`@getpaseo/client`；宿主的 client 是另一份拷贝，所以按 `name` 识别）时为 `请求类型:错误码`（如 `fetch_agent_timeline_request:agent_refresh_failed`），取自它的 `requestType` 和 `code` 字段，转成小写后整段符合 `^[a-z][a-z0-9_.]{0,59}$` 才保留，否则该部分为空（不截取、不删字符拼成标识符）；没有错误码时只有请求类型。它的消息含服务端的错误文本，同样不发送（2026-11-10，卡片“近期error排查”）。
 - `handled`：未捕获异常为 `false`，其余为 `true`。
 - `frames`：只保留 Flowly 自身文件的帧，最多 20 个，按最早的调用在前排列。"自身文件"指在插件目录下、且不在 `node_modules` 里的文件；插件目录在运行时从 `server/error-report.ts` 自己的堆栈帧推出（从源码加载时是 `server/` 的上一级，打包加载时是包文件所在目录），所以不依赖 Paseo 的加载方式。Paseo 0.13 把插件服务端编成一个 esbuild bundle，再用 `eval` 执行（`bundle-evaluator.js`，没有文件名和 source map），这时帧的形式是 `eval at evaluateBundle (…), <anonymous>:行:列`：插件目录记为 bundle 模式，这类帧的 `filename` 固定为 `flowly-bundle.js`，`lineno`/`colno` 是 bundle 内的位置，函数名照常保留（2026-10-26 Coder 端到端测试发现）。其他插件的 eval 帧形式相同、无法区分，只可能出现在未捕获异常里，接受这一点。每帧只有 `filename`（相对插件目录的路径，如 `server/service.ts`）、`function`（符合 `^[\w$.<> ]{1,80}$` 才保留，否则为 `""`）、`lineno`、`colno`、`in_app: true`、`platform: "node:javascript"`。插件目录本身和插件以外的任何路径都不发送。
 

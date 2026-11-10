@@ -10,12 +10,13 @@ import type { FlowLog } from "./flow-log";
 import type { GitStats } from "./git-stats";
 import type { SummaryStore } from "./summaries";
 import { runSummaryModels } from "./summary-models";
+import { BackgroundJobs } from "./background-jobs";
 import type { AgentLike, UsageService } from "./usage";
 import { modelId } from "./agent-model";
 import { cardWorkspaceIds, workspaceOwners } from "../shared/workspace-switch";
 import { laneName } from "../shared/lanes";
 import { historyStatusLabel, type Board, type HistoryStatus, type Project, type Task } from "../shared/model";
-import { SUMMARIZER_LABELS, isSummarizer, summaryModelsOf, type SummaryEntry, type SummarySettings } from "../shared/summary";
+import { SUMMARIZER_LABELS, readOnlyConfig, isSummarizer, summaryModelsOf, type SummaryEntry, type SummarySettings } from "../shared/summary";
 import {
   TREND_DAYS,
   addDays,
@@ -141,6 +142,11 @@ export class DigestStore {
 /** Project Insights (PROJECT-INSIGHTS-SPEC): stats from the flow log, git and live sessions; the daily digest. */
 export class InsightsService {
   /** The day each project is generating a digest for, and the day waiting after it. */
+  private jobs = new BackgroundJobs();
+  /** Resolves once no background digest run is left. */
+  idle() {
+    return this.jobs.idle();
+  }
   private generating = new Map<string, string>();
   private pending = new Map<string, { input: DayInput & { day: string }; force: boolean; paseo: PaseoApi }>();
   /** Reads provider logs for tokens by day (§11). */
@@ -346,7 +352,7 @@ export class InsightsService {
     const running = this.generating.get(input.projectId);
     if (running === input.day) return;
     if (running !== undefined) this.pending.set(input.projectId, { input, force, paseo });
-    else void this.start(input, paseo);
+    else this.jobs.track(this.start(input, paseo));
   }
 
   private async start(input: DayInput & { day: string }, paseo: PaseoApi) {
@@ -362,7 +368,7 @@ export class InsightsService {
       if (next) {
         const state = await this.digests.read().catch(() => null);
         const has = state?.entries.some((e) => e.projectId === next.input.projectId && e.day === next.input.day);
-        if (next.force || !has) void this.start(next.input, next.paseo);
+        if (next.force || !has) this.jobs.track(this.start(next.input, next.paseo));
       }
     }
   }
@@ -375,7 +381,7 @@ export class InsightsService {
     const prompt = digestPrompt({ project: project.title, day: input.day, today: input.day === dayKey(this.now(), tz), material: text, language: await this.language() });
     const { model, output } = await this.background.use(project, paseo, (workspaceId) => runSummaryModels(paseo, summaryModelsOf(settings), {
       create: (model) => paseo.workspaces.ref(workspaceId).agents.create({
-        config: { provider: model },
+        config: readOnlyConfig(model),
         title: `Kanban digest · ${project.title} · ${input.day}`.slice(0, 120),
         labels: { ...SUMMARIZER_LABELS, "flowly-project": project.id },
         prompt,

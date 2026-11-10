@@ -19,7 +19,7 @@ Four tiers, top to bottom. Every tier is omitted when empty.
 
 - Urgent/High keep the left stripe; it follows the Priority field.
 - Status order: Needs you, waiting on cards, approvals, errors, workspace problems, running, unread, workpad checks, ideas, Archived, Legacy.
-- The accessibility label of the card is unchanged and always lists every fact, whatever is hidden.
+- The accessibility label of the card always lists every fact, whatever is hidden. It names the card's lane right after the title (UI-UX-SPEC §2, automation names).
 
 ## 3. Options (Settings → Cards)
 

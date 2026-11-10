@@ -1,0 +1,37 @@
+Flowly
+Tinylink
+Attention
+5
+Recent activity
+Filter
+New task
+11
+tasks
+· 2 done
+Idle
+5 unread
+In review
+6
+Ideas 3
+Guardrails 1
+Insights
+Board
+Guardrails
+Commands 1
+Guidelines 1
+Notes 0
+Feature
+Medium changes
+“
+你这次交付不对：新接口没写进 README，以后新接口都必须写进 README
+”
+新增接口必须在同一次改动中写进 README 的接口列表
+caught 0 · missed 0 · misfire 1
+From
+[guardrails-live A] Add GET /health
+·
+In review
+From
+[guardrails-live B] Add GET /version
+·
+In review

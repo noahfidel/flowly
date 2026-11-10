@@ -254,3 +254,30 @@ describe("Linear keys and links (CONNECTORS-SPEC §14)", () => {
     expect(externalTarget("https://linear.app/acme/issue/ENG-42", [dc, linear])).toMatchObject({ connectionId: "lin", key: "ENG-42" });
   });
 });
+
+describe("Shortcut keys and links", () => {
+  const sc = { id: "sc", provider: "shortcut" as const, baseUrl: "https://app.shortcut.com/acme" };
+  test("story and epic links, with title slugs, and other workspaces", () => {
+    expect(recognizeUrl("https://app.shortcut.com/acme/story/1042", sc)).toEqual({ itemType: "story", key: "sc-1042" });
+    expect(recognizeUrl("https://app.shortcut.com/acme/story/1042/fix-the-retry-backoff", sc)).toEqual({ itemType: "story", key: "sc-1042" });
+    expect(recognizeUrl("https://app.shortcut.com/acme/epic/2007", sc)).toEqual({ itemType: "epic", key: "epic-2007" });
+    expect(recognizeUrl("https://app.shortcut.com/other-org/story/1042", sc)).toBeNull();
+    expect(recognizeUrl("https://app.shortcut.com/acme/write/doc/123", sc)).toBeNull();
+  });
+  test("sc- and epic- keys, picker queries, urls and labels", () => {
+    expect(parseKey("SC-1042", "shortcut")).toEqual({ itemType: "story", key: "sc-1042" });
+    expect(parseKey("epic-2007", "shortcut")).toEqual({ itemType: "epic", key: "epic-2007" });
+    expect(parseKey("1042", "shortcut")).toBeNull();
+    expect(parseKey("sc-1042", "gitlab")).toBeNull();
+    // A bare number is the story, because that is what a person types into the picker.
+    expect(classifyQuery("1042", sc)).toEqual({ kind: "key", itemType: "story", key: "sc-1042" });
+    expect(classifyQuery("sc-1042", sc)).toEqual({ kind: "key", itemType: "story", key: "sc-1042" });
+    expect(classifyQuery("retry backoff", sc)).toEqual({ kind: "text", text: "retry backoff" });
+    expect(itemUrl(sc, "story", "sc-1042")).toBe("https://app.shortcut.com/acme/story/1042");
+    expect(itemUrl(sc, "epic", "epic-2007")).toBe("https://app.shortcut.com/acme/epic/2007");
+    expect(faceKey({ key: "sc-1042", itemType: "story" })).toBe("sc-1042");
+    expect(itemLabel("shortcut", "story")).toBe("Shortcut story");
+    expect(itemLabel("shortcut", "epic")).toBe("Shortcut epic");
+    expect(externalTarget("sc-1042", [sc])).toMatchObject({ connectionId: "sc", key: "sc-1042" });
+  });
+});

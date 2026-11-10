@@ -341,3 +341,26 @@ GitLab issue 或 MR…     （有 GitLab 连接时）
 - **测试**：`server/connectors/linear.test.ts`（mock fetch，录制形状的 GraphQL 响应：Authorization 头不带 Bearer、workspace 地址、编辑时沿用令牌、链接与 key 识别、最近/编号/文字查询的变量、Markdown、指纹、AUTH/NOT_FOUND/限流、批量别名、只有 `query` 文档）、`shared/connectors.test.ts`（链接、key、查询分类、条目链接、卡片面 key）。没有真实 API 联调。
 - onboarding：更新欢迎页功能行、`jira-connect` tip 文案和 README；不新增 tip id（连接与使用方式没有变化，已有 tip 覆盖）。不加 What's new（1.8.0 尚未定稿，由发布时决定）。
 - 遥测：不加心跳字段（与 Shortcut 的理由相同：TELEMETRY-SPEC §4.6 不发送 connector 类型）。
+
+## 15. Shortcut（2026-10-29，卡片“Shortcut connector”）
+
+第七个 provider 族 `shortcut`（provider id `shortcut`），沿用本 spec 的全部规则：只读、外部状态不驱动卡片、默认 input、令牌只在 daemon。范围是 **story 与 epic**；Shortcut 的 document、iteration、objective、milestone 不做。目标是“从 Shortcut story 建卡，并让 agent 读到它所属的 epic”：New task 的 **From Shortcut** 与 Artifacts 的 + 菜单都会出现这个服务。
+
+- **连接**：Shortcut 只有云端，所以只有一个 provider，没有自建变体。一个连接 = 一个 workspace，`baseUrl` 为 `https://app.shortcut.com/<workspace-slug>`，与 Azure DevOps 的组织地址同理（§13）；**没有 `defaultBaseUrl`**，设置页要求填写地址。**API 根是另一个域名** `https://api.app.shortcut.com/api/v3`，由 adapter 以常量持有，`baseUrl` 不参与拼接。API token，请求头 `Shortcut-Token`，无邮箱字段。校验 `GET /api/v3/member`：账户显示 `名字 (@mention_name)`，login 取 `mention_name`，并把响应里的 `workspace2.url_slug` 与配置的 slug 比对——令牌属于别的 workspace 时，报错同时给出两个名字，而不是悄悄读错看板。
+- **条目类型**：`itemTypes` 增加 `story` 与 `epic`。agent 上下文里 story 写作 “Shortcut story”，epic 写作 “Shortcut epic”。
+- **key**：story 是 `sc-<id>`（Shortcut 自己的分支命名写法），epic 是 `epic-<id>`。两者都必须能被 `parseKey` 解析，因为 `ConnectorService.resolve` 会把链接产生的每个 key 再过一遍 `parseKey`。选择器里裸 `<id>` 读作 **story**，因为人手输的就是它；epic 通过链接、`epic-<id>` 或搜索进入。
+- **识别**：workspace 地址之下的 `(story|epic)/<id>`，带不带标题 slug、子路径或锚点都可以。slug 是 `baseUrl` 的一部分，所以别的 workspace 的链接不会匹配。document、iteration、objective 的链接不识别。
+- **我的最近**：`GET /api/v3/search/stories?query=owner:<login> !is:done`，在客户端按 `updated_at` 排序（搜索接口没有排序参数），取前 10 个。
+- **文字搜索**：同一个接口传用户的词。Shortcut 的查询语言用 `field:value` 操作符，所以含 `:` 或双引号的文字整体加引号、内部引号翻倍；查询串绝不由未转义的词拼接而成。epic 用 `GET /api/v3/search/epics`，规则相同。
+- **读取**：`GET /api/v3/stories/{id}` 与 `GET /api/v3/epics/{id}`。两者都**内联返回评论**，所以读全文是一次请求而不是两次。epic 另外读 `GET /api/v3/epics/{id}/stories` 拿它的 story 列表。
+- **workspace 名称查询**：story 只带 `workflow_state_id` 与 `owner_ids`，不带名字。adapter 用 `GET /api/v3/workflows` 与 `GET /api/v3/members` 解析，按连接缓存 10 分钟。任一失败只让 Markdown 少一行（状态或负责人），不会让读取失败。
+- **Markdown**：标题，然后元数据（类型、状态、负责人、标签、epic、iteration、估点、截止日、分支），然后描述，然后最近 20 条评论。Shortcut 的描述本身就是 Markdown，不需要做存储格式转换（与 Jira、Azure DevOps 不同）。epic 追加它的 story 列表，形如 `sc-<id> — 标题（状态）`。
+- **指纹**：标题、描述、每条评论的 id 加 `updated_at`。状态、负责人、标签、排序不算，依 §3.2。新评论是否推进 story 自身的 `updated_at` 不确定，所以 `updatedCoversContent: false`（与 Confluence、Azure DevOps 相同）：指纹每次重新读取全文。
+- **批量摘要**：Shortcut 没有按 id 批量读取的接口，`getMany` 逐个 GET，并发 4，与 §5 给 GitLab 定的规则一致。
+- **错误**：401/403 → AUTH；404 → NOT_FOUND；429 → UNAVAILABLE 并读 `Retry-After`（Shortcut 按分钟限流）；5xx → UNAVAILABLE。
+- **白名单**：`/api/v3/member`、`/api/v3/members`、`/api/v3/workflows`、`/api/v3/search/(stories|epics)`、`/api/v3/stories/:id`、`/api/v3/epics/:id`、`/api/v3/epics/:id/stories`。只发 GET，本族不新增 `queryEndpoints`。
+- **界面**：品牌图标按 §8.3 的做法，用 Simple Icons 的 Shortcut 路径（CC0）渲染成 48 px PNG，颜色 #58B1E4，以 data URI 打包。设置 → Connections 增加第七个分组。
+- **验收**：连接能校验并显示账户；粘贴 story 链接与手输 `sc-<id>` 都能解析；**From Shortcut** 列出当前用户的未完成 story；agent 能用 `flowly_read_external` 读 story 与 epic，且 epic 的 Markdown 列出它的 story；改描述会让指纹变化，只改状态不会；令牌被吊销时连接标记 `authFailed` 且不丢缓存内容。
+- **测试**：`server/connectors/shortcut.test.ts`（mock fetch：`Shortcut-Token` 头、派生的 API 域名、登录页、搜索转义、story 与 epic 读取、Markdown、状态变化时指纹不变、404 与 429、所有请求都在白名单内）、`shared/connectors.test.ts`（链接识别、`sc-` 与 `epic-` key、查询分类）、`server/connectors/shortcut.live.test.ts`（真实 workspace 联调，未设 `SHORTCUT_API_TOKEN` 时自动跳过）。2026-10-29 在真实 workspace 联调通过（[证据](verification/shortcut-connector.md)）。
+- onboarding：更新欢迎页功能行、`jira-connect` tip 文案、README 与 1.8.0 的 What's new；不新增 tip id（连接与使用方式没有变化，已有 tip 覆盖）。
+- 遥测：不加心跳字段。TELEMETRY-SPEC §4.6 把“connector 的类型或地址”列为绝不发送，统计 Shortcut 连接数会与之冲突；已有的按回合、按卡片计数已经覆盖从 Shortcut 卡片做的工作。

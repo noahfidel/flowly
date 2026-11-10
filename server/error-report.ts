@@ -7,6 +7,7 @@ import { StoreInvalidError } from "./board-file";
 import { ExternalError } from "./connectors/http";
 import { LocalDaemonUnavailable } from "./local-daemon";
 import { MemoryError } from "./memory";
+import { GuardrailError } from "./guardrails";
 import { SummaryModelError } from "./summary-models";
 import { ToolError } from "./tool-error";
 
@@ -19,6 +20,8 @@ import { ToolError } from "./tool-error";
 const MAX_FRAMES = 20;
 const identifier = /^[A-Za-z_$][\w$]{0,60}$/;
 const safeCode = /^[A-Z][A-Z0-9_]{1,40}$/;
+/** A Paseo request type or RPC error code (`fetch_agent_timeline_request`, `project.list.request`). */
+const rpcIdentifier = /^[a-z][a-z0-9_.]{0,59}$/;
 const safeFunction = /^[\w$.<> ]{1,80}$/;
 const safeSource = /^[\w .,;:'/-]{1,80}$/;
 
@@ -103,12 +106,25 @@ export function ownFrames(stack: string, base = root): ExceptionFrame[] {
   return frames.reverse();
 }
 
+/**
+ * A Paseo RPC error (`DaemonRpcError` of @getpaseo/client, matched by name because the host's
+ * client is another copy) as `requestType:code`, each part only when the whole of it is an
+ * identifier, lowercased: which call failed and Paseo's reason, never its message.
+ */
+function rpcValue(error: { requestType?: unknown; code?: unknown }): string {
+  const part = (v: unknown) => (typeof v === "string" && rpcIdentifier.test(v.toLowerCase()) ? v.toLowerCase() : "");
+  const requestType = part(error.requestType);
+  const code = part(error.code);
+  return code ? `${requestType}:${code}` : requestType;
+}
+
 export function exceptionReport(error: unknown, source: string, handled: boolean, base = root): ExceptionReport {
   const isError = error instanceof Error;
   const name = isError ? error.name : "";
   const type = !isError ? "NonError" : identifier.test(name) ? name : "Error";
   const code = isError ? (error as NodeJS.ErrnoException).code : undefined;
-  const value = typeof code === "string" && safeCode.test(code) ? code : "";
+  const value = name === "DaemonRpcError" ? rpcValue(error as Error & { requestType?: unknown; code?: unknown })
+    : typeof code === "string" && safeCode.test(code) ? code : "";
   const frames = isError ? ownFrames(error.stack ?? "", base) : [];
   const label = source.replace(/:$/, "").trim();
   const safe = safeSource.test(label) ? label : "other";
@@ -132,7 +148,7 @@ export function outsideError(error: unknown) {
  */
 export function expectedRpcError(error: unknown) {
   if (!(error instanceof Error)) return false;
-  if (error instanceof ToolError || error instanceof MemoryError || error instanceof StoreInvalidError || error instanceof ExternalError || error instanceof ZodError || outsideError(error))
+  if (error instanceof ToolError || error instanceof MemoryError || error instanceof GuardrailError || error instanceof StoreInvalidError || error instanceof ExternalError || error instanceof ZodError || outsideError(error))
     return true;
   return error.constructor === Error && typeof (error as NodeJS.ErrnoException).code !== "string";
 }

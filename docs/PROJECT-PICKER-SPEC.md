@@ -24,7 +24,7 @@ Multiple repositories:
 
 Editing a linked project (`projects.set-links({ id, revision, links })`, CAS on project revision) adds new symlinks and removes dropped ones. A link is removed only when the entry is still a symlink pointing at its recorded target; targets themselves are never touched. At least one link must remain. The root, native binding and existing cards/workspaces are unchanged; directory workspaces see the change immediately.
 
-Cards in a linked project use directory workspaces (the root is not a Git repository, so worktree mode is unavailable, as for any common directory). The task context lists the links (`name -> target`) so the agent knows which real repositories it is working in. Provider sandboxes may treat the symlink targets as outside the workspace; full-access sessions are unaffected, other modes report denied access as before.
+Cards in a linked project use directory workspaces (the root is not a Git repository, so worktree mode is unavailable, as for any common directory). The task context lists the links (`name -> target`) so the agent knows which real repositories it is working in. Provider sandboxes may treat the symlink targets as outside the workspace; full-access sessions are unaffected, other modes report denied access as before. Auto review reads each linked repository's diff, HEAD and new files and runs the project's commands in the repositories that have them (GUARDRAILS-SPEC §6.2, §6.3).
 
 Archiving a project never deletes the linked directory or targets.
 

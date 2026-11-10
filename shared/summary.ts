@@ -76,12 +76,30 @@ export const summarySettings = defineSettings({
     digestEnabled: z.boolean().default(true),
     /** Review cards moved into Done for project memory candidates (PROJECT-MEMORY-SPEC §4.2, §9). */
     retroEnabled: z.boolean().default(true),
+    /** `provider/model` of the auto review session (AUTO-REVIEW-SPEC §12.4); empty: the project's default model, then the summary models. */
+    reviewModel: z.string().max(200).optional(),
   }),
 });
 export type SummarySettings = z.infer<typeof summarySettings.schema>;
 /** Effective list, with no write-on-read migration of legacy settings. */
 export function summaryModelsOf(settings?: Pick<SummarySettings, "summaryModel" | "summaryModels"> | null): string[] {
   return settings?.summaryModels ? [...settings.summaryModels] : settings?.summaryModel ? [settings.summaryModel] : [...AUTO_MODELS];
+}
+
+/**
+ * A mode in which a temporary session (summarizer, reviewer, memory review, digest, workflow insights) cannot run tools
+ * or edit, so it never stops on a permission prompt: Claude's Plan Mode. That covers `claude` and the Claude Code profiles
+ * named `claude-*` (for example `claude-compass-smith-sqp`), which carry the same modes. Other providers have no read-only
+ * mode and keep their default (never full access in the card's workspace).
+ */
+export function readOnlyMode(model: string): string | undefined {
+  const provider = model.split("/")[0];
+  return provider === "claude" || provider.startsWith("claude-") ? "plan" : undefined;
+}
+/** `config` for a temporary session on `provider/model`, in its read-only mode when the provider has one. */
+export function readOnlyConfig(model: string): { provider: string; modeId?: string } {
+  const modeId = readOnlyMode(model);
+  return modeId ? { provider: model, modeId } : { provider: model };
 }
 
 /** Stored values may predate fields; the host does not apply schema defaults. */
@@ -101,6 +119,21 @@ export const outputJsonSchema = {
     target: { type: "string" },
     recap: { type: "string" },
     next: { type: "string" },
+  },
+} as const;
+
+/** On a rework turn the summarizer also says whether the user corrected the delivered work (GUARDRAILS-SPEC §4.2). */
+export const reworkOutputJsonSchema = {
+  ...outputJsonSchema,
+  required: [...outputJsonSchema.required, "correction"],
+  properties: {
+    ...outputJsonSchema.properties,
+    correction: {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind"],
+      properties: { kind: { type: "string", enum: ["none", "new", "same"] }, text: { type: "string" }, matches: { type: "string" } },
+    },
   },
 } as const;
 
@@ -214,6 +247,8 @@ export function summaryPrompt(input: {
   previous: Pick<SummaryEntry, "state" | "target" | "recap" | "next"> | null;
   transcript: string;
   language: LocaleCode;
+  /** A rework turn's `Guardrails` lines (GUARDRAILS-SPEC §4.2); absent on every other turn. */
+  guardrails?: readonly string[];
 }): string {
   return [
     "You keep a short progress summary for a task on a Kanban board. An AI coding agent works on the task in conversation with a person.",
@@ -229,6 +264,7 @@ export function summaryPrompt(input: {
     '- "next": the single next step, or who is being waited on, in one sentence of at most 20 words (or 40 Chinese characters).',
     `- ${outputLanguageRule(input.language)}`,
     "- Be concrete and terse; no filler, no file paths or IDs unless they are the point.",
+    ...(input.guardrails ? correctionRules : []),
     "",
     `Task: ${input.title}`,
     input.description ? `Description:\n${clip(input.description, DESCRIPTION_LIMIT)}` : "",
@@ -240,10 +276,17 @@ export function summaryPrompt(input: {
     "",
     "Latest conversation:",
     input.transcript || "(empty)",
+    ...(input.guardrails ? ["", "Guardrails (what this project already checks; each line: #id, what it is, its text):", ...(input.guardrails.length ? input.guardrails : ["(none)"])] : []),
   ]
     .filter((line, i, all) => line !== "" || all[i - 1] !== "")
     .join("\n");
 }
+const correctionRules = [
+  '- "correction": the user wrote the first message of this conversation after the agent had delivered the task for review. Decide whether the user is correcting the delivered work: something it does wrong, breaks or left out.',
+  '  A message saying the delivered change should also, still or should have done something that could have been part of that change is a correction, even when it is short, has no subject or no negation (e.g. "the new endpoint also goes into the README", "new copy also goes into every language catalog").',
+  '  Not a correction: work unrelated to the delivered change (another feature, another page), a question, chatting, thanking, or asking to commit, push or merge.',
+  '  Not a correction: {"kind": "none"}. The same problem as a line of the Guardrails list below: {"kind": "same", "matches": "<that line\'s #id>", "text": "<that line\'s text, unchanged>"}. Otherwise: {"kind": "new", "text": "<one sentence of at most 120 characters that a reviewer can check on a later delivery, e.g. Every new UI string is in all language catalogs>"}.',
+];
 const previous = (p: unknown) =>
   p ? "- When updating, revise the current summary rather than starting over." : '- There is no summary yet, so "update" must be true.';
 

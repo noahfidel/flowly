@@ -25,3 +25,9 @@ export function sameRows<T>(prev: readonly LaneRow<T>[] | undefined, next: LaneR
   }
   return prev as LaneRow<T>[];
 }
+
+/** The lane a phone lane pager released at `x` rests on, clamped to its pages (UI-UX-SPEC §5, lane swipe). */
+export function settledPage(x: number, width: number, count: number): number {
+  if (!(width > 0) || count <= 0) return 0;
+  return Math.max(0, Math.min(count - 1, Math.round(x / width)));
+}

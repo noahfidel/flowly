@@ -17,6 +17,17 @@ export type MarkdownBlock =
       align: ("left" | "center" | "right")[];
     };
 
+/**
+ * A ui/app fence is inline UI that a plugin (genui) renders live in the host
+ * session view; timeline transformers never run inside flowly's preview, so
+ * SessionMarkdown shows a notice instead of the code. Matching follows genui's
+ * rule: the fence's first language word, case-insensitive.
+ */
+export function isInlineUiFence(language: string): boolean {
+  const first = language.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  return first === "ui" || first === "app";
+}
+
 function tableCells(line: string) {
   let trimmed = line.trim().replace(/^\|/, "");
   if (trimmed.endsWith("|") && trimmed.at(-2) !== "\\")
@@ -158,7 +169,7 @@ export type InlinePart = {
 };
 export function parseSessionInline(text: string): InlinePart[] {
   const pattern =
-    /`([^`\n]+)`|\*\*([^*\n]+)\*\*|__([^_\n]+)__|\[([^\]\n]+)\]\(([^\s)]+)\)|\*([^*\n]+)\*|_([^_\n]+)_/g;
+    /`([^`\n]+)`|\*\*([^*\n]+)\*\*|__([^_\n]+)__|\[([^\]\n]+)\]\((?:<([^>\n]+)>|((?:[^\s()]|\([^\s()]*\))+))(?:\s+"[^"\n]*")?\)|<(https?:\/\/[^\s<>]+)>|(https?:\/\/[^\s<>]*[^\s<>.,;:!?)\]'"*_])|\*([^*\n]+)\*|_([^_\n]+)_/g;
   const parts: InlinePart[] = [];
   let from = 0;
   for (const match of text.matchAll(pattern)) {
@@ -168,8 +179,11 @@ export function parseSessionInline(text: string): InlinePart[] {
     else if (match[2] || match[3])
       parts.push({ kind: "bold", text: match[2] || match[3] });
     else if (match[4])
-      parts.push({ kind: "link", text: match[4], url: match[5] });
-    else parts.push({ kind: "italic", text: match[6] || match[7] });
+      parts.push({ kind: "link", text: match[4], url: match[5] || match[6] });
+    else if (match[7] || match[8]) {
+      const url = match[7] || match[8];
+      parts.push({ kind: "link", text: url, url });
+    } else parts.push({ kind: "italic", text: match[9] || match[10] });
     from = match.index! + match[0].length;
   }
   if (from < text.length) parts.push({ kind: "text", text: text.slice(from) });

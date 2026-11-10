@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
-import { Image, Linking, Pressable, View } from "react-native";
+import { Image, Pressable, View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
-import { useRpc } from "@getpaseo/plugin/client";
+import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import type { Artifact, ArtifactRole, Task } from "../shared/model";
@@ -121,7 +121,7 @@ export function TaskArtifacts({ task, active, disabled, section }: { task: Task;
   const openArtifact = (artifact: Artifact) => {
     if (artifact.external) return setPreviewing(artifact);
     if (artifact.kind === "url")
-      return void Linking.openURL(artifact.target).catch(() => toast.show(t("Could not open the link."), { variant: "error" }));
+      return void openExternalUrl(artifact.target).catch(() => toast.show(t("Could not open the link."), { variant: "error" }));
     setPreviewing(artifact);
   };
   return (

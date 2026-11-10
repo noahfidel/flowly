@@ -1,0 +1,63 @@
+Flowly
+Tinylink
+Attention
+3
+Recent activity
+Filter
+New task
+9
+tasks
+· 1 done
+Idle
+3 unread
+In review
+5
+Ideas 3
+Memory
+Insights
+Board
+Of the 5 cards delivered in the last 14 days, you sent 4 back to the agent after delivery.
+P3 fixture 2 (temp)
+「REWORK: add a test for the expired link case.」
+P3 fixture 1 (temp)
+「REWORK: the README must mention the new limit.」
+P3 fixture 3 (temp)
+「REWORK: the README is missing the new endpoint.」
+Auto review can catch these before they reach you and send them back to the agent.
+Set up auto review
+Not now
+Activity
+Mon
+Wed
+Fri
+Nov
+Dec
+Jan
+Feb
+Mar
+Apr
+May
+Jun
+Jul
+Aug
+Sep
+Oct
+Less
+More
+Today
+6 turns · 3 cards · agent 9m · 4.3M tokens
+Generate a summary of today so far.
+Generate summary
+P3 fixture 2 (temp)
+2 turns · 3m · 1.8M
+P3 fixture 1 (temp)
+2 turns · 3m · 1.5M
+P3 fixture 3 (temp)
+2 turns · 3m · 1M
+Skills
+12h ago
+Run now
+Skipped: not enough new activity since the last run.
+Workflow
+Too few cards finished in the last 7 days
+No finished cards to compare.

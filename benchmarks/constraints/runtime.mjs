@@ -51,7 +51,7 @@ export async function prepareCase(x,c,state,m,outDir,persist) {
   const prep=await x.rpc('tools.prepare-session',{id:task.id,operationId:prefix+'-session'});owned.id=prep.agentId;owned.phase='session-intent';await persist();
   const prompt=`在 ${filename} 写一句测试说明，执行 ${owned.checkCommand}，完成后交付；先不要提交。\n\n只允许修改该文件，检查脚本为只读fixture。后续若要求PR：目标为已授权私有测试仓库 ${c.repository}，使用显式 https://github.com/${c.repository}.git 和 gh --repo ${c.repository}，仅操作当前专属分支，不添加remote或修改共享Git配置/既有分支。保留所有其他资源，不创建子会话。`;
   owned.initialBefore=await snapshot(x,owned);owned.promptHash=hash(prompt);owned.startedAt=new Date().toISOString();await persist();
-  const agent=await x.api.workspaces.ref(task.workspaceId).agents.create({agentId:prep.agentId,idempotencyKey:prefix+'-create',title:`Benchmark ${m.key} ${state.runId}`,parent:c.parentAgentId,labels:{'flowly-task':task.id,'flowly-project':c.projectId},config:{provider:m.provider+'/'+m.model,modeId:m.mode,thinkingOptionId:m.thinking,systemPrompt:prep.instructions,mcpServers:{flowly:prep.mcp}},env:{FLOWLY_CONTEXT_FILE:prep.contextFile,FLOWLY_CLI:prep.cliPath,FLOWLY_SKILL:prep.skillPath},prompt});
+  const agent=await x.api.workspaces.ref(task.workspaceId).agents.create({agentId:prep.agentId,idempotencyKey:prefix+'-create',title:`Benchmark ${m.key} ${state.runId}`,parent:c.parentAgentId,labels:{'flowly-task':task.id,'flowly-project':c.projectId},config:{provider:m.provider+'/'+m.model,modeId:m.mode,thinkingOptionId:m.thinking,systemPrompt:prep.instructions},env:{FLOWLY_CONTEXT_FILE:prep.contextFile,FLOWLY_CLI:prep.cliPath,FLOWLY_SKILL:prep.skillPath},prompt});
   owned.phase='session-created';await persist();return {owned,agent};
 }
 export async function timeline(agent) {

@@ -371,6 +371,7 @@ export class BoardStore {
         if (team) p.linearTeam = team;
         else delete p.linearTeam;
       }
+      if (input.autoReview !== undefined) p.autoReview = input.autoReview;
       if (input.agentModel !== undefined) {
         if (input.agentModel) p.agentModel = input.agentModel;
         else delete p.agentModel;

@@ -71,7 +71,7 @@ const steps: [string, (s: BoardStore) => Promise<unknown>][] = [
         b.ideas.push({ id: "i1", taskId: "t3", projectId: "p2", agentId: "a1", eventId: "e-i1", title: "Idea", detail: "Detail", rationale: "Why", context: "", status: "open", createdAt: at, updatedAt: at });
         b.artifacts.push({ id: "a1", taskId: "t3", projectId: "p2", role: "output", kind: "url", target: "https://example.com/pr/1", title: "PR", note: "", createdBy: "agent", agentId: "a1", createdAt: at, updatedAt: at });
         b.links.push({ id: "l1", projectId: "p2", kind: "related", from: "t3", to: "t4", createdBy: "human", createdAt: at });
-        b.workpads.push({ taskId: "t3", projectId: "p2", revision: 1, acceptance: [{ id: "x", text: "Works", done: false, by: "agent", at }], validation: [], confusions: [], env: null, head: null, updatedAt: at, updatedBy: "agent" });
+        b.workpads.push({ taskId: "t3", projectId: "p2", revision: 1, acceptance: [{ id: "x", text: "Works", done: false, by: "agent", at }], updatedAt: at, updatedBy: "agent" });
         b.plans.push({ taskId: "t3", agentId: "a1", items: [{ text: "Step", status: "pending" }], at });
         b.agentReceipts.push({ key: "k1", agentId: "a1", taskId: "t3", payloadHash: "h", action: "progress", eventId: "e1", taskRevision: 1, projectRevision: 1, status: "todo", at, expiresAt: at });
       }),

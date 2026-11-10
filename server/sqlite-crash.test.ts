@@ -41,7 +41,7 @@ describe.skipIf(!!crashAt)("a killed Flowly process", () => {
   async function killedAt(point: string) {
     const dir = await mkdtemp(join(tmpdir(), "flowly-crash-test-"));
     await writeFile(join(dir, "board.json"), JSON.stringify(fixture(), null, 2));
-    const child = spawnSync(process.execPath, [join(process.cwd(), "node_modules/vitest/vitest.mjs"), "run", "server/sqlite-crash.test.ts"], {
+    const child = spawnSync(process.execPath, [join(process.cwd(), "node_modules/vitest/vitest.mjs"), "run", "server/sqlite-crash.test.ts", "--exclude", ".claude/**"], {
       cwd: process.cwd(),
       env: { ...process.env, FLOWLY_CRASH_AT: point, FLOWLY_CRASH_DIR: dir },
       encoding: "utf8",
