@@ -88,15 +88,22 @@ GroupDefaults { agentModel?: AgentModel, deliveryMode?: DeliveryMode, dispatcher
 ## 2. RPCs
 
 All writes are serialized with the board, check `revision` and refuse stale edits like `projects.update`.
+Refusals carry a code as a `CODE: message` prefix: `REVISION_CONFLICT`, `NAME_TAKEN`, `GROUPS_FULL`,
+`DEFAULT_REQUIRED`, `GROUP_NOT_FOUND`, `GROUP_BUSY`, and `GROUPS_UNAVAILABLE` until the migration (§7) has run in
+this daemon (a failed migration keeps group writes refused, and other writes add no groups, until a start migrates).
 
-- `groups.create { name, defaults? }` → group (appended; no members).
+- `groups.create { name, defaults? }` → group (appended; no members). The first group of an empty board is its
+  default.
 - `groups.update { id, revision, name?, defaults?, isDefault? }`: setting `isDefault: true` moves the flag;
-  clearing it directly is refused (`DEFAULT_REQUIRED`).
+  clearing it on the default group is refused (`DEFAULT_REQUIRED`; `false` on another group changes nothing). In
+  `defaults`, a value sets a default and `null` clears it.
 - `groups.move { id, direction }` → renumbers `position` without bumping revisions (as `projects.move`).
 - `groups.delete { id, revision }` → refused with `DEFAULT_REQUIRED` for the default group; otherwise moves the
   group's projects to the default group, archives the group's dispatcher session when it has a live one (§6) and
-  removes the group.
-- `projects.set-group { projectId, revision, groupId }`.
+  removes the group. Each moved project's revision is bumped; the result names the default group and the moved
+  projects. Until per-group dispatchers ship (§6), it instead refuses (`GROUP_BUSY`) the group the stored v1
+  dispatcher session would move to under §7 step 4 (ruling, Noah 2026-11-10).
+- `projects.set-group { projectId, revision, groupId }`: archived projects too; bumps the project's revision.
 - `projects.create` gains an optional `groupId` (default: the default group); the project form and
   `flowly_create_project` pass it.
 - The old `boardGroups` value in `board-view` is no longer read after migration (§7) and no longer written.
@@ -195,10 +202,15 @@ next start (the record's session is still v1, the board has groups, so step 4 ru
    typed schema drops `boardGroups` once it is no longer a setting). Each valid stored group
    becomes a `Group` in stored order (invalid entries dropped as the v1 reader did, names cut to 80, duplicates
    renamed with " 2", " 3", …; more than 50 keeps the first 50). The stored value is left in place and ignored
-   afterwards.
+   afterwards. A blank name drops the group (its projects then count as in no group). A missing file or bad JSON
+   reads as no groups, as the v1 reader did; a file that exists but cannot be read fails the migration (retried at the
+   next start) rather than placing every project in **Projects**.
 2. **Membership:** a project listed in several groups goes to the first of them; a project in none, and a project
    whose group was dropped, goes to the default group **Projects**, created at the end when needed (the name is the English text "Projects", stored as text: the daemon has no translation). When no project needs it and no group is marked, the first group becomes the default. A
-   board with no stored groups gets one group, **Projects**, holding every project.
+   board with no stored groups gets one group, **Projects**, holding every project. **Projects** counts toward the
+   cap of 50: when it is needed and 50 stored groups are kept, the 50th gives way and its projects join **Projects**.
+   A stored group already named "Projects" (ignoring case) keeps its members, and the new default is named by the
+   duplicate rule ("Projects 2"). Restoring a storage backup from before groups (Settings > Storage) migrates it again.
 3. **Settings per host:** `boardGroups` is a per-host setting, and the board is the daemon's. Only the daemon's own
    host value is migrated; the board data is the single source from then on. **Downgrade is not supported**: an
    older build strips `groups` and `groupId` from the board; re-upgrading migrates again from the old settings.

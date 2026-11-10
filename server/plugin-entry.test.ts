@@ -84,3 +84,24 @@ test("the plugin entry gives flowly_create_project the projects.create RPC's own
   expect(services[1]).toBe(services[0]);
   expect(detect.mock.calls.map(([id]) => id)).toEqual(["made-1", "made-2"]);
 });
+
+test("the plugin entry migrates board groups first and serves the group RPCs with coded refusals (BOARD-GROUPS-SPEC §2, §7)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "flowly-entry-"));
+  const env = { FLOWLY_DATA_DIR: process.env.FLOWLY_DATA_DIR, PASEO_HOME: process.env.PASEO_HOME };
+  process.env.FLOWLY_DATA_DIR = join(root, "data");
+  process.env.PASEO_HOME = join(root, "home");
+  cleanups.push(async () => {
+    for (const [key, value] of Object.entries(env)) if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+  });
+  const { host, handlers } = fakeHost();
+  const dispose = contribute(host);
+  cleanups.push(() => dispose());
+  const call = (name: string, input: unknown) => handlers.get(name)!(input, { paseo: {} as PaseoApi }) as Promise<{ id: string; revision: number }>;
+  for (const name of ["groups.create", "groups.update", "groups.move", "groups.delete", "projects.set-group"]) expect(handlers.has(name), name).toBe(true);
+  // The empty board's first group is its default, which can't be deleted; the code crosses the RPC as a prefix.
+  const first = await call("groups.create", { name: "First" });
+  await expect(call("groups.delete", { id: first.id, revision: first.revision })).rejects.toThrow(/^DEFAULT_REQUIRED: /);
+  await expect(call("groups.create", { name: "first" })).rejects.toThrow(/^NAME_TAKEN: /);
+});

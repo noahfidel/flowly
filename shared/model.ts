@@ -291,7 +291,34 @@ export const projectSchema = z.object({
   links: z.array(z.object({ name: z.string(), target: z.string() })).optional(),
   /** Automatic review of agent deliveries (AUTO-REVIEW-SPEC, GUARDRAILS-SPEC §8). Absent means off. */
   autoReview: autoReviewSchema.optional(),
+  /** The board group it belongs to (BOARD-GROUPS-SPEC §1); every live project has one once groups are migrated. */
+  groupId: z.string().optional(),
+  /** Delivery mode override for its cards (BOARD-GROUPS-SPEC §5); a plain string, as the card's. Absent: inherit. */
+  deliveryMode: z.string().optional(),
 });
+/** Board groups kept at most, and a group name's length (BOARD-GROUPS-SPEC §1). */
+export const groupLimits = { groups: 50, name: 80 } as const;
+/** A group's preference defaults (BOARD-GROUPS-SPEC §1, §5); absent fields inherit. Stored tolerant, like a card's delivery mode. */
+export const groupDefaultsSchema = z.object({
+  agentModel: agentModelSchema.optional(),
+  deliveryMode: z.string().optional(),
+  dispatcherModel: agentModelSchema.optional(),
+});
+export type GroupDefaults = z.infer<typeof groupDefaultsSchema>;
+/** A named set of projects, the board's main unit (BOARD-GROUPS-SPEC §1). */
+export const groupSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(groupLimits.name),
+  /** Tab and switcher order (lower first). */
+  position: z.number().int().nonnegative(),
+  /** Exactly one group carries it; new and ungrouped projects go there. */
+  isDefault: z.literal(true).optional(),
+  defaults: groupDefaultsSchema.optional(),
+  revision: z.number().int().positive(),
+  createdAt: timestamp,
+  updatedAt: timestamp,
+});
+export type Group = z.infer<typeof groupSchema>;
 /** Workspace switch (WORKSPACE-SWITCH-SPEC §7.1). */
 export const switchLimits = { previousWorkspaces: 10, handoverFiles: 500, handoverPath: 500, handoverNotes: 20000 } as const;
 export const previousWorkspaceSchema = z.object({
@@ -624,6 +651,8 @@ export const boardSchema = z.object({
   plans: z.array(planSnapshotSchema).default([]),
   /** Cards dismissed from Attention (ATTENTION-DISMISS-SPEC §4); absent in older files. */
   attentionDismissals: z.array(attentionDismissalSchema).max(attentionDismissLimits.records).default([]),
+  /** Board groups (BOARD-GROUPS-SPEC §1); absent in files written before them, filled by the one-time migration (§7). */
+  groups: z.array(groupSchema).max(groupLimits.groups).default([]),
 });
 export const previousBoardSchema = boardSchema.extend({
   version: z.literal(2),
@@ -685,6 +714,7 @@ export const emptyBoard = (): Board => ({
   workpads: [],
   plans: [],
   attentionDismissals: [],
+  groups: [],
   agentReceipts: [],
 });
 export const projectInput = z.strictObject({
@@ -692,6 +722,8 @@ export const projectInput = z.strictObject({
   description: z.string().max(10000).default(""),
   primaryPath: z.string().min(1),
   paseoProjectId: z.string().optional(),
+  /** The group the project joins (BOARD-GROUPS-SPEC §2); absent: the default group. */
+  groupId: z.string().min(1).max(200).optional(),
 });
 const linkTargets = z.array(z.string().trim().min(1).max(4096)).min(1).max(50);
 export const linkedProjectInput = z.strictObject({
@@ -741,7 +773,55 @@ export const projectEdit = z.strictObject({
   /** A model sets the project default; null removes it (the global default applies again). */
   agentModel: agentModelSchema.nullable().optional(),
   autoReview: autoReviewInput.optional(),
+  /** The project's delivery mode override (BOARD-GROUPS-SPEC §5); null removes it (the group's or host's applies again). */
+  deliveryMode: z.enum(deliveryModes).nullable().optional(),
 });
+/** What a group's defaults edit sends: a value sets a default, null removes it (inherit again). */
+export const groupDefaultsInput = z.strictObject({
+  agentModel: agentModelSchema.nullable().optional(),
+  deliveryMode: z.enum(deliveryModes).nullable().optional(),
+  dispatcherModel: agentModelSchema.nullable().optional(),
+});
+export type GroupDefaultsInput = z.infer<typeof groupDefaultsInput>;
+const groupName = z.string().trim().min(1).max(groupLimits.name);
+/** `groups.create` (BOARD-GROUPS-SPEC §2): appended, with no members. */
+export const groupInput = z.strictObject({
+  name: groupName,
+  defaults: groupDefaultsInput.optional(),
+});
+export type GroupInput = z.infer<typeof groupInput>;
+/** `groups.update`: `isDefault: true` moves the flag; `false` is refused (`DEFAULT_REQUIRED`), the flag only moves. */
+export const groupEdit = z.strictObject({
+  id: z.string().min(1).max(200),
+  revision: z.number().int(),
+  name: groupName.optional(),
+  defaults: groupDefaultsInput.optional(),
+  isDefault: z.boolean().optional(),
+});
+export type GroupEdit = z.infer<typeof groupEdit>;
+/** `groups.move`: renumbers positions without revisions, as `projects.move`. */
+export const groupMove = z
+  .strictObject({
+    id: z.string().min(1).max(200),
+    direction: z.enum(["up", "down", "top"]).optional(),
+    /** Target index in the ordered list (drag and drop). */
+    to: z.number().int().min(0).max(10000).optional(),
+  })
+  .refine((v) => (v.direction === undefined) !== (v.to === undefined), "Give either direction or to.");
+export type GroupMove = z.infer<typeof groupMove>;
+/** `groups.delete`: its projects move to the default group. */
+export const groupRemoval = z.strictObject({
+  id: z.string().min(1).max(200),
+  revision: z.number().int(),
+});
+export type GroupRemoval = z.infer<typeof groupRemoval>;
+/** `projects.set-group`: the project's revision, as `projects.update`. */
+export const projectGroupEdit = z.strictObject({
+  projectId: z.string().min(1).max(200),
+  revision: z.number().int(),
+  groupId: z.string().min(1).max(200),
+});
+export type ProjectGroupEdit = z.infer<typeof projectGroupEdit>;
 export const taskInput = z.strictObject({
   projectId: z.string(),
   operationId: z.string().min(1).max(200),

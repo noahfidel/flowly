@@ -59,6 +59,8 @@ import { startedByUser, turnPick, userTexts } from "./shared/agent-habits";
 import { turnTimeline } from "./server/turn-timeline";
 import { cardOfChat, resolveCardChats } from "./server/card-chats";
 import { codedError, ToolError } from "./server/tool-error";
+import { legacyBoardViewPath, readLegacyBoardGroups } from "./server/legacy-board-groups";
+import { v1DispatcherGuard } from "./server/group-delete-guard";
 import { exportMarkdown } from "./shared/board-export";
 import type { MemoryEntry } from "./shared/memory";
 import { MemoryService, setMemoryEverywhere, memoryOn } from "./server/memory";
@@ -114,6 +116,9 @@ export default function contribute(host: PluginServerContext) {
   };
   if (!process.env.FLOWLY_DATA_DIR && !process.env.ULTRA_KANBAN_DATA_DIR) migrateLegacyPluginData();
   const store = new BoardStore(dataDirectory(), { backend: "sqlite" });
+  // Board groups move from the host's board-view setting into the board (BOARD-GROUPS-SPEC §7): queued first, before
+  // every other read and write, so no repair fills in groups before the stored ones are migrated.
+  void store.migrateGroups(() => readLegacyBoardGroups(legacyBoardViewPath(paseoHome())));
   // Project guardrails (GUARDRAILS-SPEC): the one-time move from memory.json and the review rules is queued ahead of every read.
   let memoryRunning: () => readonly string[] = () => [];
   const guardrails = new GuardrailsService(store, undefined, undefined, () => memoryRunning());
@@ -581,7 +586,21 @@ export default function contribute(host: PluginServerContext) {
   const detectCommands = (projectId: string) =>
     void guardrails.detect(projectId).catch((e) => logFailure("Flowly guardrail commands not detected:", e, projectId));
   const createProject = projectCreator(service, detectCommands);
-  server.handle(rpc.createProject, (input, { paseo }) => createProject(input, paseo));
+  server.handle(rpc.createProject, (input, { paseo }) =>
+    createProject(input, paseo).catch((e: unknown) => {
+      throw codedError(e);
+    }),
+  );
+  // Board groups (BOARD-GROUPS-SPEC §2); refusals keep their code across the RPC.
+  const coded = <T>(run: () => Promise<T>) =>
+    run().catch((e: unknown) => {
+      throw codedError(e);
+    });
+  server.handle(rpc.createGroup, (input) => coded(() => store.createGroup(input)));
+  server.handle(rpc.updateGroup, (input) => coded(() => store.updateGroup(input)));
+  server.handle(rpc.moveGroup, (input) => coded(() => store.moveGroup(input)));
+  server.handle(rpc.deleteGroup, (input) => coded(() => store.deleteGroup(input, v1DispatcherGuard(tools.dispatcher))));
+  server.handle(rpc.setProjectGroup, (input) => coded(() => store.setProjectGroup(input)));
   // The dispatcher's flowly_create_project takes exactly the RPC's path (DISPATCHER-SPEC §5.2).
   tools.dispatcherTools.createProjectWith = createProject;
   server.handle(rpc.createTask, (input, { paseo }) =>

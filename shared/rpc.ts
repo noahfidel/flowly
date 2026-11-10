@@ -39,6 +39,12 @@ import {
   taskSchema,
   eventSchema,
   planSnapshotSchema,
+  groupSchema,
+  groupInput,
+  groupEdit,
+  groupMove,
+  groupRemoval,
+  projectGroupEdit,
 } from "./model";
 import { healthSchema, preparationSchema, projectIdeaInputSchema, startCardResultSchema } from "./tools";
 import { connectionInput, connectionSchema, externalSummarySchema, itemTypeSchema } from "./connectors";
@@ -137,6 +143,7 @@ export const boardPatchSchema = z.object({
   artifacts: collectionPatch(artifactSchema),
   workpads: collectionPatch(workpadSchema),
   attentionDismissals: collectionPatch(attentionDismissalSchema),
+  groups: collectionPatch(groupSchema),
 });
 export const readBoardChanged = defineRpc({
   name: "board.read-changed",
@@ -160,6 +167,33 @@ export const readCardBoard = defineRpc({
 export const createProject = defineRpc({
   name: "projects.create",
   input: projectInput,
+  output: projectSchema,
+});
+/** Board groups (BOARD-GROUPS-SPEC §2). Refusals carry a code (`CODE: message`): REVISION_CONFLICT, NAME_TAKEN, GROUPS_FULL, DEFAULT_REQUIRED, GROUP_NOT_FOUND, GROUPS_UNAVAILABLE, GROUP_BUSY. */
+export const createGroup = defineRpc({
+  name: "groups.create",
+  input: groupInput,
+  output: groupSchema,
+});
+export const updateGroup = defineRpc({
+  name: "groups.update",
+  input: groupEdit,
+  output: groupSchema,
+});
+export const moveGroup = defineRpc({
+  name: "groups.move",
+  input: groupMove,
+  output: z.array(z.string()),
+});
+export const deleteGroup = defineRpc({
+  name: "groups.delete",
+  input: groupRemoval,
+  /** The default group the deleted group's projects moved to. */
+  output: z.object({ id: z.string(), movedTo: z.string(), projectIds: z.array(z.string()) }),
+});
+export const setProjectGroup = defineRpc({
+  name: "projects.set-group",
+  input: projectGroupEdit,
   output: projectSchema,
 });
 export const createLinkedProject = defineRpc({
