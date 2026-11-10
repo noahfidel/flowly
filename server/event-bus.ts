@@ -12,6 +12,11 @@ export type BusFact =
       projectId: string;
       /** The card's title when the commit was made (the event itself carries none). */
       title?: string;
+      /**
+       * The project's board group when the commit was made: the note goes to that group's batcher (DISPATCHER-SPEC §0,
+       * §7). Absent before the board has groups.
+       */
+      groupId?: string;
     }
   | { kind: "permission"; agentId: string; taskId: string | null; request: AgentPermissionRequest }
   | { kind: "permission_resolved"; agentId: string; requestId: string };
@@ -43,10 +48,13 @@ export class EventBus {
 export function factsFromCommit(events: readonly BoardEvent[], board: Board): BusFact[] {
   if (!events.length) return [];
   const tasks = new Map(board.tasks.map((t) => [t.id, t]));
+  const groups = new Map(board.projects.map((p) => [p.id, p.groupId]));
   const facts: BusFact[] = [];
   for (const event of events) {
     const task = tasks.get(event.taskId);
-    if (task) facts.push({ kind: "board", event, projectId: task.projectId, title: task.title });
+    if (!task) continue;
+    const groupId = groups.get(task.projectId);
+    facts.push({ kind: "board", event, projectId: task.projectId, title: task.title, ...(groupId ? { groupId } : {}) });
   }
   return facts;
 }
@@ -105,30 +113,52 @@ export class NoteBatcher {
     private readonly opts: {
       windowMs: number;
       maxWaitMs: number;
-      /** The dispatcher's own session: what it causes is not news to it. */
-      exclude: () => string | null;
+      /** The dispatchers' own sessions: what they cause is not news to them. */
+      exclude: () => string | readonly string[] | null;
     },
     private readonly flush: (notes: DispatcherNote[]) => void,
   ) {}
 
   push(facts: BusFact[]) {
-    const own = this.opts.exclude();
-    let added = false;
+    const excluded = this.opts.exclude();
+    const own = new Set(typeof excluded === "string" ? [excluded] : (excluded ?? []));
+    const notes: DispatcherNote[] = [];
     for (const fact of facts) {
       if (fact.kind !== "board") continue;
-      if (own && fact.event.agentId === own) continue;
-      const key = fact.event.taskId,
-        note = noteOf(fact),
-        prev = this.pending.get(key);
-      this.pending.set(key, prev ? mergeNotes(prev, note) : note);
-      added = true;
+      if (fact.event.agentId && own.has(fact.event.agentId)) continue;
+      notes.push(noteOf(fact));
     }
-    if (!added) return;
+    this.pushNotes(notes);
+  }
+
+  /** Adds notes made elsewhere (a project's notes moved from another group's batcher, DISPATCHER-SPEC §0), merged per card. */
+  pushNotes(notes: readonly DispatcherNote[]) {
+    if (!notes.length) return;
+    for (const note of notes) {
+      const prev = this.pending.get(note.taskId);
+      this.pending.set(note.taskId, prev ? mergeNotes(prev, note) : note);
+    }
     const now = Date.now();
     if (this.firstAt === null) this.firstAt = now;
     if (this.timer) clearTimeout(this.timer);
     const wait = Math.max(0, Math.min(this.opts.windowMs, this.firstAt + this.opts.maxWaitMs - now));
     this.timer = setTimeout(() => this.release(), wait);
+  }
+
+  /** Removes and returns the pending notes of one project's cards (the project changed group, DISPATCHER-SPEC §0). */
+  takeProject(projectId: string): DispatcherNote[] {
+    const taken: DispatcherNote[] = [];
+    for (const [key, note] of this.pending)
+      if (note.projectId === projectId) {
+        taken.push(note);
+        this.pending.delete(key);
+      }
+    if (taken.length && !this.pending.size) {
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = null;
+      this.firstAt = null;
+    }
+    return taken;
   }
 
   /** Stops the timer and forgets pending notes (plugin unload). */

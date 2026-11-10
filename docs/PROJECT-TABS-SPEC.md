@@ -1,5 +1,7 @@
 # Desktop project tabs and last-viewed project
 
+> **Superseded (draft, 2026-11-10):** group tabs replace project tabs and the All tab (BOARD-GROUPS-SPEC v2 §3). Kept as history.
+
 Status: requested by the user on 2026-10-15 (card “优化project系统”).
 
 ## Behavior

@@ -29,6 +29,7 @@ export function StepThroughBar({
   onChanged,
   change,
   onAskedDispatcher,
+  groupId,
 }: {
   kind: StepKind;
   position: Position;
@@ -45,6 +46,8 @@ export function StepThroughBar({
   change: ChangeItem | null;
   /** Ask dispatcher was sent: the dock opens on the chat. */
   onAskedDispatcher(): void;
+  /** The board group whose dispatcher Mark seen and Ask dispatcher reach (DISPATCHER-SPEC §0); null: both are off. */
+  groupId: string | null;
 }) {
   const { colors } = useTheme();
   const left = position.index === null;
@@ -93,19 +96,25 @@ export function StepThroughBar({
           </ScrollView>
         ) : null
       ) : (
-        <UpdatedActions change={change} onChanged={onChanged} onAsked={onAskedDispatcher} />
+        <UpdatedActions change={change} onChanged={onChanged} onAsked={onAskedDispatcher} groupId={groupId} />
       )}
     </View>
   );
 }
 
 /** Mark seen (every changed card, `dispatcher.mark-seen`) and Ask dispatcher (`dispatcher.what-next`, §9.2). */
-function UpdatedActions({ change, onChanged, onAsked }: { change: ChangeItem | null; onChanged(): void; onAsked(): void }) {
+function UpdatedActions({ change, onChanged, onAsked, groupId }: { change: ChangeItem | null; onChanged(): void; onAsked(): void; groupId: string | null }) {
   const markSeen = useRpc(rpc.dispatcherMarkSeen);
   const whatNext = useRpc(rpc.dispatcherWhatNext);
   const readStatus = useRpc(rpc.dispatcherStatus);
   // The dispatcher chat's own status read (shared key): an unguarded one takes no messages from the user (§3).
-  const status = useQuery({ queryKey: dispatcherStatusKey, queryFn: () => readStatus({}), refetchInterval: 5_000, placeholderData: (p) => p });
+  const status = useQuery({
+    queryKey: [...dispatcherStatusKey, groupId ?? "-"],
+    queryFn: () => readStatus({ groupId: groupId! }),
+    enabled: !!groupId,
+    refetchInterval: groupId ? 5_000 : false,
+    placeholderData: (p) => p,
+  });
   const up = status.data?.state === "running" || status.data?.state === "idle";
   const locked = up && !!status.data?.unguarded;
   const [busy, setBusy] = useState(false);
@@ -126,10 +135,10 @@ function UpdatedActions({ change, onChanged, onAsked }: { change: ChangeItem | n
   return (
     <View style={{ paddingHorizontal: space[3], paddingBottom: space[2], gap: space[2] }}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[2] }}>
-        <Button small disabled={busy || !change} onPress={() => change && run(() => markSeen({ revision: change.revision, ids: change.ids }))}>
+        <Button small disabled={busy || !change || !groupId} onPress={() => change && groupId && run(() => markSeen({ groupId, revision: change.revision, ids: change.ids }))}>
           {t("Mark seen")}
         </Button>
-        <Button small primary disabled={busy || locked} onPress={() => run(() => whatNext({}), onAsked)}>
+        <Button small primary disabled={busy || locked || !groupId} onPress={() => groupId && run(() => whatNext({ groupId }), onAsked)}>
           {t("Ask dispatcher")}
         </Button>
       </View>

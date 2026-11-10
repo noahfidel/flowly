@@ -99,6 +99,13 @@ describe("a commit's facts", () => {
     expect(factsFromCommit([kept, gone], b)).toEqual([{ kind: "board", event: kept, projectId: "p1", title: "Task one" }]);
   });
 
+  test("a fact carries its project's group as the commit had it (DISPATCHER-SPEC §0, §7)", () => {
+    const b = board();
+    b.projects[0].groupId = "g1";
+    const e = event({ taskId: "t1" });
+    expect(factsFromCommit([e], b)).toEqual([{ kind: "board", event: e, projectId: "p1", title: "Task one", groupId: "g1" }]);
+  });
+
   test("a throwing subscriber is logged and does not stop the others or the commit", () => {
     const bus = new EventBus();
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -284,6 +291,33 @@ describe("note batching", () => {
     vi.advanceTimersByTime(10_000);
     expect(flushed).toHaveLength(1);
     expect(flushed[0][0].detail).toBe("→ done");
+  });
+
+  test("takeProject removes and returns one project's pending notes; the rest still go out (DISPATCHER-SPEC §0)", () => {
+    const b = batcher();
+    b.push([fact({ to: "blocked" }), fact({ taskId: "t2", to: "blocked" }, { projectId: "p2" })]);
+    expect(b.takeProject("p2").map((n) => n.taskId)).toEqual(["t2"]);
+    expect(b.takeProject("p2")).toEqual([]);
+    vi.advanceTimersByTime(10_000);
+    expect(flushed.map((batch) => batch.map((n) => n.taskId))).toEqual([["t1"]]);
+    // Taking the last pending note stops the timer: nothing empty is flushed later.
+    b.push([fact({ to: "done" })]);
+    expect(b.takeProject("p1")).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test("pushNotes merges moved notes per card and batches them like facts", () => {
+    const b = batcher();
+    b.push([fact({ action: "progress_reported", reportKind: "question", note: "Which?" })]);
+    const moved: DispatcherNote = { taskId: "t1", projectId: "p1", title: "Task one", kind: "status_changed", detail: "todo → blocked", at: now };
+    b.pushNotes([moved, { ...moved, taskId: "t9" }]);
+    b.pushNotes([]);
+    vi.advanceTimersByTime(10_000);
+    expect(flushed).toHaveLength(1);
+    expect(flushed[0]).toEqual([
+      { taskId: "t1", projectId: "p1", title: "Task one", kind: "question", detail: "Which?", later: "todo → blocked", at: now },
+      { ...moved, taskId: "t9" },
+    ]);
   });
 
   test("a flush that throws is logged and the next batch still goes out", () => {

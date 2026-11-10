@@ -3,7 +3,6 @@ import { Modal as RNModal, Pressable, StyleSheet, View, useWindowDimensions } fr
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { Enter } from "./motion";
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { Project } from "../shared/model";
 import { useShortcutBlock } from "./shortcuts";
 import { AiPage, GeneralPage, ModelsPage, WorkflowPage } from "./settings-pages";
 import { CardsPage } from "./card-settings";
@@ -113,7 +112,7 @@ function SettingsNavRow({ icon, label, selected, stacked, onPress }: { icon: str
 }
 
 /** Left column of sections, right column with the selected section's settings; the sections become a strip on top in narrow windows. */
-function SettingsPanes({ open, initial, projects, onTour, onWhatsNew, fill = false }: { open: boolean; initial?: SettingsSection; projects: readonly Project[]; onTour(): void; onWhatsNew(): void; fill?: boolean }) {
+function SettingsPanes({ open, initial, onTour, onWhatsNew, fill = false }: { open: boolean; initial?: SettingsSection; onTour(): void; onWhatsNew(): void; fill?: boolean }) {
   const { colors } = useTheme();
   const { width, height } = useWindowDimensions();
   const stacked = Math.min(modalMaxWidth, fill ? width : width - 32) < 560;
@@ -131,7 +130,7 @@ function SettingsPanes({ open, initial, projects, onTour, onWhatsNew, fill = fal
     ) : section === "models" ? (
       <ModelsPage active={open} />
     ) : section === "workflow" ? (
-      <WorkflowPage projects={projects} />
+      <WorkflowPage />
     ) : section === "connections" ? (
       <ConnectionsPage />
     ) : section === "storage" ? (
@@ -173,26 +172,26 @@ function SettingsPanes({ open, initial, projects, onTour, onWhatsNew, fill = fal
 }
 
 /** Flowly settings, in two columns: sections on the left (language and guide, card workflow, AI summaries, ideas), their settings on the right. */
-export function SettingsModal({ open, section, theme, projects, onClose, onTour, onWhatsNew }: { open: boolean; section?: SettingsSection; theme: PluginTheme; /** The live projects, for the Board groups editor. */ projects: readonly Project[]; onClose(): void; onTour(): void; onWhatsNew(): void }) {
+export function SettingsModal({ open, section, theme, onClose, onTour, onWhatsNew }: { open: boolean; section?: SettingsSection; theme: PluginTheme; onClose(): void; onTour(): void; onWhatsNew(): void }) {
   useShortcutBlock(open);
   // Phones: an overlay inside the board, so Paseo's own frame (status bar, tabs) stays; a host Modal would cover all of it.
   if (touch)
     return open ? (
       <Theme.Provider value={theme}>
-        <SettingsWindow open section={section} projects={projects} onClose={onClose} onTour={onTour} onWhatsNew={onWhatsNew} />
+        <SettingsWindow open section={section} onClose={onClose} onTour={onTour} onWhatsNew={onWhatsNew} />
       </Theme.Provider>
     ) : null;
   return (
     <RNModal visible={open} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <Theme.Provider value={theme}>
-        <SettingsWindow open={open} section={section} projects={projects} onClose={onClose} onTour={onTour} onWhatsNew={onWhatsNew} />
+        <SettingsWindow open={open} section={section} onClose={onClose} onTour={onTour} onWhatsNew={onWhatsNew} />
       </Theme.Provider>
     </RNModal>
   );
 }
 
 /** Own window instead of the host Modal, whose width is fixed: backdrop, title bar and the two-column body. */
-function SettingsWindow({ open, section, projects, onClose, onTour, onWhatsNew }: { open: boolean; section?: SettingsSection; projects: readonly Project[]; onClose(): void; onTour(): void; onWhatsNew(): void }) {
+function SettingsWindow({ open, section, onClose, onTour, onWhatsNew }: { open: boolean; section?: SettingsSection; onClose(): void; onTour(): void; onWhatsNew(): void }) {
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   // Phones: fills the plugin's area (above the drawer's layer), instead of a floating window.
@@ -205,7 +204,7 @@ function SettingsWindow({ open, section, projects, onClose, onTour, onWhatsNew }
           </Label>
           <IconButton icon="X" label={t("Close")} onPress={onClose} />
         </View>
-        <SettingsPanes open={open} initial={section} projects={projects} onTour={onTour} onWhatsNew={onWhatsNew} fill />
+        <SettingsPanes open={open} initial={section} onTour={onTour} onWhatsNew={onWhatsNew} fill />
       </View>
     );
   }
@@ -235,7 +234,7 @@ function SettingsWindow({ open, section, projects, onClose, onTour, onWhatsNew }
           </Label>
           <IconButton icon="X" label={t("Close")} onPress={onClose} />
         </View>
-        <SettingsPanes open={open} initial={section} projects={projects} onTour={onTour} onWhatsNew={onWhatsNew} />
+        <SettingsPanes open={open} initial={section} onTour={onTour} onWhatsNew={onWhatsNew} />
       </View>
     </View>
   );

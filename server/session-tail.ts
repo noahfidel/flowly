@@ -22,8 +22,8 @@ type RawEntry = RawPage["entries"][number];
  * request and receives only the slim result.
  */
 export class SessionTailService {
-  /** The stored dispatcher session and its workspace (DISPATCHER-SPEC §9.3); null while there is none. Set by the plugin entry. */
-  dispatcher: () => Promise<{ agentId: string; workspaceId: string } | null> = async () => null;
+  /** A group's stored dispatcher session and its workspace (DISPATCHER-SPEC §9.3); null while there is none. Set by the plugin entry. */
+  dispatcher: (groupId: string) => Promise<{ agentId: string; workspaceId: string } | null> = async () => null;
   constructor(readonly store: BoardStore) {}
 
   async tail(input: TailInput, paseo: PaseoApi): Promise<TailPage> {
@@ -33,9 +33,9 @@ export class SessionTailService {
     return this.read(task.workspaceId, input, paseo);
   }
 
-  /** `dispatcher.tail`: the same read, only for the stored dispatcher session in its stored workspace. */
-  async dispatcherTail(input: Omit<TailInput, "taskId">, paseo: PaseoApi): Promise<TailPage> {
-    const own = await this.dispatcher();
+  /** `dispatcher.tail`: the same read, only for a group's stored dispatcher session in its stored workspace. */
+  async dispatcherTail({ groupId, ...input }: Omit<TailInput, "taskId"> & { groupId: string }, paseo: PaseoApi): Promise<TailPage> {
+    const own = await this.dispatcher(groupId);
     if (!own || own.agentId !== input.agentId) throw new Error("This session is not the dispatcher.");
     return this.read(own.workspaceId, input, paseo);
   }

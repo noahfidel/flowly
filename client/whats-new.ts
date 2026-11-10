@@ -23,6 +23,15 @@ export interface WhatsNewRelease {
  */
 export const whatsNew: WhatsNewRelease[] = [
   {
+    // BOARD-GROUPS-SPEC §1, §2, §8 (the All view and the global dispatcher are retired for existing users).
+    version: "1.9.0",
+    items: [
+      { icon: "Layers", text: msg("Projects are grouped into boards: a group's board shows its projects' cards together, with a project filter to narrow it.") },
+      { icon: "Bot", text: msg("Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.") },
+      { icon: "Columns3", text: msg("Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.") },
+    ],
+  },
+  {
     // SEARCH-SPEC §8, GUARDRAILS-SPEC §10, CONNECTORS-SPEC §15, DISPATCHER-SPEC §9.3-9.4, BOARD-GROUPS-SPEC.
     version: "1.8.0",
     items: [
@@ -43,8 +52,8 @@ export const whatsNew: WhatsNewRelease[] = [
       // DISPATCHER-SPEC §9.4 (Rulings, Noah 2026-11-09): the bell and Attention moved to the overview's chip and the card sidebar; unread turns are in "N updated", not "N need you".
       { icon: "BellRing", text: msg("The bell is now the “N need you” chip above the board: it opens each card waiting on you in turn in the card sidebar, with what it asks on top. “N updated” does the same for what is new to read: cards that changed and finished turns you have not opened.") },
       // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the dock is the chat only (the toolbar's Dispatcher button, or D, reopens it when minimized); the gear moved into the toolbar.
-      // BOARD-GROUPS-SPEC (approved, Noah 2026-11-10).
-      { icon: "Layers", text: msg("Group projects in Settings → Workflow and open each group from the project switcher as its own board: like All projects, for just those projects."), action: { label: msg("Open settings"), to: "settings", section: "workflow" } },
+      // BOARD-GROUPS-SPEC (approved, Noah 2026-11-10); groups live in board data with their own settings page (2/7).
+      { icon: "Layers", text: msg("Board groups hold projects and give them defaults for the model, the delivery mode and the dispatcher's model. Open Group settings from the project switcher.") },
       { icon: "PanelLeft", text: msg("The left dock is just the dispatcher chat. Minimized, it leaves nothing on the board: the Dispatcher button in the toolbar (or D) opens it again. Settings moved to the gear at the top of the board.") },
     ],
   },

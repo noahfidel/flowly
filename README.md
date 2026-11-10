@@ -101,6 +101,10 @@ Insights shows a year of the project's activity, GitHub style: one square per da
 
 **Skills** (on by default, turn it off in the welcome tour or Settings → AI features): every week a model you choose reads the project's cards (summaries, acceptance criteria, your own corrections), the project's notes and guidelines and the redacted shell commands agents ran, and drafts complete skills, a procedure agents did differently each time (shipping through a pull request and waiting for review) or what several cards of one kind taught (plugin performance). **Add to project** writes `.agents/skills/<name>/SKILL.md` (read by Codex) and links it from `.claude/skills/<name>` (read by Claude Code); nothing is committed for you. Later runs propose updates to the skills Flowly added, shown as a diff. The same run still suggests `paseo.json` scripts, worktree setup, repo tools and AGENTS.md rules; each becomes a card with one click. Each run replaces the drafts nobody acted on; quiet weeks are skipped without calling the model, and the first scheduled run waits one full period. Agents see the project's `paseo.json` scripts in their task context.
 
+### 7. Board groups
+
+Projects sit in boards. Each group has its own tab, its own dispatcher and its own defaults for the agent model, the delivery mode and the dispatcher's model; a group's board shows its projects' cards together, with a project filter. Add groups from the project switcher.
+
 ## Languages
 
 The interface follows your device language, or pick one in **Flowly settings → Language**: English, 简体中文, 繁體中文, 日本語, 한국어, Español, Français, Deutsch, Português (Brasil) and Русский. Agent instructions, daemon error details and the text agents and summaries write are not translated. AI-written text (summaries, the daily digest, Workflow insights, suggested next steps and ideas) has its own language, **Flowly settings → AI features → AI output language**; it follows the interface language until you pick one.

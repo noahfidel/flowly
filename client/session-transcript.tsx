@@ -80,8 +80,8 @@ type TranscriptProps = {
   /** The settled lift, for reaching the oldest output while the keyboard is up. */
   inset: number;
   onStreamError(message: string): void;
-  /** The dispatcher's session: read with `dispatcher.tail`; `taskId` then only names the cache. */
-  dispatcher?: boolean;
+  /** A group's dispatcher session, by the group's id: read with `dispatcher.tail`; `taskId` then only names the cache. */
+  dispatcher?: string | false;
   extra?: TranscriptExtra;
 };
 

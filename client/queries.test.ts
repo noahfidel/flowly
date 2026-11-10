@@ -136,6 +136,7 @@ test("applying the daemon's patch gives back the board it was computed from", ()
       artifacts: [item("x"), item("y")],
       workpads: [{ taskId: "a", v: 1 }],
       attentionDismissals: [],
+      groups: [item("g")],
       ...over,
     }) as unknown as Parameters<typeof applyBoardPatch>[0];
   const before = make(1);
@@ -146,6 +147,8 @@ test("applying the daemon's patch gives back the board it was computed from", ()
     // a card at its event cap loses its oldest event from the middle while a new one is appended
     make(2, { events: [{ id: "e1" }, { id: "e2" }] }),
     make(2, { events: [{ id: "e0" }, { id: "e1" }, { id: "e2" }], workpads: [{ taskId: "z", v: 1 }, { taskId: "a", v: 2 }], plans: [{ taskId: "a" }] }),
+    // board groups travel by id like projects (BOARD-GROUPS-SPEC §1)
+    make(2, { groups: [item("h"), item("g", 1)] }),
   ];
   for (const after of cases) {
     const deltas = new BoardDeltas();

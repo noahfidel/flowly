@@ -54,9 +54,11 @@ type Props = {
   onEscape?(draftEmpty: boolean): "blur" | "closeDock" | "chain" | "modal";
   /** The message box gained focus: the dock is the board's active area. */
   onBoxFocus?(): void;
+  /** The board group whose dispatcher this chat talks to (DISPATCHER-SPEC §0); null while none is known: nothing is read. */
+  groupId: string | null;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, fill, onFilled, focusRequest = 0, onEscape, onBoxFocus }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, fill, onFilled, focusRequest = 0, onEscape, onBoxFocus, groupId }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -66,8 +68,14 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   const sendRpc = useRpc(rpc.dispatcherSend);
   const replaceRpc = useRpc(rpc.dispatcherReplace);
   const [confirmReplace, setConfirmReplace] = useState(false);
-  const status = useQuery({ queryKey: dispatcherStatusKey, queryFn: () => readStatus({}), enabled: visible, refetchInterval: visible ? 5_000 : false, placeholderData: (p) => p });
-  const items = useDispatcherItemsQuery(visible);
+  const status = useQuery({
+    queryKey: [...dispatcherStatusKey, groupId ?? "-"],
+    queryFn: () => readStatus({ groupId: groupId! }),
+    enabled: visible && !!groupId,
+    refetchInterval: visible && groupId ? 5_000 : false,
+    placeholderData: (p) => p,
+  });
+  const items = useDispatcherItemsQuery(visible, groupId);
   const state = status.data?.state;
   const agentId = status.data?.agentId ?? null;
   const up = state === "running" || state === "idle";
@@ -95,10 +103,11 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   const running = agent ? agent.status === "running" || agent.status === "initializing" : state === "running";
 
   const start = useStableCallback(async () => {
+    if (!groupId) return;
     setStartError("");
     setStarting(true);
     try {
-      await startRpc({});
+      await startRpc({ groupId });
       await client.invalidateQueries({ queryKey: dispatcherStatusKey });
     } catch (e) {
       // Refusals arrive as `CODE: message`; the provider refusal is shown in the user's words (DISPATCHER-SPEC §3, §8).
@@ -109,11 +118,11 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   });
   // Replace dispatcher (§3): only the user's confirmed click; archives exactly the session shown, then starts a guarded one.
   const replace = useStableCallback(async () => {
-    if (!agentId) return;
+    if (!agentId || !groupId) return;
     setStartError("");
     setStarting(true);
     try {
-      await replaceRpc({ agentId });
+      await replaceRpc({ groupId, agentId });
       setConfirmReplace(false);
       await client.invalidateQueries({ queryKey: dispatcherStatusKey });
     } catch (e) {
@@ -180,6 +189,16 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     setDraft((now) => (expected !== undefined && now !== expected ? now : text)),
   );
   const box = useComposerDraft({ sessionId: "dispatcher", draft, onDraftChange: draftChange, isMounted: () => mounted.current });
+  // One draft per group (DISPATCHER-SPEC §0): switching groups keeps each group's unsent text, an outside change for the box.
+  const drafts = useRef(new Map<string, string>());
+  const draftGroup = useRef(groupId);
+  useEffect(() => {
+    if (draftGroup.current === groupId) return;
+    box.flush();
+    drafts.current.set(draftGroup.current ?? "-", box.read());
+    draftGroup.current = groupId;
+    setDraft(drafts.current.get(groupId ?? "-") ?? "");
+  }, [groupId]);
   // D opened or pressed the dock (Ruling, Noah 2026-11-09): focus the message box once it shows (not on mount, not when hidden).
   const focusedFor = useRef(focusRequest);
   useEffect(() => {
@@ -206,7 +225,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     const text = box.read();
     const attached = box.attachmentsRef.current;
     const images = attached.map(({ data, mimeType }) => ({ data, mimeType }));
-    if (!canWrite || lock.current || !agentId || (!text.trim() && !images.length)) return;
+    if (!canWrite || lock.current || !agentId || !groupId || (!text.trim() && !images.length)) return;
     lock.current = true;
     setSending(true);
     setError("");
@@ -220,7 +239,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     transcript.current?.jumpToLatest();
     try {
       // Through the daemon, which sends only to a guarded dispatcher (§3); steered (§9.3).
-      await sendRpc({ text, ...(images.length ? { images } : {}), messageId });
+      await sendRpc({ groupId, text, ...(images.length ? { images } : {}), messageId });
       void current.refetch();
       transcript.current?.refresh();
     } catch (e) {
@@ -251,7 +270,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
         handle={transcript}
         taskId="dispatcher"
         agentId={agentId ?? "-"}
-        dispatcher
+        dispatcher={groupId ?? false}
         enabled={visible && !!agentId && !current.isError}
         subscribe={visible && !!agentId && up}
         settled
@@ -315,7 +334,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
           !!state && (
             <View style={{ gap: space[2], alignItems: "flex-start" }}>
               <Label muted size={font.md}>
-                {state === "ended" ? t("The dispatcher session ended.") : t("Starts one agent session that works across all your projects.")}
+                {state === "ended" ? t("The dispatcher session ended.") : t("Starts one agent session for this group's projects.")}
               </Label>
               <Button primary icon="Play" disabled={starting} onPress={() => void start()}>
                 {t("Start dispatcher")}

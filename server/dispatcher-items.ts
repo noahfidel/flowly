@@ -14,11 +14,23 @@ import {
 } from "../shared/dispatcher";
 import type { Board } from "../shared/model";
 import { logFailure } from "./error-report";
-import type { DispatcherRecord } from "./dispatcher";
+import type { DispatcherEntry } from "./dispatcher";
 
 /** The dispatcher chat's own items (DISPATCHER-SPEC §9.1) and its "Changed since you looked" line (§9.2). */
 
-/** Drops answered or dismissed asks older than 7 days, then keeps the newest `chatItemLimit` items, oldest first. */
+/**
+ * What the per-group cap counts an item under (§0, §9.1): a note under the group stamped on it (unstamped v1 notes
+ * together, under a key of their own), asks and answers all together, as they have no group.
+ */
+function capKey(item: Stored): string {
+  if (item.kind !== "note") return "asks";
+  return item.groupId ? `note:${item.groupId}` : "note";
+}
+
+/**
+ * Drops answered or dismissed asks older than 7 days, then keeps the newest `chatItemLimit` items of each cap key
+ * (each group's notes; the asks and answers), oldest first.
+ */
 export function pruneItems(items: readonly Stored[], now: number): Stored[] {
   const live = items.filter((item) => {
     if (item.kind !== "ask" || (item.state !== "answered" && item.state !== "dismissed")) return true;
@@ -26,19 +38,37 @@ export function pruneItems(items: readonly Stored[], now: number): Stored[] {
     return !(now - resolved > resolvedAskMs);
   });
   const sorted = live.map((item, index) => ({ item, index })).sort((a, b) => a.item.at.localeCompare(b.item.at) || a.index - b.index);
-  return sorted.slice(-chatItemLimit).map((x) => x.item);
+  const counts = new Map<string, number>();
+  const kept: Stored[] = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const { item } = sorted[i];
+    const key = capKey(item);
+    const count = counts.get(key) ?? 0;
+    if (count >= chatItemLimit) continue;
+    counts.set(key, count + 1);
+    kept.push(item);
+  }
+  return kept.reverse();
 }
 
-/** One note row per note the dispatcher received in one batch (§9.1). */
-export function noteItems(notes: readonly DispatcherNote[], at: string): Stored[] {
-  return notes.map((note) => ({ id: `note-${randomUUID()}`, at, kind: "note", note }));
+/** One note row per note the dispatcher received in one batch (§9.1), stamped with the group and session that received it (§0). */
+export function noteItems(notes: readonly DispatcherNote[], at: string, to?: { groupId: string; agentId: string }): Stored[] {
+  return notes.map((note) => ({ id: `note-${randomUUID()}`, at, kind: "note", note, ...(to ? { groupId: to.groupId, agentId: to.agentId } : {}) }));
+}
+
+/**
+ * A group's chat items (§0, §9): the notes its own sessions received (an unstamped v1 note belongs to `legacyGroupId`,
+ * the group the v1 session moved to), and every ask and answer, which have no group.
+ */
+export function groupItems<T extends ChatItem>(items: readonly T[], groupId: string, legacyGroupId: string | null): T[] {
+  return items.filter((item) => item.kind !== "note" || (item.groupId ?? legacyGroupId) === groupId);
 }
 
 /** The mark the change line counts from: the user's Mark seen, else the dispatcher's start, else none (§9.2). */
 /** Where "Changed since you looked" starts: a millisecond, and the events at exactly that ms already seen. */
 export type SeenMark = { revision: number; ids: readonly string[] };
 
-export function seenMark(record: Pick<DispatcherRecord, "seenRevision" | "seenIds" | "startedAt">): SeenMark | null {
+export function seenMark(record: Partial<Pick<DispatcherEntry, "seenRevision" | "seenIds" | "startedAt">>): SeenMark | null {
   if (typeof record.seenRevision === "number") return { revision: record.seenRevision, ids: record.seenIds ?? [] };
   const started = record.startedAt ? Date.parse(record.startedAt) : NaN;
   return Number.isFinite(started) ? { revision: started, ids: [] } : null;
@@ -48,13 +78,15 @@ export function seenMark(record: Pick<DispatcherRecord, "seenRevision" | "seenId
  * "Changed since you looked" (§9.2): cards with an agent's or the system's event after `mark` (event revision =
  * its time in ms; at the mark's own ms, an event whose id was not seen), on live cards of live projects; newest
  * first. The user's own changes and the actions of every dispatcher session this install has had
- * (`dispatcherAgentIds`) are left out. Null when nothing changed.
+ * (`dispatcherAgentIds`) are left out. With `projectIds` (a group's live projects, §0) only their cards count. Null
+ * when nothing changed.
  */
-export function changeLine(board: Board, mark: SeenMark | null, dispatcherAgentIds: readonly string[] = []): ChatItem | null {
+export function changeLine(board: Board, mark: SeenMark | null, dispatcherAgentIds: readonly string[] = [], projectIds?: readonly string[]): ChatItem | null {
   if (mark === null) return null;
   const seenAtMark = new Set(mark.ids);
   const dispatchers = new Set(dispatcherAgentIds);
-  const live = new Set(board.projects.filter((p) => !p.archivedAt).map((p) => p.id));
+  const only = projectIds ? new Set(projectIds) : null;
+  const live = new Set(board.projects.filter((p) => !p.archivedAt && (!only || only.has(p.id))).map((p) => p.id));
   const tasks = new Map(board.tasks.filter((t) => !t.archivedAt && live.has(t.projectId)).map((t) => [t.id, t]));
   const changed = new Map<string, { card: ChangedCard; newest: number }>();
   let newest = -Infinity;
@@ -78,23 +110,35 @@ export function changeLine(board: Board, mark: SeenMark | null, dispatcherAgentI
   return { id: "change", at: new Date(newest).toISOString(), kind: "change", revision: newest, ids: newestIds.slice(-seenIdLimit), cards: cards.map((c) => c.card) };
 }
 
+/** A group's live project ids: the projects whose cards its change line counts (§0, §9.2). */
+export function groupProjectIds(board: Pick<Board, "projects">, groupId: string): string[] {
+  return board.projects.filter((p) => !p.archivedAt && p.groupId === groupId).map((p) => p.id);
+}
+
 /**
- * The change line for each open panel's poll without a board scan while nothing moved: one cached result,
- * keyed on the board's revision and last event, the mark and the dispatcher sessions (§9.2).
+ * The change line for each open panel's poll without a board scan while nothing moved: one cached result per group,
+ * keyed on the board's revision and last event, the group's mark and projects, and the dispatcher sessions (§0, §9.2).
  */
 export class ChangeLineCache {
-  private last: { key: string; value: ChatItem | null } | null = null;
+  private readonly last = new Map<string, { key: string; value: ChatItem | null }>();
   constructor(private readonly scan: typeof changeLine = changeLine) {}
-  get(board: Board, mark: SeenMark | null, dispatcherAgentIds: readonly string[]): ChatItem | null {
-    const key = JSON.stringify([board.revision, board.events.length, board.events.at(-1)?.id ?? null, mark, dispatcherAgentIds]);
-    if (this.last?.key !== key) this.last = { key, value: this.scan(board, mark, dispatcherAgentIds) };
-    return this.last.value;
+  get(groupId: string, board: Board, mark: SeenMark | null, dispatcherAgentIds: readonly string[], projectIds: readonly string[]): ChatItem | null {
+    const key = JSON.stringify([board.revision, board.events.length, board.events.at(-1)?.id ?? null, mark, dispatcherAgentIds, projectIds]);
+    const cached = this.last.get(groupId);
+    if (cached?.key === key) return cached.value;
+    const value = this.scan(board, mark, dispatcherAgentIds, projectIds);
+    this.last.set(groupId, { key, value });
+    return value;
+  }
+  /** Forgets a deleted group's entry. */
+  forget(groupId: string) {
+    this.last.delete(groupId);
   }
 }
 
-/** Every dispatcher session id the record names: the earlier ones, then the current one. */
-export function dispatcherSessionIds(record: Pick<DispatcherRecord, "agentId" | "previousAgentIds">): string[] {
-  return [...(record.previousAgentIds ?? []), ...(record.agentId ? [record.agentId] : [])];
+/** Every dispatcher session id a group's entry names: the earlier ones, then the current one. */
+export function dispatcherSessionIds(entry: Pick<DispatcherEntry, "agentId" | "previousAgentIds">): string[] {
+  return [...(entry.previousAgentIds ?? []), ...(entry.agentId ? [entry.agentId] : [])];
 }
 
 /** The "What should I do?" message: the question, then the changed cards (§9.2). Agent-facing, English. */

@@ -1,7 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  ALL_PROJECTS,
-  allProjectsAvailable,
   allQuickProject,
   allStatuses,
   dropAllowed,
@@ -12,7 +10,6 @@ import {
   scopeTasks,
   sortAllColumn,
 } from "./all-projects";
-import { lastViewedProject, pickView, rememberViewedProject } from "./project-memory";
 import { statuses, type Project, type Status, type Task } from "../shared/model";
 
 const project = (id: string, over: Partial<Project> = {}): Project =>
@@ -55,13 +52,7 @@ const a = project("a", { position: 1 }),
   b = project("b", { position: 0 }),
   gone = project("gone", { position: 2, archivedAt: "2026-11-02T00:00:00.000Z" });
 
-describe("availability (ALL-PROJECTS-SPEC §1)", () => {
-  test("needs the setting and two or more live projects", () => {
-    expect(allProjectsAvailable([a, b], true)).toBe(true);
-    expect(allProjectsAvailable([a, b], false)).toBe(false);
-    expect(allProjectsAvailable([a, gone], true)).toBe(false);
-    expect(allProjectsAvailable([], true)).toBe(false);
-  });
+describe("included projects (ALL-PROJECTS-SPEC §1)", () => {
   test("included projects are the live ones in chooser order", () => {
     expect(includedProjects([a, gone, b]).map((p) => p.id)).toEqual(["b", "a"]);
   });
@@ -155,25 +146,5 @@ describe("new task (§5)", () => {
     expect(allQuickProject([a, b], "a")?.id).toBe("a");
     expect(allQuickProject([a, b, gone], "gone")?.id).toBe("b");
     expect(allQuickProject([a, b], "")?.id).toBe("b");
-  });
-});
-
-describe("which view opens (§8)", () => {
-  const projects = [{ id: "p" }, { id: "q" }];
-  const ok = { id: ALL_PROJECTS, ok: true };
-  test("All is restored as the last viewed choice while available", () => {
-    rememberViewedProject(ALL_PROJECTS);
-    expect(lastViewedProject()).toBe(ALL_PROJECTS);
-    expect(pickView(projects, "", lastViewedProject(), ok)).toEqual({ all: true, view: ALL_PROJECTS });
-  });
-  test("an explicit project choice wins over a remembered All", () => {
-    expect(pickView(projects, "q", ALL_PROJECTS, ok)).toEqual({ all: false, project: { id: "q" } });
-  });
-  test("All unavailable (setting off, one project) falls back to the first project", () => {
-    expect(pickView(projects, ALL_PROJECTS, ALL_PROJECTS, { id: ALL_PROJECTS, ok: false })).toEqual({ all: false, project: { id: "p" } });
-    expect(pickView(projects, ALL_PROJECTS, "q", { id: ALL_PROJECTS, ok: false })).toEqual({ all: false, project: { id: "q" } });
-  });
-  test("an explicit All choice wins over a remembered project", () => {
-    expect(pickView(projects, ALL_PROJECTS, "q", ok)).toEqual({ all: true, view: ALL_PROJECTS });
   });
 });

@@ -765,9 +765,14 @@ test("only the stored dispatcher's session gets a dispatcher credential (DISPATC
   const restored = new ToolServer(x.store, dispatcherPath(x.root));
   cleanups.push(() => restored.stop());
   await writeFile(x.store.directory + "/dispatcher.json", JSON.stringify({ version: 1, workspaceId: "dw", agentId: "current", startedAt: null }));
+  // The v1 session has no group until the board has one (BOARD-GROUPS-SPEC §7 step 4): no credential yet.
+  expect(await restored.dispatcherSession("current", x.paseo)).toBeNull();
+  await x.store.migrateGroups(async () => []);
+  const groupId = (await x.store.read()).groups[0].id;
   const config = (await restored.dispatcherSession("current", x.paseo))!.mcp!;
   expect(config).toMatchObject({ type: "http" });
-  expect(restored.secrets.authenticateAny(config.headers.Authorization.slice(7))).toEqual({ kind: "dispatcher", identity: { agentId: "current", workspaceId: "dw" } });
+  // Its credential names the group that now holds it (DISPATCHER-SPEC §0, §4).
+  expect(restored.secrets.authenticateAny(config.headers.Authorization.slice(7))).toEqual({ kind: "dispatcher", identity: { agentId: "current", workspaceId: "dw", groupId } });
   // A replaced dispatcher's session, a card session and any other session get none.
   for (const id of ["replaced-earlier-dispatcher", x.identity.agentId, "someone"]) expect(await restored.dispatcherSession(id, x.paseo), id).toBeNull();
 });

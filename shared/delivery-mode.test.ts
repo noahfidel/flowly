@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { defaultDeliveryMode, deliveryLine, deliveryModeLabels, deliveryModeLocked, deliveryModes, effectiveDeliveryMode } from "./delivery-mode";
+import { defaultDeliveryMode, deliveryLine, deliveryModeLabels, deliveryModeLocked, deliveryModes, effectiveDeliveryMode, resolveDeliveryMode } from "./delivery-mode";
 import { deliverySettings, deliverySettingsValues } from "./settings";
 import { taskEdit, taskInput, taskSchema } from "./model";
 
@@ -60,4 +60,18 @@ test("Edit accepts only the three modes, and the mode is fixed once the card del
   for (const status of ["in_review", "committed", "integrated"] as const) expect(deliveryModeLocked({ status }), status).toBe(true);
   const stored = { id: "t", projectId: "p", workspaceId: "w", sourcePath: "/r", repoPaths: [], title: "T", description: "", status: "development", priority: "normal", position: 0, revision: 1, operationId: "o", createdAt: "2026-11-08T00:00:00.000Z", updatedAt: "2026-11-08T00:00:00.000Z", archivedAt: null };
   expect(taskSchema.parse({ ...stored, deliveredAt: "2026-11-09T00:00:00.000Z" }).deliveredAt).toBe("2026-11-09T00:00:00.000Z");
+});
+
+test("resolveDeliveryMode: card, project, group, host, then the built-in default (board groups spec §5)", () => {
+  expect(resolveDeliveryMode({ card: "ready_pr", project: "draft_pr", group: "draft_pr", host: "draft_pr" })).toEqual({ mode: "ready_pr", source: "card" });
+  expect(resolveDeliveryMode({ project: "draft_pr", group: "ready_pr", host: "ready_pr" })).toEqual({ mode: "draft_pr", source: "project" });
+  expect(resolveDeliveryMode({ group: "ready_pr", host: "draft_pr" })).toEqual({ mode: "ready_pr", source: "group" });
+  expect(resolveDeliveryMode({ host: "draft_pr" })).toEqual({ mode: "draft_pr", source: "host" });
+  expect(resolveDeliveryMode({})).toEqual({ mode: "branch", source: "host" });
+});
+
+test("resolveDeliveryMode skips a level that is not a known mode", () => {
+  expect(resolveDeliveryMode({ card: "from_the_future", project: 7, group: "ready_pr", host: "draft_pr" })).toEqual({ mode: "ready_pr", source: "group" });
+  expect(resolveDeliveryMode({ card: "nope", project: "", group: null, host: "draft_pr" })).toEqual({ mode: "draft_pr", source: "host" });
+  expect(resolveDeliveryMode({ card: "nope", host: "also_nope" })).toEqual({ mode: "branch", source: "host" });
 });

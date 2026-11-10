@@ -112,8 +112,9 @@ export class ToolServer {
     this.dispatcher = new Dispatcher(
       store.directory,
       {
-        summary: async () => dispatcherSummary(await store.read()),
+        summary: async (groupId) => dispatcherSummary(await store.read(), groupId),
         mcp: (identity) => this.dispatcherServer(identity),
+        board: () => store.read(),
       },
       dispatcherPath,
     );
@@ -129,16 +130,16 @@ export class ToolServer {
     };
   }
   /**
-   * When the stored dispatcher's session opens: the server the open hook adds to it (`mcp`), or `mcp: null` when its
-   * tools are saved with it. Null for every other session (§3).
+   * When a group's stored dispatcher session opens: the server the open hook adds to it (`mcp`), or `mcp: null` when
+   * its tools are saved with it. Null for every other session (§3).
    */
   async dispatcherSession(agentId: string, paseo: PaseoApi): Promise<{ mcp: DispatcherMcpServer | null } | null> {
     this.attach(paseo);
-    const record = await this.dispatcher.record();
-    if (!record.agentId || record.agentId !== agentId || !record.workspaceId) return null;
+    const own = await this.dispatcher.sessionOf(agentId);
+    if (!own?.workspaceId) return null;
     // A dispatcher saved with its tools gets nothing here: Paseo refuses a hook server named like a saved one.
-    if (record.savedTools) return { mcp: null };
-    return { mcp: await this.dispatcherServer({ agentId, workspaceId: record.workspaceId }) };
+    if (own.entry.savedTools) return { mcp: null };
+    return { mcp: await this.dispatcherServer({ agentId, workspaceId: own.workspaceId, groupId: own.groupId }) };
   }
   attach(paseo: PaseoApi) {
     this.agents.attach(paseo);

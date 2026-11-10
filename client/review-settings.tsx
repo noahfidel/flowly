@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
 import { View } from "react-native";
 import type { AutoReviewInput, Project } from "../shared/model";
 import { useGuardrailsQuery } from "./queries";
@@ -20,18 +20,22 @@ export function AutoReviewSection({
   value,
   onChange,
   switchOn,
+  applied,
 }: {
   project?: Project;
   value: ReviewEdit;
   onChange(next: ReviewEdit): void;
   /** Opened from What's new: the switch starts on. */
   switchOn?: boolean;
+  /** Owned by the caller's state so it survives this section unmounting (a collapsed section). */
+  applied?: MutableRefObject<boolean>;
 }) {
   // The project's active and observing commands, when it already has them.
   const store = useGuardrailsQuery(project?.id ?? "", !!project && value.on).data;
   const commands = (store?.entries ?? []).filter((e) => e.kind === "command" && (e.state === "active" || e.state === "observing")).map((e) => e.text);
   const set = (patch: Partial<ReviewEdit>) => onChange({ ...value, ...patch });
-  const asked = useRef(false);
+  const local = useRef(false);
+  const asked = applied ?? local;
   useEffect(() => {
     if (!switchOn || asked.current) return;
     asked.current = true;

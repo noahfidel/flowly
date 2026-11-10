@@ -19,6 +19,7 @@ import {
   taskTypeLabels,
   type TaskType,
   type Lane,
+  type Group,
   type Project,
   type Task,
   type Status,
@@ -30,7 +31,8 @@ import { AgentPicker, useAgentChoice, type AgentDefaults } from "./agent-choice"
 import { ModelDefaultGroup } from "./model-default";
 import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
 import { deliverySettings, deliverySettingsValues, modelSettings, modelSettingsValues } from "../shared/settings";
-import { deliveryModeLabels, deliveryModeLocked, deliveryModes, effectiveDeliveryMode, type DeliveryMode } from "../shared/delivery-mode";
+import { deliveryModeLabels, deliveryModeLocked, deliveryModes, isDeliveryMode, resolveDeliveryMode, type DeliveryMode } from "../shared/delivery-mode";
+import { inheritLabel, inheritedDeliveryText, inheritedModelText } from "./group-settings-logic";
 import { launchKanbanSession } from "./session";
 import { ImageAttachments, useImageAttachments } from "./image-attach";
 import { newMessageId, rememberSentImages } from "./sent-images";
@@ -51,16 +53,179 @@ import { connectorFamilies, connectorLimits, familyOf, type ConnectorFamily, typ
 const newProjectReview: ReviewEdit = { on: true, rounds: "2" };
 const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
 
-export function ProjectForm({
-  project: initialProject,
+/**
+ * An existing project's settings being edited (BOARD-GROUPS-SPEC §5): the fields' state and one save, which sends
+ * only what changed (`projects.update`, then the links). The project's revision is the one it opened with, so a
+ * stale edit is refused.
+ */
+export function useProjectSettings(project: Project) {
+  const update = useRpc(rpc.updateProject),
+    setLinks = useRpc(rpc.setProjectLinks);
+  const stored = autoReviewOf(project);
+  const storedDelivery = isDeliveryMode(project.deliveryMode) ? project.deliveryMode : null;
+  const storedLinks = project.links?.map((l) => l.target) ?? [];
+  // Whether What's new's Auto review preset was applied: kept here so collapsing and reopening a section doesn't redo it.
+  const reviewPreset = useRef(false);
+  const [title, setTitle] = useState(project.title),
+    [description, setDescription] = useState(project.description || ""),
+    [links, setLinkList] = useState<string[]>(storedLinks),
+    [autoStatus, setAutoStatus] = useState(project.autoStatus !== false),
+    [workpad, setWorkpad] = useState(project.workpad !== false),
+    [workflowInsights, setWorkflowInsights] = useState(project.workflowInsights !== false),
+    [memory, setMemory] = useState(project.memory !== false),
+    [linearTicket, setLinearTicket] = useState(project.linearTicket === true),
+    [linearTeam, setLinearTeam] = useState(project.linearTeam ?? ""),
+    [review, setReview] = useState<ReviewEdit>({ on: stored.enabled, rounds: String(stored.maxRounds) }),
+    [agentModel, setAgentModel] = useState<AgentModel | null>(project.agentModel ?? null),
+    [deliveryMode, setDeliveryMode] = useState<DeliveryMode | null>(storedDelivery),
+    [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
+    [pending, setPending] = useState(false),
+    [error, setError] = useState("");
+  const patch = {
+    ...(title !== project.title ? { title } : {}),
+    ...(description !== (project.description || "") ? { description } : {}),
+    ...(autoStatus !== (project.autoStatus !== false) ? { autoStatus } : {}),
+    ...(workpad !== (project.workpad !== false) ? { workpad } : {}),
+    ...(workflowInsights !== (project.workflowInsights !== false) ? { workflowInsights } : {}),
+    ...(memory !== (project.memory !== false) ? { memory } : {}),
+    ...(linearTicket !== (project.linearTicket === true) ? { linearTicket } : {}),
+    ...(linearTeamValue(linearTeam) !== (project.linearTeam ?? "") ? { linearTeam: linearTeamValue(linearTeam) } : {}),
+    ...(review.on !== stored.enabled || Number(review.rounds) !== stored.maxRounds ? { autoReview: autoReviewPatch(review) } : {}),
+    ...(JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
+    ...(JSON.stringify(agentModel) !== JSON.stringify(project.agentModel ?? null) ? { agentModel } : {}),
+    // An unknown stored mode shows as Inherit and is left as it is until another mode is chosen.
+    ...(deliveryMode !== storedDelivery ? { deliveryMode } : {}),
+  };
+  const linksChanged = !!project.links && !sameList(links, storedLinks);
+  const dirty = Object.keys(patch).length > 0 || linksChanged;
+  const valid = !!title.trim() && (!project.links || links.length > 0);
+  /** The saved project, or null when the save failed (the error is in `error`). */
+  async function save(): Promise<Project | null> {
+    setPending(true);
+    setError("");
+    try {
+      let saved = await update({ id: project.id, revision: project.revision, title, description, ...patch });
+      if (linksChanged) saved = await setLinks({ id: project.id, revision: saved.revision, links });
+      return saved;
+    } catch (e) {
+      setError(message(e));
+      return null;
+    } finally {
+      setPending(false);
+    }
+  }
+  return {
+    title, setTitle, description, setDescription, links, setLinkList, autoStatus, setAutoStatus, workpad, setWorkpad,
+    workflowInsights, setWorkflowInsights, memory, setMemory, linearTicket, setLinearTicket, linearTeam, setLinearTeam,
+    review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode, lanes, setLanes,
+    pending, error, dirty, valid, save, reviewPreset,
+  };
+}
+export type ProjectSettingsState = ReturnType<typeof useProjectSettings>;
+
+/**
+ * The fields of an existing project's settings: Edit project and each project section of Group settings
+ * (BOARD-GROUPS-SPEC §5). Empty defaults show what they inherit from the project's group and the host.
+ */
+export function ProjectSettingsFields({
+  project,
+  state,
+  group,
   laneCounts = {},
-  showArchived,
-  onShowArchived,
-  onClose,
-  onSaved,
   reviewOn,
 }: {
+  project: Project;
+  state: ProjectSettingsState;
+  /** The project's group, for what an empty default inherits. */
+  group: Group | null;
+  /** Live cards per lane, so lanes in use can't be turned off. */
+  laneCounts?: Partial<Record<Status, number>>;
+  /** Opened from What's new to turn Auto review on: the section first, its switch on (GUARDRAILS-SPEC §10). */
+  reviewOn?: boolean;
+}) {
+  const s = state;
+  const modelPrefs = useSettings(modelSettings);
+  const hostModel = agentModelFromValues(modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null);
+  const deliveryPrefs = useSettings(deliverySettings);
+  const hostDelivery = deliveryPrefs.status === "ready" ? deliverySettingsValues(deliveryPrefs.values).defaultMode : undefined;
+  const readFolder = useRpc(rpc.projectFolderState);
+  const folder = useQuery({
+    queryKey: ["flowly", "folder-state", project.id],
+    queryFn: () => readFolder({ id: project.id }),
+    staleTime: 0,
+  });
+  const reviewSection = <AutoReviewSection project={project} value={s.review} onChange={s.setReview} switchOn={reviewOn} applied={s.reviewPreset} />;
+  return (
+    <>
+      {reviewOn && reviewSection}
+      <Field title={t("Name")} value={s.title} onChange={s.setTitle} placeholder={t("Project name")} />
+      <Field title={t("Description")} value={s.description} onChange={s.setDescription} multiline />
+      {!project.links && <Field title={t("Paseo project root")} value={project.primaryPath} onChange={noop} editable={false} />}
+      {!!project.links && <LinkList links={s.links} root={project.primaryPath} disabled={s.pending} onChange={s.setLinkList} />}
+      <LaneEditor lanes={s.lanes} counts={laneCounts} disabled={s.pending} onChange={s.setLanes} />
+      <ModelDefaultGroup
+        title={t("Default model")}
+        value={s.agentModel}
+        disabled={s.pending}
+        noneLabel={inheritLabel(inheritedModelText(group, hostModel))}
+        onChange={s.setAgentModel}
+      />
+      <Choices
+        title={t("Delivery mode")}
+        value={s.deliveryMode ?? ""}
+        options={[
+          { value: "" as const, label: inheritLabel(inheritedDeliveryText(group, hostDelivery)), disabled: s.pending },
+          ...deliveryModes.map((m) => ({ value: m, label: t(deliveryModeLabels[m]), disabled: s.pending })),
+        ]}
+        onChange={(next) => s.setDeliveryMode(next || null)}
+      />
+      {folder.data && (
+        <View style={{ gap: 4 }}>
+          <Label size={font.sm}>{t("Saved in project folder")}</Label>
+          {folder.data.error ? (
+            <Notice tone="warning">{t("The board could not be saved in {path}: {message}", { path: folder.data.path, message: folder.data.error })}</Notice>
+          ) : (
+            <Label muted size={font.sm}>
+              {folder.data.savedAt ? t("{path}, saved {time}. Git ignores it unless you change .flowly/.gitignore.", { path: folder.data.path, time: relativeTime(folder.data.savedAt) }) : folder.data.path}
+            </Label>
+          )}
+        </View>
+      )}
+      <Toggle title={t("Auto-update status in this project")} value={s.autoStatus} onChange={s.setAutoStatus} />
+      <Toggle
+        title={t("Card workpad")}
+        detail={t("Agents keep an acceptance list on each card. Off hides it; what agents wrote is kept.")}
+        value={s.workpad}
+        onChange={s.setWorkpad}
+      />
+      {!reviewOn && reviewSection}
+      <Toggle
+        title={t("Make sure there's a Linear ticket")}
+        detail={t("When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.")}
+        value={s.linearTicket}
+        onChange={s.setLinearTicket}
+      />
+      {s.linearTicket && <Field title={t("Linear team")} value={s.linearTeam} onChange={s.setLinearTeam} placeholder={t("Team name or key (optional)")} />}
+      <Toggle title={t("Skills")} value={s.workflowInsights} onChange={s.setWorkflowInsights} />
+      <Toggle
+        title={t("Guardrails")}
+        detail={t("Learn from what you send cards back for, and check the next cards for it.")}
+        value={s.memory}
+        onChange={s.setMemory}
+      />
+      {!!s.error && <Notice>{s.error}</Notice>}
+    </>
+  );
+}
+
+const noop = () => {};
+
+export function ProjectForm(props: {
   project?: Project;
+  /** The group a new project is created in (BOARD-GROUPS-SPEC §2); the default group when absent. */
+  groupId?: string;
+  /** The project's group, for what its empty defaults inherit. */
+  group?: Group | null;
   /** Opened from What's new to turn Auto review on: the section first, its switch on (GUARDRAILS-SPEC §10). */
   reviewOn?: boolean;
   /** Live cards per lane, so lanes in use can't be turned off. */
@@ -72,40 +237,98 @@ export function ProjectForm({
   /** `restored`: the project came back from its folder's saved board. */
   onSaved: (id: string, restored?: { restored: number; title: string }) => void;
 }) {
+  // The project it opened with, kept while it is open.
+  const [project] = useState(props.project);
+  return project ? <EditProjectForm {...props} project={project} /> : <NewProjectForm groupId={props.groupId} onClose={props.onClose} onSaved={props.onSaved} />;
+}
+
+/** Edit project: the project settings fields in a dialog with one Save. */
+function EditProjectForm({
+  project,
+  group = null,
+  laneCounts,
+  showArchived,
+  onShowArchived,
+  onClose,
+  onSaved,
+  reviewOn,
+}: {
+  project: Project;
+  group?: Group | null;
+  reviewOn?: boolean;
+  laneCounts?: Partial<Record<Status, number>>;
+  showArchived?: boolean;
+  onShowArchived?: (next: boolean) => void;
+  onClose: () => void;
+  onSaved: (id: string) => void;
+}) {
+  const theme = useTheme();
+  const state = useProjectSettings(project);
+  const [archivedShown, setArchivedShown] = useState(!!showArchived);
+  async function save() {
+    const saved = await state.save();
+    if (!saved) return;
+    if (onShowArchived && archivedShown !== !!showArchived) onShowArchived(archivedShown);
+    onSaved(saved.id);
+  }
+  return (
+    <Modal
+      open
+      title={t("Edit project")}
+      onOpenChange={(open) => {
+        if (!open && !state.pending) onClose();
+      }}
+    >
+      <Modal.Content>
+        <Theme.Provider value={theme}>
+        <View style={{ gap: 16 }}>
+          <ProjectSettingsFields project={project} state={state} group={group} laneCounts={laneCounts} reviewOn={reviewOn} />
+          {onShowArchived && <Toggle title={t("Show archived")} value={archivedShown} onChange={setArchivedShown} />}
+          <Actions>
+            <Button quiet disabled={state.pending} onPress={onClose}>
+              {t("Cancel")}</Button>
+            <Button primary disabled={state.pending || !state.valid} onPress={() => void save()}>
+              {state.pending ? t("Saving…") : t("Save project")}
+            </Button>
+          </Actions>
+        </View>
+        </Theme.Provider>
+      </Modal.Content>
+    </Modal>
+  );
+}
+
+/** New project: a directory, several repositories or an existing Paseo project; or a board restored from its folder. */
+function NewProjectForm({
+  groupId,
+  onClose,
+  onSaved,
+}: {
+  groupId?: string;
+  onClose: () => void;
+  onSaved: (id: string, restored?: { restored: number; title: string }) => void;
+}) {
   const theme = useTheme();
   const toast = useToast();
-  const [project] = useState(initialProject);
   const create = useRpc(rpc.createProject),
     createLinked = useRpc(rpc.createLinkedProject),
-    setLinks = useRpc(rpc.setProjectLinks),
     update = useRpc(rpc.updateProject),
     checkRestore = useRpc(rpc.restoreProjectCheck),
     restore = useRpc(rpc.restoreProject);
   const resources = useResourcesQuery();
-  const modelPrefs = useSettings(modelSettings);
-  const globalModel = agentModelFromValues(modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null);
-  const [title, setTitle] = useState(project?.title || ""),
-    [description, setDescription] = useState(project?.description || ""),
-    [primaryPath, setPrimary] = useState(project?.primaryPath || ""),
-    [nativeId, setNative] = useState(project?.paseoProjectId || ""),
+  const [title, setTitle] = useState(""),
+    [description, setDescription] = useState(""),
+    [primaryPath, setPrimary] = useState(""),
+    [nativeId, setNative] = useState(""),
     [source, setSource] = useState<"directory" | "linked" | "native">("directory"),
-    [links, setLinkList] = useState<string[]>(() => project?.links?.map((l) => l.target) ?? []),
-    [autoStatus, setAutoStatus] = useState(project?.autoStatus !== false),
-    [workpad, setWorkpad] = useState(project?.workpad !== false),
-    [workflowInsights, setWorkflowInsights] = useState(project?.workflowInsights !== false),
-    [memory, setMemory] = useState(project?.memory !== false),
-    [linearTicket, setLinearTicket] = useState(project?.linearTicket === true),
-    [linearTeam, setLinearTeam] = useState(project?.linearTeam ?? ""),
+    [links, setLinkList] = useState<string[]>([]),
     // A new project starts with Auto review on (GUARDRAILS-SPEC §8, D1).
-    [review, setReview] = useState<ReviewEdit>(() => (project ? { on: autoReviewOf(project).enabled, rounds: String(autoReviewOf(project).maxRounds) } : newProjectReview)),
-    [agentModel, setAgentModel] = useState<AgentModel | null>(project?.agentModel ?? null),
-    [archivedShown, setArchivedShown] = useState(!!showArchived),
-    [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
+    [review, setReview] = useState<ReviewEdit>(newProjectReview),
     [pending, setPending] = useState(false),
     [error, setError] = useState(""),
     [startEmpty, setStartEmpty] = useState(false);
   // A board saved in the chosen folder's .flowly can be restored (PROJECT-FOLDER-SPEC §3).
-  const restorePath = useDebounced(!project && source !== "linked" ? primaryPath.trim() : "", 400);
+  const restorePath = useDebounced(source !== "linked" ? primaryPath.trim() : "", 400);
   const saved = useQuery({
     queryKey: ["flowly", "restore-check", restorePath],
     queryFn: () => checkRestore({ path: restorePath }),
@@ -113,42 +336,11 @@ export function ProjectForm({
     staleTime: 0,
   });
   const found = restorePath && saved.data?.found ? saved.data : null;
-  const readFolder = useRpc(rpc.projectFolderState);
-  const folder = useQuery({
-    queryKey: ["flowly", "folder-state", project?.id],
-    queryFn: () => readFolder({ id: project!.id }),
-    enabled: !!project,
-    staleTime: 0,
-  });
   const restoring = !!found && !found.conflict && !startEmpty;
-  const reviewSection = <AutoReviewSection project={project} value={review} onChange={setReview} switchOn={reviewOn} />;
   async function save() {
     setPending(true);
     setError("");
     try {
-      if (project) {
-        const stored = autoReviewOf(project);
-        let saved = await update({
-          id: project.id,
-          revision: project.revision,
-          title,
-          description,
-          ...(autoStatus !== (project.autoStatus !== false) ? { autoStatus } : {}),
-          ...(workpad !== (project.workpad !== false) ? { workpad } : {}),
-          ...(workflowInsights !== (project.workflowInsights !== false) ? { workflowInsights } : {}),
-          ...(memory !== (project.memory !== false) ? { memory } : {}),
-          ...(linearTicket !== (project.linearTicket === true) ? { linearTicket } : {}),
-          ...(linearTeamValue(linearTeam) !== (project.linearTeam ?? "") ? { linearTeam: linearTeamValue(linearTeam) } : {}),
-          ...(review.on !== stored.enabled || Number(review.rounds) !== stored.maxRounds ? { autoReview: autoReviewPatch(review) } : {}),
-          ...(JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
-          ...(JSON.stringify(agentModel) !== JSON.stringify(project.agentModel ?? null) ? { agentModel } : {}),
-        });
-        if (project.links && JSON.stringify(links) !== JSON.stringify(project.links.map((l) => l.target)))
-          saved = await setLinks({ id: project.id, revision: saved.revision, links });
-        if (onShowArchived && archivedShown !== !!showArchived) onShowArchived(archivedShown);
-        onSaved(saved.id);
-        return;
-      }
       if (restoring) {
         const restored = await restore({ path: primaryPath });
         onSaved(restored.project.id, { restored: restored.cards, title: restored.project.title });
@@ -161,6 +353,7 @@ export function ProjectForm({
               title,
               description,
               primaryPath,
+              ...(groupId ? { groupId } : {}),
               ...(source === "native" && nativeId ? { paseoProjectId: nativeId } : {}),
             });
       // projects.create turns Auto review on with 2 rounds; anything else is saved right after.
@@ -179,7 +372,7 @@ export function ProjectForm({
   return (
     <Modal
       open
-      title={project ? t("Edit project") : t("Create project")}
+      title={t("Create project")}
       onOpenChange={(open) => {
         if (!open && !pending) onClose();
       }}
@@ -187,7 +380,6 @@ export function ProjectForm({
       <Modal.Content>
         <Theme.Provider value={theme}>
         <View style={{ gap: 16 }}>
-          {project && reviewOn && reviewSection}
           {!restoring && <Field title={t("Name")} value={title} onChange={setTitle} placeholder={t("Project name")} />}
           {!restoring && (
             <Field
@@ -197,22 +389,20 @@ export function ProjectForm({
               multiline
             />
           )}
-          {!project && (
-            <Choices
-              title={t("Project root")}
-              value={source}
-              options={[
-                { value: "directory", label: t("Directory") },
-                { value: "linked", label: t("Multiple repositories") },
-                { value: "native", label: t("Existing Paseo project") },
-              ]}
-              onChange={(next) => {
-                setSource(next);
-                if (next !== "native") setNative("");
-              }}
-            />
-          )}
-          {!project && source === "native" && (
+          <Choices
+            title={t("Project root")}
+            value={source}
+            options={[
+              { value: "directory", label: t("Directory") },
+              { value: "linked", label: t("Multiple repositories") },
+              { value: "native", label: t("Existing Paseo project") },
+            ]}
+            onChange={(next) => {
+              setSource(next);
+              if (next !== "native") setNative("");
+            }}
+          />
+          {source === "native" && (
             <Choices
               title={t("Paseo project")}
               hideTitle
@@ -228,16 +418,16 @@ export function ProjectForm({
               }}
             />
           )}
-          {(project ? !project.links : source !== "linked") && (
+          {source !== "linked" && (
             <Field
               title={t("Paseo project root")}
               value={primaryPath}
               onChange={setPrimary}
-              editable={!project && source === "directory"}
+              editable={source === "directory"}
               placeholder={t("/absolute/path/to/directory")}
             />
           )}
-          {!project && source === "directory" && (
+          {source === "directory" && (
             <DirectoryChooser disabled={pending} onPick={(paths) => paths[0] && setPrimary(paths[0])} />
           )}
           {found && (
@@ -265,84 +455,9 @@ export function ProjectForm({
               )}
             </View>
           )}
-          {(project ? !!project.links : source === "linked") && (
-            <LinkList
-              links={links}
-              root={project?.primaryPath}
-              disabled={pending}
-              onChange={setLinkList}
-            />
-          )}
-          {project && <LaneEditor lanes={lanes} counts={laneCounts} disabled={pending} onChange={setLanes} />}
-          {project && (
-            <ModelDefaultGroup
-              title={t("Default model")}              value={agentModel}
-              disabled={pending}
-              noneLabel={globalModel ? t("Global default ({model})", { model: `${globalModel.provider} · ${globalModel.model}` }) : t("Global default (Automatic)")}
-              noneDetail={t("No override: the global default applies")}
-              onChange={setAgentModel}
-            />
-          )}
-          {project && folder.data && (
-            <View style={{ gap: 4 }}>
-              <Label size={font.sm}>{t("Saved in project folder")}</Label>
-              {folder.data.error ? (
-                <Notice tone="warning">{t("The board could not be saved in {path}: {message}", { path: folder.data.path, message: folder.data.error })}</Notice>
-              ) : (
-                <Label muted size={font.sm}>
-                  {folder.data.savedAt ? t("{path}, saved {time}. Git ignores it unless you change .flowly/.gitignore.", { path: folder.data.path, time: relativeTime(folder.data.savedAt) }) : folder.data.path}
-                </Label>
-              )}
-            </View>
-          )}
-          {project && (
-            <Toggle
-              title={t("Auto-update status in this project")}              value={autoStatus}
-              onChange={setAutoStatus}
-            />
-          )}
-          {project && (
-            <Toggle
-              title={t("Card workpad")}
-              detail={t("Agents keep an acceptance list on each card. Off hides it; what agents wrote is kept.")}
-              value={workpad}
-              onChange={setWorkpad}
-            />
-          )}
-          {!restoring && !(project && reviewOn) && reviewSection}
-          {project && (
-            <Toggle
-              title={t("Make sure there's a Linear ticket")}
-              detail={t("When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.")}
-              value={linearTicket}
-              onChange={setLinearTicket}
-            />
-          )}
-          {project && linearTicket && (
-            <Field title={t("Linear team")} value={linearTeam} onChange={setLinearTeam} placeholder={t("Team name or key (optional)")} />
-          )}
-          {project && (
-            <Toggle
-              title={t("Skills")}
-              value={workflowInsights}
-              onChange={setWorkflowInsights}
-            />
-          )}
-          {project && (
-            <Toggle
-              title={t("Guardrails")}
-              detail={t("Learn from what you send cards back for, and check the next cards for it.")}
-              value={memory}
-              onChange={setMemory}
-            />
-          )}
-          {project && onShowArchived && (
-            <Toggle
-              title={t("Show archived")}              value={archivedShown}
-              onChange={setArchivedShown}
-            />
-          )}
-          {!project && source !== "linked" && (
+          {source === "linked" && <LinkList links={links} disabled={pending} onChange={setLinkList} />}
+          {!restoring && <AutoReviewSection value={review} onChange={setReview} />}
+          {source !== "linked" && (
             <Label muted size={font.sm}>
               {t("To work across several repositories, choose Multiple repositories, or use a common parent directory as the project root.")}</Label>
           )}
@@ -357,12 +472,12 @@ export function ProjectForm({
                 pending ||
                 (!restoring && !title.trim()) ||
                 (!!restorePath && restorePath !== primaryPath.trim()) ||
-                ((project ? !!project.links : source === "linked") ? !links.length : !primaryPath.trim()) ||
-                (!project && source === "native" && !nativeId)
+                (source === "linked" ? !links.length : !primaryPath.trim()) ||
+                (source === "native" && !nativeId)
               }
               onPress={() => void save()}
             >
-              {pending ? t("Saving…") : project ? t("Save project") : restoring ? t("Restore project") : t("Create project")}
+              {pending ? t("Saving…") : restoring ? t("Restore project") : t("Create project")}
             </Button>
           </Actions>
         </View>
@@ -471,6 +586,7 @@ export function TaskForm({
   onClose,
   onSaved,
   agentDefaults,
+  group = null,
 }: {
   hostId: string;
   /** Every card the board knows (its overview), for workspaces already bound in other projects. */
@@ -483,6 +599,8 @@ export function TaskForm({
   /** `launch` reports the optional first agent started with a new task. */
   onSaved: (id: string, launch?: { sessionId?: string; error?: string }, status?: Status) => void;
   agentDefaults?: AgentDefaults;
+  /** The project's group: its delivery mode default applies when neither the card nor the project has one. */
+  group?: Group | null;
 }) {
   const theme = useTheme();
   const [task] = useState(initialTask);
@@ -512,12 +630,13 @@ export function TaskForm({
     [baseRef, setBase] = useState(""),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
-  // The card's delivery mode, seeded from its stored mode, else the Settings default, until chosen here. Editable
-  // until the card has delivered (been in review, committed or integrated), then shown read-only for good (DELIVERY-MODE-SPEC §2).
+  // The card's delivery mode, seeded from its stored mode, else its project's, its group's, then the Settings default
+  // (BOARD-GROUPS-SPEC §5), until chosen here. Editable until the card has delivered (been in review, committed or
+  // integrated), then shown read-only for good (DELIVERY-MODE-SPEC §2).
   const deliveryPrefs = useSettings(deliverySettings);
   const [deliveryChoice, setDeliveryChoice] = useState<DeliveryMode | null>(null);
   const deliveryDefault = deliveryPrefs.status === "ready" ? deliverySettingsValues(deliveryPrefs.values).defaultMode : "branch";
-  const deliverySeed = effectiveDeliveryMode(task?.deliveryMode, deliveryDefault);
+  const deliverySeed = resolveDeliveryMode({ card: task?.deliveryMode, project: project.deliveryMode, group: group?.defaults?.deliveryMode, host: deliveryDefault }).mode;
   const delivery = deliveryChoice ?? deliverySeed;
   const deliveryLocked = !!task && deliveryModeLocked(task);
   // From… (EXTERNAL-TRACKER-SPEC §5, CONNECTORS-SPEC §8.2): items added as inputs with the new card.
@@ -600,7 +719,7 @@ export function TaskForm({
             priority,
             type: type || null,
             ...(sameList(tags, tagsBase) ? {} : { tags, tagsBase }),
-            // Only a mode the user changed here: an untouched one keeps following the Settings default.
+            // Only a mode the user changed here: an untouched one keeps following the defaults chain.
             ...(deliveryChoice !== null && !deliveryLocked && deliveryChoice !== deliverySeed ? { deliveryMode: deliveryChoice } : {}),
           })
         : await create({
@@ -612,6 +731,7 @@ export function TaskForm({
             priority,
             type: type || undefined,
             ...(tags.length ? { tags } : {}),
+            // The shown mode is stored as the card's own (DELIVERY-MODE-SPEC §2).
             deliveryMode: delivery,
             mode,
             workspaceId: mode === "existing" ? workspaceId : undefined,

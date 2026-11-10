@@ -451,3 +451,19 @@ test("background workspaces are listed and flagged, so a card bound to one is no
   expect(resources.workspaces.map((w) => w.id)).toEqual(["w1", "bg"]);
   expect(resources.workspaces.map((w) => w.background)).toEqual([undefined, true]);
 });
+
+test("session context delivery line follows card, project, group, then host", async () => {
+  const x = await setup();
+  const card = await x.service.createTask(x.input, x.paseo);
+  await x.store.mutate((board) => {
+    const project = board.projects.find((p) => p.id === card.projectId)!;
+    board.groups = [{ id: "g", name: "G", position: 0, revision: 1, createdAt: "2026-11-10T00:00:00.000Z", updatedAt: "2026-11-10T00:00:00.000Z", isDefault: true, defaults: { deliveryMode: "ready_pr" } }];
+    project.groupId = "g";
+  });
+  const text = async () => (await x.service.context(card.id, x.paseo, undefined, { deliveryDefault: "branch" })).context;
+  expect(await text()).toContain(deliveryLine("ready_pr"));
+  await x.store.mutate((board) => {
+    board.projects.find((p) => p.id === card.projectId)!.deliveryMode = "draft_pr";
+  });
+  expect(await text()).toContain(deliveryLine("draft_pr"));
+});

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { projectSchema, taskSchema, linkSchema } from "./model";
+import { groupSchema, projectSchema, taskSchema, linkSchema } from "./model";
 import { attentionDismissalSchema } from "./attention-dismiss";
 import { connectorFamilies } from "./connectors";
 
@@ -36,6 +36,7 @@ export type ProjectIdeaFacts = z.infer<typeof projectIdeaFactsSchema>;
 export const boardOverviewSchema = z.strictObject({
   version: z.literal(1),
   revision: z.number().int().nonnegative(),
+  groups: z.array(groupSchema),
   projects: z.array(projectSchema),
   tasks: z.array(taskSchema),
   links: z.array(linkSchema),
@@ -48,6 +49,7 @@ const collection = <T extends z.ZodType>(item: T) => z.strictObject({ set: z.arr
 export const overviewPatchSchema = z.strictObject({
   baseEtag: z.string(),
   revision: z.number().int().nonnegative(),
+  groups: collection(groupSchema),
   projects: collection(projectSchema),
   tasks: collection(taskSchema),
   links: collection(linkSchema),
@@ -60,6 +62,7 @@ export const overviewResponseSchema = z.strictObject({ etag: z.string(), value: 
 
 /** Every collection has an explicit scope and identity; there is no Board fallback. */
 export const overviewKeys = {
+  groups: (x: { id: string }) => x.id,
   projects: (x: { id: string }) => x.id,
   tasks: (x: { id: string }) => x.id,
   links: (x: { id: string }) => x.id,

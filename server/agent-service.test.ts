@@ -1263,6 +1263,29 @@ test("get_task returns the card's delivery mode, or the default (DELIVERY-MODE-S
   expect((await x.service.get(x.identity)).deliveryMode).toBe("draft_pr");
 });
 
+type Board = import("../shared/model").Board;
+
+test("get_task delivery mode: card, then project, then group, then host (board groups spec §5)", async () => {
+  const x = await setup();
+  x.service.deliveryDefault = async () => "branch";
+  const mutate = (fn: (board: Board) => void) => x.store.mutate(fn);
+  const task = (board: Board) => board.tasks.find((t) => t.id === "t") as { deliveryMode?: string; projectId: string };
+  await mutate((board) => {
+    const project = board.projects.find((p) => p.id === task(board).projectId)!;
+    board.groups = [{ id: "g", name: "G", position: 0, revision: 1, createdAt: "2026-11-10T00:00:00.000Z", updatedAt: "2026-11-10T00:00:00.000Z", isDefault: true, defaults: { deliveryMode: "draft_pr" } }];
+    project.groupId = "g";
+  });
+  expect((await x.service.get(x.identity)).deliveryMode).toBe("draft_pr");
+  await mutate((board) => {
+    board.projects.find((p) => p.id === task(board).projectId)!.deliveryMode = "ready_pr";
+  });
+  expect((await x.service.get(x.identity)).deliveryMode).toBe("ready_pr");
+  await mutate((board) => {
+    task(board).deliveryMode = "branch";
+  });
+  expect((await x.service.get(x.identity)).deliveryMode).toBe("branch");
+});
+
 test("get_task lists the card's sessions in background workspaces too", async () => {
   const x = await setup();
   const list = vi.fn(x.paseo.agents.list.bind(x.paseo.agents));

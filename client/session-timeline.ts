@@ -36,8 +36,8 @@ export function useSessionTimeline({
   agentId: string;
   enabled: boolean;
   streamReady: boolean;
-  /** The dispatcher's session: read with `dispatcher.tail` (DISPATCHER-SPEC §9.3); `taskId` then only names the cache. */
-  dispatcher?: boolean;
+  /** A group's dispatcher session, by the group's id: read with `dispatcher.tail` (DISPATCHER-SPEC §9.3); `taskId` then only names the cache. */
+  dispatcher?: string | false;
 }) {
   const readCard = useRpc(sessionTail);
   const readDispatcher = useRpc(dispatcherTail);
@@ -45,7 +45,7 @@ export function useSessionTimeline({
     (input: Parameters<typeof readCard>[0]) => {
       if (!dispatcher) return readCard(input);
       const { taskId: _, ...rest } = input;
-      return readDispatcher(rest);
+      return readDispatcher({ ...rest, groupId: dispatcher });
     },
     [dispatcher, readCard, readDispatcher],
   );

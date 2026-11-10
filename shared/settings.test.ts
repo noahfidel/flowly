@@ -3,24 +3,27 @@ import { statuses } from "./model";
 import { boardViewSettings, boardViewValues, statusSettingsValues } from "./settings";
 
 test("older stored settings get defaults for newer fields; invalid values fall back", () => {
-  expect(boardViewValues({ lastProjectId: "p" })).toEqual({ lastProjectId: "p", sendBehavior: "steer", startAgentOnCreate: true, quickTaskDefault: true, quickTaskAiTitle: true, quickTaskMode: "worktree", lastQuickProjectId: "", allProjectsTab: true, boardGroups: [], boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, linearLayout: "auto", linearScope: "me", linearHidden: [], memoryKind: "all", memorySort: "newest", memoryLayout: "list", drawerShare: 0, chatMinimized: false, chatExpanded: false, chatWidth: 0 });
-  expect(boardViewValues(undefined)).toEqual({ lastProjectId: "", sendBehavior: "steer", startAgentOnCreate: true, quickTaskDefault: true, quickTaskAiTitle: true, quickTaskMode: "worktree", lastQuickProjectId: "", allProjectsTab: true, boardGroups: [], boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, linearLayout: "auto", linearScope: "me", linearHidden: [], memoryKind: "all", memorySort: "newest", memoryLayout: "list", drawerShare: 0, chatMinimized: false, chatExpanded: false, chatWidth: 0 });
+  expect(boardViewValues({ lastQuickProjectId: "p" })).toEqual({ sendBehavior: "steer", startAgentOnCreate: true, quickTaskDefault: true, quickTaskAiTitle: true, quickTaskMode: "worktree", lastQuickProjectId: "p", boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, linearLayout: "auto", linearScope: "me", linearHidden: [], memoryKind: "all", memorySort: "newest", memoryLayout: "list", drawerShare: 0, chatMinimized: false, chatExpanded: false, chatWidth: 0 });
+  expect(boardViewValues(undefined)).toEqual({ sendBehavior: "steer", startAgentOnCreate: true, quickTaskDefault: true, quickTaskAiTitle: true, quickTaskMode: "worktree", lastQuickProjectId: "", boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, linearLayout: "auto", linearScope: "me", linearHidden: [], memoryKind: "all", memorySort: "newest", memoryLayout: "list", drawerShare: 0, chatMinimized: false, chatExpanded: false, chatWidth: 0 });
   expect(boardViewValues({ sendBehavior: "bogus" }).sendBehavior).toBe("steer");
   // The dock's old tab, layouts and Attention sections (Ruling, Noah 2026-11-09: the dock is the chat only) are dropped.
-  expect(boardViewValues({ dockLayout: "side", dockStackShare: 0.3, attentionOpen: { needs: false }, dockTab: "attention", lastProjectId: "p" })).toEqual(boardViewValues({ lastProjectId: "p" }));
+  expect(boardViewValues({ dockLayout: "side", dockStackShare: 0.3, attentionOpen: { needs: false }, dockTab: "attention", lastQuickProjectId: "p" })).toEqual(boardViewValues({ lastQuickProjectId: "p" }));
   // Quick task (QUICK-TASK-SPEC §6): a bad value falls back to its default, not the whole document.
-  expect(boardViewValues({ quickTaskMode: "nope", quickTaskDefault: false, lastProjectId: "p" })).toMatchObject({ quickTaskMode: "worktree", quickTaskDefault: false, lastProjectId: "p" });
+  expect(boardViewValues({ quickTaskMode: "nope", quickTaskDefault: false, lastQuickProjectId: "p" })).toMatchObject({ quickTaskMode: "worktree", quickTaskDefault: false, lastQuickProjectId: "p" });
   expect(boardViewValues({ memoryKind: "pitfall", memorySort: "used", memoryLayout: "grid" })).toMatchObject({ memoryKind: "pitfall", memorySort: "used", memoryLayout: "grid" });
-  expect(boardViewValues({ memoryKind: "bogus", memorySort: "bogus", memoryLayout: "bogus", lastProjectId: "p" })).toMatchObject({ memoryKind: "all", memorySort: "newest", memoryLayout: "list", lastProjectId: "p" });
+  expect(boardViewValues({ memoryKind: "bogus", memorySort: "bogus", memoryLayout: "bogus", lastQuickProjectId: "p" })).toMatchObject({ memoryKind: "all", memorySort: "newest", memoryLayout: "list", lastQuickProjectId: "p" });
   expect(boardViewValues({ sendBehavior: "queue", startAgentOnCreate: false })).toMatchObject({ sendBehavior: "queue", startAgentOnCreate: false });
-  // All projects tab (ALL-PROJECTS-SPEC §1): on by default; a bad value falls back to on.
-  expect(boardViewValues({ allProjectsTab: false }).allProjectsTab).toBe(false);
-  expect(boardViewValues({ allProjectsTab: "nope" }).allProjectsTab).toBe(true);
+  // v1 keys that moved into the board (BOARD-GROUPS-SPEC §7) are dropped; they never reset the other fields.
+  const old = boardViewValues({ allProjectsTab: false, boardGroups: [{ id: "g", name: "G", projectIds: [] }], lastProjectId: "p", quickTaskMode: "directory" });
+  expect(old).toEqual(boardViewValues({ quickTaskMode: "directory" }));
+  expect(old).not.toHaveProperty("allProjectsTab");
+  expect(old).not.toHaveProperty("boardGroups");
+  expect(old).not.toHaveProperty("lastProjectId");
 });
 
 test("board sort is remembered and defaults to manual", () => {
   expect(boardViewValues({ boardSort: "priority" }).boardSort).toBe("priority");
-  expect(boardViewValues({ lastProjectId: "p" }).boardSort).toBe("manual");
+  expect(boardViewValues({ lastQuickProjectId: "p" }).boardSort).toBe("manual");
 });
 
 test("collapsed columns are remembered; unknown statuses invalidate", () => {
@@ -92,7 +95,7 @@ test("the dispatcher chat starts open and its minimized state is kept (DISPATCHE
   expect(boardViewValues({}).chatMinimized).toBe(false);
   expect(boardViewValues({ chatMinimized: true }).chatMinimized).toBe(true);
   // A bad stored value falls back to open without dropping the other fields.
-  expect(boardViewValues({ chatMinimized: "yes", lastProjectId: "p" })).toMatchObject({ chatMinimized: false, lastProjectId: "p" });
+  expect(boardViewValues({ chatMinimized: "yes", lastQuickProjectId: "p" })).toMatchObject({ chatMinimized: false, lastQuickProjectId: "p" });
 });
 
 test("the dispatcher chat starts at its docked width and its expanded state is kept (DISPATCHER-SPEC §9.3)", () => {
@@ -104,7 +107,7 @@ test("the dispatcher chat starts at its docked width and its expanded state is k
 test("the dispatcher chat's dragged width is kept; a bad value reads as never dragged (DISPATCHER-SPEC §9.3)", () => {
   expect(boardViewValues({}).chatWidth).toBe(0);
   expect(boardViewValues({ chatWidth: 512 }).chatWidth).toBe(512);
-  expect(boardViewValues({ chatWidth: "wide", lastProjectId: "p" })).toMatchObject({ chatWidth: 0, lastProjectId: "p" });
+  expect(boardViewValues({ chatWidth: "wide", lastQuickProjectId: "p" })).toMatchObject({ chatWidth: 0, lastQuickProjectId: "p" });
   expect(boardViewValues({ chatWidth: -4 }).chatWidth).toBe(0);
   expect(boardViewValues({ chatWidth: 1e9 }).chatWidth).toBe(0);
 });
