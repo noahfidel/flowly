@@ -13,8 +13,11 @@ import {
 
 describe("board shortcut keys", () => {
   test("maps letters case-insensitively and punctuation keys", () => {
-    expect(resolveShortcut({ key: "n" }, true)).toBe("new-task");
-    expect(resolveShortcut({ key: "N" }, true)).toBe("new-task");
+    expect(resolveShortcut({ key: "t" }, true)).toBe("new-task");
+    expect(resolveShortcut({ key: "T" }, true)).toBe("new-task");
+    expect(resolveShortcut({ key: "n" }, true)).toBe("attention");
+    expect(resolveShortcut({ key: "N" }, true)).toBe("attention");
+    expect(resolveShortcut({ key: "a" }, true)).toBeNull();
     expect(resolveShortcut({ key: "q" }, true)).toBe("quick-task");
     expect(resolveShortcut({ key: "b" }, true)).toBe("ideas");
     expect(resolveShortcut({ key: "i" }, true)).toBe("insights");
@@ -23,12 +26,11 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "p" }, true)).toBe("projects");
     expect(resolveShortcut({ key: "/" }, true)).toBe("filters");
     expect(resolveShortcut({ key: "f" }, true)).toBe("filters");
-    expect(resolveShortcut({ key: "a" }, true)).toBe("attention");
     expect(resolveShortcut({ key: "u" }, true)).toBe("updated");
     expect(resolveShortcut({ key: "U" }, true)).toBe("updated");
     expect(resolveShortcut({ key: "u", metaKey: true }, true)).toBeNull();
     expect(resolveShortcut({ key: "u" }, false)).toBeNull();
-    expect(shortcutHelp.find((row) => row.keys.includes("A"))?.title).toBe("Step through what needs you");
+    expect(shortcutHelp.find((row) => row.keys.includes("N"))?.title).toBe("Step through what needs you");
     expect(shortcutHelp.find((row) => row.keys.includes("U"))?.title).toBe("Step through what's new to read");
     expect(resolveShortcut({ key: "?", shiftKey: true }, true)).toBe("shortcuts");
     expect(resolveShortcut({ key: "Escape" }, true)).toBe("escape");
@@ -51,6 +53,7 @@ describe("board shortcut keys", () => {
       expect(resolveShortcut({ key: "Escape", [mod]: true }, true)).toBeNull();
     }
     expect(resolveShortcut({ key: "N", shiftKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "T", shiftKey: true }, true)).toBeNull();
     expect(resolveShortcut({ key: "H", shiftKey: true }, true)).toBe("move-left");
     expect(resolveShortcut({ key: "L", shiftKey: true }, true)).toBe("move-right");
     expect(resolveShortcut({ key: "e" }, true)).toBe("edit");

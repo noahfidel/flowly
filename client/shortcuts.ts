@@ -34,12 +34,12 @@ export type BoardIntent = Extract<
 >;
 
 export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
-  { keys: ["N"], title: msg("New task") },
+  { keys: ["T"], title: msg("New task") },
   { keys: ["Q"], title: msg("Quick task") },
   { keys: ["P"], title: msg("Switch project") },
   { keys: ["S"], title: msg("Search") },
   { keys: ["/", "F"], title: msg("Search and filter") },
-  { keys: ["A"], title: msg("Step through what needs you") },
+  { keys: ["N"], title: msg("Step through what needs you") },
   { keys: ["U"], title: msg("Step through what's new to read") },
   { keys: ["I"], title: msg("Project insights") },
   { keys: ["B"], title: msg("Project ideas") },
@@ -56,11 +56,11 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
 ];
 
 const letters: Record<string, ShortcutAction> = {
-  n: "new-task",
+  t: "new-task",
   q: "quick-task",
   p: "projects",
   f: "filters",
-  a: "attention",
+  n: "attention",
   u: "updated",
   j: "next",
   k: "previous",

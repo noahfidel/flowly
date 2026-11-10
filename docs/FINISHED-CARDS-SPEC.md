@@ -10,8 +10,8 @@ This is presentation only. No board data, RPC, revision or native resource chang
 
 ## 1. Attention dropdown (desktop)
 
-- Desktop/tablet layout (not `compact`): the header **Attention** button, the `A` shortcut, the overview bar chips (needs you / unread / errors) and the attention deep link open a dropdown anchored under the header bell, right-aligned to it and kept inside the board surface (`client/popover.tsx`). The content is the same list as before: the read-state warning, rows with project · lane · counts and relative time, and the empty state. The header shows the card count.
-- Selecting a row opens that card (and session) and closes the dropdown, as before. A click outside, `Esc`, pressing `A` again or the bell closes it. Any other board shortcut closes it and then runs. A resize of the board surface closes it, so it never floats away from the bell.
+- Desktop/tablet layout (not `compact`): the header **Attention** button, the `N` shortcut, the overview bar chips (needs you / unread / errors) and the attention deep link open a dropdown anchored under the header bell, right-aligned to it and kept inside the board surface (`client/popover.tsx`). The content is the same list as before: the read-state warning, rows with project · lane · counts and relative time, and the empty state. The header shows the card count.
+- Selecting a row opens that card (and session) and closes the dropdown, as before. A click outside, `Esc`, pressing `N` again or the bell closes it. Any other board shortcut closes it and then runs. A resize of the board surface closes it, so it never floats away from the bell.
 - The bell shows a pressed background and `expanded` accessibility state while open.
 - Phones keep the bottom-sheet dialog. If the bell cannot be measured yet (e.g. a deep link opened before layout), the dialog is used as a fallback.
 - Motion: a short opacity + 4 px rise (shared `useMotionPresence`, honours Reduce Motion). An exiting dropdown never catches clicks.
@@ -36,4 +36,4 @@ This is presentation only. No board data, RPC, revision or native resource chang
 ## 4. Acceptance
 
 - Unit: `client/finished-cards.test.ts` covers the cutoff, Done/Cancelled only, the latest move into the lane winning over later edits or other lanes, reopen + finish again, 0 days, and the open card. `shared/settings.test.ts` covers the default and stored values. `client/onboarding-logic.test.ts` covers tip priority.
-- Manual UI (desktop + phone): the dropdown position, outside click, `Esc`/`A`, overview chips, the deep-link fallback, the empty lane idle vs. drag, the toggle in Done/Cancelled, the setting round trip.
+- Manual UI (desktop + phone): the dropdown position, outside click, `Esc`/`N`, overview chips, the deep-link fallback, the empty lane idle vs. drag, the toggle in Done/Cancelled, the setting round trip.

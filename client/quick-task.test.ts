@@ -30,7 +30,7 @@ describe("quickProject (QUICK-TASK-SPEC §3)", () => {
   test("the last quick-task project when it is live (Q and the Command Center)", () => {
     expect(quickProject([a, b], { last: "b", current: "a" })?.id).toBe("b");
   });
-  test("without a last project (\"+\", N, phone add, empty-board hint) the board's project wins", () => {
+  test("without a last project (\"+\", T, phone add, empty-board hint) the board's project wins", () => {
     expect(quickProject([a, b], { current: "b" })?.id).toBe("b");
     expect(quickProject([a, b], { pinned: "b", current: "a" })?.id).toBe("b");
   });

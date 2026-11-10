@@ -47,12 +47,12 @@ Create task form stays one tap away.
 
 ## 3. Defaults
 
-- **Project** (user ruling 2026-11-05): the board's New task button, **N**, the phone lane's Add task and the
+- **Project** (user ruling 2026-11-05): the board's New task button, **T**, the phone lane's Add task and the
   empty-board hint open with the project the board shows; a lane's Add task and a project tab's New task with
   their own project. Only **Q** and Command Center **Flowly: Quick task** open with the last project used for
   a quick task, when it is still live, else the board's project. Either way the first live project is the last
   fallback, and the Project picker can change it.
-- **All projects board** (ALL-PROJECTS-SPEC §5): there is no board project, so New task, **N**, a lane's Add
+- **All projects board** (ALL-PROJECTS-SPEC §5): there is no board project, so New task, **T**, a lane's Add
   task and the empty-board hint open Quick task (even with *Quick task for New task* off) with the last quick-task
   project, else the first live one.
 - **Workspace mode**: the *Workspace mode for quick tasks* setting (worktree by default); a project with
@@ -85,7 +85,7 @@ tags are left to the agent's own setup step (CARD-SETUP-SPEC).
 
 ## 5. Entry points
 
-- The board's **New task** button and **N**: Quick task when *Quick task for New task* is on (default),
+- The board's **New task** button and **T**: Quick task when *Quick task for New task* is on (default),
   else the full form.
 - A lane's **Add task**, the phone lane's Add task, a project tab's **New task** and the empty-board hint:
   the same choice, with that lane's status and project.

@@ -2138,7 +2138,7 @@ function BoardContent(
             {/* Opens the dock, or minimizes it when open; a minimized dock leaves nothing else on the board (§9.3; Ruling, Noah 2026-11-09). */}
             {toolbarButtons.dispatcher && <IconButton icon="Bot" label={withKey(t("Dispatcher"), "D")} active={chatShown} onPress={toggleChat} />}
             {toolbarButtons.bell && (
-              <AttentionButton count={needYouCount} compact={compact} open={step?.kind === "needs"} shortcut={shortcutsOn ? "A" : ""} onPress={startNeeds} />
+              <AttentionButton count={needYouCount} compact={compact} open={step?.kind === "needs"} shortcut={shortcutsOn ? "N" : ""} onPress={startNeeds} />
             )}
             {/* Settings (the gear); its first-run callout hangs under it (ONBOARDING-SETUP-SPEC §5). */}
             <View onLayout={(e) => setGearBox(e.nativeEvent.layout)}>
@@ -2185,7 +2185,7 @@ function BoardContent(
               <Button
                 primary
                 icon="Plus"
-                label={withKey(t("New task"), "N")}
+                label={withKey(t("New task"), "T")}
                 disabled={!!project?.archivedAt}
                 onPress={() => openNewTask("todo")}
               >

@@ -20,12 +20,12 @@
 
 | 按键 | 动作 | 前提 |
 | --- | --- | --- |
-| `N` | 打开“新建任务”：*Quick task for New task* 开启（默认）时为 Quick task，否则为完整表单（默认 Todo；QUICK-TASK-SPEC §5） | 存在当前项目且未归档 |
+| `T` | 打开“新建任务”：*Quick task for New task* 开启（默认）时为 Quick task，否则为完整表单（默认 Todo；QUICK-TASK-SPEC §5） | 存在当前项目且未归档 |
 | `Q` | 打开 Quick task，项目默认为上次 Quick task 用的项目，否则当前项目（QUICK-TASK-SPEC §3） | 至少有一个未归档项目 |
 | `P` | 打开项目切换弹层 | — |
 | `/` 或 `F` | 打开筛选/搜索弹层 | 存在当前项目 |
 | `S` | 打开 / 关闭 Search 页（SEARCH-SPEC §5） | 存在当前项目 |
-| `A` | 开始“N need you”逐张处理（与概览栏该按钮相同，`startStep("needs")`；帮助行 “Step through what needs you”） | 存在当前项目或 All projects |
+| `N` | 开始“N need you”逐张处理（与概览栏该按钮相同，`startStep("needs")`；帮助行 “Step through what needs you”） | 存在当前项目或 All projects |
 | `U` | 开始“N updated”逐张阅读（与概览栏该按钮相同，`startStep("updated")` 与 `stepStartTarget` 的重按规则；等待看板和 session 加载；无内容时 toast “Nothing new to read.”；帮助行 “Step through what's new to read”；该按钮显示快捷键提示 “U”）。Ruling (Noah, 2026-11-10) | 存在当前项目或 All projects |
 | `D` | 打开左侧 Dispatcher 聊天停靠栏并聚焦消息框；已打开时只聚焦消息框。`D` 从不关闭停靠栏，只有 `Esc` 关闭（Ruling, Noah 2026-11-09）；焦点在消息框内时输入 “d” | 看板有停靠栏（项目或 All projects） |
 | `?` | 打开快捷键帮助弹层 | — |
@@ -34,6 +34,7 @@
 | `H` / `L` | 左 / 右侧最近的非空列，同一行号（越界取最后一张） | 有可见卡片 |
 | `←` / `→` | 智能体多问题提问：上一题 / 下一题（不循环；挂在问题表单自身，不走看板快捷键，见 SESSION-QUESTION-SPEC §2） | 焦点在问题表单内且不在输入框 |
 
+- Ruling (Noah, 2026-11-10): `N` 开始“N need you”逐张处理（原为 `A`），`T` 打开“新建任务”（原为 `N`），`A` 不再绑定任何动作（空出，无别名）。所有快捷键提示（需求按钮、New task 按钮、帮助弹层）随之更新。
 - 大写字母（`CapsLock`）与小写等价；带 `Cmd/Ctrl/Alt` 的组合一律不处理，留给宿主快捷键。按住 `Shift` 的字母（如 `Shift+N`）不处理；`?` 这类本身需要 Shift 的字符照常处理。
 - 自动重复（按住）和 IME 组合中（`isComposing`）的事件忽略。
 - 处理了的按键调用 `preventDefault` + `stopPropagation`；未处理的原样冒泡给宿主。
@@ -52,7 +53,7 @@
 ### 2.3 可发现性
 
 - 桌面头部新增“Keyboard shortcuts”图标按钮（`Keyboard` 图标），点击或按 `?` 打开帮助弹层，列出所有按键和说明，并说明“焦点需在看板内”，以及在 Command Center 搜索 “Flowly” 可到达 §2.4 的条目。
-- 桌面头部 Projects / Attention / Filter / New task / 帮助按钮的无障碍标签附带快捷键（如 `New task (N)`、`Task filters (/)`）。不使用 RN-Web 专有的 `accessibilityKeyShortcuts`，因为 React Native 类型未声明它。
+- 桌面头部 Projects / Attention / Filter / New task / 帮助按钮的无障碍标签附带快捷键（如 `New task (T)`、`Task filters (/)`）。不使用 RN-Web 专有的 `accessibilityKeyShortcuts`，因为 React Native 类型未声明它。
 
 ### 2.4 Command Center 条目（全局）
 

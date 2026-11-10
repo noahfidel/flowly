@@ -69,7 +69,7 @@ export type NewTaskOpen =
   | { kind: "form"; status: Status };
 
 /**
- * What New task, N, a lane's Add task and the empty-board hint open (§5, QUICK-TASK-SPEC §3). In All: always
+ * What New task, T, a lane's Add task and the empty-board hint open (§5, QUICK-TASK-SPEC §3). In All: always
  * Quick task with the last quick-task project (`recent`), never a pinned one. On a project board: Quick task
  * unless turned off, in the pinned project, else the board's.
  */

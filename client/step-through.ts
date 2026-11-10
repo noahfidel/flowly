@@ -90,7 +90,7 @@ export function cardAsks(items: readonly ChatItem[] | undefined, taskId: string,
 }
 
 /**
- * What a press on a step-through chip (N need you / N updated, the A shortcut, the phone bell) does (Ruling, Noah
+ * What a press on a step-through chip (N need you / N updated, the N shortcut, the phone bell) does (Ruling, Noah
  * 2026-11-09): with that kind already open it keeps the current card (restarting at the first one would silently mark
  * every unread chat read, as each card's chat preview opens); otherwise it starts at the kind's first card.
  */

@@ -59,7 +59,7 @@ order or projects, and every write still goes through the card's own project.
 
 ## 5. New task
 
-- The New task button, **N**, a lane's *Add task* (desktop and phone) and the empty-board hint open **Quick
+- The New task button, **T**, a lane's *Add task* (desktop and phone) and the empty-board hint open **Quick
   task** (even when *Quick task for New task* is off; More options… still reaches the full form) with the
   **last quick-task project** when it is live, else the first live project in chooser order
   (`quickProject` with no pinned or current project). The Project picker can change it. A lane's Add task

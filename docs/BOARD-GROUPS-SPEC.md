@@ -64,7 +64,7 @@ they add no board data, change no card or project, and every write still goes th
 
 ## 4. Step-throughs, counts and the dispatcher
 
-- The **"N need you"** and **"N updated"** buttons, **A** and **U** (DISPATCHER-SPEC §9.4, SHORTCUTS-SPEC) count
+- The **"N need you"** and **"N updated"** buttons, **N** and **U** (DISPATCHER-SPEC §9.4, SHORTCUTS-SPEC) count
   and walk only the cards of the group's live members. All of them use one scope predicate (`boardScope`): every
   project on All, the members on a group's board, the one project on a project board.
 - The Dispatcher button, **D** and the left dock work as on All. The sidebar badge and the phone's bell keep
@@ -73,7 +73,7 @@ they add no board data, change no card or project, and every write still goes th
 
 ## 5. New task
 
-- New task, **N**, **Q**, a lane's Add task and the empty-board hint open Quick task as on All
+- New task, **T**, **Q**, a lane's Add task and the empty-board hint open Quick task as on All
   (ALL-PROJECTS-SPEC §5), with the **last quick-task project when it is a live member** of the group, else the
   group's first member. An empty group uses All's rule.
 - The Project picker lists the group's projects first (chooser order), then the other projects.
@@ -111,5 +111,5 @@ Unit (`client/board-groups.test.ts`):
   full default document).
 
 Manual (Noah's click-through): switcher order (groups, projects, All projects), desktop group tabs, a group's
-board with its counts, A/U, filters, New task picker order, an empty group's hint and Edit groups, the Settings
+board with its counts, N/U, filters, New task picker order, an empty group's hint and Edit groups, the Settings
 editor (add, rename, tick, delete), the board falling back after deleting the open group, phone switcher.
