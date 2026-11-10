@@ -56,7 +56,7 @@ import { pendingRequests, type PendingRequest, type PermissionReply } from "../s
 import { SessionTranscript, type TranscriptHandle, type TranscriptNotice } from "./session-transcript";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
-import { Enter, MotionReveal, PulseDot, motionDuration, useMotionValue, useReducedMotion, useSettled, lerp } from "./motion";
+import { Enter, MotionReveal, motionDuration, useMotionValue, useReducedMotion, useSettled, lerp } from "./motion";
 import { RunningDots } from "./running-motion";
 import { useKeyboardInset } from "./keyboard";
 import { restoredDraft } from "./session-input";
@@ -622,33 +622,18 @@ function SessionPreviewView({
         {/* A running session's header carries the same dot sweep as its row in the card (MOTION-SPEC, running state). */}
         {state?.active && !active?.archivedAt && <RunningDots color={tone} seed={sessionId} />}
         <IconButton icon="ArrowLeft" label={t("Back to task")} onPress={onBack} />
-        <View style={{ flex: 1, minWidth: 0, paddingHorizontal: space[1] }}>
-          <Label medium size={font.base} lines={1}>
-            {active?.title || t("Session preview")}
-          </Label>
-          {state ? (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
-              <PulseDot color={tone} size={7} active={state.active} />
-              <View style={{ flexShrink: 1, minWidth: 0 }}>
-                <Label muted size={font.sm} lines={1} selectable={false}>
-                  <Label size={font.sm} medium color={state.active || state.label === "Error" || "waiting" in state ? tone : colors.foregroundMuted} selectable={false}>
-                    {t(state.label)}
-                  </Label>
-                  {reads.query.isPending
-                    ? ` · ${t("Loading read state…")}`
-                    : reads.query.isError
-                      ? ` · ${t("Read state unavailable")}`
-                      : !attention?.readKnown
-                        ? ` · ${t("Read state unknown")}`
-                        : attention.unread
-                          ? ` · ${t("Unread")}`
-                          : ""}
-                  {active?.provider ? ` · ${active.provider}${active.model ? `/${active.model}` : ""}` : ""}
-                </Label>
-              </View>
-            </View>
-          ) : (
-            <Label muted size={font.sm}>{task.title}</Label>
+        {/* Title only, like Paseo's chats: the model is the composer's Model chip, the state is the transcript's;
+            only an unread session says so (SESSION-ATTENTION-SPEC; Ruling, Noah 2026-11-09). */}
+        <View style={{ flex: 1, minWidth: 0, paddingHorizontal: space[1], flexDirection: "row", alignItems: "center", gap: space[2] }}>
+          <View style={{ flexShrink: 1, minWidth: 0 }}>
+            <Label medium size={font.base} lines={1}>
+              {active?.title || t("Session preview")}
+            </Label>
+          </View>
+          {!!attention?.unread && (
+            <Label size={font.sm} medium color={colors.accent} selectable={false}>
+              {t("Unread")}
+            </Label>
           )}
         </View>
         {typeof navigation?.openAgent === "function" && (

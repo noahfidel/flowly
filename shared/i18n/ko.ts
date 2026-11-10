@@ -521,8 +521,6 @@ const catalog: Catalog = {
   "Send instruction": "지시 보내기",
   "Back to task": "작업으로 돌아가기",
   "Session preview": "세션 미리보기",
-  "Loading read state…": "읽음 상태를 불러오는 중…",
-  "Read state unavailable": "읽음 상태를 확인할 수 없음",
   "More session actions": "세션 더보기",
   "Ready": "준비됨",
   "Not ready": "준비 안 됨",

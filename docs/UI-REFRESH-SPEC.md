@@ -34,7 +34,7 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 
 ## 6. Session detail
 
-- Compact header: back icon, title + status line (dot, state label, provider/model), trailing icon buttons: Mark read (only when unread), Refresh output, Kanban tools toggle, Open in Paseo. All existing enable/disable conditions are preserved.
+- Compact header: back icon, title (plus *Unread* while unread; no status line, DRAWER-SPEC ruling 2026-11-09), trailing icon buttons: Mark read (only when unread), Refresh output, Kanban tools toggle, Open in Paseo. All existing enable/disable conditions are preserved.
 - Transcript: user messages as right-aligned `surface2` bubbles; agent messages as plain markdown; tool activity as one-line muted mono rows with a wrench glyph; thinking as muted italic with a brain glyph. "Recent output · open in Paseo for the full conversation" becomes a muted caption at the top. Running tail keeps the spinner.
 - Kanban tools panel: bordered card with explanation, configuration and last-call lines, and the "Send Kanban work instructions" button.
 - Composer: a single bordered container with the multiline input and an integrated send icon button (both layouts); hint and jump-to-latest in a small row above; Steer/Interrupt as a segmented control shown only while running. Enter/Shift+Enter, draft buffering, steer/interrupt and authorization behavior are unchanged.

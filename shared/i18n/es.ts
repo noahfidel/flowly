@@ -521,8 +521,6 @@ const catalog: Catalog = {
   "Send instruction": "Enviar instrucción",
   "Back to task": "Volver a la tarea",
   "Session preview": "Vista previa de la sesión",
-  "Loading read state…": "Cargando estado de lectura…",
-  "Read state unavailable": "Estado de lectura no disponible",
   "More session actions": "Más acciones de la sesión",
   "Ready": "Lista",
   "Not ready": "No lista",

@@ -521,8 +521,6 @@ const catalog: Catalog = {
   "Send instruction": "指示を送信",
   "Back to task": "タスクに戻る",
   "Session preview": "セッションのプレビュー",
-  "Loading read state…": "既読状態を読み込み中…",
-  "Read state unavailable": "既読状態を取得できません",
   "More session actions": "その他のセッション操作",
   "Ready": "準備完了",
   "Not ready": "未準備",

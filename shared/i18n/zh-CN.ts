@@ -521,8 +521,6 @@ const catalog: Catalog = {
   "Send instruction": "发送指令",
   "Back to task": "返回任务",
   "Session preview": "会话预览",
-  "Loading read state…": "正在加载读取状态…",
-  "Read state unavailable": "读取状态不可用",
   "More session actions": "更多会话操作",
   "Ready": "就绪",
   "Not ready": "未就绪",
