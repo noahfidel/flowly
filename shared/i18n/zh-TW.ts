@@ -1609,7 +1609,7 @@ const catalog: Catalog = {
   "Memory {n}": "記憶 {n}",
   "Memory could not be read": "無法讀取記憶",
   "Find memory in finished cards": "從完成的卡片裡找記憶",
-  "Close the dispatcher (when you last used it), back from session, then close sidebar, then leave a project page": "關閉調度員（上次操作在其中時），退出工作階段，再關閉側欄，再離開專案頁面",
+  "Close the dispatcher (when you last used it), then close the card sidebar, then leave a project page": "關閉調度員（上次操作在其中時），再關閉側欄，再離開專案頁面",
   "Open the dispatcher and focus its message box": "開啟調度員並聚焦其訊息框",
   "Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them.": "從 Jira、Confluence、GitHub、GitLab、Azure DevOps、Linear 或 Shortcut 開始工作：在 設定 → 連線 中連接它們，然後用「從…新增」建立卡片，或用產物的 + 加入項目。Flowly 只讀取它們。",
   "Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, Linear issue, or Shortcut story or epic, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.": "從 Jira 工單、Confluence 頁面、GitHub/GitLab 的 issue 或 PR、Azure DevOps 工作項目、Linear issue、Shortcut story 或 epic 建立卡片，或用產物的 + 加入。Agent 每個回合都會讀取，Flowly 不會修改它。",

@@ -1609,7 +1609,7 @@ const catalog: Catalog = {
   "Memory {n}": "Memoria {n}",
   "Memory could not be read": "No se pudo leer la memoria",
   "Find memory in finished cards": "Buscar recuerdos en tarjetas terminadas",
-  "Close the dispatcher (when you last used it), back from session, then close sidebar, then leave a project page": "Cerrar el dispatcher (si fue lo último que usaste), volver de la sesión, luego cerrar la barra lateral y luego salir de la página del proyecto",
+  "Close the dispatcher (when you last used it), then close the card sidebar, then leave a project page": "Cerrar el dispatcher (si fue lo último que usaste), luego cerrar la barra lateral y luego salir de la página del proyecto",
   "Open the dispatcher and focus its message box": "Abrir el dispatcher y enfocar su cuadro de mensaje",
   "Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them.": "Trabaja desde Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear o Shortcut: conéctalos en Ajustes → Conexiones y crea una tarjeta con Desde… o añade elementos con el + de Artefactos. Flowly solo los lee.",
   "Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, Linear issue, or Shortcut story or epic, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.": "Crea una tarjeta desde un ticket de Jira, una página de Confluence, un issue o pull request de GitHub/GitLab, un elemento de trabajo de Azure DevOps, un issue de Linear o una historia o épica de Shortcut, o añádelo con el + de Artefactos. Los agentes lo leen en cada turno; Flowly nunca lo modifica.",

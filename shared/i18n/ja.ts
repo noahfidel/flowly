@@ -1609,7 +1609,7 @@ const catalog: Catalog = {
   "Memory {n}": "メモリ {n}",
   "Memory could not be read": "メモリを読み込めませんでした",
   "Find memory in finished cards": "完了したカードからメモリを見つける",
-  "Close the dispatcher (when you last used it), back from session, then close sidebar, then leave a project page": "ディスパッチャーを閉じる（最後に使っていた場合）→ セッションから戻る → サイドバーを閉じる → プロジェクトページを離れる",
+  "Close the dispatcher (when you last used it), then close the card sidebar, then leave a project page": "ディスパッチャーを閉じる（最後に使っていた場合）→ サイドバーを閉じる → プロジェクトページを離れる",
   "Open the dispatcher and focus its message box": "ディスパッチャーを開いてメッセージ欄にフォーカス",
   "Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them.": "Jira、Confluence、GitHub、GitLab、Azure DevOps、Linear、Shortcut から作業を始めましょう。設定 → 接続 で接続し、「…から作成」でカードを作るか、成果物の + で項目を追加します。Flowly は読み取るだけです。",
   "Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, Linear issue, or Shortcut story or epic, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.": "Jira チケット、Confluence ページ、GitHub/GitLab の issue やプルリクエスト、Azure DevOps の作業項目、Linear の issue、Shortcut のストーリーやエピックからカードを作成するか、成果物の + で追加します。エージェントは毎ターン読み取り、Flowly は変更しません。",

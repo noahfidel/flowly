@@ -24,7 +24,7 @@ export function dockShortcut({ dockAvailable }: { dockAvailable: boolean }): "fo
  * What Esc does (Ruling, Noah 2026-11-09): it acts on the area the user is in. An open modal takes it first. When the dock
  * is the active area (its box gained focus, or the user pressed inside it, and nothing else on the board since): a
  * focused box with a draft only blurs (the dock stays active, the draft stays); otherwise the dock closes. Else the
- * usual chain (back from session, close sidebar, leave a page), and an open dock stays.
+ * usual chain (close the card sidebar, leave a page), and an open dock stays.
  */
 export function escAction({ modalOpen, dockActive, boxFocused, draftEmpty }: { modalOpen: boolean; dockActive: boolean; boxFocused: boolean; draftEmpty: boolean }): "modal" | "blur" | "closeDock" | "chain" {
   if (modalOpen) return "modal";

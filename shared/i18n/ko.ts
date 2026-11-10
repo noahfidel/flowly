@@ -1609,7 +1609,7 @@ const catalog: Catalog = {
   "Memory {n}": "메모리 {n}",
   "Memory could not be read": "메모리를 읽을 수 없습니다",
   "Find memory in finished cards": "완료된 카드에서 메모리 찾기",
-  "Close the dispatcher (when you last used it), back from session, then close sidebar, then leave a project page": "디스패처 닫기(마지막으로 사용했을 때), 세션에서 돌아가기, 사이드바 닫기, 프로젝트 페이지 나가기 순",
+  "Close the dispatcher (when you last used it), then close the card sidebar, then leave a project page": "디스패처 닫기(마지막으로 사용했을 때), 사이드바 닫기, 프로젝트 페이지 나가기 순",
   "Open the dispatcher and focus its message box": "디스패처를 열고 메시지 입력란에 포커스",
   "Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them.": "Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear, Shortcut에서 작업을 시작하세요. 설정 → 연결에서 연결한 뒤 '…에서 만들기'로 카드를 만들거나 산출물의 +로 항목을 추가하세요. Flowly는 읽기만 합니다.",
   "Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, Linear issue, or Shortcut story or epic, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.": "Jira 티켓, Confluence 페이지, GitHub/GitLab 이슈나 풀 리퀘스트, Azure DevOps 작업 항목, Linear 이슈, Shortcut 스토리나 에픽으로 카드를 만들거나 산출물의 +로 추가하세요. 에이전트는 매 턴 읽고, Flowly는 변경하지 않습니다.",

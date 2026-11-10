@@ -51,7 +51,7 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["⇧H", "⇧L"], title: msg("Move the open card to the left / right column") },
   { keys: ["E"], title: msg("Edit the open card") },
   { keys: ["←", "→"], title: msg("Previous / next agent question") },
-  { keys: ["Esc"], title: msg("Close the dispatcher (when you last used it), back from session, then close sidebar, then leave a project page") },
+  { keys: ["Esc"], title: msg("Close the dispatcher (when you last used it), then close the card sidebar, then leave a project page") },
   { keys: ["?"], title: msg("Show keyboard shortcuts") },
 ];
 

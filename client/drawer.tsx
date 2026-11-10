@@ -329,8 +329,8 @@ function TaskDrawerView({
   useEffect(() => {
     if (!active || !escapeRequest || consumedEscape.current === escapeRequest) return;
     consumedEscape.current = escapeRequest;
-    if (selected) setSelected("");
-    else onClose();
+    // Ruling (Noah, 2026-11-10): Esc closes the whole sidebar, even with a session chat open; the chat's Back goes to details.
+    onClose();
   }, [active, escapeRequest]);
   const workspace = useQuery({
     queryKey: ["flowly", "workspace", task.workspaceId],
