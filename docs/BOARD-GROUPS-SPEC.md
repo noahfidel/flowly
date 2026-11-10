@@ -1,115 +1,251 @@
 # Board groups
 
-Status: approved by Noah on 2026-11-10. Extends ALL-PROJECTS-SPEC (a group's board is the All projects board
-scoped to the group's projects) and PROJECT-TABS-SPEC (which view opens).
+Status: **approved by Noah on 2026-11-10** (v2; rulings recorded below). Supersedes the v1 spec
+(groups as a per-host view preference), PROJECT-TABS-SPEC (project tabs) and ALL-PROJECTS-SPEC (the All projects
+board); those two stay as history and each carries a "superseded" note. Amends DISPATCHER-SPEC (one dispatcher per
+group, §6 of this document) and AGENTS.md. Implementation is planned in
+`~/.claude/plans/2026-11-10-board-groups-main-unit/plan.md` and runs as follow-up cards; no code ships with this
+spec.
 
-A board group is a named set of projects (for example "Loadout" or "Zenlytic"). Each group opens as its own
-board that behaves exactly like All projects, over the group's projects only. Groups are a view preference:
-they add no board data, change no card or project, and every write still goes through the card's own project.
+A **board group** is a named set of projects (for example "Loadout" or "Zenlytic") and the main unit of the board:
+it has its own tab, its own board, its own dispatcher and its own preference defaults. Every project belongs to
+exactly one group. Individual projects are no longer top-level navigation.
 
-- Ruling (Noah, 2026-11-10): a group's board is the All projects board with a narrower scope, not a parallel
-  view. Everything ALL-PROJECTS-SPEC §2–§7 says about All applies to a group's board, reading "included
-  projects" as the group's live members.
-- Ruling (Noah, 2026-11-10): All projects always shows every live project; there is no setting to hide projects
-  that are in no group. All projects is the catch-all for ungrouped projects and its counts match the sidebar
-  badge and the phone's bell totals.
-- Ruling (Noah, 2026-11-10): with no live project at all, the first-run "No projects yet / Create project"
-  screen wins over a remembered or chosen group (§6).
-- Ruling (Noah, 2026-11-10): in the project switcher (**P**), groups come first, then the individual projects,
-  then All projects last.
+## 0. Rulings
 
-## 1. Entry
+- Ruling (Noah, 2026-11-10): one dispatcher per board group. Its tools and its starting board summary cover only
+  that group's projects. Board updates go to the dispatcher of the card's project's group. Each group's dispatcher
+  has its own start/stop, `DISPATCHER_RUNNING` check and hourly limits. The dock's dispatcher chat follows the
+  selected group.
+- Ruling (Noah, 2026-11-10): each project belongs to exactly one group. A new project is placed in a group when it
+  is created, or in the default group when none is chosen.
+- Ruling (Noah, 2026-11-10): group tabs replace project tabs, in the tab bar and in the project switcher (**P**).
+  Individual projects are no longer listed as top-level navigation.
+- Ruling (Noah, 2026-11-10): the group board has a project filter that narrows it to one project's cards and ideas.
+- Ruling (Noah, 2026-11-10): repo-bound settings stay per project (check commands, auto review and its rework
+  limit, base branch and worktree setup, project memory). Preferences become group defaults that projects inherit
+  and can override (new-card model, mode and thinking level, delivery mode, the group's dispatcher model). A group
+  settings page shows the group defaults plus a section per project.
+- Ruling (Noah, 2026-11-10): the bell and the Paseo sidebar badge keep counting across all groups.
+- Ruling (Noah, 2026-11-10): board groups move out of the per-host `board-view` settings into the board's own data,
+  so the server can write them. A dispatcher tool for board groups (create, rename, set member projects, delete) is
+  confirmed by the user on every call, like `flowly_create_project` (DISPATCHER-SPEC §5.2: allowed modes only, not
+  preapproved). This avoids a local-daemon exception for writing settings.
+- Ruling (Noah, 2026-11-10): the migration covers projects in no group or in several groups, the current global
+  dispatcher session and its chat history, and stored view preferences that point at All or at project tabs (§7).
+- Ruling (Noah, 2026-11-10): the All projects board is retired completely: no tab, no switcher row, no hidden
+  entry. Search keeps its "all projects" scope.
+- Ruling (Noah, 2026-11-10): a project that is in several groups today goes to the first of them in stored order; a
+  project in none goes to the default group **Projects**, created only when needed. When every project is already
+  grouped, the first group becomes the default.
+- Ruling (Noah, 2026-11-10): exactly one group is the default (`isDefault`). It can be renamed and the flag can be
+  moved to another group, but the default group cannot be deleted. Deleting any other group (after a confirm) moves
+  its projects to the default group.
+- Ruling (Noah, 2026-11-10): a dispatcher's tool may delete another group only when that group has no live
+  dispatcher session (`GROUP_BUSY` otherwise); such a group is deleted in the UI, where the confirm says its
+  dispatcher is archived. Every Flowly archive of a dispatcher is thus an explicit user click.
+- Ruling (Noah, 2026-11-10): a dispatcher may create, rename, set the members of, set the default of and delete
+  **any** group, each call confirmed by the user. Its card, idea and project tools stay limited to its own group,
+  and it cannot delete its own group.
+- Ruling (Noah, 2026-11-10): the current dispatcher session becomes the dispatcher of the group with the most open
+  cards (ties: the first group in order). It keeps its session, transcript and seen mark. Other groups start
+  without one.
+- Ruling (Noah, 2026-11-10): all group dispatchers are sessions in the one existing `Flowly dispatcher` workspace
+  and folder (DISPATCHER-SPEC §2, unchanged path), titled `Flowly dispatcher · <group name>`. The sealed credential
+  carries the group id.
+- Ruling (Noah, 2026-11-10): preference defaults resolve host → group → project (→ card for delivery mode); the
+  dispatcher model resolves host → group. Today's host settings stay as the base, so migration changes nothing a
+  user sees.
+- Ruling (Noah, 2026-11-10): on a group board, with the project filter on one project (or a group of one project),
+  the overview bar, Insights, Ideas, Memory and **I**, **B**, **M** act on that project. Unfiltered they stay
+  hidden. Project settings live in the group settings page's per-project sections.
+- Ruling (Noah, 2026-11-10): deleting a group archives its dispatcher session. The delete confirm says so. This is a
+  new user-confirmed archive exception (AGENTS.md), like Replace dispatcher. A dispatcher cannot delete its own
+  group.
+- Ruling (Noah, 2026-11-10): group tabs carry over the project tab features: drag to reorder (the order is stored in
+  board data and shared with the switcher), a context menu (Group settings, New task, Move left, Move right, Delete
+  group…), and a **+** that opens New project preset to the current group.
+- Ruling (Noah, 2026-11-10): a group's dispatcher starts only from **Start dispatcher**. Creating a group and the
+  migration start none.
 
-- **Project switcher (P, the chooser):** one row per group (icon *Layers*, the group's name), above the projects,
-  in the order the groups were made; then the projects; then *All projects* (while All is available,
-  ALL-PROJECTS-SPEC §1). The open group's row is selected. Picking a group opens its board and closes the
-  switcher.
-- **Desktop tabs:** after the **All** tab (unchanged) and before the project tabs, one tab per group with the
-  group's name (accessibility label "Group {name}"). Group tabs are not draggable and have no context menu.
-- **Compact/phone and the no-tab layouts:** the switcher's title is the group's name while a group is shown.
-- A group is always available while it exists: it does not depend on *Show All projects tab* or on how many
-  projects are live. A group with no name shows as *Untitled group*.
+## 1. Model
 
-## 2. Settings
+`board.groups: Group[]`, a new top-level array with `.default([])` (the pattern of `attentionDismissals`, no board
+version bump; stored as a `groups` collection of the SQLite store), and `project.groupId`.
 
-- Settings → Workflow → **Board groups** (the Flowly settings gear, not the switcher): one block per group with
-  its name (a text field, saved after a short pause; an empty name is not saved) and a delete button, then one
-  chip per live project, ticked when the project is a member; pressing a chip adds or removes it. **Add group**
-  adds a group named "New group" with no projects. Deleting a group needs no confirmation (nothing but the
-  group is lost).
-- A project can be in several groups. Archived projects are not offered.
-- **Storage:** `boardGroups` in the host-scoped `board-view` settings, like the other board view preferences:
-  an array of `{ id, name, projectIds }`. `id` is a non-empty string made by the client; a non-string `name`
-  falls back to "" and invalid `projectIds` to `[]`; a value that is not an array falls back to no groups without
-  resetting the other settings. Edits are saved one at a time, each with the editor's latest list, so quick edits
-  in a row are all kept.
-- At most 50 groups (**Add group** is disabled at 50) and 80 characters per name: a longer name is cut on save
-  and on read (the field also stops at 80). Reading drops only the invalid groups and keeps the first 50 of the
-  rest; it never discards every group for one bad entry.
-- Members are stored as project ids. A member whose project was deleted or archived is skipped silently on the
-  board and in the editor; the stored id is kept (no cleanup write).
+```
+Group { id, name, position, isDefault?: true, defaults?: GroupDefaults, revision, createdAt, updatedAt }
+GroupDefaults { agentModel?: AgentModel, deliveryMode?: DeliveryMode, dispatcherModel?: DispatcherModel }
+```
 
-## 3. The group's board
+- `name`: 1–80 characters after trimming, unique ignoring case (a duplicate is refused). `position` orders tabs and
+  the switcher. At most 50 groups.
+- Invariants kept by the server on every write, in one serialized operation: every live project has a `groupId` that
+  names an existing group; exactly one group has `isDefault`; a missing or dangling `groupId` found on read is
+  repaired to the default group (logged with `logFailure`). Archived projects keep their `groupId`.
+- `GroupDefaults` fields are all optional: absent means "inherit" (§5).
 
-- **Included projects:** the group's members that are live, in chooser order. They give the columns
-  (ALL-PROJECTS-SPEC §2), the cards (§3), the Manual order's project grouping (§4), tag suggestions and "{n}
-  shown" (§6).
-- **An empty group** (no live members) still opens: a board with no columns and the hint "This group has no
-  projects yet." with **Edit groups**, which opens Settings → Workflow. On phones there is no lane chooser or
-  lane pager then; the lane last shown is kept for when the group gets lanes again.
-- Opening a card of a project outside the group (Search result, related card, linked session) switches the
-  board to that card's project, as All does for an excluded project (ALL-PROJECTS-SPEC §3).
-- Hidden as in All (ALL-PROJECTS-SPEC §7): Project settings, the per-project overview entries, one-time tips,
-  the switcher's Edit / Restore / Remove rows; **I**, **B**, **M** do nothing.
+## 2. RPCs
 
-## 4. Step-throughs, counts and the dispatcher
+All writes are serialized with the board, check `revision` and refuse stale edits like `projects.update`.
 
-- The **"N need you"** and **"N updated"** buttons, **N** and **U** (DISPATCHER-SPEC §9.4, SHORTCUTS-SPEC) count
-  and walk only the cards of the group's live members. All of them use one scope predicate (`boardScope`): every
-  project on All, the members on a group's board, the one project on a project board.
-- The Dispatcher button, **D** and the left dock work as on All. The sidebar badge and the phone's bell keep
-  their own all-project totals.
-- Search (button, **S**) works as on All: it searches every project and each result shows its project.
+- `groups.create { name, defaults? }` → group (appended; no members).
+- `groups.update { id, revision, name?, defaults?, isDefault? }`: setting `isDefault: true` moves the flag;
+  clearing it directly is refused (`DEFAULT_REQUIRED`).
+- `groups.move { id, direction }` → renumbers `position` without bumping revisions (as `projects.move`).
+- `groups.delete { id, revision }` → refused with `DEFAULT_REQUIRED` for the default group; otherwise moves the
+  group's projects to the default group, archives the group's dispatcher session when it has a live one (§6) and
+  removes the group.
+- `projects.set-group { projectId, revision, groupId }`.
+- `projects.create` gains an optional `groupId` (default: the default group); the project form and
+  `flowly_create_project` pass it.
+- The old `boardGroups` value in `board-view` is no longer read after migration (§7) and no longer written.
 
-## 5. New task
+## 3. Navigation
 
-- New task, **T**, **Q**, a lane's Add task and the empty-board hint open Quick task as on All
-  (ALL-PROJECTS-SPEC §5), with the **last quick-task project when it is a live member** of the group, else the
-  group's first member. An empty group uses All's rule.
-- The Project picker lists the group's projects first (chooser order), then the other projects.
+- **Tabs (desktop):** one tab per group in `position` order, labelled with the group's name (accessibility label
+  "Group {name}"). Drag to reorder (the shared `SortableList`, `groups.move`), right-click or long-press menu
+  (Group settings, New task, Move left, Move right, Delete group…). **+** opens New project preset to the current
+  group; **⇕ Manage groups** opens the switcher. There is no All tab and no project tab.
+- **Switcher (P):** group rows only, in `position` order; the open group is selected; picking one opens its board.
+  Rows for Edit / Restore / Remove of a project move to the group settings page (§5). **Add group** lives here and
+  in group settings. On compact layouts the switcher's title is the group's name.
+- **View ids:** a group's view id is `*group:<id>`. `*all` and bare project ids are no longer view ids (§7 maps
+  stored ones).
+- **Which view opens:** an explicit choice in this board instance → the group last viewed during this app run → the
+  default group. A chosen group that no longer exists falls back to the default group once the board has loaded.
+  Opening a card, a session chip, an idea link or a search result selects that card's project's group; the project
+  filter is set to the card's project only when the card is not in the group already shown (otherwise the filter
+  is left as it is).
+- **No project at all:** the first-run "No projects yet / Create project" screen shows instead of a board.
+- **Bell, badge, Search:** the bell, the "N need you" / "N updated" counts of a board and the `N`/`U` step-throughs
+  use the shown group's scope (`boardScope`); the sidebar badge (`attention.count`) and the phone's bell stay
+  global over every group (ruling above). Search (button, **S**) keeps searching every project and shows each
+  result's project and group.
 
-## 6. Which view opens
+## 4. The group board
 
-- A group is one more choice in the ALL-PROJECTS-SPEC §8 rule: an explicit choice in this board instance → the
-  view last viewed during this app run (a project, All or a group) → the first project.
-- A chosen group that no longer exists (deleted) is replaced by the project shown, once the board and settings
-  have loaded, exactly like an All choice that became unavailable.
-- The view is remembered only once the board-view settings have loaded, so the fallback shown while they load
-  never replaces a remembered group.
-- With no live project, the first-run screen shows instead of a group's board (and no empty-group hint).
+- It is the All projects board (ALL-PROJECTS-SPEC §2–§6, which remain the contract for columns, cards, Manual order
+  by project, drag rules, filters and tags) over the group's live member projects. An archived project is never
+  included, even with *Show archived* on.
+- **Project filter:** a Project chip in the filter bar (with the Type, Priority and Tags filters) lists the group's
+  projects. A filtered board shows one project's cards and ideas, in that project's own lanes and lane names. The
+  filter is per board instance, kept while the app runs, cleared when the project leaves the group or the group
+  changes, and counted in "{n} shown".
+- **Per-project entries:** with the filter on one project (or a group of exactly one live project) the overview bar
+  and its counts, Insights, Ideas, Memory and **I**, **B**, **M** act on that project. Unfiltered they do nothing
+  and are hidden (as All's were). Project settings are reached from the group settings page.
+- **New task:** **T**, **Q**, a lane's Add task and the empty-board hint open Quick task with the filtered project,
+  else the last quick-task project when it is a live member, else the group's first member. The Project picker lists
+  the group's projects first, then the others (a card can be created in any project; it then belongs to that
+  project's group).
+- **An empty group** (no live member) opens a board with no columns and "This group has no projects yet." with **New
+  project** (preset to the group) and **Group settings**.
+- Everything a card does uses the card's own project (ALL-PROJECTS-SPEC §3), including the session defaults chain
+  of §5.
 
-## 7. Acceptance
+## 5. Settings
 
-Unit (`client/board-groups.test.ts`):
+- **Group settings page** (from the tab menu, the switcher and the board's toolbar; replaces Settings → Workflow →
+  Board groups): the group's name, the Default flag, **Defaults** (new-card model, mode and thinking level;
+  delivery mode; dispatcher model), the member projects (move a project to another group; archived ones shown
+  muted), then **one section per project** holding that project's settings as the project form has them today
+  (name, root, lanes, auto status, workpad, Linear, guardrail commands, auto review and its rework limit, memory,
+  its own model default). Name, root, lanes and the repo-bound settings stay per project; there is no base branch
+  or worktree setup stored per project today (the base ref is per card, worktree versus directory is a host
+  setting, setup is the repo's `paseo.json`) and none is added here.
+- **Defaults chain:** `effectiveAgentModel` (`shared/agent-defaults.ts`) extends to host → group → project: the
+  project's `agentModel` wins, then the group's `defaults.agentModel`, then the host's `models.default*`. Delivery
+  mode: the card's, then the project's (new optional override), then the group's, then the host's
+  `delivery.defaultMode`. Dispatcher model: the group's, then the host's `models.dispatcherModel`. A default left
+  empty reads "Inherit: {value}" with the inherited value shown.
+- Host Settings → Models and Delivery stay as the base and are labelled so; Settings → Workflow loses Board groups
+  and *Show All projects tab*.
 
-- View ids: a group's view id is neither All's nor a project id and maps back to its group.
-- Members: live members in chooser order; deleted and archived members dropped; an empty group has no columns.
-- Scope predicate: All covers every project, a group its members, a project itself.
-- Counts and queues: need-you and updated queues and counts per group cover only its members; an empty group
-  counts 0.
-- Which view opens: a remembered or chosen group is restored, also when All is unavailable; a deleted group
-  falls back and its choice is stale only once loaded.
-- New task: last quick-task project when a member, else the first member; empty group → All's rule; picker
-  lists members first.
-- Editing: add trims and refuses empty names; rename keeps members and refuses empty; delete removes one group;
-  a project can be ticked in several groups and unticked again.
-- Phone lane: kept when the board has no lanes; otherwise Todo, else the first lane.
-- Caps: 51 stored groups keep the first 50; one invalid group is dropped and the others kept; long names are cut
-  to 80 on add, rename and read; Add refuses past 50.
-- Settings: `boardGroups` defaults to `[]`; valid groups round-trip; a non-array falls back to `[]` without
-  resetting other settings; bad fields inside a group fall back per field (`shared/settings.test.ts` covers the
-  full default document).
+## 6. Dispatcher per group
 
-Manual (Noah's click-through): switcher order (groups, projects, All projects), desktop group tabs, a group's
-board with its counts, N/U, filters, New task picker order, an empty group's hint and Edit groups, the Settings
-editor (add, rename, tick, delete), the board falling back after deleting the open group, phone switcher.
+Contract changes are in DISPATCHER-SPEC (§1, §3, §4, §5, §5.2, §6, §7, §9), marked "per group". Summary:
+
+- One dispatcher session per group in the shared workspace, record v2 keyed by group id; start, replace and status
+  take a `groupId`; `DISPATCHER_RUNNING`, limits (40 cards and starts, 5 projects, and the new group-tool bucket)
+  and the note batcher are per group.
+- The credential adds `groupId`. A tool with a `projectId` outside the caller's group is refused with
+  `PROJECT_OUT_OF_GROUP`; `flowly_list_projects` lists the group's members; `flowly_create_project` places the new
+  project in the caller's group.
+- Notes go to the dispatcher of the card's project's group; a project that moves groups sends later notes to the
+  new group's dispatcher. Held notes of a card follow the card.
+- New confirmed tool `flowly_manage_groups` (§5.2 rules: not preapproved, prompting modes only, own hourly bucket).
+- The dock's chat shows the selected group's dispatcher (Start dispatcher when it has none); the chat items file
+  stays one file and is read filtered by each item's project's current group.
+- Deleting a group archives that group's dispatcher session (the confirm says so); Flowly never archives the
+  workspace.
+
+## 7. Migration
+
+Runs once on the daemon at start, serialized with the board, **before** the read-time repair of §1 (which would otherwise
+fill `groups` and make the migration skip the stored groups), when `board.groups` is empty and the board has
+projects (a board with no projects gets the default group lazily on its first project). Idempotent; a failure
+writes nothing to the board, keeps the old data and is logged with `logFailure`. The dispatcher record (step 4)
+migrates in its own step, independent of the projects, and a v1 `dispatcher.json` on a board with no projects
+still becomes v2 with no session entry moved (no group to hold it: it waits until the first group exists).
+The two files are written in this order: the board, then the record; a crash between them is repaired by the
+next start (the record's session is still v1, the board has groups, so step 4 runs alone).
+
+1. **Groups:** read the host `board-view.boardGroups` through a raw, legacy parse of the stored `board-view` value (the
+   typed schema drops `boardGroups` once it is no longer a setting). Each valid stored group
+   becomes a `Group` in stored order (invalid entries dropped as the v1 reader did, names cut to 80, duplicates
+   renamed with " 2", " 3", …; more than 50 keeps the first 50). The stored value is left in place and ignored
+   afterwards.
+2. **Membership:** a project listed in several groups goes to the first of them; a project in none, and a project
+   whose group was dropped, goes to the default group **Projects**, created at the end when needed (the name is the English text "Projects", stored as text: the daemon has no translation). When no project needs it and no group is marked, the first group becomes the default. A
+   board with no stored groups gets one group, **Projects**, holding every project.
+3. **Settings per host:** `boardGroups` is a per-host setting, and the board is the daemon's. Only the daemon's own
+   host value is migrated; the board data is the single source from then on. **Downgrade is not supported**: an
+   older build strips `groups` and `groupId` from the board; re-upgrading migrates again from the old settings.
+4. **Dispatcher:** `dispatcher.json` v1 becomes v2: the one stored session moves to the group with the most open
+   cards (not archived, not Done/Cancelled; ties: the first group), keeping `agentId`, `startedAt`, seen mark,
+   `previousAgentIds`, `savedTools` and `guard`; the workspace is unchanged. A migrated session's token has no `groupId`
+   (DISPATCHER-SPEC §0 §4: the group is found from the record). The session keeps its title and its charter text
+   ("all projects") until the next replace: its tools already refuse other groups' projects, and the first board
+   note it gets after migration states its group and member projects. The chat items file is not rewritten: items
+   are read filtered by group (§6), so a note, ask or answer of a project now in another group moves to that
+   group's chat. The change-line mark stays with the migrated dispatcher; other groups start with no mark.
+5. **View preferences:** a remembered `*all` or project view id (client module state, not persisted) opens the
+   default group, or the project's group for a project id. `board-view.allProjectsTab`, `lastProjectId` and
+   `boardGroups` are dropped on read (never written), keeping the settings parser's rule that one bad field never
+   resets the others.
+6. **Project folder copies:** `<root>/.flowly/project.json` (PROJECT-FOLDER-SPEC) does not carry `groupId`; a
+   restored project is placed in the default group.
+
+## 8. Acceptance
+
+Unit (server/shared, written with the follow-up cards):
+
+- Invariants: every live project has a group; exactly one default; delete moves projects to the default; deleting
+  or clearing the default is refused; duplicate and over-long names refused; stale revisions refused.
+- Migration fixtures: no groups and several projects; one group with some projects; a project in two groups (first
+  wins); a project in no group; archived and deleted members; invalid, duplicate-named and 51 stored groups; corrupt
+  `boardGroups`; every project already grouped (first group becomes default); empty board; running twice changes
+  nothing; a failed write leaves the old data.
+- Dispatcher migration: the old session lands on the group with most open cards (and the tie rule), its record
+  fields survive, other groups report `none`; chat items filter by the project's current group.
+- Defaults chain: project over group over host for model, mode, thinking and delivery mode; dispatcher model group
+  over host; an empty value inherits and shows the inherited value.
+- Per-group dispatcher: start, replace, status and `DISPATCHER_RUNNING` per group; credentials of group A refused on
+  group B's projects (`PROJECT_OUT_OF_GROUP`); hourly buckets independent; notes routed by the project's group and
+  re-routed after a project moves; a dead group's dispatcher is not replaced by another group's.
+- `flowly_manage_groups`: not preapproved, refused in non-prompting modes, refuses deleting the caller's own group
+  and the default group.
+- Group delete archives only that group's dispatcher session, never the workspace; it is refused while that
+  dispatcher is running, and when the archive fails; a start that finishes after its group was deleted writes nothing
+  back; a tool delete of a group with a live dispatcher is `GROUP_BUSY`.
+- Delivery mode: moving a project or editing a group default changes the default of cards without their own
+  delivery mode (resolution stays lazy, as `effectiveDeliveryMode` does today); a card's own mode never changes.
+
+Upkeep (the plan's last task): welcome-tour copy and tips, a What's new entry (All and project tabs and the global
+dispatcher go away for existing users), the telemetry decision, and every new string in all i18n catalogs.
+
+Manual (Noah's click-through): group tabs (drag, menu, +), the switcher, a group board with its project filter and
+counts, the entries I/B/M with and without a filter, New task picker order, an empty group, the group settings page
+(defaults, a project section, moving a project), deleting a group with a dispatcher, the dock following the selected
+group, an update from an old install (old groups, ungrouped projects, the running dispatcher).
