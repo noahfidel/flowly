@@ -48,11 +48,9 @@ type Props = {
   fill?: { text: string; key: number } | null;
   /** The fill with this key is in the box: the board drops it, so a remounted panel does not add it again. */
   onFilled?(key: number): void;
-  /** The D shortcut opened the dock: focus the message box. A new value asks again. */
-  focusRequest?: number;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, fill, onFilled, focusRequest = 0 }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, fill, onFilled }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -176,14 +174,8 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     setDraft((now) => (expected !== undefined && now !== expected ? now : text)),
   );
   const box = useComposerDraft({ sessionId: "dispatcher", draft, onDraftChange: draftChange, isMounted: () => mounted.current });
-  // D opened the dock: focus the message box once it shows (not on mount, not when it is hidden).
-  const focusedFor = useRef(focusRequest);
-  useEffect(() => {
-    if (focusRequest === focusedFor.current || !visible) return;
-    focusedFor.current = focusRequest;
-    const timer = setTimeout(() => box.inputRef.current?.focus?.(), 50);
-    return () => clearTimeout(timer);
-  }, [focusRequest, visible]);
+  // Opening the dock (D, the toolbar button, any opener) never focuses the message box: the user clicks into it, so a
+  // second D still closes the dock instead of typing "d" (Ruling, Noah 2026-11-09). Only Discuss (§9.5) focuses it.
   const canWrite = visible && up && !locked && !!agentId && !!agent && !agent.providerUnavailable && !sending;
   // Discuss (§9.5): an outside change of the draft, as a picked next move is; the box remounts with it on phones.
   const filled = useRef(0);

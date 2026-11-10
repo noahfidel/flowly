@@ -12,8 +12,9 @@ export function toolbarDockButtons({ compact, dockAvailable }: { compact: boolea
 }
 
 /**
- * What D does: opens a minimized dock (and focuses its message box), or minimizes an open one. D never reaches here
- * while a text field has focus (board shortcuts are blocked there), so an open dock with typing in it is left alone.
+ * What D does: opens a minimized dock, or minimizes an open one. Opening never focuses the message box (Ruling, Noah
+ * 2026-11-09), so a second D closes it again. D never reaches here while a text field has focus (board shortcuts are
+ * blocked there), so an open dock with typing in it is left alone.
  * Nothing on a board without a dock.
  */
 export function dockShortcut({ dockAvailable, open }: { dockAvailable: boolean; open: boolean }): "open" | "minimize" | null {

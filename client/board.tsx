@@ -1267,8 +1267,6 @@ function BoardContent(
     } else if (open !== chatOpen) void view.update({ chatMinimized: !open });
   });
   const openDock = useStableCallback(() => setDockOpen(true));
-  // D opened the dock: the chat focuses its message box (each request is distinct).
-  const [chatFocus, setChatFocus] = useState(0);
   // The phone header's Dispatcher button: the chat page, or closed when it shows.
   const toggleChat = useStableCallback(() => setDockOpen(!(compact ? chat.open : chatOpen)));
   // Discuss on an idea (DISPATCHER-SPEC §9.5): a draft for the chat's message box; the key makes each press distinct.
@@ -1337,7 +1335,7 @@ function BoardContent(
       }
     >
       <LeftDock compact={compact} expanded={chatExpanded} onToggleSize={toggleChatSize} onClose={closeChat}>
-        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onOpenCard={openTaskById} />
+        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} onOpenCard={openTaskById} />
       </LeftDock>
       {chatGrip}
     </Animated.View>
@@ -1826,7 +1824,6 @@ function BoardContent(
       case "dispatcher": {
         const action = dockShortcut({ dockAvailable, open: chatShown });
         if (!action) return false;
-        if (action === "open") setChatFocus((n) => n + 1);
         setDockOpen(action === "open");
         return true;
       }
