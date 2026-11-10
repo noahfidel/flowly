@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { ToolServer } from "./tool-server";
 import { agentFixture } from "./agent-fixture";
 import { changeLine } from "./dispatcher-items";
 import { BoardService } from "./service";
+import { projectCreator } from "./project-create";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -79,7 +80,7 @@ async function setup() {
     join(fixture.store.directory, "dispatcher.json"),
     JSON.stringify({ version: 1, workspaceId: "dw", agentId: "disp", startedAt: stamp }),
   );
-  const agents: Record<string, { id: string; workspaceId: string; status: string; archivedAt: string | null; lastUsage?: unknown }> = {
+  const agents: Record<string, { id: string; workspaceId: string; status: string; archivedAt: string | null; lastUsage?: unknown; currentModeId?: string | null }> = {
     disp: { id: "disp", workspaceId: "dw", status: "idle", archivedAt: null },
     actor: { id: "actor", workspaceId: "w", status: "idle", archivedAt: null },
   };
@@ -653,37 +654,51 @@ test("the dispatcher's own idea edits do not show in its changed-since line (DIS
   expect(changeLine(board, mark, ["someone-else"])?.kind).toBe("change");
 });
 
-/** flowly_create_project through the projects.create path (a real board service), natives listed by a fake Paseo. */
+/**
+ * flowly_create_project wired as the plugin entry wires it: the RPC's own `projectCreator` over a real board service
+ * (its queue and guardrail detection), with native projects listed by a fake Paseo.
+ */
 async function withProjects() {
   const x = await setup();
   const service = new BoardService(x.store);
   service.reservedRoot = (path) => x.server.dispatcher.ownsRoot(path);
   const natives: { projectId: string; projectRootPath: string; projectDisplayName: string }[] = [];
+  const detected: string[] = [];
   const passed: unknown[] = [];
+  const withNatives = (paseo: PaseoApi) =>
+    ({ ...(paseo as object), projects: { list: async () => ({ projects: natives }) } }) as unknown as PaseoApi;
+  // The one function the RPC handler and the tool share (index.server.ts).
+  const rpcCreate = projectCreator(service, (id) => detected.push(id));
   x.server.dispatcherTools.createProjectWith = (input, paseo) => {
     passed.push(paseo);
-    return service.createProject(input, { ...(paseo as object), projects: { list: async () => ({ projects: natives }) } } as unknown as PaseoApi);
+    return rpcCreate(input, withNatives(paseo));
   };
-  const folder = await realpath(await mkdtemp(join(x.root, "repo-")));
-  natives.push({ projectId: "native-new", projectRootPath: folder, projectDisplayName: "repo" });
-  return { ...x, natives, passed, folder, d: await x.connect(x.dispatcherToken) };
+  const folder = async (name = "repo-") => {
+    const made = await realpath(await mkdtemp(join(x.root, name)));
+    natives.push({ projectId: `native-${basename(made)}`, projectRootPath: made, projectDisplayName: basename(made) });
+    return made;
+  };
+  return { ...x, natives, detected, passed, folder, rpcCreate, withNatives, d: await x.connect(x.dispatcherToken) };
 }
 
 test("flowly_create_project creates a single-directory project through the projects.create path (DISPATCHER-SPEC §5.2)", async () => {
   const x = await withProjects();
-  const created = await x.d.call("flowly_create_project", { path: x.folder, description: "Made by the dispatcher" });
+  const repo = await x.folder();
+  const created = await x.d.call("flowly_create_project", { path: repo, description: "Made by the dispatcher" });
   expect(code(created)).toBeUndefined();
   const { projectId, title, path } = created.structuredContent;
   // The folder's name is the default title.
-  expect({ title, path }).toEqual({ title: basename(x.folder), path: x.folder });
+  expect({ title, path }).toEqual({ title: basename(repo), path: repo });
   expect(x.passed).toEqual([x.paseo]);
+  // The RPC's follow-up ran: the new project's check commands are detected for its guardrails.
+  expect(x.detected).toEqual([projectId]);
   const project = (await x.store.read()).projects.find((p) => p.id === projectId);
   expect(project).toMatchObject({
-    title: basename(x.folder),
+    title: basename(repo),
     description: "Made by the dispatcher",
-    paseoProjectId: "native-new",
-    primaryPath: x.folder,
-    repos: [x.folder],
+    paseoProjectId: `native-${basename(repo)}`,
+    primaryPath: repo,
+    repos: [repo],
     revision: 1,
     archivedAt: null,
     autoReview: { enabled: true, maxRounds: 2 },
@@ -691,15 +706,38 @@ test("flowly_create_project creates a single-directory project through the proje
   // It is a live project the dispatcher can read and write in at once.
   expect((await x.d.call("flowly_list_projects", {})).structuredContent.projects).toContainEqual({ projectId, title, rootAvailable: true, openCards: 0 });
   // A given title wins.
-  const other = await realpath(await mkdtemp(join(x.root, "repo-")));
-  x.natives.push({ projectId: "native-other", projectRootPath: other, projectDisplayName: "other" });
+  const other = await x.folder();
   const named = await x.d.call("flowly_create_project", { path: other, title: "  Named  " });
   expect(named.structuredContent).toMatchObject({ title: "Named", path: other });
+  // A folder whose name is only spaces gets the fallback title instead of an input error.
+  const blank = join(await x.folder("parent-"), "   ");
+  await mkdir(blank);
+  x.natives.push({ projectId: "native-blank", projectRootPath: blank, projectDisplayName: "blank" });
+  const fallback = await x.d.call("flowly_create_project", { path: blank });
+  expect(code(fallback)).toBeUndefined();
+  expect(fallback.structuredContent.title).toBe("Project");
+});
+
+test("flowly_create_project and the projects.create RPC share one queue: the same folder twice at once makes one project (DISPATCHER-SPEC §5.2)", async () => {
+  const x = await withProjects();
+  const repo = await x.folder();
+  const [viaRpc, viaTool] = await Promise.all([
+    x.rpcCreate({ title: "From the form", description: "", primaryPath: repo }, x.withNatives(x.paseo)).then(
+      () => "made",
+      (e: Error) => e.message,
+    ),
+    x.d.call("flowly_create_project", { path: repo }),
+  ]);
+  expect(viaRpc).toBe("made");
+  expect(code(viaTool)).toBe("PROJECT_REFUSED");
+  expect(viaTool.structuredContent.error.message).toContain("already linked");
+  expect((await x.store.read()).projects.filter((p) => p.primaryPath === repo)).toHaveLength(1);
 });
 
 test("flowly_create_project refuses what the projects.create RPC refuses, and writes nothing (DISPATCHER-SPEC §5.2)", async () => {
   const x = await withProjects();
-  expect(code(await x.d.call("flowly_create_project", { path: x.folder }))).toBeUndefined();
+  const repo = await x.folder();
+  expect(code(await x.d.call("flowly_create_project", { path: repo }))).toBeUndefined();
   const before = JSON.stringify((await x.store.read()).projects);
   const refused = async (args: Record<string, unknown>, message: string) => {
     const result = await x.d.call("flowly_create_project", args);
@@ -707,32 +745,115 @@ test("flowly_create_project refuses what the projects.create RPC refuses, and wr
     expect(result.structuredContent.error.message).toContain(message);
   };
   // The same folder again: its native project is already on the board.
-  await refused({ path: x.folder, title: "Again" }, "already linked");
+  await refused({ path: repo, title: "Again" }, "already linked");
   // A missing folder, and a file.
   await refused({ path: join(x.root, "no-such-folder") }, "Expected an existing directory.");
   await refused({ path: join(x.root, "no-such-folder"), title: "Named" }, "Expected an existing directory.");
   const file = join(x.root, "a-file");
   await writeFile(file, "x");
   await refused({ path: file }, "Expected an existing directory.");
-  // The dispatcher's own folder (DISPATCHER-SPEC §2).
-  await refused({ path: join(x.root, "paseo-home", "flowly-dispatcher", "dispatcher") }, "Flowly dispatcher's folder");
-  // Bad input is the schema's refusal: no path, an over-long title, linked-project fields.
+  // Bad input is the schema's refusal: no path, a relative path, an over-long title, linked-project fields.
   expect((await x.d.call("flowly_create_project", {})).isError).toBe(true);
-  expect((await x.d.call("flowly_create_project", { path: x.folder, title: "x".repeat(121) })).isError).toBe(true);
-  expect((await x.d.call("flowly_create_project", { path: x.folder, links: [x.folder] })).isError).toBe(true);
+  expect((await x.d.call("flowly_create_project", { path: "repo" })).isError).toBe(true);
+  expect((await x.d.call("flowly_create_project", { path: "./repo" })).isError).toBe(true);
+  expect((await x.d.call("flowly_create_project", { path: repo, title: "x".repeat(121) })).isError).toBe(true);
+  expect((await x.d.call("flowly_create_project", { path: repo, links: [repo] })).isError).toBe(true);
   expect(JSON.stringify((await x.store.read()).projects)).toBe(before);
+  expect(x.detected).toHaveLength(1);
 });
 
-test("flowly_create_project is checked like every dispatcher write: replaced dispatcher, the switch, a card token (DISPATCHER-SPEC §4)", async () => {
+test("flowly_create_project refuses Flowly's own folders, and what holds them; the form's RPC does not (ruling B, DISPATCHER-SPEC §5.2)", async () => {
   const x = await withProjects();
+  const dispatcherParent = join(x.root, "paseo-home", "flowly-dispatcher");
+  const projectsBefore = JSON.stringify((await x.store.read()).projects);
+  const holdsData = await realpath(join(x.store.directory, ".."));
+  const reserved = [
+    x.store.directory, // the plugin data folder
+    join(x.store.directory, "inside"), // inside it
+    holdsData, // holding it (the fixture root)
+    dispatcherParent, // the dispatcher's parent
+    join(dispatcherParent, "dispatcher"), // the dispatcher's folder, inside it
+    join(x.root, "paseo-home"), // holding it
+  ];
+  await mkdir(join(x.store.directory, "inside"), { recursive: true });
+  for (const path of reserved) {
+    const canonical = await realpath(path);
+    x.natives.push({ projectId: `native-${canonical}`, projectRootPath: canonical, projectDisplayName: "r" });
+    const result = await x.d.call("flowly_create_project", { path });
+    expect(code(result), path).toBe("PROJECT_REFUSED");
+    expect(result.structuredContent.error.message, path).toContain("Flowly's own data or the dispatcher's folder");
+  }
+  // By a link too: canonical paths are compared.
+  const link = join(await x.folder("links-"), "to-data");
+  await symlink(x.store.directory, link);
+  expect(code(await x.d.call("flowly_create_project", { path: link }))).toBe("PROJECT_REFUSED");
+  // A bare ~ is the home folder: in a real install it holds the Paseo home, so it is refused the same way.
+  const home = process.env.HOME;
+  process.env.HOME = x.root;
+  try {
+    const result = await x.d.call("flowly_create_project", { path: "~" });
+    expect(code(result)).toBe("PROJECT_REFUSED");
+    expect(result.structuredContent.error.message).toContain("Flowly's own data");
+  } finally {
+    process.env.HOME = home;
+  }
+  expect(x.passed).toEqual([]);
+  expect(JSON.stringify((await x.store.read()).projects)).toBe(projectsBefore);
+  // The form's RPC keeps its own rules: the plugin data subfolder is accepted there.
+  const inside = await realpath(join(x.store.directory, "inside"));
+  await expect(x.rpcCreate({ title: "Form", description: "", primaryPath: inside }, x.withNatives(x.paseo))).resolves.toMatchObject({ primaryPath: inside });
+});
+
+test("flowly_create_project refuses in a permission mode that would not ask the user (ruling A, DISPATCHER-SPEC §5.2)", async () => {
+  const x = await withProjects();
+  const repo = await x.folder();
+  for (const mode of ["bypassPermissions", "auto", "dontAsk"]) {
+    x.agents.disp.currentModeId = mode;
+    const result = await x.d.call("flowly_create_project", { path: repo });
+    expect(code(result), mode).toBe("CONFIRMATION_UNAVAILABLE");
+    expect(result.structuredContent.error.message).toContain(mode);
+  }
+  expect(x.passed).toEqual([]);
+  // Modes that ask, and no mode reported, go through.
+  for (const mode of ["default", "acceptEdits", null]) {
+    x.agents.disp.currentModeId = mode;
+    expect(code(await x.d.call("flowly_create_project", { path: await x.folder() })), String(mode)).toBeUndefined();
+  }
+});
+
+test("flowly_create_project: at most 5 projects per dispatcher hour, apart from the card bucket (ruling A, DISPATCHER-SPEC §5.2)", async () => {
+  const x = await withProjects();
+  let now = Date.parse("2026-11-10T10:00:00.000Z");
+  x.server.dispatcherTools.clock = () => now;
+  // Refusals give their slot back.
+  for (let i = 0; i < 3; i++) expect(code(await x.d.call("flowly_create_project", { path: join(x.root, "missing") }))).toBe("PROJECT_REFUSED");
+  for (let i = 0; i < 5; i++) expect(code(await x.d.call("flowly_create_project", { path: await x.folder() })), `#${i + 1}`).toBeUndefined();
+  const over = await x.d.call("flowly_create_project", { path: await x.folder() });
+  expect(code(over)).toBe("PROJECT_LIMIT");
+  expect(over.structuredContent.error.message).toContain("5");
+  // The card bucket is untouched.
+  expect(code(await x.d.call("flowly_create_card", { projectId: "q", title: "Still fine", idempotencyKey: "k-cap" }))).toBeUndefined();
+  // An hour later there is room again.
+  now += 3_600_001;
+  expect(code(await x.d.call("flowly_create_project", { path: await x.folder() }))).toBeUndefined();
+});
+
+test("flowly_create_project is checked like every dispatcher write: replaced dispatcher, the switch, not wired yet (DISPATCHER-SPEC §4)", async () => {
+  const x = await withProjects();
+  const repo = await x.folder();
   const before = JSON.stringify((await x.store.read()).projects);
   // A token of a replaced dispatcher.
   const stale = await x.connect(x.server.secrets.dispatcherCredential({ agentId: "old", workspaceId: "dw" }));
-  expect(code(await stale.call("flowly_create_project", { path: x.folder }))).toBe("DISPATCHER_REPLACED");
+  expect(code(await stale.call("flowly_create_project", { path: repo }))).toBe("DISPATCHER_REPLACED");
   // The Agents create and edit cards switch.
   x.server.cards.on = async () => false;
-  expect(code(await x.d.call("flowly_create_project", { path: x.folder }))).toBe("AGENT_CARDS_DISABLED");
+  expect(code(await x.d.call("flowly_create_project", { path: repo }))).toBe("AGENT_CARDS_DISABLED");
   x.server.cards.on = async () => true;
+  // Before the plugin entry hands over the RPC's path.
+  x.server.dispatcherTools.createProjectWith = undefined;
+  const early = await x.d.call("flowly_create_project", { path: repo });
+  expect(code(early)).toBe("PASEO_UNAVAILABLE");
+  expect(early.structuredContent.error.retryable).toBe(true);
   expect(x.passed).toEqual([]);
   expect(JSON.stringify((await x.store.read()).projects)).toBe(before);
 });
