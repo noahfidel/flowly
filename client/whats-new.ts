@@ -24,7 +24,11 @@ export const whatsNew: WhatsNewRelease[] = [
   {
     // SEARCH-SPEC §8.
     version: "1.8.0",
-    items: [{ icon: "Search", text: msg("Search past cards, summaries, notes, workpads, ideas and deliverables. Agents can search them too.") }],
+    items: [
+      { icon: "Search", text: msg("Search past cards, summaries, notes, workpads, ideas and deliverables. Agents can search them too.") },
+      // DISPATCHER-SPEC §9.3 (Ruling, Noah 2026-11-09): the floating gear moved into the toolbar.
+      { icon: "Settings", text: msg("Settings moved to the gear at the top of the board, next to the bell.") },
+    ],
   },
   {
     // INSIGHTS-REDESIGN-SPEC §5: Skills turn on for everyone who never touched the switch.

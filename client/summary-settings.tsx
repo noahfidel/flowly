@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Animated, Modal as RNModal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Modal as RNModal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
-import { Enter, motionDuration, useMotionValue, lerp } from "./motion";
+import { Enter } from "./motion";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useShortcutBlock } from "./shortcuts";
 import { AiPage, GeneralPage, ModelsPage, WorkflowPage } from "./settings-pages";
@@ -15,120 +15,55 @@ import { msg, t } from "../shared/i18n";
 const modalMaxWidth = 900;
 
 /**
- * Floating bottom-left settings button: a rounded square that rises in on mount,
- * lifts on hover, presses in, and stays highlighted while its modal is open.
+ * The one-time callout under the toolbar's settings gear (ONBOARDING-SETUP-SPEC §5): placed by the board under the
+ * measured gear, right-aligned to it and kept inside the window. A sibling of the toolbar, not a child of the button,
+ * so Android neither clips it nor drops its touches.
  */
-export function SettingsFab({
-  open = false,
-  hint,
-  onHintDismiss,
-  onPress,
-}: {
-  open?: boolean;
-  /** One-time callout above the button (ONBOARDING-SETUP-SPEC §5); the button is outlined while it shows. */
-  hint?: string;
-  onHintDismiss?(): void;
-  onPress(): void;
-}) {
+export function SettingsHint({ text, top, right, onDismiss }: { text: string; top: number; right: number; onDismiss(): void }) {
   const { colors } = useTheme();
-  const [hovered, setHovered] = useState(false),
-    [pressed, setPressed] = useState(false),
-    [focused, setFocused] = useState(false);
-  const lit = open || hovered;
-  const shown = useMotionValue(1, motionDuration.forward, 0);
-  const lift = useMotionValue(pressed ? 0.94 : lit ? 1.04 : 1);
-  const turn = useMotionValue(open ? 1 : hovered ? 0.5 : 0, motionDuration.forward);
-  const size = touch ? 44 : 36;
   return (
-    <>
-    {!!hint && (
-      // A sibling, not a child: the button's box would clip it on Android.
-      <Enter
-        distance={6}
-        style={{
-          position: "absolute",
-          left: space[3],
-          bottom: space[3] + size + space[2],
-          width: 280,
-          maxWidth: "80%",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: space[2],
-          paddingLeft: space[3],
-          paddingRight: space[1.5],
-          paddingVertical: space[2],
-          borderRadius: radius.lg,
-          borderWidth: 1,
-          borderColor: tint(colors.accent, 0.45),
-          backgroundColor: colors.surface2,
-          shadowColor: "#000",
-          shadowOpacity: 0.16,
-          shadowRadius: 10,
-          shadowOffset: { width: 0, height: 4 },
-          elevation: 4,
-        }}
-      >
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label size={font.md}>{hint}</Label>
-        </View>
-        <View style={{ flexShrink: 0 }}>
-          <Button small quiet onPress={() => onHintDismiss?.()}>
-            {t("Got it")}
-          </Button>
-        </View>
-      </Enter>
-    )}
-    <Animated.View
+    <Enter
+      distance={6}
       style={{
         position: "absolute",
-        left: space[3],
-        bottom: space[3],
-        opacity: shown,
-        transform: [
-          { translateY: lerp(shown, [8, 0]) },
-          { scale: lift },
-        ],
+        top,
+        right,
+        zIndex: 40,
+        width: 280,
+        maxWidth: "90%",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space[2],
+        paddingLeft: space[3],
+        paddingRight: space[1.5],
+        paddingVertical: space[2],
+        borderRadius: radius.lg,
+        borderWidth: 1,
+        borderColor: tint(colors.accent, 0.45),
+        backgroundColor: colors.surface2,
+        shadowColor: "#000",
+        shadowOpacity: 0.16,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+        elevation: 4,
       }}
     >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t("Flowly settings")}
-        accessibilityState={{ expanded: open }}
-        onPress={onPress}
-        onPressIn={() => setPressed(true)}
-        onPressOut={() => setPressed(false)}
-        onHoverIn={() => setHovered(true)}
-        onHoverOut={() => setHovered(false)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        style={{
-          ...noFocusRing,
-          width: size,
-          height: size,
-          borderRadius: radius.lg,
-          alignItems: "center",
-          justifyContent: "center",
-          borderWidth: 1,
-          borderColor: open || hint ? colors.accent : hovered ? tint(colors.foregroundMuted, 0.45) : colors.border,
-          backgroundColor: lit ? colors.surface2 : colors.surface1,
-          shadowColor: "#000",
-          shadowOpacity: lit ? 0.16 : 0.08,
-          shadowRadius: lit ? 10 : 6,
-          shadowOffset: { width: 0, height: lit ? 4 : 2 },
-          elevation: lit ? 4 : 2,
-        }}
-      >
-        <Animated.View style={{ transform: [{ rotate: lerp(turn, ["0deg", "90deg"]) }] }}>
-          <Icon name="Settings" size={17} color={lit ? colors.foreground : colors.foregroundMuted} />
-        </Animated.View>
-        {!!hint && (
-          // Outline that says "here", drawn outside the button so its size does not change.
-          <View pointerEvents="none" style={{ position: "absolute", top: -4, left: -4, right: -4, bottom: -4, borderRadius: radius.lg + 4, borderWidth: 2, borderColor: tint(colors.accent, 0.5) }} />
-        )}
-      </Pressable>
-    </Animated.View>
-    </>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Label size={font.md}>{text}</Label>
+      </View>
+      <View style={{ flexShrink: 0 }}>
+        <Button small quiet onPress={onDismiss}>
+          {t("Got it")}
+        </Button>
+      </View>
+    </Enter>
   );
+}
+
+/** The outline that says "here" around the gear while its callout shows, drawn outside it so its size stays. */
+export function HintOutline() {
+  const { colors } = useTheme();
+  return <View pointerEvents="none" style={{ position: "absolute", top: -3, left: -3, right: -3, bottom: -3, borderRadius: radius.lg + 3, borderWidth: 2, borderColor: tint(colors.accent, 0.5) }} />;
 }
 
 export type SettingsSection = "general" | "cards" | "models" | "workflow" | "ai" | "connections" | "storage";

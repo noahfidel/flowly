@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, Text as NativeText, View } from "react-native";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
-import { IconButton, font, message, noFocusRing, tint, touch, useTheme, space } from "./ui";
+import { IconButton, Label, font, message, noFocusRing, tint, touch, useTheme, space } from "./ui";
 import { useShortcutBlock } from "./shortcuts";
 import { sendBehaviorText, type SendBehavior } from "./send-queue";
 import { imageInputSupported, listenForImages, pickImageFiles, readImages, type Attachment } from "./web-images";
@@ -151,6 +151,7 @@ export function ComposerBox({
   onFocus,
   onSubmit,
   onStop,
+  footer,
 }: {
   composer: ComposerDraft;
   canWrite: boolean;
@@ -167,6 +168,8 @@ export function ComposerBox({
   onSubmit(alternate: boolean): void;
   /** Shown as Stop in place of Send while a turn runs and the box is empty; absent: no Stop. */
   onStop?(): void;
+  /** Quiet read-only text beside the attach button, such as the dispatcher's model. */
+  footer?: string;
 }) {
   const { colors } = useTheme();
   const { draft, focused, attachments } = c;
@@ -278,18 +281,25 @@ export function ComposerBox({
           } as never}
         />
       </View>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        {imageInputSupported ? (
-          <IconButton
-            icon="ImagePlus"
-            size={sendSize}
-            label={t("Attach images")}
-            disabled={!canWrite || attachments.length >= maxImages}
-            onPress={() => void pickImageFiles().then((files) => c.addImages.current(files))}
-          />
-        ) : (
-          <View />
-        )}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space[2] }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], flexShrink: 1, minWidth: 0 }}>
+          {imageInputSupported && (
+            <IconButton
+              icon="ImagePlus"
+              size={sendSize}
+              label={t("Attach images")}
+              disabled={!canWrite || attachments.length >= maxImages}
+              onPress={() => void pickImageFiles().then((files) => c.addImages.current(files))}
+            />
+          )}
+          {!!footer && (
+            <View style={{ flexShrink: 1, minWidth: 0, paddingHorizontal: imageInputSupported ? 0 : space[1.5] }}>
+              <Label muted size={font.sm} lines={1} selectable={false}>
+                {footer}
+              </Label>
+            </View>
+          )}
+        </View>
         {stopMode ? (
           <Pressable
             accessibilityRole="button"

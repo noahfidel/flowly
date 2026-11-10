@@ -108,7 +108,7 @@ export function TaskProgress({
           {running
             ? t("Writing the first summary…")
             : overview.data && !overview.data.enabled
-              ? t("Auto summary is off. Turn it on with the settings button at the bottom left of the board, or press Refresh.")
+              ? t("Auto summary is off. Turn it on with the settings gear at the top of the board, or press Refresh.")
               : t("Updates after each agent turn.")}
         </Label>
       )}

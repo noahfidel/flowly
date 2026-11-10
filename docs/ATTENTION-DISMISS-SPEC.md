@@ -44,12 +44,12 @@ Attention 列表一行一张卡，Dismiss 也按卡片：隐藏这张卡**当前
 
 ### 3.1 Attention 列表（左侧停靠栏的 Attention 标签页）
 
-- Ruling (Noah, 2026-11-09)：桌面不再有铃铛下拉。铃铛打开左侧停靠栏（DISPATCHER-SPEC §9.3）的 **Attention** 标签页（手机为全屏页的同名标签页），再按一次回到之前的标签页或最小化状态。该标签页按 ask 列出 **Needs you**（每个 open ask 可就地回答、Dismiss、Open card，DISPATCHER-SPEC §9.4），其下是本节的 **Dismissed · N** 分组（Restore 行为不变），最底部是不计入铃铛计数的 **Updates**（DISPATCHER-SPEC §9.2）。看板没有停靠栏时（既非项目看板也非 All projects），铃铛仍打开下文的 Needs attention 弹层（按卡片列出，规则如下）。
+- Ruling (Noah, 2026-11-09)：桌面不再有铃铛下拉。铃铛打开左侧停靠栏（DISPATCHER-SPEC §9.3）的 **Attention** 标签页（手机为全屏页的同名标签页），再按一次回到之前的标签页或最小化状态。该标签页按 ask 列出 **Needs you**（每个 open ask 可就地回答、Dismiss、Open card，DISPATCHER-SPEC §9.4），其下是不计入铃铛计数的 **Updates**（DISPATCHER-SPEC §9.2）。看板没有停靠栏时（既非项目看板也非 All projects），铃铛仍打开下文的 Needs attention 弹层（按卡片列出，规则如下）。
 
+- Ruling (Noah, 2026-11-09)：Attention 标签页和 Needs attention 弹层都不再有 **Dismissed · N** 分组和 Restore 列表。Dismiss 只是暂不处理：卡片离开 Needs you，出现新信号时按 §2.3 自动回来；服务端与 dismiss RPC 不变。卡片自身的菜单和侧栏仍可 **Restore to Attention**（§3.3）。下面两条中关于 Dismissed 分组的部分已作废。
 - 每行右侧新增 **Dismiss** 图标按钮（`BellOff`，无障碍标签 `Dismiss {title} from Attention`），放在行的可点区域之外，常显（桌面与触控一致，便于发现）。点行本身仍是打开卡片。
-- Dismiss 后行用现有的列表移除动画淡出，原生 toast：`Dismissed. It comes back when something new happens.`。宿主 toast 不支持操作按钮（插件内无先例），撤销通过下方 Dismissed 分组的 Restore 完成。
-- 列表底部新增默认收起的 **Dismissed · N** 分组（N>0 才出现）。展开后列出被 dismiss 的卡片，次要样式（灰点、降低不透明度），每行的按钮为 **Restore**（`Bell`）。点行仍可打开卡片。恢复后显示 toast `Back in Attention`。
-- 全部卡片都被 dismiss 时，主区空状态显示 `Nothing new needs your attention.`，下方仍有 Dismissed 分组。
+- Dismiss 后行用现有的列表移除动画淡出，原生 toast：`Dismissed. It comes back when something new happens.`。宿主 toast 不支持操作按钮（插件内无先例），撤销通过卡片菜单或侧栏的 Restore 完成。
+- 全部卡片都被 dismiss 时，主区空状态显示 `Nothing new needs your attention.`。
 
 ### 3.2 计数入口
 
@@ -93,7 +93,7 @@ attentionDismissals: [{
 - `shared/attention-dismiss.ts`：schema、`attentionSignals` 与 `isDismissed(signals, record)` 纯函数。
 - `client/attention.ts`：`attentionItems` 增加 `signals` 和 `dismissed` 字段；`attentionFromSources` 接收 `dismissals`，主列表与计数排除 dismissed，另返回 dismissed 列表。看板与侧边栏共用。
 - `server/service.ts` + `shared/rpc.ts` + `index.server.ts`：两个 RPC，沿用看板串行写和原子替换。
-- `client/board.tsx`：列表按钮、Dismissed 分组、toast；`card.tsx` / `drawer.tsx`：标记与 Dismiss/Restore 动作。
+- `client/board.tsx`：列表按钮、toast；`card.tsx` / `drawer.tsx`：标记与 Dismiss/Restore 动作。
 - i18n：新字符串加入全部 catalog。
 - Onboarding：新提示 `attention-dismiss`，在 Attention（全部项目）有 ≥3 张未 dismiss 的卡、且还没有任何 dismissed 卡时出现，优先级紧跟 `needs-you`：`Not ready to decide? Dismiss a card from Attention. It comes back when something new happens.`；`ONBOARDING-SPEC` 提示表与 `onboarding-logic.test.ts` 同步。欢迎页特色列表不改（不是主流程能力）。
 
@@ -102,7 +102,7 @@ attentionDismissals: [{
 - 纯函数：各类信号 key 稳定；子集 → dismissed；新 key（新问题 / 新请求 / 新错误 / 新一轮未读 / 手动未读）→ 回到 Attention；信号减少仍隐藏；`readUnavailable` 下规则正确；看板与侧边栏计数来自同一函数且排除 dismissed。
 - 服务端：dismiss / restore 幂等；归档卡、未知卡、非法输入、容量上限报错；不改 revision 与 Activity；删卡/移除项目时一并删除；缺字段的旧 `board.json` 读作空。
 - `npm run typecheck`、`npm test` 通过。
-- UI（安装 reload 后在非全屏窗口）：列表 Dismiss → 计数立即减少、toast 出现；Dismissed 分组可 Restore；卡片与侧栏仍显示信号和 Dismissed 标记；新的一轮结果让卡片回到列表；手机弹层同样可用。无法安全绑定窗口时记 UNRUN。
+- UI（安装 reload 后在非全屏窗口）：列表 Dismiss → 计数立即减少、toast 出现；卡片菜单与侧栏可 Restore；卡片与侧栏仍显示信号和 Dismissed 标记；新的一轮结果让卡片回到列表；手机弹层同样可用。无法安全绑定窗口时记 UNRUN。
 
 ## 7a. 按 ask 计数与单条 dismiss（2026-11-08，单窗格计划 Q1、Q5）
 

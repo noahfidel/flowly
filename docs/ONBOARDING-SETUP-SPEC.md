@@ -106,7 +106,7 @@ Status: **已实现，用户 2026-10-22 确认设计**（卡片“重设计onboa
 
 ### 第 5 页：Ready when you are
 
-保留现有清单和 **Create project** / **Not now**（或 **Done**）。原第 2 页 “What makes it different” 的内容拆开：Needs you 在第 1 页讲；Run summaries、Next steps 移到第 2 页；其余（Workpad、Inputs and outputs、Tickets…、Tags、Saved with your project）放进本页的 **More features**（2026-10-22 用户反馈：不折叠，直接列出）。底部提示改为 “Change any of this later in Settings (bottom-left).”
+保留现有清单和 **Create project** / **Not now**（或 **Done**）。原第 2 页 “What makes it different” 的内容拆开：Needs you 在第 1 页讲；Run summaries、Next steps 移到第 2 页；其余（Workpad、Inputs and outputs、Tickets…、Tags、Saved with your project）放进本页的 **More features**（2026-10-22 用户反馈：不折叠，直接列出）。底部提示改为 “Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.”（Ruling (Noah, 2026-11-09)：设置按钮移到看板顶部工具栏铃铛旁边）
 
 ## 4. 设置何时写入
 
@@ -118,7 +118,7 @@ Status: **已实现，用户 2026-10-22 确认设计**（卡片“重设计onboa
 
 ## 5. 设置入口高亮（D6）
 
-- 新的一次性提示 id `settings-entry`。导览关闭后（首次或手动），若未看过，左下角的设置按钮（`SettingsFab`）加主题强调色描边，并在它上方显示一个小气泡：“Turn features on or off and change settings here.” + **Got it**。
+- 新的一次性提示 id `settings-entry`。导览关闭后（首次或手动），若未看过，看板顶部工具栏里铃铛旁的设置齿轮加主题强调色描边，并在它下方（右对齐）显示一个小气泡（Ruling (Noah, 2026-11-09)：原左下角浮动按钮 `SettingsFab` 已移除，停靠栏会盖住那个角落）：“Turn features on or off and change settings here.” + **Got it**。
 - 点 Got it 或点设置按钮都记为看过，高亮消失。不和其他 tip 横幅同时出现（它优先），不挡输入，Reduce Motion 下无动画；开启时一次轻微的放大提示，不循环。
 - 位置固定在 FAB 旁（FAB 是插件自己画的、位置固定），不测量宿主 UI，因此不是 ONBOARDING-SPEC “Not in scope” 里排除的那种脆弱的 coach mark。
 - 气泡打开设置时遵守“两个 Modal 不同帧切换”：导览关闭后等约 450 ms 再显示气泡（它不是 Modal，但避免与关闭动画重叠）。

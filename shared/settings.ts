@@ -12,6 +12,9 @@ import { agentModelSchema } from "./agent-defaults";
 /** The left dock's tabs (DISPATCHER-SPEC §9.3). */
 export const dockTabs = ["attention", "dispatcher"] as const;
 export type DockTab = (typeof dockTabs)[number];
+/** The left dock's layouts on desktop (DISPATCHER-SPEC §9.3): one pane, Attention above the chat, or beside it. */
+export const dockLayouts = ["single", "stack", "side"] as const;
+export type DockLayout = (typeof dockLayouts)[number];
 
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
@@ -77,6 +80,14 @@ export const boardViewSettings = defineSettings({
     chatWidth: z.number().min(0).max(10000).catch(0).default(0),
     /** The left dock's tab, Attention or Dispatcher; it starts on Dispatcher (DISPATCHER-SPEC §9.3). */
     dockTab: z.enum(dockTabs).catch("dispatcher").default("dispatcher"),
+    /** The left dock's layout on desktop; phones always show one pane (DISPATCHER-SPEC §9.3). */
+    dockLayout: z.enum(dockLayouts).catch("single").default("single"),
+    /** Stack: Attention's share of the dock's height as last dragged; 0 = never dragged, half (DISPATCHER-SPEC §9.3). */
+    dockStackShare: z.number().min(0).max(1).catch(0).default(0),
+    /** Side by side: Attention's share of the dock's width as last dragged; 0 = never dragged, half (DISPATCHER-SPEC §9.3). */
+    dockSideShare: z.number().min(0).max(1).catch(0).default(0),
+    /** Attention's sections opened or closed unlike their default (DISPATCHER-SPEC §9.4); read through attentionSectionOpen. */
+    attentionOpen: z.record(z.string().max(40), z.boolean()).catch({}).default({}),
   }),
 });
 

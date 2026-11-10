@@ -293,16 +293,18 @@ export class Dispatcher {
   }
 
   /**
-   * Replace dispatcher (§3, ruling Noah 2026-11-09): the user's confirmed click on an unguarded dispatcher. Archives
-   * exactly that session (the stored one, by the id the user saw), then starts a new guarded one as Start does. Refused
-   * for a guarded dispatcher, or when the stored one is not the id given. The only way Flowly archives a dispatcher.
+   * Replace dispatcher (§3, ruling Noah 2026-11-09): the user's confirmed click on an unguarded dispatcher, or on one
+   * that misses this build's tools. Archives exactly that session (the stored one, by the id the user saw), then starts
+   * a new guarded one as Start does. Refused for a guarded dispatcher with every tool, or when the stored one is not the
+   * id given. The only way Flowly archives a dispatcher.
    */
   replace(paseo: PaseoApi, raw: { agentId: string }): Promise<{ agentId: string }> {
     const { agentId } = dispatcherReplaceInputSchema.parse(raw);
     const job = this.starts.then(async () => {
       const record = await this.record();
       if (!record.agentId || record.agentId !== agentId) throw new ToolError("DISPATCHER_CHANGED", "The dispatcher changed meanwhile; nothing was replaced.");
-      if (guarded(record)) throw new ToolError("DISPATCHER_GUARDED", "This dispatcher has the current guard; Flowly does not replace it.");
+      // A guarded one is replaced only when it misses this build's tools (Ruling, Noah 2026-11-09).
+      if (guarded(record) && !missesTools(record)) throw new ToolError("DISPATCHER_GUARDED", "This dispatcher has the current guard and tools; Flowly does not replace it.");
       const model = await this.model({});
       if (!dispatcherProviderSupported(model.provider)) throw new ToolError("DISPATCHER_PROVIDER_UNSUPPORTED", dispatcherProviderReason);
       // Archived inside the start, after every step that can fail but the session create (§3).

@@ -65,7 +65,7 @@ A tip is a single dismissible banner row (icon, one sentence, **Got it**) under 
 
 | Tip id | Shown when | Text |
 | --- | --- | --- |
-| `settings-entry` | the welcome tour closed during this visit (first run or manual) and nothing else is open; not a banner: a callout above the bottom-left settings button, which is outlined meanwhile; **Got it** or opening Settings records it (ONBOARDING-SETUP-SPEC §5). It outranks every banner tip. | "Turn features on or off and change settings here." |
+| `settings-entry` | the welcome tour closed during this visit (first run or manual) and nothing else is open; not a banner: a callout under the toolbar's settings gear (beside the bell; Ruling, Noah 2026-11-09: the floating bottom-left button is gone), which is outlined meanwhile; **Got it** or opening Settings records it (ONBOARDING-SETUP-SPEC §5). It outranks every banner tip. | "Turn features on or off and change settings here." |
 | `first-card` | the project has a card and none is open | "Your card moves by itself as the agent works. Open it any time to see its sessions, output and summary." |
 | `agent-question` | the first time a session in the project waits on an agent question (SESSION-QUESTION-SPEC) | "An agent is asking you something. Open the card's session to answer it right there, no need to switch to Paseo." |
 | `needs-you` | the first time any card in the project is Needs you | "A card is waiting for you. Reply goes straight to the session." |

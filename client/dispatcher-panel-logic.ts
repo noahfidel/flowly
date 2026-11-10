@@ -1,4 +1,5 @@
 import { nextMoveDraft } from "../shared/next-moves";
+import { msg } from "../shared/i18n";
 import { noteMessagePrefix, summaryMessagePrefix, type ChatItem } from "../shared/dispatcher";
 import type { TailEntry } from "../shared/session-tail";
 import { groupTranscript, recentSessionOutput } from "./session-state";
@@ -123,4 +124,21 @@ export function discussFill(fill: { text: string; key: number } | null | undefin
   if (!fill || fill.key === applied) return null;
   const next = discussDraft(fill.text, typed);
   return { key: fill.key, next: next === typed ? null : next };
+}
+
+/** The warning for a dispatcher that started before some of this build's tools (§3); translated at render. */
+export const newToolsNotice = msg("This dispatcher started before some Flowly tools existed. Replace dispatcher archives its session and starts a new one with them.");
+
+/**
+ * Which warning offers Replace dispatcher (§3; Ruling, Noah 2026-11-09): an unguarded live dispatcher, else a live one
+ * that misses tools. Only one button shows when both apply.
+ */
+export function replaceOffer(status: { state: string; agentId: string | null; newTools?: boolean; unguarded?: boolean } | undefined): "unguarded" | "new-tools" | null {
+  if (!status?.agentId || (status.state !== "running" && status.state !== "idle")) return null;
+  return status.unguarded ? "unguarded" : status.newTools ? "new-tools" : null;
+}
+
+/** The model named, read-only, in the composer's footer (§9.3; Ruling, Noah 2026-11-09): the model, else the provider. */
+export function modelLabel(agent: { provider?: string | null; model?: string | null } | undefined): string {
+  return agent?.model || agent?.provider || "";
 }

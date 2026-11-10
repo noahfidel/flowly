@@ -1037,6 +1037,18 @@ test("Replace archives exactly the unguarded dispatcher's session and starts a g
   expect(y.agentCreates).toHaveLength(1);
 });
 
+test("Replace also takes a guarded dispatcher that misses this build's tools (Ruling, Noah 2026-11-09)", async () => {
+  const x = await setup();
+  x.agents.set("old", { id: "old", workspaceId: "dw-0", status: "idle", archivedAt: null });
+  const record = { version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", savedTools: dispatcherToolNames.slice(0, -1), guard: { version: dispatcherGuardVersion, provider: "claude" } };
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(record));
+  expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "idle", agentId: "old", newTools: true });
+  const { agentId } = await x.dispatcher.replace(x.paseo, { agentId: "old" });
+  expect(x.archived).toEqual(["agent:old"]);
+  expect(await x.dispatcher.record()).toMatchObject({ agentId, savedTools: [...dispatcherToolNames], previousAgentIds: ["old"] });
+  expect(await x.dispatcher.status(x.paseo)).not.toHaveProperty("newTools");
+});
+
 test("Replace is refused for a guarded dispatcher, another session id or none, and archives nothing (ruling, Noah 2026-11-09)", async () => {
   const x = await oldDispatcher({ version: dispatcherGuardVersion, provider: "claude" });
   await expect(x.dispatcher.replace(x.paseo, { agentId: "old" })).rejects.toMatchObject({ code: "DISPATCHER_GUARDED" });

@@ -59,7 +59,7 @@ Flowly MCP 工具仍只给 Flowly 启动的 session（启动时注入）；本�
 
 2026-10-23 增量：用户可添加多个模型并调整优先级，默认仍 Haiku→Luna。完整兼容、UI 与共享调用合约见 [SUMMARY-MODELS-SPEC](SUMMARY-MODELS-SPEC.md)，取代下文旧的单模型编辑方式；`summaryModel` 保留作兼容输入。
 
-新增 host 设置 `task-summary`（v1），daemon `registerSettings` 读取，客户端在看板左下角设置按钮的弹层中编辑（§7）：
+新增 host 设置 `task-summary`（v1），daemon `registerSettings` 读取，客户端在看板顶部工具栏设置齿轮打开的弹层中编辑（§7；Ruling (Noah, 2026-11-09)：设置按钮从左下角移到工具栏）：
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
@@ -99,7 +99,7 @@ Auto：按 `claude/claude-haiku-5-5` → `codex/gpt-6-luna` 顺序尝试可用�
   - 运行中显示 “Updating…”；最近一次失败显示一行弱化错误，不弹窗。
   - **Refresh** 按钮手动触发；该卡没有对话（`summaries.chats` 为 0，且没有运行中的 summary）时不显示按钮，改为一行弱化文字 “No chats on this card yet.”。计数仅在侧栏打开时读取：workspace 的实时 session 列表变化时立即重读，否则每 30 s 一次；数量未知时保留按钮。**History** 展开为倒序版本列表，每条显示时间与 state，点开看 Recap/Next。
   - 无 summary 时显示一行提示：“Updates after each agent turn.”（自动关闭时提示去设置开启）。
-- 设置：看板主页左下角悬浮设置按钮打开插件自绘的 “Ultra Kanban settings” 弹层（host 的 `addSettingsScreen` 页在当前 Paseo 中不显示，已弃用），Auto summary 开关；Provider（Auto 或可用 provider）→ Model（该 provider 的可选模型）两级选择，选定模型才保存，选 Auto 立即保存。
+- 设置：看板顶部工具栏的设置齿轮（原左下角悬浮按钮，Ruling (Noah, 2026-11-09)）打开插件自绘的 “Ultra Kanban settings” 弹层（host 的 `addSettingsScreen` 页在当前 Paseo 中不显示，已弃用），Auto summary 开关；Provider（Auto 或可用 provider）→ Model（该 provider 的可选模型）两级选择，选定模型才保存，选 Auto 立即保存。
 
 ## 8. 错误
 

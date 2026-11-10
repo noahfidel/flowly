@@ -14,16 +14,13 @@ import { Modal } from "./modal";
 import { SessionTranscript, type TranscriptExtra, type TranscriptExtraRow, type TranscriptHandle, type TranscriptNotice } from "./session-transcript";
 import { ComposerBox, useComposerDraft } from "./session-composer";
 import { restoredDraft } from "./session-input";
-import { dispatcherSessionState } from "./session-state";
-import { sessionTone } from "./status";
-import { RunningDots } from "./running-motion";
 import { newMessageId, rememberSentImages } from "./sent-images";
 import { dispatcherStartMessage } from "./start-again";
-import { PulseDot, useReducedMotion } from "./motion";
+import { useReducedMotion } from "./motion";
 import { useKeyboardInset } from "./keyboard";
 import { useDispatcherItemsQuery, useLiveAgents } from "./queries";
 import { useStableCallback } from "./stable";
-import { chatRows, discussFill, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
+import { chatRows, discussFill, modelLabel, newToolsNotice, replaceOffer, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
 
 /**
  * The dispatcher chat next to the board (DISPATCHER-SPEC §9.3), on the card session view's own parts: the session
@@ -51,9 +48,11 @@ type Props = {
   fill?: { text: string; key: number } | null;
   /** The fill with this key is in the box: the board drops it, so a remounted panel does not add it again. */
   onFilled?(key: number): void;
+  /** A new value jumps to the latest message (a press on the pane's button in a split dock, §9.3). */
+  focusKey?: number;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, fill, onFilled }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, fill, onFilled, focusKey }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -90,8 +89,6 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   const polled = current.data?.agent;
   const agent = agentId ? (streamed && (!polled || streamed.updatedAt >= polled.updatedAt) ? streamed : polled) : undefined;
   const running = agent ? agent.status === "running" || agent.status === "initializing" : state === "running";
-  const session = agent ? dispatcherSessionState(agent) : null;
-  const tone = session ? sessionTone(colors, session) : colors.foregroundMuted;
 
   const start = useStableCallback(async () => {
     setStartError("");
@@ -192,6 +189,9 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     box.focusAfterChange();
     setDraft(step.next);
   }, [fill?.key]);
+  useEffect(() => {
+    if (focusKey) transcript.current?.jumpToLatest();
+  }, [focusKey]);
   const submit = useStableCallback(async () => {
     box.flush();
     const text = box.read();
@@ -231,32 +231,13 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   if (status.error) notices.push({ key: "status", text: message(status.error) });
   if (current.error) notices.push({ key: "session", text: message(current.error) });
   if (agent?.lastError) notices.push({ key: "last-error", text: agent.lastError });
-  // Saved tools are fixed when the session is created; a new dispatcher gets this build's (DISPATCHER-SPEC §3).
-  if (status.data?.newTools) notices.push({ key: "new-tools", tone: "warning", text: t("This dispatcher started before some Flowly tools existed. Archive its session in Paseo, then start a new one to use them.") });
+  // Saved tools are fixed when the session is created; Replace gives it this build's (§3; Ruling, Noah 2026-11-09).
+  const offer = replaceOffer(status.data);
   if (agent?.providerUnavailable)
     notices.push({ key: "provider", tone: "warning", text: t("The dispatcher's provider is unavailable, so it can't take messages. Check that provider in Paseo's settings.") });
 
   return (
     <View ref={keyboard.ref} onLayout={keyboard.onLayout} style={{ flex: 1, minHeight: 0, minWidth: 0, backgroundColor: colors.surface0 }}>
-      {/* The session's state under the dock's tabs; the tabs, Expand and Minimize are the dock's (left-dock.tsx). */}
-      {session && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], paddingHorizontal: space[2], paddingVertical: space[1.5], borderBottomWidth: 1, borderBottomColor: colors.border, flexShrink: 0, minWidth: 0 }}>
-          {session.active && <RunningDots color={tone} seed="dispatcher" />}
-          <View style={{ flex: 1, minWidth: 0, paddingHorizontal: space[1] }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
-              <PulseDot color={tone} size={7} active={session.active} />
-              <View style={{ flexShrink: 1, minWidth: 0 }}>
-                <Label muted size={font.sm} lines={1} selectable={false}>
-                  <Label size={font.sm} medium color={session.active || "waiting" in session ? tone : colors.foregroundMuted} selectable={false}>
-                    {t(session.label)}
-                  </Label>
-                  {agent?.provider ? ` · ${agent.provider}${agent.model ? `/${agent.model}` : ""}` : ""}
-                </Label>
-              </View>
-            </View>
-          </View>
-        </View>
-      )}
       <SessionTranscript
         handle={transcript}
         taskId="dispatcher"
@@ -283,16 +264,18 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
       >
         {!!error && <Notice>{error}</Notice>}
         {/* Its routes are fixed at create: one started without this build's guard keeps them, so it gets no notes until replaced (§3). */}
-        {up && agentId && status.data?.unguarded && (
+        {offer && (
           <View style={{ gap: space[2], alignItems: "flex-start" }}>
             <Notice tone="warning">
-              {t("This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. It gets no board notes until it is replaced.")}
+              {offer === "unguarded"
+                ? t("This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. It gets no board notes until it is replaced.")
+                : t(newToolsNotice)}
             </Notice>
             <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space[2] }}>
               <Button icon="RefreshCw" disabled={starting} onPress={() => setConfirmReplace(true)}>
                 {t("Replace dispatcher")}
               </Button>
-              <Label muted size={font.sm}>{t("Replace the dispatcher to keep chatting")}</Label>
+              {offer === "unguarded" && <Label muted size={font.sm}>{t("Replace the dispatcher to keep chatting")}</Label>}
             </View>
             {!!startError && <Notice>{startError}</Notice>}
           </View>
@@ -308,6 +291,8 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
             compact={compact}
             editable={!!agent && !locked}
             placeholder={t("Message the dispatcher")}
+            // The model, read-only, where Paseo's chats show it; no status line (§9.3; Ruling, Noah 2026-11-09).
+            footer={modelLabel(agent)}
             keyboard={keyboard}
             onSubmit={() => void submit()}
           />

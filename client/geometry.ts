@@ -99,11 +99,12 @@ export const minChatWidth = 300;
 /**
  * The docked chat's width: `preferred` (0, negative or not a number = never dragged, the default) kept between the
  * minimum and what leaves the board 300 points beside the chat's 8-point grip and `reserved` (an open card sidebar
- * with its grip). The minimum wins when the window has no room for both.
+ * with its grip). The minimum wins when the window has no room for both; `min` is the dock's own (two panes Side by
+ * side, dock-logic.ts).
  */
-export function chatWidth(preferred: number, surfaceWidth: number, reserved = 0): number {
+export function chatWidth(preferred: number, surfaceWidth: number, reserved = 0, min = minChatWidth): number {
   const wanted = preferred > 0 ? preferred : defaultChatWidth;
-  return Math.max(minChatWidth, Math.min(surfaceWidth - reserved - 8 - 300, wanted));
+  return Math.max(min, Math.min(surfaceWidth - reserved - 8 - 300, wanted));
 }
 
 export function isCompactLayout(width: number): boolean {

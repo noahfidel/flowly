@@ -52,7 +52,7 @@ import { AttentionButton } from "./attention-button";
 import { DispatcherPanel } from "./dispatcher-panel";
 import { AttentionPanel } from "./attention-panel";
 import { LeftDock } from "./left-dock";
-import { bellPress, showAttention, type Dock, type DockTab } from "./dock-logic";
+import { attentionSectionOpen, bellPress, dispatcherPress, dockButtonPress, dockLayoutShown, paneShown, showAttention, sideDockMinWidth, type AttentionSection, type Dock, type DockLayout, type DockTab } from "./dock-logic";
 import { bellResolved, forgetAnsweredMissing, useAnsweredAsks } from "./answered-asks";
 import {
   attentionItemsWithFacts,
@@ -62,8 +62,7 @@ import {
   type AttentionItem,
 } from "./attention";
 import { relativeTime } from "./ui";
-import { Chevron, Collapse } from "./disclosure";
-import { IdeaRow, useExitList, useHeld } from "./task-ideas";
+import { IdeaRow, useExitList } from "./task-ideas";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
 import { QuickTaskForm } from "./quick-task-form";
 import { ideaQuickSeed, quickProject, quickProjects, type QuickTaskSeed } from "./quick-task";
@@ -89,7 +88,7 @@ import { linearQuickSeed, parseLinearOpen, parseLinearStart } from "./linear-sta
 import { cardProgress, useSummaries } from "./task-progress";
 import { LocaleRoot } from "./i18n";
 import { agentModelFromValues, effectiveAgentModel, startingAgent } from "../shared/agent-defaults";
-import { SettingsFab, SettingsModal, type SettingsSection } from "./summary-settings";
+import { HintOutline, SettingsHint, SettingsModal, type SettingsSection } from "./summary-settings";
 import { SettingsOpenerContext } from "./settings-opener";
 import { findingDescription, workflowInsightsSettings, workflowSettingsValues, type Finding } from "../shared/workflow-insights";
 import { WrapupModal } from "./wrapup";
@@ -788,9 +787,6 @@ function BoardContent(
   }, [liveSignals]);
   const dismissedAttention = useMemo(() => allAttention.filter((i) => i.dismissed), [allAttention]);
   const attentionByTask = useMemo(() => new Map(allAttention.map((i) => [i.task.id, i])), [allAttention]);
-  const [dismissedOpen, setDismissedOpen] = useState(false);
-  // The section outlives its last row's exit.
-  const dismissedCount = useHeld(dismissedAttention.length);
   // The project's default model wins over the global one; with neither, the latest session's settings (MODEL-DEFAULTS-SPEC).
   const modelPrefs = useSettings(modelSettings);
   const globalModel = agentModelFromValues(modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null);
@@ -1206,26 +1202,66 @@ function BoardContent(
     }
   });
   const dockNow = (): Dock => ({ tab: dockTab, open: compact ? chat.open : chatOpen });
+  // Attention's sections, folded or open per host (§9.4), and the scroll/jump requests for a split dock's panes.
+  const attentionOpen = view.values?.attentionOpen;
+  const needsOpen = attentionSectionOpen(attentionOpen, "needs");
+  const updatesOpen = attentionSectionOpen(attentionOpen, "updates");
+  const toggleAttentionSection = useStableCallback((id: AttentionSection) => {
+    const stored = view.values?.attentionOpen ?? {};
+    void view.update({ attentionOpen: { ...stored, [id]: !attentionSectionOpen(stored, id) } });
+  });
+  const [attentionScroll, setAttentionScroll] = useState(0);
+  const [dispatcherFocus, setDispatcherFocus] = useState(0);
+  // Attention shown by the bell or a chip: Needs you is unfolded and scrolled to (§9.4).
+  const revealNeeds = (next: Dock) => {
+    if (!next.open || next.tab !== "attention") return;
+    if (!attentionSectionOpen(view.values?.attentionOpen, "needs")) void view.update({ attentionOpen: { ...(view.values?.attentionOpen ?? {}), needs: true } });
+    setAttentionScroll((n) => n + 1);
+  };
   const bellToDock = useStableCallback(() => {
-    const step = bellPress(dockNow(), dockBack.current);
+    const step = bellPress(dockNow(), dockBack.current, dockShown);
     dockBack.current = step.back;
     setDock(step.next);
+    revealNeeds(step.next);
   });
   const attentionToDock = useStableCallback(() => {
-    const step = showAttention(dockNow(), dockBack.current);
+    const step = showAttention(dockNow(), dockBack.current, dockShown);
     dockBack.current = step.back;
     setDock(step.next);
+    revealNeeds(step.next);
   });
   // Picking a tab, or minimizing, leaves nothing for the bell to return to.
   const selectDockTab = useStableCallback((tab: DockTab) => {
     dockBack.current = null;
     setDock({ tab, open: true });
   });
-  // The toolbar's Dispatcher button: the dock on the Dispatcher tab, or minimized when it already shows.
-  const toggleChat = useStableCallback(() => {
-    const now = dockNow();
+  // A dock header button (§9.3): picks the pane in Single, focuses it in a split; Cmd/Ctrl-click splits or unsplits.
+  const pressDockPane = useStableCallback((pane: DockTab, toggleSplit: boolean) => {
+    const step = dockButtonPress({ layout: dockShown, tab: dockTab }, pane, toggleSplit && !compact);
     dockBack.current = null;
-    setDock(now.open && now.tab === "dispatcher" ? { ...now, open: false } : { tab: "dispatcher", open: true });
+    if (step.layout !== dockShown) void view.update({ dockLayout: step.layout });
+    setDock({ tab: step.tab, open: true });
+    if (step.focus && pane === "attention") setAttentionScroll((n) => n + 1);
+    if (step.focus && pane === "dispatcher") setDispatcherFocus((n) => n + 1);
+  });
+  const chooseDockLayout = useStableCallback((layout: DockLayout) => {
+    if (layout !== dockStored) void view.update({ dockLayout: layout });
+  });
+  const openDockLayoutMenu = useStableCallback((event: GestureResponderEvent) =>
+    openMenu?.(eventPoint(event), t("Dock layout"), [
+      { id: "single", label: t("Single"), icon: "Square", checked: dockStored === "single", onPress: () => chooseDockLayout("single") },
+      { id: "stack", label: t("Stack"), icon: "Rows2", checked: dockStored === "stack", onPress: () => chooseDockLayout("stack") },
+      { id: "side", label: t("Side by side"), icon: "Columns2", checked: dockStored === "side", onPress: () => chooseDockLayout("side") },
+    ]),
+  );
+  const saveDockShare = useStableCallback((layout: "stack" | "side", share: number) =>
+    void view.update(layout === "side" ? { dockSideShare: share } : { dockStackShare: share }),
+  );
+  // The toolbar's Dispatcher button: in Single the dock on the Dispatcher tab, or minimized when it already shows;
+  // in a split the dock shown or minimized.
+  const toggleChat = useStableCallback(() => {
+    dockBack.current = null;
+    setDock(dispatcherPress(dockNow(), dockShown));
   });
   // Discuss on an idea (DISPATCHER-SPEC §9.5): a draft for the chat's message box; the key makes each press distinct.
   const [chatDraft, setChatDraft] = useState<{ text: string; key: number } | null>(null);
@@ -1254,13 +1290,18 @@ function BoardContent(
   // Desktop, docked: the dragged width, kept clear of the board's minimum and an open card sidebar, and re-clamped
   // whenever the window changes; the stored width is untouched by that (§9.3). Expanded ignores it.
   const chatReserved = drawer.active ? width + 8 : 0;
-  const chatDocked = chatWidth(chatPreferred, surfaceWidth || 1000, chatReserved);
+  // The dock's layout (§9.3): phones show one pane; Side by side shows as Stack while the window has no room for it,
+  // and needs room for two panes.
+  const dockStored: DockLayout = view.values?.dockLayout ?? "single";
+  const dockShown = dockLayoutShown(dockStored, { compact, surfaceWidth: surfaceWidth || 1000, reserved: chatReserved });
+  const dockMin = dockShown === "side" ? sideDockMinWidth : minChatWidth;
+  const chatDocked = chatWidth(chatPreferred, surfaceWidth || 1000, chatReserved, dockMin);
   const chatGrip = !compact && !chatExpanded && (
     <ResizeGrip
       width={chatDocked}
       grows="right"
-      minWidth={minChatWidth}
-      maxWidth={chatWidth(Infinity, surfaceWidth || 1000, chatReserved)}
+      minWidth={dockMin}
+      maxWidth={chatWidth(Infinity, surfaceWidth || 1000, chatReserved, dockMin)}
       labels={{ drag: t("Drag to resize the dispatcher chat"), widen: t("Widen the dispatcher chat"), narrow: t("Narrow the dispatcher chat") }}
       onStart={() => setChatResizing(true)}
       onEnd={() => {
@@ -1269,7 +1310,7 @@ function BoardContent(
         if (chatPreferred !== (view.values?.chatWidth ?? 0)) void view.update({ chatWidth: chatPreferred });
       }}
       onChange={(next) => {
-        const clamped = Math.round(chatWidth(next, surfaceWidth || 1000, chatReserved));
+        const clamped = Math.round(chatWidth(next, surfaceWidth || 1000, chatReserved, dockMin));
         if (clamped !== chatDocked) setChatPreferred(clamped);
       }}
       onReset={() => {
@@ -1293,9 +1334,10 @@ function BoardContent(
     ]
       .filter(Boolean)
       .join(" · ")}`;
-  // The Dismiss/Restore button sits beside the row, so pressing it never opens the card.
+  // The Dismiss button sits beside the row, so pressing it never opens the card. Dismissed cards are not listed: they
+  // come back on a new signal (ATTENTION-DISMISS-SPEC §2.3, §3.1; Ruling, Noah 2026-11-09).
   const attentionRow = (item: AttentionItem) => (
-    <View key={item.task.id} style={{ flexDirection: "row", alignItems: "center", opacity: item.dismissed ? 0.7 : 1 }}>
+    <View key={item.task.id} style={{ flexDirection: "row", alignItems: "center" }}>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Row
           title={item.task.title}
@@ -1305,13 +1347,11 @@ function BoardContent(
             <Dot
               size={8}
               color={
-                item.dismissed
-                  ? colors.foregroundMuted
-                  : item.permissions || item.questions || item.blockers
-                    ? colors.statusWarning
-                    : item.errors
-                      ? colors.statusDanger
-                      : colors.statusSuccess
+                item.permissions || item.questions || item.blockers
+                  ? colors.statusWarning
+                  : item.errors
+                    ? colors.statusDanger
+                    : colors.statusSuccess
               }
             />
           }
@@ -1323,40 +1363,17 @@ function BoardContent(
           onPress={() => openAttention(item)}
         />
       </View>
-      {item.dismissed ? (
-        <IconButton
-          icon="Bell"
-          label={t("Restore {title} to Attention", { title: item.task.title })}
-          disabled={pending}
-          onPress={() => restoreToAttention(item.task.id)}
-        />
-      ) : (
-        <IconButton
-          icon="BellOff"
-          label={t("Dismiss {title} from Attention", { title: item.task.title })}
-          disabled={pending}
-          onPress={() => dismissFromAttention(item)}
-        />
-      )}
+      <IconButton
+        icon="BellOff"
+        label={t("Dismiss {title} from Attention", { title: item.task.title })}
+        disabled={pending}
+        onPress={() => dismissFromAttention(item)}
+      />
     </View>
   );
   const readNotice = readUnavailable && agents.data !== undefined && (
     <Notice tone="warning">
       {t("Read state is unavailable, so finished-but-unread sessions are not listed. Approvals and errors still are.")}</Notice>
-  );
-  // Dismissed · N with Restore (ATTENTION-DISMISS-SPEC §3.1): in the dock's Attention tab, and in the sheet.
-  const dismissedSection = !!dismissedCount && (
-    <View style={{ paddingTop: space[2], borderTopWidth: 1, borderTopColor: colors.border, marginTop: space[2] }}>
-      <Row
-        title={t("Dismissed · {n}", { n: dismissedCount })}
-        label={dismissedOpen ? t("Hide dismissed cards") : t("Show dismissed cards")}
-        leading={<Chevron open={dismissedOpen} title="dismissed-attention" size={16} color={colors.foregroundMuted} />}
-        onPress={() => setDismissedOpen((open) => !open)}
-      />
-      <Collapse open={dismissedOpen} id="dismissed-attention">
-        <AttentionRows items={dismissedAttention} render={attentionRow} />
-      </Collapse>
-    </View>
   );
   // The Needs attention sheet, where the board has no dock (no project and not All projects).
   const attentionList = (
@@ -1380,7 +1397,6 @@ function BoardContent(
           </View>
         }
       />}
-      {dismissedSection}
     </>
   );
   const chatPanel = (compact ? chat.mounted : chatMounted.current) && (
@@ -1401,8 +1417,15 @@ function BoardContent(
       }
     >
       <LeftDock
+        layout={dockShown}
+        storedLayout={dockStored}
         tab={dockTab}
-        onTab={selectDockTab}
+        onPane={pressDockPane}
+        onLayoutMenu={compact ? undefined : openDockLayoutMenu}
+        stackShare={view.values?.dockStackShare ?? 0}
+        sideShare={view.values?.dockSideShare ?? 0}
+        onShare={saveDockShare}
+        onResizing={setChatResizing}
         attentionCount={attentionCount}
         compact={compact}
         expanded={chatExpanded}
@@ -1410,16 +1433,19 @@ function BoardContent(
         onClose={closeChat}
         attention={
           <AttentionPanel
-            visible={chatOpen && dockTab === "attention"}
+            visible={chatOpen && paneShown(dockShown, dockTab, "attention")}
             laneOf={chatLaneOf}
             onOpenCard={openTaskById}
             onAskedDispatcher={showDispatcherTab}
             notice={readNotice}
-            dismissed={dismissedSection}
             anyDismissed={dismissedAttention.length > 0}
+            needsOpen={needsOpen}
+            updatesOpen={updatesOpen}
+            onToggleSection={toggleAttentionSection}
+            scrollKey={attentionScroll}
           />
         }
-        dispatcher={<DispatcherPanel visible={chatOpen && dockTab === "dispatcher"} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} onOpenCard={openTaskById} />}
+        dispatcher={<DispatcherPanel visible={chatOpen && paneShown(dockShown, dockTab, "dispatcher")} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} onOpenCard={openTaskById} focusKey={dispatcherFocus} />}
       />
       {chatGrip}
     </Animated.View>
@@ -1594,6 +1620,14 @@ function BoardContent(
     // Point at Settings once the tour's modal has gone (two modals never switch in one frame).
     if (pointAtSettings) afterTour(() => setTourClosed(true));
   };
+  // Where the toolbar's gear is, for its callout: the toolbar spans the Flowly area from its left edge.
+  const [gearBox, setGearBox] = useState<{ x: number; width: number } | null>(null);
+  const [toolbarBottom, setToolbarBottom] = useState(0);
+  const openSettingsFromToolbar = useStableCallback(() => {
+    seeSettingsHint();
+    setSettingsSection(undefined);
+    setMenu("settings");
+  });
   const settingsHint =
     !inPanel &&
     settingsHintDue({
@@ -1999,6 +2033,7 @@ function BoardContent(
         {(
           <View
             {...covered}
+            onLayout={(e) => setToolbarBottom(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}
             style={{
               paddingHorizontal: space[3],
               height: touch ? 56 : 48,
@@ -2056,15 +2091,20 @@ function BoardContent(
               />
             )}
             {(!!project || allView) && (
-              <IconButton icon="Bot" label={t("Dispatcher")} active={chatShown && dockTab === "dispatcher"} onPress={toggleChat} />
+              <IconButton icon="Bot" label={t("Dispatcher")} active={chatShown && paneShown(dockShown, dockTab, "dispatcher")} onPress={toggleChat} />
             )}
             <AttentionButton
               count={attentionCount}
               compact={compact}
-              open={dockAvailable ? chatShown && dockTab === "attention" : menu === "attention"}
+              open={dockAvailable ? chatShown && paneShown(dockShown, dockTab, "attention") : menu === "attention"}
               shortcut={shortcutsOn ? "A" : ""}
               onPress={toggleAttentionMenu}
             />
+            {/* Settings (the gear), beside the bell; its first-run callout hangs under it (ONBOARDING-SETUP-SPEC §5). */}
+            <View onLayout={(e) => setGearBox(e.nativeEvent.layout)}>
+              <IconButton icon="Settings" label={t("Flowly settings")} active={menu === "settings"} onPress={openSettingsFromToolbar} />
+              {settingsHint && <HintOutline />}
+            </View>
             <SortButton
               mode={boardSort}
               compact={compact}
@@ -2898,16 +2938,12 @@ function BoardContent(
         )}
         {compact && chatPanel}
         {compact && drawerView}
-        {!(compact && (task || chat.open)) && (
-          <SettingsFab
-            open={menu === "settings"}
-            hint={settingsHint ? tipText["settings-entry"]() : undefined}
-            onHintDismiss={seeSettingsHint}
-            onPress={() => {
-              seeSettingsHint();
-              setSettingsSection(undefined);
-              setMenu("settings");
-            }}
+        {settingsHint && gearBox && toolbarBottom > 0 && !(compact && (task || chat.open)) && (
+          <SettingsHint
+            text={tipText["settings-entry"]()}
+            top={toolbarBottom + space[1]}
+            right={Math.max(space[2], (surfaceWidth || 0) - gearBox.x - gearBox.width)}
+            onDismiss={seeSettingsHint}
           />
         )}
         <SettingsModal

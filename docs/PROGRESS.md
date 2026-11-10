@@ -1375,3 +1375,9 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - Tour: the Attention demo shows the dock's tabs instead of a dropdown. No new tip (the bell is the same entry point) and no What's new entry yet: add one if this ships in a minor release (the bell no longer drops down). No telemetry field: no new switch or counted action.
 - Checks on 5c23cd1: `npm run typecheck` exit 0; `npm test` exit 0, 178 files, 1772 passed, 2 skipped (an earlier run's `server/workspace-switch.test.ts` failure was the known load flake; 13/13 alone).
 - UNRUN: live UI on desktop and phone (tabs, bell toggle, answering an ask from the tab, Ask dispatcher switching tabs, Dismissed Restore).
+
+## Dock layouts, Replace for new tools, settings gear, Attention folding — 2026-11-09
+
+- Rulings (Noah, 2026-11-09), DISPATCHER-SPEC §3, §9.3, §9.4; ATTENTION-DISMISS-SPEC §3.1; ONBOARDING-SPEC; ONBOARDING-SETUP-SPEC §5: the dock's Single / Stack / Side by side layouts with draggable dividers (Cmd/Ctrl-click splits, the bell in a split only shows Attention); the new-tools warning offers Replace dispatcher (`dispatcher.replace` now also takes a guarded dispatcher that misses tools); the settings gear moved into the toolbar beside the bell with its callout under it; Needs you and Updates fold and are remembered; the Dismissed group is gone (Dismiss is a snooze); the chat's status line is gone and the model shows in the message box's footer.
+- Tour and tips: the tour's Settings hint and the Auto summary notice say where the gear now is; the `settings-entry` callout anchors on the gear. What's new 1.8.0 gets one line for the moved gear. No telemetry field: the layout is a view preference, not a counted switch.
+- UNRUN: live UI on desktop and phone (layout menu, both dividers, Side by side falling back to Stack on a narrow window, Cmd-click, bell in each layout, folding, gear callout placement, the model label, Replace on a tool-missing dispatcher).

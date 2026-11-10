@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
@@ -12,12 +12,13 @@ import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery } from "./
 import { useStableCallback } from "./stable";
 import { dispatcherStartMessage } from "./start-again";
 import { dispatcherStatusKey } from "./dispatcher-panel";
-import { attentionSections, type ChangeItem } from "./dock-logic";
+import { attentionSections, type AttentionSection, type ChangeItem } from "./dock-logic";
 
 /**
  * The dock's Attention tab (DISPATCHER-SPEC §9.4, ATTENTION-DISMISS-SPEC §3; Ruling, Noah 2026-11-09): every open
- * ask, answered in place through `asks.answer` / `asks.dismiss`; the dismissed cards with Restore; and the cards
- * that changed since you looked, which never count toward the bell.
+ * ask, answered in place through `asks.answer` / `asks.dismiss`, and the cards that changed since you looked, which
+ * never count toward the bell. Dismissed cards are not listed; they come back on a new signal (ATTENTION-DISMISS-SPEC
+ * §3.1; Ruling, Noah 2026-11-09). Needs you and Updates fold, remembered per host.
  */
 
 type Props = {
@@ -29,14 +30,22 @@ type Props = {
   onAskedDispatcher(): void;
   /** Shown above the asks (read state unavailable). */
   notice?: ReactNode;
-  /** The Dismissed · N group with Restore, rendered by the board (ATTENTION-DISMISS-SPEC §3.1). */
-  dismissed?: ReactNode;
   /** Cards are dismissed: the empty state says nothing *new* needs you. */
   anyDismissed: boolean;
+  /** Needs you and Updates open (remembered per host, §9.4); their headers fold them. */
+  needsOpen: boolean;
+  updatesOpen: boolean;
+  onToggleSection(id: AttentionSection): void;
+  /** A new value scrolls to the top, where Needs you is (the bell or a press on the pane's button in a split). */
+  scrollKey?: number;
 };
 
-export const AttentionPanel = memo(function AttentionPanel({ visible, laneOf, onOpenCard, onAskedDispatcher, notice, dismissed, anyDismissed }: Props) {
+export const AttentionPanel = memo(function AttentionPanel({ visible, laneOf, onOpenCard, onAskedDispatcher, notice, anyDismissed, needsOpen, updatesOpen, onToggleSection, scrollKey }: Props) {
   const { colors } = useTheme();
+  const scroll = useRef<ScrollView>(null);
+  useEffect(() => {
+    if (scrollKey) scroll.current?.scrollTo({ y: 0, animated: true });
+  }, [scrollKey]);
   const client = useQueryClient();
   const items = useDispatcherItemsQuery(visible);
   const answered = useAnsweredAsks();
@@ -51,10 +60,12 @@ export const AttentionPanel = memo(function AttentionPanel({ visible, laneOf, on
     void client.invalidateQueries({ queryKey: asksResolvedKey });
   });
   return (
-    <ScrollView {...verticalScroll} style={{ flex: 1, minHeight: 0, backgroundColor: colors.surface0 }} contentContainerStyle={{ ...verticalContent, padding: space[3], gap: space[3] }}>
+    <ScrollView ref={scroll} {...verticalScroll} style={{ flex: 1, minHeight: 0, backgroundColor: colors.surface0 }} contentContainerStyle={{ ...verticalContent, padding: space[3], gap: space[3] }}>
       {notice}
       <View style={{ gap: space[2] }}>
-        <SectionHeader title={t("Needs you")} count={sections.needs.length || undefined} />
+        <SectionHeader title={t("Needs you")} count={sections.needs.length || undefined} open={needsOpen} onToggle={() => onToggleSection("needs")} />
+        {/* Folded, the rows stay mounted (undisplayed) so a half-typed answer survives. */}
+        <View style={{ gap: space[2], display: needsOpen ? "flex" : "none" }}>
         {items.error && !items.data ? (
           <Notice>{message(items.error)}</Notice>
         ) : !items.data ? (
@@ -69,15 +80,15 @@ export const AttentionPanel = memo(function AttentionPanel({ visible, laneOf, on
             <Label muted>{anyDismissed ? t("Nothing new needs your attention.") : t("Nothing needs your attention.")}</Label>
           </View>
         )}
+        </View>
       </View>
-      {dismissed}
-      {sections.updates && <Updates visible={visible} item={sections.updates} laneOf={laneOf} onOpenCard={onOpenCard} onChanged={refresh} onAsked={onAskedDispatcher} />}
+      {sections.updates && <Updates visible={visible} open={updatesOpen} onToggle={() => onToggleSection("updates")} item={sections.updates} laneOf={laneOf} onOpenCard={onOpenCard} onChanged={refresh} onAsked={onAskedDispatcher} />}
     </ScrollView>
   );
 });
 
 /** "N cards changed since you looked" (§9.2): the cards, Mark seen, and Ask dispatcher. Never an ask. */
-function Updates({ visible, item, laneOf, onOpenCard, onChanged, onAsked }: { visible: boolean; item: ChangeItem; laneOf: Props["laneOf"]; onOpenCard(taskId: string): void; onChanged(): void; onAsked(): void }) {
+function Updates({ visible, open, onToggle, item, laneOf, onOpenCard, onChanged, onAsked }: { visible: boolean; open: boolean; onToggle(): void; item: ChangeItem; laneOf: Props["laneOf"]; onOpenCard(taskId: string): void; onChanged(): void; onAsked(): void }) {
   const { colors } = useTheme();
   const markSeen = useRpc(rpc.dispatcherMarkSeen);
   const whatNext = useRpc(rpc.dispatcherWhatNext);
@@ -100,8 +111,8 @@ function Updates({ visible, item, laneOf, onOpenCard, onChanged, onAsked }: { vi
   };
   return (
     <View style={{ gap: space[2], paddingTop: space[3], borderTopWidth: 1, borderTopColor: colors.border }}>
-      <SectionHeader title={t("Updates")} />
-      <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.surface1, padding: space[2], gap: space[1.5] }}>
+      <SectionHeader title={t("Updates")} count={item.cards.length} open={open} onToggle={onToggle} />
+      <View style={{ display: open ? "flex" : "none", borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.surface1, padding: space[2], gap: space[1.5] }}>
         <Label medium size={font.sm} selectable={false}>
           {tn(item.cards.length, "{n} card changed since you looked", "{n} cards changed since you looked")}
         </Label>

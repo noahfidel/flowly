@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { answersWithText, chatRows, discussAvailable, discussDraft, discussFill, discussIdeaText, displayRows, mergeTimeline } from "./dispatcher-panel-logic";
+import { answersWithText, chatRows, discussAvailable, discussDraft, discussFill, discussIdeaText, displayRows, mergeTimeline, modelLabel, newToolsNotice, replaceOffer } from "./dispatcher-panel-logic";
 import type { ChatItem } from "../shared/dispatcher";
 import { lastOutputRow } from "./session-state";
 import type { TailEntry } from "../shared/session-tail";
@@ -116,4 +116,26 @@ test("a Discuss fill is used once and leaves an unchanged box alone (DISPATCHER-
   expect(discussFill(null, 0, "")).toBeNull();
   // The box already holds it: consumed, but no change (and no focus request).
   expect(discussFill({ text, key: 2 }, 1, `a\n\n${text}`)).toEqual({ key: 2, next: null });
+});
+
+test("Replace dispatcher is offered for an unguarded dispatcher and for one missing tools, and its notice says so (Ruling, Noah 2026-11-09)", () => {
+  expect(replaceOffer({ state: "idle", agentId: "a", newTools: true })).toBe("new-tools");
+  expect(replaceOffer({ state: "running", agentId: "a", newTools: true })).toBe("new-tools");
+  expect(replaceOffer({ state: "idle", agentId: "a", unguarded: true })).toBe("unguarded");
+  // Both: one Replace, under the unguarded warning.
+  expect(replaceOffer({ state: "idle", agentId: "a", unguarded: true, newTools: true })).toBe("unguarded");
+  expect(replaceOffer({ state: "idle", agentId: "a" })).toBeNull();
+  // Not live, or no session to replace: nothing to offer.
+  expect(replaceOffer({ state: "ended", agentId: "a", newTools: true })).toBeNull();
+  expect(replaceOffer({ state: "idle", agentId: null, newTools: true })).toBeNull();
+  expect(replaceOffer(undefined)).toBeNull();
+  expect(newToolsNotice).toContain("Replace dispatcher");
+  expect(newToolsNotice).not.toContain("Archive its session in Paseo");
+});
+
+test("the composer's footer names the dispatcher's model, else its provider; no state word (Ruling, Noah 2026-11-09)", () => {
+  expect(modelLabel({ provider: "claude", model: "claude-sonnet-5-5" })).toBe("claude-sonnet-5-5");
+  expect(modelLabel({ provider: "claude", model: null })).toBe("claude");
+  expect(modelLabel({ provider: "", model: "" })).toBe("");
+  expect(modelLabel(undefined)).toBe("");
 });

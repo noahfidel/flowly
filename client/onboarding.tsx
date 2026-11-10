@@ -459,7 +459,7 @@ function StartPage({ canCreate }: { canCreate: boolean }) {
       </Panel>
       <MoreFeatures />
       <UsageDataGroup bare />
-      <Hint icon="Settings" text={t("Change any of this later in Settings, the gear at the bottom left. You can reopen this tour there.")} />
+      <Hint icon="Settings" text={t("Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.")} />
     </View>
   );
 }
