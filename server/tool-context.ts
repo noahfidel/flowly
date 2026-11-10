@@ -30,10 +30,14 @@ export async function writePrivate(path: string, data: string, mode = 0o600) {
   await writeFile(tmp, data, { mode });
   await rename(tmp, path);
 }
-/** Who a dispatcher credential was sealed for (DISPATCHER-SPEC §4). */
+/**
+ * Who a dispatcher credential was sealed for (DISPATCHER-SPEC §0, §4). `groupId` is optional: the v1 dispatcher's
+ * token, saved in its MCP header at creation, has none, and its group is found from the record.
+ */
 export const dispatcherIdentitySchema = z.strictObject({
   agentId: z.string().min(1),
   workspaceId: z.string().min(1),
+  groupId: z.string().min(1).optional(),
 });
 export type DispatcherIdentity = z.infer<typeof dispatcherIdentitySchema>;
 const signedRequestSchema = identitySchema.extend({

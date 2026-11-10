@@ -193,13 +193,14 @@ function transaction<T>(db: DatabaseSync, run: () => T): T {
   }
 }
 /** The highest revision a client or agent can hold for this board. */
-const maxRevision = (board: Board) => Math.max(board.revision, ...board.projects.map((p) => p.revision), ...board.tasks.map((t) => t.revision), ...board.workpads.map((w) => w.revision));
+const maxRevision = (board: Board) => Math.max(board.revision, ...board.projects.map((p) => p.revision), ...board.tasks.map((t) => t.revision), ...board.workpads.map((w) => w.revision), ...board.groups.map((g) => g.revision));
 /** Moves every revision past `offset` so edits and agent requests made against other data are refused (§7). */
 function bumpRevisions(board: Board, offset: number) {
   board.revision += offset;
   for (const p of board.projects) p.revision += offset;
   for (const t of board.tasks) t.revision += offset;
   for (const w of board.workpads) w.revision += offset;
+  for (const g of board.groups) g.revision += offset;
 }
 
 /** The open database and its cached board; only this process writes it (owner lock). */

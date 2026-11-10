@@ -59,6 +59,7 @@ import { startedByUser, turnPick, userTexts } from "./shared/agent-habits";
 import { turnTimeline } from "./server/turn-timeline";
 import { cardOfChat, resolveCardChats } from "./server/card-chats";
 import { codedError, ToolError } from "./server/tool-error";
+import { legacyBoardViewPath, readLegacyBoardGroups } from "./server/legacy-board-groups";
 import { exportMarkdown } from "./shared/board-export";
 import type { MemoryEntry } from "./shared/memory";
 import { MemoryService, setMemoryEverywhere, memoryOn } from "./server/memory";
@@ -73,10 +74,12 @@ import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
 import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
 import { EventBus, commitHandler } from "./server/event-bus";
-import { wireDispatcher } from "./server/dispatcher";
+import { legacyNoteGroup, recordAgentIds, wireDispatcher, type DispatcherRecord } from "./server/dispatcher";
 import { dispatcherServerName } from "./shared/dispatcher";
-import { ChangeLineCache, DispatcherItems, dispatcherSessionIds, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
+import type { Board } from "./shared/model";
+import { ChangeLineCache, DispatcherItems, groupItems, groupProjectIds, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
 import { DispatcherAsks } from "./server/dispatcher-asks";
+import { groupWriter } from "./server/group-writes";
 
 export default function contribute(host: PluginServerContext) {
   const server = reportRpcErrors(host);
@@ -115,6 +118,9 @@ export default function contribute(host: PluginServerContext) {
   };
   if (!process.env.FLOWLY_DATA_DIR && !process.env.ULTRA_KANBAN_DATA_DIR) migrateLegacyPluginData();
   const store = new BoardStore(dataDirectory(), { backend: "sqlite" });
+  // Board groups move from the host's board-view setting into the board (BOARD-GROUPS-SPEC §7): queued first, before
+  // every other read and write, so no repair fills in groups before the stored ones are migrated.
+  const groupsMigrated = store.migrateGroups(() => readLegacyBoardGroups(legacyBoardViewPath(paseoHome())));
   // Project guardrails (GUARDRAILS-SPEC): the one-time move from memory.json and the review rules is queued ahead of every read.
   let memoryRunning: () => readonly string[] = () => [];
   const guardrails = new GuardrailsService(store, undefined, undefined, () => memoryRunning());
@@ -380,6 +386,11 @@ export default function contribute(host: PluginServerContext) {
     return modelSettingsValues(state?.status === "ready" ? state.values : {}).dispatcherModel;
   };
   void tools.dispatcher.record().catch((e) => logFailure("Flowly dispatcher record not read:", e));
+  // The v1 dispatcher session moves to its group once the board has groups (BOARD-GROUPS-SPEC §7 step 4).
+  void Promise.resolve(groupsMigrated)
+    .catch(() => undefined)
+    .then(() => tools.dispatcher.migrate())
+    .catch((e) => logFailure("Flowly dispatcher record not migrated:", e));
   // Stops reach the dispatcher as batched notes, held while it runs, dropped while it is down (§7).
   const unwireDispatcher = wireDispatcher(bus, tools.dispatcher, () => {
     try {
@@ -391,9 +402,11 @@ export default function contribute(host: PluginServerContext) {
   server.addHook("agent.turn.after", async (event, { paseo }) => {
     void tools.dispatcher.turnEnded(event.agent.id, paseo).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
   });
-  server.handle(rpc.dispatcherStatus, (_, { paseo }) => {
+  server.handle(rpc.dispatcherStatus, ({ groupId }, { paseo }) => {
     tools.attach(paseo);
-    return tools.dispatcher.status(paseo);
+    return tools.dispatcher.status(paseo, groupId).catch((e: unknown) => {
+      throw codedError(e);
+    });
   });
   server.handle(rpc.dispatcherStart, (input, { paseo }) => {
     tools.attach(paseo);
@@ -403,21 +416,28 @@ export default function contribute(host: PluginServerContext) {
   });
   // The chat panel (DISPATCHER-SPEC §9): note rows are what the dispatcher received; the change line is scanned
   // again only when the board, the mark or the dispatcher session changed.
-  tools.dispatcher.onSent = (notes, at) => {
-    void chatItems.put(noteItems(notes, at)).catch((e) => logFailure("Flowly dispatcher chat notes not recorded:", e, `${notes.length} notes`));
+  // Each note row is stamped with the group and session that received it (DISPATCHER-SPEC §0, §9).
+  tools.dispatcher.onSent = (notes, at, to) => {
+    void chatItems.put(noteItems(notes, at, to)).catch((e) => logFailure("Flowly dispatcher chat notes not recorded:", e, `${notes.length} notes`));
   };
-  tails.dispatcher = async () => {
-    const { agentId, workspaceId } = await tools.dispatcher.record();
-    return agentId && workspaceId ? { agentId, workspaceId } : null;
-  };
+  // The group's session in the workspace it lives in, which may be older than the one new sessions start in (§2).
+  tails.dispatcher = (groupId) => tools.dispatcher.groupSession(groupId);
   const changes = new ChangeLineCache();
-  const currentChange = async () => {
-    const [board, record] = await Promise.all([store.read(), tools.dispatcher.record()]);
-    return changes.get(board, seenMark(record), dispatcherSessionIds(record));
+  // The group's mark and its live projects' cards; the actions of every dispatcher session are left out (§0, §9.2).
+  const currentChange = async (groupId: string, read?: { board: Board; record: DispatcherRecord }) => {
+    const { board, record } = read ?? { board: await store.read(), record: await tools.dispatcher.resolvedRecord() };
+    const entry = record.groups[groupId];
+    // A group with no entry has no mark, so no change line.
+    return changes.get(groupId, board, seenMark(entry ?? {}), recordAgentIds(record), groupProjectIds(board, groupId));
   };
-  // Asks (DISPATCHER-SPEC §9.4): one source with the bell; answered on the daemon after a fresh check.
-  server.handle(rpc.dispatcherItemsChanged, async ({ etag }, { paseo }) => {
-    const [items, change] = await Promise.all([chatItems.list().then((stored) => asks.chatItems(stored, paseo)), currentChange()]);
+  // Asks (DISPATCHER-SPEC §9.4): one source with the bell; answered on the daemon after a fresh check. Notes are the
+  // group's own (§0); asks and answers have no group.
+  server.handle(rpc.dispatcherItemsChanged, async ({ etag, groupId }, { paseo }) => {
+    const [board, record] = await Promise.all([store.read(), tools.dispatcher.resolvedRecord()]);
+    const [items, change] = await Promise.all([
+      chatItems.list().then((stored) => asks.chatItems(groupItems(stored, groupId, legacyNoteGroup(record, board)), paseo)),
+      currentChange(groupId, { board, record }),
+    ]);
     return ifChanged(change ? [...items, change] : items, etag);
   });
   server.handle(rpc.dispatcherReplace, (input, { paseo }) => {
@@ -440,11 +460,16 @@ export default function contribute(host: PluginServerContext) {
       });
   });
   server.handle(rpc.dispatcherTail, (input, { paseo }) => tails.dispatcherTail(input, paseo));
-  server.handle(rpc.dispatcherMarkSeen, async ({ revision, ids }) => ({ seenRevision: await tools.dispatcher.markSeen(revision, ids) }));
-  server.handle(rpc.dispatcherWhatNext, async (_, { paseo }) => {
+  server.handle(rpc.dispatcherMarkSeen, async ({ groupId, revision, ids }) => ({
+    seenRevision: await tools.dispatcher.markSeen(groupId, revision, ids).catch((e: unknown) => {
+      throw codedError(e);
+    }),
+  }));
+  server.handle(rpc.dispatcherWhatNext, async ({ groupId }, { paseo }) => {
     tools.attach(paseo);
-    const change = await currentChange();
-    await tools.dispatcher.whatNext(paseo, whatNextMessage(change), change?.kind === "change" ? { revision: change.revision, ids: change.ids } : undefined).catch((e: unknown) => {
+    const change = await currentChange(groupId);
+    const seen = change?.kind === "change" ? { revision: change.revision, ids: change.ids } : undefined;
+    await tools.dispatcher.whatNext(paseo, groupId, whatNextMessage(change), seen).catch((e: unknown) => {
       throw codedError(e);
     });
     return { sent: true as const };
@@ -534,7 +559,12 @@ export default function contribute(host: PluginServerContext) {
   });
   server.handle(rpc.readStorageStatus, () => store.storageStatus());
   server.handle(rpc.backupStorage, async () => ({ name: await store.backupStorage() }));
-  server.handle(rpc.restoreStorage, (input) => store.restoreStorage(input.name));
+  server.handle(rpc.restoreStorage, async (input) => {
+    const restored = await store.restoreStorage(input.name);
+    // A restored board may have groups the unassigned v1 dispatcher session can move to now (BOARD-GROUPS-SPEC §7).
+    void tools.dispatcher.migrate().catch((e) => logFailure("Flowly dispatcher record not migrated:", e));
+    return restored;
+  });
   server.handle(rpc.exportStorage, () => store.exportStorage());
   server.handle(rpc.useSqliteStorage, async () => {
     await store.useSqliteStorage();
@@ -600,9 +630,42 @@ export default function contribute(host: PluginServerContext) {
   const detectCommands = (projectId: string) =>
     void guardrails.detect(projectId).catch((e) => logFailure("Flowly guardrail commands not detected:", e, projectId));
   const createProject = projectCreator(service, detectCommands);
-  server.handle(rpc.createProject, (input, { paseo }) => createProject(input, paseo));
+  server.handle(rpc.createProject, (input, { paseo }) =>
+    createProject(input, paseo).catch((e: unknown) => {
+      throw codedError(e);
+    }),
+  );
+  // Board groups (BOARD-GROUPS-SPEC §2); refusals keep their code across the RPC.
+  const coded = <T>(run: () => Promise<T>) =>
+    run().catch((e: unknown) => {
+      throw codedError(e);
+    });
+  server.handle(rpc.createGroup, (input) => coded(() => store.createGroup(input)));
+  server.handle(rpc.updateGroup, (input) => coded(() => store.updateGroup(input)));
+  server.handle(rpc.moveGroup, (input) => coded(() => store.moveGroup(input)));
+  // The delete archives the group's dispatcher session first, on the dispatcher's start queue (DISPATCHER-SPEC §0).
+  server.handle(rpc.deleteGroup, (input, { paseo }) =>
+    coded(async () => {
+      tools.attach(paseo);
+      const deleted = await tools.dispatcher.deleteGroup(paseo, input, store);
+      changes.forget(deleted.id);
+      return deleted;
+    }),
+  );
+  server.handle(rpc.setProjectGroup, (input) =>
+    coded(async () => {
+      const project = await store.setProjectGroup(input);
+      // The project's pending dispatcher notes follow it to its new group (DISPATCHER-SPEC §0, §7).
+      await tools.dispatcher
+        .projectMoved(project.id, project.groupId ?? input.groupId)
+        .catch((e) => logFailure("Flowly dispatcher notes not moved with their project:", e, project.id));
+      return project;
+    }),
+  );
   // The dispatcher's flowly_create_project takes exactly the RPC's path (DISPATCHER-SPEC §5.2).
   tools.dispatcherTools.createProjectWith = createProject;
+  // flowly_manage_groups shares the groups.* RPCs' writes (DISPATCHER-SPEC §5.2): the delete refuses a live session.
+  tools.dispatcherTools.groupsWith = groupWriter(store, tools.dispatcher, (id) => changes.forget(id));
   server.handle(rpc.createTask, (input, { paseo }) =>
     service.createTask(input, paseo),
   );

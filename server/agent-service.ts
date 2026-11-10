@@ -1,3 +1,4 @@
+import { groupOfProject } from "../shared/groups";
 import { isSummarizer } from "../shared/summary";
 import { outputLanguage } from "../shared/ai-language";
 import type { LocaleCode } from "../shared/i18n";
@@ -74,7 +75,7 @@ import { ToolError } from "./tool-error";
 import type { WorkspaceSwitchService } from "./workspace-switch";
 import { disputeLimits, ideaLimits, isDeliveryStatus, isWorkStatus, legacyStatus, type Board, type Idea, type Receipt, type Status, type Task } from "../shared/model";
 import { isLegacyScope } from "../shared/scope";
-import { defaultDeliveryMode, effectiveDeliveryMode, type DeliveryMode } from "../shared/delivery-mode";
+import { defaultDeliveryMode, resolveDeliveryMode, type DeliveryMode } from "../shared/delivery-mode";
 import { MemoryError, type MemoryService } from "./memory";
 import type { GuardrailsService } from "./guardrails";
 import type { SearchService } from "./search";
@@ -312,7 +313,7 @@ export class AgentService {
         "WORKSPACE_INCOMPATIBLE",
         "Workspace is outside the board project's repositories.",
       );
-    return { paseo, task, project, workspace, context };
+    return { paseo, task, project, workspace, context, board };
   }
   /**
    * `markArtifacts`: this call is the session reading its card (flowly_get_task),
@@ -363,7 +364,7 @@ export class AgentService {
       identity,
       turnChecklist: [...turnChecklist],
       task: (({ review: _review, ...task }) => task)(r.task),
-      deliveryMode: effectiveDeliveryMode(r.task.deliveryMode, await this.deliveryDefault()),
+      deliveryMode: resolveDeliveryMode({ card: r.task.deliveryMode, project: r.project.deliveryMode, group: groupOfProject(r.board, r.project)?.defaults?.deliveryMode, host: await this.deliveryDefault() }).mode,
       // The card's latest automatic review (AUTO-REVIEW-SPEC §5); state "rework" means its findings come first.
       ...(r.task.review ? { review: reviewContext(r.task.review) } : {}),
       project: r.project,

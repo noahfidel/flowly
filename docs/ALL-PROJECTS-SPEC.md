@@ -1,5 +1,7 @@
 # All projects board
 
+> **Superseded (draft, 2026-11-10):** the All projects board is retired (BOARD-GROUPS-SPEC v2 §0). Kept as the contract for a group's board columns, cards, order and filters (BOARD-GROUPS-SPEC §4).
+
 Status: requested by Noah on 2026-11-05. Extends PROJECT-TABS-SPEC (tabs, which project opens) and
 QUICK-TASK-SPEC §3 (which project a new task starts in). Board groups (BOARD-GROUPS-SPEC) reuse this board
 scoped to a group's projects; All projects itself always shows every live project.

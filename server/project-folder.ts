@@ -44,10 +44,14 @@ export type ProjectSnapshot = {
   summaries: SummaryEntry[];
 };
 
-/** The project's records, exactly as stored on the board. */
+/**
+ * The project's records as stored on the board, without its board group: a group is the board's, not the folder's
+ * (BOARD-GROUPS-SPEC §7 step 6), so moving a project between groups never rewrites its folder copy.
+ */
 export function projectRecords(board: Board, projectId: string, summaries: readonly SummaryEntry[] = []) {
-  const project = board.projects.find((p) => p.id === projectId);
-  if (!project) return null;
+  const stored = board.projects.find((p) => p.id === projectId);
+  if (!stored) return null;
+  const { groupId: _groupId, ...project } = stored;
   const ids = new Set(board.tasks.filter((t) => t.projectId === projectId).map((t) => t.id));
   return {
     project,

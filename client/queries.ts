@@ -369,13 +369,14 @@ export function useGuardrailsQuery(projectId: string, enabled: boolean) {
 }
 /** The dispatcher chat's items (DISPATCHER-SPEC §9.1): read only while the chat panel is visible. */
 export const dispatcherItemsKey = ["flowly", "dispatcher", "items"] as const;
-export function useDispatcherItemsQuery(enabled: boolean) {
+export function useDispatcherItemsQuery(enabled: boolean, groupId: string | null) {
   const read = useRpc(rpc.dispatcherItemsChanged);
   const client = useQueryClient();
+  const key = [...dispatcherItemsKey, groupId ?? "-"] as const;
   return useQuery({
-    queryKey: dispatcherItemsKey,
-    queryFn: () => readChanged(client, dispatcherItemsKey, (etag) => read(etag ? { etag } : {})),
-    enabled,
+    queryKey: key,
+    queryFn: () => readChanged(client, key, (etag) => read({ groupId: groupId!, ...(etag ? { etag } : {}) })),
+    enabled: enabled && !!groupId,
     staleTime: 0,
     refetchInterval: enabled ? 4_000 : false,
     placeholderData: (previous) => previous,

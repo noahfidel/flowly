@@ -3,10 +3,12 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { basename, join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { ToolServer } from "./tool-server";
+import { groupWriter } from "./group-writes";
 import { agentFixture } from "./agent-fixture";
 import { changeLine } from "./dispatcher-items";
 import { BoardService } from "./service";
 import { projectCreator } from "./project-create";
+import { dispatcherConfirmedToolNames, dispatcherMessagePrefix, dispatcherToolNames } from "../shared/dispatcher";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -25,9 +27,11 @@ const dispatcherTools = [
   "flowly_link_cards",
   "flowly_list_ideas",
   "flowly_update_idea",
+  "flowly_message_card",
   "flowly_archive_card",
   // Not preapproved: the user confirms each call (ruling, Noah 2026-11-10).
   "flowly_create_project",
+  "flowly_manage_groups",
 ];
 
 async function setup() {
@@ -36,6 +40,8 @@ async function setup() {
   const dispatcherPath = join(fixture.root, "paseo-home", "flowly-dispatcher", "dispatcher");
   await mkdir(dispatcherPath, { recursive: true });
   const server = new ToolServer(fixture.store, dispatcherPath);
+  // The group writes the tool shares with the groups.* RPCs (index.server.ts wires the same).
+  server.dispatcherTools.groupsWith = groupWriter(fixture.store, server.dispatcher, () => {});
   cleanups.push(async () => {
     await server.stop();
     await rm(fixture.root, { recursive: true, force: true });
@@ -76,12 +82,15 @@ async function setup() {
     });
     board.tasks.push(card("q1", "q"), card("q2", "q"), card("z1", "z"));
   });
-  // The stored dispatcher: agent "disp" in workspace "dw".
+  // Board groups (BOARD-GROUPS-SPEC §7): every project lands in the default group "Projects".
+  await fixture.store.migrateGroups(async () => []);
+  const groupId = (await fixture.store.read()).groups[0].id;
+  // The stored dispatcher (a v1 record, moved to that group on first read): agent "disp" in workspace "dw".
   await writeFile(
     join(fixture.store.directory, "dispatcher.json"),
     JSON.stringify({ version: 1, workspaceId: "dw", agentId: "disp", startedAt: stamp }),
   );
-  const agents: Record<string, { id: string; workspaceId: string; status: string; archivedAt: string | null; lastUsage?: unknown; currentModeId?: string | null }> = {
+  const agents: Record<string, { id: string; workspaceId: string; status: string; archivedAt: string | null; lastUsage?: unknown; currentModeId?: string | null; pendingPermissions?: unknown[]; labels?: Record<string, string> }> = {
     disp: { id: "disp", workspaceId: "dw", status: "idle", archivedAt: null, currentModeId: "default" },
     actor: { id: "actor", workspaceId: "w", status: "idle", archivedAt: null },
   };
@@ -90,10 +99,19 @@ async function setup() {
   const launched: Record<string, Record<string, unknown>> = {};
   /** The tool policy each created session was saved with. */
   const policies: Record<string, unknown> = {};
+  /** Messages sent to sessions through `agents.ref(id).send`, and whether the next sends fail. */
+  const sent: { id: string; text: string; options?: unknown }[] = [];
+  let failSend = false;
   const paseo = {
     ...(fixture.paseo as unknown as Record<string, unknown>),
     agents: {
-      ref: (id: string) => ({ refresh: async () => (agents[id] ? { agent: { ...agents[id] } } : null) }),
+      ref: (id: string) => ({
+        refresh: async () => (agents[id] ? { agent: { ...agents[id] } } : null),
+        send: async (text: string, options?: unknown) => {
+          if (failSend) throw new Error("daemon down");
+          sent.push({ id, text, options });
+        },
+      }),
       list: async () => ({ entries: Object.values(agents).map((agent) => ({ agent })), pageInfo: { nextCursor: null } }),
     },
     workspaces: {
@@ -156,7 +174,9 @@ async function setup() {
     return { mcp, call, names };
   };
   const dispatcherToken = server.secrets.dispatcherCredential({ agentId: "disp", workspaceId: "dw" });
-  return { ...fixture, server, paseo, agents, url, createdWorkspaces, launched, policies, connect, dispatcherToken };
+  /** Group `groupId`'s entry of the stored record (DISPATCHER-SPEC §1). */
+  const entry = async (id = groupId) => (await server.dispatcher.resolvedRecord()).groups[id];
+  return { ...fixture, server, paseo, agents, sent, failSend: (v: boolean) => (failSend = v), url, createdWorkspaces, launched, policies, connect, dispatcherToken, groupId, entry };
 }
 
 const code = (result: { isError?: boolean; structuredContent?: { error?: { code?: string } } }) =>
@@ -166,8 +186,10 @@ test("a dispatcher token can write to any live project", async () => {
   const x = await setup();
   const d = await x.connect(x.dispatcherToken);
   expect(await d.names()).toEqual(dispatcherTools);
-  // None of them answers a card's ask (permission, question, blocker) or messages a card's session (ruling, Noah 2026-11-09).
-  for (const name of await d.names()) expect(name).not.toMatch(/answer|respond|permission|approve|allow|deny|send|prompt|message/);
+  // None of them answers a card's ask (permission, question, blocker); only flowly_message_card messages a card's
+  // session, and never answers (ruling, Noah 2026-11-09; DISPATCHER-SPEC §5.3).
+  for (const name of await d.names()) expect(name).not.toMatch(/answer|respond|permission|approve|allow|deny|send|prompt/);
+  expect((await d.names()).filter((n) => /message/.test(n))).toEqual(["flowly_message_card"]);
   // Replacing or archiving a dispatcher (its session or workspace) is the user's confirmed click only, never one of its
   // own tools (ruling, Noah 2026-11-09). Archiving a card (flowly_archive_card) is a board edit, not that.
   for (const name of await d.names()) expect(name).not.toMatch(/replace|dispatcher|archive_(session|agent|workspace)/);
@@ -300,7 +322,7 @@ test("the dispatcher has its own hourly limit of 40, apart from the card agents'
 test("a new dispatcher saves its tools with every one preapproved, so they never prompt (DISPATCHER-SPEC §3)", async () => {
   const x = await setup();
   x.agents.disp.archivedAt = "2026-11-09T00:00:00.000Z";
-  const { agentId } = await x.server.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  const { agentId } = await x.server.dispatcher.start(x.paseo, { groupId: x.groupId, provider: "claude/claude-sonnet-5-5" });
   // Saved once, with the session: the open hook adds nothing, so Paseo's name check is never tripped, and it is
   // still known as the dispatcher, so the hook stops there (no card context, no board tools).
   expect(await x.server.dispatcherSession(agentId, x.paseo)).toEqual({ mcp: null });
@@ -313,30 +335,30 @@ test("a new dispatcher saves its tools with every one preapproved, so they never
   // each time (flowly_create_project, ruling, Noah 2026-11-10); nothing else.
   const listed = (await fresh.names()).sort();
   const policy = x.policies[agentId] as { preapproved: { kind: string; server: string; tool: string }[] };
-  expect(policy.preapproved.map((g) => g.tool).sort()).toEqual(listed.filter((name) => name !== "flowly_create_project"));
+  expect(policy.preapproved.map((g) => g.tool).sort()).toEqual(listed.filter((name) => !dispatcherConfirmedToolNames.includes(name as never)));
   expect(listed).toContain("flowly_create_project");
   expect(policy.preapproved.every((g) => g.kind === "mcp" && g.server === "flowly-dispatcher")).toBe(true);
   // Its saved tools are the preapproved ones, so the tool it was not given shows no new-tools warning.
-  expect((await x.server.dispatcher.record()).savedTools).not.toContain("flowly_create_project");
-  expect(await x.server.dispatcher.status(x.paseo)).not.toHaveProperty("newTools");
+  expect((await x.entry()).savedTools).not.toContain("flowly_create_project");
+  expect(await x.server.dispatcher.status(x.paseo, x.groupId)).not.toHaveProperty("newTools");
 });
 
 test("the dispatcher starts only on a provider that can withhold the routes to a card's asks (ruling, Noah 2026-11-09)", async () => {
   for (const provider of ["codex/gpt-5", "opencode/some-model", "copilot/gpt-5", "kimi/k2", "pi/x", "my-claude/claude-sonnet-5-5"]) {
     const x = await setup();
     x.agents.disp.archivedAt = "2026-11-09T00:00:00.000Z";
-    const before = await x.server.dispatcher.record();
-    await expect(x.server.dispatcher.start(x.paseo, { provider }), provider).rejects.toMatchObject({ code: "DISPATCHER_PROVIDER_UNSUPPORTED" });
+    const before = await x.server.dispatcher.resolvedRecord();
+    await expect(x.server.dispatcher.start(x.paseo, { groupId: x.groupId, provider }), provider).rejects.toMatchObject({ code: "DISPATCHER_PROVIDER_UNSUPPORTED" });
     // Nothing was created or stored: the dead dispatcher's record stays as it was.
     expect(Object.keys(x.policies), provider).toEqual([]);
-    expect(await x.server.dispatcher.record(), provider).toEqual(before);
+    expect(await x.server.dispatcher.resolvedRecord(), provider).toEqual(before);
   }
   // Claude: saved with its tools, as always.
   const x = await setup();
   x.agents.disp.archivedAt = "2026-11-09T00:00:00.000Z";
-  const { agentId } = await x.server.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  const { agentId } = await x.server.dispatcher.start(x.paseo, { groupId: x.groupId, provider: "claude/claude-sonnet-5-5" });
   expect(x.policies[agentId]).toBeDefined();
-  expect((await x.server.dispatcher.record()).savedTools).toEqual(expect.any(Array));
+  expect((await x.entry()).savedTools).toEqual(expect.any(Array));
 });
 
 test("a dispatcher started before its tools were saved still gets them from the open hook (DISPATCHER-SPEC §3)", async () => {
@@ -352,7 +374,7 @@ test("a dispatcher token from a replaced dispatcher is refused", async () => {
   expect(code(await d.call("flowly_list_projects", {}))).toBeUndefined();
   // The dispatcher session closed: a new one replaces it.
   x.agents.disp.archivedAt = "2026-11-09T00:00:00.000Z";
-  const { agentId } = await x.server.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  const { agentId } = await x.server.dispatcher.start(x.paseo, { groupId: x.groupId, provider: "claude/claude-sonnet-5-5" });
   expect(agentId).not.toBe("disp");
   expect(code(await d.call("flowly_list_projects", {}))).toBe("DISPATCHER_REPLACED");
   expect(code(await d.call("flowly_create_card", { projectId: "q", title: "Old", idempotencyKey: "k-old" }))).toBe("DISPATCHER_REPLACED");
@@ -908,4 +930,429 @@ test("flowly_create_project is checked like every dispatcher write: replaced dis
   expect(early.structuredContent.error.retryable).toBe(true);
   expect(x.passed).toEqual([]);
   expect(JSON.stringify((await x.store.read()).projects)).toBe(before);
+});
+
+/**
+ * Two groups (DISPATCHER-SPEC §0): "Projects" (A: p, q, gone and the archived z) with the stored dispatcher "disp", and
+ * "Clients" (B: r) with a dispatcher of its own, started through the hub and called with the token it was saved with.
+ */
+async function twoGroups<X extends Awaited<ReturnType<typeof setup>>>(x: X) {
+  const clients = await x.store.createGroup({ name: "Clients" });
+  const r = (await x.store.read()).projects.find((p) => p.id === "r")!;
+  await x.store.setProjectGroup({ projectId: "r", revision: r.revision, groupId: clients.id });
+  // Moving r bumped the group's revision: hand back the group as it is now.
+  const current = (await x.store.read()).groups.find((g) => g.id === clients.id)!;
+  const { agentId } = await x.server.dispatcher.start(x.paseo, { groupId: clients.id, provider: "claude/claude-sonnet-5-5" });
+  x.agents[agentId].currentModeId = "default";
+  const saved = x.launched[agentId]["flowly-dispatcher"] as { headers: { Authorization: string } };
+  const token = saved.headers.Authorization.replace(/^Bearer /, "");
+  return { clients: current, agentId, token, b: await x.connect(token), a: await x.connect(x.dispatcherToken) };
+}
+const projectIds = (result: { structuredContent: { projects: { projectId: string }[] } }) => result.structuredContent.projects.map((p) => p.projectId);
+
+test("each group's dispatcher works on its own group's projects only (DISPATCHER-SPEC §0, §4)", async () => {
+  const x = await setup();
+  const { clients, agentId, token, a, b } = await twoGroups(x);
+  // The new session's token names its group; the stored one from before (no group) still works.
+  expect(x.server.secrets.authenticateAny(token)).toEqual({ kind: "dispatcher", identity: { agentId, workspaceId: "dw", groupId: clients.id } });
+  expect(await x.server.dispatcherSession(agentId, x.paseo)).toEqual({ mcp: null });
+  // flowly_list_projects lists the caller's group's live members.
+  expect(projectIds(await a.call("flowly_list_projects", {}))).toEqual(["p", "q", "gone"]);
+  expect(projectIds(await b.call("flowly_list_projects", {}))).toEqual(["r"]);
+  // Another group's project is refused, before any card check, for reads and writes alike.
+  const before = JSON.stringify(await x.store.read());
+  expect(code(await a.call("flowly_list_cards", { projectId: "r" }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(code(await a.call("flowly_create_card", { projectId: "r", title: "Nope", idempotencyKey: "k-ab" }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(code(await b.call("flowly_get_card", { projectId: "q", taskId: "q1" }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(code(await b.call("flowly_propose_idea", { projectId: "q", title: "Nope", detail: "x", rationale: "y" }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(code(await b.call("flowly_link_cards", { projectId: "q", taskId: "q1", relation: "blocks", otherTaskId: "q2" }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(code(await b.call("flowly_list_ideas", { projectId: "q" }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+  // Its own group's projects work.
+  expect(code(await b.call("flowly_create_card", { projectId: "r", title: "Client work", idempotencyKey: "k-b" }))).toBeUndefined();
+  expect(code(await a.call("flowly_list_cards", { projectId: "q" }))).toBeUndefined();
+  // A token whose group is not the one holding its session is refused.
+  const wrong = await x.connect(x.server.secrets.dispatcherCredential({ agentId, workspaceId: "dw", groupId: x.groupId }));
+  expect(code(await wrong.call("flowly_list_projects", {}))).toBe("DISPATCHER_REPLACED");
+});
+
+test("a project moved to another group between calls is refused, and its new group's dispatcher takes it (DISPATCHER-SPEC §4)", async () => {
+  const x = await setup();
+  const { clients, a, b } = await twoGroups(x);
+  expect(code(await a.call("flowly_get_card", { projectId: "q", taskId: "q1" }))).toBeUndefined();
+  const q = (await x.store.read()).projects.find((p) => p.id === "q")!;
+  await x.store.setProjectGroup({ projectId: "q", revision: q.revision, groupId: clients.id });
+  expect(code(await a.call("flowly_get_card", { projectId: "q", taskId: "q1" }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(code(await a.call("flowly_update_card", { projectId: "q", taskId: "q1", revision: 1, priority: "high" }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(code(await b.call("flowly_get_card", { projectId: "q", taskId: "q1" }))).toBeUndefined();
+  expect(projectIds(await b.call("flowly_list_projects", {}))).toEqual(["q", "r"]);
+});
+
+test("another group's start in a new workspace leaves a live dispatcher's tools and open hook working (DISPATCHER-SPEC §1, §2, §4)", async () => {
+  const x = await setup();
+  // The stored workspace is no longer in the dispatcher folder (as one in the old in-data folder): the next start makes a new one.
+  const workspaces = x.paseo.workspaces as unknown as { ref: (id: string) => Record<string, unknown> };
+  const ref = workspaces.ref;
+  workspaces.ref = (id) => (id === "dw" ? { ...ref(id), refresh: async () => ({ id: "dw", archivingAt: null, workspaceDirectory: x.root }) } : ref(id));
+  const { agentId, a, b } = await twoGroups(x);
+  expect(x.agents[agentId].workspaceId).toBe("created-1");
+  expect(code(await a.call("flowly_list_projects", {}))).toBeUndefined();
+  expect(code(await b.call("flowly_list_projects", {}))).toBeUndefined();
+  // The open hook still gives "disp" a credential for the workspace it lives in.
+  const hook = (await x.server.dispatcherSession("disp", x.paseo))?.mcp;
+  const token = hook!.headers.Authorization.replace(/^Bearer /, "");
+  expect(x.server.secrets.authenticateAny(token)).toMatchObject({ kind: "dispatcher", identity: { agentId: "disp", workspaceId: "dw" } });
+});
+
+test("a dispatcher whose group was deleted is refused as replaced (DISPATCHER-SPEC §4)", async () => {
+  const x = await setup();
+  const { clients, a, b } = await twoGroups(x);
+  const group = (await x.store.read()).groups.find((g) => g.id === clients.id)!;
+  await x.store.deleteGroup({ id: group.id, revision: group.revision });
+  expect(code(await b.call("flowly_list_projects", {}))).toBe("DISPATCHER_REPLACED");
+  expect(code(await b.call("flowly_create_card", { projectId: "r", title: "Late", idempotencyKey: "k-late-b" }))).toBe("DISPATCHER_REPLACED");
+  // The other group's dispatcher is untouched, and now has r (moved to the default group).
+  expect(projectIds(await a.call("flowly_list_projects", {}))).toEqual(["p", "q", "gone", "r"]);
+});
+
+test("flowly_create_project puts the new project in the caller's group (DISPATCHER-SPEC §5.2)", async () => {
+  const x = await withProjects();
+  const { clients, b } = await twoGroups(x);
+  const made = await b.call("flowly_create_project", { path: await x.folder() });
+  expect(code(made)).toBeUndefined();
+  const { projectId } = made.structuredContent;
+  expect((await x.store.read()).projects.find((p) => p.id === projectId)?.groupId).toBe(clients.id);
+  expect(projectIds(await b.call("flowly_list_projects", {}))).toContain(projectId);
+  expect(projectIds(await x.d.call("flowly_list_projects", {}))).not.toContain(projectId);
+  // The stored dispatcher's lands in its own group.
+  const other = (await x.d.call("flowly_create_project", { path: await x.folder() })).structuredContent.projectId;
+  expect((await x.store.read()).projects.find((p) => p.id === other)?.groupId).toBe(x.groupId);
+});
+
+test("each group's dispatcher has its own hourly card and project buckets (DISPATCHER-SPEC §5, §5.2)", async () => {
+  const x = await withProjects();
+  const { agentId, b } = await twoGroups(x);
+  // B fills its 40 cards and its 5 projects.
+  for (let i = 0; i < 40; i++) x.server.cards.reserve(agentId, true);
+  expect(code(await b.call("flowly_create_card", { projectId: "r", title: "Too many", idempotencyKey: "k-b41" }))).toBe("CARD_LIMIT");
+  for (let i = 0; i < 5; i++) expect(code(await b.call("flowly_create_project", { path: await x.folder() })), `#${i + 1}`).toBeUndefined();
+  expect(code(await b.call("flowly_create_project", { path: await x.folder() }))).toBe("PROJECT_LIMIT");
+  // A's buckets are untouched.
+  expect(code(await x.d.call("flowly_create_card", { projectId: "q", title: "Still fine", idempotencyKey: "k-a1" }))).toBeUndefined();
+  expect(code(await x.d.call("flowly_create_project", { path: await x.folder() }))).toBeUndefined();
+});
+
+async function withSessions() {
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  x.agents.s1 = { id: "s1", workspaceId: "w-q1", status: "idle", archivedAt: null };
+  const message = (args: Record<string, unknown>) => d.call("flowly_message_card", { projectId: "q", taskId: "q1", text: "integrate", ...args });
+  return { ...x, d, message };
+}
+
+test("flowly_message_card steers a prefixed message into the card's only live session (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  const result = await x.message({ text: "  finish up  " });
+  expect(code(result)).toBeUndefined();
+  expect(result.structuredContent).toEqual({ sent: true, sessionId: "s1" });
+  // The prefix marks it as the dispatcher's, the user's text follows unchanged (trimmed), and it is steered.
+  expect(x.sent).toEqual([{ id: "s1", text: `${dispatcherMessagePrefix}finish up`, options: { activeTurnBehavior: "steer" } }]);
+  expect(dispatcherMessagePrefix).toMatch(/^From the Flowly dispatcher/);
+  // Archived and helper sessions do not count; another card's session is never reached.
+  x.agents.old = { id: "old", workspaceId: "w-q1", status: "idle", archivedAt: stamp };
+  x.agents.helper = { id: "helper", workspaceId: "w-q1", status: "running", archivedAt: null, labels: { flowly: "summarizer" } };
+  x.agents.other = { id: "other", workspaceId: "w-q2", status: "idle", archivedAt: null };
+  expect((await x.message({})).structuredContent.sessionId).toBe("s1");
+  expect(code(await x.message({ sessionId: "other" }))).toBe("SESSION_NOT_FOUND");
+  expect(code(await x.message({ sessionId: "old" }))).toBe("SESSION_NOT_FOUND");
+  expect(x.sent.map((m) => m.id)).toEqual(["s1", "s1"]);
+});
+
+test("flowly_message_card: no live session, an ambiguous default, and a named session (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  expect(code(await x.message({ taskId: "q2" }))).toBe("NO_LIVE_SESSION");
+  x.agents.s2 = { id: "s2", workspaceId: "w-q1", status: "idle", archivedAt: null };
+  const ambiguous = await x.message({});
+  expect(code(ambiguous)).toBe("SESSION_AMBIGUOUS");
+  expect(ambiguous.structuredContent.error.message).toContain("s1");
+  expect(ambiguous.structuredContent.error.message).toContain("s2");
+  expect(x.sent).toEqual([]);
+  // The one running session is the default; two running are ambiguous again; a named one always works.
+  x.agents.s2.status = "running";
+  expect((await x.message({})).structuredContent.sessionId).toBe("s2");
+  x.agents.s1.status = "running";
+  expect(code(await x.message({}))).toBe("SESSION_AMBIGUOUS");
+  expect((await x.message({ sessionId: "s1" })).structuredContent.sessionId).toBe("s1");
+  expect(x.sent.map((m) => m.id)).toEqual(["s2", "s1"]);
+});
+
+test("flowly_message_card never touches a session that waits on the user (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  // A pending permission or question: refused, nothing sent, nothing answered.
+  x.agents.s1.pendingPermissions = [{ id: "req-1", kind: "question", name: "AskUserQuestion", input: {} }];
+  expect(code(await x.message({}))).toBe("SESSION_WAITING_ON_USER");
+  x.agents.s1.pendingPermissions = [{ id: "req-2", kind: "tool", name: "Bash", input: {} }];
+  expect(code(await x.message({}))).toBe("SESSION_WAITING_ON_USER");
+  x.agents.s1.pendingPermissions = [];
+  // An open question or blocker report, until the session's next turn starts.
+  const report = (id: string, reportKind: string, at: string) => ({
+    id,
+    taskId: "q1",
+    at,
+    actor: "agent" as const,
+    agentId: "s1",
+    action: "progress_reported" as const,
+    reportKind,
+    note: "?",
+  });
+  for (const [n, kind] of ["question", "blocker"].entries()) {
+    await x.store.mutate((board) => {
+      board.events.push(report(`e-${kind}`, kind, `2026-11-08T1${n * 2 + 1}:00:00.000Z`) as never);
+    });
+    expect(code(await x.message({})), kind).toBe("SESSION_WAITING_ON_USER");
+    await x.store.mutate((board) => {
+      board.events.push({ id: `t-${kind}`, taskId: "q1", at: `2026-11-08T1${n * 2 + 2}:00:00.000Z`, actor: "system", agentId: "s1", action: "agent.turn_started" } as never);
+    });
+    expect(code(await x.message({})), `after ${kind}`).toBeUndefined();
+  }
+  expect(x.sent.length).toBe(2);
+  // Another session of the card that waits does not block a named, free one.
+  x.agents.s2 = { id: "s2", workspaceId: "w-q1", status: "idle", archivedAt: null, pendingPermissions: [{ id: "r", kind: "tool", name: "Bash", input: {} }] };
+  expect(code(await x.message({ sessionId: "s2" }))).toBe("SESSION_WAITING_ON_USER");
+  expect(code(await x.message({ sessionId: "s1" }))).toBeUndefined();
+});
+
+test("flowly_message_card is gated like every dispatcher write (DISPATCHER-SPEC §4)", async () => {
+  const x = await withSessions();
+  x.server.cards.on = async () => false;
+  expect(code(await x.message({}))).toBe("AGENT_CARDS_DISABLED");
+  x.server.cards.on = async () => true;
+  expect(code(await x.message({ projectId: "z", taskId: "z1" }))).toBe("PROJECT_ARCHIVED");
+  expect(code(await x.message({ projectId: "gone" }))).toBe("ROOT_UNAVAILABLE");
+  expect(code(await x.message({ projectId: "nope" }))).toBe("NOT_FOUND");
+  expect(code(await x.message({ taskId: "t" }))).toBe("CARD_NOT_FOUND");
+  expect(code(await x.message({ projectId: "r", taskId: "q1" }))).toBe("CARD_NOT_FOUND");
+  expect(x.sent).toEqual([]);
+  // A board token cannot call it.
+  const card = await x.connect(x.server.secrets.boardCredential({ agentId: "actor", workspaceId: "w", projectId: "p" }));
+  expect(await card.names()).not.toContain("flowly_message_card");
+});
+
+test("flowly_message_card: 30 per hour, its own bucket; refusals and failed sends give the slot back (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  let now = Date.parse("2026-11-10T10:00:00.000Z");
+  x.server.dispatcherTools.clock = () => now;
+  expect(code(await x.message({ taskId: "q2" }))).toBe("NO_LIVE_SESSION");
+  x.failSend(true);
+  expect(code(await x.message({}))).toBe("SEND_FAILED");
+  x.failSend(false);
+  for (let i = 0; i < 30; i++) expect(code(await x.message({})), `#${i + 1}`).toBeUndefined();
+  const over = await x.message({});
+  expect(code(over)).toBe("MESSAGE_LIMIT");
+  expect(over.structuredContent.error.message).toContain("30");
+  expect(x.sent.length).toBe(30);
+  // The card bucket is untouched, and an hour later there is room again.
+  expect(code(await x.d.call("flowly_create_card", { projectId: "q", title: "Still fine", idempotencyKey: "k-msg" }))).toBeUndefined();
+  now += 3_600_001;
+  expect(code(await x.message({}))).toBeUndefined();
+});
+
+test("flowly_message_card works per group: another group's card is refused, each session has its own bucket (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await setup();
+  const { agentId, a, b } = await twoGroups(x);
+  x.agents.s1 = { id: "s1", workspaceId: "w-q1", status: "idle", archivedAt: null };
+  const toQ1 = (c: typeof a) => c.call("flowly_message_card", { projectId: "q", taskId: "q1", text: "integrate" });
+  expect(code(await toQ1(b))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(x.sent).toEqual([]);
+  // B's bucket full does not touch A's.
+  for (let i = 0; i < 30; i++) x.server.dispatcherTools["reserveMessage"](agentId);
+  expect(code(await toQ1(a))).toBeUndefined();
+  expect(x.sent.map((m) => m.id)).toEqual(["s1"]);
+});
+
+/** flowly_manage_groups (DISPATCHER-SPEC §0, §5.2): the confirmed board group tool and its refusals. */
+test("flowly_manage_groups is confirmed on every call, never preapproved (DISPATCHER-SPEC §5.2)", async () => {
+  expect(dispatcherConfirmedToolNames).toContain("flowly_manage_groups");
+  expect(dispatcherToolNames as readonly string[]).not.toContain("flowly_manage_groups");
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  expect(await d.names()).toContain("flowly_manage_groups");
+  expect(code(await d.call("flowly_manage_groups", { action: "create", name: "Shown" }))).toBeUndefined();
+});
+
+test("flowly_manage_groups runs only in a permission mode that asks, and only while agent cards are on (DISPATCHER-SPEC §5.2)", async () => {
+  const x = await setup();
+  const { clients, agentId, b } = await twoGroups(x);
+  const before = JSON.stringify((await x.store.read()).groups);
+  const rename = { action: "rename", groupId: clients.id, revision: clients.revision, name: "Nope" } as const;
+  for (const mode of ["bypassPermissions", "auto", "some-new-mode", null]) {
+    x.agents[agentId].currentModeId = mode;
+    const result = await b.call("flowly_manage_groups", rename);
+    expect(code(result), String(mode)).toBe("CONFIRMATION_UNAVAILABLE");
+  }
+  expect(JSON.stringify((await x.store.read()).groups)).toBe(before);
+  // The switch is checked before the mode: with cards off, the answer is AGENT_CARDS_DISABLED in any mode.
+  x.agents[agentId].currentModeId = "bypassPermissions";
+  x.server.cards.on = async () => false;
+  expect(code(await b.call("flowly_manage_groups", rename))).toBe("AGENT_CARDS_DISABLED");
+  x.server.cards.on = async () => true;
+  x.agents[agentId].currentModeId = "default";
+  expect(code(await b.call("flowly_manage_groups", { action: "create", name: "On" }))).toBeUndefined();
+});
+
+test("flowly_manage_groups: 10 calls per dispatcher hour in their own bucket; a refusal gives its slot back (DISPATCHER-SPEC §5.2)", async () => {
+  const x = await setup();
+  const { b } = await twoGroups(x);
+  let now = Date.parse("2026-11-10T10:00:00.000Z");
+  x.server.dispatcherTools.clock = () => now;
+  for (let i = 0; i < 3; i++)
+    expect(code(await b.call("flowly_manage_groups", { action: "rename", groupId: "nope", revision: 1, name: "x" }))).toBe("GROUP_NOT_FOUND");
+  for (let i = 1; i <= 10; i++) expect(code(await b.call("flowly_manage_groups", { action: "create", name: `Team ${i}` })), `#${i}`).toBeUndefined();
+  expect(code(await b.call("flowly_manage_groups", { action: "create", name: "Too many" }))).toBe("GROUP_LIMIT");
+  // Its own bucket: the card bucket is untouched.
+  expect(code(await b.call("flowly_create_card", { projectId: "r", title: "Still fine", idempotencyKey: "k-group-bucket" }))).toBeUndefined();
+  now += 3_600_001;
+  expect(code(await b.call("flowly_manage_groups", { action: "create", name: "Too many" }))).toBeUndefined();
+});
+
+test("flowly_manage_groups create, rename and set_default keep the group rules (BOARD-GROUPS-SPEC §2)", async () => {
+  const x = await setup();
+  const { clients, b } = await twoGroups(x);
+  expect(code(await b.call("flowly_manage_groups", { action: "create", name: "clients" }))).toBe("NAME_TAKEN");
+  expect(code(await b.call("flowly_manage_groups", { action: "rename", groupId: clients.id, revision: 99, name: "Late" }))).toBe("REVISION_CONFLICT");
+  const renamed = await b.call("flowly_manage_groups", { action: "rename", groupId: clients.id, revision: clients.revision, name: "Partners" });
+  expect(code(renamed)).toBeUndefined();
+  expect(renamed.structuredContent).toMatchObject({ action: "rename", groupId: clients.id, name: "Partners", revision: clients.revision + 1 });
+  const promoted = await b.call("flowly_manage_groups", { action: "set_default", groupId: clients.id, revision: clients.revision + 1 });
+  expect(code(promoted)).toBeUndefined();
+  const groups = (await x.store.read()).groups;
+  expect(groups.find((g) => g.id === clients.id)?.isDefault).toBe(true);
+  expect(groups.filter((g) => g.isDefault)).toHaveLength(1);
+});
+
+test("flowly_manage_groups refuses the caller's own group, the default group and a group with a live dispatcher (DISPATCHER-SPEC §0, §5.2)", async () => {
+  const x = await setup();
+  const { clients, agentId, a, b } = await twoGroups(x);
+  const defaultGroup = (await x.store.read()).groups.find((g) => g.id === x.groupId)!;
+  const before = JSON.stringify(await x.store.read());
+  expect(code(await b.call("flowly_manage_groups", { action: "delete", groupId: clients.id, revision: clients.revision }))).toBe("GROUP_PROTECTED");
+  expect(code(await a.call("flowly_manage_groups", { action: "delete", groupId: x.groupId, revision: defaultGroup.revision }))).toBe("GROUP_PROTECTED");
+  expect(code(await b.call("flowly_manage_groups", { action: "delete", groupId: x.groupId, revision: defaultGroup.revision }))).toBe("DEFAULT_REQUIRED");
+  // A live dispatcher (running, idle, closed) blocks the delete; the tool never archives it.
+  for (const status of ["running", "idle", "closed"]) {
+    x.agents[agentId].status = status;
+    expect(code(await a.call("flowly_manage_groups", { action: "delete", groupId: clients.id, revision: clients.revision })), status).toBe("GROUP_BUSY");
+  }
+  expect(x.agents[agentId].archivedAt).toBeNull();
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+  // Once its dispatcher is archived (a dead one), the delete goes through: its projects move to the default group.
+  x.agents[agentId].archivedAt = stamp;
+  const deleted = await a.call("flowly_manage_groups", { action: "delete", groupId: clients.id, revision: clients.revision });
+  expect(code(deleted)).toBeUndefined();
+  expect(deleted.structuredContent).toEqual({ action: "delete", groupId: clients.id, movedTo: x.groupId, projectIds: ["r"] });
+  expect((await x.store.read()).groups.some((g) => g.id === clients.id)).toBe(false);
+});
+
+test("flowly_manage_groups set_members replaces the member list in one write (DISPATCHER-SPEC §0, §5.2)", async () => {
+  const x = await setup();
+  const { clients, a, b } = await twoGroups(x);
+  // Default: p, q, gone, and the archived z. Clients: r.
+  const members = async (groupId: string) => (await x.store.read()).projects.filter((p) => p.groupId === groupId).map((p) => p.id).sort();
+  const setMembers = (groupId: string, revision: number, projectIds: string[], caller = b) =>
+    caller.call("flowly_manage_groups", { action: "set_members", groupId, revision, projectIds });
+  // Listed projects move in from their groups; the group's left-out members (none) go to the default group.
+  const added = await setMembers(clients.id, clients.revision, ["r", "q"]);
+  expect(code(added)).toBeUndefined();
+  expect(added.structuredContent).toMatchObject({ action: "set_members", groupId: clients.id, revision: clients.revision + 1 });
+  expect(await members(clients.id)).toEqual(["q", "r"]);
+  expect(await members(x.groupId)).toEqual(["gone", "p", "z"]);
+  // A member left out goes to the default group, a listed one moves in.
+  const replaced = await setMembers(clients.id, clients.revision + 1, ["p"]);
+  expect(code(replaced)).toBeUndefined();
+  expect(await members(clients.id)).toEqual(["p"]);
+  expect(await members(x.groupId)).toEqual(["gone", "q", "r", "z"]);
+  // A stale revision is refused and writes nothing.
+  expect(code(await setMembers(clients.id, clients.revision, ["r"]))).toBe("REVISION_CONFLICT");
+  // An archived project that is not already a member can't join.
+  expect(code(await setMembers(clients.id, clients.revision + 2, ["z"]))).toBe("PROJECT_ARCHIVED");
+  // An unknown project refuses the whole list: nothing moves.
+  const before = JSON.stringify(await x.store.read());
+  expect(code(await setMembers(clients.id, clients.revision + 2, ["p", "nope"]))).toBe("NOT_FOUND");
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+  // The default group only adds: leaving "gone" out is refused, adding p from Clients is not.
+  const defaultGroup = (await x.store.read()).groups.find((g) => g.id === x.groupId)!;
+  expect(code(await a.call("flowly_manage_groups", { action: "set_members", groupId: x.groupId, revision: defaultGroup.revision, projectIds: ["q", "r", "z"] }))).toBe(
+    "DEFAULT_REQUIRED",
+  );
+  const grown = await a.call("flowly_manage_groups", {
+    action: "set_members",
+    groupId: x.groupId,
+    revision: defaultGroup.revision,
+    projectIds: ["gone", "p", "q", "r", "z"],
+  });
+  expect(code(grown)).toBeUndefined();
+  expect(await members(x.groupId)).toEqual(["gone", "p", "q", "r", "z"]);
+  expect(await members(clients.id)).toEqual([]);
+});
+
+
+test("flowly_manage_groups delete never archives a dispatcher, even one that reads live after a dead read (DISPATCHER-SPEC §0)", async () => {
+  const x = await setup();
+  const { clients, agentId, a } = await twoGroups(x);
+  // First read: archived (dead). Any later read: running. The tool must not archive it.
+  x.agents[agentId].archivedAt = stamp;
+  const agents = x.paseo.agents as unknown as { ref: (id: string) => { refresh: () => Promise<unknown>; archive?: () => Promise<void> } };
+  const ref = agents.ref;
+  let reads = 0;
+  let archived = false;
+  agents.ref = (id) => {
+    const real = ref(id);
+    return id === agentId
+      ? { ...real, refresh: async () => (reads++ === 0 ? { agent: { ...x.agents[agentId], archivedAt: stamp } } : { agent: { ...x.agents[agentId], archivedAt: null, status: "idle" } }), archive: async () => { archived = true; } }
+      : real;
+  };
+  const result = await a.call("flowly_manage_groups", { action: "delete", groupId: clients.id, revision: clients.revision });
+  expect(code(result)).toBeUndefined();
+  expect(archived).toBe(false);
+});
+
+test("flowly_manage_groups set_members hands each moved project to projectMoved (BOARD-GROUPS-SPEC §7)", async () => {
+  const x = await setup();
+  const { clients, b } = await twoGroups(x);
+  const moved: [string, string][] = [];
+  const dispatcher = x.server.dispatcher;
+  const real = dispatcher.projectMoved.bind(dispatcher);
+  dispatcher.projectMoved = async (projectId: string, toGroupId: string) => {
+    moved.push([projectId, toGroupId]);
+    return real(projectId, toGroupId);
+  };
+  const result = await b.call("flowly_manage_groups", { action: "set_members", groupId: clients.id, revision: clients.revision, projectIds: ["q", "r"] });
+  expect(code(result)).toBeUndefined();
+  expect(moved).toEqual([["q", clients.id]]);
+});
+
+test("a membership change bumps every group it touches, so a stale set_members is refused (DISPATCHER-SPEC §5.2)", async () => {
+  const x = await setup();
+  const { clients, b } = await twoGroups(x);
+  const revisionOf = async (groupId: string) => (await x.store.read()).groups.find((g) => g.id === groupId)!.revision;
+  const defaultRevision = await revisionOf(x.groupId);
+  // The UI moves q into Clients: Clients (target) and the default group (source) both change.
+  const q = (await x.store.read()).projects.find((p) => p.id === "q")!;
+  await x.store.setProjectGroup({ projectId: "q", revision: q.revision, groupId: clients.id });
+  expect(await revisionOf(clients.id)).toBe(clients.revision + 1);
+  expect(await revisionOf(x.groupId)).toBe(defaultRevision + 1);
+  // A dispatcher that still holds Clients at its old revision is refused: nothing is undone.
+  const before = JSON.stringify(await x.store.read());
+  expect(code(await b.call("flowly_manage_groups", { action: "set_members", groupId: clients.id, revision: clients.revision, projectIds: ["r"] }))).toBe("REVISION_CONFLICT");
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+  // The same happens when a project leaves the group in the UI (the source changes).
+  const r = (await x.store.read()).projects.find((p) => p.id === "r")!;
+  await x.store.setProjectGroup({ projectId: "r", revision: r.revision, groupId: x.groupId });
+  expect(await revisionOf(clients.id)).toBe(clients.revision + 2);
+  // A set_members that moves nothing does not bump anything.
+  const current = await revisionOf(clients.id);
+  const fresh = await b.call("flowly_manage_groups", { action: "set_members", groupId: clients.id, revision: current, projectIds: [] });
+  expect(code(fresh)).toBeUndefined();
+  expect(await revisionOf(clients.id)).toBe(current + 1);
+  expect(await revisionOf(x.groupId)).toBeGreaterThan(defaultRevision + 1);
 });

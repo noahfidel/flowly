@@ -64,15 +64,17 @@ test("sessions.tail still refuses non-card agents other than the dispatcher", as
   await expect(card.service.tail({ taskId: "t", agentId: "a", limit: 5 }, card.paseo)).rejects.toThrow(/different workspace/);
   // The dispatcher path: only the stored dispatcher in its stored workspace.
   const x = await setup("dw");
-  x.service.dispatcher = async () => ({ agentId: "a", workspaceId: "dw" });
-  await expect(x.service.dispatcherTail({ agentId: "a", limit: 5 }, x.paseo)).resolves.toMatchObject({ entries: [expect.anything()] });
-  await expect(x.service.dispatcherTail({ agentId: "other", limit: 5 }, x.paseo)).rejects.toThrow(/not the dispatcher/i);
+  // Per group: the group's own stored session only.
+  x.service.dispatcher = async (groupId) => (groupId === "g1" ? { agentId: "a", workspaceId: "dw" } : { agentId: "b", workspaceId: "dw" });
+  await expect(x.service.dispatcherTail({ groupId: "g1", agentId: "a", limit: 5 }, x.paseo)).resolves.toMatchObject({ entries: [expect.anything()] });
+  await expect(x.service.dispatcherTail({ groupId: "g1", agentId: "other", limit: 5 }, x.paseo)).rejects.toThrow(/not the dispatcher/i);
+  await expect(x.service.dispatcherTail({ groupId: "g2", agentId: "a", limit: 5 }, x.paseo)).rejects.toThrow(/not the dispatcher/i);
   // The stored id in another workspace (a moved or replaced session) is refused too.
   x.service.dispatcher = async () => ({ agentId: "a", workspaceId: "elsewhere" });
-  await expect(x.service.dispatcherTail({ agentId: "a", limit: 5 }, x.paseo)).rejects.toThrow(/different workspace/);
+  await expect(x.service.dispatcherTail({ groupId: "g1", agentId: "a", limit: 5 }, x.paseo)).rejects.toThrow(/different workspace/);
   // No dispatcher yet.
   x.service.dispatcher = async () => null;
-  await expect(x.service.dispatcherTail({ agentId: "a", limit: 5 }, x.paseo)).rejects.toThrow(/not the dispatcher/i);
+  await expect(x.service.dispatcherTail({ groupId: "g1", agentId: "a", limit: 5 }, x.paseo)).rejects.toThrow(/not the dispatcher/i);
 });
 
 /** A fake projected timeline of `count` one-seq entries; `users` are the seqs of user messages. */

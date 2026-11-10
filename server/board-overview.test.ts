@@ -63,3 +63,21 @@ test("body-only event changes yield revision-only patches while signals change w
   expect(JSON.stringify(signal)).not.toContain("new body");
   expect(boardOverviewSchema.parse(boardOverview(changed)).cards[0].questions).toBe(1);
 });
+
+test("groups ride in the overview sorted by position; add, rename, move and remove patch like any collection", () => {
+  const group = (id: string, position: number, over = {}) => ({ id, name: id, position, revision: 1, createdAt: at, updatedAt: at, ...over });
+  const build = (revision: number, groups: ReturnType<typeof group>[]) => boardOverview(boardSchema.parse({ events: [], version: 5, revision, projects: [project], tasks: [], groups }));
+  const deltas = new OverviewDeltas();
+  const initial = build(1, [group("b", 1), group("a", 0, { isDefault: true })]);
+  expect(boardOverviewSchema.parse(initial).groups.map(g => g.id)).toEqual(["a", "b"]);
+  const first = deltas.read(initial, {});
+  const next = build(2, [group("a", 0, { isDefault: true, name: "Renamed", revision: 2 }), group("c", 1), group("b", 2)]);
+  const response = readOverviewChanged.output.parse(deltas.read(next, { etag: first.etag }));
+  expect(response.patch?.groups?.set.map(g => g.id).sort()).toEqual(["a", "b", "c"]);
+  expect(response.patch?.groups?.order).toEqual(["a", "c", "b"]);
+  expect(applyOverviewPatch(initial, response.patch!)).toEqual(next);
+  const removed = build(3, [group("a", 0, { isDefault: true, name: "Renamed", revision: 2 }), group("b", 2)]);
+  const removal = deltas.read(removed, { etag: response.etag });
+  expect(removal.patch?.groups?.remove).toEqual(["c"]);
+  expect(applyOverviewPatch(next, removal.patch!)).toEqual(removed);
+});

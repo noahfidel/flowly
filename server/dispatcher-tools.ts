@@ -2,11 +2,13 @@ import { homedir } from "node:os";
 import { realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, sep } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/server";
-import type { PaseoApi } from "@getpaseo/client";
+import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import { z } from "zod";
+import { isOpenCard } from "../shared/groups";
 import { ideaNewestFirst } from "../shared/ideas";
 import { linkFor } from "../shared/links";
-import { linkSchema, projectInput, tagLimits, type Idea, type Project, type ProjectInput } from "../shared/model";
+import { groupLimits, linkSchema, projectInput, tagLimits, type Idea, type Project, type ProjectInput } from "../shared/model";
+import type { GroupWriter } from "./group-writes";
 import { normalizeTag, normalizeTags } from "../shared/tags";
 import {
   agentCardLimits,
@@ -29,6 +31,10 @@ import {
   updateIdeaResultSchema,
   type IdeaView,
 } from "../shared/tools";
+import { isSummarizer } from "../shared/summary";
+import { dispatcherMessagePrefix, dispatcherMessagesPerHour, userSendOptions } from "../shared/dispatcher";
+import { pendingRequests } from "../shared/permission-question";
+import { openReport } from "../shared/progress";
 import { rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
 import { changeIdea } from "./agent-service";
 import type { Dispatcher } from "./dispatcher";
@@ -69,6 +75,17 @@ export const dispatcherInputs = {
       .describe("blocks: taskId must land before otherTaskId. follow_up: otherTaskId continues taskId."),
     otherTaskId: z.string().min(1).max(200).describe("The other card's id, in the same project."),
   }),
+  messageCard: z.strictObject({
+    projectId,
+    taskId: z.string().min(1).max(200).describe("Card id from flowly_list_cards."),
+    text: z.string().trim().min(1).max(10000).describe("The instruction for the card's agent, plain text. Flowly marks it as coming from the dispatcher."),
+    sessionId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Only when the card has several live sessions (SESSION_AMBIGUOUS lists them): the session to message."),
+  }),
   archiveCard: z.strictObject({
     projectId,
     taskId: z.string().min(1).max(200).describe("Card id from flowly_list_cards."),
@@ -87,7 +104,28 @@ export const dispatcherInputs = {
     title: z.string().trim().min(1).max(120).optional().describe("The project's name. Default: the folder's name."),
     description: z.string().max(10000).optional().describe("Optional project description."),
   }),
+  // Flat for the MCP registration; manageGroupsInput checks each action's fields.
+  manageGroups: z.strictObject({
+    action: z.enum(["create", "rename", "set_members", "set_default", "delete"]).describe("What to do to the group."),
+    groupId: z.string().min(1).max(200).optional().describe("The group to change or delete (not needed for create)."),
+    name: z.string().trim().min(1).max(groupLimits.name).optional().describe("The group's name: for create and rename."),
+    projectIds: z.array(z.string().min(1).max(200)).max(10000).optional().describe("set_members: the group's whole list of member projectIds."),
+    revision: z.number().int().min(0).optional().describe("The group's revision as flowly_manage_groups or the board shows it; required for every action but create."),
+  }),
 };
+/** The per-action checks of flowly_manage_groups (a stale or missing revision is refused before any write). */
+const groupId = z.string().min(1).max(200);
+const groupRevision = z.number().int().min(0);
+const groupName = z.string().trim().min(1).max(groupLimits.name);
+const manageGroupsInput = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("create"), name: groupName }),
+  z.object({ action: z.literal("rename"), groupId, revision: groupRevision, name: groupName }),
+  z.object({ action: z.literal("set_members"), groupId, revision: groupRevision, projectIds: z.array(groupId).max(10000) }),
+  z.object({ action: z.literal("set_default"), groupId, revision: groupRevision }),
+  z.object({ action: z.literal("delete"), groupId, revision: groupRevision }),
+]);
+/** Group calls per dispatcher session and hour, a bucket of its own (DISPATCHER-SPEC §5.2). */
+export const dispatcherGroupCallsPerHour = 10;
 /** Project creations per dispatcher session and hour, apart from its card bucket (ruling, Noah 2026-11-10; §5.2). */
 export const dispatcherProjectsPerHour = 5;
 /**
@@ -96,10 +134,20 @@ export const dispatcherProjectsPerHour = 5;
  * it relies on cannot be shown to happen there (ruling, Noah 2026-11-10; §5.2).
  */
 export const promptingModes: readonly string[] = ["default", "acceptEdits", "plan"];
+const messageResultSchema = z.object({ sent: z.literal(true), sessionId: z.string() });
 const hour = 3_600_000;
 /** Whether `path` is `parent` or inside it (canonical paths). */
 const within = (path: string, parent: string) => path === parent || path.startsWith(parent.endsWith(sep) ? parent : parent + sep);
 const createProjectResultSchema = z.object({ projectId: z.string(), title: z.string(), path: z.string() });
+const manageGroupsResultSchema = z.object({
+  action: z.string(),
+  groupId: z.string(),
+  name: z.string().optional(),
+  revision: z.number().int().optional(),
+  /** delete: where the group's projects went, and which they were. */
+  movedTo: z.string().optional(),
+  projectIds: z.array(z.string()).optional(),
+});
 const listProjectsResultSchema = z.object({
   projects: z.array(z.object({ projectId: z.string(), title: z.string(), rootAvailable: z.boolean(), openCards: z.number().int() })),
 });
@@ -109,7 +157,6 @@ const archiveCardResultSchema = z.object({
   changed: z.boolean(),
 });
 
-const finished = (status: string) => status === "done" || status === "cancelled";
 /** The tool's input without `projectId`, for the card services' own strict schemas. */
 const rest = <T extends { projectId: string }>({ projectId: _, ...input }: T) => input;
 
@@ -149,6 +196,12 @@ export class DispatcherTools {
   clock = () => Date.now();
   /** The dispatcher's project creations in the last hour, per session (§5.2). */
   private projectSlots = new Map<string, number[]>();
+  /** The dispatcher's card messages in the last hour, per session (§5.3). */
+  private messageSlots = new Map<string, number[]>();
+  /** The dispatcher's board group calls in the last hour, per session (DISPATCHER-SPEC §5.2). */
+  private groupSlots = new Map<string, number[]>();
+  /** The board group writes flowly_manage_groups shares with the groups.* RPCs (group-writes.ts, §5.2). */
+  groupsWith?: GroupWriter;
   constructor(
     private readonly store: BoardStore,
     private readonly cards: AgentCards,
@@ -158,34 +211,45 @@ export class DispatcherTools {
     private readonly dispatcher: Dispatcher,
   ) {}
 
-  /** The stored dispatcher, live in its workspace; checked again on every call (§4). */
-  async caller(identity: DispatcherIdentity): Promise<{ agentId: string }> {
-    const record = await this.dispatcher.record();
-    if (!record.agentId || record.agentId !== identity.agentId || record.workspaceId !== identity.workspaceId)
-      throw new ToolError("DISPATCHER_REPLACED", "This dispatcher session was replaced by a newer one; its Flowly tools no longer work. Tell the user.");
+  /**
+   * The stored dispatcher of a group, live in its workspace; checked again on every call (§4). The group is the one
+   * whose record entry holds the session; a token that names a group must name that one. A session no group holds
+   * (replaced, or its group deleted) is refused.
+   */
+  async caller(identity: DispatcherIdentity): Promise<{ agentId: string; groupId: string }> {
+    const own = await this.dispatcher.sessionOf(identity.agentId);
+    const replaced = () =>
+      new ToolError("DISPATCHER_REPLACED", "This dispatcher session was replaced by a newer one; its Flowly tools no longer work. Tell the user.");
+    if (!own || own.workspaceId !== identity.workspaceId || (identity.groupId !== undefined && identity.groupId !== own.groupId)) throw replaced();
+    if (!(await this.store.read()).groups.some((g) => g.id === own.groupId)) throw replaced();
     const found = await this.cards.api().agents.ref(identity.agentId).refresh();
     if (!found?.agent || found.agent.archivedAt || found.agent.workspaceId !== identity.workspaceId)
       throw new ToolError("SESSION_MISMATCH", "The dispatcher session is unavailable, archived, or in another workspace.");
-    return { agentId: identity.agentId };
+    return { agentId: identity.agentId, groupId: own.groupId };
   }
 
-  /** The dispatcher acting on one live project (§4). */
+  /** The dispatcher acting on one live project of its group (§4); a project of another group is refused. */
   async projectCaller(identity: DispatcherIdentity, projectId: string, write = false): Promise<CardCaller> {
-    const { agentId } = await this.caller(identity);
+    const { agentId, groupId } = await this.caller(identity);
+    // Read now, so a project that moved to another group since the last call is refused too.
+    const project = (await this.store.read()).projects.find((p) => p.id === projectId);
+    if (project && project.groupId !== groupId)
+      throw new ToolError("PROJECT_OUT_OF_GROUP", "This project belongs to another board group; its own dispatcher handles it. Tell the user.");
     return this.cards.dispatcherCaller(projectId, agentId, write);
   }
 
+  /** The live projects of the dispatcher's group (§5). */
   async listProjects(identity: DispatcherIdentity) {
-    await this.caller(identity);
+    const { groupId } = await this.caller(identity);
     const board = await this.store.read();
     const projects = await Promise.all(
       board.projects
-        .filter((p) => !p.archivedAt)
+        .filter((p) => !p.archivedAt && p.groupId === groupId)
         .map(async (p) => ({
           projectId: p.id,
           title: p.title,
           rootAvailable: await rootAvailable(p.primaryPath),
-          openCards: board.tasks.filter((t) => t.projectId === p.id && !t.archivedAt && !finished(t.status)).length,
+          openCards: board.tasks.filter((t) => t.projectId === p.id && isOpenCard(t)).length,
         })),
     );
     return { projects };
@@ -286,6 +350,78 @@ export class DispatcherTools {
   }
 
   /**
+   * A plain instruction to a card's session, steered and marked as the dispatcher's (DISPATCHER-SPEC §5.3). A write.
+   * Never answers anything: refused while the session waits on the user.
+   */
+  async messageCard(identity: DispatcherIdentity, raw: unknown) {
+    const input = dispatcherInputs.messageCard.parse(raw);
+    const caller = await this.projectCaller(identity, input.projectId, true);
+    const board = await this.store.read();
+    const task = board.tasks.find((t) => t.id === input.taskId && t.projectId === caller.projectId);
+    if (!task || task.archivedAt) throw new ToolError("CARD_NOT_FOUND", `No live card ${input.taskId} in this project. Use ids from flowly_list_cards.`);
+    const paseo = this.cards.api();
+    // The card's sessions are the live ones in its workspace; Flowly's own helper runs are not.
+    const live: PaseoAgent[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await paseo.agents.list({ filter: { includeArchived: false }, page: { limit: 200, cursor } });
+      for (const { agent } of page.entries)
+        if (agent.workspaceId === task.workspaceId && !agent.archivedAt && !isSummarizer(agent)) live.push(agent);
+      cursor = page.pageInfo.nextCursor ?? undefined;
+    } while (cursor);
+    let target: PaseoAgent | undefined;
+    if (input.sessionId) {
+      target = live.find((a) => a.id === input.sessionId);
+      if (!target) throw new ToolError("SESSION_NOT_FOUND", `No live session ${input.sessionId} on this card.${this.sessionList(live)}`);
+    } else if (!live.length) {
+      throw new ToolError("NO_LIVE_SESSION", "The card has no live session. Start one with flowly_start_card, or tell the user.");
+    } else if (live.length === 1) {
+      target = live[0];
+    } else {
+      // Several sessions: the default is the one that is working now, when exactly one is.
+      const working = live.filter((a) => a.status === "running" || a.status === "initializing");
+      if (working.length !== 1)
+        throw new ToolError("SESSION_AMBIGUOUS", `The card has ${live.length} live sessions and none is the only running one. Pass sessionId.${this.sessionList(live)}`);
+      target = working[0];
+    }
+    // Never sidestep a request: a pending permission or question, or an open question or blocker report, is the user's.
+    const events = board.events.filter((e) => e.taskId === task.id);
+    if (pendingRequests(target).length || openReport(events, target.id, "question") || openReport(events, target.id, "blocker"))
+      throw new ToolError(
+        "SESSION_WAITING_ON_USER",
+        "This card's session waits on the user (a permission request, a question or a blocker). Only the user answers it; tell them which card is waiting.",
+      );
+    const release = this.reserveMessage(caller.agentId);
+    try {
+      // Steered, like the dock's chat: a send without it interrupts a turn and answers pending permissions (§5.3).
+      await paseo.agents.ref(target.id).send(dispatcherMessagePrefix + input.text, userSendOptions);
+    } catch (e) {
+      release();
+      throw new ToolError("SEND_FAILED", `Paseo could not deliver the message: ${e instanceof Error ? e.message : String(e)}`, true);
+    }
+    return { sent: true as const, sessionId: target.id };
+  }
+
+  private sessionList(live: readonly PaseoAgent[]) {
+    return live.length ? ` Live sessions: ${live.map((a) => `${a.id} (${a.status})`).join(", ")}.` : "";
+  }
+
+  /** Takes one of the dispatcher session's hourly message slots, or MESSAGE_LIMIT (§5.3). */
+  private reserveMessage(agentId: string) {
+    const now = this.clock();
+    const recent = (this.messageSlots.get(agentId) ?? []).filter((at) => now - at < hour);
+    if (recent.length >= dispatcherMessagesPerHour)
+      throw new ToolError("MESSAGE_LIMIT", `This dispatcher already messaged cards ${dispatcherMessagesPerHour} times in the last hour. Stop and ask the user.`);
+    this.messageSlots.set(agentId, [...recent, now]);
+    return () => {
+      const list = [...(this.messageSlots.get(agentId) ?? [])];
+      const at = list.lastIndexOf(now);
+      if (at >= 0) list.splice(at, 1);
+      this.messageSlots.set(agentId, list);
+    };
+  }
+
+  /**
    * Archives or unarchives one card of the project as the board's Archive does (DISPATCHER-SPEC §5): only the card,
    * never its sessions or workspace, and never a delete. A write: the agent-cards switch applies.
    */
@@ -319,18 +455,12 @@ export class DispatcherTools {
    */
   async createProject(identity: DispatcherIdentity, raw: unknown) {
     const input = dispatcherInputs.createProject.parse(raw);
-    const { agentId } = await this.caller(identity);
+    const { agentId, groupId } = await this.caller(identity);
     await this.cards.enabled();
     const create = this.createProjectWith;
     if (!create) throw new ToolError("PASEO_UNAVAILABLE", "Flowly is still starting; try again in a moment.", true);
     const paseo = this.cards.api();
-    // The user's confirmation is the provider's permission prompt: refuse in a mode that never shows it (ruling A).
-    const mode = (await paseo.agents.ref(agentId).refresh())?.agent?.currentModeId ?? null;
-    if (!mode || !promptingModes.includes(mode))
-      throw new ToolError(
-        "CONFIRMATION_UNAVAILABLE",
-        `${mode ? `The dispatcher runs in the "${mode}" permission mode` : "The dispatcher's permission mode is unknown"}, so the user may not be asked to confirm a project. Tell the user to switch the dispatcher to a mode that asks (Default, Accept edits or Plan) and try again.`,
-      );
+    await this.assertPrompting(paseo, agentId, "a project");
     const release = this.reserveProject(agentId);
     try {
       const path = input.path === "~" ? homedir() : input.path;
@@ -340,7 +470,8 @@ export class DispatcherTools {
         await this.checkReserved(root);
         // The folder's name is the default title; a name with nothing but spaces (or "/") falls back to "Project".
         const title = input.title ?? (basename(root).trim().slice(0, 120).trim() || "Project");
-        project = await create(projectInput.parse({ title, description: input.description ?? "", primaryPath: root }), paseo);
+        // It joins the dispatcher's group (§5.2).
+        project = await create(projectInput.parse({ title, description: input.description ?? "", primaryPath: root, groupId }), paseo);
       } catch (e) {
         if (e instanceof ToolError) throw e;
         const message = e instanceof z.ZodError ? e.issues.map((i) => i.message).join("; ") : e instanceof Error ? e.message : String(e);
@@ -368,23 +499,88 @@ export class DispatcherTools {
 
   /** Takes one of the dispatcher session's hourly project slots, or PROJECT_LIMIT (§5.2). */
   private reserveProject(agentId: string) {
+    return this.takeSlot(this.projectSlots, agentId, dispatcherProjectsPerHour, "PROJECT_LIMIT", (n) =>
+      `This dispatcher already created ${n} projects in the last hour. Stop and ask the user before creating more.`,
+    );
+  }
+
+  /** Takes one of the dispatcher session's hourly group slots, or GROUP_LIMIT (DISPATCHER-SPEC §5.2). */
+  private reserveGroup(agentId: string) {
+    return this.takeSlot(this.groupSlots, agentId, dispatcherGroupCallsPerHour, "GROUP_LIMIT", (n) =>
+      `This dispatcher already changed board groups ${n} times in the last hour. Stop and ask the user before changing more.`,
+    );
+  }
+
+  /** A slot of an hourly bucket: taken now, or refused with `code`; the returned function gives it back (a refusal does). */
+  private takeSlot(slots: Map<string, number[]>, agentId: string, limit: number, code: string, message: (limit: number) => string) {
     const now = this.clock();
-    const recent = (this.projectSlots.get(agentId) ?? []).filter((at) => now - at < hour);
-    if (recent.length >= dispatcherProjectsPerHour)
-      throw new ToolError(
-        "PROJECT_LIMIT",
-        `This dispatcher already created ${dispatcherProjectsPerHour} projects in the last hour. Stop and ask the user before creating more.`,
-      );
-    this.projectSlots.set(agentId, [...recent, now]);
+    const recent = (slots.get(agentId) ?? []).filter((at) => now - at < hour);
+    if (recent.length >= limit) throw new ToolError(code, message(limit));
+    slots.set(agentId, [...recent, now]);
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      const list = [...(this.projectSlots.get(agentId) ?? [])];
+      const list = [...(slots.get(agentId) ?? [])];
       const at = list.lastIndexOf(now);
       if (at >= 0) list.splice(at, 1);
-      this.projectSlots.set(agentId, list);
+      slots.set(agentId, list);
     };
+  }
+
+  /**
+   * The user's confirmation is the provider's permission prompt: refuse in a mode that never shows it (ruling A, §5.2).
+   * `what` names the thing the user is asked to confirm, in CONFIRMATION_UNAVAILABLE's message.
+   */
+  private async assertPrompting(paseo: PaseoApi, agentId: string, what: string) {
+    const mode = (await paseo.agents.ref(agentId).refresh())?.agent?.currentModeId ?? null;
+    if (!mode || !promptingModes.includes(mode))
+      throw new ToolError(
+        "CONFIRMATION_UNAVAILABLE",
+        `${mode ? `The dispatcher runs in the "${mode}" permission mode` : "The dispatcher's permission mode is unknown"}, so the user may not be asked to confirm ${what}. Tell the user to switch the dispatcher to a mode that asks (Default, Accept edits or Plan) and try again.`,
+      );
+  }
+
+  /**
+   * flowly_manage_groups (DISPATCHER-SPEC §0, §5.2): create, rename, set the members of, make default, or delete a board
+   * group, each confirmed by the user. The checks and their order are flowly_create_project's; a refusal gives its slot back.
+   */
+  async manageGroups(identity: DispatcherIdentity, raw: unknown) {
+    const parsed = dispatcherInputs.manageGroups.parse(raw);
+    const input = manageGroupsInput.parse(parsed);
+    const { agentId, groupId: own } = await this.caller(identity);
+    await this.cards.enabled();
+    const writes = this.groupsWith;
+    if (!writes) throw new ToolError("PASEO_UNAVAILABLE", "Flowly is still starting; try again in a moment.", true);
+    const paseo = this.cards.api();
+    await this.assertPrompting(paseo, agentId, "a board group change");
+    const release = this.reserveGroup(agentId);
+    try {
+      if (input.action === "create") {
+        const group = await writes.create({ name: input.name });
+        return { action: input.action, groupId: group.id, name: group.name, revision: group.revision };
+      }
+      if (input.action === "delete" && input.groupId === own)
+        throw new ToolError("GROUP_PROTECTED", "This dispatcher's own group can't be deleted. Tell the user to delete it in Flowly.");
+      if (input.action === "rename") {
+        const group = await writes.update({ id: input.groupId, revision: input.revision, name: input.name });
+        return { action: input.action, groupId: group.id, name: group.name, revision: group.revision };
+      }
+      if (input.action === "set_default") {
+        const group = await writes.update({ id: input.groupId, revision: input.revision, isDefault: true });
+        return { action: input.action, groupId: group.id, name: group.name, revision: group.revision };
+      }
+      if (input.action === "set_members") {
+        const group = await writes.setMembers({ groupId: input.groupId, revision: input.revision, projectIds: input.projectIds });
+        return { action: input.action, groupId: group.id, name: group.name, revision: group.revision };
+      }
+      const deleted = await writes.delete(paseo, { id: input.groupId, revision: input.revision });
+      return { action: input.action, groupId: deleted.id, movedTo: deleted.movedTo, projectIds: deleted.projectIds };
+    } catch (e) {
+      // A refused call gives its slot back: only calls that changed the board count.
+      release();
+      throw e;
+    }
   }
 
   /** Registers the dispatcher tools on a dispatcher credential's MCP server; nothing else is registered there. */
@@ -403,7 +599,7 @@ export class DispatcherTools {
     mcp.registerTool(
       "flowly_list_projects",
       {
-        description: "List the live Flowly projects with their projectId, whether their folder is available, and how many open cards they have. Read-only.",
+        description: "List the live Flowly projects of your board group with their projectId, whether their folder is available, and how many open cards they have. Read-only.",
         inputSchema: z.strictObject({}),
         outputSchema: listProjectsResultSchema,
         annotations: read,
@@ -513,6 +709,16 @@ export class DispatcherTools {
       (raw) => toolResult(() => this.updateIdea(identity, raw)),
     );
     mcp.registerTool(
+      "flowly_message_card",
+      {
+        description: `Send a plain instruction to a card's session (for example "integrate" or "finish up"), steered into its running turn. Use only for what the user asked or their standing requests cover. Flowly marks it as coming from the dispatcher. It never answers anything: SESSION_WAITING_ON_USER means the session has a pending permission, question or blocker that only the user answers. Default session: the card's only live one, or its only running one; SESSION_AMBIGUOUS lists them, pass sessionId. NO_LIVE_SESSION, SESSION_NOT_FOUND, SEND_FAILED. At most ${dispatcherMessagesPerHour} per hour (MESSAGE_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
+        inputSchema: dispatcherInputs.messageCard,
+        outputSchema: messageResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      },
+      (raw) => toolResult(() => this.messageCard(identity, raw)),
+    );
+    mcp.registerTool(
       "flowly_archive_card",
       {
         description:
@@ -534,6 +740,18 @@ export class DispatcherTools {
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },
       (raw) => toolResult(() => this.createProject(identity, raw)),
+    );
+    // Not preapproved either (dispatcherConfirmedToolNames, DISPATCHER-SPEC §5.2): each call asks the user to confirm it.
+    mcp.registerTool(
+      "flowly_manage_groups",
+      {
+        description:
+          `Create, rename, set the member projects of, make the default, or delete a board group (a group of projects on the board; each has its own dispatcher). Use only when the user asks. Each call asks the user to confirm it. Actions: create (name); rename (groupId, revision, name); set_members (groupId, revision, projectIds: the group's whole new list; a current member left out goes to the default group, and the default group only adds); set_default (groupId, revision); delete (groupId, revision: its projects move to the default group). Returns the group's new revision, or for delete the movedTo group and projectIds. Refusals: GROUP_PROTECTED (your own group can't be deleted), DEFAULT_REQUIRED (the default group can't be deleted, or a member left out of it), GROUP_BUSY (the group has a live dispatcher; the user deletes it in Flowly), GROUP_NOT_FOUND, NOT_FOUND (a project id), REVISION_CONFLICT (re-read the board and retry), NAME_TAKEN, PROJECT_ARCHIVED. CONFIRMATION_UNAVAILABLE: your permission mode would not ask the user; tell them to switch it. GROUP_LIMIT: at most ${dispatcherGroupCallsPerHour} per hour. AGENT_CARDS_DISABLED: the user turned this off.`,
+        inputSchema: dispatcherInputs.manageGroups,
+        outputSchema: manageGroupsResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      },
+      (raw) => toolResult(() => this.manageGroups(identity, raw)),
     );
   }
 }

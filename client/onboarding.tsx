@@ -430,7 +430,7 @@ function MoreFeatures() {
     { icon: "Ticket", title: t("Tickets, docs and PRs as inputs"), text: t("Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, Linear issue, or Shortcut story or epic, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.") },
     { icon: "Columns3", title: t("Linear board"), text: t("With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens Quick task with the issue attached: press Enter to start the agent.") },
     { icon: "GitPullRequest", title: t("Delivery mode"), text: t("Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.") },
-    { icon: "Layers", title: t("Board groups"), text: t("Group projects in Settings → Workflow and open each group from the project switcher as its own board: like All projects, for just those projects.") },
+    { icon: "Layers", title: t("Board groups"), text: t("Projects sit in boards. Each group has its own tab, dispatcher and defaults; add a group from the project switcher.") },
     { icon: "Bot", title: t("Dispatcher"), text: t("One agent for all your projects, in a chat next to the board. It hears when cards stop, makes and starts cards for what you ask, and tells you what needs you.") },
     { icon: "BookMarked", title: t("Memory"), text: t("Agents remember the project's decisions, pitfalls and conventions; new sessions see them. Open Memory to pin, edit or archive them.") },
     { icon: "Search", title: t("Search"), text: t("Search past cards, summaries, notes and deliverables.") },
@@ -798,12 +798,16 @@ export function GuideBanner({
   text,
   actionLabel,
   onAction,
+  secondaryLabel,
+  onSecondary,
   dismissLabel,
   onDismiss,
 }: {
   text: string;
   actionLabel?: string;
   onAction?(): void;
+  secondaryLabel?: string;
+  onSecondary?(): void;
   dismissLabel?: string;
   onDismiss?(): void;
 }) {
@@ -832,6 +836,11 @@ export function GuideBanner({
       {!!actionLabel && onAction && (
         <Button small primary onPress={onAction}>
           {actionLabel}
+        </Button>
+      )}
+      {!!secondaryLabel && onSecondary && (
+        <Button small quiet onPress={onSecondary}>
+          {secondaryLabel}
         </Button>
       )}
       {!!dismissLabel && onDismiss && (

@@ -666,3 +666,21 @@ test("the user's Start again counts a closed session as the card's, as a running
   expect(x.createdSessions.map((s) => s.workspaceId)).toEqual(["ws-c", "ws-c"]);
   expect(x.archived).toEqual([]);
 });
+
+test("a group's default model is used when the project has none, and the project's still wins (board groups spec §5)", async () => {
+  const x = await setup();
+  await x.store.mutate((board) => {
+    delete board.projects[0].agentModel;
+    board.groups = [{ id: "g", name: "G", position: 0, revision: 1, createdAt: "2026-11-10T00:00:00.000Z", updatedAt: "2026-11-10T00:00:00.000Z", isDefault: true, defaults: { agentModel: { provider: "codex", model: "gpt-6", mode: "full-access" } } }];
+    board.projects[0].groupId = "g";
+  });
+  await x.card("g1", { ownsWorkspace: true }, "worktree");
+  await x.starter.start(x.caller, { taskId: "g1", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[0].config).toMatchObject({ provider: "codex/gpt-6", modeId: "full-access" });
+  await x.store.mutate((board) => {
+    board.projects[0].agentModel = { provider: "claude", model: "claude-opus-5-5", mode: "plan" };
+  });
+  await x.card("g2", { ownsWorkspace: true }, "worktree");
+  await x.starter.start(x.caller, { taskId: "g2", idempotencyKey: "go2" }, x.paseo);
+  expect(x.createdSessions[1].config).toMatchObject({ provider: "claude/claude-opus-5-5", modeId: "plan" });
+});

@@ -38,7 +38,6 @@ import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults"
 import { dispatcherDefaultModel, dispatcherProviderSupported } from "../shared/dispatcher";
 import { deviceLocale, formatLocale, getLocale, locales, msg, t, tn } from "../shared/i18n";
 import { hideFinishedChoices } from "./finished-cards";
-import { BoardGroupsGroup } from "./board-groups-settings";
 import type { Project } from "../shared/model";
 import { deliveryModeLabels, deliveryModes, type DeliveryMode } from "../shared/delivery-mode";
 import { useBoardView } from "./board-view";
@@ -205,6 +204,7 @@ export function ModelsPage({ active }: { active: boolean }) {
       <Problem text={models.problem} />
       <ModelDefaultGroup
         title={t("Default model")}
+        description={t("Groups and projects can override it.")}
         value={current}
         disabled={models.busy}
         noneLabel={t("Automatic")}
@@ -213,6 +213,7 @@ export function ModelsPage({ active }: { active: boolean }) {
       />
       <ModelDefaultGroup
         title={t("Dispatcher model")}
+        description={t("Groups can override it.")}
         value={models.values?.dispatcherModel ?? null}
         disabled={models.busy}
         noneLabel={t("Default")}
@@ -351,7 +352,7 @@ export function SummaryModelGroup({ active, bare = false, extra }: { active: boo
 }
 
 /** Workflow: when cards move by themselves and what happens when they finish. */
-export function WorkflowPage({ projects }: { projects: readonly Project[] }) {
+export function WorkflowPage() {
   const status = useStored(useSettings(statusSettings), statusSettingsValues);
   const wrapup = useStored(useSettings(wrapupSettings), wrapupSettingsValues);
   const view = useStored(useSettings(boardViewSettings), boardViewValues);
@@ -367,12 +368,6 @@ export function WorkflowPage({ projects }: { projects: readonly Project[] }) {
       <Problem text={status.problem || wrapup.problem || view.problem || prReview.problem || delivery.problem} />
       <SettingsGroup title={t("Board")}>
         <SettingSwitch
-          title={t("Show All projects tab")}
-          value={view.values?.allProjectsTab ?? true}
-          disabled={view.busy}
-          onChange={(allProjectsTab) => view.save({ allProjectsTab })}
-        />
-        <SettingSwitch
           title={t("Make cards for PR review agents")}
           value={prReview.values?.prReviewCards ?? true}
           disabled={prReview.busy}
@@ -385,7 +380,6 @@ export function WorkflowPage({ projects }: { projects: readonly Project[] }) {
           onChange={(archiveOnClose) => prReview.save({ archiveOnClose })}
         />
       </SettingsGroup>
-      <BoardGroupsGroup projects={projects} />
       <SettingsGroup title={t("Moving cards")}>
         <SettingSwitch
           title={t("Auto-update status from sessions")}
@@ -397,6 +391,7 @@ export function WorkflowPage({ projects }: { projects: readonly Project[] }) {
       <SettingsGroup title={t("Finishing cards")}>
         <SettingSelect
           title={t("Delivery mode")}
+          detail={t("Groups and projects can override it.")}
           value={delivery.values?.defaultMode ?? "branch"}
           placeholder={t(deliveryModeLabels[delivery.values?.defaultMode ?? "branch"])}
           disabled={delivery.busy}

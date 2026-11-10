@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { switchLimits, type Board, type Project, type Task } from "../shared/model";
+import { groupOfProject } from "../shared/groups";
 import { effectiveAgentModel, providerBase, startingAgent, suggestedMode, type AgentModel } from "../shared/agent-defaults";
 import { lastSessionSettings } from "../shared/attention";
 import { itemTypeOf } from "../shared/connectors";
@@ -251,7 +252,7 @@ export class CardStarter {
 
   /** The New task defaults: project model, else global, else the project's latest session (§5). */
   private async model(project: Project, board: Board, paseo: PaseoApi) {
-    const chosen = effectiveAgentModel(project, await this.modelDefault().catch(() => null))?.model ?? null;
+    const chosen = effectiveAgentModel(project, groupOfProject(board, project), await this.modelDefault().catch(() => null))?.model ?? null;
     let last: ReturnType<typeof lastSessionSettings> = null;
     if (!chosen?.mode) {
       const agents: Parameters<typeof lastSessionSettings>[0][number][] = [];

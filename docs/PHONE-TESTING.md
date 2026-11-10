@@ -34,3 +34,8 @@ Cold start; open Flowly; switch to a long lane and expand "older"; scroll it (sw
 - Another session writing to the board (including this card's own agent) causes board changes while you measure; note it.
 - The host's own data must not be written to prove a point (for example adding events to a card): use an offline round trip on a copy instead.
 - Single short runs are indicative only; repeat and separate LAN from relay before claiming a number.
+
+## Board groups switcher and tabs (task 7, 2026-11-10)
+
+- Not run. No `adb` binary is installed on this machine and the AndroMeld phone tools were not available in the card session, so the switcher and group-tab pass on the Samsung SM-S911B is unrun.
+- To run it: check `adb devices`, open the switcher from the board, and look at the group rows, Add group, and the group tabs with a screenshot before each tap. Expect the board to open on the last group viewed, with no All projects row. Keep the host picker and any system prompt out of it.

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { dispatcherDefaultModel } from "./dispatcher";
 
 /** A provider + model (+ optional reasoning effort) a new session starts with (MODEL-DEFAULTS-SPEC). */
 export const agentModelSchema = z.strictObject({
@@ -11,19 +12,34 @@ export const agentModelSchema = z.strictObject({
 });
 export type AgentModel = z.infer<typeof agentModelSchema>;
 
-/** Where a model default comes from, strongest first: the project's, then the global one. */
-export type AgentModelSource = "project" | "global";
+/** Where a model default comes from, strongest first: the project's, the group's, then the global one. */
+export type AgentModelSource = "project" | "group" | "global";
 
 type WithAgentModel = { agentModel?: AgentModel | null } | null | undefined;
 
-/** The model new sessions in `project` start with: the project's own default wins over the global one; none means "follow the latest session". */
-export function effectiveAgentModel(project: WithAgentModel, global: AgentModel | null | undefined): { model: AgentModel; source: AgentModelSource } | null {
+type WithGroupDefaults = { defaults?: { agentModel?: AgentModel | null } | null } | null | undefined;
+
+/** The model new sessions in `project` start with: the project's own default, then its group's, then the global one; none means "follow the latest session". */
+export function effectiveAgentModel(project: WithAgentModel, group: WithGroupDefaults, global: AgentModel | null | undefined): { model: AgentModel; source: AgentModelSource } | null {
   if (project?.agentModel) return { model: project.agentModel, source: "project" };
+  if (group?.defaults?.agentModel) return { model: group.defaults.agentModel, source: "group" };
   if (global) return { model: global, source: "global" };
   return null;
 }
 
-type LastSession = { provider: string; model: string; mode: string; thinking?: string; speed?: string } | null | undefined;
+/**
+ * The model a group's dispatcher starts with when Start passes none (DISPATCHER-SPEC §0, §3): the group's
+ * `defaults.dispatcherModel`, else the host's Dispatcher model setting (`models.dispatcherModel`), else the server
+ * default. Both stored values are `agentModelSchema` values; an absent or null one inherits.
+ */
+export function effectiveDispatcherModel(
+  group: { defaults?: { dispatcherModel?: AgentModel | null } | null } | null | undefined,
+  host: AgentModel | null | undefined,
+): AgentModel {
+  return group?.defaults?.dispatcherModel ?? host ?? { ...dispatcherDefaultModel };
+}
+
+type LastSession ={ provider: string; model: string; mode: string; thinking?: string; speed?: string } | null | undefined;
 
 /**
  * Starting point of the session form: the chosen default replaces provider,

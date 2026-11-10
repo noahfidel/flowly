@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
@@ -83,4 +83,58 @@ test("the plugin entry gives flowly_create_project the projects.create RPC's own
   expect(services).toHaveLength(2);
   expect(services[1]).toBe(services[0]);
   expect(detect.mock.calls.map(([id]) => id)).toEqual(["made-1", "made-2"]);
+});
+
+test("the plugin entry migrates board groups first and serves the group RPCs with coded refusals (BOARD-GROUPS-SPEC §2, §7)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "flowly-entry-"));
+  const env = { FLOWLY_DATA_DIR: process.env.FLOWLY_DATA_DIR, PASEO_HOME: process.env.PASEO_HOME };
+  process.env.FLOWLY_DATA_DIR = join(root, "data");
+  process.env.PASEO_HOME = join(root, "home");
+  cleanups.push(async () => {
+    for (const [key, value] of Object.entries(env)) if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+  });
+  const { host, handlers } = fakeHost();
+  const dispose = contribute(host);
+  cleanups.push(() => dispose());
+  const call = (name: string, input: unknown) => handlers.get(name)!(input, { paseo: {} as PaseoApi }) as Promise<{ id: string; revision: number }>;
+  for (const name of ["groups.create", "groups.update", "groups.move", "groups.delete", "projects.set-group"]) expect(handlers.has(name), name).toBe(true);
+  // The empty board's first group is its default, which can't be deleted; the code crosses the RPC as a prefix.
+  const first = await call("groups.create", { name: "First" });
+  await expect(call("groups.delete", { id: first.id, revision: first.revision })).rejects.toThrow(/^DEFAULT_REQUIRED: /);
+  await expect(call("groups.create", { name: "first" })).rejects.toThrow(/^NAME_TAKEN: /);
+});
+
+test("groups.delete through the plugin entry archives the group's dispatcher session first (DISPATCHER-SPEC §0)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "flowly-entry-"));
+  const env = { FLOWLY_DATA_DIR: process.env.FLOWLY_DATA_DIR, PASEO_HOME: process.env.PASEO_HOME };
+  process.env.FLOWLY_DATA_DIR = join(root, "data");
+  process.env.PASEO_HOME = join(root, "home");
+  cleanups.push(async () => {
+    for (const [key, value] of Object.entries(env)) if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+  });
+  // A stored v1 dispatcher session.
+  await mkdir(join(root, "data"), { recursive: true });
+  await writeFile(join(root, "data", "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "ws", agentId: "dispatcher-1", startedAt: "2026-11-10T10:00:00.000Z" }));
+  const { host, handlers } = fakeHost();
+  const dispose = contribute(host);
+  cleanups.push(() => dispose());
+  const archived: string[] = [];
+  const paseo = {
+    agents: { ref: (id: string) => ({ refresh: async () => ({ agent: { status: "idle", archivedAt: null } }), archive: async () => void archived.push(id) }) },
+  } as unknown as PaseoApi;
+  const call = (name: string, input: unknown) => handlers.get(name)!(input, { paseo }) as Promise<{ id: string; revision: number }>;
+  // With no open cards anywhere, the first group in order gets the v1 session; make the other one the default.
+  const first = await call("groups.create", { name: "First" });
+  const second = await call("groups.create", { name: "Second" });
+  await call("groups.update", { id: second.id, revision: second.revision, isDefault: true });
+  const third = await call("groups.create", { name: "Third" });
+  // A group without a session: nothing is archived.
+  await expect(call("groups.delete", { id: third.id, revision: third.revision })).resolves.toMatchObject({ id: third.id, movedTo: second.id });
+  expect(archived).toEqual([]);
+  await expect(call("groups.delete", { id: first.id, revision: first.revision })).resolves.toMatchObject({ id: first.id, movedTo: second.id });
+  expect(archived).toEqual(["dispatcher-1"]);
 });

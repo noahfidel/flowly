@@ -11,10 +11,13 @@ export function cardBoard(board: Board, input: { taskId: string; workspaceId: st
   const ids = new Set([task.id, ...links.flatMap(l => [l.from, l.to])]);
   const tasks = board.tasks.filter(t => ids.has(t.id));
   const projects = new Set(tasks.map(t => t.projectId));
+  const kept = board.projects.filter(p => projects.has(p.id));
+  const groups = new Set(kept.map(p => p.groupId));
   return {
     ...board,
     tasks,
-    projects: board.projects.filter(p => projects.has(p.id)),
+    projects: kept,
+    groups: board.groups.filter(g => groups.has(g.id)),
     links,
     events: board.events.filter(e => e.taskId === task.id),
     ideas: board.ideas.filter(i => i.taskId === task.id),

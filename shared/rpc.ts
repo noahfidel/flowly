@@ -39,6 +39,12 @@ import {
   taskSchema,
   eventSchema,
   planSnapshotSchema,
+  groupSchema,
+  groupInput,
+  groupEdit,
+  groupMove,
+  groupRemoval,
+  projectGroupEdit,
 } from "./model";
 import { healthSchema, preparationSchema, projectIdeaInputSchema, startCardResultSchema } from "./tools";
 import { connectionInput, connectionSchema, externalSummarySchema, itemTypeSchema } from "./connectors";
@@ -66,6 +72,8 @@ import {
   askAnswerResultSchema,
   askDismissInputSchema,
   chatItemSchema,
+  dispatcherGroupId,
+  dispatcherGroupInputSchema,
   dispatcherStartInputSchema,
   dispatcherReplaceInputSchema,
   dispatcherSendInputSchema,
@@ -137,6 +145,7 @@ export const boardPatchSchema = z.object({
   artifacts: collectionPatch(artifactSchema),
   workpads: collectionPatch(workpadSchema),
   attentionDismissals: collectionPatch(attentionDismissalSchema),
+  groups: collectionPatch(groupSchema),
 });
 export const readBoardChanged = defineRpc({
   name: "board.read-changed",
@@ -160,6 +169,37 @@ export const readCardBoard = defineRpc({
 export const createProject = defineRpc({
   name: "projects.create",
   input: projectInput,
+  output: projectSchema,
+});
+/**
+ * Board groups (BOARD-GROUPS-SPEC §2). Refusals carry a code (`CODE: message`): REVISION_CONFLICT, NAME_TAKEN, GROUPS_FULL,
+ * DEFAULT_REQUIRED, GROUP_NOT_FOUND, GROUPS_UNAVAILABLE; `groups.delete` also DISPATCHER_RUNNING, DELETE_FAILED and
+ * DISPATCHER_UNAVAILABLE (it archives the group's dispatcher session first, DISPATCHER-SPEC §0).
+ */
+export const createGroup = defineRpc({
+  name: "groups.create",
+  input: groupInput,
+  output: groupSchema,
+});
+export const updateGroup = defineRpc({
+  name: "groups.update",
+  input: groupEdit,
+  output: groupSchema,
+});
+export const moveGroup = defineRpc({
+  name: "groups.move",
+  input: groupMove,
+  output: z.array(z.string()),
+});
+export const deleteGroup = defineRpc({
+  name: "groups.delete",
+  input: groupRemoval,
+  /** The default group the deleted group's projects moved to. */
+  output: z.object({ id: z.string(), movedTo: z.string(), projectIds: z.array(z.string()) }),
+});
+export const setProjectGroup = defineRpc({
+  name: "projects.set-group",
+  input: projectGroupEdit,
   output: projectSchema,
 });
 export const createLinkedProject = defineRpc({
@@ -1024,7 +1064,7 @@ export const exportBoardMarkdown = defineRpc({
 });
 export const useSqliteStorage = defineRpc({ name: "storage.use-sqlite", input: z.strictObject({}), output: z.strictObject({}) });
 /** The dispatcher session's state (DISPATCHER-SPEC §3, §8). */
-export const dispatcherStatus = defineRpc({ name: "dispatcher.status", input: z.strictObject({}), output: dispatcherStatusSchema });
+export const dispatcherStatus = defineRpc({ name: "dispatcher.status", input: dispatcherGroupInputSchema, output: dispatcherStatusSchema });
 /** Starts a new dispatcher session; refused while one is up (DISPATCHER-SPEC §3, §8). */
 export const dispatcherStart = defineRpc({ name: "dispatcher.start", input: dispatcherStartInputSchema, output: dispatcherStartResultSchema });
 /** Replace an unguarded dispatcher: the user's confirmed click only; never a dispatcher tool (DISPATCHER-SPEC §3). */
@@ -1032,24 +1072,24 @@ export const dispatcherReplace = defineRpc({ name: "dispatcher.replace", input: 
 /** The chat's own items plus "Changed since you looked" (DISPATCHER-SPEC §9.1, §9.2). */
 export const dispatcherItemsChanged = defineRpc({
   name: "dispatcher.items-changed",
-  input: etagInput,
+  input: etagInput.extend({ groupId: dispatcherGroupId }),
   output: z.object({ etag: z.string(), value: z.array(chatItemSchema).optional() }),
 });
 /** The dispatcher's transcript: `sessions.tail` for the stored dispatcher session only (DISPATCHER-SPEC §9.3). */
-export const dispatcherTail = defineRpc({ name: "dispatcher.tail", input: sessionTail.input.omit({ taskId: true }), output: tailPageSchema });
+export const dispatcherTail = defineRpc({ name: "dispatcher.tail", input: sessionTail.input.omit({ taskId: true }).extend({ groupId: dispatcherGroupId }), output: tailPageSchema });
 /**
  * Mark seen: the change line counts from `revision` on, except the event `ids` seen at that very ms; never moves
  * back, clamped to the daemon's clock (DISPATCHER-SPEC §9.2).
  */
 export const dispatcherMarkSeen = defineRpc({
   name: "dispatcher.mark-seen",
-  input: z.strictObject({ revision: z.number().int().nonnegative(), ids: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional() }),
+  input: z.strictObject({ groupId: dispatcherGroupId, revision: z.number().int().nonnegative(), ids: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional() }),
   output: z.strictObject({ seenRevision: z.number().int().nonnegative() }),
 });
 /** The user's chat message to the dispatcher, sent by the daemon; refused for an unguarded one (DISPATCHER-SPEC §3, §9.3). */
 export const dispatcherSend = defineRpc({ name: "dispatcher.send", input: dispatcherSendInputSchema, output: z.strictObject({ sent: z.literal(true) }) });
 /** "What should I do?" with the changed cards, sent to the dispatcher (DISPATCHER-SPEC §9.2). */
-export const dispatcherWhatNext = defineRpc({ name: "dispatcher.what-next", input: z.strictObject({}), output: z.strictObject({ sent: z.literal(true) }) });
+export const dispatcherWhatNext = defineRpc({ name: "dispatcher.what-next", input: dispatcherGroupInputSchema, output: z.strictObject({ sent: z.literal(true) }) });
 /** Answers one ask from the chat, re-checked against its session; `delivered` only after the Paseo call resolved (DISPATCHER-SPEC §9.4). */
 export const asksAnswer = defineRpc({ name: "asks.answer", input: askAnswerInputSchema, output: askAnswerResultSchema });
 /** Dismisses one ask: its signal joins the card's dismissal set (ATTENTION-DISMISS-SPEC §7a). */

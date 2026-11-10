@@ -1,27 +1,25 @@
 import { describe, expect, test } from "vitest";
 import {
-  addGroup,
+  boardProject,
   boardScope,
-  deleteGroup,
+  defaultGroup,
+  focusFilter,
   groupMembers,
+  groupOfProject,
   groupOfView,
   groupQuickProject,
   groupViewId,
   isGroupView,
   membersFirst,
   mobileLane,
-  groupEditor,
-  renameGroup,
+  pickGroupView,
   staleGroupChoice,
-  toggleMember,
-  type BoardGroup,
+  validProjectFilter,
 } from "./board-groups";
-import { ALL_PROJECTS, allStatuses } from "./all-projects";
-import { pickView } from "./project-memory";
+import { allStatuses } from "./all-projects";
 import { needsCount, needsQueue, updatedQueue } from "./step-through";
-import { MAX_BOARD_GROUPS, MAX_GROUP_NAME, boardViewValues } from "../shared/settings";
 import type { AttentionItem } from "../shared/attention";
-import type { Project } from "../shared/model";
+import type { Group, Project } from "../shared/model";
 
 const project = (id: string, over: Partial<Project> = {}): Project =>
   ({
@@ -38,22 +36,24 @@ const project = (id: string, over: Partial<Project> = {}): Project =>
     ...over,
   }) as Project;
 
-const a = project("a", { position: 2 }),
-  b = project("b", { position: 0 }),
-  c = project("c", { position: 1 }),
-  old = project("old", { position: 3, archivedAt: "2026-11-02T00:00:00.000Z" });
-const projects = [a, b, c, old];
-const loadout: BoardGroup = { id: "g1", name: "Loadout", projectIds: ["a", "b", "deleted", "old"] };
-const zen: BoardGroup = { id: "g2", name: "Zenlytic", projectIds: ["c", "a"] };
-const empty: BoardGroup = { id: "g3", name: "Empty", projectIds: [] };
+const group = (id: string, position: number, over: Partial<Group> = {}): Group =>
+  ({ id, name: id, position, revision: 1, createdAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z", ...over }) as Group;
+const loadout = group("g1", 0, { isDefault: true }), zen = group("g2", 1), empty = group("g3", 2);
+const groups = [loadout, zen, empty];
+
+const a = project("a", { position: 2, groupId: "g1" }),
+  b = project("b", { position: 0, groupId: "g1" }),
+  c = project("c", { position: 1, groupId: "g2" }),
+  old = project("old", { position: 3, groupId: "g1", archivedAt: "2026-11-02T00:00:00.000Z" }),
+  loose = project("loose", { position: 4 });
+const projects = [a, b, c, old, loose];
 
 describe("group view ids", () => {
-  test("a group's view id never collides with All or a project id and maps back to the group", () => {
+  test("a group's view id never collides with a project id and maps back to the group", () => {
     const id = groupViewId("g1");
-    expect(id).not.toBe(ALL_PROJECTS);
     expect(isGroupView(id)).toBe(true);
     expect(isGroupView("a")).toBe(false);
-    expect(isGroupView(ALL_PROJECTS)).toBe(false);
+    expect(isGroupView("*all")).toBe(false);
     expect(groupOfView([loadout, zen], id)).toBe(loadout);
     expect(groupOfView([loadout, zen], groupViewId("nope"))).toBeUndefined();
     expect(groupOfView([loadout], "a")).toBeUndefined();
@@ -61,25 +61,41 @@ describe("group view ids", () => {
 });
 
 describe("members", () => {
-  test("live members in chooser order; deleted and archived projects drop out silently", () => {
+  test("live members by groupId in chooser order; archived projects drop out", () => {
     expect(groupMembers(loadout, projects).map((p) => p.id)).toEqual(["b", "a"]);
-    expect(groupMembers(zen, projects).map((p) => p.id)).toEqual(["c", "a"]);
+    expect(groupMembers(zen, projects).map((p) => p.id)).toEqual(["c"]);
     expect(groupMembers(empty, projects)).toEqual([]);
   });
-  test("a group's columns are its members' enabled lanes", () => {
+  test("a project with no group is in none until it is assigned", () => {
+    expect(groupMembers(loadout, [loose])).toEqual([]);
+  });
+  test("an empty group has no columns", () => {
     expect(allStatuses(groupMembers(empty, projects))).toEqual([]);
   });
 });
 
+describe("group of a project", () => {
+  test("its own group, archived projects included", () => {
+    expect(groupOfProject(groups, projects, "c")).toBe(zen);
+    expect(groupOfProject(groups, projects, "old")).toBe(loadout);
+  });
+  test("an ungrouped, unknown-group or unknown project falls to the default group", () => {
+    expect(groupOfProject(groups, projects, "loose")).toBe(loadout);
+    expect(groupOfProject(groups, [project("x", { groupId: "gone" })], "x")).toBe(loadout);
+    expect(groupOfProject(groups, projects, "nope")).toBe(loadout);
+  });
+  test("the default group is the flagged one, else the first by position", () => {
+    expect(defaultGroup([zen, loadout])).toBe(loadout);
+    expect(defaultGroup([group("y", 5), group("x", 2)])?.id).toBe("x");
+    expect(defaultGroup([])).toBeUndefined();
+  });
+});
+
 describe("scope predicate", () => {
-  test("All covers every project, a group only its members, a project only itself", () => {
-    const all = boardScope({ kind: "all" });
-    const group = boardScope({ kind: "group", projectIds: groupMembers(loadout, projects).map((p) => p.id) });
-    const one = boardScope({ kind: "project", projectId: "c" });
-    expect(["a", "b", "c", "x"].map(all)).toEqual([true, true, true, true]);
-    expect(["a", "b", "c", "deleted", "old"].map(group)).toEqual([true, true, false, false, false]);
-    expect(["a", "c"].map(one)).toEqual([false, true]);
-    expect(boardScope({ kind: "group", projectIds: [] })("a")).toBe(false);
+  test("a group covers only its members; an empty group covers nothing", () => {
+    const scope = boardScope(groupMembers(loadout, projects).map((p) => p.id));
+    expect(["a", "b", "c", "old", "x"].map(scope)).toEqual([true, true, false, false, false]);
+    expect(boardScope([])("a")).toBe(false);
   });
 
   const item = (taskId: string, projectId: string, kind: string, updatedAt: string) =>
@@ -94,36 +110,62 @@ describe("scope predicate", () => {
     item("b1", "b", "unread", "2026-11-10T03:00:00.000Z"),
   ];
   test("need-you and updated queues and counts cover only the group", () => {
-    const loadoutScope = boardScope({ kind: "group", projectIds: groupMembers(loadout, projects).map((p) => p.id) });
-    const zenScope = boardScope({ kind: "group", projectIds: groupMembers(zen, projects).map((p) => p.id) });
+    const loadoutScope = boardScope(groupMembers(loadout, projects).map((p) => p.id));
+    const zenScope = boardScope(groupMembers(zen, projects).map((p) => p.id));
     const none = new Set<string>();
     expect(needsQueue(items, none, loadoutScope)).toEqual(["a1"]);
     expect(needsCount(items, none, loadoutScope)).toBe(1);
-    expect(needsQueue(items, none, zenScope)).toEqual(["c1", "a1"]);
-    expect(needsCount(items, none, zenScope)).toBe(2);
+    expect(needsQueue(items, none, zenScope)).toEqual(["c1"]);
+    expect(needsCount(items, none, zenScope)).toBe(1);
     expect(updatedQueue(null, items, none, loadoutScope)).toEqual(["b1"]);
     expect(updatedQueue(null, items, none, zenScope)).toEqual([]);
-    const emptyScope = boardScope({ kind: "group", projectIds: [] });
+    const emptyScope = boardScope([]);
     expect(needsCount(items, none, emptyScope)).toBe(0);
   });
 });
 
 describe("which view opens", () => {
-  const list = [{ id: "p" }, { id: "q" }];
-  const all = { id: ALL_PROJECTS, ok: true };
-  test("a group is remembered and restored like All", () => {
-    expect(pickView(list, "", groupViewId("g1"), all, [groupViewId("g1")])).toEqual({ all: true, view: groupViewId("g1") });
-    expect(pickView(list, groupViewId("g1"), "q", all, [groupViewId("g1")])).toEqual({ all: true, view: groupViewId("g1") });
+  const pick = (chosen: string, viewed: string) => pickGroupView(groups, projects, chosen, viewed)?.id;
+  test("an explicit choice wins over the last viewed", () => {
+    expect(pick(groupViewId("g2"), groupViewId("g3"))).toBe("g2");
   });
-  test("a deleted group falls back like an unavailable All", () => {
-    expect(pickView(list, groupViewId("g1"), "q", all, [])).toEqual({ all: false, project: { id: "q" } });
-    expect(staleGroupChoice(groupViewId("g1"), [], true)).toBe(true);
-    expect(staleGroupChoice(groupViewId("g1"), [groupViewId("g1")], true)).toBe(false);
-    expect(staleGroupChoice(groupViewId("g1"), [], false)).toBe(false);
-    expect(staleGroupChoice("p", [], true)).toBe(false);
+  test("else the last viewed in this run", () => {
+    expect(pick("", groupViewId("g2"))).toBe("g2");
   });
-  test("a group shows even when All is unavailable", () => {
-    expect(pickView(list, groupViewId("g1"), "", { id: ALL_PROJECTS, ok: false }, [groupViewId("g1")])).toEqual({ all: true, view: groupViewId("g1") });
+  test("cold start opens the default group", () => {
+    expect(pick("", "")).toBe("g1");
+    expect(pickGroupView([zen, group("g0", 0)], projects, "", "")?.id).toBe("g0");
+  });
+  test("no groups, nothing to open", () => {
+    expect(pickGroupView([], projects, groupViewId("g1"), "")).toBeUndefined();
+  });
+  test("the legacy All choice maps to the default group", () => {
+    expect(pick("*all", groupViewId("g2"))).toBe("g1");
+    expect(pick("", "*all")).toBe("g1");
+  });
+  test("a legacy project id maps to that project's group, archived too", () => {
+    expect(pick("c", "")).toBe("g2");
+    expect(pick("", "c")).toBe("g2");
+    expect(pick("old", "")).toBe("g1");
+  });
+  test("a stale explicit choice falls to the last viewed, then the default", () => {
+    expect(pick(groupViewId("gone"), groupViewId("g2"))).toBe("g2");
+    expect(pick(groupViewId("gone"), groupViewId("gone2"))).toBe("g1");
+    expect(pick("unknown-project", "c")).toBe("g2");
+    expect(pick(groupViewId("gone"), "")).toBe("g1");
+  });
+});
+
+describe("stale choices", () => {
+  test("a deleted group's choice is dropped, only once everything is loaded", () => {
+    expect(staleGroupChoice(groupViewId("gone"), groups, true)).toBe(true);
+    expect(staleGroupChoice(groupViewId("gone"), groups, false)).toBe(false);
+    expect(staleGroupChoice(groupViewId("g1"), groups, true)).toBe(false);
+  });
+  test("legacy choices are not stale; they just map", () => {
+    expect(staleGroupChoice("*all", groups, true)).toBe(false);
+    expect(staleGroupChoice("p", groups, true)).toBe(false);
+    expect(staleGroupChoice("", groups, true)).toBe(false);
   });
 });
 
@@ -134,43 +176,22 @@ describe("new task in a group", () => {
     expect(groupQuickProject(members, projects, "c")?.id).toBe("b");
     expect(groupQuickProject(members, projects, "")?.id).toBe("b");
   });
+  test("the project filter wins, then the last member, then the first; a non-member filter or last is ignored", () => {
+    const members = groupMembers(loadout, projects);
+    expect(groupQuickProject(members, projects, "a", "b")?.id).toBe("b");
+    expect(groupQuickProject(members, projects, "", "a")?.id).toBe("a");
+    expect(groupQuickProject(members, projects, "a", "c")?.id).toBe("a");
+    expect(groupQuickProject(members, projects, "c", "old")?.id).toBe("b");
+    expect(groupQuickProject(members, projects, "a", "")?.id).toBe("a");
+  });
+  test("the picker keeps members first with a filter set", () => {
+    expect(membersFirst([c, b, a], ["b", "a"]).map((p) => p.id)).toEqual(["b", "a", "c"]);
+  });
   test("an empty group falls back to All's rule", () => {
     expect(groupQuickProject([], projects, "c")?.id).toBe("c");
   });
   test("the project picker lists the group's projects first, then the others in their order", () => {
     expect(membersFirst([b, c, a], ["a", "b"]).map((p) => p.id)).toEqual(["b", "a", "c"]);
-  });
-});
-
-describe("editing groups", () => {
-  test("add trims the name and refuses an empty one", () => {
-    expect(addGroup([], "  Loadout ", "id1")).toEqual([{ id: "id1", name: "Loadout", projectIds: [] }]);
-    expect(addGroup([loadout], "   ", "id1")).toEqual([loadout]);
-  });
-  test("rename keeps members; an empty name is refused", () => {
-    expect(renameGroup([loadout, zen], "g2", " Zen ")).toEqual([loadout, { ...zen, name: "Zen" }]);
-    expect(renameGroup([loadout], "g1", "")).toEqual([loadout]);
-  });
-  test("delete removes only that group", () => {
-    expect(deleteGroup([loadout, zen], "g1")).toEqual([zen]);
-  });
-  test("a project can be in several groups; ticking twice removes it", () => {
-    const once = toggleMember([loadout, zen], "g2", "b");
-    expect(once[1].projectIds).toEqual(["c", "a", "b"]);
-    expect(once[0]).toBe(loadout);
-    expect(toggleMember(once, "g2", "b")[1].projectIds).toEqual(["c", "a"]);
-  });
-});
-
-describe("stored groups (board-view settings)", () => {
-  test("defaults to no groups", () => {
-    expect(boardViewValues({}).boardGroups).toEqual([]);
-    expect(boardViewValues(undefined).boardGroups).toEqual([]);
-  });
-  test("valid groups round-trip; a bad value falls back to none without resetting other settings", () => {
-    expect(boardViewValues({ boardGroups: [loadout] }).boardGroups).toEqual([loadout]);
-    expect(boardViewValues({ boardGroups: "nope", lastProjectId: "p" })).toMatchObject({ boardGroups: [], lastProjectId: "p" });
-    expect(boardViewValues({ boardGroups: [{ id: "g", name: 5, projectIds: "x" }] }).boardGroups).toEqual([{ id: "g", name: "", projectIds: [] }]);
   });
 });
 
@@ -181,59 +202,30 @@ describe("review fixes (2026-11-10)", () => {
     expect(mobileLane(["backlog", "done"], "in_review")).toBe("backlog");
     expect(mobileLane(["backlog", "done"], "done")).toBe("done");
   });
-  test("more than the cap keeps the first groups instead of dropping them all", () => {
-    const many = Array.from({ length: MAX_BOARD_GROUPS + 1 }, (_, i) => ({ id: `g${i}`, name: `G${i}`, projectIds: [] }));
-    const kept = boardViewValues({ boardGroups: many }).boardGroups;
-    expect(kept).toHaveLength(MAX_BOARD_GROUPS);
-    expect(kept[0].id).toBe("g0");
-  });
-  test("one invalid group is dropped; the others stay", () => {
-    expect(boardViewValues({ boardGroups: [{ id: "", name: "x", projectIds: [] }, loadout, 7, null] }).boardGroups).toEqual([loadout]);
-  });
-  test("a long name is cut to the limit, on save and on read", () => {
-    const long = "x".repeat(MAX_GROUP_NAME + 20);
-    expect(addGroup([], long, "id")[0].name).toHaveLength(MAX_GROUP_NAME);
-    expect(renameGroup([loadout], "g1", long)[0].name).toHaveLength(MAX_GROUP_NAME);
-    expect(boardViewValues({ boardGroups: [{ id: "g", name: long, projectIds: [] }] }).boardGroups[0].name).toHaveLength(MAX_GROUP_NAME);
-  });
-  test("add refuses past the cap", () => {
-    const full = Array.from({ length: MAX_BOARD_GROUPS }, (_, i) => ({ id: `g${i}`, name: `G${i}`, projectIds: [] }));
-    expect(addGroup(full, "One more", "x")).toHaveLength(MAX_BOARD_GROUPS);
-  });
 });
 
-describe("settings editor saves (review fix 2026-11-10)", () => {
-  const deferred = () => {
-    let resolve!: (ok: boolean) => void;
-    const promise = new Promise<boolean>((r) => (resolve = r));
-    return { promise, resolve };
-  };
-  test("quick edits in a row are all kept, saved one at a time with the latest list", async () => {
-    const sends: BoardGroup[][] = [];
-    const waits: ReturnType<typeof deferred>[] = [];
-    const editor = groupEditor((groups) => {
-      sends.push(groups);
-      const d = deferred();
-      waits.push(d);
-      return d.promise;
-    });
-    editor.sync([zen]);
-    const first = editor.edit((g) => toggleMember(g, "g2", "a"));
-    const second = editor.edit((g) => toggleMember(g, "g2", "b"));
-    // A stale stored value arriving mid-save does not undo the local edits.
-    editor.sync([zen]);
-    expect(editor.current()[0].projectIds).toEqual(["c", "b"]);
-    await Promise.resolve();
-    expect(sends).toHaveLength(1);
-    waits[0].resolve(true);
-    await first;
-    await Promise.resolve();
-    expect(sends).toHaveLength(2);
-    expect(sends[1][0].projectIds).toEqual(["c", "b"]);
-    waits[1].resolve(true);
-    await second;
-    // Idle again: an outside change is adopted.
-    editor.sync([loadout]);
-    expect(editor.current()).toEqual([loadout]);
+describe("project filter", () => {
+  const f = { groupId: "g1", projectId: "a" };
+  test("valid while the group is shown and the project is a member", () => {
+    expect(validProjectFilter(f, "g1", ["a", "b"])).toBe("a");
+  });
+  test("cleared by no filter, another group or a project that left the group", () => {
+    expect(validProjectFilter(null, "g1", ["a", "b"])).toBe("");
+    expect(validProjectFilter(f, "g2", ["a", "b"])).toBe("");
+    expect(validProjectFilter(f, "g1", ["b"])).toBe("");
+    expect(validProjectFilter(f, "g1", [])).toBe("");
+  });
+  test("the filtered project is the board's project; a one-project group's only member is too", () => {
+    const members = groupMembers(loadout, projects);
+    expect(boardProject("a", members)?.id).toBe("a");
+    expect(boardProject("", members)).toBeUndefined();
+    expect(boardProject("zzz", members)).toBeUndefined();
+    expect(boardProject("", groupMembers(zen, projects))?.id).toBe("c");
+    expect(boardProject("", [])).toBeUndefined();
+  });
+  test("focusing a project in another group filters to it; in the shown group it leaves the filter alone", () => {
+    expect(focusFilter(null, "g1", "g2", "c")).toEqual({ groupId: "g2", projectId: "c" });
+    expect(focusFilter(f, "g1", "g1", "b")).toBe(f);
+    expect(focusFilter(null, "g1", "g1", "b")).toBeNull();
   });
 });

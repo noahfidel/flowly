@@ -16,6 +16,7 @@ import { BoardStore } from "./store";
 import { readSnapshot, SnapshotInvalidError, type ProjectSnapshot } from "./project-folder";
 import { linkLimits } from "../shared/model";
 import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
+import { groupOfProject } from "../shared/groups";
 import { effectiveRepos, sessionContext } from "../shared/scope";
 import type { DeliveryMode } from "../shared/delivery-mode";
 import { setupContextLine, setupMissing } from "../shared/card-setup";
@@ -29,6 +30,7 @@ import { memoryContext } from "./memory";
 import type { z } from "zod";
 import type { removeProject as removeProjectRpc, restoreProjectCheck as restoreProjectCheckRpc } from "../shared/rpc";
 import { logFailure } from "./error-report";
+import { ToolError } from "./tool-error";
 import { runPaseo } from "./paseo-cli";
 
 const execute = promisify(execFile);
@@ -444,6 +446,9 @@ export class BoardService {
   ) {
     {
       const primaryPath = await directory(input.primaryPath);
+      // Checked before Paseo registers anything; checked again in the write below.
+      if (input.groupId !== undefined && !(await this.store.read()).groups.some((g) => g.id === input.groupId))
+        throw new ToolError("GROUP_NOT_FOUND", "No board group with that id.");
       const native = await this.nativeProject(primaryPath, paseo, input.paseoProjectId, onRegistered);
       const paseoProjectId = native.projectId;
       return this.store.mutate((board) => {
@@ -451,8 +456,12 @@ export class BoardService {
           throw new Error(
             "Paseo project is already linked; open or restore its board project.",
           );
+        // A chosen group must exist; without one the commit places the project in the default group (BOARD-GROUPS-SPEC §2).
+        if (input.groupId !== undefined && !board.groups.some((g) => g.id === input.groupId))
+          throw new ToolError("GROUP_NOT_FOUND", "No board group with that id.");
         const now = new Date().toISOString();
         const project = {
+          ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
           id: randomUUID(),
           title: input.title,
           description: input.description,
@@ -730,6 +739,7 @@ export class BoardService {
         // A PR review card reviews someone else's PR; it is never asked for a Linear ticket (PR-REVIEW-CARDS-SPEC §5).
         isPrReviewCard(task) ? [] : linearTicketLines(project, artifactsOf(board.artifacts, task.id), { title: task.title, canLink: options.artifactsOn ?? true }),
         options.deliveryDefault,
+        groupOfProject(board, project)?.defaults?.deliveryMode,
       ),
       memoryIds: memory.ids,
       directories,
