@@ -51,7 +51,7 @@ import { AttentionButton } from "./attention-button";
 import { DispatcherPanel } from "./dispatcher-panel";
 import { LeftDock } from "./left-dock";
 import { lastCollapsed, rememberCollapsed, shownCollapsed } from "./collapsed-columns";
-import { dockShortcut, toolbarDockButtons } from "./dock-logic";
+import { dockShortcut, escAction, toolbarDockButtons } from "./dock-logic";
 import { cardAsks, changeItem, needsCount, needsQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
 import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
@@ -1267,8 +1267,23 @@ function BoardContent(
     } else if (open !== chatOpen) void view.update({ chatMinimized: !open });
   });
   const openDock = useStableCallback(() => setDockOpen(true));
+  // D / the toolbar button opened the dock: the chat focuses its message box (each request is distinct).
+  const [chatFocus, setChatFocus] = useState(0);
+  // The dock is the active area (Ruling, Noah 2026-11-09): its box gained focus or the user pressed inside it, and nothing
+  // else on the board since. Esc acts on it first (escAction).
+  const dockActive = useRef(false);
+  const markDockActive = useStableCallback(() => {
+    dockActive.current = true;
+  });
   // The phone header's Dispatcher button: the chat page, or closed when it shows.
-  const toggleChat = useStableCallback(() => setDockOpen(!(compact ? chat.open : chatOpen)));
+  const toggleChat = useStableCallback(() => {
+    const open = compact ? chat.open : chatOpen;
+    if (!open) {
+      setChatFocus((n) => n + 1);
+      dockActive.current = true;
+    }
+    setDockOpen(!open);
+  });
   // Discuss on an idea (DISPATCHER-SPEC §9.5): a draft for the chat's message box; the key makes each press distinct.
   const [chatDraft, setChatDraft] = useState<{ text: string; key: number } | null>(null);
   const canDiscuss = discussAvailable({ project: !!project, allView });
@@ -1281,7 +1296,23 @@ function BoardContent(
     if (seen && !seen.includes("idea-discuss")) void onboarding.markTipSeen("idea-discuss");
     setDockOpen(true);
   });
-  const closeChat = useStableCallback(() => setDockOpen(false));
+  const closeChat = useStableCallback(() => {
+    dockActive.current = false;
+    setDockOpen(false);
+  });
+  // The same decision for Esc in the box (composer onEscape) and Esc on the board (runIntent). Modals take Esc themselves,
+  // and board shortcuts are off while one is open, so neither path sees one.
+  const decideEsc = useStableCallback((boxFocused: boolean, draftEmpty: boolean) =>
+    escAction({ modalOpen: false, dockActive: dockActive.current && chatShown, boxFocused, draftEmpty }),
+  );
+  const dockBoxEscape = useStableCallback((draftEmpty: boolean) => {
+    const action = decideEsc(true, draftEmpty);
+    if (action === "closeDock") {
+      closeChat();
+      (rootRef.current as unknown as { focus?: () => void } | null)?.focus?.(); // Back to the board so its shortcuts work.
+    }
+    return action;
+  });
   const chatLaneOf = useStableCallback((projectId: string, status: string) =>
     laneName(board?.projects.find((p) => p.id === projectId) ?? null, status as Status),
   );
@@ -1319,6 +1350,7 @@ function BoardContent(
   );
   const chatPanel = (compact ? chat.mounted : chatMounted.current) && (
     <Animated.View
+      {...({ onPointerDownCapture: markDockActive } as {})}
       pointerEvents={compact || chatOpen ? "auto" : "none"}
       style={
         compact
@@ -1335,7 +1367,7 @@ function BoardContent(
       }
     >
       <LeftDock compact={compact} expanded={chatExpanded} onToggleSize={toggleChatSize} onClose={closeChat}>
-        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} onOpenCard={openTaskById} />
+        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} />
       </LeftDock>
       {chatGrip}
     </Animated.View>
@@ -1822,9 +1854,10 @@ function BoardContent(
         togglePage("memory");
         return true;
       case "dispatcher": {
-        const action = dockShortcut({ dockAvailable, open: chatShown });
-        if (!action) return false;
-        setDockOpen(action === "open");
+        if (!dockShortcut({ dockAvailable })) return false;
+        setChatFocus((n) => n + 1);
+        dockActive.current = true;
+        setDockOpen(true);
         return true;
       }
       case "search":
@@ -1833,6 +1866,10 @@ function BoardContent(
         else openSearch("");
         return true;
       case "escape":
+        if (decideEsc(false, true) === "closeDock") {
+          closeChat();
+          return true;
+        }
         if (!task && page) {
           setPage(null);
           return true;
@@ -1874,6 +1911,9 @@ function BoardContent(
     }
   };
   const keyboardProps = shortcutsOn ? { focusable: true, onKeyDown } : {};
+  // A press anywhere on the board leaves the dock as the active area; the dock's own capture handler (below the root's in
+  // the tree, so it runs after it) takes it back. Web only: other platforms never send these events.
+  const pressProps = { onPointerDownCapture: () => { dockActive.current = false; } };
   // Same steps as Esc; on the bare board Back falls through to the host. Open host modals take Back first.
   useAndroidBack(rootRef, () => runIntent("escape"));
   // Opening the board from the sidebar leaves keyboard focus on the host's sidebar row, which draws a
@@ -1998,6 +2038,7 @@ function BoardContent(
       <View
         ref={rootRef}
         {...(keyboardProps as {})}
+        {...(pressProps as {})}
         {...({ onContextMenu: suppressNativeMenu } as object)}
         onLayout={(e) => setSurfaceWidth(e.nativeEvent.layout.width)}
         // The root only takes focus to receive shortcuts; it must not draw a focus ring.

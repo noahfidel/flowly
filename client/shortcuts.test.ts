@@ -37,7 +37,7 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "d" }, false)).toBeNull();
     expect(resolveShortcut({ key: "d", metaKey: true }, true)).toBeNull();
     expect(resolveShortcut({ key: "D", shiftKey: true }, true)).toBeNull();
-    expect(shortcutHelp.some((row) => row.keys.includes("D") && row.title === "Dispatcher")).toBe(true);
+    expect(shortcutHelp.some((row) => row.keys.includes("D") && row.title === "Open the dispatcher and focus its message box")).toBe(true);
   });
   test("leaves host chords, shifted letters and unknown keys alone", () => {
     for (const mod of ["metaKey", "ctrlKey", "altKey"] as const) {
