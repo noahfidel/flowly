@@ -10,6 +10,14 @@
 - New task shows the chain's value and stores it as the card's own mode (unchanged rule); only cards without a stored mode (agent-created) resolve lazily.
 - Onboarding: the tour's and What's new 1.8.0's Board groups line now names Group settings in the switcher (the What's new item lost its Open settings → Workflow button, which pointed at the editor 3/7 removed). The `all-projects` tip text is left to card 7 (the tip no longer shows). No new tip or What's new entry: the plan's last task writes the release's entry. Telemetry: no field (off in this fork).
 - Tests: `client/group-settings-logic.test.ts` (inherit labels for model, delivery and dispatcher; members order; group choices; discard guard). The overview's groups and their patch are covered by 3/7's `server/board-overview.test.ts`. Browser QA is run by the card session.
+## Board groups v2, 6/7: flowly_manage_groups (confirmed) — 2026-11-10
+
+- Task 6 of the board groups v2 plan (DISPATCHER-SPEC §0, §5.2; BOARD-GROUPS-SPEC §2). `flowly_manage_groups { action: create | rename | set_members | set_default | delete, groupId?, name?, projectIds?, revision? }` is in `dispatcherConfirmedToolNames` only: never preapproved, never in `savedTools`.
+- Same checks and order as `flowly_create_project` (caller, switch, Paseo, `CONFIRMATION_UNAVAILABLE` in non-prompting modes); its own bucket of 10 per hour (`GROUP_LIMIT`), released on refusal. The mode check is shared (`assertPrompting`).
+- `set_members` is one store write (`setGroupMembers`): listed projects move in, a left-out member goes to the default group, the default group only adds (`DEFAULT_REQUIRED`), an archived non-member is refused (`PROJECT_ARCHIVED`); the group revision is bumped when a member moves; moved projects get `projectMoved`.
+- `delete` refuses the caller's own group (`GROUP_PROTECTED`) and runs `Dispatcher.deleteGroup` with `refuseLive`: a live session (running, idle, closed) is `GROUP_BUSY`, decided inside the start queue; a dead one is not archived and the group goes.
+- Wiring: `server/group-writes.ts` (`groupWriter`) is the one set of group writes; index.server wires it into the tool. Charter: manage groups only when the user asks; each call is confirmed.
+- Tests: `server/dispatcher-tools.test.ts` (confirmed, not preapproved, mode and switch order, bucket and refusal slot, create/rename/default rules, each refusal, `set_members` semantics and atomicity).
 
 ## Board groups v2, 5/7: one dispatcher per group — 2026-11-10
 

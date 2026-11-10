@@ -3,11 +3,12 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { basename, join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { ToolServer } from "./tool-server";
+import { groupWriter } from "./group-writes";
 import { agentFixture } from "./agent-fixture";
 import { changeLine } from "./dispatcher-items";
 import { BoardService } from "./service";
 import { projectCreator } from "./project-create";
-import { dispatcherMessagePrefix } from "../shared/dispatcher";
+import { dispatcherConfirmedToolNames, dispatcherMessagePrefix, dispatcherToolNames } from "../shared/dispatcher";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -29,6 +30,7 @@ const dispatcherTools = [
   "flowly_message_card",
   // Not preapproved: the user confirms each call (ruling, Noah 2026-11-10).
   "flowly_create_project",
+  "flowly_manage_groups",
 ];
 
 async function setup() {
@@ -37,6 +39,8 @@ async function setup() {
   const dispatcherPath = join(fixture.root, "paseo-home", "flowly-dispatcher", "dispatcher");
   await mkdir(dispatcherPath, { recursive: true });
   const server = new ToolServer(fixture.store, dispatcherPath);
+  // The group writes the tool shares with the groups.* RPCs (index.server.ts wires the same).
+  server.dispatcherTools.groupsWith = groupWriter(fixture.store, server.dispatcher, () => {});
   cleanups.push(async () => {
     await server.stop();
     await rm(fixture.root, { recursive: true, force: true });
@@ -327,7 +331,7 @@ test("a new dispatcher saves its tools with every one preapproved, so they never
   // each time (flowly_create_project, ruling, Noah 2026-11-10); nothing else.
   const listed = (await fresh.names()).sort();
   const policy = x.policies[agentId] as { preapproved: { kind: string; server: string; tool: string }[] };
-  expect(policy.preapproved.map((g) => g.tool).sort()).toEqual(listed.filter((name) => name !== "flowly_create_project"));
+  expect(policy.preapproved.map((g) => g.tool).sort()).toEqual(listed.filter((name) => !dispatcherConfirmedToolNames.includes(name as never)));
   expect(listed).toContain("flowly_create_project");
   expect(policy.preapproved.every((g) => g.kind === "mcp" && g.server === "flowly-dispatcher")).toBe(true);
   // Its saved tools are the preapproved ones, so the tool it was not given shows no new-tools warning.
@@ -1115,4 +1119,165 @@ test("flowly_message_card works per group: another group's card is refused, each
   for (let i = 0; i < 30; i++) x.server.dispatcherTools["reserveMessage"](agentId);
   expect(code(await toQ1(a))).toBeUndefined();
   expect(x.sent.map((m) => m.id)).toEqual(["s1"]);
+});
+
+/** flowly_manage_groups (DISPATCHER-SPEC §0, §5.2): the confirmed board group tool and its refusals. */
+test("flowly_manage_groups is confirmed on every call, never preapproved (DISPATCHER-SPEC §5.2)", async () => {
+  expect(dispatcherConfirmedToolNames).toContain("flowly_manage_groups");
+  expect(dispatcherToolNames as readonly string[]).not.toContain("flowly_manage_groups");
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  expect(await d.names()).toContain("flowly_manage_groups");
+  expect(code(await d.call("flowly_manage_groups", { action: "create", name: "Shown" }))).toBeUndefined();
+});
+
+test("flowly_manage_groups runs only in a permission mode that asks, and only while agent cards are on (DISPATCHER-SPEC §5.2)", async () => {
+  const x = await setup();
+  const { clients, agentId, b } = await twoGroups(x);
+  const before = JSON.stringify((await x.store.read()).groups);
+  const rename = { action: "rename", groupId: clients.id, revision: clients.revision, name: "Nope" } as const;
+  for (const mode of ["bypassPermissions", "auto", "some-new-mode", null]) {
+    x.agents[agentId].currentModeId = mode;
+    const result = await b.call("flowly_manage_groups", rename);
+    expect(code(result), String(mode)).toBe("CONFIRMATION_UNAVAILABLE");
+  }
+  expect(JSON.stringify((await x.store.read()).groups)).toBe(before);
+  // The switch is checked before the mode: with cards off, the answer is AGENT_CARDS_DISABLED in any mode.
+  x.agents[agentId].currentModeId = "bypassPermissions";
+  x.server.cards.on = async () => false;
+  expect(code(await b.call("flowly_manage_groups", rename))).toBe("AGENT_CARDS_DISABLED");
+  x.server.cards.on = async () => true;
+  x.agents[agentId].currentModeId = "default";
+  expect(code(await b.call("flowly_manage_groups", { action: "create", name: "On" }))).toBeUndefined();
+});
+
+test("flowly_manage_groups: 10 calls per dispatcher hour in their own bucket; a refusal gives its slot back (DISPATCHER-SPEC §5.2)", async () => {
+  const x = await setup();
+  const { b } = await twoGroups(x);
+  let now = Date.parse("2026-11-10T10:00:00.000Z");
+  x.server.dispatcherTools.clock = () => now;
+  for (let i = 0; i < 3; i++)
+    expect(code(await b.call("flowly_manage_groups", { action: "rename", groupId: "nope", revision: 1, name: "x" }))).toBe("GROUP_NOT_FOUND");
+  for (let i = 1; i <= 10; i++) expect(code(await b.call("flowly_manage_groups", { action: "create", name: `Team ${i}` })), `#${i}`).toBeUndefined();
+  expect(code(await b.call("flowly_manage_groups", { action: "create", name: "Too many" }))).toBe("GROUP_LIMIT");
+  // Its own bucket: the card bucket is untouched.
+  expect(code(await b.call("flowly_create_card", { projectId: "r", title: "Still fine", idempotencyKey: "k-group-bucket" }))).toBeUndefined();
+  now += 3_600_001;
+  expect(code(await b.call("flowly_manage_groups", { action: "create", name: "Too many" }))).toBeUndefined();
+});
+
+test("flowly_manage_groups create, rename and set_default keep the group rules (BOARD-GROUPS-SPEC §2)", async () => {
+  const x = await setup();
+  const { clients, b } = await twoGroups(x);
+  expect(code(await b.call("flowly_manage_groups", { action: "create", name: "clients" }))).toBe("NAME_TAKEN");
+  expect(code(await b.call("flowly_manage_groups", { action: "rename", groupId: clients.id, revision: 99, name: "Late" }))).toBe("REVISION_CONFLICT");
+  const renamed = await b.call("flowly_manage_groups", { action: "rename", groupId: clients.id, revision: clients.revision, name: "Partners" });
+  expect(code(renamed)).toBeUndefined();
+  expect(renamed.structuredContent).toMatchObject({ action: "rename", groupId: clients.id, name: "Partners", revision: 2 });
+  const promoted = await b.call("flowly_manage_groups", { action: "set_default", groupId: clients.id, revision: 2 });
+  expect(code(promoted)).toBeUndefined();
+  const groups = (await x.store.read()).groups;
+  expect(groups.find((g) => g.id === clients.id)?.isDefault).toBe(true);
+  expect(groups.filter((g) => g.isDefault)).toHaveLength(1);
+});
+
+test("flowly_manage_groups refuses the caller's own group, the default group and a group with a live dispatcher (DISPATCHER-SPEC §0, §5.2)", async () => {
+  const x = await setup();
+  const { clients, agentId, a, b } = await twoGroups(x);
+  const defaultGroup = (await x.store.read()).groups.find((g) => g.id === x.groupId)!;
+  const before = JSON.stringify(await x.store.read());
+  expect(code(await b.call("flowly_manage_groups", { action: "delete", groupId: clients.id, revision: clients.revision }))).toBe("GROUP_PROTECTED");
+  expect(code(await a.call("flowly_manage_groups", { action: "delete", groupId: x.groupId, revision: defaultGroup.revision }))).toBe("GROUP_PROTECTED");
+  expect(code(await b.call("flowly_manage_groups", { action: "delete", groupId: x.groupId, revision: defaultGroup.revision }))).toBe("DEFAULT_REQUIRED");
+  // A live dispatcher (running, idle, closed) blocks the delete; the tool never archives it.
+  for (const status of ["running", "idle", "closed"]) {
+    x.agents[agentId].status = status;
+    expect(code(await a.call("flowly_manage_groups", { action: "delete", groupId: clients.id, revision: clients.revision })), status).toBe("GROUP_BUSY");
+  }
+  expect(x.agents[agentId].archivedAt).toBeNull();
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+  // Once its dispatcher is archived (a dead one), the delete goes through: its projects move to the default group.
+  x.agents[agentId].archivedAt = stamp;
+  const deleted = await a.call("flowly_manage_groups", { action: "delete", groupId: clients.id, revision: clients.revision });
+  expect(code(deleted)).toBeUndefined();
+  expect(deleted.structuredContent).toEqual({ action: "delete", groupId: clients.id, movedTo: x.groupId, projectIds: ["r"] });
+  expect((await x.store.read()).groups.some((g) => g.id === clients.id)).toBe(false);
+});
+
+test("flowly_manage_groups set_members replaces the member list in one write (DISPATCHER-SPEC §0, §5.2)", async () => {
+  const x = await setup();
+  const { clients, a, b } = await twoGroups(x);
+  // Default: p, q, gone, and the archived z. Clients: r.
+  const members = async (groupId: string) => (await x.store.read()).projects.filter((p) => p.groupId === groupId).map((p) => p.id).sort();
+  const setMembers = (groupId: string, revision: number, projectIds: string[], caller = b) =>
+    caller.call("flowly_manage_groups", { action: "set_members", groupId, revision, projectIds });
+  // Listed projects move in from their groups; the group's left-out members (none) go to the default group.
+  const added = await setMembers(clients.id, clients.revision, ["r", "q"]);
+  expect(code(added)).toBeUndefined();
+  expect(added.structuredContent).toMatchObject({ action: "set_members", groupId: clients.id, revision: clients.revision + 1 });
+  expect(await members(clients.id)).toEqual(["q", "r"]);
+  expect(await members(x.groupId)).toEqual(["gone", "p", "z"]);
+  // A member left out goes to the default group, a listed one moves in.
+  const replaced = await setMembers(clients.id, clients.revision + 1, ["p"]);
+  expect(code(replaced)).toBeUndefined();
+  expect(await members(clients.id)).toEqual(["p"]);
+  expect(await members(x.groupId)).toEqual(["gone", "q", "r", "z"]);
+  // A stale revision is refused and writes nothing.
+  expect(code(await setMembers(clients.id, clients.revision, ["r"]))).toBe("REVISION_CONFLICT");
+  // An archived project that is not already a member can't join.
+  expect(code(await setMembers(clients.id, clients.revision + 2, ["z"]))).toBe("PROJECT_ARCHIVED");
+  // An unknown project refuses the whole list: nothing moves.
+  const before = JSON.stringify(await x.store.read());
+  expect(code(await setMembers(clients.id, clients.revision + 2, ["p", "nope"]))).toBe("NOT_FOUND");
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+  // The default group only adds: leaving "gone" out is refused, adding p from Clients is not.
+  const defaultGroup = (await x.store.read()).groups.find((g) => g.id === x.groupId)!;
+  expect(code(await a.call("flowly_manage_groups", { action: "set_members", groupId: x.groupId, revision: defaultGroup.revision, projectIds: ["q", "r", "z"] }))).toBe(
+    "DEFAULT_REQUIRED",
+  );
+  const grown = await a.call("flowly_manage_groups", {
+    action: "set_members",
+    groupId: x.groupId,
+    revision: defaultGroup.revision,
+    projectIds: ["gone", "p", "q", "r", "z"],
+  });
+  expect(code(grown)).toBeUndefined();
+  expect(await members(x.groupId)).toEqual(["gone", "p", "q", "r", "z"]);
+  expect(await members(clients.id)).toEqual([]);
+});
+
+
+test("flowly_manage_groups delete never archives a dispatcher, even one that reads live after a dead read (DISPATCHER-SPEC §0)", async () => {
+  const x = await setup();
+  const { clients, agentId, a } = await twoGroups(x);
+  // First read: archived (dead). Any later read: running. The tool must not archive it.
+  x.agents[agentId].archivedAt = stamp;
+  const agents = x.paseo.agents as unknown as { ref: (id: string) => { refresh: () => Promise<unknown>; archive?: () => Promise<void> } };
+  const ref = agents.ref;
+  let reads = 0;
+  let archived = false;
+  agents.ref = (id) => {
+    const real = ref(id);
+    return id === agentId
+      ? { ...real, refresh: async () => (reads++ === 0 ? { agent: { ...x.agents[agentId], archivedAt: stamp } } : { agent: { ...x.agents[agentId], archivedAt: null, status: "idle" } }), archive: async () => { archived = true; } }
+      : real;
+  };
+  const result = await a.call("flowly_manage_groups", { action: "delete", groupId: clients.id, revision: clients.revision });
+  expect(code(result)).toBeUndefined();
+  expect(archived).toBe(false);
+});
+
+test("flowly_manage_groups set_members hands each moved project to projectMoved (BOARD-GROUPS-SPEC §7)", async () => {
+  const x = await setup();
+  const { clients, b } = await twoGroups(x);
+  const moved: [string, string][] = [];
+  const dispatcher = x.server.dispatcher;
+  const real = dispatcher.projectMoved.bind(dispatcher);
+  dispatcher.projectMoved = async (projectId: string, toGroupId: string) => {
+    moved.push([projectId, toGroupId]);
+    return real(projectId, toGroupId);
+  };
+  const result = await b.call("flowly_manage_groups", { action: "set_members", groupId: clients.id, revision: clients.revision, projectIds: ["q", "r"] });
+  expect(code(result)).toBeUndefined();
+  expect(moved).toEqual([["q", clients.id]]);
 });

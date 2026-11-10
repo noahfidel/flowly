@@ -1030,7 +1030,12 @@ export class Dispatcher {
    * The store's refusals are checked again on a fresh board read right before the archive, so a group edited meanwhile
    * archives nothing; a board write refused after the archive says the session was already archived.
    */
-  deleteGroup(paseo: PaseoApi, input: GroupRemoval, store: { deleteGroup(input: GroupRemoval): Promise<GroupDeleted> }): Promise<GroupDeleted> {
+  deleteGroup(
+    paseo: PaseoApi,
+    input: GroupRemoval,
+    store: { deleteGroup(input: GroupRemoval): Promise<GroupDeleted> },
+    options: { refuseLive?: boolean } = {},
+  ): Promise<GroupDeleted> {
     return this.queued(async () => {
       const board = await this.deps.board();
       const group = deletable(board, input);
@@ -1041,7 +1046,16 @@ export class Dispatcher {
       // The v1 session could not move yet (its migration failed): the group it would move to keeps it (§7 step 4).
       if (record.unassigned?.agentId && dispatcherTarget(board) === group.id) throw dispatcherUnavailable();
       const agentId = record.groups[group.id]?.agentId;
-      const archived = agentId ? await this.archiveForDelete(paseo, agentId, async () => void deletable(await this.deps.board(), input)) : false;
+      // The dispatcher's tool never archives a live session: it refuses instead, inside this queue (DISPATCHER-SPEC §0).
+      if (agentId && options.refuseLive) {
+        const agent = await paseo.agents.ref(agentId).refresh().then((r) => r?.agent).catch((e: unknown) => {
+          logFailure("Flowly dispatcher not read for a group delete:", e, agentId);
+          throw new ToolError("DELETE_FAILED", "Flowly could not read this group's dispatcher, so the group was not deleted. Try again.", true);
+        });
+        if (!isDeadDispatcher(agent)) throw new ToolError("GROUP_BUSY", "This group has a live dispatcher. Ask the user to delete the group in Flowly, which archives it.");
+      }
+      // The tool path (refuseLive) never archives: it found the session dead above, and a second read could see it live.
+      const archived = agentId && !options.refuseLive ? await this.archiveForDelete(paseo, agentId, async () => void deletable(await this.deps.board(), input)) : false;
       await this.save((r) => withoutGroup(r, group.id));
       let deleted: GroupDeleted;
       try {

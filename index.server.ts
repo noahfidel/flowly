@@ -78,6 +78,7 @@ import { dispatcherServerName } from "./shared/dispatcher";
 import type { Board } from "./shared/model";
 import { ChangeLineCache, DispatcherItems, groupItems, groupProjectIds, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
 import { DispatcherAsks } from "./server/dispatcher-asks";
+import { groupWriter } from "./server/group-writes";
 
 export default function contribute(host: PluginServerContext) {
   const server = reportRpcErrors(host);
@@ -644,6 +645,8 @@ export default function contribute(host: PluginServerContext) {
   );
   // The dispatcher's flowly_create_project takes exactly the RPC's path (DISPATCHER-SPEC §5.2).
   tools.dispatcherTools.createProjectWith = createProject;
+  // flowly_manage_groups shares the groups.* RPCs' writes (DISPATCHER-SPEC §5.2): the delete refuses a live session.
+  tools.dispatcherTools.groupsWith = groupWriter(store, tools.dispatcher, (id) => changes.forget(id));
   server.handle(rpc.createTask, (input, { paseo }) =>
     service.createTask(input, paseo),
   );

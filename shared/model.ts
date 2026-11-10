@@ -822,6 +822,13 @@ export const projectGroupEdit = z.strictObject({
   groupId: z.string().min(1).max(200),
 });
 export type ProjectGroupEdit = z.infer<typeof projectGroupEdit>;
+/** `flowly_manage_groups` `set_members` (DISPATCHER-SPEC §5.2): the group's whole member list, with the group's revision. */
+export const groupMembersEdit = z.strictObject({
+  groupId: z.string().min(1).max(200),
+  revision: z.number().int(),
+  projectIds: z.array(z.string().min(1).max(200)).max(10000),
+});
+export type GroupMembersEdit = z.infer<typeof groupMembersEdit>;
 export const taskInput = z.strictObject({
   projectId: z.string(),
   operationId: z.string().min(1).max(200),

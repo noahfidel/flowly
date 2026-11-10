@@ -39,6 +39,7 @@ import {
   type GroupEdit,
   type GroupInput,
   type GroupMove,
+  type GroupMembersEdit,
   type GroupRemoval,
   type ProjectGroupEdit,
   groupLimits,
@@ -892,6 +893,49 @@ export class BoardStore {
       project.revision++;
       project.updatedAt = new Date().toISOString();
       return { value: project, changed: true };
+    });
+  }
+  /**
+   * `set_members` (flowly_manage_groups, DISPATCHER-SPEC §5.2): replaces the group's member list in one write. Listed
+   * projects move in from their groups; a current member left out goes to the default group. On the default group it
+   * may only add (`DEFAULT_REQUIRED`). A listed archived project that is not already a member is refused
+   * (`PROJECT_ARCHIVED`). The group's revision is checked and bumped when a member moves.
+   */
+  setGroupMembers(input: GroupMembersEdit) {
+    return this.groupWrite((board) => {
+      const group = board.groups.find((g) => g.id === input.groupId);
+      if (!group) throw groupNotFound();
+      if (group.revision !== input.revision) throw groupConflict();
+      const listed = [...new Set(input.projectIds)];
+      const wanted = new Set(listed);
+      for (const id of listed) {
+        const project = board.projects.find((p) => p.id === id);
+        if (!project) throw new ToolError("NOT_FOUND", "Project not found.");
+        if (project.archivedAt && project.groupId !== group.id)
+          throw new ToolError("PROJECT_ARCHIVED", "An archived project can't join a group. Restore it first.");
+      }
+      const leftOut = board.projects.filter((p) => p.groupId === group.id && !wanted.has(p.id));
+      if (group.isDefault && leftOut.length)
+        throw new ToolError("DEFAULT_REQUIRED", "The default group only adds members: a project can't leave it. Move the project to another group instead.");
+      const target = defaultGroupOf(board)!;
+      const now = new Date().toISOString();
+      const moved: { projectId: string; groupId: string }[] = [];
+      const move = (project: Board["projects"][number], groupId: string) => {
+        project.groupId = groupId;
+        project.revision++;
+        project.updatedAt = now;
+        moved.push({ projectId: project.id, groupId });
+      };
+      for (const id of listed) {
+        const project = board.projects.find((p) => p.id === id)!;
+        if (project.groupId !== group.id) move(project, group.id);
+      }
+      for (const project of leftOut) move(project, target.id);
+      if (moved.length) {
+        group.revision++;
+        group.updatedAt = now;
+      }
+      return { value: { group, moved }, changed: moved.length > 0 };
     });
   }
   event(board: Board, input: Omit<BoardEvent, "id" | "at">) {

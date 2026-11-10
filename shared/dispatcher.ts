@@ -74,7 +74,7 @@ export const dispatcherMessagesPerHour = 30;
  * shows the provider's permission prompt in the dispatcher chat, so the user confirms it. Not in `savedTools`, so a
  * dispatcher started before them gets no new-tools warning: its server lists them too, and they prompt there as well.
  */
-export const dispatcherConfirmedToolNames = ["flowly_create_project"] as const;
+export const dispatcherConfirmedToolNames = ["flowly_create_project", "flowly_manage_groups"] as const;
 
 /**
  * Tools a Claude dispatcher session is started without (Claude's `disallowedTools`; DISPATCHER-SPEC §3, ruling, Noah
@@ -319,7 +319,7 @@ export const whatNextText = "What should I do?";
 export const dispatcherCharter = (group: { name: string }) => `You are the Flowly dispatcher of the board group "${group.name.replace(/\s+/g, " ").trim()}": the agent that keeps the projects of this group moving. The user talks to you from the chat next to the Flowly board.
 
 - The board is your memory. Before you act, read it with flowly_list_projects, flowly_list_cards and flowly_get_card instead of relying on what you remember from earlier in this conversation. Every tool except flowly_list_projects takes the projectId explicitly.
-- You work on this group's projects only: flowly_list_projects lists them, and a project of another group is refused (PROJECT_OUT_OF_GROUP); tell the user it belongs to another group's dispatcher. Manage board groups only when the user asks you to.
+- You work on this group's projects only: flowly_list_projects lists them, and a project of another group is refused (PROJECT_OUT_OF_GROUP); tell the user it belongs to another group's dispatcher. Manage board groups with flowly_manage_groups only when the user asks you to; each call asks the user to confirm it in this chat.
 - Every repo task is a card: one card is one deliverable, one branch or one PR. When the user asks for work, create the card with flowly_create_card (workspace "worktree" for repo work) and start its session straight away with flowly_start_card; the card's own agent does the work, not you. Write the card description for an agent that cannot see this conversation: goal, context, files, acceptance criteria.
 - Split independent deliverables into separate cards that can run side by side, and tie them with flowly_link_cards (blocks when one must land first, follow_up when one continues another). Never make child cards or extra workspaces for one card.
 - Park asks that should not start now as project ideas with flowly_propose_idea, not as cards. Read a project's ideas with flowly_list_ideas and keep them current with flowly_update_idea (edit, or dismiss one that no longer applies). When the user wants an idea done, pass its ideaId to flowly_create_card so the idea is marked taken up.

@@ -7,7 +7,8 @@ import { z } from "zod";
 import { isOpenCard } from "../shared/groups";
 import { ideaNewestFirst } from "../shared/ideas";
 import { linkFor } from "../shared/links";
-import { linkSchema, projectInput, tagLimits, type Idea, type Project, type ProjectInput } from "../shared/model";
+import { groupLimits, linkSchema, projectInput, tagLimits, type Idea, type Project, type ProjectInput } from "../shared/model";
+import type { GroupWriter } from "./group-writes";
 import { normalizeTag, normalizeTags } from "../shared/tags";
 import {
   agentCardLimits,
@@ -97,7 +98,28 @@ export const dispatcherInputs = {
     title: z.string().trim().min(1).max(120).optional().describe("The project's name. Default: the folder's name."),
     description: z.string().max(10000).optional().describe("Optional project description."),
   }),
+  // Flat for the MCP registration; manageGroupsInput checks each action's fields.
+  manageGroups: z.strictObject({
+    action: z.enum(["create", "rename", "set_members", "set_default", "delete"]).describe("What to do to the group."),
+    groupId: z.string().min(1).max(200).optional().describe("The group to change or delete (not needed for create)."),
+    name: z.string().trim().min(1).max(groupLimits.name).optional().describe("The group's name: for create and rename."),
+    projectIds: z.array(z.string().min(1).max(200)).max(10000).optional().describe("set_members: the group's whole list of member projectIds."),
+    revision: z.number().int().min(0).optional().describe("The group's revision as flowly_manage_groups or the board shows it; required for every action but create."),
+  }),
 };
+/** The per-action checks of flowly_manage_groups (a stale or missing revision is refused before any write). */
+const groupId = z.string().min(1).max(200);
+const groupRevision = z.number().int().min(0);
+const groupName = z.string().trim().min(1).max(groupLimits.name);
+const manageGroupsInput = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("create"), name: groupName }),
+  z.object({ action: z.literal("rename"), groupId, revision: groupRevision, name: groupName }),
+  z.object({ action: z.literal("set_members"), groupId, revision: groupRevision, projectIds: z.array(groupId).max(10000) }),
+  z.object({ action: z.literal("set_default"), groupId, revision: groupRevision }),
+  z.object({ action: z.literal("delete"), groupId, revision: groupRevision }),
+]);
+/** Group calls per dispatcher session and hour, a bucket of its own (DISPATCHER-SPEC §5.2). */
+export const dispatcherGroupCallsPerHour = 10;
 /** Project creations per dispatcher session and hour, apart from its card bucket (ruling, Noah 2026-11-10; §5.2). */
 export const dispatcherProjectsPerHour = 5;
 /**
@@ -111,6 +133,15 @@ const hour = 3_600_000;
 /** Whether `path` is `parent` or inside it (canonical paths). */
 const within = (path: string, parent: string) => path === parent || path.startsWith(parent.endsWith(sep) ? parent : parent + sep);
 const createProjectResultSchema = z.object({ projectId: z.string(), title: z.string(), path: z.string() });
+const manageGroupsResultSchema = z.object({
+  action: z.string(),
+  groupId: z.string(),
+  name: z.string().optional(),
+  revision: z.number().int().optional(),
+  /** delete: where the group's projects went, and which they were. */
+  movedTo: z.string().optional(),
+  projectIds: z.array(z.string()).optional(),
+});
 const listProjectsResultSchema = z.object({
   projects: z.array(z.object({ projectId: z.string(), title: z.string(), rootAvailable: z.boolean(), openCards: z.number().int() })),
 });
@@ -157,6 +188,10 @@ export class DispatcherTools {
   private projectSlots = new Map<string, number[]>();
   /** The dispatcher's card messages in the last hour, per session (§5.3). */
   private messageSlots = new Map<string, number[]>();
+  /** The dispatcher's board group calls in the last hour, per session (DISPATCHER-SPEC §5.2). */
+  private groupSlots = new Map<string, number[]>();
+  /** The board group writes flowly_manage_groups shares with the groups.* RPCs (group-writes.ts, §5.2). */
+  groupsWith?: GroupWriter;
   constructor(
     private readonly store: BoardStore,
     private readonly cards: AgentCards,
@@ -387,13 +422,7 @@ export class DispatcherTools {
     const create = this.createProjectWith;
     if (!create) throw new ToolError("PASEO_UNAVAILABLE", "Flowly is still starting; try again in a moment.", true);
     const paseo = this.cards.api();
-    // The user's confirmation is the provider's permission prompt: refuse in a mode that never shows it (ruling A).
-    const mode = (await paseo.agents.ref(agentId).refresh())?.agent?.currentModeId ?? null;
-    if (!mode || !promptingModes.includes(mode))
-      throw new ToolError(
-        "CONFIRMATION_UNAVAILABLE",
-        `${mode ? `The dispatcher runs in the "${mode}" permission mode` : "The dispatcher's permission mode is unknown"}, so the user may not be asked to confirm a project. Tell the user to switch the dispatcher to a mode that asks (Default, Accept edits or Plan) and try again.`,
-      );
+    await this.assertPrompting(paseo, agentId, "a project");
     const release = this.reserveProject(agentId);
     try {
       const path = input.path === "~" ? homedir() : input.path;
@@ -432,23 +461,88 @@ export class DispatcherTools {
 
   /** Takes one of the dispatcher session's hourly project slots, or PROJECT_LIMIT (§5.2). */
   private reserveProject(agentId: string) {
+    return this.takeSlot(this.projectSlots, agentId, dispatcherProjectsPerHour, "PROJECT_LIMIT", (n) =>
+      `This dispatcher already created ${n} projects in the last hour. Stop and ask the user before creating more.`,
+    );
+  }
+
+  /** Takes one of the dispatcher session's hourly group slots, or GROUP_LIMIT (DISPATCHER-SPEC §5.2). */
+  private reserveGroup(agentId: string) {
+    return this.takeSlot(this.groupSlots, agentId, dispatcherGroupCallsPerHour, "GROUP_LIMIT", (n) =>
+      `This dispatcher already changed board groups ${n} times in the last hour. Stop and ask the user before changing more.`,
+    );
+  }
+
+  /** A slot of an hourly bucket: taken now, or refused with `code`; the returned function gives it back (a refusal does). */
+  private takeSlot(slots: Map<string, number[]>, agentId: string, limit: number, code: string, message: (limit: number) => string) {
     const now = this.clock();
-    const recent = (this.projectSlots.get(agentId) ?? []).filter((at) => now - at < hour);
-    if (recent.length >= dispatcherProjectsPerHour)
-      throw new ToolError(
-        "PROJECT_LIMIT",
-        `This dispatcher already created ${dispatcherProjectsPerHour} projects in the last hour. Stop and ask the user before creating more.`,
-      );
-    this.projectSlots.set(agentId, [...recent, now]);
+    const recent = (slots.get(agentId) ?? []).filter((at) => now - at < hour);
+    if (recent.length >= limit) throw new ToolError(code, message(limit));
+    slots.set(agentId, [...recent, now]);
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      const list = [...(this.projectSlots.get(agentId) ?? [])];
+      const list = [...(slots.get(agentId) ?? [])];
       const at = list.lastIndexOf(now);
       if (at >= 0) list.splice(at, 1);
-      this.projectSlots.set(agentId, list);
+      slots.set(agentId, list);
     };
+  }
+
+  /**
+   * The user's confirmation is the provider's permission prompt: refuse in a mode that never shows it (ruling A, §5.2).
+   * `what` names the thing the user is asked to confirm, in CONFIRMATION_UNAVAILABLE's message.
+   */
+  private async assertPrompting(paseo: PaseoApi, agentId: string, what: string) {
+    const mode = (await paseo.agents.ref(agentId).refresh())?.agent?.currentModeId ?? null;
+    if (!mode || !promptingModes.includes(mode))
+      throw new ToolError(
+        "CONFIRMATION_UNAVAILABLE",
+        `${mode ? `The dispatcher runs in the "${mode}" permission mode` : "The dispatcher's permission mode is unknown"}, so the user may not be asked to confirm ${what}. Tell the user to switch the dispatcher to a mode that asks (Default, Accept edits or Plan) and try again.`,
+      );
+  }
+
+  /**
+   * flowly_manage_groups (DISPATCHER-SPEC §0, §5.2): create, rename, set the members of, make default, or delete a board
+   * group, each confirmed by the user. The checks and their order are flowly_create_project's; a refusal gives its slot back.
+   */
+  async manageGroups(identity: DispatcherIdentity, raw: unknown) {
+    const parsed = dispatcherInputs.manageGroups.parse(raw);
+    const input = manageGroupsInput.parse(parsed);
+    const { agentId, groupId: own } = await this.caller(identity);
+    await this.cards.enabled();
+    const writes = this.groupsWith;
+    if (!writes) throw new ToolError("PASEO_UNAVAILABLE", "Flowly is still starting; try again in a moment.", true);
+    const paseo = this.cards.api();
+    await this.assertPrompting(paseo, agentId, "a board group change");
+    const release = this.reserveGroup(agentId);
+    try {
+      if (input.action === "create") {
+        const group = await writes.create({ name: input.name });
+        return { action: input.action, groupId: group.id, name: group.name, revision: group.revision };
+      }
+      if (input.action === "delete" && input.groupId === own)
+        throw new ToolError("GROUP_PROTECTED", "This dispatcher's own group can't be deleted. Tell the user to delete it in Flowly.");
+      if (input.action === "rename") {
+        const group = await writes.update({ id: input.groupId, revision: input.revision, name: input.name });
+        return { action: input.action, groupId: group.id, name: group.name, revision: group.revision };
+      }
+      if (input.action === "set_default") {
+        const group = await writes.update({ id: input.groupId, revision: input.revision, isDefault: true });
+        return { action: input.action, groupId: group.id, name: group.name, revision: group.revision };
+      }
+      if (input.action === "set_members") {
+        const group = await writes.setMembers({ groupId: input.groupId, revision: input.revision, projectIds: input.projectIds });
+        return { action: input.action, groupId: group.id, name: group.name, revision: group.revision };
+      }
+      const deleted = await writes.delete(paseo, { id: input.groupId, revision: input.revision });
+      return { action: input.action, groupId: deleted.id, movedTo: deleted.movedTo, projectIds: deleted.projectIds };
+    } catch (e) {
+      // A refused call gives its slot back: only calls that changed the board count.
+      release();
+      throw e;
+    }
   }
 
   /** Registers the dispatcher tools on a dispatcher credential's MCP server; nothing else is registered there. */
@@ -597,6 +691,18 @@ export class DispatcherTools {
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },
       (raw) => toolResult(() => this.createProject(identity, raw)),
+    );
+    // Not preapproved either (dispatcherConfirmedToolNames, DISPATCHER-SPEC §5.2): each call asks the user to confirm it.
+    mcp.registerTool(
+      "flowly_manage_groups",
+      {
+        description:
+          `Create, rename, set the member projects of, make the default, or delete a board group (a group of projects on the board; each has its own dispatcher). Use only when the user asks. Each call asks the user to confirm it. Actions: create (name); rename (groupId, revision, name); set_members (groupId, revision, projectIds: the group's whole new list; a current member left out goes to the default group, and the default group only adds); set_default (groupId, revision); delete (groupId, revision: its projects move to the default group). Returns the group's new revision, or for delete the movedTo group and projectIds. Refusals: GROUP_PROTECTED (your own group can't be deleted), DEFAULT_REQUIRED (the default group can't be deleted, or a member left out of it), GROUP_BUSY (the group has a live dispatcher; the user deletes it in Flowly), GROUP_NOT_FOUND, NOT_FOUND (a project id), REVISION_CONFLICT (re-read the board and retry), NAME_TAKEN, PROJECT_ARCHIVED. CONFIRMATION_UNAVAILABLE: your permission mode would not ask the user; tell them to switch it. GROUP_LIMIT: at most ${dispatcherGroupCallsPerHour} per hour. AGENT_CARDS_DISABLED: the user turned this off.`,
+        inputSchema: dispatcherInputs.manageGroups,
+        outputSchema: manageGroupsResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      },
+      (raw) => toolResult(() => this.manageGroups(identity, raw)),
     );
   }
 }
