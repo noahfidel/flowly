@@ -6,6 +6,7 @@
 - Switcher: groups, then projects, then All projects last (Ruling, Noah 2026-11-10); desktop group tabs after All. Empty group: hint with *Edit groups* (opens Settings → Workflow). A deleted group's choice falls back like an unavailable All. Quick task on a group: last quick project when a member, else the first member; picker lists members first.
 - Settings → Workflow → Board groups editor (`client/board-groups-settings.tsx`): add, rename, delete, tick member chips. The "Show projects in no group" setting from the first brief was dropped (Ruling, Noah 2026-11-10).
 - Onboarding: More features row *Board groups*; no tip (What's new and the tour cover it). What's new 1.8.0: new Board groups item; to keep the 7-item cap, the two learning/memory items were merged into one. Telemetry: no field (off in this fork). Strings: 12 new in all 9 catalogs, 2 removed.
+- Review fixes (independent Opus review of 98d9c9e): empty group on phones no longer renders a missing lane (crash); stored groups drop only invalid entries and keep the first 50; names cut to 80; editor saves queued so quick edits are kept; view remembered only after settings load; group tabs scroll with project tabs; no live project → first-run screen wins (Ruling, Noah 2026-11-10). Checks: `npm run typecheck` exit 0; `npm test` exit 0 (193 files, 1958 passed, 7 skipped). Unrun: live desktop/phone click-through.
 
 ## Progress reads every chat of the card (branch `progress-by-workspace`) — 2026-11-09
 
