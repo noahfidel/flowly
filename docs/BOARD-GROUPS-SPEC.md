@@ -67,6 +67,16 @@ exactly one group. Individual projects are no longer top-level navigation.
   group…), and a **+** that opens New project preset to the current group.
 - Ruling (Noah, 2026-11-10): a group's dispatcher starts only from **Start dispatcher**. Creating a group and the
   migration start none.
+- Ruling (Noah, 2026-11-10): when projects need a default home in the migration and a stored group is already named
+  "Projects" (ignoring case), that group is reused: it becomes the default and takes the ungrouped projects and those
+  of dropped groups. No second "Projects" group is made.
+- Ruling (Noah, 2026-11-10): a newly made default **Projects** counts toward the cap of 50: with exactly 50 stored
+  groups kept, the 50th gives way and its projects join **Projects**. This applies only when no stored "Projects" is
+  reused.
+- Ruling (Noah, 2026-11-10): a stored group with a blank name is dropped by the migration, and its projects are
+  treated as in no group.
+- Ruling (Noah, 2026-11-10): `isDefault: false` in `groups.update` is a no-op on a group that is not the default; it
+  is refused with `DEFAULT_REQUIRED` only on the default group.
 
 ## 1. Model
 
@@ -82,7 +92,9 @@ GroupDefaults { agentModel?: AgentModel, deliveryMode?: DeliveryMode, dispatcher
   the switcher. At most 50 groups.
 - Invariants kept by the server on every write, in one serialized operation: every live project has a `groupId` that
   names an existing group; exactly one group has `isDefault`; a missing or dangling `groupId` found on read is
-  repaired to the default group (logged with `logFailure`). Archived projects keep their `groupId`.
+  repaired to the default group (logged with `logFailure`). Archived projects keep their `groupId`. A broken stored
+  list is repaired the same way: a repeated group id keeps its first group, a repeated name (ignoring case) is
+  renamed with " 2", " 3", …. A storage restore moves group revisions past the live ones, as it does for projects.
 - `GroupDefaults` fields are all optional: absent means "inherit" (§5).
 
 ## 2. RPCs
@@ -90,13 +102,15 @@ GroupDefaults { agentModel?: AgentModel, deliveryMode?: DeliveryMode, dispatcher
 All writes are serialized with the board, check `revision` and refuse stale edits like `projects.update`.
 Refusals carry a code as a `CODE: message` prefix: `REVISION_CONFLICT`, `NAME_TAKEN`, `GROUPS_FULL`,
 `DEFAULT_REQUIRED`, `GROUP_NOT_FOUND`, `GROUP_BUSY`, and `GROUPS_UNAVAILABLE` until the migration (§7) has run in
-this daemon (a failed migration keeps group writes refused, and other writes add no groups, until a start migrates).
+this daemon (a failed migration keeps group writes refused, and other writes add no groups, until it succeeds: a
+storage-busy failure is retried with backoff during the run, any other failure at the next start). A group delete
+whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 
 - `groups.create { name, defaults? }` → group (appended; no members). The first group of an empty board is its
   default.
 - `groups.update { id, revision, name?, defaults?, isDefault? }`: setting `isDefault: true` moves the flag;
-  clearing it on the default group is refused (`DEFAULT_REQUIRED`; `false` on another group changes nothing). In
-  `defaults`, a value sets a default and `null` clears it.
+  clearing it on the default group is refused (`DEFAULT_REQUIRED`; ruling above for other groups). In `defaults`, a
+  value sets a default and `null` clears it. An edit that changes nothing writes nothing and bumps no revision.
 - `groups.move { id, direction }` → renumbers `position` without bumping revisions (as `projects.move`).
 - `groups.delete { id, revision }` → refused with `DEFAULT_REQUIRED` for the default group; otherwise moves the
   group's projects to the default group, archives the group's dispatcher session when it has a live one (§6) and
@@ -202,15 +216,14 @@ next start (the record's session is still v1, the board has groups, so step 4 ru
    typed schema drops `boardGroups` once it is no longer a setting). Each valid stored group
    becomes a `Group` in stored order (invalid entries dropped as the v1 reader did, names cut to 80, duplicates
    renamed with " 2", " 3", …; more than 50 keeps the first 50). The stored value is left in place and ignored
-   afterwards. A blank name drops the group (its projects then count as in no group). A missing file or bad JSON
+   afterwards. A blank name drops the group (ruling above). A missing file or bad JSON
    reads as no groups, as the v1 reader did; a file that exists but cannot be read fails the migration (retried at the
    next start) rather than placing every project in **Projects**.
 2. **Membership:** a project listed in several groups goes to the first of them; a project in none, and a project
    whose group was dropped, goes to the default group **Projects**, created at the end when needed (the name is the English text "Projects", stored as text: the daemon has no translation). When no project needs it and no group is marked, the first group becomes the default. A
-   board with no stored groups gets one group, **Projects**, holding every project. **Projects** counts toward the
-   cap of 50: when it is needed and 50 stored groups are kept, the 50th gives way and its projects join **Projects**.
-   A stored group already named "Projects" (ignoring case) keeps its members, and the new default is named by the
-   duplicate rule ("Projects 2"). Restoring a storage backup from before groups (Settings > Storage) migrates it again.
+   board with no stored groups gets one group, **Projects**, holding every project. A stored "Projects" is reused and
+   a new one counts toward the cap (rulings above). Restoring a storage backup from before groups (Settings >
+   Storage) migrates it again.
 3. **Settings per host:** `boardGroups` is a per-host setting, and the board is the daemon's. Only the daemon's own
    host value is migrated; the board data is the single source from then on. **Downgrade is not supported**: an
    older build strips `groups` and `groupId` from the board; re-upgrading migrates again from the old settings.

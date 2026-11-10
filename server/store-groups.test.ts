@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { PaseoApi } from "@getpaseo/client";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as sqlite from "node:sqlite";
-import { BoardStore } from "./store";
+import { BoardStore, StoreInvalidError } from "./store";
 import { BoardService } from "./service";
 import { readDatabaseFile, type StorageOptions } from "./sqlite-storage";
 import { projectRecords } from "./project-folder";
@@ -305,8 +305,77 @@ describe.each(["json", "sqlite"] as const)("board groups in the store (%s)", (ba
     const s = open(backend, d);
     const log = errors();
     expect(await s.migrateGroups(legacy([{ id: "x", name: "Ignored", projectIds: ["a", "b"] }]))).toBe(true);
-    expect(log).toHaveBeenCalledWith("Flowly board groups repaired:", "b", "1 projects had no valid group");
+    expect(log).toHaveBeenCalledWith("Flowly board groups repaired:", "project b", "1 projects without a valid group, 0 duplicate groups");
     expect(layout(await onDisk(backend, d))).toEqual({ "one*": ["a", "b"], two: [] });
+  });
+
+  test("a stored list with repeated names and ids is repaired at start and logged, so writes keep working", async () => {
+    const d = await directory();
+    const g = (id: string, name: string, position: number): Group => ({ id, name, position, revision: 1, createdAt: at, updatedAt: at });
+    const board = emptyBoard();
+    board.projects = [project("a", { groupId: "one" })];
+    board.groups = [{ ...g("one", "Work", 0), isDefault: true }, g("two", "WORK", 1), g("one", "Again", 2)];
+    await writeFile(join(d, "board.json"), JSON.stringify(board));
+    const s = open(backend, d);
+    const log = errors();
+    expect(await s.migrateGroups(legacy([]))).toBe(true);
+    expect(log).toHaveBeenCalledWith("Flowly board groups repaired:", "group one, group two", "0 projects without a valid group, 2 duplicate groups");
+    expect(layout(await onDisk(backend, d))).toEqual({ "Work*": ["a"], "WORK 2": [] });
+    await s.createGroup({ name: "Later" });
+  });
+
+  test("a migration that fails for a passing storage reason is retried during the run", async () => {
+    const d = await directory();
+    await seed(d, [project("a"), project("b")]);
+    const s = open(backend, d);
+    s.groupRetryDelays = [5];
+    const log = errors();
+    let calls = 0;
+    const load = async () => {
+      if (++calls < 3) throw new StoreInvalidError("Flowly storage is still starting.", "STORAGE_BUSY", true);
+      return [{ id: "z", name: "Zen", projectIds: ["a"] }];
+    };
+    expect(await s.migrateGroups(load)).toBe(false);
+    await vi.waitFor(() => expect(s.groupsAvailable).toBe(true));
+    expect(calls).toBe(3);
+    expect(log).toHaveBeenCalledWith("Flowly board groups migration failed:", "Flowly storage is still starting.");
+    expect(layout(await onDisk(backend, d))).toEqual({ Zen: ["a"], "Projects*": ["b"] });
+  });
+
+  test("a failure that is not retryable waits for the next start", async () => {
+    const d = await directory();
+    await seed(d, [project("a")]);
+    const s = open(backend, d);
+    s.groupRetryDelays = [1];
+    errors();
+    let calls = 0;
+    expect(await s.migrateGroups(async () => (calls++, Promise.reject(new StoreInvalidError("Board data is invalid."))))).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(calls).toBe(1);
+    expect(s.groupsAvailable).toBe(false);
+  });
+
+  test("an update that changes nothing bumps no revision", async () => {
+    const s = await ready();
+    const board = await s.read();
+    const zen = byName(board, "Zen");
+    const same = await s.updateGroup({ id: zen.id, revision: zen.revision, name: " Zen ", isDefault: false, defaults: { agentModel: null } });
+    expect(same.revision).toBe(zen.revision);
+    const after = await onDisk(backend, s.directory);
+    expect(after.revision).toBe(board.revision);
+    expect(byName(after, "Zen").revision).toBe(zen.revision);
+  });
+
+  test("delete fails with a fixed coded message when the dispatcher record cannot be read", async () => {
+    const s = await ready();
+    const zen = byName(await s.read(), "Zen");
+    const log = errors();
+    const broken = v1DispatcherGuard({ record: async () => Promise.reject(new Error("EIO /secret/path/dispatcher.json")) });
+    const failure = s.deleteGroup({ id: zen.id, revision: zen.revision }, broken);
+    await expect(failure).rejects.toMatchObject({ code: "DISPATCHER_UNAVAILABLE" });
+    await expect(failure).rejects.not.toThrow("/secret/path");
+    expect(log).toHaveBeenCalledWith("Flowly dispatcher record not read for a group delete:", "EIO /secret/path/dispatcher.json");
+    expect(byName(await onDisk(backend, s.directory), "Zen")).toBeDefined();
   });
 });
 
@@ -347,9 +416,58 @@ describe("sqlite only", () => {
     expect(layout(await s.read())).toEqual({ Zen: ["a"], "Projects*": ["b"] });
     expect(layout(await onDisk("sqlite", d))).toEqual({ Zen: ["a"], "Projects*": ["b"] });
   });
+
+  test("restoring a backup that has groups moves their revisions past the live ones: a stale group edit is refused", async () => {
+    const d = await directory();
+    await seed(d, [project("a")]);
+    const s = open("sqlite", d);
+    await s.migrateGroups(legacy([]));
+    await s.backupStorage();
+    const [backup] = (await s.storageStatus()).backups;
+    const held = byName(await s.read(), "Projects");
+    await s.restoreStorage(backup.name);
+    const restored = byName(await s.read(), "Projects");
+    expect(restored.revision).toBeGreaterThan(held.revision);
+    await expect(s.updateGroup({ id: held.id, revision: held.revision, name: "Stale" })).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+  });
 });
 
 describe("json only", () => {
+  test("a failed save during the migration leaves board.json as it was and groups off", async () => {
+    if (process.getuid?.() === 0) return;
+    const d = await directory();
+    await seed(d, [project("a"), project("b")]);
+    const text = await readFile(join(d, "board.json"), "utf8");
+    const s = open("json", d);
+    const log = errors();
+    await chmod(d, 0o500);
+    try {
+      expect(await s.migrateGroups(legacy([{ id: "z", name: "Zen", projectIds: ["a"] }]))).toBe(false);
+    } finally {
+      await chmod(d, 0o700);
+    }
+    expect(log.mock.calls[0][0]).toBe("Flowly board groups migration failed:");
+    expect(await readFile(join(d, "board.json"), "utf8")).toBe(text);
+    expect(s.groupsAvailable).toBe(false);
+    expect((await s.read()).groups).toEqual([]);
+  });
+
+  test("a repaired read and the write after it agree on the default group's id", async () => {
+    const d = await directory();
+    const s = open("json", d);
+    await s.migrateGroups(legacy([]));
+    // A board with a project and no group, as an older build would leave it.
+    await seed(d, [project("a")]);
+    errors();
+    const shown = (await s.read()).groups;
+    expect(shown).toHaveLength(1);
+    expect(await s.read()).toMatchObject({ groups: [{ id: shown[0].id }] });
+    await s.mutate((board) => void board.projects.push(project("b")));
+    const stored = await onDisk("json", d);
+    expect(stored.groups.map((g) => g.id)).toEqual([shown[0].id]);
+    expect(layout(stored)).toEqual({ "Projects*": ["a", "b"] });
+  });
+
   test("a read repairs its copy without writing, and logs a dangling group once", async () => {
     const d = await directory();
     await seed(d, [project("a")]);

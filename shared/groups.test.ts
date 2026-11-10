@@ -114,10 +114,24 @@ describe("migration of the host's v1 groups (BOARD-GROUPS-SPEC §7 steps 1–2)"
     for (const g of b.groups) expect(groupSchema.safeParse(g).success).toBe(true);
     assertGroupInvariants(b);
   });
-  test("a stored group named Projects keeps its members; the default made for ungrouped projects is Projects 2", () => {
-    const b = boardWith([project("a"), project("b")]);
-    migrateLegacyGroups(b, [legacy("projects", ["a"])], now, ids());
-    expect(layout(b)).toEqual({ projects: ["a"], "Projects 2*": ["b"] });
+  test("a stored group named Projects (any case) is reused as the default and takes the ungrouped projects", () => {
+    const b = boardWith([project("a"), project("b"), project("c")]);
+    migrateLegacyGroups(b, [legacy("Other", ["c"]), legacy("projects", ["a"])], now, ids());
+    expect(layout(b)).toEqual({ Other: ["c"], "projects*": ["a", "b"] });
+    assertGroupInvariants(b);
+    // Not needed (every project grouped): the first group stays the default.
+    const grouped = boardWith([project("a"), project("c")]);
+    migrateLegacyGroups(grouped, [legacy("Other", ["c"]), legacy("Projects", ["a"])], now, ids());
+    expect(layout(grouped)).toEqual({ "Other*": ["c"], Projects: ["a"] });
+  });
+  test("50 stored groups with a Projects among them: all 50 kept, Projects reused, none gives way", () => {
+    const stored = Array.from({ length: 50 }, (_, i) => legacy(i === 10 ? "Projects" : `G${i}`, [`p${i}`]));
+    const b = boardWith([...Array.from({ length: 50 }, (_, i) => project(`p${i}`)), project("lonely")]);
+    migrateLegacyGroups(b, stored, now, ids());
+    expect(b.groups).toHaveLength(50);
+    expect(layout(b)["Projects*"]).toEqual(["p10", "lonely"]);
+    expect(layout(b).G49).toEqual(["p49"]);
+    assertGroupInvariants(b);
   });
   test("51 stored groups: the first 50 are kept; projects of the 51st go to Projects only if they need it", () => {
     const stored = Array.from({ length: 51 }, (_, i) => legacy(`G${i}`, [`p${i}`]));
@@ -139,7 +153,7 @@ describe("migration of the host's v1 groups (BOARD-GROUPS-SPEC §7 steps 1–2)"
     const b = emptyBoard();
     expect(migrateLegacyGroups(b, [legacy("One", [])], now, ids())).toBe(false);
     expect(b.groups).toEqual([]);
-    expect(ensureGroups(b, now, ids())).toEqual({ changed: false, projectIds: [] });
+    expect(ensureGroups(b, now, ids())).toEqual({ changed: false, projectIds: [], groupIds: [] });
     b.projects.push(project("first"));
     ensureGroups(b, now, ids());
     expect(layout(b)).toEqual({ "Projects*": ["first"] });
@@ -160,7 +174,7 @@ describe("read-time repair (BOARD-GROUPS-SPEC §1)", () => {
       [project("a", { groupId: "one" }), project("b"), project("c", { groupId: "deleted" }), project("d", { groupId: "deleted", archivedAt: now })],
       [group("one", 0), group("two", 1, { isDefault: true })],
     );
-    expect(ensureGroups(b, now, ids())).toEqual({ changed: true, projectIds: ["b", "c", "d"] });
+    expect(ensureGroups(b, now, ids())).toEqual({ changed: true, projectIds: ["b", "c", "d"], groupIds: [] });
     expect(layout(b)).toEqual({ one: ["a"], "two*": ["b", "c", "d"] });
   });
   test("no default: the first group by position takes the flag", () => {
@@ -177,8 +191,23 @@ describe("read-time repair (BOARD-GROUPS-SPEC §1)", () => {
   test("a board that is in order is not changed", () => {
     const b = boardWith([project("a", { groupId: "one" })], [group("one", 0, { isDefault: true })]);
     const before = JSON.stringify(b);
-    expect(ensureGroups(b, now, ids())).toEqual({ changed: false, projectIds: [] });
+    expect(ensureGroups(b, now, ids())).toEqual({ changed: false, projectIds: [], groupIds: [] });
     expect(JSON.stringify(b)).toBe(before);
+  });
+  test("a broken stored list is repaired: repeated ids keep the first group, repeated names are renamed", () => {
+    const b = boardWith(
+      [project("a", { groupId: "one" }), project("b", { groupId: "two" })],
+      [
+        group("one", 0, { isDefault: true, name: "Work" }),
+        group("two", 1, { name: "work" }),
+        group("one", 2, { name: "Copy", isDefault: true }),
+        group("three", 3, { name: "WORK" }),
+      ],
+    );
+    expect(ensureGroups(b, now, ids())).toEqual({ changed: true, projectIds: [], groupIds: ["one", "two", "three"] });
+    expect(layout(b)).toEqual({ "Work*": ["a"], "work 2": ["b"], "WORK 3": [] });
+    expect(() => assertGroupInvariants(b)).not.toThrow();
+    expect(ensureGroups(b, now, ids()).changed).toBe(false);
   });
 });
 

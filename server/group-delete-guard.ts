@@ -1,5 +1,6 @@
 import { dispatcherTarget } from "../shared/groups";
 import type { Board } from "../shared/model";
+import { logFailure } from "./error-report";
 import { ToolError } from "./tool-error";
 
 /**
@@ -9,7 +10,11 @@ import { ToolError } from "./tool-error";
  */
 export function v1DispatcherGuard(dispatcher: { record(): Promise<{ agentId: string | null }> }) {
   return async (board: Board, groupId: string) => {
-    const { agentId } = await dispatcher.record();
+    // An unparsable record already reads as empty; anything thrown here is the file itself failing to read.
+    const { agentId } = await dispatcher.record().catch((e: unknown) => {
+      logFailure("Flowly dispatcher record not read for a group delete:", e);
+      throw new ToolError("DISPATCHER_UNAVAILABLE", "The dispatcher record could not be read, so the group was not deleted. Try again.");
+    });
     if (agentId && dispatcherTarget(board) === groupId)
       throw new ToolError("GROUP_BUSY", "This group will hold the dispatcher session; delete it after per-group dispatchers ship.");
   };

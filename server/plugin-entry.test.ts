@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
@@ -104,4 +104,30 @@ test("the plugin entry migrates board groups first and serves the group RPCs wit
   const first = await call("groups.create", { name: "First" });
   await expect(call("groups.delete", { id: first.id, revision: first.revision })).rejects.toThrow(/^DEFAULT_REQUIRED: /);
   await expect(call("groups.create", { name: "first" })).rejects.toThrow(/^NAME_TAKEN: /);
+});
+
+test("groups.delete through the plugin entry refuses the v1 dispatcher's target group with GROUP_BUSY", async () => {
+  const root = await mkdtemp(join(tmpdir(), "flowly-entry-"));
+  const env = { FLOWLY_DATA_DIR: process.env.FLOWLY_DATA_DIR, PASEO_HOME: process.env.PASEO_HOME };
+  process.env.FLOWLY_DATA_DIR = join(root, "data");
+  process.env.PASEO_HOME = join(root, "home");
+  cleanups.push(async () => {
+    for (const [key, value] of Object.entries(env)) if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+  });
+  // A stored v1 dispatcher session.
+  await mkdir(join(root, "data"), { recursive: true });
+  await writeFile(join(root, "data", "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "ws", agentId: "dispatcher-1", startedAt: "2026-11-10T10:00:00.000Z" }));
+  const { host, handlers } = fakeHost();
+  const dispose = contribute(host);
+  cleanups.push(() => dispose());
+  const call = (name: string, input: unknown) => handlers.get(name)!(input, { paseo: {} as PaseoApi }) as Promise<{ id: string; revision: number }>;
+  // With no open cards anywhere, the first group in order is the dispatcher's target; make the other one the default.
+  const first = await call("groups.create", { name: "First" });
+  const second = await call("groups.create", { name: "Second" });
+  await call("groups.update", { id: second.id, revision: second.revision, isDefault: true });
+  await expect(call("groups.delete", { id: first.id, revision: first.revision })).rejects.toThrow(/^GROUP_BUSY: /);
+  const third = await call("groups.create", { name: "Third" });
+  await expect(call("groups.delete", { id: third.id, revision: third.revision })).resolves.toMatchObject({ id: third.id, movedTo: second.id });
 });

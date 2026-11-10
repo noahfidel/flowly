@@ -114,6 +114,15 @@ const groupNotFound = () => new ToolError("GROUP_NOT_FOUND", "No board group wit
 const groupConflict = () => new ToolError("REVISION_CONFLICT", "This group changed. Reload it before saving.");
 const nameTakenError = () => new ToolError("NAME_TAKEN", "Another group already has that name.");
 
+/** A group repair is logged with a fixed label; the repaired project and group ids go in the log-only context. */
+function logGroupRepair(label: string, repair: { projectIds: string[]; groupIds: string[] }) {
+  logFailure(
+    label,
+    new Error(`${repair.projectIds.length} projects without a valid group, ${repair.groupIds.length} duplicate groups`),
+    [...repair.projectIds.map((id) => `project ${id}`), ...repair.groupIds.map((id) => `group ${id}`)].join(", "),
+  );
+}
+
 /** Applies a defaults edit: a value sets a default, null removes it; an empty set removes `defaults`. */
 function mergeGroupDefaults(group: Group, input: NonNullable<GroupInput["defaults"]>) {
   const defaults: Record<string, unknown> = { ...group.defaults };
@@ -181,39 +190,56 @@ export class BoardStore {
   /** The read-time repair of §1 on the caller's copy (nothing is written); only after the migration. */
   private repaired(board: Board) {
     if (!this.groupsReady) return board;
-    const { projectIds } = ensureGroups(board, new Date().toISOString(), () => this.nextGroupId);
-    const key = projectIds.join(",");
-    if (key && key !== this.loggedRepair)
-      logFailure("Flowly board groups repaired on read:", new Error(`${projectIds.length} projects had no valid group`), key);
+    const repair = ensureGroups(board, new Date().toISOString(), () => this.nextGroupId);
+    const key = [...repair.projectIds, ...repair.groupIds].join(",");
+    if (key && key !== this.loggedRepair) logGroupRepair("Flowly board groups repaired on read:", repair);
     this.loggedRepair = key;
     return board;
   }
+  /** Waits before each retry of a migration that failed for a passing reason (busy storage); the last one repeats. */
+  groupRetryDelays: readonly number[] = [1000, 2000, 5000, 15000, 30000];
+  private groupRetry: { timer: ReturnType<typeof setTimeout> | null; attempt: number; closed: boolean } = { timer: null, attempt: 0, closed: false };
   /**
    * The one-time board groups migration (BOARD-GROUPS-SPEC §7 steps 1–2), then the repair of §1, in one write queued
    * before any other: the daemon calls it right after building the store. A board that already has groups only gets
-   * the repair; a second run writes nothing. A failure writes nothing, is logged, and leaves groups off until the next
-   * start. Resolves to whether groups are ready.
+   * the repair; a second run writes nothing. A failure writes nothing and is logged; groups stay off. A retryable
+   * storage failure (STORAGE_BUSY while the database starts or another process still holds it) is tried again with
+   * backoff during this run; any other failure waits for the next start. Resolves to whether groups are ready.
    */
   migrateGroups(load: () => Promise<LegacyGroup[]>): Promise<boolean> {
     this.legacyGroups = load;
     return this.queue(async () => {
       try {
-        const repaired = await this.commit(async (board) => {
+        const repair = await this.commit(async (board) => {
           const now = new Date().toISOString();
           const migrated = !board.groups.length && board.projects.length ? migrateLegacyGroups(board, await load(), now, randomUUID) : false;
           const repair = ensureGroups(board, now, this.takeGroupId);
-          return { value: migrated ? [] : repair.projectIds, changed: migrated || repair.changed };
+          return { value: migrated ? { ...repair, projectIds: [] } : repair, changed: migrated || repair.changed };
         }, true);
         // Set inside the queued job, so the next queued read or write already sees it.
         this.groupsReady = true;
-        if (repaired.length) logFailure("Flowly board groups repaired:", new Error(`${repaired.length} projects had no valid group`), repaired.join(","));
+        this.groupRetry.attempt = 0;
+        if (repair.projectIds.length || repair.groupIds.length) logGroupRepair("Flowly board groups repaired:", repair);
         return true;
       } catch (e) {
         this.groupsReady = false;
         logFailure("Flowly board groups migration failed:", e);
+        if (e instanceof StoreInvalidError && e.retryable) this.retryGroups(load);
         return false;
       }
     });
+  }
+  private retryGroups(load: () => Promise<LegacyGroup[]>) {
+    const retry = this.groupRetry;
+    if (retry.closed || retry.timer) return;
+    const delays = this.groupRetryDelays;
+    const delay = delays[Math.min(retry.attempt, delays.length - 1)];
+    retry.attempt++;
+    retry.timer = setTimeout(() => {
+      retry.timer = null;
+      if (!retry.closed) void this.migrateGroups(load);
+    }, delay);
+    retry.timer.unref?.();
   }
   async view() {
     return boardSchema.parse(await this.read());
@@ -251,7 +277,9 @@ export class BoardStore {
     if (!result.changed) return result.value;
     markDelivered(board);
     if (this.groupsReady || migrating) {
-      ensureGroups(board, new Date().toISOString(), this.takeGroupId);
+      const repair = ensureGroups(board, new Date().toISOString(), this.takeGroupId);
+      // New projects joining the default group are the normal path; only a broken group list is worth a log.
+      if (!migrating && repair.groupIds.length) logGroupRepair("Flowly board groups repaired on write:", { projectIds: [], groupIds: repair.groupIds });
       assertGroupInvariants(board);
     }
     board.revision++;
@@ -305,6 +333,9 @@ export class BoardStore {
   }
   /** Plugin shutdown: finishes queued writes and closes the database. */
   close() {
+    this.groupRetry.closed = true;
+    if (this.groupRetry.timer) clearTimeout(this.groupRetry.timer);
+    this.groupRetry.timer = null;
     return this.queue(async () => this.storage?.close());
   }
   private requireStorage() {
@@ -787,6 +818,7 @@ export class BoardStore {
       if (group.revision !== input.revision) throw groupConflict();
       if (input.isDefault === false && group.isDefault)
         throw new ToolError("DEFAULT_REQUIRED", "One group must stay the default. Make another group the default instead.");
+      const before = JSON.stringify({ name: group.name, defaults: group.defaults ?? {}, isDefault: !!group.isDefault });
       if (input.name !== undefined) {
         const name = normalizeGroupName(input.name);
         if (nameTaken(board.groups, name, group.id)) throw nameTakenError();
@@ -797,6 +829,9 @@ export class BoardStore {
         for (const g of board.groups) delete g.isDefault;
         group.isDefault = true;
       }
+      // An edit that changes nothing (the same name, `isDefault: false` on another group) writes nothing.
+      if (JSON.stringify({ name: group.name, defaults: group.defaults ?? {}, isDefault: !!group.isDefault }) === before)
+        return { value: group, changed: false };
       group.revision++;
       group.updatedAt = new Date().toISOString();
       return { value: group, changed: true };

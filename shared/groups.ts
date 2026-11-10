@@ -32,17 +32,47 @@ export const defaultGroupOf = (board: Pick<Board, "groups">) => board.groups.fin
  * default flag is set on one group (the first default, else the first group); a project whose `groupId` is missing or
  * names no group joins the default group. Archived projects included. Never run before the migration (§7): on an
  * unmigrated board it would create **Projects** and make the migration skip the stored groups.
- * Returns the repaired project ids and whether anything changed.
+ * A broken stored list is repaired too, so the commit invariants never block every write: a repeated group id keeps
+ * its first group (in order) and drops the others; a repeated name (ignoring case) is renamed with " 2", " 3", ….
+ * Returns the repaired project ids, the dropped or renamed group ids, and whether anything changed.
  */
-export function ensureGroups(board: Groups, now: string, newId: () => string): { changed: boolean; projectIds: string[] } {
-  const projectIds: string[] = [];
+export function ensureGroups(
+  board: Groups,
+  now: string,
+  newId: () => string,
+): { changed: boolean; projectIds: string[]; groupIds: string[] } {
+  const projectIds: string[] = [],
+    groupIds: string[] = [];
   let changed = false;
   if (!board.groups.length) {
-    if (!board.projects.length) return { changed, projectIds };
+    if (!board.projects.length) return { changed, projectIds, groupIds };
     board.groups.push({ id: newId(), name: defaultGroupName, position: 0, isDefault: true, revision: 1, createdAt: now, updatedAt: now });
     changed = true;
   }
-  const ordered = orderedGroups(board.groups);
+  const seenIds = new Set<string>(),
+    names = new Set<string>();
+  const unique = orderedGroups(board.groups).filter((g) => {
+    if (seenIds.has(g.id)) {
+      groupIds.push(g.id);
+      return false;
+    }
+    seenIds.add(g.id);
+    return true;
+  });
+  if (unique.length !== board.groups.length) {
+    board.groups = board.groups.filter((g) => unique.includes(g));
+    changed = true;
+  }
+  for (const group of unique) {
+    if (!names.has(groupNameKey(group.name))) {
+      names.add(groupNameKey(group.name));
+      continue;
+    }
+    group.name = uniqueName(group.name, names);
+    groupIds.push(group.id);
+    changed = true;
+  }
+  const ordered = unique;
   const flagged = ordered.filter((g) => g.isDefault);
   const keep = flagged[0] ?? ordered[0];
   if (flagged.length !== 1) {
@@ -57,7 +87,7 @@ export function ensureGroups(board: Groups, now: string, newId: () => string): {
       projectIds.push(project.id);
       changed = true;
     }
-  return { changed, projectIds };
+  return { changed, projectIds, groupIds };
 }
 
 /** The stored name cut to the cap, made unique with " 2", " 3", … (ignoring case); "" for a blank name. */
@@ -76,9 +106,10 @@ function uniqueName(raw: string, taken: Set<string>) {
 /**
  * The one-time migration's steps 1–2 (§7): the host's v1 groups become board groups in stored order (blank names
  * dropped, names cut to 80, duplicates renamed, at most 50 kept); a project listed in several goes to the first, a
- * project in none (or in a dropped group) goes to **Projects**, created last and made the default; with no such
- * project the first group is the default. No stored groups: one **Projects** holding every project. Archived projects
- * are placed like live ones; ids of projects no longer on the board are ignored.
+ * project in none (or in a dropped group) goes to **Projects**, made the default: a kept stored group of that name
+ * (ignoring case) is reused, else one is created last, counting toward the cap (the 50th stored group gives way). With
+ * no such project the first group is the default. No stored groups: one **Projects** holding every project. Archived
+ * projects are placed like live ones; ids of projects no longer on the board are ignored.
  * Runs only on a board with projects and no groups; otherwise changes nothing (idempotent). Returns whether it changed.
  */
 export function migrateLegacyGroups(board: Groups, legacy: readonly LegacyGroup[], now: string, newId: () => string) {
@@ -99,19 +130,24 @@ export function migrateLegacyGroups(board: Groups, legacy: readonly LegacyGroup[
   };
   let kept = candidates.slice(0, groupLimits.groups);
   let memberOf = placement(kept);
-  let needsDefault = board.projects.some((p) => !memberOf.has(p.id));
-  // Projects must fit under the cap too: the last stored group gives way, and its projects join Projects.
-  if (needsDefault && kept.length === groupLimits.groups) {
+  const needsDefault = board.projects.some((p) => !memberOf.has(p.id));
+  const defaultKey = groupNameKey(defaultGroupName);
+  // Ruling (Noah, 2026-11-10): a stored "Projects" (any case) becomes the default and takes the ungrouped projects.
+  const reused = needsDefault ? kept.findIndex((g) => groupNameKey(g.name) === defaultKey) : -1;
+  // A new Projects must fit under the cap too: the last stored group gives way, and its projects join Projects.
+  if (needsDefault && reused < 0 && kept.length === groupLimits.groups) {
     kept = kept.slice(0, groupLimits.groups - 1);
     memberOf = placement(kept);
   }
-  needsDefault = board.projects.some((p) => !memberOf.has(p.id));
   const groups: Group[] = kept.map((g, position) => ({ id: newId(), name: g.name, position, revision: 1, createdAt: now, updatedAt: now }));
   let fallback: Group | undefined;
   if (needsDefault) {
-    const keptNames = new Set(kept.map((g) => groupNameKey(g.name)));
-    fallback = { id: newId(), name: uniqueName(defaultGroupName, keptNames), position: groups.length, isDefault: true, revision: 1, createdAt: now, updatedAt: now };
-    groups.push(fallback);
+    if (reused >= 0) fallback = groups[reused];
+    else {
+      fallback = { id: newId(), name: defaultGroupName, position: groups.length, revision: 1, createdAt: now, updatedAt: now };
+      groups.push(fallback);
+    }
+    fallback.isDefault = true;
   } else groups[0].isDefault = true;
   for (const project of board.projects) {
     const index = memberOf.get(project.id);
