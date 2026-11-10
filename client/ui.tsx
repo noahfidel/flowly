@@ -347,6 +347,7 @@ export function Field({
   onSubmit,
   autoFocus,
   secure = false,
+  maxLength,
 }: {
   title: string;
   value: string;
@@ -361,6 +362,8 @@ export function Field({
   /** Enter submits (Shift+Enter is a new line in a multiline field). Pass nothing while the form can't be submitted. */
   onSubmit?: () => void;
   autoFocus?: boolean;
+  /** Stop typing at this many characters. */
+  maxLength?: number;
 }) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
@@ -379,6 +382,7 @@ export function Field({
         editable={editable}
         autoFocus={autoFocus}
         placeholder={placeholder}
+        {...(maxLength ? { maxLength } : {})}
         {...(secure ? { secureTextEntry: true, autoCorrect: false, autoCapitalize: "none" as const } : {})}
         {...(onSubmit
           ? Platform.OS === "web"

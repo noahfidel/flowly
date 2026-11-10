@@ -1,11 +1,11 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useSettings } from "@getpaseo/plugin/client";
-import { boardViewSettings, boardViewValues, type BoardGroup } from "../shared/settings";
+import { MAX_BOARD_GROUPS, MAX_GROUP_NAME, boardViewSettings, boardViewValues, type BoardGroup } from "../shared/settings";
 import type { Project } from "../shared/model";
 import { t } from "../shared/i18n";
-import { addGroup, deleteGroup, renameGroup, toggleMember } from "./board-groups";
+import { addGroup, deleteGroup, groupEditor, renameGroup, toggleMember } from "./board-groups";
 import { SettingRow, SettingsGroup } from "./settings-ui";
 import { useStored } from "./stored-settings";
 import { Field, IconButton, Label, Notice, font, noFocusRing, radius, space, tint, useTheme } from "./ui";
@@ -18,13 +18,26 @@ const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slic
  */
 export function BoardGroupsGroup({ projects }: { projects: readonly Project[] }) {
   const stored = useStored(useSettings(boardViewSettings), boardViewValues);
-  const groups = stored.values?.boardGroups ?? [];
-  // Debounced name edits can land after another change; always edit the latest list.
-  const latest = useRef<BoardGroup[]>(groups);
-  latest.current = groups;
-  const save = (next: BoardGroup[]) => {
-    latest.current = next;
-    void stored.saveSure({ boardGroups: next });
+  const saveSure = useRef(stored.saveSure);
+  saveSure.current = stored.saveSure;
+  // Edits apply locally at once and are saved one at a time with the latest list (quick taps and a debounced
+  // rename during a save are all kept); the stored list is adopted only when no save is pending.
+  const editor = useRef<ReturnType<typeof groupEditor> | null>(null);
+  if (!editor.current) editor.current = groupEditor((groups) => saveSure.current({ boardGroups: groups }));
+  const [, rerender] = useState(0);
+  const storedGroups = stored.values?.boardGroups;
+  const storedKey = storedGroups ? JSON.stringify(storedGroups) : "";
+  // Adopt each new stored list as it renders (no empty first frame); the editor ignores it while a save is pending.
+  const synced = useRef("");
+  if (storedGroups && synced.current !== storedKey) {
+    synced.current = storedKey;
+    editor.current.sync(storedGroups);
+  }
+  const loaded = !!storedGroups;
+  const groups = loaded ? editor.current.current() : [];
+  const save = (change: (groups: BoardGroup[]) => BoardGroup[]) => {
+    void editor.current!.edit(change).then(() => rerender((n) => n + 1));
+    rerender((n) => n + 1);
   };
   return (
     <SettingsGroup title={t("Board groups")}>
@@ -38,10 +51,11 @@ export function BoardGroupsGroup({ projects }: { projects: readonly Project[] })
                 value={group.name}
                 placeholder={t("Group name")}
                 commitDelay={600}
-                onChange={(name) => save(renameGroup(latest.current, group.id, name))}
+                maxLength={MAX_GROUP_NAME}
+                onChange={(name) => save((list) => renameGroup(list, group.id, name))}
               />
             </View>
-            <IconButton icon="Trash2" label={t("Delete {name}", { name: group.name || t("Untitled group") })} disabled={stored.busy} onPress={() => save(deleteGroup(latest.current, group.id))} />
+            <IconButton icon="Trash2" label={t("Delete {name}", { name: group.name || t("Untitled group") })} disabled={!loaded} onPress={() => save((list) => deleteGroup(list, group.id))} />
           </View>
           {projects.length ? (
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[1.5] }}>
@@ -50,7 +64,7 @@ export function BoardGroupsGroup({ projects }: { projects: readonly Project[] })
                   key={p.id}
                   title={p.title}
                   checked={group.projectIds.includes(p.id)}
-                  onPress={() => save(toggleMember(latest.current, group.id, p.id))}
+                  onPress={() => save((list) => toggleMember(list, group.id, p.id))}
                 />
               ))}
             </View>
@@ -63,9 +77,9 @@ export function BoardGroupsGroup({ projects }: { projects: readonly Project[] })
       ))}
       <SettingRow
         title={t("Add group")}
-        disabled={stored.busy}
+        disabled={!loaded || groups.length >= MAX_BOARD_GROUPS}
         trailing={<Icon name="Plus" size={16} />}
-        onPress={() => save(addGroup(latest.current, t("New group"), newId()))}
+        onPress={() => save((list) => addGroup(list, t("New group"), newId()))}
       />
     </SettingsGroup>
   );

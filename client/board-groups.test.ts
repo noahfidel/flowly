@@ -10,6 +10,7 @@ import {
   isGroupView,
   membersFirst,
   mobileLane,
+  groupEditor,
   renameGroup,
   staleGroupChoice,
   toggleMember,
@@ -198,5 +199,41 @@ describe("review fixes (2026-11-10)", () => {
   test("add refuses past the cap", () => {
     const full = Array.from({ length: MAX_BOARD_GROUPS }, (_, i) => ({ id: `g${i}`, name: `G${i}`, projectIds: [] }));
     expect(addGroup(full, "One more", "x")).toHaveLength(MAX_BOARD_GROUPS);
+  });
+});
+
+describe("settings editor saves (review fix 2026-11-10)", () => {
+  const deferred = () => {
+    let resolve!: (ok: boolean) => void;
+    const promise = new Promise<boolean>((r) => (resolve = r));
+    return { promise, resolve };
+  };
+  test("quick edits in a row are all kept, saved one at a time with the latest list", async () => {
+    const sends: BoardGroup[][] = [];
+    const waits: ReturnType<typeof deferred>[] = [];
+    const editor = groupEditor((groups) => {
+      sends.push(groups);
+      const d = deferred();
+      waits.push(d);
+      return d.promise;
+    });
+    editor.sync([zen]);
+    const first = editor.edit((g) => toggleMember(g, "g2", "a"));
+    const second = editor.edit((g) => toggleMember(g, "g2", "b"));
+    // A stale stored value arriving mid-save does not undo the local edits.
+    editor.sync([zen]);
+    expect(editor.current()[0].projectIds).toEqual(["c", "b"]);
+    await Promise.resolve();
+    expect(sends).toHaveLength(1);
+    waits[0].resolve(true);
+    await first;
+    await Promise.resolve();
+    expect(sends).toHaveLength(2);
+    expect(sends[1][0].projectIds).toEqual(["c", "b"]);
+    waits[1].resolve(true);
+    await second;
+    // Idle again: an outside change is adopted.
+    editor.sync([loadout]);
+    expect(editor.current()).toEqual([loadout]);
   });
 });

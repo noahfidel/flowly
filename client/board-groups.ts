@@ -86,3 +86,27 @@ export function mobileLane(shown: readonly Status[], current: Status): Status {
   if (!shown.length || shown.includes(current)) return current;
   return shown.includes("todo") ? "todo" : shown[0];
 }
+
+/**
+ * The Board groups editor's list and saves (§2). Edits apply at once to the local list and are saved one at a time,
+ * each sending the latest list, so quick edits in a row are all kept. A stored value is adopted only while no save is
+ * queued or running: until then it is an older state (or our own echo), never newer than the local list.
+ */
+export function groupEditor(send: (groups: BoardGroup[]) => Promise<boolean>) {
+  let latest: BoardGroup[] = [];
+  let pending = 0;
+  let chain: Promise<unknown> = Promise.resolve();
+  return {
+    current: () => latest,
+    sync(stored: BoardGroup[]) {
+      if (!pending) latest = stored;
+    },
+    edit(change: (groups: BoardGroup[]) => BoardGroup[]): Promise<boolean> {
+      latest = change(latest);
+      pending++;
+      const run = chain.then(() => send(latest)).catch(() => false).finally(() => pending--);
+      chain = run;
+      return run;
+    },
+  };
+}
