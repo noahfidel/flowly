@@ -1,20 +1,19 @@
 import { useEffect, useRef } from "react";
 import { Pressable, View, type ScrollView as RNScrollView } from "react-native";
-import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
-import type { Project } from "../shared/model";
+import { ScrollView } from "@getpaseo/plugin/client/react-native";
+import type { Group } from "../shared/model";
 import { menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { SortableList } from "./sortable-list";
 import { IconButton, Label, font, noFocusRing, radius, space, useTheme } from "./ui";
 import { t } from "../shared/i18n";
 
 /**
- * Desktop project tabs (PROJECT-TABS-SPEC): one click switches project; the
- * trailing buttons create a project or open the full chooser (reorder, edit, archive).
- * Right-click (long-press on touch) a tab for that project's actions; drag a
- * tab with the mouse to reorder.
+ * Desktop group tabs (BOARD-GROUPS-SPEC §3): one tab per group, one click opens its board; the trailing
+ * buttons create a project in the current group or open the group switcher. Right-click (long-press on
+ * touch) a tab for that group's actions; drag a tab with the mouse to reorder.
  */
-export function ProjectTabs({
-  projects,
+export function GroupTabs({
+  groups,
   activeId,
   shortcut,
   onSelect,
@@ -23,52 +22,36 @@ export function ProjectTabs({
   menuFor,
   onMove,
   reorderDisabled,
-  all,
-  groups = [],
-  onSelectGroup,
 }: {
-  projects: readonly Project[];
+  /** In position order. */
+  groups: readonly Group[];
   activeId: string;
   shortcut: string;
   onSelect(id: string): void;
   onManage(): void;
   onCreate(): void;
-  /** Context menu entries for one tab's project. */
-  menuFor(project: Project, index: number): MenuEntry[];
-  /** Drop a dragged tab at `to`, an index in `projects`. */
+  /** Context menu entries for one tab's group. */
+  menuFor(group: Group, index: number): MenuEntry[];
+  /** Drop a dragged tab at `to`, an index in `groups`. */
   onMove(id: string, to: number): void;
   reorderDisabled: boolean;
-  /** The All tab before the project tabs, while available (ALL-PROJECTS-SPEC §1); not draggable, no menu. */
-  all?: { active: boolean; onSelect(): void };
-  /** Board groups after All, before the project tabs (BOARD-GROUPS-SPEC §1); not draggable, no menu. */
-  groups?: readonly { id: string; name: string; active: boolean }[];
-  onSelectGroup?(id: string): void;
 }) {
   const openMenu = useMenuOpener();
   const scroll = useRef<RNScrollView>(null);
   const offsets = useRef(new Map<string, { x: number; width: number }>());
   const viewport = useRef({ x: 0, width: 0 });
-  // Group tabs scroll with the project tabs, before them; project offsets are measured inside their list.
-  const groupsWidth = useRef(0);
-  if (!groups.length) groupsWidth.current = 0;
-  const activeGroup = groups.find((g) => g.active)?.id ?? "";
-  // Keep the active tab in view when it changes from elsewhere (chooser, linked session).
+  // Keep the active tab in view when it changes from elsewhere (switcher, linked session).
   const reveal = (id: string) => {
-    const measured = offsets.current.get(id),
+    const tab = offsets.current.get(id),
       view = viewport.current;
-    if (!measured || !view.width) return;
-    const tab = id.startsWith(groupKey) ? measured : { x: measured.x + groupsWidth.current, width: measured.width };
+    if (!tab || !view.width) return;
     if (tab.x < view.x) scroll.current?.scrollTo({ x: tab.x, animated: true });
     else if (tab.x + tab.width > view.x + view.width)
       scroll.current?.scrollTo({ x: tab.x + tab.width - view.width, animated: true });
   };
   useEffect(() => reveal(activeId), [activeId]);
-  useEffect(() => reveal(groupKey + activeGroup), [activeGroup]);
   return (
     <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[1] }}>
-      {all && (
-        <Tab title={t("All")} label={t("All projects")} archived={false} active={all.active} menu={noMenu} onPress={all.onSelect} />
-      )}
       <ScrollView
         ref={scroll as never}
         horizontal
@@ -79,27 +62,9 @@ export function ProjectTabs({
         onScroll={(e) => (viewport.current.x = e.nativeEvent.contentOffset.x)}
         onLayout={(e) => (viewport.current.width = e.nativeEvent.layout.width)}
       >
-        {groups.length > 0 && (
-          <View
-            style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
-            onLayout={(e) => (groupsWidth.current = e.nativeEvent.layout.width + 2)}
-          >
-            {groups.map((g) => (
-              <View
-                key={g.id}
-                onLayout={(e) => {
-                  offsets.current.set(groupKey + g.id, { x: e.nativeEvent.layout.x, width: e.nativeEvent.layout.width });
-                  if (g.active) reveal(groupKey + g.id);
-                }}
-              >
-                <Tab title={g.name} label={t("Group {name}", { name: g.name })} archived={false} active={g.active} menu={noMenu} onPress={() => onSelectGroup?.(g.id)} />
-              </View>
-            ))}
-          </View>
-        )}
         <SortableList
           horizontal
-          items={projects}
+          items={groups}
           gap={2}
           disabled={reorderDisabled}
           onMove={onMove}
@@ -107,15 +72,14 @@ export function ProjectTabs({
             offsets.current.set(id, { x, width });
             if (id === activeId) reveal(id);
           }}
-          renderItem={(p, index, pressable) => (
+          renderItem={(g, index, pressable) => (
             <Tab
-              title={p.title}
-              label={t("Project {title}", { title: p.title })}
-              archived={!!p.archivedAt}
-              active={p.id === activeId}
-              menu={menuHandlers(openMenu, p.title, () => menuFor(p, index))}
+              title={g.name}
+              label={t("Group {name}", { name: g.name })}
+              active={g.id === activeId}
+              menu={menuHandlers(openMenu, g.name, () => menuFor(g, index))}
               // The release that ends a drag is not a click.
-              onPress={() => pressable() && onSelect(p.id)}
+              onPress={() => pressable() && onSelect(g.id)}
             />
           )}
         />
@@ -123,28 +87,22 @@ export function ProjectTabs({
       <IconButton icon="Plus" label={t("New project")} onPress={onCreate} />
       <IconButton
         icon="ChevronsUpDown"
-        label={`${t("Manage projects")}${shortcut ? ` (${shortcut})` : ""}`}
+        label={`${t("Manage groups")}${shortcut ? ` (${shortcut})` : ""}`}
         onPress={onManage}
       />
     </View>
   );
 }
 
-const noMenu = {};
-/** Offsets of group tabs are kept under this prefix, apart from project ids. */
-const groupKey = "group:";
-
 function Tab({
   title,
   label,
-  archived,
   active,
   menu,
   onPress,
 }: {
   title: string;
   label: string;
-  archived: boolean;
   active: boolean;
   menu: object;
   onPress(): void;
@@ -159,7 +117,7 @@ function Tab({
       {...menu}
       onPress={onPress}
       style={(state) => {
-        const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        const { pressed, hovered: hover } = state as typeof state & { hovered?: boolean; focused?: boolean };
         const hovered = hover;
         return {
           ...noFocusRing,
@@ -175,7 +133,6 @@ function Tab({
         };
       }}
     >
-      {archived && <Icon name="Archive" size={13} color={colors.foregroundMuted} />}
       <View style={{ flexShrink: 1, minWidth: 0 }}>
         <Label
           lines={1}

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  allProjectsAvailable,
   allQuickProject,
   allStatuses,
   dropAllowed,
@@ -53,13 +52,7 @@ const a = project("a", { position: 1 }),
   b = project("b", { position: 0 }),
   gone = project("gone", { position: 2, archivedAt: "2026-11-02T00:00:00.000Z" });
 
-describe("availability (ALL-PROJECTS-SPEC §1)", () => {
-  test("needs the setting and two or more live projects", () => {
-    expect(allProjectsAvailable([a, b], true)).toBe(true);
-    expect(allProjectsAvailable([a, b], false)).toBe(false);
-    expect(allProjectsAvailable([a, gone], true)).toBe(false);
-    expect(allProjectsAvailable([], true)).toBe(false);
-  });
+describe("included projects (ALL-PROJECTS-SPEC §1)", () => {
   test("included projects are the live ones in chooser order", () => {
     expect(includedProjects([a, gone, b]).map((p) => p.id)).toEqual(["b", "a"]);
   });

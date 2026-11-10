@@ -6,17 +6,9 @@ import { quickProject } from "./quick-task";
 
 /** The All projects board (docs/ALL-PROJECTS-SPEC.md). Pure, so the board and its tests agree. */
 
-/** The board's project choice that means "All projects"; never a project id (ids are UUIDs). */
-export const ALL_PROJECTS = "*all";
-
 /** The projects whose cards the All board shows: the live ones, in chooser order (§3). */
 export function includedProjects<P extends Pick<Project, "id" | "archivedAt" | "position" | "createdAt">>(projects: readonly P[]): P[] {
   return projects.filter((p) => !p.archivedAt).sort(projectOrder);
-}
-
-/** Whether All can be shown: the setting is on and two or more projects are live (§1). */
-export function allProjectsAvailable(projects: readonly Pick<Project, "archivedAt">[], settingOn: boolean) {
-  return settingOn && projects.filter((p) => !p.archivedAt).length >= 2;
 }
 
 /** All's columns: each built-in status enabled in at least one included project, in built-in order (§2). */
