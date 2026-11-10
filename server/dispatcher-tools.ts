@@ -85,10 +85,11 @@ export const dispatcherInputs = {
 /** Project creations per dispatcher session and hour, apart from its card bucket (ruling, Noah 2026-11-10; §5.2). */
 export const dispatcherProjectsPerHour = 5;
 /**
- * Claude modes in which a tool that is not preapproved runs, or is turned away, without asking the user: the
- * confirmation `flowly_create_project` relies on could not happen there (ruling, Noah 2026-11-10; §5.2).
+ * The only modes `flowly_create_project` runs in: Paseo's Claude modes in which a tool that is not preapproved shows
+ * the user a permission prompt. Every other mode, an unknown one or none reported is refused, since the confirmation
+ * it relies on cannot be shown to happen there (ruling, Noah 2026-11-10; §5.2).
  */
-export const unpromptedModes: readonly string[] = ["bypassPermissions", "auto", "dontAsk"];
+export const promptingModes: readonly string[] = ["default", "acceptEdits", "plan"];
 const hour = 3_600_000;
 /** Whether `path` is `parent` or inside it (canonical paths). */
 const within = (path: string, parent: string) => path === parent || path.startsWith(parent.endsWith(sep) ? parent : parent + sep);
@@ -287,10 +288,10 @@ export class DispatcherTools {
     const paseo = this.cards.api();
     // The user's confirmation is the provider's permission prompt: refuse in a mode that never shows it (ruling A).
     const mode = (await paseo.agents.ref(agentId).refresh())?.agent?.currentModeId ?? null;
-    if (mode && unpromptedModes.includes(mode))
+    if (!mode || !promptingModes.includes(mode))
       throw new ToolError(
         "CONFIRMATION_UNAVAILABLE",
-        `The dispatcher runs in the "${mode}" permission mode, where the user is not asked to confirm a project. Tell the user to switch the dispatcher to a mode that asks (for example Default) and try again.`,
+        `${mode ? `The dispatcher runs in the "${mode}" permission mode` : "The dispatcher's permission mode is unknown"}, so the user may not be asked to confirm a project. Tell the user to switch the dispatcher to a mode that asks (Default, Accept edits or Plan) and try again.`,
       );
     const release = this.reserveProject(agentId);
     try {

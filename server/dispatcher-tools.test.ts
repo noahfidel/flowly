@@ -81,7 +81,7 @@ async function setup() {
     JSON.stringify({ version: 1, workspaceId: "dw", agentId: "disp", startedAt: stamp }),
   );
   const agents: Record<string, { id: string; workspaceId: string; status: string; archivedAt: string | null; lastUsage?: unknown; currentModeId?: string | null }> = {
-    disp: { id: "disp", workspaceId: "dw", status: "idle", archivedAt: null },
+    disp: { id: "disp", workspaceId: "dw", status: "idle", archivedAt: null, currentModeId: "default" },
     actor: { id: "actor", workspaceId: "w", status: "idle", archivedAt: null },
   };
   const createdWorkspaces: { title: string; source: { kind: string; projectId?: string } }[] = [];
@@ -804,18 +804,23 @@ test("flowly_create_project refuses Flowly's own folders, and what holds them; t
   await expect(x.rpcCreate({ title: "Form", description: "", primaryPath: inside }, x.withNatives(x.paseo))).resolves.toMatchObject({ primaryPath: inside });
 });
 
-test("flowly_create_project refuses in a permission mode that would not ask the user (ruling A, DISPATCHER-SPEC §5.2)", async () => {
+test("flowly_create_project runs only in a permission mode that asks the user (ruling A, DISPATCHER-SPEC §5.2)", async () => {
   const x = await withProjects();
   const repo = await x.folder();
-  for (const mode of ["bypassPermissions", "auto", "dontAsk"]) {
+  for (const mode of ["bypassPermissions", "auto", "some-new-mode"]) {
     x.agents.disp.currentModeId = mode;
     const result = await x.d.call("flowly_create_project", { path: repo });
     expect(code(result), mode).toBe("CONFIRMATION_UNAVAILABLE");
     expect(result.structuredContent.error.message).toContain(mode);
   }
+  // No mode reported is refused too: the prompt cannot be shown to happen.
+  x.agents.disp.currentModeId = null;
+  const unknown = await x.d.call("flowly_create_project", { path: repo });
+  expect(code(unknown)).toBe("CONFIRMATION_UNAVAILABLE");
+  expect(unknown.structuredContent.error.message).toContain("unknown");
   expect(x.passed).toEqual([]);
-  // Modes that ask, and no mode reported, go through.
-  for (const mode of ["default", "acceptEdits", null]) {
+  // The modes that ask go through.
+  for (const mode of ["default", "acceptEdits", "plan"]) {
     x.agents.disp.currentModeId = mode;
     expect(code(await x.d.call("flowly_create_project", { path: await x.folder() })), String(mode)).toBeUndefined();
   }
