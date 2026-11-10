@@ -98,8 +98,10 @@ const baseAgents = () => [
 
 const answer = (f: ReturnType<typeof fixture>, signal: string, value: { optionIds?: string[]; text?: string; texts?: string[]; allow?: boolean }) =>
   f.asks.answer({ signal, answer: value }, f.paseo);
+/** The chat's open asks that wait on you: what the bell counts (unread turns are in "N updated"; Ruling, Noah 2026-11-09). */
+const waiting = (i: { kind: string; state?: string; askKind?: string }) => i.kind === "ask" && i.state === "open" && i.askKind !== "unread";
 const openInChat = async (f: ReturnType<typeof fixture>) =>
-  (await f.asks.chatItems(await f.items.list(), f.paseo)).filter((i) => i.kind === "ask" && i.state === "open").length;
+  (await f.asks.chatItems(await f.items.list(), f.paseo)).filter(waiting).length;
 
 test("bell and chat read the same asks", async () => {
   const f = fixture(baseBoard(), baseAgents());
@@ -114,11 +116,15 @@ test("bell and chat read the same asks", async () => {
       [`u:${JSON.stringify(["s1", "finished", at])}`, "unread"],
     ].sort(),
   );
-  const open = asks.filter((a) => a.state === "open").length;
+  // The chat lists the unread turn too; the bell counts only what waits on you.
+  const listed = asks.filter((a) => a.state === "open").length;
+  const open = asks.filter((a) => a.state === "open" && a.kind !== "unread").length;
+  expect(open).toBe(listed - 1);
   const bell = await readAttentionCount(f.store, f.reads, f.paseo);
   const chat = (await f.asks.chatItems([], f.paseo)).filter((i) => i.kind === "ask" && i.state === "open");
   expect(bell.count).toBe(open);
-  expect(chat).toHaveLength(open);
+  expect(chat).toHaveLength(listed);
+  expect(chat.filter(waiting)).toHaveLength(open);
   expect(openAskCount(attentionFromSources({ board: f.board, agents: baseAgents(), receipts: [], readUnavailable: false })!)).toBe(open);
   // The chat row carries what its buttons need.
   const ask = (await f.asks.chatItems([], f.paseo)).find((i) => i.kind === "ask" && i.signal === "p:s2:r1");
@@ -465,8 +471,8 @@ test("a closed session's ask stays open, and answering it goes through (Paseo re
   expect(state("q:e1")).toBe("open");
   expect(state("b:e2")).toBe("open");
   expect(items.some((i) => i.kind === "ask" && i.state === "session_ended")).toBe(false);
-  // The bell, the badge and the chat's open rows agree, with the closed session's report among them.
-  const open = items.filter((i) => i.kind === "ask" && i.state === "open").length;
+  // The bell, the badge and the chat's open rows that wait on you agree, with the closed session's report among them.
+  const open = items.filter(waiting).length;
   expect((await readAttentionCount(f.store, f.reads, f.paseo)).count).toBe(open);
   expect(openAskCount(attentionFromSources({ board: f.board, agents: closed(), receipts: [], readUnavailable: false })!)).toBe(open);
   expect(asksFrom(f.board, closed(), [], []).filter((a) => a.state === "open").map((a) => a.signal)).toContain("q:e1");
@@ -489,7 +495,7 @@ test("a session_ended row stored before closed sessions stayed live yields to th
   expect(items.filter((i) => i.kind === "ask" && i.signal === "q:e1").map((i) => i.kind === "ask" && i.state)).toEqual(["open"]);
   const resolved = new Set(await f.asks.resolvedSignals(f.paseo));
   expect(resolved.has("q:e1")).toBe(false);
-  const open = items.filter((i) => i.kind === "ask" && i.state === "open").length;
+  const open = items.filter(waiting).length;
   expect(openAskCount(attentionFromSources({ board: f.board, agents: closed(), receipts: [], readUnavailable: false })!, resolved)).toBe(open);
   expect((await f.asks.count(f.paseo)).count).toBe(open);
   expect(await answer(f, "q:e1", { text: "Postgres" })).toMatchObject({ delivered: true, state: "answered" });

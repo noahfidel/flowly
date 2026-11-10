@@ -50,6 +50,11 @@ export interface SessionSignals {
 /** What one signal is, as the dispatcher chat answers it (DISPATCHER-SPEC §9.4). */
 export const askKinds = ["question_report", "blocker_report", "ask_user", "permission", "error", "unread"] as const;
 export type AskKind = (typeof askKinds)[number];
+/**
+ * Whether a signal waits on you and counts in "N need you" (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09): questions,
+ * blockers, requests and errors do; an unread turn is something new to read and counts in "N updated" instead.
+ */
+export const waitsOnYou = (kind: AskKind): boolean => kind !== "unread";
 export const askStates = ["open", "answered", "session_ended", "dismissed"] as const;
 export type AskState = (typeof askStates)[number];
 /** One signal: its key, its kind, and the event or request it stands for. */

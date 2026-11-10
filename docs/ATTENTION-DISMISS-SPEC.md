@@ -45,6 +45,7 @@ Attention 列表一行一张卡，Dismiss 也按卡片：隐藏这张卡**当前
 ### 3.1 Attention 列表（左侧停靠栏的 Attention 标签页）
 
 - Ruling (Noah, 2026-11-09，取代本节下面关于 Attention 标签页、铃铛与 Needs attention 弹层的规则)：没有 Attention 标签页，也没有 Needs attention 弹层。总览栏的 **“N need you”** chip（以及 `A` 快捷键、通知的 Needs attention 链接、手机的铃铛）在右侧卡片侧栏里开始逐个处理（DISPATCHER-SPEC §9.4）：按最新优先打开每张有 open ask 的卡片，它的 ask 置顶、就地回答，**Dismiss** 仍是暂不处理（规则见 §2.3，dismiss RPC 不变）。被 dismiss 的 ask 不计数、卡片离开队列，出现新信号时回来；卡片自身的菜单和侧栏仍可 Restore to Attention。计数口径（§3.2）合并为一个 “N need you” chip。
+- Ruling (Noah, 2026-11-09): unread is split out of "N need you" (DISPATCHER-SPEC §9.4). "N need you", its queue, `A`, the phone bell and the sidebar badge count only `q:`, `b:`, `p:` and `e:` signals; an open unread (`u:`) signal counts in "N updated" instead, whose queue is the dispatcher's changed cards plus the cards with an unread turn. Dismissal is unchanged: a dismissed unread signal leaves "N updated" until a new turn gives it a new key.
 
 - Ruling (Noah, 2026-11-09)：桌面不再有铃铛下拉。铃铛打开左侧停靠栏（DISPATCHER-SPEC §9.3）的 **Attention** 标签页（手机为全屏页的同名标签页），再按一次回到之前的标签页或最小化状态。该标签页按 ask 列出 **Needs you**（每个 open ask 可就地回答、Dismiss、Open card，DISPATCHER-SPEC §9.4），其下是不计入铃铛计数的 **Updates**（DISPATCHER-SPEC §9.2）。看板没有停靠栏时（既非项目看板也非 All projects），铃铛仍打开下文的 Needs attention 弹层（按卡片列出，规则如下）。
 

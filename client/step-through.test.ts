@@ -2,18 +2,19 @@ import { expect, test } from "vitest";
 import type { Project, Task } from "../shared/model";
 import type { AttentionItem } from "../shared/attention";
 import type { ChatItem } from "../shared/dispatcher";
-import { cardAsks, needsCount, needsQueue, stepAt, stepPosition, stepStartTarget, updatedQueue, type ChangeItem } from "./step-through";
+import { cardAsks, needsCount, needsQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type ChangeItem } from "./step-through";
 
 /** The need-you and updated step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). */
 
 const at = (s: number) => new Date(Date.parse("2026-11-09T10:00:00.000Z") + s * 1000).toISOString();
-const card = (id: string, projectId = "p", s = 0, parts: Array<{ key: string; dismissed?: boolean }> = [{ key: `q:${id}` }]): AttentionItem =>
+const kinds: Record<string, string> = { q: "question_report", b: "blocker_report", p: "permission", e: "error", u: "unread" };
+const card = (id: string, projectId = "p", s = 0, parts: Array<{ key: string; dismissed?: boolean; agentId?: string }> = [{ key: `q:${id}` }]): AttentionItem =>
   ({
     task: { id, projectId } as Task,
     project: { id: projectId } as Project,
     updatedAt: at(s),
     dismissed: false,
-    parts: parts.map((p) => ({ key: p.key, kind: "question_report", agentId: "a", dismissed: !!p.dismissed })),
+    parts: parts.map((p) => ({ key: p.key, kind: kinds[p.key[0]], agentId: p.agentId ?? "a", dismissed: !!p.dismissed })),
   }) as unknown as AttentionItem;
 const all = () => true;
 const inP = (id: string) => id === "p";
@@ -30,14 +31,22 @@ test("a card whose asks are all resolved or dismissed leaves the queue (answered
   expect(needsQueue(items, new Set(["q:a", "q:b"]), all)).toEqual([]);
 });
 
-test("the merged need-you count is the bell's: every open ask (questions, blockers, permissions, errors, unread), never dismissed or resolved ones", () => {
+test("the need-you count is what waits on you (questions, blockers, permissions, errors), never unread turns, dismissed or resolved asks", () => {
   const items = [
     card("a", "p", 1, [{ key: "q:1" }, { key: "b:2" }, { key: "p:a:r" }, { key: "e:a:status" }, { key: "u:a:1" }]),
     card("b", "p", 2, [{ key: "q:3" }, { key: "q:4", dismissed: true }]),
     card("c", "q", 3, [{ key: "q:5" }]),
+    card("d", "p", 4, [{ key: "u:d:1" }]),
   ];
-  expect(needsCount(items, new Set(["b:2"]), inP)).toBe(5);
-  expect(needsCount(items, new Set(), all)).toBe(7);
+  expect(needsCount(items, new Set(["b:2"]), inP)).toBe(4);
+  expect(needsCount(items, new Set(), all)).toBe(6);
+});
+
+test("a card whose only open signal is an unread turn is not in the need-you queue (Ruling, Noah 2026-11-09)", () => {
+  const items = [card("read-me", "p", 9, [{ key: "u:r:1" }]), card("ask", "p", 1, [{ key: "q:1" }, { key: "u:a:1" }])];
+  expect(needsQueue(items, new Set(), all)).toEqual(["ask"]);
+  // Its question answered, a card with an unread turn left drops out of need-you.
+  expect(needsQueue(items, new Set(["q:1"]), all)).toEqual([]);
 });
 
 const change = (cards: Array<[string, string]>): ChangeItem => ({
@@ -51,11 +60,39 @@ const change = (cards: Array<[string, string]>): ChangeItem => ({
 
 test("the updated queue is the changed cards in scope, kept apart from the need-you queue", () => {
   const changed = change([["x", "p"], ["y", "q"], ["z", "p"], ["x", "p"]]);
-  expect(updatedQueue(changed, inP)).toEqual(["x", "z"]);
-  expect(updatedQueue(changed, all)).toEqual(["x", "y", "z"]);
-  expect(updatedQueue(null, all)).toEqual([]);
+  expect(updatedQueue(changed, [], new Set(), inP)).toEqual(["x", "z"]);
+  expect(updatedQueue(changed, [], new Set(), all)).toEqual(["x", "y", "z"]);
+  expect(updatedQueue(null, [], new Set(), all)).toEqual([]);
   // A changed card never adds to the need-you count.
   expect(needsCount([], new Set(), all)).toBe(0);
+});
+
+test("the updated queue also holds the cards with an unread turn: after the changed cards, newest first, once each (Ruling, Noah 2026-11-09)", () => {
+  const changed = change([["x", "p"], ["z", "p"]]);
+  const items = [
+    card("old", "p", 1, [{ key: "u:o:1" }]),
+    card("new", "p", 9, [{ key: "u:n:1" }]),
+    card("z", "p", 5, [{ key: "u:z:1" }]),
+    card("asks", "p", 7, [{ key: "q:1" }]),
+    card("read", "p", 8, [{ key: "u:r:1", dismissed: true }]),
+    card("done", "p", 6, [{ key: "u:d:1" }]),
+    card("away", "q", 3, [{ key: "u:w:1" }]),
+  ];
+  expect(updatedQueue(changed, items, new Set(["u:d:1"]), inP)).toEqual(["x", "z", "new", "old"]);
+  expect(updatedQueue(null, items, new Set(), all)).toEqual(["new", "done", "z", "away", "old"]);
+});
+
+test("a step opens the session that waits: for updated the unread one, for need-you the one asking", () => {
+  const item = card("a", "p", 1, [{ key: "q:1", agentId: "asker" }, { key: "u:x", agentId: "finished" }]);
+  expect(stepSession(item, "updated", new Set())).toBe("finished");
+  expect(stepSession(item, "needs", new Set())).toBe("asker");
+  // Read meanwhile: nothing to open for updated (the card opens).
+  expect(stepSession(item, "updated", new Set(["u:x"]))).toBeNull();
+  // Two sessions waiting: need-you leaves the choice to the card, updated opens the first unread one.
+  const two = card("b", "p", 1, [{ key: "q:1", agentId: "s1" }, { key: "p:s2:r", agentId: "s2" }, { key: "u:1", agentId: "s3" }, { key: "u:2", agentId: "s4" }]);
+  expect(stepSession(two, "needs", new Set())).toBeNull();
+  expect(stepSession(two, "updated", new Set())).toBe("s3");
+  expect(stepSession(undefined, "updated", new Set())).toBeNull();
 });
 
 test("prev and next stop at the ends of the queue", () => {

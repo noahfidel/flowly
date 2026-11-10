@@ -52,7 +52,7 @@ import { DispatcherPanel } from "./dispatcher-panel";
 import { LeftDock } from "./left-dock";
 import { lastCollapsed, rememberCollapsed, shownCollapsed } from "./collapsed-columns";
 import { dockShortcut, toolbarDockButtons } from "./dock-logic";
-import { cardAsks, changeItem, needsCount, needsQueue, stepAt, stepPosition, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
+import { cardAsks, changeItem, needsCount, needsQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
 import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
@@ -847,9 +847,10 @@ function BoardContent(
   // Phones: menus are Modals; what they open waits until they have closed.
   const afterModalClose = useAfterModalClose();
   // The step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). "N need you" (the overview
-  // chip, A, a notification's link, the phone's bell) walks the cards with open asks, newest first, each card's asks
-  // pinned on top; "N updated" walks the cards the dispatcher saw change. The queues follow the board shown (its
-  // project, or every project on All projects) and recompute live; closing the card or opening another ends it.
+  // chip, A, a notification's link, the phone's bell) walks the cards with asks that wait on you, newest first, each
+  // card's asks pinned on top; "N updated" walks what is new to read: the cards the dispatcher saw change, then the cards
+  // with an unread turn, each opening its unread chat. The queues follow the board shown (its project, or every project
+  // on All projects) and recompute live; closing the card or opening another ends it.
   const dispatcherItems = useDispatcherItemsQuery(auxiliaryActive && (!!project || allView));
   // Asks listed as answered, ended or dismissed leave the counts too, until the live list drops them (§9.4).
   useEffect(() => {
@@ -860,7 +861,7 @@ function BoardContent(
   const needsIds = useMemo(() => needsQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const needYouCount = useMemo(() => needsCount(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const changed = useMemo(() => changeItem(dispatcherItems.data), [dispatcherItems.data]);
-  const updatedIds = useMemo(() => updatedQueue(changed, stepScope), [changed, stepScope]);
+  const updatedIds = useMemo(() => updatedQueue(changed, attention, resolvedSignals, stepScope), [changed, attention, resolvedSignals, stepScope]);
   const [step, setStep] = useState<(Step & { kind: StepKind }) | null>(null);
   const stepQueue = step?.kind === "updated" ? updatedIds : needsIds;
   const stepWhere = step ? stepPosition(stepQueue, step) : null;
@@ -873,35 +874,38 @@ function BoardContent(
     if (step && taskId !== step.taskId) setStep(null);
   }, [taskId]);
   const stepAsks = useMemo(() => (step?.kind === "needs" ? cardAsks(dispatcherItems.data, step.taskId, answeredAsks) : []), [step?.kind, step?.taskId, dispatcherItems.data, answeredAsks]);
-  // A card of the step-through: its card, and for need-you its session when only one needs you.
+  // A card of the step-through: its card, and the session that waits there (need-you: the one asking, when only one
+  // does; updated: its unread chat, which opening reads).
   const showStepCard = (kind: StepKind, id: string) => {
     const queue = kind === "updated" ? updatedIds : needsIds;
     setStep({ kind, ...stepAt(queue, id) });
     setMenu(null);
-    const item = kind === "needs" ? attentionByTask.get(id) : undefined;
-    if (!item) return openTaskById(id);
+    const item = attentionByTask.get(id);
+    const sessionId = stepSession(item, kind, resolvedSignals);
+    if (!item || !sessionId) return openTaskById(id);
     setDrawerFocus(null);
     focusProject(item.project.id);
     setTask(item.task.id);
     setMobileStatus(item.task.status);
-    if (item.sessionId) setSessionEntry({ taskId: item.task.id, sessionId: item.sessionId, requestId: `attention-${Date.now()}` });
+    setSessionEntry({ taskId: item.task.id, sessionId, requestId: `attention-${Date.now()}` });
   };
   // A start before the board and sessions are read (a notification's link at launch) waits for them.
-  const [needsPending, setNeedsPending] = useState(false);
+  const [pendingStep, setPendingStep] = useState<StepKind | null>(null);
   const startStep = useStableCallback((kind: StepKind) => {
-    if (kind === "needs" && (!projected || !agents.data)) return setNeedsPending(true);
+    // Both queues read the sessions now (updated holds the unread turns).
+    if (!projected || !agents.data) return setPendingStep(kind);
     const queue = kind === "updated" ? updatedIds : needsIds;
-    if (!queue.length) return void toast.show(kind === "needs" ? t("Nothing needs your attention.") : t("Nothing changed since you looked."), { variant: "info" });
+    if (!queue.length) return void toast.show(kind === "needs" ? t("Nothing needs your attention.") : t("Nothing new to read."), { variant: "info" });
     // Pressing the open step-through's own chip keeps its card (it would otherwise restart and mark every chat read).
     const target = stepStartTarget(step, step?.kind ?? null, kind, queue);
     if (target) showStepCard(kind, target);
   });
   useEffect(() => {
-    if (needsPending && projected && agents.data) {
-      setNeedsPending(false);
-      startStep("needs");
+    if (pendingStep && projected && agents.data) {
+      setPendingStep(null);
+      startStep(pendingStep);
     }
-  }, [needsPending, !!projected, !!agents.data]);
+  }, [pendingStep, !!projected, !!agents.data]);
   const startNeeds = useStableCallback(() => startStep("needs"));
   const startUpdated = useStableCallback(() => startStep("updated"));
   const stepPrev = useStableCallback(() => step && stepWhere?.prev && showStepCard(step.kind, stepWhere.prev));

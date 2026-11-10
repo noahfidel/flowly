@@ -24,7 +24,7 @@ function fixture(value = board(), agents = [agent("a", finished)], failReads = f
 }
 
 test("count-only contract matches the board rule and never returns board/agent data", async () => {
-  const agents = [agent("a", finished), agent("b", { pendingPermissions: [{}] }), agent("c", { status: "running" })];
+  const agents = [agent("a", { status: "error" }), agent("b", { pendingPermissions: [{}] }), agent("c", { status: "running" })];
   const f = fixture(board(), agents);
   const result = await readAttentionCount(f.store, f.reads, f.paseo);
   expect(result).toEqual({ count: 2 });
@@ -40,8 +40,8 @@ test("all SDK pages are counted and summarizers/archived scopes are excluded", a
   const b = board();
   b.tasks[2].archivedAt = at;
   f.store.read.mockResolvedValue(b);
-  f.list.mockResolvedValueOnce({ entries: [{ agent: agent("a", finished) }], pageInfo: { nextCursor: "next" } } as never)
-    .mockResolvedValueOnce({ entries: [{ agent: agent("b", { status: "error" }) }, { agent: agent("c", finished) },
+  f.list.mockResolvedValueOnce({ entries: [{ agent: agent("a", { status: "error" }) }], pageInfo: { nextCursor: "next" } } as never)
+    .mockResolvedValueOnce({ entries: [{ agent: agent("b", { status: "error" }) }, { agent: agent("c", { status: "error" }) },
       { agent: agent("a", { status: "error", labels: SUMMARIZER_LABELS }) }], pageInfo: {} });
   expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 2 });
   expect(f.list).toHaveBeenNthCalledWith(2, { filter: { includeArchived: false, includeBackground: true }, page: { limit: 200, cursor: "next" } });
@@ -59,17 +59,23 @@ test("receipt failures suppress only unread; errors, questions and permissions r
   await expect(readAttentionCount(f.store, f.reads, f.paseo)).rejects.toThrow("board unavailable");
 });
 
-test("read receipt and dismissal boundaries retain parity; every request reads fresh", async () => {
-  const f = fixture();
-  const token = JSON.stringify(["a", "finished", at]);
-  f.reads.read.mockResolvedValueOnce({ version: 1, receipts: [{ taskId: "a", agentId: "a", workspaceId: "a", token, readAt: at }] } as never);
-  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 0 });
+test("dismissal boundaries retain parity; every request reads fresh", async () => {
+  const asking = (request: string) => agent("a", { pendingPermissions: [{ id: request, kind: "tool" }] });
+  const f = fixture(board(), [asking("r1")]);
+  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 1 });
   const b = board();
-  const item = attentionFromSources({ board: b, agents: [agent("a", finished)], receipts: [], readUnavailable: false })![0];
+  const item = attentionFromSources({ board: b, agents: [asking("r1")], receipts: [], readUnavailable: false })![0];
   b.attentionDismissals = [{ taskId: "a", signals: item.signals, dismissedAt: at }];
   f.store.read.mockResolvedValue(b);
   expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 0 });
-  f.list.mockResolvedValue({ entries: [{ agent: agent("a", { ...finished, attentionTimestamp: "2026-10-23T04:01:00.000Z" }) }], pageInfo: {} });
+  f.list.mockResolvedValue({ entries: [{ agent: asking("r2") }], pageInfo: {} });
   expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 1 });
   expect(f.store.read).toHaveBeenCalledTimes(3);
+});
+
+test("the badge counts what waits on you, not unread turns (need you; Ruling, Noah 2026-11-09)", async () => {
+  const f = fixture(board(), [agent("a", finished), agent("b", { pendingPermissions: [{ id: "r", kind: "tool" }] }), agent("c", { status: "error" })]);
+  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 2 });
+  f.list.mockResolvedValue({ entries: [{ agent: agent("a", finished) }], pageInfo: {} });
+  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 0 });
 });

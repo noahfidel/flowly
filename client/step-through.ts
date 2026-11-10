@@ -1,11 +1,12 @@
 import type { AttentionItem } from "../shared/attention";
 import { openAskCount } from "../shared/attention";
+import { waitsOnYou } from "../shared/attention-dismiss";
 import type { ChatItem } from "../shared/dispatcher";
 
 /**
  * Pure parts of the step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09): "N need you"
- * walks the cards with open asks, newest first, with each card's asks pinned on top; "N updated" walks the cards the
- * dispatcher saw change since you looked. No React.
+ * walks the cards with open asks that wait on you, newest first, with each card's asks pinned on top; "N updated" walks
+ * what is new to read: the cards the dispatcher saw change since you looked, then the cards with an unread turn. No React.
  */
 
 export type AskItem = Extract<ChatItem, { kind: "ask" }>;
@@ -15,24 +16,43 @@ export type StepKind = "needs" | "updated";
 export type Step = { taskId: string; index: number };
 
 const time = (value: string) => Date.parse(value) || 0;
-const open = (item: AttentionItem, resolved: ReadonlySet<string>) => item.parts.some((p) => !p.dismissed && !resolved.has(p.key));
+/** A card's open signals (not dismissed, not resolved) of one side: what waits on you, or its unread turns. */
+const openParts = (item: AttentionItem, resolved: ReadonlySet<string>, kind: StepKind) =>
+  item.parts.filter((p) => !p.dismissed && !resolved.has(p.key) && waitsOnYou(p.kind) === (kind === "needs"));
+const newestFirst = (items: readonly AttentionItem[]) => [...items].sort((a, b) => time(b.updatedAt) - time(a.updatedAt));
 
-/** The cards in scope with at least one open ask (not dismissed, not resolved), newest first. */
+/** The cards in scope with at least one open ask that waits on you (not an unread turn), newest first. */
 export function needsQueue(items: readonly AttentionItem[], resolved: ReadonlySet<string>, inScope: (projectId: string) => boolean): string[] {
-  return items
-    .filter((item) => inScope(item.task.projectId) && open(item, resolved))
-    .sort((a, b) => time(b.updatedAt) - time(a.updatedAt))
-    .map((item) => item.task.id);
+  return newestFirst(items.filter((item) => inScope(item.task.projectId) && openParts(item, resolved, "needs").length)).map((item) => item.task.id);
 }
 
-/** The merged "N need you": the bell's count (every open ask of every kind), over the cards in scope. */
+/** "N need you": the bell's count (every open ask that waits on you, never unread turns), over the cards in scope. */
 export function needsCount(items: readonly AttentionItem[], resolved: ReadonlySet<string>, inScope: (projectId: string) => boolean): number {
   return openAskCount(items.filter((item) => inScope(item.task.projectId)), resolved);
 }
 
-/** The cards the dispatcher saw change since you looked, in scope, once each, in its order. Never asks. */
-export function updatedQueue(change: ChangeItem | null, inScope: (projectId: string) => boolean): string[] {
-  return [...new Set((change?.cards ?? []).filter((c) => inScope(c.projectId)).map((c) => c.taskId))];
+/**
+ * "N updated", what is new to read, in scope, once each: the cards the dispatcher saw change since you looked, in its
+ * order, then the cards with an open unread turn (a finished turn you have not opened), newest first.
+ */
+export function updatedQueue(
+  change: ChangeItem | null,
+  items: readonly AttentionItem[],
+  resolved: ReadonlySet<string>,
+  inScope: (projectId: string) => boolean,
+): string[] {
+  const changed = (change?.cards ?? []).filter((c) => inScope(c.projectId)).map((c) => c.taskId);
+  const unread = newestFirst(items.filter((item) => inScope(item.task.projectId) && openParts(item, resolved, "updated").length));
+  return [...new Set([...changed, ...unread.map((item) => item.task.id)])];
+}
+
+/**
+ * The session a step opens in the card's sidebar: for "updated" its first unread one (opening it reads it); for
+ * "need you" the one asking, when only one session waits. Null opens the card itself.
+ */
+export function stepSession(item: AttentionItem | undefined, kind: StepKind, resolved: ReadonlySet<string>): string | null {
+  const agents = [...new Set((item ? openParts(item, resolved, kind) : []).map((p) => p.agentId))];
+  return kind === "updated" ? (agents[0] ?? null) : agents.length === 1 ? agents[0] : null;
 }
 
 /** The change line among the chat items, when cards changed. */

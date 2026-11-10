@@ -2,7 +2,7 @@ import type { Project, Task, BoardEvent } from "./model";
 import { openReport, silentTurn } from "./progress";
 import { parseQuestions, pendingRequests, showsTextInput, type PendingRequest } from "./permission-question";
 import { sessionSpeed, type ProviderFeature } from "./agent-speed";
-import { isDismissed, sessionSignalParts, type AskKind, type AskState, type AttentionDismissal, type SignalPart } from "./attention-dismiss";
+import { isDismissed, sessionSignalParts, waitsOnYou, type AskKind, type AskState, type AttentionDismissal, type SignalPart } from "./attention-dismiss";
 import { reviewSignal, reviewing } from "./auto-review";
 
 export { askStates, type AskKind, type AskState } from "./attention-dismiss";
@@ -168,9 +168,12 @@ export function attentionItemsWithFacts(
   );
 }
 
-/** The bell's count (plan Q1): open asks, each signal not in its card's dismissal set. */
+/**
+ * The bell's count, "N need you" (plan Q1): open asks that wait on you, each signal not in its card's dismissal set.
+ * Unread turns are not counted (Ruling, Noah 2026-11-09; they are in "N updated").
+ */
 export function openAskCount(items: readonly AttentionItem[], resolved: ReadonlySet<string> = noSignals): number {
-  return items.reduce((n, item) => n + item.parts.filter((p) => !p.dismissed && !resolved.has(p.key)).length, 0);
+  return items.reduce((n, item) => n + item.parts.filter((p) => waitsOnYou(p.kind) && !p.dismissed && !resolved.has(p.key)).length, 0);
 }
 
 const noSignals: ReadonlySet<string> = new Set();

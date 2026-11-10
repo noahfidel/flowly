@@ -8,8 +8,8 @@ import { t, tn } from "../shared/i18n";
 
 /**
  * Board header summary: how many cards, how many have agents working (only while some do), one "N need you" chip for
- * every open ask and "N updated" for the cards changed since you looked; each starts a step-through in the card
- * sidebar. No lane chips (Ruling, Noah 2026-11-09).
+ * every open ask that waits on you and "N updated" for the cards with something new to read (changed since you looked,
+ * or an unread turn); each starts a step-through in the card sidebar. No lane chips (Ruling, Noah 2026-11-09).
  */
 export function OverviewBar({
   overview,
@@ -91,7 +91,7 @@ export function OverviewBar({
           </Chip>
         )}
         {row.updated && (
-          <Chip label={tn(updated, "{n} card changed since you looked. Step through it", "{n} cards changed since you looked. Step through them")} icon={<Dot size={7} color={colors.accent} />} onPress={onUpdated}>
+          <Chip label={tn(updated, "{n} card has something new to read. Step through it", "{n} cards have something new to read. Step through them")} icon={<Dot size={7} color={colors.accent} />} onPress={onUpdated}>
             {t("{n} updated", { n: updated })}
           </Chip>
         )}

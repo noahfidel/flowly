@@ -82,8 +82,8 @@ test("an open blocker report is a signal until the session's next turn starts (p
   expect(attentionItems(board({ events: [blocker, started] }), [agent("s1", "wa")], [], false)).toEqual([]);
 });
 
-test("the count is the open asks: a card's dismissed signals stay out of it when a new one comes", () => {
-  const agents = [agent("s1", "wa", finished())];
+test("the count is the open asks that wait on you: a card's dismissed signals stay out of it when a new one comes", () => {
+  const agents = [agent("s1", "wa", { ...finished(), status: "error" } as never)];
   const signals = attentionItems(board({ events: [question("e1", now)] }), agents, [], false)[0].signals;
   expect(openAskCount(attentionFromSources({ board: board({ events: [question("e1", now)] }), agents, receipts: [], readUnavailable: false })!)).toBe(2);
   // One of the two dismissed (single-signal dismissal): the card stays, the count drops by one.
