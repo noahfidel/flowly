@@ -1,14 +1,16 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useContext, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { openExternalUrl } from "@getpaseo/plugin/client";
 import { Icon, copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import {
   isInlineUiFence,
+  linkBareCardIds,
   parseSessionInline,
   parseSessionMarkdown,
   type MarkdownBlock,
 } from "./session-markdown";
 import { Chevron, Collapse } from "./disclosure";
+import { CardLinkContext, cardChipState } from "./card-links";
 import { Label, noFocusRing, useTheme } from "./ui";
 import { t } from "../shared/i18n";
 
@@ -39,7 +41,14 @@ const Inline = memo(function Inline({
   const { colors } = useTheme();
   const toast = useToast();
   const [linkError, setLinkError] = useState(false);
-  const parts = useMemo(() => parseSessionInline(text), [text]);
+  const cards = useContext(CardLinkContext);
+  const version = cards?.version;
+  // Parsed once per text; with a card resolver, bare ids of cards on the board also become chips (re-read when the board changes).
+  const parts = useMemo(() => {
+    const base = parseSessionInline(text);
+    return cards ? linkBareCardIds(base, (id) => !!cards.resolve(id)) : base;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, !!cards, version]);
   return (
     <View style={{ minWidth: 0, flexShrink: 1 }}>
       <Text
@@ -53,6 +62,34 @@ const Inline = memo(function Inline({
         }}
       >
         {parts.map((part, index) => {
+          if (part.card && cards) {
+            const id = part.card.taskId,
+              info = cards.resolve(id),
+              state = cardChipState(info),
+              title = info?.title || part.text;
+            const missing = state === "missing";
+            return (
+              <Text
+                key={index}
+                accessibilityRole="link"
+                accessibilityLabel={t("Open {title}", { title })}
+                onPress={() =>
+                  state === "project-archived"
+                    ? toast.show(t("This card's project is archived."), { variant: "info" })
+                    : missing
+                      ? toast.show(t("This card no longer exists."), { variant: "info" })
+                      : cards.open(id)
+                }
+                style={{
+                  color: missing ? colors.foregroundMuted : colors.accent,
+                  textDecorationLine: missing ? "line-through" : "underline",
+                }}
+              >
+                {title}
+                {info?.archived && <Text style={{ color: colors.foregroundMuted, textDecorationLine: "none" }}>{` (${t("archived")})`}</Text>}
+              </Text>
+            );
+          }
           const path = part.kind === "link" ? localPath(part.url!) : null;
           const link =
             part.kind === "link" &&

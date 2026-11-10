@@ -1645,5 +1645,7 @@ const catalog: Catalog = {
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "每個群組有自己的調度器，其聊天、提示和新卡片只屬於該群組的專案。",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "群組分頁取代了專案分頁：拖曳群組可調整順序，並可在專案切換器中新增群組。",
   "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "泳道現在屬於群組：群組內的每個專案都使用相同的泳道，只需在群組設定中編輯一次。",
+  "This card no longer exists.": "此卡片已不存在。",
+  "This card's project is archived.": "此卡片所屬的專案已封存。",
 };
 export default catalog;

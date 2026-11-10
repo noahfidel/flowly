@@ -1247,8 +1247,16 @@ function BoardContent(
   const openTaskById = useStableCallback((id: string) => {
     setDrawerFocus(null);
     const target = currentDetail?.relatedTasks.find(t => t.id === id) ?? board?.tasks.find(t => t.id === id);
+    if (!target && board) return void toast.show(t("This card no longer exists."), { variant: "info" });
     if (target) { setDetailTarget(target); focusGroupOf(target.projectId); } // board-groups 3/7
     setTask(id);
+  });
+  // Card links in the dispatcher chat (§9.3): a card's current title and state from every project, archived included.
+  const resolveCard = useStableCallback((id: string) => {
+    const task = board?.tasks.find((x) => x.id === id);
+    if (!task) return null;
+    const owner = projectById.get(task.projectId);
+    return { title: task.title, archived: !!task.archivedAt, openable: !!owner && !owner.archivedAt };
   });
   // The left dock is the dispatcher chat (§9.3; Ruling, Noah 2026-11-09): open or minimized (phones: the page shown).
   const dockAvailable = !!project || allView;
@@ -1361,7 +1369,7 @@ function BoardContent(
       }
     >
       <LeftDock compact={compact} expanded={chatExpanded} onToggleSize={toggleChatSize} onClose={closeChat} groupName={dispatcherGroupName}>
-        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} groupId={dispatcherGroupId} />
+        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} resolveCard={resolveCard} cardsVersion={board?.tasks} groupId={dispatcherGroupId} />
       </LeftDock>
       {chatGrip}
     </Animated.View>

@@ -1645,5 +1645,7 @@ const catalog: Catalog = {
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "У каждой группы свой диспетчер: её чат, заметки и новые карточки остаются за проектами этой группы.",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "Вкладки групп заменяют вкладки проектов: группу можно перетащить, чтобы изменить порядок, а группы добавляются в переключателе проектов.",
   "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "Колонки теперь принадлежат группе: все её проекты используют одни и те же колонки, которые настраиваются один раз в настройках группы.",
+  "This card no longer exists.": "Эта карточка больше не существует.",
+  "This card's project is archived.": "Проект этой карточки в архиве.",
 };
 export default catalog;

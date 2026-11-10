@@ -2272,3 +2272,7 @@ test("a stop of a deleted group pushed after its delete recreates no batcher or 
   expect(maps.batchers.has(H)).toBe(true);
   x.hub.dispose();
 });
+
+test("the charter asks for card links with real ids", () => {
+  expect(dispatcherCharter({ name: "Main" })).toContain("flowly://card/<projectId>/<taskId>");
+});

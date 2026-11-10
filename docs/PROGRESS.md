@@ -1,5 +1,9 @@
 # Implementation progress
 
+## Dispatcher chat: card links — 2026-11-10
+
+- DISPATCHER-SPEC §6, §9.3, §10. A markdown link `[title](flowly://card/<projectId>/<taskId>)` in the dispatcher chat shows as a chip with the card's current title that opens the card; a bare UUID the board knows becomes the same chip. `cardLink` and `linkBareCardIds` in `client/session-markdown.ts`; `client/card-links.tsx` (`CardLinkContext`, `cardChipState`); `Inline` in `client/session-content.tsx` reads the context (no provider, no change); `DispatcherPanel` gets `resolveCard` and `cardsVersion`; the board resolves from `board.tasks` and `openTaskById` now refuses an unknown id with a toast. Charter bullet added; existing dispatchers keep the old charter until Replace.
+- Tests: `client/session-markdown.test.ts`. Strings: "This card no longer exists.", "This card's project is archived." in all catalogs ("Open {title}" and "archived" already existed). Onboarding, What's new and telemetry: none (no switch, tip or heartbeat field).
 ## Attention Dismiss reworked into per-list Snooze (branch `kanban/rework-attention-dismiss-into-per-list-s-3cc2a3`) — 2026-11-10
 
 - User-facing rename Dismiss to Snooze (buttons, accessibility labels, toasts, the card's marker, Unsnooze, tip text); the idea Dismiss and the question-form Dismiss keep their name. Internal names stay (`attentionDismissals`, `attention.dismiss`, `attention.restore`, `asks.dismiss`, ask state `dismissed`).

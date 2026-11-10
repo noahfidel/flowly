@@ -15,6 +15,7 @@ import { SessionTranscript, type TranscriptExtra, type TranscriptExtraRow, type 
 import { ComposerBox, useComposerDraft } from "./session-composer";
 import { restoredDraft } from "./session-input";
 import { newMessageId, rememberSentImages } from "./sent-images";
+import { CardLinkContext, type CardLinkInfo } from "./card-links";
 import { dispatcherStartMessage } from "./start-again";
 import { useReducedMotion } from "./motion";
 import { useKeyboardInset } from "./keyboard";
@@ -44,6 +45,10 @@ type Props = {
   /** A card's lane name in its own project. */
   laneOf(projectId: string, status: string): string;
   onOpenCard(taskId: string): void;
+  /** A card's current state for the card links in the chat (stable; reads the board). */
+  resolveCard(taskId: string): CardLinkInfo | null;
+  /** Changes when the board's cards change, so chips refresh. */
+  cardsVersion?: unknown;
   /** Discuss on an idea (§9.5): text for the message box, after what is typed; never sent. A new `key` adds it again. */
   fill?: { text: string; key: number } | null;
   /** The fill with this key is in the box: the board drops it, so a remounted panel does not add it again. */
@@ -58,7 +63,7 @@ type Props = {
   groupId: string | null;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, fill, onFilled, focusRequest = 0, onEscape, onBoxFocus, groupId }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, resolveCard, cardsVersion, fill, onFilled, focusRequest = 0, onEscape, onBoxFocus, groupId }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -145,6 +150,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     [onOpenCard, laneOf],
   );
   const chatItems = items.data;
+  const cardLinks = useMemo(() => ({ resolve: resolveCard, open: onOpenCard, version: cardsVersion }), [resolveCard, onOpenCard, cardsVersion]);
   const extra = useMemo<TranscriptExtra>(
     () => ({
       rows: (entries) => chatRows(entries, chatItems ?? []),
@@ -266,6 +272,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
 
   return (
     <View ref={keyboard.ref} onLayout={keyboard.onLayout} style={{ flex: 1, minHeight: 0, minWidth: 0, backgroundColor: colors.surface0 }}>
+      <CardLinkContext.Provider value={cardLinks}>
       <SessionTranscript
         handle={transcript}
         taskId="dispatcher"
@@ -287,6 +294,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
         onStreamError={setError}
         extra={extra}
       />
+      </CardLinkContext.Provider>
       <Animated.View
         style={{ flexShrink: 0, minWidth: 0, backgroundColor: colors.surface0, transform: [{ translateY: keyboard.translate }], zIndex: 25, paddingHorizontal: space[3], paddingTop: space[2], paddingBottom: space[3], gap: space[2] }}
       >
