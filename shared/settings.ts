@@ -14,27 +14,12 @@ import { memoryKinds } from "./memory";
 export const memorySorts = ["newest", "used", "recent"] as const;
 export type MemorySort = (typeof memorySorts)[number];
 
-/** Board groups kept at most, and a group name's length (BOARD-GROUPS-SPEC §2). */
-export const MAX_BOARD_GROUPS = 50;
-export const MAX_GROUP_NAME = 80;
-/** One board group (BOARD-GROUPS-SPEC §2); members are project ids, which may outlive their project. */
-const boardGroupSchema = z.object({
-  id: z.string().min(1).max(100),
-  name: z.preprocess((v) => (typeof v === "string" ? v.slice(0, MAX_GROUP_NAME) : ""), z.string().max(MAX_GROUP_NAME)),
-  projectIds: z.array(z.string().max(200)).max(500).catch([]),
-});
-export type BoardGroup = z.infer<typeof boardGroupSchema>;
-/** A bad group is dropped and the list cut to the cap; never discard every group for one bad entry. */
-const keepValidGroups = (value: unknown) =>
-  Array.isArray(value) ? value.filter((g) => boardGroupSchema.safeParse(g).success).slice(0, MAX_BOARD_GROUPS) : [];
-
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
   id: "board-view",
   scope: "host",
   version: 1,
   schema: z.object({
-    lastProjectId: z.string().max(200).default(""),
     /** Mirrors Paseo's app "Default send" setting, which plugins cannot read. */
     sendBehavior: z.enum(["steer", "queue", "interrupt"]).default("steer"),
     /** New task form: start the first agent together with the task. */
@@ -47,10 +32,6 @@ export const boardViewSettings = defineSettings({
     quickTaskMode: z.enum(["worktree", "directory"]).catch("worktree").default("worktree"),
     /** The project the last quick task was created in. */
     lastQuickProjectId: z.string().max(200).catch("").default(""),
-    /** The All projects tab / switcher entry (ALL-PROJECTS-SPEC §1). */
-    allProjectsTab: z.boolean().catch(true).default(true),
-    /** Board groups: named sets of projects, each with an All-like board (BOARD-GROUPS-SPEC §2). */
-    boardGroups: z.preprocess(keepValidGroups, z.array(boardGroupSchema).max(MAX_BOARD_GROUPS)).catch([]).default([]),
     /** Order of cards inside each column. */
     boardSort: z.enum(boardSorts).default("manual"),
     /** Desktop columns shown as a narrow strip. */

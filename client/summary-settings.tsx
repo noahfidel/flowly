@@ -131,7 +131,7 @@ function SettingsPanes({ open, initial, projects, onTour, onWhatsNew, fill = fal
     ) : section === "models" ? (
       <ModelsPage active={open} />
     ) : section === "workflow" ? (
-      <WorkflowPage projects={projects} />
+      <WorkflowPage />
     ) : section === "connections" ? (
       <ConnectionsPage />
     ) : section === "storage" ? (

@@ -38,7 +38,6 @@ import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults"
 import { dispatcherDefaultModel, dispatcherProviderSupported } from "../shared/dispatcher";
 import { deviceLocale, formatLocale, getLocale, locales, msg, t, tn } from "../shared/i18n";
 import { hideFinishedChoices } from "./finished-cards";
-import { BoardGroupsGroup } from "./board-groups-settings";
 import type { Project } from "../shared/model";
 import { deliveryModeLabels, deliveryModes, type DeliveryMode } from "../shared/delivery-mode";
 import { useBoardView } from "./board-view";
@@ -351,7 +350,7 @@ export function SummaryModelGroup({ active, bare = false, extra }: { active: boo
 }
 
 /** Workflow: when cards move by themselves and what happens when they finish. */
-export function WorkflowPage({ projects }: { projects: readonly Project[] }) {
+export function WorkflowPage() {
   const status = useStored(useSettings(statusSettings), statusSettingsValues);
   const wrapup = useStored(useSettings(wrapupSettings), wrapupSettingsValues);
   const view = useStored(useSettings(boardViewSettings), boardViewValues);
@@ -367,19 +366,12 @@ export function WorkflowPage({ projects }: { projects: readonly Project[] }) {
       <Problem text={status.problem || wrapup.problem || view.problem || prReview.problem || delivery.problem} />
       <SettingsGroup title={t("Board")}>
         <SettingSwitch
-          title={t("Show All projects tab")}
-          value={view.values?.allProjectsTab ?? true}
-          disabled={view.busy}
-          onChange={(allProjectsTab) => view.save({ allProjectsTab })}
-        />
-        <SettingSwitch
           title={t("Make cards for PR review agents")}
           value={prReview.values?.prReviewCards ?? true}
           disabled={prReview.busy}
           onChange={(prReviewCards) => prReview.save({ prReviewCards })}
         />
       </SettingsGroup>
-      <BoardGroupsGroup projects={projects} />
       <SettingsGroup title={t("Moving cards")}>
         <SettingSwitch
           title={t("Auto-update status from sessions")}

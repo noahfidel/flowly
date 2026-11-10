@@ -59,8 +59,11 @@ export function ProjectForm({
   onClose,
   onSaved,
   reviewOn,
+  groupId,
 }: {
   project?: Project;
+  /** The group a new project is created in (BOARD-GROUPS-SPEC §2); the default group when absent. */
+  groupId?: string;
   /** Opened from What's new to turn Auto review on: the section first, its switch on (GUARDRAILS-SPEC §10). */
   reviewOn?: boolean;
   /** Live cards per lane, so lanes in use can't be turned off. */
@@ -161,6 +164,7 @@ export function ProjectForm({
               title,
               description,
               primaryPath,
+              ...(groupId ? { groupId } : {}),
               ...(source === "native" && nativeId ? { paseoProjectId: nativeId } : {}),
             });
       // projects.create turns Auto review on with 2 rounds; anything else is saved right after.

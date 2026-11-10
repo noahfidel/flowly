@@ -179,7 +179,7 @@ function fakeBellDaemon() {
       if (method === "attention.count") return { count: (await items()).filter((i) => i.state === "open").length };
       if (method === "sessions.read-state") return { version: 1, receipts: [] };
       if (method === "board.overview-changed")
-        return { etag: "overview-v1:x", value: boardOverview({ version: 1, revision: 1, links: [], workpads: [], artifacts: [], ideas: [], ...board() } as never) };
+        return { etag: "overview-v1:x", value: boardOverview({ version: 1, revision: 1, groups: [], links: [], workpads: [], artifacts: [], ideas: [], ...board() } as never) };
       if (method === "asks.dismiss") {
         const ask = asks.find((a) => a.signal === input.signal)!;
         sets.set(ask.taskId, [...new Set([...(sets.get(ask.taskId) ?? []), ask.signal])]);

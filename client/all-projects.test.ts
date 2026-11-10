@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  ALL_PROJECTS,
   allProjectsAvailable,
   allQuickProject,
   allStatuses,
@@ -12,7 +11,6 @@ import {
   scopeTasks,
   sortAllColumn,
 } from "./all-projects";
-import { lastViewedProject, pickView, rememberViewedProject } from "./project-memory";
 import { statuses, type Project, type Status, type Task } from "../shared/model";
 
 const project = (id: string, over: Partial<Project> = {}): Project =>
@@ -155,25 +153,5 @@ describe("new task (§5)", () => {
     expect(allQuickProject([a, b], "a")?.id).toBe("a");
     expect(allQuickProject([a, b, gone], "gone")?.id).toBe("b");
     expect(allQuickProject([a, b], "")?.id).toBe("b");
-  });
-});
-
-describe("which view opens (§8)", () => {
-  const projects = [{ id: "p" }, { id: "q" }];
-  const ok = { id: ALL_PROJECTS, ok: true };
-  test("All is restored as the last viewed choice while available", () => {
-    rememberViewedProject(ALL_PROJECTS);
-    expect(lastViewedProject()).toBe(ALL_PROJECTS);
-    expect(pickView(projects, "", lastViewedProject(), ok)).toEqual({ all: true, view: ALL_PROJECTS });
-  });
-  test("an explicit project choice wins over a remembered All", () => {
-    expect(pickView(projects, "q", ALL_PROJECTS, ok)).toEqual({ all: false, project: { id: "q" } });
-  });
-  test("All unavailable (setting off, one project) falls back to the first project", () => {
-    expect(pickView(projects, ALL_PROJECTS, ALL_PROJECTS, { id: ALL_PROJECTS, ok: false })).toEqual({ all: false, project: { id: "p" } });
-    expect(pickView(projects, ALL_PROJECTS, "q", { id: ALL_PROJECTS, ok: false })).toEqual({ all: false, project: { id: "q" } });
-  });
-  test("an explicit All choice wins over a remembered project", () => {
-    expect(pickView(projects, ALL_PROJECTS, "q", ok)).toEqual({ all: true, view: ALL_PROJECTS });
   });
 });

@@ -1,42 +1,69 @@
-import type { Project } from "../shared/model";
-import { MAX_BOARD_GROUPS, MAX_GROUP_NAME, type BoardGroup } from "../shared/settings";
-import type { Status } from "../shared/model";
+import type { Group, Project, Status } from "../shared/model";
 import { allQuickProject, includedProjects } from "./all-projects";
 import { quickProject } from "./quick-task";
 
-export type { BoardGroup };
+/** Board groups (docs/BOARD-GROUPS-SPEC.md): the board's only navigation unit; each group opens as one board. Pure. */
 
-/** Board groups (docs/BOARD-GROUPS-SPEC.md): named sets of projects, each opening as an All-like board. Pure. */
-
-/** The board's choice for a group's board; never a project id (UUIDs) nor All's "*all". */
+/** The board's choice for a group's board; never a project id (UUIDs). */
 const GROUP_VIEW = "*group:";
+/** The pre-groups "All projects" choice, still found in remembered views; it maps to the default group. */
+const LEGACY_ALL = "*all";
 export const groupViewId = (groupId: string) => `${GROUP_VIEW}${groupId}`;
 export const isGroupView = (viewId: string) => viewId.startsWith(GROUP_VIEW);
-export function groupOfView<G extends BoardGroup>(groups: readonly G[], viewId: string): G | undefined {
+export function groupOfView<G extends Pick<Group, "id">>(groups: readonly G[], viewId: string): G | undefined {
   if (!isGroupView(viewId)) return undefined;
   const id = viewId.slice(GROUP_VIEW.length);
   return groups.find((g) => g.id === id);
 }
 
-/** A group's projects on its board: the live members in chooser order; deleted and archived members drop out (§3). */
-export function groupMembers<P extends Pick<Project, "id" | "archivedAt" | "position" | "createdAt">>(group: Pick<BoardGroup, "projectIds">, projects: readonly P[]): P[] {
-  const ids = new Set(group.projectIds);
-  return includedProjects(projects).filter((p) => ids.has(p.id));
+/** The group new and ungrouped projects belong to: the flagged one, else the first by position (§1). */
+export function defaultGroup<G extends Pick<Group, "isDefault" | "position">>(groups: readonly G[]): G | undefined {
+  return groups.find((g) => g.isDefault) ?? [...groups].sort((x, y) => x.position - y.position)[0];
 }
 
-export type BoardScope = { kind: "all" } | { kind: "group"; projectIds: readonly string[] } | { kind: "project"; projectId: string };
+/** A group's projects on its board: the live members in chooser order (§3). */
+export function groupMembers<P extends Pick<Project, "id" | "archivedAt" | "position" | "createdAt" | "groupId">>(group: Pick<Group, "id">, projects: readonly P[]): P[] {
+  return includedProjects(projects).filter((p) => p.groupId === group.id);
+}
+
+/** The group a project belongs to, archived or not; a project with none (or an unknown one) is in the default group. */
+export function groupOfProject<G extends Pick<Group, "id" | "isDefault" | "position">>(groups: readonly G[], projects: readonly Pick<Project, "id" | "groupId">[], projectId: string): G | undefined {
+  const groupId = projects.find((p) => p.id === projectId)?.groupId;
+  return groups.find((g) => g.id === groupId) ?? defaultGroup(groups);
+}
 
 /** Whether a project's cards and signals belong to the board shown (feeds the step-through queues and counts, §4). */
-export function boardScope(scope: BoardScope): (projectId: string) => boolean {
-  if (scope.kind === "all") return () => true;
-  if (scope.kind === "project") return (id) => id === scope.projectId;
-  const ids = new Set(scope.projectIds);
+export function boardScope(projectIds: readonly string[]): (projectId: string) => boolean {
+  const ids = new Set(projectIds);
   return (id) => ids.has(id);
 }
 
-/** A group choice whose group was deleted is dropped once settings are loaded, like an unavailable All (§6). */
-export function staleGroupChoice(chosen: string, groupViews: readonly string[], ready: boolean): boolean {
-  return ready && isGroupView(chosen) && !groupViews.includes(chosen);
+/**
+ * The group the board opens: the explicit choice, else the view last viewed in this run, else the default group.
+ * A choice is a group's view id (used while the group exists), the legacy "*all" (the default group) or a bare
+ * project id (that project's group); anything unknown is skipped to the next candidate.
+ */
+export function pickGroupView<G extends Pick<Group, "id" | "isDefault" | "position">>(
+  groups: readonly G[],
+  projects: readonly Pick<Project, "id" | "groupId">[],
+  chosen: string,
+  viewed: string,
+): G | undefined {
+  const resolve = (id: string): G | undefined => {
+    if (!id) return undefined;
+    if (isGroupView(id)) return groupOfView(groups, id);
+    if (id === LEGACY_ALL) return defaultGroup(groups);
+    return projects.some((p) => p.id === id) ? groupOfProject(groups, projects, id) : undefined;
+  };
+  return resolve(chosen) ?? resolve(viewed) ?? defaultGroup(groups);
+}
+
+/**
+ * A group choice whose group was deleted is dropped once the board and settings are loaded (`ready`); an empty list
+ * while loading is not a deletion. Legacy choices ("*all", project ids) are never stale: they just map (§6).
+ */
+export function staleGroupChoice(chosen: string, groups: readonly Pick<Group, "id">[], ready: boolean): boolean {
+  return ready && isGroupView(chosen) && !groupOfView(groups, chosen);
 }
 
 /**
@@ -54,30 +81,6 @@ export function membersFirst<P extends { id: string }>(projects: readonly P[], m
   return [...projects.filter((p) => ids.has(p.id)), ...projects.filter((p) => !ids.has(p.id))];
 }
 
-const groupName = (name: string) => name.trim().slice(0, MAX_GROUP_NAME).trim();
-
-/** Settings editor (§2): a new group with a trimmed, non-empty name (cut to the limit) and no members; none past the cap. */
-export function addGroup(groups: readonly BoardGroup[], name: string, id: string): BoardGroup[] {
-  const trimmed = groupName(name);
-  return trimmed && groups.length < MAX_BOARD_GROUPS ? [...groups, { id, name: trimmed, projectIds: [] }] : [...groups];
-}
-
-export function renameGroup(groups: readonly BoardGroup[], id: string, name: string): BoardGroup[] {
-  const trimmed = groupName(name);
-  return trimmed ? groups.map((g) => (g.id === id ? { ...g, name: trimmed } : g)) : [...groups];
-}
-
-export function deleteGroup(groups: readonly BoardGroup[], id: string): BoardGroup[] {
-  return groups.filter((g) => g.id !== id);
-}
-
-/** Ticks or unticks a project in one group; other groups keep theirs (a project can be in several). */
-export function toggleMember(groups: readonly BoardGroup[], id: string, projectId: string): BoardGroup[] {
-  return groups.map((g) =>
-    g.id !== id ? g : { ...g, projectIds: g.projectIds.includes(projectId) ? g.projectIds.filter((p) => p !== projectId) : [...g.projectIds, projectId] },
-  );
-}
-
 /**
  * The phone's lane on a board's lanes: kept when it is one of them or there are none (an empty group has no lanes,
  * and nothing must render a missing status, §3); otherwise Todo when shown, else the first lane.
@@ -85,28 +88,4 @@ export function toggleMember(groups: readonly BoardGroup[], id: string, projectI
 export function mobileLane(shown: readonly Status[], current: Status): Status {
   if (!shown.length || shown.includes(current)) return current;
   return shown.includes("todo") ? "todo" : shown[0];
-}
-
-/**
- * The Board groups editor's list and saves (§2). Edits apply at once to the local list and are saved one at a time,
- * each sending the latest list, so quick edits in a row are all kept. A stored value is adopted only while no save is
- * queued or running: until then it is an older state (or our own echo), never newer than the local list.
- */
-export function groupEditor(send: (groups: BoardGroup[]) => Promise<boolean>) {
-  let latest: BoardGroup[] = [];
-  let pending = 0;
-  let chain: Promise<unknown> = Promise.resolve();
-  return {
-    current: () => latest,
-    sync(stored: BoardGroup[]) {
-      if (!pending) latest = stored;
-    },
-    edit(change: (groups: BoardGroup[]) => BoardGroup[]): Promise<boolean> {
-      latest = change(latest);
-      pending++;
-      const run = chain.then(() => send(latest)).catch(() => false).finally(() => pending--);
-      chain = run;
-      return run;
-    },
-  };
 }

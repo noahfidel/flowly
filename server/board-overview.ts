@@ -60,7 +60,7 @@ export function boardOverview(board: Board): BoardOverview {
       sessions,
     };
   });
-  return { version: 1, revision: board.revision, projects: board.projects, tasks: board.tasks, links: board.links, attentionDismissals: board.attentionDismissals, cards, projectIdeas: projectIdeaFacts(board) };
+  return { version: 1, revision: board.revision, groups: [...board.groups].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt)), projects: board.projects, tasks: board.tasks, links: board.links, attentionDismissals: board.attentionDismissals, cards, projectIdeas: projectIdeaFacts(board) };
 }
 
 /** Open project-level ideas per project (PROJECT-IDEAS-SPEC §5); a project with none still has an entry. */
