@@ -126,6 +126,11 @@ const tipFact: Record<Exclude<TipId, "settings-entry">, keyof TipFacts> = {
   "lane-swipe": "laneSwipe",
 };
 
+/** No fact holds: the starting point for a board that shows no single project (a group board, BOARD-GROUPS-SPEC §1). */
+export const noTipFacts: TipFacts = {
+  hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, groupTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, skillDraft: false, searchable: false, dispatcherIntro: false, ideaDiscuss: false, reviewShown: false, learnedGuideline: false, laneSwipe: false,
+};
+
 /** The one tip to show now: first in priority order whose fact holds and that was not shown before. */
 export function nextTip(input: { tipsSeen: readonly string[]; facts: TipFacts; blocked: boolean }): TipId | null {
   if (input.blocked) return null;

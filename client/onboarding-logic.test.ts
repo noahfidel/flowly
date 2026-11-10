@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { TIPS_SEEN_MAX, firstRunOutside, loopAutoStep, nextTip, outsidePatch, outsideShown, settingsHintDue, stepPage, tipIds, tourKey, welcomeDecision, welcomePageCount, withTipSeen, type TipFacts } from "./onboarding-logic";
+import { TIPS_SEEN_MAX, noTipFacts, firstRunOutside,loopAutoStep, nextTip, outsidePatch, outsideShown, settingsHintDue, stepPage, tipIds, tourKey, welcomeDecision, welcomePageCount, withTipSeen, type TipFacts } from "./onboarding-logic";
 import { featureSettingsValues, nativeSessionSettingsValues, onboardingSettingsValues } from "../shared/settings";
 
 const base = { settingsStatus: "ready", welcomeSeen: false, boardLoaded: true, projectCount: 0, blocked: false };
@@ -188,6 +188,9 @@ describe("tips", () => {
   test("the retired All projects and project tab tips never come back (BOARD-GROUPS-SPEC §1)", () => {
     expect(tipIds).not.toContain("all-projects");
     expect(tipIds).not.toContain("project-menu");
+    // A group board with no single project still announces groups (board.tsx groupBoard), and only that tip.
+    expect(nextTip({ tipsSeen: [], facts: { ...noTipFacts, groupTabs: true }, blocked: false })).toBe("board-groups");
+    expect(nextTip({ tipsSeen: [], facts: noTipFacts, blocked: false })).toBeNull();
     expect(nextTip({ tipsSeen: ["first-card"], facts: { ...none, hasCard: true, groupTabs: true }, blocked: false })).toBe("board-groups");
     expect(nextTip({ tipsSeen: ["first-card", "board-groups"], facts: { ...none, hasCard: true, groupTabs: true }, blocked: false })).toBe("quick-task");
     expect(nextTip({ tipsSeen: ["first-card", "board-groups", "quick-task"], facts: { ...none, hasCard: true, groupTabs: true }, blocked: false })).toBeNull();

@@ -150,7 +150,7 @@ import {
   type BoardIntent,
 } from "./shortcuts";
 import { ConceptStrip, GuideBanner, WelcomeTour, useOnboarding } from "./onboarding";
-import { nextTip, settingsHintDue, welcomeDecision, type TipId } from "./onboarding-logic";
+import { noTipFacts, nextTip, settingsHintDue, welcomeDecision, type TipId } from "./onboarding-logic";
 import { latestRelease, whatsNew, whatsNewDecision, type WhatsNewItem } from "./whats-new";
 import { WhatsNewWindow } from "./whats-new-window";
 import { t, tn } from "../shared/i18n";
@@ -1653,9 +1653,16 @@ function BoardContent(
   const seeSettingsHint = () => {
     if (settingsHint) void onboarding.markTipSeen("settings-entry");
   };
-  const tip = inPanel || !board || !project || !!project.archivedAt || page
+  const tipBlocked = !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen || settingsHint || whatsNewOpen || whatsNewDue === "show";
+  // A group board with no single project (no filter, several projects) still announces groups (BOARD-GROUPS-SPEC §1).
+  const groupBoard = !project && !!group && !task && !compact;
+  const tip = inPanel || !board || page
     ? null
-    : nextTip({
+    : !project
+      ? groupBoard ? nextTip({ tipsSeen: onboarding.values?.tipsSeen ?? [], facts: { ...noTipFacts, groupTabs: allLiveProjects.length > 1 }, blocked: tipBlocked }) : null
+      : project.archivedAt
+        ? null
+        : nextTip({
         tipsSeen: onboarding.values?.tipsSeen ?? [],
         facts: {
           hasCard: !task && projectTasks.some((x) => !x.archivedAt),
@@ -1670,7 +1677,7 @@ function BoardContent(
           hasTicket: !task && projectTasks.some(x => factsByTask.get(x.id)?.hasExternal),
           cardOpen: !!task,
           noConnection: !task && projectTasks.some((x) => !x.archivedAt) && connections.data?.connections.length === 0,
-          groupTabs: !task && !compact && projects.length > 1,
+          groupTabs: !task && !compact && allLiveProjects.length > 1,
           hasWorkpad: !task && workpadEnabled(project) && projectTasks.some(x => factsByTask.get(x.id)?.hasWorkpad),
           busyBoard: !task && projectTasks.filter((x) => !x.archivedAt).length >= 6,
           hasSubagent: projectHasSubagent,
@@ -1687,7 +1694,7 @@ function BoardContent(
           learnedGuideline: !task && !!projectGuardrails?.added,
           laneSwipe: touch && !task && !page && shownStatuses.length > 1 && projectTasks.some((x) => !x.archivedAt),
         },
-        blocked: !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen || settingsHint || whatsNewOpen || whatsNewDue === "show",
+        blocked: tipBlocked,
       });
   // A swipe to another lane shows the lane-swipe tip was not needed.
   const settleLane = (next: Status) => {
