@@ -12,14 +12,17 @@ export const agentModelSchema = z.strictObject({
 });
 export type AgentModel = z.infer<typeof agentModelSchema>;
 
-/** Where a model default comes from, strongest first: the project's, then the global one. */
-export type AgentModelSource = "project" | "global";
+/** Where a model default comes from, strongest first: the project's, the group's, then the global one. */
+export type AgentModelSource = "project" | "group" | "global";
 
 type WithAgentModel = { agentModel?: AgentModel | null } | null | undefined;
 
-/** The model new sessions in `project` start with: the project's own default wins over the global one; none means "follow the latest session". */
-export function effectiveAgentModel(project: WithAgentModel, global: AgentModel | null | undefined): { model: AgentModel; source: AgentModelSource } | null {
+type WithGroupDefaults = { defaults?: { agentModel?: AgentModel | null } | null } | null | undefined;
+
+/** The model new sessions in `project` start with: the project's own default, then its group's, then the global one; none means "follow the latest session". */
+export function effectiveAgentModel(project: WithAgentModel, group: WithGroupDefaults, global: AgentModel | null | undefined): { model: AgentModel; source: AgentModelSource } | null {
   if (project?.agentModel) return { model: project.agentModel, source: "project" };
+  if (group?.defaults?.agentModel) return { model: group.defaults.agentModel, source: "group" };
   if (global) return { model: global, source: "global" };
   return null;
 }

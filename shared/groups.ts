@@ -25,6 +25,11 @@ export function groupOrder(a: Group, b: Group) {
   return a.position - b.position || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
 }
 export const orderedGroups = (groups: readonly Group[]) => [...groups].sort(groupOrder);
+/** The group a project belongs to by its `groupId`; null when it has none or names no group (no fallback to the default). */
+export function groupOfProject(board: { groups: readonly Group[] }, project: { groupId?: string } | null | undefined): Group | null {
+  if (!project?.groupId) return null;
+  return board.groups.find((g) => g.id === project.groupId) ?? null;
+}
 export const defaultGroupOf = (board: Pick<Board, "groups">) => board.groups.find((g) => g.isDefault);
 
 /**

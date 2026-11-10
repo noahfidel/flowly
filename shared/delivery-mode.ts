@@ -22,6 +22,18 @@ export function effectiveDeliveryMode(stored: unknown, fallback: DeliveryMode = 
 }
 
 /**
+ * The mode a card hands over with (board groups spec §5): the card's own, then its project's, its group's, then the
+ * host default. Each level counts only when it is a known mode; the last fallback is the built-in default.
+ */
+export function resolveDeliveryMode(levels: { card?: unknown; project?: unknown; group?: unknown; host?: unknown }): { mode: DeliveryMode; source: "card" | "project" | "group" | "host" } {
+  for (const source of ["card", "project", "group"] as const) {
+    const value = levels[source];
+    if (isDeliveryMode(value)) return { mode: value, source };
+  }
+  return { mode: isDeliveryMode(levels.host) ? levels.host : defaultDeliveryMode, source: "host" };
+}
+
+/**
  * A delivery lane: In review, Committed and Integrated (the same three as `deliveryStatuses` in
  * `shared/model.ts`, which imports this module).
  */

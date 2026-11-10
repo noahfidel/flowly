@@ -3,6 +3,7 @@ import {
   assertGroupInvariants,
   dispatcherTarget,
   ensureGroups,
+  groupOfProject,
   groupOrder,
   migrateLegacyGroups,
   nameTaken,
@@ -272,5 +273,18 @@ describe("dispatcherTarget (BOARD-GROUPS-SPEC §7 step 4)", () => {
   test("open cards per group count live projects' open, unarchived cards only", () => {
     expect(openCardsByGroup(b())).toEqual(new Map([["one", 1], ["two", 1]]));
     expect(openCardsByGroup(emptyBoard()).size).toBe(0);
+  });
+});
+
+describe("groupOfProject", () => {
+  const groups = [group("one", 0, { isDefault: true }), group("two", 1)];
+  test("finds the project's group by id", () => {
+    expect(groupOfProject({ groups }, { groupId: "two" })?.id).toBe("two");
+  });
+  test("is null for no project, no groupId or a dangling one (no default fallback)", () => {
+    expect(groupOfProject({ groups }, null)).toBeNull();
+    expect(groupOfProject({ groups }, undefined)).toBeNull();
+    expect(groupOfProject({ groups }, {})).toBeNull();
+    expect(groupOfProject({ groups }, { groupId: "gone" })).toBeNull();
   });
 });

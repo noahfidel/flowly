@@ -20,13 +20,20 @@ describe("dispatcher model (DISPATCHER-SPEC §0, §3)", () => {
 });
 
 describe("effective model default", () => {
-  it("prefers the project's default over the global one", () => {
-    expect(effectiveAgentModel({ agentModel: claude }, codex)).toEqual({ model: claude, source: "project" });
+  const opus = { provider: "claude", model: "claude-opus-5-5" };
+  it("prefers the project's default over the group's and the global one", () => {
+    expect(effectiveAgentModel({ agentModel: claude }, { defaults: { agentModel: opus } }, codex)).toEqual({ model: claude, source: "project" });
+    expect(effectiveAgentModel({ agentModel: claude }, null, codex)).toEqual({ model: claude, source: "project" });
+  });
+  it("uses the group's default when the project has none, before the global one", () => {
+    expect(effectiveAgentModel({}, { defaults: { agentModel: opus } }, codex)).toEqual({ model: opus, source: "group" });
+    expect(effectiveAgentModel(null, { defaults: { agentModel: opus } }, null)).toEqual({ model: opus, source: "group" });
   });
   it("falls back to the global default, then to nothing", () => {
-    expect(effectiveAgentModel({}, codex)).toEqual({ model: codex, source: "global" });
-    expect(effectiveAgentModel(null, codex)).toEqual({ model: codex, source: "global" });
-    expect(effectiveAgentModel({ agentModel: undefined }, null)).toBeNull();
+    expect(effectiveAgentModel({}, {}, codex)).toEqual({ model: codex, source: "global" });
+    expect(effectiveAgentModel(null, { defaults: {} }, codex)).toEqual({ model: codex, source: "global" });
+    expect(effectiveAgentModel({}, undefined, codex)).toEqual({ model: codex, source: "global" });
+    expect(effectiveAgentModel({ agentModel: undefined }, null, null)).toBeNull();
   });
 });
 

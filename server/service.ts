@@ -16,6 +16,7 @@ import { BoardStore } from "./store";
 import { readSnapshot, SnapshotInvalidError, type ProjectSnapshot } from "./project-folder";
 import { linkLimits } from "../shared/model";
 import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
+import { groupOfProject } from "../shared/groups";
 import { effectiveRepos, sessionContext } from "../shared/scope";
 import type { DeliveryMode } from "../shared/delivery-mode";
 import { setupContextLine, setupMissing } from "../shared/card-setup";
@@ -738,6 +739,7 @@ export class BoardService {
         // A PR review card reviews someone else's PR; it is never asked for a Linear ticket (PR-REVIEW-CARDS-SPEC §5).
         isPrReviewCard(task) ? [] : linearTicketLines(project, artifactsOf(board.artifacts, task.id), { title: task.title, canLink: options.artifactsOn ?? true }),
         options.deliveryDefault,
+        groupOfProject(board, project)?.defaults?.deliveryMode,
       ),
       memoryIds: memory.ids,
       directories,

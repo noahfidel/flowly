@@ -863,8 +863,9 @@ function BoardContent(
   // The project's default model wins over the global one; with neither, the latest session's settings (MODEL-DEFAULTS-SPEC).
   const modelPrefs = useSettings(modelSettings);
   const globalModel = agentModelFromValues(modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null);
+  // The board payload carries no groups yet, so the group level is null here (client work follows).
   // The open form's or card's own project first: on the All board there is no board project.
-  const defaultModel = effectiveAgentModel(formProject ?? taskProject ?? project, globalModel)?.model ?? null;
+  const defaultModel = effectiveAgentModel(formProject ?? taskProject ?? project, null, globalModel)?.model ?? null;
   const defaultModelKey = JSON.stringify(defaultModel);
   const sessionDefaults = useMemo(
     () =>
@@ -881,7 +882,7 @@ function BoardContent(
   const agentDefaultsFor = useStableCallback((p: Project) =>
     startingAgent(
       lastSessionSettings(agents.data || [], new Set((board?.tasks || []).map((t) => t.workspaceId))),
-      effectiveAgentModel(p, globalModel)?.model ?? null,
+      effectiveAgentModel(p, null, globalModel)?.model ?? null,
     ),
   );
   // New task: Quick task unless the user turned that off (QUICK-TASK-SPEC §5), in the board's project unless pinned.
