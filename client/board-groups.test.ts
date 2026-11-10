@@ -12,6 +12,7 @@ import {
   isGroupView,
   membersFirst,
   mobileLane,
+  overviewScope,
   pickGroupView,
   staleGroupChoice,
   validProjectFilter,
@@ -121,6 +122,36 @@ describe("scope predicate", () => {
     expect(updatedQueue(null, items, none, zenScope)).toEqual([]);
     const emptyScope = boardScope([]);
     expect(needsCount(items, none, emptyScope)).toBe(0);
+  });
+
+  // Ruling (Noah, 2026-11-10): the counts and step-throughs show on an unfiltered group board too, over every live
+  // member; filtered, over that project. Only the per-project entries need a filter.
+  test("unfiltered, the overview covers every live member and shows no per-project entries", () => {
+    const members = groupMembers(loadout, projects);
+    const scope = overviewScope(boardProject("", members), members);
+    expect(scope.projects.map((p) => p.id).sort()).toEqual(["a", "b"]);
+    expect(scope.perProject).toBe(false);
+    const inScope = boardScope(scope.projects.map((p) => p.id));
+    const none = new Set<string>();
+    const more = [...items, item("b2", "b", "permission", "2026-11-10T04:00:00.000Z")];
+    expect(needsQueue(more, none, inScope)).toEqual(["b2", "a1"]);
+    expect(needsCount(more, none, inScope)).toBe(2);
+    expect(updatedQueue(null, more, none, inScope)).toEqual(["b1"]);
+  });
+  test("filtered, the overview covers only that project and shows its per-project entries", () => {
+    const members = groupMembers(loadout, projects);
+    const scope = overviewScope(boardProject("b", members), members);
+    expect(scope.projects.map((p) => p.id)).toEqual(["b"]);
+    expect(scope.perProject).toBe(true);
+    const inScope = boardScope(scope.projects.map((p) => p.id));
+    const none = new Set<string>();
+    const more = [...items, item("b2", "b", "permission", "2026-11-10T04:00:00.000Z")];
+    expect(needsQueue(more, none, inScope)).toEqual(["b2"]);
+    expect(needsCount(more, none, inScope)).toBe(1);
+    expect(updatedQueue(null, more, none, inScope)).toEqual(["b1"]);
+  });
+  test("an empty group has no overview", () => {
+    expect(overviewScope(undefined, [])).toEqual({ projects: [], perProject: false });
   });
 });
 

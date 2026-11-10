@@ -85,6 +85,13 @@
   - Checks: `npm run typecheck` exit 0; `npm test` exit 0 (193 files passed, 1 skipped; 1961 passed, 7 skipped). A first full run had one failure in `server/auto-review.test.ts` (ENOTEMPTY removing its temp folder; that file passes alone and in the rerun; not touched here). Unrun: a live dispatcher showing the permission prompt for `flowly_create_project` and creating a project (no plugin reload in this task).
   - Onboarding and telemetry: no change (agent-facing tool; no UI, switch or heartbeat field). Strings: none (agent-facing text stays English).
 
+## "N need you" on unfiltered group boards (branch `group-needs-you`) — 2026-11-10
+
+- Bug: an unfiltered group board showed no overview bar, so no "N need you" / "N updated" chips (the **N**/**U** shortcuts already worked); BOARD-GROUPS-SPEC §3 and §4 contradicted each other. Ruling (Noah, 2026-11-10): the counts and step-throughs always show on a group board, over the group's live members (filtered: that project); only Insights, Ideas, Guardrails, Memory and I/B/M need a filter.
+- `overviewScope` (`client/board-groups.ts`) picks the covered projects and whether per-project entries show; `boardOverview` (`client/overview.ts`) now takes a list of projects (Done sums the projects whose Done lane is on, null when none). The step-through scope now follows the filter too (it used the whole group before).
+- Checks: `npm run typecheck` exit 0; `npm test` exit 0 (200 files passed, 1 skipped; 2173 passed, 7 skipped). New tests failed first. Unrun: a live click-through of the chips and of stepping across projects (no plugin reload in this task).
+- Onboarding: no change (the chips already exist and are covered by the tour). Telemetry: no field. Strings: none.
+
 ## Board groups (branch `board-groups`) — 2026-11-10
 
 - Named groups of projects, stored in host `board-view.boardGroups` (BOARD-GROUPS-SPEC). A group's board is the All projects board with a narrower scope: `pickView` takes group view ids (`*group:<id>`), `liveProjects` becomes the group's live members, and the step-through queues/counts use one `boardScope` predicate (all / group / project). Pure logic in `client/board-groups.ts`.

@@ -5,26 +5,27 @@ import type { AttentionItem } from "./attention";
 type Agent = { workspaceId?: string | null; status: string; archivedAt?: string | null };
 
 /**
- * One project's at-a-glance state for the board header. Counts live cards
- * (archived excluded), independent of search/priority filters.
+ * The board's at-a-glance state for its header, over the projects it shows (a group board unfiltered: every live
+ * member; filtered: that project; BOARD-GROUPS-SPEC §4). Counts live cards (archived excluded), independent of
+ * search/priority filters. `done` counts the projects whose Done lane is on; null when none has it.
  */
 export function boardOverview(
-  project: Pick<Project, "id" | "lanes"> | null | undefined,
+  projects: readonly Pick<Project, "id" | "lanes">[],
   tasks: readonly Task[],
   agents: readonly Agent[],
   attention: readonly AttentionItem[],
 ) {
-  const live = tasks.filter((t) => !t.archivedAt && t.projectId === project?.id);
+  const ids = new Set(projects.map((p) => p.id));
+  const live = tasks.filter((t) => !t.archivedAt && ids.has(t.projectId));
   const workspaces = new Set(live.map((t) => t.workspaceId));
   const running = agents.filter(
     (a) => !a.archivedAt && !!a.workspaceId && workspaces.has(a.workspaceId) && (a.status === "running" || a.status === "initializing"),
   );
-  const mine = attention.filter((i) => i.project.id === project?.id && !i.task.archivedAt);
-  const lane = (status: Task["status"]) =>
-    laneEnabled(project, status) ? live.filter((t) => t.status === status).length : null;
+  const mine = attention.filter((i) => ids.has(i.project.id) && !i.task.archivedAt);
+  const doneIn = new Set(projects.filter((p) => laneEnabled(p, "done")).map((p) => p.id));
   return {
     total: live.length,
-    done: lane("done"),
+    done: doneIn.size ? live.filter((t) => t.status === "done" && doneIn.has(t.projectId)).length : null,
     /** Cards with at least one session working, and the number of such sessions. */
     runningTasks: new Set(running.map((a) => a.workspaceId)).size,
     runningSessions: running.length,

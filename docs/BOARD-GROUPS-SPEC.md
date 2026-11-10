@@ -58,7 +58,11 @@ exactly one group. Individual projects are no longer top-level navigation.
   user sees.
 - Ruling (Noah, 2026-11-10): on a group board, with the project filter on one project (or a group of one project),
   the overview bar, Insights, Ideas, Memory and **I**, **B**, **M** act on that project. Unfiltered they stay
-  hidden. Project settings live in the group settings page's per-project sections.
+  hidden. Project settings live in the group settings page's per-project sections. (The overview bar's counts are
+  amended by the next ruling.)
+- Ruling (Noah, 2026-11-10): the "N need you" and "N updated" counts and the **N** / **U** step-throughs always
+  show on a group board, unfiltered too, counting the group's live member projects (filtered: that project). Only the
+  genuinely per-project parts (Insights, Ideas, Memory, Guardrails, **I**, **B**, **M**) stay hidden unfiltered.
 - Ruling (Noah, 2026-11-10): deleting a group archives its dispatcher session. The delete confirm says so. This is a
   new user-confirmed archive exception (AGENTS.md), like Replace dispatcher. A dispatcher cannot delete its own
   group.
@@ -140,7 +144,8 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   is left as it is).
 - **No project at all:** the first-run "No projects yet / Create project" screen shows instead of a board.
 - **Bell, badge, Search:** the bell, the "N need you" / "N updated" counts of a board and the `N`/`U` step-throughs
-  use the shown group's scope (`boardScope`); the sidebar badge (`attention.count`) and the phone's bell stay
+  use the shown board's scope (`boardScope`): the filtered project, else every live member of the shown group (§4);
+  a step opens each card in the card sidebar whatever its project; the sidebar badge (`attention.count`) and the phone's bell stay
   global over every group (ruling above). Search (button, **S**) keeps searching every project and shows each
   result's project and group.
 
@@ -153,9 +158,12 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   projects. A filtered board shows one project's cards and ideas, in that project's own lanes and lane names. The
   filter is per board instance, kept while the app runs, cleared when the project leaves the group or the group
   changes, and counted in "{n} shown".
-- **Per-project entries:** with the filter on one project (or a group of exactly one live project) the overview bar
-  and its counts, Insights, Ideas, Memory and **I**, **B**, **M** act on that project. Unfiltered they do nothing
-  and are hidden (as All's were). Project settings are reached from the group settings page.
+- **Overview bar:** shown on every group board with at least one live member, filtered or not. Its task count,
+  running chip, "N need you" and "N updated" cover the filtered project, else every live member (the Done count
+  sums the projects whose Done lane is on and is hidden when none has it). An empty group has no overview bar.
+- **Per-project entries:** with the filter on one project (or a group of exactly one live project) the overview
+  bar's Insights, Ideas, Guardrails and Memory chips and **I**, **B**, **M** act on that project. Unfiltered they do
+  nothing and are hidden. Project settings are reached from the group settings page.
 - **New task:** **T**, **Q**, a lane's Add task and the empty-board hint open Quick task with the filtered project,
   else the last quick-task project when it is a live member, else the group's first member. The Project picker lists
   the group's projects first, then the others (a card can be created in any project; it then belongs to that

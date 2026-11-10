@@ -122,7 +122,7 @@ import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 // board-groups 3/7: group-only navigation (BOARD-GROUPS-SPEC §3).
 import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, rememberViewedGroupView } from "./project-memory";
-import { boardProject, boardScope, defaultGroup, focusFilter, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, pickGroupView, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
+import { boardProject, boardScope, defaultGroup, focusFilter, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, overviewScope, pickGroupView, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
 import { allStatuses, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { GroupTabs } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
@@ -905,8 +905,8 @@ function BoardContent(
   // The step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). "N need you" (the overview
   // chip, A, a notification's link, the phone's bell) walks the cards with asks that wait on you, newest first, each
   // card's asks pinned on top; "N updated" walks what is new to read: the cards the dispatcher saw change, then the cards
-  // with an unread turn, each opening its unread chat. The queues follow the board shown (its project, or every project
-  // on All projects) and recompute live; closing the card or opening another ends it.
+  // with an unread turn, each opening its unread chat. The queues follow the board shown (its filtered project, or every
+  // live member of the group) and recompute live; closing the card or opening another ends it.
   // The dock shows the dispatcher of the group shown (DISPATCHER-SPEC §9); none until the board's groups are known.
   const dispatcherGroupId = group?.id ?? null;
   const dispatcherGroupName = group?.name;
@@ -916,8 +916,10 @@ function BoardContent(
     markAsksAnswered((dispatcherItems.data ?? []).flatMap((item) => (item.kind === "ask" && item.state !== "open" ? [item.signal] : [])));
   }, [dispatcherItems.data]);
   const resolvedSignals = useMemo(() => bellResolved(resolvedAsks.data, answeredAsks), [resolvedAsks.data, answeredAsks]);
-  // board-groups 3/7: the shown group's projects (BOARD-GROUPS-SPEC §3); the sidebar badge and Search stay global.
-  const stepScope = useMemo(() => boardScope([...includedIds]), [includedIds]);
+  // The counts and N/U cover the filtered project, else every live member of the group shown, unfiltered too
+  // (BOARD-GROUPS-SPEC §3, §4; Ruling, Noah 2026-11-10); the sidebar badge and Search stay global.
+  const overviewCover = useMemo(() => overviewScope(project, liveProjects), [project, liveProjects]);
+  const stepScope = useMemo(() => boardScope(overviewCover.projects.map((p) => p.id)), [overviewCover]);
   const needsIds = useMemo(() => needsQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const needYouCount = useMemo(() => needsCount(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const changed = useMemo(() => changeItem(dispatcherItems.data), [dispatcherItems.data]);
@@ -2235,18 +2237,19 @@ function BoardContent(
             )}
           </View>
         )}
-        {project && board && (
+        {board && overviewCover.projects.length > 0 && (
           <View {...covered}>
           <OverviewBar
-            overview={boardOverview(project, board.tasks, agents.data || [], attention)}
+            overview={boardOverview(overviewCover.projects, board.tasks, agents.data || [], attention)}
             needYou={needYouCount}
             onNeedYou={startNeeds}
             updated={updatedIds.length}
             onUpdated={startUpdated}
             updatedShortcut={shortcutsOn ? "U" : ""}
-            onInsights={features.insights ? () => togglePage("insights") : undefined}
+            // Insights, Ideas, Guardrails and Memory act on one project: hidden unfiltered (§4).
+            onInsights={features.insights && overviewCover.perProject ? () => togglePage("insights") : undefined}
             insightsShortcut={shortcutsOn ? "I" : ""}
-            openIdeas={ideasOn ? projectOpenIdeas : null}
+            openIdeas={ideasOn && overviewCover.perProject ? projectOpenIdeas : null}
             onIdeas={() => {
               setIdeaCard("");
               togglePage("ideas");

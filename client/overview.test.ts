@@ -26,7 +26,7 @@ test("overview counts live cards, working sessions and what needs you", () => {
     { workspaceId: "w-a", status: "running", archivedAt: "2026-10-15T00:00:00Z" },
   ];
   const attention = [item(tasks[0], { questions: 1 }), item(tasks[1], { unread: 1 }), item(tasks[3], { errors: 1, unread: 1 })];
-  expect(boardOverview(project, tasks, agents, attention)).toEqual({
+  expect(boardOverview([project], tasks, agents, attention)).toEqual({
     total: 4,
     done: 1,
     runningTasks: 1,
@@ -37,7 +37,20 @@ test("overview counts live cards, working sessions and what needs you", () => {
   });
   // A Done lane that is off reports null (hidden), not zero. The In review / Blocked lane chips are gone (Ruling, Noah 2026-11-09).
   const lanes = (["backlog", "todo", "design", "development", "test", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: status !== "done" }));
-  expect(boardOverview({ ...project, lanes }, tasks.filter((t) => t.status !== "done"), [], []).done).toBeNull();
+  expect(boardOverview([{ ...project, lanes }], tasks.filter((t) => t.status !== "done"), [], []).done).toBeNull();
+});
+
+test("a group board's overview sums its projects; done counts the projects whose Done lane is on (Ruling, Noah 2026-11-10)", () => {
+  const q = { id: "q" } as Project;
+  const tasks = [task("a", "done"), task("b", "todo"), task("c", "done", { projectId: "q" }), task("d", "todo", { projectId: "other" })];
+  const agents = [{ workspaceId: "w-a", status: "running" }, { workspaceId: "w-c", status: "running" }, { workspaceId: "w-d", status: "running" }];
+  const attention = [item(tasks[1], { questions: 1 }), { ...item(tasks[2], { permissions: 1 }), project: q }, { ...item(tasks[3], { questions: 1 }), project: { id: "other" } as Project }];
+  const both = boardOverview([project, q], tasks, agents, attention);
+  expect(both).toMatchObject({ total: 3, done: 2, runningTasks: 2, needsYou: 2 });
+  const lanes = (["backlog", "todo", "design", "development", "test", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: status !== "done" }));
+  expect(boardOverview([project, { ...q, lanes }], tasks, agents, attention).done).toBe(1);
+  expect(boardOverview([{ ...project, lanes }, { ...q, lanes }], tasks, agents, attention).done).toBeNull();
+  expect(boardOverview([], tasks, agents, attention)).toMatchObject({ total: 0, runningTasks: 0, needsYou: 0 });
 });
 
 test("the overview row: running only while something runs, one need-you chip, updated apart, dividers only between shown groups", () => {

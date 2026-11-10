@@ -39,6 +39,15 @@ export function boardScope(projectIds: readonly string[]): (projectId: string) =
 }
 
 /**
+ * What the board's overview bar covers (§3, §4; Ruling, Noah 2026-11-10): the "N need you" / "N updated" counts and
+ * the N/U step-throughs cover the filtered project, else every live member of the group shown; `perProject` says
+ * whether the project-only entries (Insights, Ideas, Memory, I/B/M) show. An empty group covers nothing.
+ */
+export function overviewScope<P extends { id: string }>(project: P | undefined, members: readonly P[]): { projects: P[]; perProject: boolean } {
+  return project ? { projects: [project], perProject: true } : { projects: [...members], perProject: false };
+}
+
+/**
  * The group the board opens: the explicit choice, else the view last viewed in this run, else the default group.
  * A choice is a group's view id (used while the group exists), the legacy "*all" (the default group) or a bare
  * project id (that project's group); anything unknown is skipped to the next candidate.
