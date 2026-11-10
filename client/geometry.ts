@@ -8,6 +8,26 @@ export const columnGap = 12;
 /** A collapsed lane's width. */
 export const collapsedWidth = 44;
 
+/** Points a held mouse press must move before it becomes a card drag or a board pan; a smaller move is still a click. */
+export const dragThreshold = 8;
+
+/** How a mouse press started: `onCard` when it began on a card (card drag wins over a board pan). */
+export type BoardPress = { mouse: boolean; primary: boolean; onCard: boolean };
+
+/**
+ * What a held press means for the board: "pan" once a primary mouse press that began off a card has moved
+ * `dragThreshold`, "wait" until then (a plain click still reaches its button), "none" when it can never pan.
+ */
+export function boardPanDecision(press: BoardPress | null, dx: number, dy: number): "pan" | "wait" | "none" {
+  if (!press || !press.mouse || !press.primary || press.onCard) return "none";
+  return Math.hypot(dx, dy) >= dragThreshold ? "pan" : "wait";
+}
+
+/** The board's scroll offset after a pan of `dx` from `start`, clamped to the scrollable range. */
+export function panOffset(start: number, dx: number, contentWidth: number, viewportWidth: number): number {
+  return Math.max(0, Math.min(Math.max(0, contentWidth - viewportWidth), start - dx));
+}
+
 export function columnAtPoint(
   point: Point,
   viewport: Rect,

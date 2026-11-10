@@ -35,6 +35,7 @@ Keep project CRUD, task search/priority/archive/finished filters, task creation/
 - Horizontal desktop edge scrolling makes offscreen columns reachable during a drag. Scroll offsets participate in hit testing; targets outside the board viewport are rejected. Regular wheel/trackpad scrolling remains available when not dragging.
 - Archived tasks/projects and an in-flight mutation cannot start a drag. During a pending drop disable further drag/reorder writes; refresh after success. Report the destination status on success. On failure, refresh and show the error without optimistic status changes or retrying against a newer revision. Concurrent changes return the existing stale-revision error.
 - Leaving the surface, a dragged card disappearing, changing project/filter/layout or losing the responder cancels drag and stops edge-scroll timers. Releasing after cancellation cannot submit an old drag.
+- 2026-11-10 board pan (user request, desktop/web only): a primary mouse press on empty board space (board background, gaps between cards, lane headers, empty lane area, collapsed lanes) that moves at least 8 points (`dragThreshold`, shared with the card drag) pans the board horizontally with the pointer, clamped to the scrollable range and applied immediately (no animation). Below the threshold the press is a plain click, so header buttons and a collapsed lane's expand still work; once panning starts the press does not fire its click. A press that begins on a card never pans (card drag wins, also for cards that cannot be dragged); a card drag in progress never pans. Touch, pen and right-button presses never pan, and the responder is not installed on touch platforms. Over pannable space the cursor is `grab`, `grabbing` while panning, and text selection is off while panning. Same for project, group and All projects boards (one `DesktopColumns`). Uses only React Native `PanResponder` and pointer props with the existing `cursor`/`userSelect` style props: no web-only exception. Phones (§5, lane pager, host sideways-swipe) are unchanged. Decisions are the pure `boardPanDecision` and `panOffset` in `client/geometry.ts`.
 
 ## 4. Resizable task drawer
 
@@ -85,6 +86,7 @@ Record PASS / FAIL / UNRUN separately in `docs/verification/ui-ux.md`.
 | Drop rules | Cross-status writes once with captured revision; same/outside/cancel/archived does not write |
 | CAS failure | Original server status remains authoritative; error shown, no automatic retry |
 | Edge scrolling | Offscreen columns reachable; viewport/offset hit test correct; timers stop |
+| Board pan | Mouse drag on empty space/headers pans after 8 points and clamps; a press on a card, touch, pen or right button never pans; click under the threshold still works; cursor grab/grabbing; no selection while panning |
 | Drawer | Grip and buttons resize within bounds; resize window clamps; compact details full-width |
 | Mobile list | Long list scrolls to last task; no horizontal board/choice scroll strips; status chooser works |
 | Mobile detail/forms | Vertical content and keyboard usable; status/session selection/follow-up reachable |

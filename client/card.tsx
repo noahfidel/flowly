@@ -4,7 +4,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { taskTypeLabels, type Review, type Task } from "../shared/model";
 import { AiMark, Badge, Dot, IconButton, Label, font, radius, relativeTime, space, tint, touch, useTheme, noFocusRing } from "./ui";
 import { PriorityIcon, TypeIcon, WorkspaceIcon, priorityAccent, priorityLabels, workspaceLabel, workspaceLabels } from "./status";
-import type { Point } from "./geometry";
+import { dragThreshold, type Point } from "./geometry";
 import type { SessionAttentionSummary } from "../shared/session-attention";
 import { PulseDot, motionDuration, useMotionValue, useReducedMotion } from "./motion";
 import { RunningDots } from "./running-motion";
@@ -204,7 +204,7 @@ export function TaskCard({
         !!current.current.drag &&
         !current.current.disabled &&
         mousePress.current &&
-        Math.hypot(g.dx, g.dy) >= 8,
+        Math.hypot(g.dx, g.dy) >= dragThreshold,
       onPanResponderGrant: (e) => {
         if (!mousePress.current || current.current.disabled) return;
         activeDrag.current = true;
