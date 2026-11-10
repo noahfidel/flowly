@@ -1798,6 +1798,10 @@ function BoardContent(
     updateGroupRpc = useRpc(rpc.updateGroup),
     deleteGroupRpc = useRpc(rpc.deleteGroup);
   const dialogGroup = groupDialog && groupDialog.kind !== "add" ? boardGroups.find((g) => g.id === groupDialog.groupId) : undefined;
+  // board-groups 3/7: a rename/delete dialog whose group vanished (deleted elsewhere) closes instead of lingering invisibly.
+  useEffect(() => {
+    if (groupDialog && groupDialog.kind !== "add" && boardGroups.length && !dialogGroup) setGroupDialog(null);
+  }, [groupDialog, dialogGroup, boardGroups.length]);
   const reorderGroup = (id: string, move: { direction: "up" | "down" } | { to: number }) =>
     void doAction(async () => {
       try {
