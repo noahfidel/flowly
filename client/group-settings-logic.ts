@@ -4,7 +4,6 @@ import { orderedGroups } from "../shared/groups";
 import { projectOrder, type Group, type Project } from "../shared/model";
 import { effectiveDispatcherModel, type AgentModel } from "../shared/agent-defaults";
 import { deliveryModeLabels, resolveDeliveryMode } from "../shared/delivery-mode";
-import { dispatcherDefaultModel } from "../shared/dispatcher";
 
 /** An empty default's label: what it takes from the level above, shown (§5). */
 export const inheritLabel = (value: string) => t("Inherit: {value}", { value });
@@ -23,9 +22,9 @@ export function inheritedDeliveryText(group: Pick<Group, "defaults"> | null | un
   return t(deliveryModeLabels[resolveDeliveryMode({ group: group?.defaults?.deliveryMode, host }).mode]);
 }
 
-/** What a group's empty dispatcher model inherits: the host setting, else the built-in default. */
+/** What a group's empty dispatcher model inherits: the host setting, else the built-in default (`effectiveDispatcherModel`). */
 export function inheritedDispatcherText(host: AgentModel | null | undefined): string {
-  return agentModelText(effectiveDispatcherModel(null, host)?.model ?? dispatcherDefaultModel);
+  return agentModelText(effectiveDispatcherModel(null, host));
 }
 
 /** A group's member projects in board order, archived ones last. */

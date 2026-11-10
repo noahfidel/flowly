@@ -186,8 +186,8 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 - **Defaults chain:** `effectiveAgentModel` (`shared/agent-defaults.ts`) extends to host → group → project: the
   project's `agentModel` wins, then the group's `defaults.agentModel`, then the host's `models.default*`. Delivery
   mode: the card's, then the project's (new optional override), then the group's, then the host's
-  `delivery.defaultMode`. Dispatcher model: the group's, then the host's `models.dispatcherModel`. A default left
-  empty reads "Inherit: {value}" with the inherited value shown.
+  `delivery.defaultMode`. Dispatcher model: the group's, then the host's `models.dispatcherModel`, then the built-in default
+  (`effectiveDispatcherModel`, §6). A default left empty reads "Inherit: {value}" with the inherited value shown.
 - Host Settings → Models and Delivery stay as the base and are labelled so; Settings → Workflow loses Board groups
   and *Show All projects tab*.
 - **New task delivery mode:** the New task form shows the mode the chain gives (card, project, group, host) and
@@ -197,8 +197,6 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   switcher, and **Delete group…** on the group settings page and in the tab menu (not for the default group; the
   confirm says its projects move to the default group and its dispatcher, if it has one, is archived). `GROUP_BUSY`
   and `DISPATCHER_UNAVAILABLE` refusals show on the page. Renaming a group is the page's name field.
-- **Interim dispatcher model until per-group dispatchers (5/7):** the one dispatcher uses the dispatcher model
-  default of the group §7 step 4 would move it to (`dispatcherTarget`), then the host's.
 
 ## 6. Dispatcher per group
 
