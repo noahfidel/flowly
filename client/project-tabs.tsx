@@ -48,34 +48,55 @@ export function ProjectTabs({
   const scroll = useRef<RNScrollView>(null);
   const offsets = useRef(new Map<string, { x: number; width: number }>());
   const viewport = useRef({ x: 0, width: 0 });
+  // Group tabs scroll with the project tabs, before them; project offsets are measured inside their list.
+  const groupsWidth = useRef(0);
+  if (!groups.length) groupsWidth.current = 0;
+  const activeGroup = groups.find((g) => g.active)?.id ?? "";
   // Keep the active tab in view when it changes from elsewhere (chooser, linked session).
   const reveal = (id: string) => {
-    const tab = offsets.current.get(id),
+    const measured = offsets.current.get(id),
       view = viewport.current;
-    if (!tab || !view.width) return;
+    if (!measured || !view.width) return;
+    const tab = id.startsWith(groupKey) ? measured : { x: measured.x + groupsWidth.current, width: measured.width };
     if (tab.x < view.x) scroll.current?.scrollTo({ x: tab.x, animated: true });
     else if (tab.x + tab.width > view.x + view.width)
       scroll.current?.scrollTo({ x: tab.x + tab.width - view.width, animated: true });
   };
   useEffect(() => reveal(activeId), [activeId]);
+  useEffect(() => reveal(groupKey + activeGroup), [activeGroup]);
   return (
     <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space[1] }}>
       {all && (
         <Tab title={t("All")} label={t("All projects")} archived={false} active={all.active} menu={noMenu} onPress={all.onSelect} />
       )}
-      {groups.map((g) => (
-        <Tab key={g.id} title={g.name} label={t("Group {name}", { name: g.name })} archived={false} active={g.active} menu={noMenu} onPress={() => onSelectGroup?.(g.id)} />
-      ))}
       <ScrollView
         ref={scroll as never}
         horizontal
         showsHorizontalScrollIndicator={false}
         style={{ flexGrow: 0, flexShrink: 1, minWidth: 0 }}
-        contentContainerStyle={{ alignItems: "center" }}
+        contentContainerStyle={{ flexDirection: "row", alignItems: "center", gap: 2 }}
         scrollEventThrottle={64}
         onScroll={(e) => (viewport.current.x = e.nativeEvent.contentOffset.x)}
         onLayout={(e) => (viewport.current.width = e.nativeEvent.layout.width)}
       >
+        {groups.length > 0 && (
+          <View
+            style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
+            onLayout={(e) => (groupsWidth.current = e.nativeEvent.layout.width + 2)}
+          >
+            {groups.map((g) => (
+              <View
+                key={g.id}
+                onLayout={(e) => {
+                  offsets.current.set(groupKey + g.id, { x: e.nativeEvent.layout.x, width: e.nativeEvent.layout.width });
+                  if (g.active) reveal(groupKey + g.id);
+                }}
+              >
+                <Tab title={g.name} label={t("Group {name}", { name: g.name })} archived={false} active={g.active} menu={noMenu} onPress={() => onSelectGroup?.(g.id)} />
+              </View>
+            ))}
+          </View>
+        )}
         <SortableList
           horizontal
           items={projects}
@@ -110,6 +131,8 @@ export function ProjectTabs({
 }
 
 const noMenu = {};
+/** Offsets of group tabs are kept under this prefix, apart from project ids. */
+const groupKey = "group:";
 
 function Tab({
   title,
