@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Attention Dismiss reworked into per-list Snooze (branch `kanban/rework-attention-dismiss-into-per-list-s-3cc2a3`) — 2026-11-10
+
+- User-facing rename Dismiss to Snooze (buttons, accessibility labels, toasts, the card's marker, Unsnooze, tip text); the idea Dismiss and the question-form Dismiss keep their name. Internal names stay (`attentionDismissals`, `attention.dismiss`, `attention.restore`, `asks.dismiss`, ask state `dismissed`).
+- Storage and behavior are per list: Needs you (`q:`, `b:`, `p:`, `e:`, review) and Updates (`u:`) are snoozed separately, a new key brings back only its own list. The card menu, sidebar and phone Actions offer Snooze in Needs you and Snooze in Updates, plus one Unsnooze. `attention.dismiss` takes a `list`. Existing records `{ taskId, signals, dismissedAt }` are read as snoozed in both lists and rewritten in the new shape on their next write.
+- `docs/ATTENTION-DISMISS-SPEC.md` replaced by an English spec of the current design only; the rulings of 2026-11-08 and 2026-11-09 (blocker signal, per-ask counts, single dismiss, no Attention tab or Dismissed group, unread split out of "N need you") are folded into it and into DISPATCHER-SPEC §9. Also updated: SPEC-OUTLINE, SIDEBAR-BADGE-SPEC, ONBOARDING-SPEC tip row.
+  - Checks: none run yet (docs-only change; `npm run typecheck`, `npm test` and the UI check are UNRUN).
+
 ## Slim board card menu, always on screen (branch `kanban/slim-the-board-card-menu-and-keep-it-on-d10cf3`) — 2026-11-10
 
 - Cause (reproduced on the installed build, `docs/verification/board-menu-repro.md`): the card's ⋯ opened a separate action sheet with no Archive/Delete; the right-click popover had both but was cut off and could not scroll in a ~600-point window.
