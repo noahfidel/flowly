@@ -2964,7 +2964,7 @@ function BoardContent(
             initialProjectId={
               // Every board is a group's: the filtered project, else the last quick-task project when a member, else the first
               // (groupQuickProject falls back to All's rule for an empty group).
-              (allView && !quickTask.projectId
+              (!quickTask.projectId
                 ? groupQuickProject(liveProjects, projects, view.values?.lastQuickProjectId ?? "", validFilterId)
                 : quickProject(projects, { pinned: quickTask.projectId, last: quickTask.recent ? view.values?.lastQuickProjectId : undefined, current: project?.id || "" })
               )?.id || ""
