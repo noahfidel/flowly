@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Group, Project } from "../shared/model";
-import { agentModelText, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText } from "./group-settings-logic";
+import { agentModelText, currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, needsDiscardConfirm, shownGroup, withDirty } from "./group-settings-logic";
 
 const at = "2026-11-10T00:00:00.000Z";
 const group = (id: string, position: number, defaults?: Group["defaults"]): Group => ({ id, name: id.toUpperCase(), position, revision: 1, createdAt: at, updatedAt: at, ...(defaults ? { defaults } : {}) });
@@ -40,5 +40,34 @@ describe("group members and choices", () => {
   });
   test("move-to-group choices follow tab order", () => {
     expect(groupChoices([group("b", 1), group("a", 0)])).toEqual([{ value: "a", label: "A" }, { value: "b", label: "B" }]);
+  });
+});
+
+describe("unsaved edits guard and stale state", () => {
+  const g = (revision: number) => ({ ...group("g", 0), revision });
+  test("withDirty adds and removes ids, keeping the set when nothing changes", () => {
+    const none: ReadonlySet<string> = new Set();
+    const one = withDirty(none, "a", true);
+    expect([...one]).toEqual(["a"]);
+    expect(withDirty(one, "a", true)).toBe(one);
+    expect(withDirty(none, "a", false)).toBe(none);
+    expect(withDirty(one, "a", false).size).toBe(0);
+  });
+  test("a leave asks only while a section is dirty", () => {
+    expect(needsDiscardConfirm(new Set())).toBe(false);
+    expect(needsDiscardConfirm(new Set(["a"]))).toBe(true);
+  });
+  test("the written group stands in only until the overview has listed it", () => {
+    expect(shownGroup(undefined, g(1), false)?.revision).toBe(1);
+    expect(shownGroup(undefined, g(1), true)).toBeUndefined();
+    expect(shownGroup(g(1), g(2), true)?.revision).toBe(2);
+    expect(shownGroup(g(3), g(2), true)?.revision).toBe(3);
+    expect(shownGroup(g(3), undefined, false)?.revision).toBe(3);
+    expect(shownGroup(undefined, undefined, false)).toBeUndefined();
+  });
+  test("a move sends the newest project revision", () => {
+    expect(currentRevision({ revision: 2 }, undefined)).toBe(2);
+    expect(currentRevision({ revision: 2 }, 4)).toBe(4);
+    expect(currentRevision({ revision: 5 }, 4)).toBe(5);
   });
 });

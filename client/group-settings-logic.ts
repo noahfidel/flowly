@@ -39,3 +39,28 @@ export function groupMembersOf<P extends Pick<Project, "id" | "groupId" | "archi
 export function groupChoices(groups: readonly Group[]) {
   return orderedGroups(groups).map((g) => ({ value: g.id, label: g.name }));
 }
+
+/** The project ids with unsaved edits after one section reports; the same set when nothing changed. */
+export function withDirty(dirty: ReadonlySet<string>, projectId: string, isDirty: boolean): ReadonlySet<string> {
+  if (dirty.has(projectId) === isDirty) return dirty;
+  const next = new Set(dirty);
+  if (isDirty) next.add(projectId);
+  else next.delete(projectId);
+  return next;
+}
+
+/** Closing, moving a project or deleting the group asks first while any section holds unsaved edits. */
+export const needsDiscardConfirm = (dirty: ReadonlySet<string>): boolean => dirty.size > 0;
+
+/**
+ * The group to show: the one the overview lists, unless this page wrote a newer revision. A group this page wrote or
+ * created counts only until the overview has listed it once (`seen`); after that, absent means gone.
+ */
+export function shownGroup(listed: Group | undefined, written: Group | undefined, seen: boolean): Group | undefined {
+  if (!written) return listed;
+  if (!listed) return seen ? undefined : written;
+  return written.revision > listed.revision ? written : listed;
+}
+
+/** The revision a project write must send: the newest of the overview's and the last one a section save returned. */
+export const currentRevision = (project: Pick<Project, "revision">, saved: number | undefined): number => Math.max(project.revision, saved ?? 0);

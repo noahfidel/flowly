@@ -182,9 +182,9 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   empty reads "Inherit: {value}" with the inherited value shown.
 - Host Settings → Models and Delivery stay as the base and are labelled so; Settings → Workflow loses Board groups
   and *Show All projects tab*.
-- **New task delivery mode is lazy:** the New task form shows the mode the chain gives (card, project, group, host)
-  and stores a mode on the card only when the user picks a different one. A card created untouched keeps following
-  later changes to its project's, group's and host's default until it has its own.
+- **New task delivery mode:** the New task form shows the mode the chain gives (card, project, group, host) and
+  stores it as the card's own mode (the unchanged DELIVERY-MODE-SPEC §2 rule). Only cards without a stored mode
+  (agent-created) resolve lazily, following later changes to their project's, group's and host's default.
 - **Add and delete groups** (ruling, Noah 2026-11-10): from 2/7 on, **Add group** is on the group settings page and
   in the switcher, and **Delete group…** on the group settings page (not for the default group; the confirm says its
   projects move to the default group and its dispatcher, if it has one, is archived). `GROUP_BUSY` and
@@ -285,7 +285,7 @@ Unit (server/shared, written with the follow-up cards):
   dispatcher is running, and when the archive fails; a start that finishes after its group was deleted writes nothing
   back; a tool delete of a group with a live dispatcher is `GROUP_BUSY`.
 - Delivery mode: moving a project or editing a group default changes the default of cards without their own
-  delivery mode (resolution stays lazy, as `effectiveDeliveryMode` does today); a card's own mode never changes.
+  delivery mode, i.e. agent-created ones (resolution stays lazy, as `effectiveDeliveryMode` does today); a card's own mode never changes.
 
 Upkeep (the plan's last task): welcome-tour copy and tips, a What's new entry (All and project tabs and the global
 dispatcher go away for existing users), the telemetry decision, and every new string in all i18n catalogs.

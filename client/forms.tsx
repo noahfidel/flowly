@@ -64,6 +64,8 @@ export function useProjectSettings(project: Project) {
   const stored = autoReviewOf(project);
   const storedDelivery = isDeliveryMode(project.deliveryMode) ? project.deliveryMode : null;
   const storedLinks = project.links?.map((l) => l.target) ?? [];
+  // Whether What's new's Auto review preset was applied: kept here so collapsing and reopening a section doesn't redo it.
+  const reviewPreset = useRef(false);
   const [title, setTitle] = useState(project.title),
     [description, setDescription] = useState(project.description || ""),
     [links, setLinkList] = useState<string[]>(storedLinks),
@@ -116,7 +118,7 @@ export function useProjectSettings(project: Project) {
     title, setTitle, description, setDescription, links, setLinkList, autoStatus, setAutoStatus, workpad, setWorkpad,
     workflowInsights, setWorkflowInsights, memory, setMemory, linearTicket, setLinearTicket, linearTeam, setLinearTeam,
     review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode, lanes, setLanes,
-    pending, error, dirty, valid, save,
+    pending, error, dirty, valid, save, reviewPreset,
   };
 }
 export type ProjectSettingsState = ReturnType<typeof useProjectSettings>;
@@ -152,7 +154,7 @@ export function ProjectSettingsFields({
     queryFn: () => readFolder({ id: project.id }),
     staleTime: 0,
   });
-  const reviewSection = <AutoReviewSection project={project} value={s.review} onChange={s.setReview} switchOn={reviewOn} />;
+  const reviewSection = <AutoReviewSection project={project} value={s.review} onChange={s.setReview} switchOn={reviewOn} applied={s.reviewPreset} />;
   return (
     <>
       {reviewOn && reviewSection}
@@ -729,8 +731,8 @@ export function TaskForm({
             priority,
             type: type || undefined,
             ...(tags.length ? { tags } : {}),
-            // Only a mode the user changed here: an untouched card keeps following its project, group and Settings (lazy).
-            ...(deliveryChoice !== null && deliveryChoice !== deliverySeed ? { deliveryMode: deliveryChoice } : {}),
+            // The shown mode is stored as the card's own (DELIVERY-MODE-SPEC §2).
+            deliveryMode: delivery,
             mode,
             workspaceId: mode === "existing" ? workspaceId : undefined,
             baseRef,

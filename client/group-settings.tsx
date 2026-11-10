@@ -15,7 +15,8 @@ import { SettingRow, SettingSelect, SettingSwitch, SettingsGroup } from "./setti
 import { Collapse, Disclosure } from "./disclosure";
 import { ModelDefaultGroup } from "./model-default";
 import { ProjectSettingsFields, useProjectSettings } from "./forms";
-import { groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText } from "./group-settings-logic";
+import { useStableCallback } from "./stable";
+import { currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, needsDiscardConfirm, shownGroup, withDirty } from "./group-settings-logic";
 
 type GroupDefaultsEdit = { agentModel?: AgentModel | null; deliveryMode?: DeliveryMode | null; dispatcherModel?: AgentModel | null };
 
@@ -62,14 +63,34 @@ export function GroupSettings({
   // Groups this page wrote (or created) last: newer than the overview until it catches up.
   const [written, setWritten] = useState<Record<string, Group>>({});
   const listed = groupId ? groups.find((g) => g.id === groupId) : undefined;
-  const mine = groupId ? written[groupId] : undefined;
-  const group = mine && (!listed || mine.revision > listed.revision) ? mine : listed;
+  // Once the overview has listed the open group, its absence means it is gone, not that the overview is behind.
+  const seen = useRef(new Set<string>());
+  if (listed) seen.current.add(listed.id);
+  const group = shownGroup(listed, groupId ? written[groupId] : undefined, !!groupId && seen.current.has(groupId));
   const current = useRef(group);
   current.current = group;
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [adding, setAdding] = useState(initialId === null),
     [deleting, setDeleting] = useState(false);
+  // Projects with unsaved edits, and the leave (close, move, delete) waiting for the user's answer.
+  const [dirty, setDirty] = useState<ReadonlySet<string>>(new Set());
+  const [leave, setLeave] = useState<(() => void) | null>(null);
+  const reportDirty = useStableCallback((projectId: string, isDirty: boolean) => setDirty((all) => withDirty(all, projectId, isDirty)));
+  const guard = (action: () => void) => (needsDiscardConfirm(dirty) ? setLeave(() => action) : action());
+  // The newest project and the revisions section saves returned, so a move never sends a stale revision.
+  const latestProjects = useRef(projects);
+  latestProjects.current = projects;
+  const savedRevisions = useRef<Record<string, number>>({});
+  const projectSaved = (saved: Project) => {
+    savedRevisions.current[saved.id] = Math.max(savedRevisions.current[saved.id] ?? 0, saved.revision);
+    onChanged();
+  };
+  const moveProject = (p: Project, to: string) =>
+    write(async () => {
+      const live = latestProjects.current.find((x) => x.id === p.id) ?? p;
+      await setProjectGroup({ projectId: p.id, revision: currentRevision(live, savedRevisions.current[p.id]), groupId: to });
+    });
   // Gone (deleted elsewhere): nothing left to show.
   useEffect(() => {
     if (groupId && !group) onClose();
@@ -91,6 +112,8 @@ export function GroupSettings({
         onChanged();
       } catch (e) {
         setError(message(e));
+        // A refused write (e.g. a revision conflict): read again so the stored revision refreshes.
+        onChanged();
       } finally {
         setBusy(false);
       }
@@ -113,7 +136,7 @@ export function GroupSettings({
       open
       title={group ? t("Group settings") : t("Add group")}
       onOpenChange={(next) => {
-        if (!next && !busy) onClose();
+        if (!next && !busy) guard(onClose);
       }}
     >
       <Modal.Content>
@@ -177,7 +200,7 @@ export function GroupSettings({
                         placeholder={group.name}
                         disabled={busy}
                         options={choices}
-                        onChange={(to) => to !== group.id && write(() => setProjectGroup({ projectId: p.id, revision: p.revision, groupId: to }).then(() => undefined))}
+                        onChange={(to) => to !== group.id && guard(() => moveProject(p, to))}
                       />
                     ))}
                   </SettingsGroup>
@@ -190,12 +213,33 @@ export function GroupSettings({
                     laneCounts={laneCounts(p.id)}
                     initiallyOpen={p.id === focusProjectId}
                     reviewOn={reviewOn && p.id === focusProjectId}
-                    onSaved={onChanged}
+                    onSaved={projectSaved}
+                    onDirty={reportDirty}
                   />
                 ))}
               </>
             )}
             {!!error && <Notice>{error}</Notice>}
+            {leave && (
+              <View style={{ gap: space[3] }}>
+                <Notice tone="warning">{t("Discard unsaved changes?")}</Notice>
+                <Actions>
+                  <Button quiet onPress={() => setLeave(null)}>
+                    {t("Keep editing")}
+                  </Button>
+                  <Button
+                    danger
+                    onPress={() => {
+                      const action = leave;
+                      setLeave(null);
+                      action();
+                    }}
+                  >
+                    {t("Discard")}
+                  </Button>
+                </Actions>
+              </View>
+            )}
             <SettingsGroup>
               {group && (
                 <SettingRow
@@ -232,11 +276,13 @@ export function GroupSettings({
                         danger
                         disabled={busy}
                         onPress={() =>
-                          write(async (g) => {
-                            await remove({ id: g.id, revision: g.revision });
-                            toast.show(t("Group {name} deleted", { name: g.name }), { variant: "success" });
-                            onClose();
-                          })
+                          guard(() =>
+                            write(async (g) => {
+                              await remove({ id: g.id, revision: g.revision });
+                              toast.show(t("Group {name} deleted", { name: g.name }), { variant: "success" });
+                              onClose();
+                            }),
+                          )
                         }
                       >
                         {t("Delete group")}
@@ -318,13 +364,15 @@ function ProjectSection({
   initiallyOpen,
   reviewOn,
   onSaved,
+  onDirty,
 }: {
   project: Project;
   group: Group;
   laneCounts: Partial<Record<Status, number>>;
   initiallyOpen: boolean;
   reviewOn?: boolean;
-  onSaved(): void;
+  onSaved(project: Project): void;
+  onDirty(projectId: string, dirty: boolean): void;
 }) {
   const [open, setOpen] = useState(initiallyOpen);
   // The project the fields were seeded from; a save or Cancel seeds them again.
@@ -349,8 +397,9 @@ function ProjectSection({
       onOpen={setOpen}
       onSaved={(saved) => {
         reseed(saved);
-        onSaved();
+        onSaved(saved);
       }}
+      onDirty={onDirty}
       onReseed={() => reseed(latest)}
     />
   );
@@ -368,6 +417,7 @@ function ProjectEditor({
   onOpen,
   onSaved,
   onReseed,
+  onDirty,
 }: {
   project: Project;
   title: string;
@@ -380,8 +430,14 @@ function ProjectEditor({
   onOpen(open: boolean): void;
   onSaved(project: Project): void;
   onReseed(): void;
+  onDirty(projectId: string, dirty: boolean): void;
 }) {
   const state = useProjectSettings(project);
+  // Report unsaved edits to the page; an unmounted editor (moved, reseeded) has none.
+  useEffect(() => {
+    onDirty(project.id, state.dirty);
+  }, [state.dirty]);
+  useEffect(() => () => onDirty(project.id, false), []);
   // Changed elsewhere while untouched here: show the newer project.
   useEffect(() => {
     if (!state.dirty && !state.pending && latestRevision > project.revision) onReseed();
