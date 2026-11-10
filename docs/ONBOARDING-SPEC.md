@@ -95,7 +95,7 @@ A tip is a single dismissible banner row (icon, one sentence, **Got it**) under 
 | `summary-models` | the card has a summary; after `ai-language`; seen on visiting Summary models in Settings or the tour | "Choose summary models and their fallback order in Settings → Models. The default is Haiku, then Luna." |
 | `sidebar-order` | a card is open and it has at least one artifact or idea (DRAWER-SPEC, Section order) | "Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar." |
 | `project-menu` | desktop project tabs show two or more projects and no card is open (PROJECT-TABS-SPEC) | "Drag a project tab to reorder it. Right-click it for its settings, a new task, Insights, Ideas or Remove." |
-| `all-projects` | the All projects tab or switcher entry is available (2+ live projects, setting on) and no card is open; shown on a project board (ALL-PROJECTS-SPEC) | "All projects shows every project's cards on one board. Settings → Workflow turns it off." |
+| `all-projects` | the All projects tab or switcher entry is available (2+ live projects, setting on) and no card is open; shown on a project board (ALL-PROJECTS-SPEC) | "All projects shows every project's cards on one board." (the *Show All projects tab* switch left Settings in board groups 2/7) |
 | `jira-connect` | the project has a card, no card is open, and no connection is configured (announces the feature; lowest priority) | "Work from Jira, Confluence, GitHub, GitLab, Azure DevOps or Linear: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them." |
 
 Tips are the lowest-priority part of this feature and can ship after the tour (see Delivery).

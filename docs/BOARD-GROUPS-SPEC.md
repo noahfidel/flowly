@@ -182,6 +182,22 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   empty reads "Inherit: {value}" with the inherited value shown.
 - Host Settings → Models and Delivery stay as the base and are labelled so; Settings → Workflow loses Board groups
   and *Show All projects tab*.
+- **New task delivery mode is lazy:** the New task form shows the mode the chain gives (card, project, group, host)
+  and stores a mode on the card only when the user picks a different one. A card created untouched keeps following
+  later changes to its project's, group's and host's default until it has its own.
+- **Add and delete groups** (ruling, Noah 2026-11-10): from 2/7 on, **Add group** is on the group settings page and
+  in the switcher, and **Delete group…** on the group settings page (not for the default group; the confirm says its
+  projects move to the default group and its dispatcher, if it has one, is archived). `GROUP_BUSY` and
+  `DISPATCHER_UNAVAILABLE` refusals show on the page.
+- **Interim until group tabs (3/7):** the board still shows project tabs and the v1 view groups. The project tab
+  menu's **Group settings** and the toolbar's settings button open the project's group with that project's section
+  open; the switcher's **Edit {project}** does the same, and the switcher adds **Group settings** (the current
+  project's group, else the default group) and **Add group**. What's new's *Turn on for this project* opens the
+  project's section with Auto review switched on. A project with no group on the board (before the migration has
+  run) keeps the Edit project dialog. With *Show All projects tab* gone, the All tab follows its stored value until
+  3/7 retires it.
+- **Interim dispatcher model until per-group dispatchers (5/7):** the one dispatcher uses the dispatcher model
+  default of the group §7 step 4 would move it to (`dispatcherTarget`), then the host's.
 
 ## 6. Dispatcher per group
 
