@@ -362,7 +362,6 @@ const catalog: Catalog = {
   "Open {open}": "미처리 {open}",
   "Accepted {accepted}": "채택 {accepted}",
   "Dismissed {dismissed}": "보류 {dismissed}",
-  "Search ideas and cards": "아이디어와 카드 검색",
   "Search ideas": "아이디어 검색",
   "Sort: {sort}": "정렬: {sort}",
   "Sort ideas": "아이디어 정렬",

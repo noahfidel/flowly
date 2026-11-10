@@ -362,7 +362,6 @@ const catalog: Catalog = {
   "Open {open}": "Abertas {open}",
   "Accepted {accepted}": "Aceitas {accepted}",
   "Dismissed {dismissed}": "Dispensadas {dismissed}",
-  "Search ideas and cards": "Pesquisar ideias e cards",
   "Search ideas": "Pesquisar ideias",
   "Sort: {sort}": "Ordem: {sort}",
   "Sort ideas": "Ordenar ideias",

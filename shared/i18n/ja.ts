@@ -362,7 +362,6 @@ const catalog: Catalog = {
   "Open {open}": "未対応 {open}",
   "Accepted {accepted}": "採用済み {accepted}",
   "Dismissed {dismissed}": "見送り {dismissed}",
-  "Search ideas and cards": "アイデアとカードを検索",
   "Search ideas": "アイデアを検索",
   "Sort: {sort}": "並び順：{sort}",
   "Sort ideas": "アイデアの並べ替え",

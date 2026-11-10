@@ -362,7 +362,6 @@ const catalog: Catalog = {
   "Open {open}": "未處理 {open}",
   "Accepted {accepted}": "已採納 {accepted}",
   "Dismissed {dismissed}": "已忽略 {dismissed}",
-  "Search ideas and cards": "搜尋想法和卡片",
   "Search ideas": "搜尋想法",
   "Sort: {sort}": "排序：{sort}",
   "Sort ideas": "排序想法",

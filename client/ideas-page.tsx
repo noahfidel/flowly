@@ -218,7 +218,7 @@ export const IdeasPage = memo(function IdeasPage({
                 onKeyPress={(event) => {
                   if (event.nativeEvent.key === "Escape") onBack();
                 }}
-                placeholder={t("Search ideas and cards")}
+                placeholder={t("Search ideas")}
                 accessibilityLabel={t("Search ideas")}
                 style={{
                   height: touch ? 40 : 32,
