@@ -100,7 +100,7 @@ export class AgentService {
   /** The extra artifact folders from Settings (CARD-ARTIFACTS-SPEC, extra folders). Set by the plugin entry. */
   extraArtifactFolders: () => Promise<readonly string[]> = async () => [];
   private extraArtifactRoots = async () => resolveExtraRoots(await this.extraArtifactFolders());
-  /** Brings the card's review ledger record up to date before flowly_get_task reads it (REVIEW-LEDGERS-SPEC §4). Never throws. */
+  /** Brings the card's review ledger record up to date before flowly_get_task reads it, waiting at most a second (REVIEW-LEDGERS-SPEC §4). Never throws. */
   syncLedger: (taskId: string, paseo: PaseoApi) => Promise<void> = async () => {};
   /** The AI output language (AI-LANGUAGE-SPEC §5), returned by get_task as outputLanguage. */
   aiLanguage: () => Promise<LocaleCode> = async () => "en";

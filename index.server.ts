@@ -493,7 +493,7 @@ export default function contribute(host: PluginServerContext) {
   ledgers.extraFolders = extraArtifactFolders;
   ledgers.paseo = reviewArchiver.paseo;
   ledgers.start();
-  tools.agents.syncLedger = (taskId, paseo) => ledgers.syncCard(taskId, paseo);
+  tools.agents.syncLedger = (taskId, paseo) => ledgers.syncCardSoon(taskId, paseo);
   const watchPrReview = (agentId: string, paseo: PaseoApi) => {
     hookPaseo = paseo;
     void prReviews.observe(agentId, paseo).catch((e) => logFailure("Flowly PR review card not made:", e, agentId));
@@ -776,7 +776,7 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.deleteArtifact, (input) => artifacts.delete(input));
   server.handle(rpc.artifactStatus, async (input, { paseo }) => {
     // Opening a card's artifacts brings its review ledger up to date first (REVIEW-LEDGERS-SPEC §4).
-    await ledgers.syncCard(input.taskId, paseo);
+    await ledgers.syncCardSoon(input.taskId, paseo);
     return artifacts.status(input, paseo);
   });
   server.handle(rpc.reviewLedgerCheck, () => ledgers.check());

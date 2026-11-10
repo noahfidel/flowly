@@ -236,6 +236,9 @@ export function editArtifact(store: BoardStore, input: ArtifactEdit) {
       note: input.note !== undefined ? input.note : artifact.note,
     };
     const changed = next.role !== artifact.role || next.title !== artifact.title || next.note !== artifact.note;
+    // A person who changes the role or title of a Flowly record takes it over: Flowly stops managing it (REVIEW-LEDGERS-SPEC §3).
+    // Targets can't be edited (§3 of CARD-ARTIFACTS-SPEC), and the note is Flowly's summary, reset at the next sync.
+    if (artifact.origin && (next.role !== artifact.role || next.title !== artifact.title)) delete artifact.origin;
     if (changed) Object.assign(artifact, next, { updatedAt: new Date().toISOString() });
     return { value: { ...artifact }, changed };
   });
