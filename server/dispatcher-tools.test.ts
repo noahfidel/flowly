@@ -7,6 +7,7 @@ import { agentFixture } from "./agent-fixture";
 import { changeLine } from "./dispatcher-items";
 import { BoardService } from "./service";
 import { projectCreator } from "./project-create";
+import { dispatcherMessagePrefix } from "../shared/dispatcher";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -25,6 +26,7 @@ const dispatcherTools = [
   "flowly_link_cards",
   "flowly_list_ideas",
   "flowly_update_idea",
+  "flowly_message_card",
   // Not preapproved: the user confirms each call (ruling, Noah 2026-11-10).
   "flowly_create_project",
 ];
@@ -83,7 +85,7 @@ async function setup() {
     join(fixture.store.directory, "dispatcher.json"),
     JSON.stringify({ version: 1, workspaceId: "dw", agentId: "disp", startedAt: stamp }),
   );
-  const agents: Record<string, { id: string; workspaceId: string; status: string; archivedAt: string | null; lastUsage?: unknown; currentModeId?: string | null }> = {
+  const agents: Record<string, { id: string; workspaceId: string; status: string; archivedAt: string | null; lastUsage?: unknown; currentModeId?: string | null; pendingPermissions?: unknown[]; labels?: Record<string, string> }> = {
     disp: { id: "disp", workspaceId: "dw", status: "idle", archivedAt: null, currentModeId: "default" },
     actor: { id: "actor", workspaceId: "w", status: "idle", archivedAt: null },
   };
@@ -92,10 +94,19 @@ async function setup() {
   const launched: Record<string, Record<string, unknown>> = {};
   /** The tool policy each created session was saved with. */
   const policies: Record<string, unknown> = {};
+  /** Messages sent to sessions through `agents.ref(id).send`, and whether the next sends fail. */
+  const sent: { id: string; text: string; options?: unknown }[] = [];
+  let failSend = false;
   const paseo = {
     ...(fixture.paseo as unknown as Record<string, unknown>),
     agents: {
-      ref: (id: string) => ({ refresh: async () => (agents[id] ? { agent: { ...agents[id] } } : null) }),
+      ref: (id: string) => ({
+        refresh: async () => (agents[id] ? { agent: { ...agents[id] } } : null),
+        send: async (text: string, options?: unknown) => {
+          if (failSend) throw new Error("daemon down");
+          sent.push({ id, text, options });
+        },
+      }),
       list: async () => ({ entries: Object.values(agents).map((agent) => ({ agent })), pageInfo: { nextCursor: null } }),
     },
     workspaces: {
@@ -160,7 +171,7 @@ async function setup() {
   const dispatcherToken = server.secrets.dispatcherCredential({ agentId: "disp", workspaceId: "dw" });
   /** Group `groupId`'s entry of the stored record (DISPATCHER-SPEC §1). */
   const entry = async (id = groupId) => (await server.dispatcher.resolvedRecord()).groups[id];
-  return { ...fixture, server, paseo, agents, url, createdWorkspaces, launched, policies, connect, dispatcherToken, groupId, entry };
+  return { ...fixture, server, paseo, agents, sent, failSend: (v: boolean) => (failSend = v), url, createdWorkspaces, launched, policies, connect, dispatcherToken, groupId, entry };
 }
 
 const code = (result: { isError?: boolean; structuredContent?: { error?: { code?: string } } }) =>
@@ -170,8 +181,10 @@ test("a dispatcher token can write to any live project", async () => {
   const x = await setup();
   const d = await x.connect(x.dispatcherToken);
   expect(await d.names()).toEqual(dispatcherTools);
-  // None of them answers a card's ask (permission, question, blocker) or messages a card's session (ruling, Noah 2026-11-09).
-  for (const name of await d.names()) expect(name).not.toMatch(/answer|respond|permission|approve|allow|deny|send|prompt|message/);
+  // None of them answers a card's ask (permission, question, blocker); only flowly_message_card messages a card's
+  // session, and never answers (ruling, Noah 2026-11-09; DISPATCHER-SPEC §5.3).
+  for (const name of await d.names()) expect(name).not.toMatch(/answer|respond|permission|approve|allow|deny|send|prompt/);
+  expect((await d.names()).filter((n) => /message/.test(n))).toEqual(["flowly_message_card"]);
   // Replacing or archiving a dispatcher is the user's confirmed click only, never one of its own tools (ruling, Noah 2026-11-09).
   for (const name of await d.names()) expect(name).not.toMatch(/replace|archive|dispatcher/);
   const projects = (await d.call("flowly_list_projects", {})).structuredContent.projects;
@@ -974,4 +987,132 @@ test("each group's dispatcher has its own hourly card and project buckets (DISPA
   // A's buckets are untouched.
   expect(code(await x.d.call("flowly_create_card", { projectId: "q", title: "Still fine", idempotencyKey: "k-a1" }))).toBeUndefined();
   expect(code(await x.d.call("flowly_create_project", { path: await x.folder() }))).toBeUndefined();
+});
+
+async function withSessions() {
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  x.agents.s1 = { id: "s1", workspaceId: "w-q1", status: "idle", archivedAt: null };
+  const message = (args: Record<string, unknown>) => d.call("flowly_message_card", { projectId: "q", taskId: "q1", text: "integrate", ...args });
+  return { ...x, d, message };
+}
+
+test("flowly_message_card steers a prefixed message into the card's only live session (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  const result = await x.message({ text: "  finish up  " });
+  expect(code(result)).toBeUndefined();
+  expect(result.structuredContent).toEqual({ sent: true, sessionId: "s1" });
+  // The prefix marks it as the dispatcher's, the user's text follows unchanged (trimmed), and it is steered.
+  expect(x.sent).toEqual([{ id: "s1", text: `${dispatcherMessagePrefix}finish up`, options: { activeTurnBehavior: "steer" } }]);
+  expect(dispatcherMessagePrefix).toMatch(/^From the Flowly dispatcher/);
+  // Archived and helper sessions do not count; another card's session is never reached.
+  x.agents.old = { id: "old", workspaceId: "w-q1", status: "idle", archivedAt: stamp };
+  x.agents.helper = { id: "helper", workspaceId: "w-q1", status: "running", archivedAt: null, labels: { flowly: "summarizer" } };
+  x.agents.other = { id: "other", workspaceId: "w-q2", status: "idle", archivedAt: null };
+  expect((await x.message({})).structuredContent.sessionId).toBe("s1");
+  expect(code(await x.message({ sessionId: "other" }))).toBe("SESSION_NOT_FOUND");
+  expect(code(await x.message({ sessionId: "old" }))).toBe("SESSION_NOT_FOUND");
+  expect(x.sent.map((m) => m.id)).toEqual(["s1", "s1"]);
+});
+
+test("flowly_message_card: no live session, an ambiguous default, and a named session (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  expect(code(await x.message({ taskId: "q2" }))).toBe("NO_LIVE_SESSION");
+  x.agents.s2 = { id: "s2", workspaceId: "w-q1", status: "idle", archivedAt: null };
+  const ambiguous = await x.message({});
+  expect(code(ambiguous)).toBe("SESSION_AMBIGUOUS");
+  expect(ambiguous.structuredContent.error.message).toContain("s1");
+  expect(ambiguous.structuredContent.error.message).toContain("s2");
+  expect(x.sent).toEqual([]);
+  // The one running session is the default; two running are ambiguous again; a named one always works.
+  x.agents.s2.status = "running";
+  expect((await x.message({})).structuredContent.sessionId).toBe("s2");
+  x.agents.s1.status = "running";
+  expect(code(await x.message({}))).toBe("SESSION_AMBIGUOUS");
+  expect((await x.message({ sessionId: "s1" })).structuredContent.sessionId).toBe("s1");
+  expect(x.sent.map((m) => m.id)).toEqual(["s2", "s1"]);
+});
+
+test("flowly_message_card never touches a session that waits on the user (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  // A pending permission or question: refused, nothing sent, nothing answered.
+  x.agents.s1.pendingPermissions = [{ id: "req-1", kind: "question", name: "AskUserQuestion", input: {} }];
+  expect(code(await x.message({}))).toBe("SESSION_WAITING_ON_USER");
+  x.agents.s1.pendingPermissions = [{ id: "req-2", kind: "tool", name: "Bash", input: {} }];
+  expect(code(await x.message({}))).toBe("SESSION_WAITING_ON_USER");
+  x.agents.s1.pendingPermissions = [];
+  // An open question or blocker report, until the session's next turn starts.
+  const report = (id: string, reportKind: string, at: string) => ({
+    id,
+    taskId: "q1",
+    at,
+    actor: "agent" as const,
+    agentId: "s1",
+    action: "progress_reported" as const,
+    reportKind,
+    note: "?",
+  });
+  for (const [n, kind] of ["question", "blocker"].entries()) {
+    await x.store.mutate((board) => {
+      board.events.push(report(`e-${kind}`, kind, `2026-11-08T1${n * 2 + 1}:00:00.000Z`) as never);
+    });
+    expect(code(await x.message({})), kind).toBe("SESSION_WAITING_ON_USER");
+    await x.store.mutate((board) => {
+      board.events.push({ id: `t-${kind}`, taskId: "q1", at: `2026-11-08T1${n * 2 + 2}:00:00.000Z`, actor: "system", agentId: "s1", action: "agent.turn_started" } as never);
+    });
+    expect(code(await x.message({})), `after ${kind}`).toBeUndefined();
+  }
+  expect(x.sent.length).toBe(2);
+  // Another session of the card that waits does not block a named, free one.
+  x.agents.s2 = { id: "s2", workspaceId: "w-q1", status: "idle", archivedAt: null, pendingPermissions: [{ id: "r", kind: "tool", name: "Bash", input: {} }] };
+  expect(code(await x.message({ sessionId: "s2" }))).toBe("SESSION_WAITING_ON_USER");
+  expect(code(await x.message({ sessionId: "s1" }))).toBeUndefined();
+});
+
+test("flowly_message_card is gated like every dispatcher write (DISPATCHER-SPEC §4)", async () => {
+  const x = await withSessions();
+  x.server.cards.on = async () => false;
+  expect(code(await x.message({}))).toBe("AGENT_CARDS_DISABLED");
+  x.server.cards.on = async () => true;
+  expect(code(await x.message({ projectId: "z", taskId: "z1" }))).toBe("PROJECT_ARCHIVED");
+  expect(code(await x.message({ projectId: "gone" }))).toBe("ROOT_UNAVAILABLE");
+  expect(code(await x.message({ projectId: "nope" }))).toBe("NOT_FOUND");
+  expect(code(await x.message({ taskId: "t" }))).toBe("CARD_NOT_FOUND");
+  expect(code(await x.message({ projectId: "r", taskId: "q1" }))).toBe("CARD_NOT_FOUND");
+  expect(x.sent).toEqual([]);
+  // A board token cannot call it.
+  const card = await x.connect(x.server.secrets.boardCredential({ agentId: "actor", workspaceId: "w", projectId: "p" }));
+  expect(await card.names()).not.toContain("flowly_message_card");
+});
+
+test("flowly_message_card: 30 per hour, its own bucket; refusals and failed sends give the slot back (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  let now = Date.parse("2026-11-10T10:00:00.000Z");
+  x.server.dispatcherTools.clock = () => now;
+  expect(code(await x.message({ taskId: "q2" }))).toBe("NO_LIVE_SESSION");
+  x.failSend(true);
+  expect(code(await x.message({}))).toBe("SEND_FAILED");
+  x.failSend(false);
+  for (let i = 0; i < 30; i++) expect(code(await x.message({})), `#${i + 1}`).toBeUndefined();
+  const over = await x.message({});
+  expect(code(over)).toBe("MESSAGE_LIMIT");
+  expect(over.structuredContent.error.message).toContain("30");
+  expect(x.sent.length).toBe(30);
+  // The card bucket is untouched, and an hour later there is room again.
+  expect(code(await x.d.call("flowly_create_card", { projectId: "q", title: "Still fine", idempotencyKey: "k-msg" }))).toBeUndefined();
+  now += 3_600_001;
+  expect(code(await x.message({}))).toBeUndefined();
+});
+
+test("flowly_message_card works per group: another group's card is refused, each session has its own bucket (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await setup();
+  const { agentId, a, b } = await twoGroups(x);
+  x.agents.s1 = { id: "s1", workspaceId: "w-q1", status: "idle", archivedAt: null };
+  const toQ1 = (c: typeof a) => c.call("flowly_message_card", { projectId: "q", taskId: "q1", text: "integrate" });
+  expect(code(await toQ1(b))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(x.sent).toEqual([]);
+  // B's bucket full does not touch A's.
+  for (let i = 0; i < 30; i++) x.server.dispatcherTools["reserveMessage"](agentId);
+  expect(code(await toQ1(a))).toBeUndefined();
+  expect(x.sent.map((m) => m.id)).toEqual(["s1"]);
 });

@@ -11,6 +11,14 @@
 - Client: the dock follows the shown project's group, else the default group (`groups` is now part of the board overview); the panel copy is group wording in all catalogs. Group tabs and the switcher are task 3.
 - Onboarding, What's new and telemetry: none (one copy line; no switch or heartbeat field).
 
+## Dispatcher messages a card's session (`flowly_message_card`) — 2026-11-10
+
+- `flowly_message_card { projectId, taskId, text, sessionId? }` (DISPATCHER-SPEC §5.3): a steered, prefixed plain instruction to a card's session. Default session: the only live one, or the only running one; else `SESSION_AMBIGUOUS`. Refused with `SESSION_WAITING_ON_USER` on a pending permission or question in Paseo's snapshot or an open question or blocker report; it never answers anything. Gated like the dispatcher's writes; 30 per hour per dispatcher session (`MESSAGE_LIMIT`), slot returned on refusal or failed send.
+- Rulings (Noah, 2026-11-10): preapproved like the other card tools (in `dispatcherToolNames`, so a running dispatcher shows the new-tools warning until Replace); cap 30 per hour.
+- Prefix `dispatcherMessagePrefix` is an exception to "a card's ordinary follow-up sends exactly the user's text" (AGENTS.md), dispatcher messages only. Charter updated.
+- Not verified against a real Paseo daemon: whether a steer could resolve a pending request (refused regardless); the live plugin was not reinstalled (asked-first rule). Per-group (5/7) is covered by keying everything on the caller's session; recheck after 5/7 lands.
+- Tests: `server/dispatcher-tools.test.ts` (send and prefix, ambiguity, pending-ask refusals, gating, cap). Onboarding, What's new and telemetry: none (agent-facing tool, no UI or heartbeat field). Strings: none.
+
 ## Board groups v2, 1/7: groups in board data, invariants, RPCs, migration — 2026-11-10
 
 - Task 1 of the board groups v2 plan (BOARD-GROUPS-SPEC §1, §2, §7 steps 1, 2, 5, 6). No UI change: the client still reads the v1 `board-view` fields; dropping them from the settings parser is task 3.

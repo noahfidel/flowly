@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, sep } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/server";
-import type { PaseoApi } from "@getpaseo/client";
+import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import { z } from "zod";
 import { isOpenCard } from "../shared/groups";
 import { ideaNewestFirst } from "../shared/ideas";
@@ -30,6 +30,10 @@ import {
   updateIdeaResultSchema,
   type IdeaView,
 } from "../shared/tools";
+import { isSummarizer } from "../shared/summary";
+import { dispatcherMessagePrefix, dispatcherMessagesPerHour, userSendOptions } from "../shared/dispatcher";
+import { pendingRequests } from "../shared/permission-question";
+import { openReport } from "../shared/progress";
 import { rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
 import { changeIdea } from "./agent-service";
 import type { Dispatcher } from "./dispatcher";
@@ -70,6 +74,17 @@ export const dispatcherInputs = {
       .describe("blocks: taskId must land before otherTaskId. follow_up: otherTaskId continues taskId."),
     otherTaskId: z.string().min(1).max(200).describe("The other card's id, in the same project."),
   }),
+  messageCard: z.strictObject({
+    projectId,
+    taskId: z.string().min(1).max(200).describe("Card id from flowly_list_cards."),
+    text: z.string().trim().min(1).max(10000).describe("The instruction for the card's agent, plain text. Flowly marks it as coming from the dispatcher."),
+    sessionId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Only when the card has several live sessions (SESSION_AMBIGUOUS lists them): the session to message."),
+  }),
   createProject: z.strictObject({
     path: z
       .string()
@@ -91,6 +106,7 @@ export const dispatcherProjectsPerHour = 5;
  * it relies on cannot be shown to happen there (ruling, Noah 2026-11-10; §5.2).
  */
 export const promptingModes: readonly string[] = ["default", "acceptEdits", "plan"];
+const messageResultSchema = z.object({ sent: z.literal(true), sessionId: z.string() });
 const hour = 3_600_000;
 /** Whether `path` is `parent` or inside it (canonical paths). */
 const within = (path: string, parent: string) => path === parent || path.startsWith(parent.endsWith(sep) ? parent : parent + sep);
@@ -139,6 +155,8 @@ export class DispatcherTools {
   clock = () => Date.now();
   /** The dispatcher's project creations in the last hour, per session (§5.2). */
   private projectSlots = new Map<string, number[]>();
+  /** The dispatcher's card messages in the last hour, per session (§5.3). */
+  private messageSlots = new Map<string, number[]>();
   constructor(
     private readonly store: BoardStore,
     private readonly cards: AgentCards,
@@ -284,6 +302,78 @@ export class DispatcherTools {
           this.store.event(board, { taskId: id, actor: "agent", agentId: caller.agentId, action: "linked", note: linkNote(board, result.link, id) });
       return { value: { link: result.link, created: result.created }, changed: result.created };
     });
+  }
+
+  /**
+   * A plain instruction to a card's session, steered and marked as the dispatcher's (DISPATCHER-SPEC §5.3). A write.
+   * Never answers anything: refused while the session waits on the user.
+   */
+  async messageCard(identity: DispatcherIdentity, raw: unknown) {
+    const input = dispatcherInputs.messageCard.parse(raw);
+    const caller = await this.projectCaller(identity, input.projectId, true);
+    const board = await this.store.read();
+    const task = board.tasks.find((t) => t.id === input.taskId && t.projectId === caller.projectId);
+    if (!task || task.archivedAt) throw new ToolError("CARD_NOT_FOUND", `No live card ${input.taskId} in this project. Use ids from flowly_list_cards.`);
+    const paseo = this.cards.api();
+    // The card's sessions are the live ones in its workspace; Flowly's own helper runs are not.
+    const live: PaseoAgent[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await paseo.agents.list({ filter: { includeArchived: false }, page: { limit: 200, cursor } });
+      for (const { agent } of page.entries)
+        if (agent.workspaceId === task.workspaceId && !agent.archivedAt && !isSummarizer(agent)) live.push(agent);
+      cursor = page.pageInfo.nextCursor ?? undefined;
+    } while (cursor);
+    let target: PaseoAgent | undefined;
+    if (input.sessionId) {
+      target = live.find((a) => a.id === input.sessionId);
+      if (!target) throw new ToolError("SESSION_NOT_FOUND", `No live session ${input.sessionId} on this card.${this.sessionList(live)}`);
+    } else if (!live.length) {
+      throw new ToolError("NO_LIVE_SESSION", "The card has no live session. Start one with flowly_start_card, or tell the user.");
+    } else if (live.length === 1) {
+      target = live[0];
+    } else {
+      // Several sessions: the default is the one that is working now, when exactly one is.
+      const working = live.filter((a) => a.status === "running" || a.status === "initializing");
+      if (working.length !== 1)
+        throw new ToolError("SESSION_AMBIGUOUS", `The card has ${live.length} live sessions and none is the only running one. Pass sessionId.${this.sessionList(live)}`);
+      target = working[0];
+    }
+    // Never sidestep a request: a pending permission or question, or an open question or blocker report, is the user's.
+    const events = board.events.filter((e) => e.taskId === task.id);
+    if (pendingRequests(target).length || openReport(events, target.id, "question") || openReport(events, target.id, "blocker"))
+      throw new ToolError(
+        "SESSION_WAITING_ON_USER",
+        "This card's session waits on the user (a permission request, a question or a blocker). Only the user answers it; tell them which card is waiting.",
+      );
+    const release = this.reserveMessage(caller.agentId);
+    try {
+      // Steered, like the dock's chat: a send without it interrupts a turn and answers pending permissions (§5.3).
+      await paseo.agents.ref(target.id).send(dispatcherMessagePrefix + input.text, userSendOptions);
+    } catch (e) {
+      release();
+      throw new ToolError("SEND_FAILED", `Paseo could not deliver the message: ${e instanceof Error ? e.message : String(e)}`, true);
+    }
+    return { sent: true as const, sessionId: target.id };
+  }
+
+  private sessionList(live: readonly PaseoAgent[]) {
+    return live.length ? ` Live sessions: ${live.map((a) => `${a.id} (${a.status})`).join(", ")}.` : "";
+  }
+
+  /** Takes one of the dispatcher session's hourly message slots, or MESSAGE_LIMIT (§5.3). */
+  private reserveMessage(agentId: string) {
+    const now = this.clock();
+    const recent = (this.messageSlots.get(agentId) ?? []).filter((at) => now - at < hour);
+    if (recent.length >= dispatcherMessagesPerHour)
+      throw new ToolError("MESSAGE_LIMIT", `This dispatcher already messaged cards ${dispatcherMessagesPerHour} times in the last hour. Stop and ask the user.`);
+    this.messageSlots.set(agentId, [...recent, now]);
+    return () => {
+      const list = [...(this.messageSlots.get(agentId) ?? [])];
+      const at = list.lastIndexOf(now);
+      if (at >= 0) list.splice(at, 1);
+      this.messageSlots.set(agentId, list);
+    };
   }
 
   /**
@@ -485,6 +575,16 @@ export class DispatcherTools {
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       },
       (raw) => toolResult(() => this.updateIdea(identity, raw)),
+    );
+    mcp.registerTool(
+      "flowly_message_card",
+      {
+        description: `Send a plain instruction to a card's session (for example "integrate" or "finish up"), steered into its running turn. Use only for what the user asked or their standing requests cover. Flowly marks it as coming from the dispatcher. It never answers anything: SESSION_WAITING_ON_USER means the session has a pending permission, question or blocker that only the user answers. Default session: the card's only live one, or its only running one; SESSION_AMBIGUOUS lists them, pass sessionId. NO_LIVE_SESSION, SESSION_NOT_FOUND, SEND_FAILED. At most ${dispatcherMessagesPerHour} per hour (MESSAGE_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
+        inputSchema: dispatcherInputs.messageCard,
+        outputSchema: messageResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      },
+      (raw) => toolResult(() => this.messageCard(identity, raw)),
     );
     // Not preapproved (dispatcherConfirmedToolNames): every call shows a permission prompt the user answers.
     mcp.registerTool(
