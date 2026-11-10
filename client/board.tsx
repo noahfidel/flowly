@@ -23,7 +23,6 @@ import {
   type Project,
   type Group,
   type BoardEvent,
-  type Group,
   type Idea,
   projectOrder,
 } from "../shared/model";
