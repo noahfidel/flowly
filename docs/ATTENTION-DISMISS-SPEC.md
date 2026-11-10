@@ -42,7 +42,9 @@ Attention 列表一行一张卡，Dismiss 也按卡片：隐藏这张卡**当前
 
 ## 3. 界面
 
-### 3.1 Attention 列表（桌面下拉与手机弹层）
+### 3.1 Attention 列表（左侧停靠栏的 Attention 标签页）
+
+- Ruling (Noah, 2026-11-09)：桌面不再有铃铛下拉。铃铛打开左侧停靠栏（DISPATCHER-SPEC §9.3）的 **Attention** 标签页（手机为全屏页的同名标签页），再按一次回到之前的标签页或最小化状态。该标签页按 ask 列出 **Needs you**（每个 open ask 可就地回答、Dismiss、Open card，DISPATCHER-SPEC §9.4），其下是本节的 **Dismissed · N** 分组（Restore 行为不变），最底部是不计入铃铛计数的 **Updates**（DISPATCHER-SPEC §9.2）。看板没有停靠栏时（既非项目看板也非 All projects），铃铛仍打开下文的 Needs attention 弹层（按卡片列出，规则如下）。
 
 - 每行右侧新增 **Dismiss** 图标按钮（`BellOff`，无障碍标签 `Dismiss {title} from Attention`），放在行的可点区域之外，常显（桌面与触控一致，便于发现）。点行本身仍是打开卡片。
 - Dismiss 后行用现有的列表移除动画淡出，原生 toast：`Dismissed. It comes back when something new happens.`。宿主 toast 不支持操作按钮（插件内无先例），撤销通过下方 Dismissed 分组的 Restore 完成。
