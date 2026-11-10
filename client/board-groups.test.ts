@@ -9,6 +9,7 @@ import {
   groupViewId,
   isGroupView,
   membersFirst,
+  mobileLane,
   renameGroup,
   staleGroupChoice,
   toggleMember,
@@ -17,7 +18,7 @@ import {
 import { ALL_PROJECTS, allStatuses } from "./all-projects";
 import { pickView } from "./project-memory";
 import { needsCount, needsQueue, updatedQueue } from "./step-through";
-import { boardViewValues } from "../shared/settings";
+import { MAX_BOARD_GROUPS, MAX_GROUP_NAME, boardViewValues } from "../shared/settings";
 import type { AttentionItem } from "../shared/attention";
 import type { Project } from "../shared/model";
 
@@ -169,5 +170,33 @@ describe("stored groups (board-view settings)", () => {
     expect(boardViewValues({ boardGroups: [loadout] }).boardGroups).toEqual([loadout]);
     expect(boardViewValues({ boardGroups: "nope", lastProjectId: "p" })).toMatchObject({ boardGroups: [], lastProjectId: "p" });
     expect(boardViewValues({ boardGroups: [{ id: "g", name: 5, projectIds: "x" }] }).boardGroups).toEqual([{ id: "g", name: "", projectIds: [] }]);
+  });
+});
+
+describe("review fixes (2026-11-10)", () => {
+  test("the phone's lane keeps its last value when the board has no lanes (empty group)", () => {
+    expect(mobileLane([], "in_review")).toBe("in_review");
+    expect(mobileLane(["todo", "done"], "in_review")).toBe("todo");
+    expect(mobileLane(["backlog", "done"], "in_review")).toBe("backlog");
+    expect(mobileLane(["backlog", "done"], "done")).toBe("done");
+  });
+  test("more than the cap keeps the first groups instead of dropping them all", () => {
+    const many = Array.from({ length: MAX_BOARD_GROUPS + 1 }, (_, i) => ({ id: `g${i}`, name: `G${i}`, projectIds: [] }));
+    const kept = boardViewValues({ boardGroups: many }).boardGroups;
+    expect(kept).toHaveLength(MAX_BOARD_GROUPS);
+    expect(kept[0].id).toBe("g0");
+  });
+  test("one invalid group is dropped; the others stay", () => {
+    expect(boardViewValues({ boardGroups: [{ id: "", name: "x", projectIds: [] }, loadout, 7, null] }).boardGroups).toEqual([loadout]);
+  });
+  test("a long name is cut to the limit, on save and on read", () => {
+    const long = "x".repeat(MAX_GROUP_NAME + 20);
+    expect(addGroup([], long, "id")[0].name).toHaveLength(MAX_GROUP_NAME);
+    expect(renameGroup([loadout], "g1", long)[0].name).toHaveLength(MAX_GROUP_NAME);
+    expect(boardViewValues({ boardGroups: [{ id: "g", name: long, projectIds: [] }] }).boardGroups[0].name).toHaveLength(MAX_GROUP_NAME);
+  });
+  test("add refuses past the cap", () => {
+    const full = Array.from({ length: MAX_BOARD_GROUPS }, (_, i) => ({ id: `g${i}`, name: `G${i}`, projectIds: [] }));
+    expect(addGroup(full, "One more", "x")).toHaveLength(MAX_BOARD_GROUPS);
   });
 });

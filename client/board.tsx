@@ -119,7 +119,7 @@ import { searchSources as allSearchSources, type SearchCard, type SearchHit, typ
 import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 import { lastViewedProject, pickView, rememberViewedProject, staleAllChoice } from "./project-memory";
-import { boardScope, groupMembers, groupOfView, groupQuickProject, groupViewId, membersFirst, staleGroupChoice, type BoardGroup } from "./board-groups";
+import { boardScope, mobileLane, groupMembers, groupOfView, groupQuickProject, groupViewId, membersFirst, staleGroupChoice, type BoardGroup } from "./board-groups";
 import { ALL_PROJECTS, allProjectsAvailable, allQuickProject, allStatuses, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { ProjectTabs } from "./project-tabs";
 import { RemoveProjectDialog } from "./project-remove";
@@ -613,7 +613,10 @@ function BoardContent(
   const project = shown.project;
   const viewKey = shown.all ? shown.view : project?.id || "";
   // Returning to the board in this app run reopens the view (a project or All) seen last; a cold start opens the first project.
-  useEffect(() => rememberViewedProject(viewKey || undefined), [viewKey]);
+  // Not before the board-view settings load: until then no group is known, and the fallback must not replace a remembered group.
+  useEffect(() => {
+    if (view.values) rememberViewedProject(viewKey || undefined);
+  }, [viewKey, !!view.values]);
   // An All choice the board fell back from is replaced by the project shown, so All does not return by itself.
   // Only with the full overview: a cold direct link's board holds just the card's project.
   const choiceStale =
@@ -716,7 +719,8 @@ function BoardContent(
     if (first) setMobileStatus(first);
   }, [board, viewKey]);
   useEffect(() => {
-    if (!shownStatuses.includes(mobileStatus)) setMobileStatus(shownStatuses.includes("todo") ? "todo" : shownStatuses[0]);
+    const lane = mobileLane(shownStatuses, mobileStatus);
+    if (lane !== mobileStatus) setMobileStatus(lane);
   }, [shownStatuses.join(","), mobileStatus]);
   // Recent activity counts turn ends only (sort.ts turnEndActivity). Sessions that
   // record no turn events contribute the time they last went idle, remembered
@@ -1660,7 +1664,7 @@ function BoardContent(
     if (id === "first-done") setMovedToFinished(false);
     void onboarding.markTipSeen(id);
   };
-  const emptyProjectHint = !!board && (allView || (!!project && !project.archivedAt)) && !page && !welcomeOpen && !(board.tasks || []).some((x) => inView(x.projectId));
+  const emptyProjectHint = !!board && ((allView && allLiveProjects.length > 0) || (!!project && !project.archivedAt)) && !page && !welcomeOpen && !(board.tasks || []).some((x) => inView(x.projectId));
   const deleteDrawerTask = useStableCallback(() => drawer.item && setDeleting(drawer.item.task));
   const drawerStatusChanged = useStableCallback((from: Status | undefined, to: Status) =>
     drawer.item && askWrapup(drawer.item.task.id, from, to),
@@ -2273,7 +2277,8 @@ function BoardContent(
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
             <Label muted>{t("Loading board…")}</Label>
           </View>
-        ) : !project && !allView ? (
+        ) : !project && (!allView || !allLiveProjects.length) ? (
+          // No live project at all: this first-run screen wins over a chosen group (BOARD-GROUPS-SPEC §6, Ruling 2026-11-10).
           <View
             style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: space[6] }}
           >
@@ -2359,7 +2364,8 @@ function BoardContent(
                   <GuardrailsPage project={project} tasks={projectTasks} compact={compact} nameOf={nameOf} onOpenTask={openTaskById} onBack={closePage} />
                 ) : page === "memory" && board && project ? (
                   <MemoryPage project={project} tasks={projectTasks} compact={compact} prefs={memoryPrefs} nameOf={nameOf} onPrefs={saveMemoryPrefs} onOpenTask={openTaskById} onBack={closePage} />
-                ) : compact ? (
+                ) : compact && !shownStatuses.length ? null : compact ? (
+                  // No lanes (an empty group, BOARD-GROUPS-SPEC §3): no lane chooser or pager; the hint above explains.
                   <>
                     <View style={{ paddingHorizontal: space[2], paddingTop: space[2] }}>
                       <Row

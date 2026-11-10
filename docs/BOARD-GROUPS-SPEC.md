@@ -13,6 +13,8 @@ they add no board data, change no card or project, and every write still goes th
 - Ruling (Noah, 2026-11-10): All projects always shows every live project; there is no setting to hide projects
   that are in no group. All projects is the catch-all for ungrouped projects and its counts match the sidebar
   badge and the phone's bell totals.
+- Ruling (Noah, 2026-11-10): with no live project at all, the first-run "No projects yet / Create project"
+  screen wins over a remembered or chosen group (§6).
 - Ruling (Noah, 2026-11-10): in the project switcher (**P**), groups come first, then the individual projects,
   then All projects last.
 
@@ -37,9 +39,13 @@ they add no board data, change no card or project, and every write still goes th
   group is lost).
 - A project can be in several groups. Archived projects are not offered.
 - **Storage:** `boardGroups` in the host-scoped `board-view` settings, like the other board view preferences:
-  an array (at most 50) of `{ id, name, projectIds }`. `id` is a non-empty string made by the client; `name`
-  (≤ 80 characters) falls back to "" and `projectIds` to `[]` when invalid; an invalid array falls back to no
-  groups without resetting the other settings. Saves merge into the latest stored values.
+  an array of `{ id, name, projectIds }`. `id` is a non-empty string made by the client; a non-string `name`
+  falls back to "" and invalid `projectIds` to `[]`; a value that is not an array falls back to no groups without
+  resetting the other settings. Edits are saved one at a time, each with the editor's latest list, so quick edits
+  in a row are all kept.
+- At most 50 groups (**Add group** is disabled at 50) and 80 characters per name: a longer name is cut on save
+  and on read (the field also stops at 80). Reading drops only the invalid groups and keeps the first 50 of the
+  rest; it never discards every group for one bad entry.
 - Members are stored as project ids. A member whose project was deleted or archived is skipped silently on the
   board and in the editor; the stored id is kept (no cleanup write).
 
@@ -49,7 +55,8 @@ they add no board data, change no card or project, and every write still goes th
   (ALL-PROJECTS-SPEC §2), the cards (§3), the Manual order's project grouping (§4), tag suggestions and "{n}
   shown" (§6).
 - **An empty group** (no live members) still opens: a board with no columns and the hint "This group has no
-  projects yet." with **Edit groups**, which opens Settings → Workflow.
+  projects yet." with **Edit groups**, which opens Settings → Workflow. On phones there is no lane chooser or
+  lane pager then; the lane last shown is kept for when the group gets lanes again.
 - Opening a card of a project outside the group (Search result, related card, linked session) switches the
   board to that card's project, as All does for an excluded project (ALL-PROJECTS-SPEC §3).
 - Hidden as in All (ALL-PROJECTS-SPEC §7): Project settings, the per-project overview entries, one-time tips,
@@ -77,6 +84,9 @@ they add no board data, change no card or project, and every write still goes th
   view last viewed during this app run (a project, All or a group) → the first project.
 - A chosen group that no longer exists (deleted) is replaced by the project shown, once the board and settings
   have loaded, exactly like an All choice that became unavailable.
+- The view is remembered only once the board-view settings have loaded, so the fallback shown while they load
+  never replaces a remembered group.
+- With no live project, the first-run screen shows instead of a group's board (and no empty-group hint).
 
 ## 7. Acceptance
 
@@ -93,7 +103,10 @@ Unit (`client/board-groups.test.ts`):
   lists members first.
 - Editing: add trims and refuses empty names; rename keeps members and refuses empty; delete removes one group;
   a project can be ticked in several groups and unticked again.
-- Settings: `boardGroups` defaults to `[]`; valid groups round-trip; a bad array falls back to `[]` without
+- Phone lane: kept when the board has no lanes; otherwise Todo, else the first lane.
+- Caps: 51 stored groups keep the first 50; one invalid group is dropped and the others kept; long names are cut
+  to 80 on add, rename and read; Add refuses past 50.
+- Settings: `boardGroups` defaults to `[]`; valid groups round-trip; a non-array falls back to `[]` without
   resetting other settings; bad fields inside a group fall back per field (`shared/settings.test.ts` covers the
   full default document).
 

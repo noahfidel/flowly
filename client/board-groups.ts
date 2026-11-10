@@ -1,5 +1,6 @@
 import type { Project } from "../shared/model";
-import type { BoardGroup } from "../shared/settings";
+import { MAX_BOARD_GROUPS, MAX_GROUP_NAME, type BoardGroup } from "../shared/settings";
+import type { Status } from "../shared/model";
 import { allQuickProject, includedProjects } from "./all-projects";
 import { quickProject } from "./quick-task";
 
@@ -53,14 +54,16 @@ export function membersFirst<P extends { id: string }>(projects: readonly P[], m
   return [...projects.filter((p) => ids.has(p.id)), ...projects.filter((p) => !ids.has(p.id))];
 }
 
-/** Settings editor (§2): a new group with a trimmed, non-empty name and no members. */
+const groupName = (name: string) => name.trim().slice(0, MAX_GROUP_NAME).trim();
+
+/** Settings editor (§2): a new group with a trimmed, non-empty name (cut to the limit) and no members; none past the cap. */
 export function addGroup(groups: readonly BoardGroup[], name: string, id: string): BoardGroup[] {
-  const trimmed = name.trim();
-  return trimmed ? [...groups, { id, name: trimmed, projectIds: [] }] : [...groups];
+  const trimmed = groupName(name);
+  return trimmed && groups.length < MAX_BOARD_GROUPS ? [...groups, { id, name: trimmed, projectIds: [] }] : [...groups];
 }
 
 export function renameGroup(groups: readonly BoardGroup[], id: string, name: string): BoardGroup[] {
-  const trimmed = name.trim();
+  const trimmed = groupName(name);
   return trimmed ? groups.map((g) => (g.id === id ? { ...g, name: trimmed } : g)) : [...groups];
 }
 
@@ -73,4 +76,13 @@ export function toggleMember(groups: readonly BoardGroup[], id: string, projectI
   return groups.map((g) =>
     g.id !== id ? g : { ...g, projectIds: g.projectIds.includes(projectId) ? g.projectIds.filter((p) => p !== projectId) : [...g.projectIds, projectId] },
   );
+}
+
+/**
+ * The phone's lane on a board's lanes: kept when it is one of them or there are none (an empty group has no lanes,
+ * and nothing must render a missing status, §3); otherwise Todo when shown, else the first lane.
+ */
+export function mobileLane(shown: readonly Status[], current: Status): Status {
+  if (!shown.length || shown.includes(current)) return current;
+  return shown.includes("todo") ? "todo" : shown[0];
 }
