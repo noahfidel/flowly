@@ -893,11 +893,13 @@ async function twoGroups<X extends Awaited<ReturnType<typeof setup>>>(x: X) {
   const clients = await x.store.createGroup({ name: "Clients" });
   const r = (await x.store.read()).projects.find((p) => p.id === "r")!;
   await x.store.setProjectGroup({ projectId: "r", revision: r.revision, groupId: clients.id });
+  // Moving r bumped the group's revision: hand back the group as it is now.
+  const current = (await x.store.read()).groups.find((g) => g.id === clients.id)!;
   const { agentId } = await x.server.dispatcher.start(x.paseo, { groupId: clients.id, provider: "claude/claude-sonnet-5-5" });
   x.agents[agentId].currentModeId = "default";
   const saved = x.launched[agentId]["flowly-dispatcher"] as { headers: { Authorization: string } };
   const token = saved.headers.Authorization.replace(/^Bearer /, "");
-  return { clients, agentId, token, b: await x.connect(token), a: await x.connect(x.dispatcherToken) };
+  return { clients: current, agentId, token, b: await x.connect(token), a: await x.connect(x.dispatcherToken) };
 }
 const projectIds = (result: { structuredContent: { projects: { projectId: string }[] } }) => result.structuredContent.projects.map((p) => p.projectId);
 
@@ -1173,8 +1175,8 @@ test("flowly_manage_groups create, rename and set_default keep the group rules (
   expect(code(await b.call("flowly_manage_groups", { action: "rename", groupId: clients.id, revision: 99, name: "Late" }))).toBe("REVISION_CONFLICT");
   const renamed = await b.call("flowly_manage_groups", { action: "rename", groupId: clients.id, revision: clients.revision, name: "Partners" });
   expect(code(renamed)).toBeUndefined();
-  expect(renamed.structuredContent).toMatchObject({ action: "rename", groupId: clients.id, name: "Partners", revision: 2 });
-  const promoted = await b.call("flowly_manage_groups", { action: "set_default", groupId: clients.id, revision: 2 });
+  expect(renamed.structuredContent).toMatchObject({ action: "rename", groupId: clients.id, name: "Partners", revision: clients.revision + 1 });
+  const promoted = await b.call("flowly_manage_groups", { action: "set_default", groupId: clients.id, revision: clients.revision + 1 });
   expect(code(promoted)).toBeUndefined();
   const groups = (await x.store.read()).groups;
   expect(groups.find((g) => g.id === clients.id)?.isDefault).toBe(true);
@@ -1280,4 +1282,30 @@ test("flowly_manage_groups set_members hands each moved project to projectMoved 
   const result = await b.call("flowly_manage_groups", { action: "set_members", groupId: clients.id, revision: clients.revision, projectIds: ["q", "r"] });
   expect(code(result)).toBeUndefined();
   expect(moved).toEqual([["q", clients.id]]);
+});
+
+test("a membership change bumps every group it touches, so a stale set_members is refused (DISPATCHER-SPEC §5.2)", async () => {
+  const x = await setup();
+  const { clients, b } = await twoGroups(x);
+  const revisionOf = async (groupId: string) => (await x.store.read()).groups.find((g) => g.id === groupId)!.revision;
+  const defaultRevision = await revisionOf(x.groupId);
+  // The UI moves q into Clients: Clients (target) and the default group (source) both change.
+  const q = (await x.store.read()).projects.find((p) => p.id === "q")!;
+  await x.store.setProjectGroup({ projectId: "q", revision: q.revision, groupId: clients.id });
+  expect(await revisionOf(clients.id)).toBe(clients.revision + 1);
+  expect(await revisionOf(x.groupId)).toBe(defaultRevision + 1);
+  // A dispatcher that still holds Clients at its old revision is refused: nothing is undone.
+  const before = JSON.stringify(await x.store.read());
+  expect(code(await b.call("flowly_manage_groups", { action: "set_members", groupId: clients.id, revision: clients.revision, projectIds: ["r"] }))).toBe("REVISION_CONFLICT");
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+  // The same happens when a project leaves the group in the UI (the source changes).
+  const r = (await x.store.read()).projects.find((p) => p.id === "r")!;
+  await x.store.setProjectGroup({ projectId: "r", revision: r.revision, groupId: x.groupId });
+  expect(await revisionOf(clients.id)).toBe(clients.revision + 2);
+  // A set_members that moves nothing does not bump anything.
+  const current = await revisionOf(clients.id);
+  const fresh = await b.call("flowly_manage_groups", { action: "set_members", groupId: clients.id, revision: current, projectIds: [] });
+  expect(code(fresh)).toBeUndefined();
+  expect(await revisionOf(clients.id)).toBe(current + 1);
+  expect(await revisionOf(x.groupId)).toBeGreaterThan(defaultRevision + 1);
 });

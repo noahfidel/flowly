@@ -115,6 +115,16 @@ const groupNotFound = () => new ToolError("GROUP_NOT_FOUND", "No board group wit
 const groupConflict = () => new ToolError("REVISION_CONFLICT", "This group changed. Reload it before saving.");
 const nameTakenError = () => new ToolError("NAME_TAKEN", "Another group already has that name.");
 
+/** Bumps the revision of each named group that still exists (a membership change, DISPATCHER-SPEC §5.2). */
+function bumpGroups(board: Board, ids: readonly (string | undefined)[], at: string) {
+  for (const id of new Set(ids))
+    for (const group of board.groups)
+      if (group.id === id) {
+        group.revision++;
+        group.updatedAt = at;
+      }
+}
+
 /** A group repair is logged with a fixed label; the repaired project and group ids go in the log-only context. */
 function logGroupRepair(label: string, repair: { projectIds: string[]; groupIds: string[] }) {
   logFailure(
@@ -878,6 +888,7 @@ export class BoardStore {
           moved.push(project.id);
         }
       board.groups = board.groups.filter((g) => g !== group);
+      if (moved.length) bumpGroups(board, [target.id], now);
       return { value: { id: group.id, movedTo: target.id, projectIds: moved }, changed: true };
     });
   }
@@ -889,9 +900,12 @@ export class BoardStore {
       if (project.revision !== input.revision) throw new ToolError("REVISION_CONFLICT", "This project changed. Reload it before moving it.");
       if (!board.groups.some((g) => g.id === input.groupId)) throw groupNotFound();
       if (project.groupId === input.groupId) return { value: project, changed: false };
+      const from = project.groupId;
       project.groupId = input.groupId;
       project.revision++;
       project.updatedAt = new Date().toISOString();
+      // A membership change bumps every group it touches, so a stale group edit or set_members is refused (DISPATCHER-SPEC §5.2).
+      bumpGroups(board, [from, input.groupId], project.updatedAt);
       return { value: project, changed: true };
     });
   }
@@ -920,7 +934,10 @@ export class BoardStore {
       const target = defaultGroupOf(board)!;
       const now = new Date().toISOString();
       const moved: { projectId: string; groupId: string }[] = [];
+      const touched = new Set<string>([group.id]);
       const move = (project: Board["projects"][number], groupId: string) => {
+        if (project.groupId) touched.add(project.groupId);
+        touched.add(groupId);
         project.groupId = groupId;
         project.revision++;
         project.updatedAt = now;
@@ -931,10 +948,7 @@ export class BoardStore {
         if (project.groupId !== group.id) move(project, group.id);
       }
       for (const project of leftOut) move(project, target.id);
-      if (moved.length) {
-        group.revision++;
-        group.updatedAt = now;
-      }
+      if (moved.length) bumpGroups(board, [...touched], now);
       return { value: { group, moved }, changed: moved.length > 0 };
     });
   }
