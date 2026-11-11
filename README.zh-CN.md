@@ -77,6 +77,8 @@ agent 工作时发现的后续事项（顺带发现的 bug、现有方案的局�
 
 每张卡有一个 **Artifacts** 列表：它依据的文档、链接（输入）和产出的交付物（输出）。agent 工作时通过看板工具登记，你也可以在卡片上添加、编辑或删除自己的条目。只保存引用，文件留在原处，以只读预览打开。每条都标明是你还是 agent 添加的，agent 不能删除你添加的条目。
 
+卡片还可以有一个 **计划**，显示在详情顶部。你在卡片会话中批准 plan mode 的计划后，Flowly 会自动把它放在这里；agent 可以用 `flowly_set_plan` 设置，或在 `flowly_create_card` 时带上，你也可以在卡片上设置或替换。有已批准计划的卡片，新会话会直接从它开始，不再重新规划。替换或移除计划时，旧文件保留为普通输入。
+
 **工单、文档和 PR** 也可以作为输入：Jira 工单、Confluence 页面，GitHub、GitLab 的 issue、pull request 和 merge request，以及 Azure DevOps 工作项。在 Settings → Connections 连接服务（自建或云服务，使用个人访问令牌或 API token），然后用 **From Jira / From GitLab / …** 新建卡片，或用卡片 Artifacts 里唯一的 **+** 添加条目。选择器列出你最近的条目（指派给你的、等你审查的、你编辑过的页面），可按编号、链接、数字或标题关键词搜索；GitHub 和 GitLab 会先搜索项目自己的仓库（从 git remote 识别）。agent 用 `flowly_read_external` 读取条目（描述或页面内容、评论，PR/MR 还有分支、head commit 和改动文件名），并能发现条目的变化。Flowly 只读：不评论、不 approve、不合并、不修改任何内容，条目状态也不会移动卡片。令牌只保存在 daemon 所在机器上。
 
 agent 理解任务后会自己补全卡片元数据：卡片没有**任务类型**时设置类型（feature、bugfix、research、refactor、docs、chore），不会覆盖你已选的类型；同时添加描述所涉模块和方向的**标签**（`drawer`、`performance`、`a11y`），与固定的任务类型分开。agent 会复用项目已有标签而不是另造同义词；你可在卡片或表单里添加、删除标签。可按标签筛选看板，或搜索 `#tag`（`#module/` 匹配前缀）。agent 不能删除你添加的标签。

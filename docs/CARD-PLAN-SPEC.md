@@ -63,16 +63,17 @@ A **Plan** row at the top of the card details, under the description and above t
 
 - Icon (`FileText`, or `Link` for a URL), the title (one line, truncated), and below it, muted, *Approved <relative time>* or *Draft*; a Missing file shows *Missing* first, as artifact rows do.
 - Press the row: opens the plan with the artifact opener (URL in the browser, file in the artifact preview).
-- Overflow menu (`MoreHorizontal`): **Mark approved** (drafts only), **Replace…**, **Remove**. Replace opens the artifact form (§2.2) with the Plan role chosen. Remove empties the slot and keeps the file as an ordinary input (toast *Plan removed. It stays in Inputs.*); no confirm.
+- Overflow menu (`Ellipsis`, as other menus): **Mark approved** (drafts only; toast *Plan approved*), **Replace…**, **Edit…**, **Remove**. Replace opens the artifact form (§2.2) to add a new plan, with the Plan role chosen. Edit opens the form on the plan artifact itself (title, note, or Input/Output to empty the slot); the plan is not listed under Inputs or Outputs, so this is where it is edited. Remove empties the slot and keeps the file as an ordinary artifact (toast *Plan removed. It stays in Inputs.*, or *… in Outputs.* for an output); no confirm.
 - The plan artifact is not listed again under Inputs or Outputs.
-- No plan: the row's place holds a small **Set plan** action (`Plus` icon, muted text) that opens the artifact form (§2.2) with the Plan role chosen (ruling, Noah 2026-11-10: discoverability). Hidden on archived cards.
+- No plan: the row's place holds a small **Set plan** action (`Plus` icon, muted text) that opens the artifact form (§2.2) with the Plan role chosen and the form titled *Set plan* (ruling, Noah 2026-11-10: discoverability). Hidden on archived cards and in archived projects.
 - Archived card or project: the menu is disabled; the row still opens.
+- A search hit on the plan artifact (`artifact:<id>`) rings the Plan row.
 - The Workpad's to-do group (WORKPAD-SPEC §2.2) is renamed from *Plan* to *Steps* in every locale, so only the card's plan is called Plan (ruling, Noah 2026-11-10).
 - Tour: the More features list gains *A card's plan*; a one-time tip `plan` on the first open of a card with an approved plan: *This card's approved plan. New sessions start from it instead of planning again.*
 
 ### 2.2 Setting a plan by hand
 
-The artifact add/edit form's role choice gains a third option, **Plan**, next to Input and Output. Saving with Plan sets the card's plan (`plans.set`, §5.1) as approved by the user (`source: "manual"`): choosing it is the approval. Editing an existing artifact to Plan makes it the plan; choosing Input or Output on the plan artifact clears the slot (`plans.clear`) and sets that role.
+The artifact add/edit form's role choice gains a third option, **Plan**, next to Input and Output. Saving with Plan sets the card's plan (`plans.set`, §5.1) as approved by the user (`source: "manual"`): choosing it is the approval. Editing an existing artifact to Plan saves its title and note, then makes it the plan (`plans.set` with its target); choosing Input or Output on the plan artifact sets that role (`artifacts.update`, which never touches `plan`) and then clears the slot (`plans.clear`; in this order because the clear changes the artifact's `updatedAt`). A new plan with a note is set, then its note saved. A retry after a partly failed save starts from the artifact as saved. Plan is not offered for a review ledger or an external item (§1.1). Saving a new plan shows *Plan set*.
 
 ## 3. Rules shared by every writer
 

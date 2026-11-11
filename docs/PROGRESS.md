@@ -1,5 +1,15 @@
 # Implementation progress
 
+## A card's plan: board client (branch `card-plan-slot`) — 2026-11-10
+
+- CARD-PLAN-SPEC §2 and §6.2, the client half. `client/task-plan.tsx`: the Plan row under the description (title, *Approved <time>* / *Draft*, *Missing* first; opens like an artifact; menu Mark approved, Replace…, Edit…, Remove; disabled menu when archived) or *Set plan* when the card has none (hidden when archived). It shares the Artifacts section's `artifacts.status` query (`useArtifactMissing`, same list, same key).
+- `client/task-artifacts.tsx`: the plan is left out of Inputs/Outputs and the count (`withoutPlan`); the form (now exported with the preview) gains the Plan role, saving through `artifactSaveSteps` in `client/task-plan-logic.ts` (`plans.set`, `artifacts.update`, `plans.clear`). The Workpad's to-do group is *Steps*. Activity labels for `plan_set`, `plan_approved`, `plan_cleared`.
+- Start session: the drawer passes its defaults through `planAwareDefaults` (`suggestPlanAwareMode`), so a card with an approved plan does not default to Plan mode. New task: unchanged (a new card has no plan, §6.2).
+- Onboarding: More features *A card's plan*; tip `plan` (fact `cardPlan`: an open card with an approved plan; after `first-guardrail`, before `first-workpad`); ONBOARDING-SPEC tip table and priority list; README (en, zh-CN) paragraph in Inputs and outputs. No What's new entry (not a minor/major release step). Telemetry: no heartbeat field.
+- Spec changes made while implementing: Edit… in the Plan menu (the only way to edit the plan artifact, which is no longer listed), the Outputs variant of the Remove toast, update-then-clear order in the form, Plan not offered for review ledgers and external items.
+- Strings: 17 new, in all nine catalogs; *Plan* kept (Plan role, row label).
+- Tests: `client/task-plan-logic.test.ts` (form role, save steps, Start session defaults), `client/onboarding-logic.test.ts` (plan tip). Checks: `npm run typecheck` exit 0; `npm test` exit 0 (209 files passed, 1 skipped; 2299 passed, 7 skipped). Unrun: the Plan row in a running Paseo (desktop, compact, phone) and plan-mode capture against a live session.
+
 ## A card's plan: daemon and tools (branch `card-plan-slot`) — 2026-11-10
 
 - CARD-PLAN-SPEC, server and shared half; the client (Plan row, Plan role in the artifact form, Start session defaults, activity labels, tour, tip, strings) is a separate step.
