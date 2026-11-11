@@ -10,7 +10,7 @@ function fixture() {
   return boardSchema.parse({ version: 5, revision: 4, projects: [project], tasks: [task, { ...task, id: "related", workspaceId: "w2" }, { ...task, id: "unrelated", workspaceId: "w3", description: "irrelevant".repeat(2000) }],
     links: [{ id: "l", projectId: "p", kind: "related", from: "t", to: "related", createdBy: "human", createdAt: at }],
     events: [{ id: "e", taskId: "t", actor: "human", action: "created", at, note: "keep history" }, { id: "other", taskId: "unrelated", actor: "human", action: "created", at }],
-    attentionDismissals: [{ taskId: "t", dismissedAt: at, signals: ["read"] }, { taskId: "unrelated", dismissedAt: at, signals: ["read"] }],
+    attentionDismissals: [{ taskId: "t", updated: { signals: ["u:read"], snoozedAt: at } }, { taskId: "unrelated", updated: { signals: ["u:read"], snoozedAt: at } }],
   });
 }
 

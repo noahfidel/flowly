@@ -229,7 +229,7 @@ agent 调 `flowly_update_status(status=in_review)` 时（只在 agent 路径；�
 - 头部：`Workpad` + 环境戳 `host:path@sha`（可选中复制）+ “Updated {time} by {session}”。
 - **Acceptance**：复选框列表。人勾选的项旁标小字“by you”。
 - **Checks**：每行状态图标（pass 绿勾 / 过期的 pass 警告三角 / fail 红叉 / unrun 灰色虚线圈），点图标按 unrun → pass → fail → unrun 切换（§6.3）；文字、等宽 `command`；第二行小字：`@sha`、“out of date”（stale，警告色）、“on uncommitted changes”（dirty）、相对 `ranAt`；有 `evidence` 时用 “Show output / Hide output” 展开。
-- **Plan**：只读，来自原生 todo。一个 session 时直接列出；多个 session 时按 session 标题分组，最近更新的在前。行首状态图标（pending / in_progress / completed），标注“From the agent's todo list · updated at turn end”。
+- **Steps**（2026-11-10 起由 Plan 改名，避免与卡片的计划 [CARD-PLAN-SPEC](CARD-PLAN-SPEC.md) 混淆；数据名 `PlanSnapshot`/`plans` 不变）：只读，来自原生 todo。一个 session 时直接列出；多个 session 时按 session 标题分组，最近更新的在前。行首状态图标（pending / in_progress / completed），标注“From the agent's todo list · updated at turn end”。
 - **Confusions**：列表，每条可由人移除（“Resolved”）。
 - 新鲜度：打开该段且有跑过的验证时调用 `workpads.refresh`（§5.2），完成前显示已存的值，不显示加载态；HEAD 变了才刷新看板。
 

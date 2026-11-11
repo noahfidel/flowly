@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
-import type { Board } from "../shared/model";
+import { boardSchema, type Board } from "../shared/model";
 import { readAttentionCount } from "./attention-count";
 import { attentionFromSources } from "../shared/attention";
 import { readAttentionCount as contract } from "../shared/rpc";
@@ -65,12 +65,32 @@ test("dismissal boundaries retain parity; every request reads fresh", async () =
   expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 1 });
   const b = board();
   const item = attentionFromSources({ board: b, agents: [asking("r1")], receipts: [], readUnavailable: false })![0];
-  b.attentionDismissals = [{ taskId: "a", signals: item.signals, dismissedAt: at }];
+  b.attentionDismissals = [{ taskId: "a", needs: { signals: item.signals, snoozedAt: at } }];
   f.store.read.mockResolvedValue(b);
   expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 0 });
   f.list.mockResolvedValue({ entries: [{ agent: asking("r2") }], pageInfo: {} });
   expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 1 });
   expect(f.store.read).toHaveBeenCalledTimes(3);
+});
+
+test("the badge follows per-list Snooze: Updates snoozed keeps the count, Needs you snoozed drops it, a legacy record drops it", async () => {
+  // Card a waits on a request; card b has a finished turn (Updates) and an error (Needs you) on two sessions.
+  const agents = [agent("a", { pendingPermissions: [{ id: "r1", kind: "tool" }] }), agent("b", finished), { ...agent("b2", { status: "error" }), workspaceId: "b" } as PaseoAgent];
+  const f = fixture(board(), agents);
+  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 2 });
+  const items = attentionFromSources({ board: board(), agents, receipts: [], readUnavailable: false })!;
+  const keys = (id: string, prefix: string) => items.find((i) => i.task.id === id)!.signals.filter((s) => s.startsWith(prefix));
+  const b = board();
+  // Updates snoozed: the badge (need-you only) is unchanged.
+  b.attentionDismissals = [{ taskId: "b", updated: { signals: keys("b", "u:"), snoozedAt: at } }];
+  f.store.read.mockResolvedValue(b);
+  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 2 });
+  // Needs you snoozed on b: its error leaves the count.
+  b.attentionDismissals = [{ taskId: "b", needs: { signals: keys("b", "e:"), snoozedAt: at } }];
+  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 1 });
+  // A legacy record (one flat set) is snoozed in both lists.
+  b.attentionDismissals = boardSchema.shape.attentionDismissals.parse([{ taskId: "a", signals: keys("a", "p:"), dismissedAt: at }]);
+  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 1 });
 });
 
 test("the badge counts what waits on you, not unread turns (need you; Ruling, Noah 2026-11-09)", async () => {

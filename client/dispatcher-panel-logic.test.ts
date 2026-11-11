@@ -139,3 +139,10 @@ test("the composer's footer names the dispatcher's model, else its provider; no 
   expect(modelLabel({ provider: "", model: "" })).toBe("");
   expect(modelLabel(undefined)).toBe("");
 });
+
+test("a prompt from another agent stays its own entry row beside note items", () => {
+  const from: TailEntry = { seqStart: 2, seqEnd: 2, timestamp: at(2), item: { type: "tool_call", name: "agent_message", status: "completed", text: "Hi", from: { id: "a1", title: "Coder", event: "message" } } };
+  const shown = chatRows([entry(1, "assistant_message", "a", 1), from, entry(3, "assistant_message", "b", 9)], [note("n1", 5)]);
+  expect(shown.map((r) => r.kind)).toEqual(["entry", "entry", "extra", "entry"]);
+  expect(shown[1].kind === "entry" && shown[1].entry).toMatchObject({ kind: "agent-message", sender: "Coder" });
+});

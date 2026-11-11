@@ -82,7 +82,7 @@ Created like the drawer's Start session (`launchKanbanSession`), from the daemon
 
 - prepared through `ToolServer.prepareSession(taskId, operationId)` (card context, MCP credential, context file, CLI and skill paths);
 - `workspaces.ref(<card workspace>).agents.create({ agentId, idempotencyKey: ultra-kanban-session:<agentId>, config: { provider: "<provider>/<model>", systemPrompt, mcpServers: { flowly }, modeId, thinkingOptionId? }, env: { FLOWLY_CONTEXT_FILE, FLOWLY_CLI, FLOWLY_SKILL }, title: <card title>, labels: { "flowly-task": <taskId>, "flowly-started-by": <caller agentId> }, prompt })`. A transport failure is checked against the prepared id, so a created session is never created twice.
-- **Model (Q6):** the New task form's defaults: the project's default model, else the global one (Settings → Models), else the latest session of the project's cards (`startingAgent(lastSessionSettings(…), effectiveAgentModel(…))`). Permission mode: the chosen one, else the provider's suggestion (`suggestedMode`). Reasoning: the chosen one, else the provider default. Speed is not set. None of them: `MODEL_UNAVAILABLE`.
+- **Model (Q6):** the New task form's defaults (MODEL-DEFAULTS-SPEC §2): the project's default model, else its group's, else the global one (Settings → Models) (`startingAgent(effectiveAgentModel(…))`). No earlier session is ever used, summarizer or not (2026-11-10). Permission mode: the chosen one, else the provider's suggestion (`suggestedMode`). Reasoning: the chosen one, else the model's own default (no `thinkingOptionId`). Speed is not set. None of them: `MODEL_UNAVAILABLE`, whose message asks the user to set a default in Settings → Models; it is checked before any worktree or session is created. Dispatcher-started sessions go through this same path.
 
 ## 6. Linear branch name
 
@@ -105,3 +105,7 @@ New codes: `NOT_FOUND`, `PROJECT_ARCHIVED`, `CARD_FINISHED`, `CARD_HAS_SESSION`,
 - `server/connectors/linear.test.ts`: the issue summary carries `branchName`.
 - `server/tool-server.test.ts`: card and board tool lists include `flowly_start_card`.
 - `npm run typecheck` and `npm test` exit 0.
+
+## 10. Mode and the card's plan (2026-11-10)
+
+`startCardInputSchema` gains optional `mode` (a permission mode id, checked against `providers.listModes` when Paseo lists them: `MODE_UNAVAILABLE`). Without it, §5's defaults are resolved first and then adjusted by `suggestPlanAwareMode`: a card with an approved plan does not start in `plan`. The default prompt gains a line naming the approved plan. See [CARD-PLAN-SPEC](CARD-PLAN-SPEC.md) §6.

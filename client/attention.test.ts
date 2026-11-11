@@ -5,7 +5,6 @@ import {
   attentionItems,
   attentionOpenToken,
   attentionScreenParams,
-  lastSessionSettings,
 } from "./attention";
 
 const now = "2026-10-14T10:00:00.000Z";
@@ -67,19 +66,6 @@ test("an agent question counts as a question you can answer, not an approval", (
     questions: 0,
     asks: 0,
   });
-});
-
-test("last session settings come from the newest active session in a card workspace", () => {
-  const base = { archivedAt: null, provider: "codex", model: "m1", currentModeId: "full-access" };
-  expect(lastSessionSettings([
-    { ...base, workspaceId: "wa", createdAt: "2026-10-01T00:00:00Z" },
-    { ...base, workspaceId: "wb", createdAt: "2026-10-03T00:00:00Z", provider: "claude", model: "sonnet", thinkingOptionId: "high" },
-    { ...base, workspaceId: "elsewhere", createdAt: "2026-10-05T00:00:00Z", provider: "x" },
-    { ...base, workspaceId: "wa", createdAt: "2026-10-06T00:00:00Z", archivedAt: "2026-10-07T00:00:00Z", provider: "y" },
-  ], new Set(["wa", "wb"]))).toEqual({ provider: "claude", model: "sonnet", mode: "full-access", thinking: "high", speed: "" });
-  expect(lastSessionSettings([], new Set())).toBeNull();
-  const fast = [{ type: "toggle", id: "fast_mode", label: "Fast", value: true }];
-  expect(lastSessionSettings([{ ...base, workspaceId: "wa", createdAt: "2026-10-01T00:00:00Z", features: fast }], new Set(["wa"]))?.speed).toBe("fast");
 });
 
 test("board button and sidebar badge share one count; unavailable sources hide the badge", () => {

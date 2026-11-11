@@ -39,7 +39,7 @@ order or projects, and every write still goes through the card's own project.
   only in All. It is part of the card's accessibility label.
 - Everything a card does uses **the card's own project**, never a board-wide one: the drawer and its sessions,
   links, the session defaults (MODEL-DEFAULTS-SPEC), legacy scope, workpad, Switch local/worktree, the card
-  menu's and action sheet's *Move to* list (that project's enabled lanes and lane names), the "Moved to …"
+  menu's *Move to* submenu (that project's enabled lanes and lane names), the "Moved to …"
   toast, Edit, follow-up and idea forms, Link to a card.
 - Opening a card (click, keyboard, Attention, a Search result, a related card) keeps the board on All when the
   card's project is included; a card of an excluded project switches the board to that project first.
@@ -56,8 +56,8 @@ order or projects, and every write still goes through the card's own project.
   that project's lane). A column whose status is disabled in the card's own project refuses the drop with
   the toast "{lane} is not a lane in {project}." and nothing is sent.
 - **Reordering within a column is disabled:** a drop in the card's own column does nothing and shows
-  "Each project keeps its own order. Open the project to reorder its cards."; the card menu and action sheet
-  have no *Move up* / *Move down*. No cross-project order is stored.
+  "Each project keeps its own order. Open the project to reorder its cards."; the card menu
+  (phone sheet included) has no *Move up* / *Move down*. No cross-project order is stored.
 
 ## 5. New task
 

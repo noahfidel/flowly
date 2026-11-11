@@ -4,7 +4,9 @@ Status: requested by the user on 2026-10-15 (card “增加彻底删除卡片”
 
 ## Entry point
 
-Any card in any lane (follow-up 2026-10-15: "允许任何lane里删除"): the board card menu and the drawer's task menu show **Delete permanently…** (danger, last item). Disabled while the project is archived.
+Any card in any lane (follow-up 2026-10-15: "允许任何lane里删除"): the board card menu and the drawer's task menu show **Delete permanently…** (danger, last item). Disabled while the project is archived (and, on the board, while a change is pending).
+
+Ruling (Noah, 2026-11-10): the board card menu is one menu for the card's ⋯ button, right-click and long-press, and keeps only Open details, Start session, Move to ▸ (lanes), Archive card / Restore card and Delete permanently… (danger, last) (UI-UX-SPEC §2). It always fits on screen (opens upward or scrolls), so Delete is reachable from the board for a card at any position.
 
 ## Dialog
 

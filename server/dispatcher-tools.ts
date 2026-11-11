@@ -630,7 +630,7 @@ export class DispatcherTools {
       "flowly_create_card",
       {
         description:
-          `Create a card in a project: one deliverable, one branch or PR. Use workspace="worktree" for repo work, then start it with flowly_start_card. Write the description for an agent that cannot see this conversation (goal, context, files, acceptance). Lands in Backlog (default) or Todo. Pass a unique idempotencyKey; retrying with the same key returns the same card. Pass ideaId to make it from an open idea of the project, which is then marked taken up (IDEA_NOT_FOUND, IDEA_CLOSED: not open). At most ${agentCardLimits.dispatcherPerHour} cards or starts per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
+          `Create a card in a project: one deliverable, one branch or PR. Use workspace="worktree" for repo work, then start it with flowly_start_card. Write the description for an agent that cannot see this conversation (goal, context, files, acceptance). Lands in Backlog (default) or Todo. Pass a unique idempotencyKey; retrying with the same key returns the same card. Pass ideaId to make it from an open idea of the project, which is then marked taken up (IDEA_NOT_FOUND, IDEA_CLOSED: not open). Pass plan with a plan file for the card (PLAN_INVALID: outside the project, nothing is created); plan.approved=true only when the user approved that plan in this chat. At most ${agentCardLimits.dispatcherPerHour} cards or starts per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.createCard,
         outputSchema: createCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -658,7 +658,7 @@ export class DispatcherTools {
       "flowly_start_card",
       {
         description:
-          "Start a session on a card of a project, in the card's own worktree (a session-less directory card Flowly made moves to a new worktree first). The session uses the project's New task model and starts with prompt (default: the card's title and description). CARD_HAS_SESSION: the card already has a session. NEEDS_WORKTREE: ask the user to switch the card to a worktree. Pass a unique idempotencyKey; retrying returns the same session.",
+          "Start a session on a card of a project, in the card's own worktree (a session-less directory card Flowly made moves to a new worktree first). The session uses the project's New task model and mode, or mode (a permission mode id; MODE_UNAVAILABLE lists the provider's ids); a card with an approved plan does not default to plan mode. It starts with prompt (default: the card's title and description, plus its approved plan). CARD_HAS_SESSION: the card already has a session. NEEDS_WORKTREE: ask the user to switch the card to a worktree. Pass a unique idempotencyKey; retrying returns the same session.",
         inputSchema: dispatcherInputs.startCard,
         outputSchema: startCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },

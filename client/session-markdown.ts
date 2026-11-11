@@ -166,7 +166,34 @@ export type InlinePart = {
   text: string;
   kind: "text" | "bold" | "italic" | "code" | "link";
   url?: string;
+  /** A card link (`flowly://card/<projectId>/<taskId>`) or a bare card id the resolver knows. */
+  card?: { projectId?: string; taskId: string };
 };
+const cardLinkPattern = /^flowly:\/\/card\/([0-9a-f-]{36})\/([0-9a-f-]{36})$/i;
+/** A strict Flowly card link; anything else with the flowly:// scheme stays a plain link. */
+export function cardLink(url: string | undefined): { projectId: string; taskId: string } | null {
+  const m = url ? cardLinkPattern.exec(url) : null;
+  return m ? { projectId: m[1], taskId: m[2] } : null;
+}
+const bareIdPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+/** Plain-text UUIDs become card parts only when `known` says the board has that card; code, links and styled text are left alone. */
+export function linkBareCardIds(parts: InlinePart[], known: (id: string) => boolean): InlinePart[] {
+  const out: InlinePart[] = [];
+  for (const part of parts) {
+    if (part.kind !== "text" || !part.text) { out.push(part); continue; }
+    let from = 0;
+    for (const m of part.text.matchAll(bareIdPattern)) {
+      const id = m[0], at = m.index!;
+      if (!known(id) || /[0-9a-z-]/i.test(part.text[at - 1] ?? "") || /[0-9a-z-]/i.test(part.text[at + id.length] ?? "")) continue;
+      if (at > from) out.push({ kind: "text", text: part.text.slice(from, at) });
+      out.push({ kind: "link", text: id, card: { taskId: id } });
+      from = at + id.length;
+    }
+    if (from === 0) out.push(part);
+    else if (from < part.text.length) out.push({ kind: "text", text: part.text.slice(from) });
+  }
+  return out;
+}
 export function parseSessionInline(text: string): InlinePart[] {
   const pattern =
     /`([^`\n]+)`|\*\*([^*\n]+)\*\*|__([^_\n]+)__|\[([^\]\n]+)\]\((?:<([^>\n]+)>|((?:[^\s()]|\([^\s()]*\))+))(?:\s+"[^"\n]*")?\)|<(https?:\/\/[^\s<>]+)>|(https?:\/\/[^\s<>]*[^\s<>.,;:!?)\]'"*_])|\*([^*\n]+)\*|_([^_\n]+)_/g;
@@ -179,7 +206,10 @@ export function parseSessionInline(text: string): InlinePart[] {
     else if (match[2] || match[3])
       parts.push({ kind: "bold", text: match[2] || match[3] });
     else if (match[4])
-      parts.push({ kind: "link", text: match[4], url: match[5] || match[6] });
+      {
+      const url = match[5] || match[6], card = cardLink(url);
+      parts.push({ kind: "link", text: match[4], url, ...(card ? { card } : {}) });
+    }
     else if (match[7] || match[8]) {
       const url = match[7] || match[8];
       parts.push({ kind: "link", text: url, url });

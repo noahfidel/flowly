@@ -1,6 +1,7 @@
 import { msg } from "./i18n";
 import type { Artifact, ArtifactRole } from "./model";
 import { itemLabel, itemTypeOf } from "./connectors";
+import { planContextLine } from "./plans";
 
 /** Card artifacts: pure helpers shared by daemon, tools and client (CARD-ARTIFACTS-SPEC). */
 
@@ -65,15 +66,18 @@ function contextLine(a: Pick<Artifact, "id" | "title" | "target" | "note" | "cre
 /**
  * Context lines for a new session (CARD-ARTIFACTS-SPEC §4.2); at most `limit` per
  * role, the user's own first (`list` is newest first, and that order is kept within each source).
+ * The card's plan is one line of its own before Inputs, never listed again (CARD-PLAN-SPEC §5.3).
  */
 export function artifactContextLines(list: readonly Artifact[], limit = 10, unreadable: ReadonlySet<string> = new Set()): string[] {
-  return (
+  const plan = list.find((a) => a.plan);
+  const rest = list.filter((a) => !a.plan);
+  const lines = (
     [
       ["input", "Inputs:"],
       ["output", "Outputs so far:"],
     ] as const
   ).flatMap(([role, heading]) => {
-    const own = list
+    const own = rest
       .filter((a) => a.role === role)
       .sort((a, b) => Number(a.createdBy !== "human") - Number(b.createdBy !== "human"));
     if (!own.length) return [];
@@ -83,4 +87,5 @@ export function artifactContextLines(list: readonly Artifact[], limit = 10, unre
       ...(own.length > limit ? [`- …and ${own.length - limit} more`] : []),
     ];
   });
+  return plan ? [planContextLine(plan), ...lines] : lines;
 }

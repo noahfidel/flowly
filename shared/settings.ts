@@ -393,7 +393,7 @@ export function telemetrySettingsValues(values: unknown): TelemetrySettings {
   return parsed.success ? parsed.data : telemetrySettings.schema.parse({});
 }
 
-/** Global default model for new sessions (MODEL-DEFAULTS-SPEC). Empty strings mean "none": new sessions follow the latest session. */
+/** Global default model for new sessions (MODEL-DEFAULTS-SPEC). Empty strings mean "none": the user chooses when starting a session. */
 export const modelSettings = defineSettings({
   id: "models",
   scope: "host",

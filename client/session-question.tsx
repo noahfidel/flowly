@@ -1,9 +1,10 @@
-import { memo, useRef, useState } from "react";
-import { Platform, Pressable, View } from "react-native";
+import { memo, useRef, useState, type ReactNode } from "react";
+import { Platform, Pressable, ScrollView, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import {
   allAnswered,
   answerReply,
+  approvalDetail,
   choose,
   dismissLabel,
   dismissReply,
@@ -14,6 +15,7 @@ import {
   showsTextInput,
   stepQuestion,
   typeOther,
+  type ApprovalDetail,
   type FormQuestion,
   type PendingRequest,
   type PermissionReply,
@@ -21,6 +23,7 @@ import {
 import { Button, Label, TextBox, font, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
 import { useShortcutBlock } from "./shortcuts";
 import { Enter } from "./motion";
+import { SessionMarkdown } from "./session-content";
 import { composerEnterAction, type ComposerKey } from "./session-input";
 import { t } from "../shared/i18n";
 
@@ -48,10 +51,13 @@ export const PendingRequests = memo(function PendingRequests({
   requests,
   disabled,
   onRespond,
+  onOpenInPaseo,
 }: {
   requests: readonly PendingRequest[];
   disabled: boolean;
   onRespond: Respond;
+  /** Opens the session in Paseo; the approval's link is hidden without it. */
+  onOpenInPaseo?: () => void;
 }) {
   const { colors } = useTheme();
   if (!requests.length) return null;
@@ -60,7 +66,7 @@ export const PendingRequests = memo(function PendingRequests({
     return questions ? (
       <QuestionForm key={request.id} request={request} questions={questions} disabled={disabled} onRespond={onRespond} />
     ) : (
-      <Approval key={request.id} request={request} disabled={disabled} onRespond={onRespond} />
+      <Approval key={request.id} request={request} disabled={disabled} onRespond={onRespond} onOpenInPaseo={onOpenInPaseo} />
     );
   });
   return (
@@ -361,7 +367,19 @@ function QuestionItem({
 }
 
 /** A tool, plan or mode approval: its title and the provider's actions (or Allow / Deny). */
-function Approval({ request, disabled, onRespond }: { request: PendingRequest; disabled: boolean; onRespond: Respond }) {
+function Approval({
+  request,
+  disabled,
+  onRespond,
+  onOpenInPaseo,
+}: {
+  request: PendingRequest;
+  disabled: boolean;
+  onRespond: Respond;
+  onOpenInPaseo?: () => void;
+}) {
+  const { colors } = useTheme();
+  const detail = approvalDetail(request);
   const actions = request.actions?.length
     ? request.actions
     : [
@@ -373,7 +391,18 @@ function Approval({ request, disabled, onRespond }: { request: PendingRequest; d
       <Heading icon="ShieldAlert" text={request.kind === "plan" ? t("The agent has a plan for you to review") : t("The agent needs your approval")} />
       <Label size={font.md} medium>{request.title || request.name || t("Permission request")}</Label>
       {!!request.description && <Label muted size={font.sm} lines={8}>{request.description}</Label>}
-      <Label muted size={font.xs} selectable={false}>{t("Open in Paseo for the full details.")}</Label>
+      {detail && <DetailBlock detail={detail} />}
+      {onOpenInPaseo && (
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel={t("Open in Paseo")}
+          onPress={onOpenInPaseo}
+          style={{ ...noFocusRing, flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: space[1], minHeight: touch ? 36 : 22 }}
+        >
+          <Label size={font.xs} color={colors.accent} selectable={false}>{t("Open in Paseo")}</Label>
+          <Icon name="ArrowUpRight" size={12} color={colors.accent} />
+        </Pressable>
+      )}
       <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: space[2] }}>
         {actions.map((action, i) => (
           <Button
@@ -398,4 +427,81 @@ function Approval({ request, disabled, onRespond }: { request: PendingRequest; d
       </View>
     </View>
   );
+}
+
+/** Long details scroll inside their own block, so the actions below stay in reach. */
+function Scroller({ children }: { children: ReactNode }) {
+  const { colors } = useTheme();
+  return (
+    <ScrollView
+      nestedScrollEnabled
+      style={{ maxHeight: 240, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface0 }}
+      contentContainerStyle={{ padding: space[2], gap: space[1.5] }}
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
+const Code = ({ children, color }: { children: string; color?: string }) => (
+  <Label mono size={font.sm} color={color}>{children}</Label>
+);
+
+/** What the approval asks to do: the command, the edit, the plan or the raw input. */
+function DetailBlock({ detail }: { detail: ApprovalDetail }) {
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  switch (detail.kind) {
+    case "command":
+      return (
+        <Scroller>
+          <Code>{detail.command}</Code>
+        </Scroller>
+      );
+    case "write":
+      return (
+        <Scroller>
+          <Label muted size={font.xs} mono>{detail.path}</Label>
+          <Code>{detail.content}</Code>
+        </Scroller>
+      );
+    case "edits":
+      return (
+        <Scroller>
+          <Label muted size={font.xs} mono>{detail.path}</Label>
+          {detail.edits.map((edit, i) => (
+            <View key={`${i}`} style={{ gap: space[1] }}>
+              {!!edit.old && <Code color={colors.statusDanger}>{`\u2212 ${edit.old}`}</Code>}
+              {!!edit.new && <Code color={colors.statusSuccess}>{`+ ${edit.new}`}</Code>}
+            </View>
+          ))}
+        </Scroller>
+      );
+    case "plan":
+      return (
+        <Scroller>
+          <SessionMarkdown text={detail.text} />
+        </Scroller>
+      );
+    case "plan-missing":
+      return <Label muted size={font.sm} selectable={false}>{t("The full plan isn't available here. Open it in Paseo.")}</Label>;
+    case "json":
+      return (
+        <View style={{ gap: space[1.5] }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: open }}
+            onPress={() => setOpen((v) => !v)}
+            style={{ ...noFocusRing, alignSelf: "flex-start", minHeight: touch ? 36 : 22, justifyContent: "center" }}
+          >
+            <Label muted size={font.xs} selectable={false}>{open ? t("Hide details") : t("Show details")}</Label>
+          </Pressable>
+          {open && (
+            <Scroller>
+              <Code>{detail.text}</Code>
+            </Scroller>
+          )}
+        </View>
+      );
+  }
 }

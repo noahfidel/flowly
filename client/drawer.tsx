@@ -49,6 +49,7 @@ import { SessionPreview } from "./session-preview";
 import { drawerFrame } from "./geometry";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
+import type { SnoozeList } from "../shared/attention-dismiss";
 import type { SessionEntry } from "./session-link";
 import { Enter, MotionReveal, useReducedMotion, useSettled } from "./motion";
 import { DrawerFocusProvider, FOCUS_FALLBACK_MS, FOCUS_RING_MS, FocusTarget, Marked, activityStart, useMark, type DrawerFocus } from "./drawer-focus";
@@ -70,6 +71,9 @@ import { SessionMarkdown } from "./session-content";
 import { TaskIdeas, type IdeaOther } from "./task-ideas";
 import { LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
+import { TaskPlan } from "./task-plan";
+import { planAwareDefaults } from "./task-plan-logic";
+import { planApproved, planOf } from "../shared/plans";
 import { TaskWorkpad } from "./task-workpad";
 import { TaskTags } from "./task-tags";
 import { ReleaseModal, ReleaseNotice, SwitchModal, type SwitchDirection } from "./workspace-switch";
@@ -112,7 +116,8 @@ function TaskDrawerView({
   onFilterTag,
   escapeRequest,
   attention,
-  onAttention,
+  onSnooze,
+  onUnsnooze,
   sectionOrder,
   sectionOpen,
   focus,
@@ -159,10 +164,15 @@ function TaskDrawerView({
   onFilterTag?(tag: string): void;
   /** Changes on each board Esc shortcut: leave the session preview, else close. */
   escapeRequest?: string;
-  /** The card's Attention state when it has any (ATTENTION-DISMISS-SPEC §3.3). */
-  attention?: "active" | "dismissed";
-  /** Dismisses the card from Attention, or restores it when dismissed. */
-  onAttention?(): void;
+  /**
+   * What Snooze offers for the card when it is in Attention (ATTENTION-DISMISS-SPEC, Card menu and Card and sidebar):
+   * each list's Snooze while it has an open signal, Unsnooze while any list is snoozed. A stable object (compared by identity).
+   */
+  attention?: { needs: boolean; updated: boolean; snoozed: boolean };
+  /** Snoozes one list of the card. */
+  onSnooze?(list: SnoozeList): void;
+  /** Clears both lists' snooze. */
+  onUnsnooze?(): void;
   /** The stored section order, comma-joined so the memo compares it by value (DRAWER-SPEC, Section order). */
   sectionOrder?: string;
   /** The stored open/closed choices as JSON, compared by value (DRAWER-SPEC, Section order). */
@@ -205,6 +215,9 @@ function TaskDrawerView({
   // Only keep the shared poll alive. The root/data readers deliver changed props;
   // fetching flags must not re-render this entire retained detail tree.
   const detailState = useTaskDetail();
+  // A card with an approved plan doesn't start sessions in Plan mode by default (CARD-PLAN-SPEC §6.2).
+  const approvedPlan = !!detailState.detail && planApproved(planOf(detailState.detail.artifacts, task.id));
+  const startDefaults = useMemo(() => planAwareDefaults(sessionDefaults, approvedPlan), [sessionDefaults, approvedPlan]);
   useCardDetailQuery(hostId, task.id, task.workspaceId, pollBoard, pollBoard ? 3000 : undefined, true);
   const lock = useRef(false);
   const order = useMemo(() => drawerSectionOrder(sectionOrder ? sectionOrder.split(",") : []), [sectionOrder]);
@@ -425,6 +438,7 @@ function TaskDrawerView({
     composer.saveDraft(task.id, id, text, expected !== undefined);
   });
   const backToTask = useStableCallback(() => setSelected(""));
+  const openInPaseo = useStableCallback((id: string) => openNativeSession(navigation, id, hostId));
   // A subagent picked from the session view's chip opens here when it is one of this card's sessions.
   const openCardSession = useStableCallback((sessionId: string) => {
     if (!sessions.data?.some((a) => a.id === sessionId)) return false;
@@ -502,13 +516,15 @@ function TaskDrawerView({
       disabled: unavailable || !!task.archivedAt,
       onPress: () => setShowNew(true),
     },
-    ...(attention && onAttention
-      ? [
-          attention === "dismissed"
-            ? { id: "attention-restore", label: t("Restore to Attention"), icon: "Bell", onPress: onAttention }
-            : { id: "attention-dismiss", label: t("Dismiss from Attention"), icon: "BellOff", onPress: onAttention },
-        ]
+    ...(onLink
+      ? [{ id: "link", label: t("Link to a card…"), icon: "Link", disabled: !active || !!task.archivedAt || !!project.archivedAt, onPress: () => onLink(task) }]
       : []),
+    ...(onFollowUp
+      ? [{ id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: !active || !!task.archivedAt || !!project.archivedAt, onPress: () => onFollowUp(task) }]
+      : []),
+    ...(attention?.needs && onSnooze ? [{ id: "attention-snooze-needs", label: t("Snooze in Needs you"), icon: "BellOff", onPress: () => onSnooze("needs") }] : []),
+    ...(attention?.updated && onSnooze ? [{ id: "attention-snooze-updated", label: t("Snooze in Updates"), icon: "BellOff", onPress: () => onSnooze("updated") }] : []),
+    ...(attention?.snoozed && onUnsnooze ? [{ id: "attention-unsnooze", label: t("Unsnooze"), icon: "Bell", onPress: onUnsnooze }] : []),
     ...(finished && !wrapped && !task.archivedAt && !project.archivedAt
       ? [{ id: "wrap", label: t("Wrap up…"), icon: "PackageCheck", onPress: () => setShowWrapup(true) }]
       : []),
@@ -1018,16 +1034,16 @@ function TaskDrawerView({
                 </View>
               </View>
             )}
-            {attention === "dismissed" && onAttention && (
+            {attention?.snoozed && onUnsnooze && (
               <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
                 <Icon name="BellOff" size={14} color={colors.foregroundMuted} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Label muted size={font.sm}>
-                    {t("Dismissed from Attention. It comes back when something new happens.")}
+                    {t("Snoozed. It comes back when something new happens.")}
                   </Label>
                 </View>
-                <Button small quiet icon="Bell" disabled={!active} onPress={onAttention}>
-                  {t("Restore")}
+                <Button small quiet icon="Bell" disabled={!active} onPress={onUnsnooze}>
+                  {t("Unsnooze")}
                 </Button>
               </View>
             )}
@@ -1079,6 +1095,7 @@ function TaskDrawerView({
                 disabled={!active || sending || !!pendingSessions[a.id] || a.providerUnavailable || !!task.archivedAt}
                 onRespond={respondInCard}
                 onOpen={openSession}
+                onOpenInPaseo={typeof navigation?.openAgent === "function" ? openInPaseo : undefined}
               />
             ))}
             {releasePending && <ReleaseNotice disabled={!active} onRelease={() => setShowRelease(true)} />}
@@ -1130,6 +1147,7 @@ function TaskDrawerView({
               <SessionMarkdown text={task.description} />
             )}
             {!!detailState.error && <Notice>{message(detailState.error)}</Notice>}
+            {!!detailState.detail && <TaskPlan task={task} active={active} archived={!!task.archivedAt || !!project.archivedAt} />}
             {!detailState.detail ? <Button quiet onPress={detailState.retry}>{detailState.error ? t("Retry") : t("Loading cards…")}</Button> : order.map((id) => <Fragment key={id}>{section(id)}</Fragment>)}
             {settled && (
             // Below the sessions, so mounting them after the transition moves nothing above.
@@ -1212,7 +1230,7 @@ function TaskDrawerView({
               .catch((e) => toast.show(t("Session started, but the idea was not marked: {message}", { message: message(e) }), { variant: "error" }));
         }}
         refresh={refreshAll}
-        defaults={sessionDefaults}
+        defaults={startDefaults}
         seed={ideaSession ? { title: ideaSession.title, prompt: ideaInstruction(ideaSession) } : null}
       />
       <WrapupModal
@@ -1265,6 +1283,7 @@ const CardRequests = memo(function CardRequests({
   disabled,
   onRespond,
   onOpen,
+  onOpenInPaseo,
 }: {
   agentId: string;
   title: string;
@@ -1273,8 +1292,10 @@ const CardRequests = memo(function CardRequests({
   disabled: boolean;
   onRespond(agentId: string, request: PendingRequest, reply: PermissionReply): void;
   onOpen(agentId: string): void;
+  onOpenInPaseo?: (agentId: string) => void;
 }) {
   const { colors } = useTheme();
+  const openNative = useMemo(() => (onOpenInPaseo ? () => onOpenInPaseo(agentId) : undefined), [agentId, onOpenInPaseo]);
   const respond = useCallback(
     (request: PendingRequest, reply: PermissionReply) => onRespond(agentId, request, reply),
     [agentId, onRespond],
@@ -1291,7 +1312,7 @@ const CardRequests = memo(function CardRequests({
         </View>
         <Button quiet icon="MessageSquare" onPress={() => onOpen(agentId)}>{t("Open")}</Button>
       </View>
-      <PendingRequests requests={requests} disabled={disabled} onRespond={respond} />
+      <PendingRequests requests={requests} disabled={disabled} onRespond={respond} onOpenInPaseo={openNative} />
     </View>
   );
 });
@@ -1415,6 +1436,9 @@ const activityText: Record<string, string> = localizedLabels({
   card_created: msg("Created a card"),
   review_started: msg("Started the auto review"),
   review_finished: msg("Finished the auto review"),
+  plan_set: msg("Set the plan"),
+  plan_approved: msg("Approved the plan"),
+  plan_cleared: msg("Removed the plan"),
   "agent.turn_started": msg("Started a turn"),
   "agent.turn_ended": msg("Finished a turn"),
 });

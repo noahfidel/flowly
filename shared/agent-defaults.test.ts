@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentModelFromValues, agentModelSchema, effectiveAgentModel, effectiveDispatcherModel, providerBase, quickTaskMode, startingAgent, suggestedMode, suggestedThinking } from "./agent-defaults";
+import { agentModelFromValues, agentModelSchema, chosenThinking, effectiveAgentModel, effectiveDispatcherModel, pickerSeed, providerBase, quickTaskMode, startingAgent, suggestedMode } from "./agent-defaults";
 import { dispatcherDefaultModel } from "./dispatcher";
 
 const claude = { provider: "claude", model: "claude-sonnet-5-5", thinking: "high" };
@@ -38,25 +38,25 @@ describe("effective model default", () => {
 });
 
 describe("startingAgent", () => {
-  const last = { provider: "claude", model: "claude-haiku-5-5", mode: "plan", thinking: "low" };
-  it("keeps the latest session when no default is chosen", () => {
-    expect(startingAgent(last, null)).toBe(last);
-    expect(startingAgent(null, null)).toBeNull();
+  it("starts from nothing when no default is set: never from an earlier session", () => {
+    expect(startingAgent(null)).toBeNull();
+    expect(startingAgent(undefined)).toBeNull();
   });
-  it("replaces provider, model and reasoning; keeps the mode only for the same provider", () => {
-    expect(startingAgent(last, claude)).toEqual({ provider: "claude", model: "claude-sonnet-5-5", mode: "plan", thinking: "high", speed: undefined });
-    // Unset mode ("") and speed (undefined) get the picker's suggestion.
-    expect(startingAgent(last, codex)).toEqual({ provider: "codex", model: "gpt-6-luna", mode: "", thinking: "", speed: undefined });
-    expect(startingAgent(null, codex)).toEqual({ provider: "codex", model: "gpt-6-luna", mode: "", thinking: "", speed: undefined });
+  it("takes provider, model, reasoning and mode from the default; no speed", () => {
+    expect(startingAgent(claude)).toEqual({ provider: "claude", model: "claude-sonnet-5-5", mode: "", thinking: "high", speed: undefined });
+    // Unset mode ("") gets the picker's suggestion; unset reasoning ("") is the model's own default.
+    expect(startingAgent(codex)).toEqual({ provider: "codex", model: "gpt-6-luna", mode: "", thinking: "", speed: undefined });
+    expect(startingAgent({ ...codex, mode: "full-access" })?.mode).toBe("full-access");
   });
-  it("keeps the latest session's speed only for the same provider", () => {
-    expect(startingAgent({ ...last, speed: "fast" }, claude)?.speed).toBe("fast");
-    expect(startingAgent({ ...last, speed: "fast" }, codex)?.speed).toBeUndefined();
-    expect(startingAgent({ ...last, speed: "" }, claude)?.speed).toBe("");
+});
+
+describe("pickerSeed (the form's first choice)", () => {
+  it("leaves provider and model empty with no default", () => {
+    expect(pickerSeed(null)).toEqual({ provider: "", model: "", mode: undefined, thinking: undefined, speed: undefined });
+    expect(pickerSeed(undefined).provider).toBe("");
   });
-  it("uses the default's own permission mode over the latest session's", () => {
-    expect(startingAgent(last, { ...claude, mode: "acceptEdits" })?.mode).toBe("acceptEdits");
-    expect(startingAgent(null, { ...codex, mode: "full-access" })?.mode).toBe("full-access");
+  it("seeds a resolved default", () => {
+    expect(pickerSeed(startingAgent(claude))).toEqual({ provider: "claude", model: "claude-sonnet-5-5", mode: undefined, thinking: "high", speed: undefined });
   });
 });
 
@@ -105,16 +105,16 @@ describe("providerBase", () => {
   });
 });
 
-describe("suggestedThinking", () => {
+describe("chosenThinking", () => {
   const ids = (...list: string[]) => list.map((id) => ({ id }));
-  it("suggests Extra High when the model offers it, for any provider", () => {
-    expect(suggestedThinking(ids("low", "medium", "high", "xhigh", "max", "ultracode"))).toBe("xhigh");
-    expect(suggestedThinking(ids("low", "medium", "high", "xhigh", "max", "ultra"))).toBe("xhigh");
+  it("keeps the model's own default when no reasoning is chosen, even when Extra High is offered", () => {
+    expect(chosenThinking(undefined, ids("low", "medium", "high", "xhigh", "max"))).toBe("");
+    expect(chosenThinking("", ids("low", "xhigh"))).toBe("");
   });
-  it("keeps the model's own default when Extra High is not offered", () => {
-    expect(suggestedThinking(ids("low", "medium", "high", "max"))).toBe("");
-    expect(suggestedThinking([])).toBe("");
-    expect(suggestedThinking()).toBe("");
+  it("uses a chosen reasoning the model offers, else the model default", () => {
+    expect(chosenThinking("high", ids("low", "high", "xhigh"))).toBe("high");
+    expect(chosenThinking("xhigh", ids("low", "high"))).toBe("");
+    expect(chosenThinking("high", [])).toBe("");
   });
 });
 

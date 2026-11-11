@@ -37,6 +37,7 @@ import {
   reviewVerdict,
   reworkMessage,
   reworkRule,
+  shipMessage,
   reworkStage,
 } from "../shared/auto-review";
 import { sizeOf, type CardItem, type GuardrailEntry } from "../shared/guardrails";
@@ -477,6 +478,8 @@ export type AutoReviewDeps = {
   sessionLive: (agentId: string, task: Task, paseo: PaseoApi) => Promise<boolean>;
   /** Queues a message for a session; it goes out when the session's turn ends (the composer queue). */
   send: (input: { taskId: string; agentId: string; text: string }, paseo: PaseoApi) => Promise<unknown>;
+  /** The card's effective delivery mode (DELIVERY-MODE-SPEC §2); a pass on Ship to main sends the ship message. */
+  deliveryMode?: (task: Task) => Promise<string>;
   /** Judges the built-in check, guidelines and card items in a temporary review session; absent makes them unavailable. */
   llm?: LlmReview;
   /** The project's guardrails; absent: only the built-in check runs. */
@@ -709,7 +712,16 @@ export class AutoReviewService {
       await this.deps.guardrails
         .reviewed({ projectId: outcome.task.projectId, taskId: outcome.task.id, items: outcome.review.items, previous: started.previous?.items, disputed: (outcome.task.disputes || []).map((d) => d.id) })
         .catch((e) => logFailure("Flowly guardrail counts not updated:", e, outcome.task.id));
-    if (!outcome.rework) return;
+    if (!outcome.rework) {
+      // A pass on a Ship to main card starts its ship step (DELIVERY-MODE-SPEC §4); any other pass sends nothing.
+      if (outcome.review.state !== "passed" || !this.deps.deliveryMode) return;
+      const mode = await this.deps.deliveryMode(outcome.task).catch(() => null);
+      if (mode !== "ship_main") return;
+      const live = await this.deps.sessionLive(outcome.review.trigger.agentId, outcome.task, paseo).catch(() => false);
+      if (!live) return;
+      await this.deps.send({ taskId: outcome.task.id, agentId: outcome.review.trigger.agentId, text: shipMessage }, paseo).catch((e) => logFailure("Flowly ship message not sent:", e, outcome.task.id));
+      return;
+    }
     const live = await this.deps.sessionLive(outcome.review.trigger.agentId, outcome.task, paseo).catch(() => false);
     const sent = live
       ? await this.deps.send({ taskId: outcome.task.id, agentId: outcome.review.trigger.agentId, text: reworkMessage(outcome.review, words) }, paseo).then(

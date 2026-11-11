@@ -1,123 +1,131 @@
-# Attention 暂不处理（Dismiss）
+# Attention Snooze
 
-状态：用户 2026-10-19 批准，已实现。卡片任务 `626d9a6d`。
+Internal names keep "dismiss" (`attentionDismissals`, `attention.dismiss`, `attention.restore`, `asks.dismiss`, the ask state `dismissed`, this file's name). The user-facing name is **Snooze**.
 
-## 1. 问题与目标
+## 1. Purpose
 
-Needs attention 把“等你回答的问题、待批准的权限、出错的 session、有未读结果的 session”统一计数，显示在看板铃铛、侧边栏 Flowly 行角标、总览栏 chip 和项目 tab 的红点上。有些项用户暂时判断不了、拿不定主意，或者打算晚点再看，但只要它没解决，数字就一直挂着，让人焦虑，也让真正新来的事情淹没在旧数字里。
+Snooze hides things from the Attention counts until something new happens. Some asks the user cannot or does not want to decide yet; while they stay open, their number keeps showing and buries what is new. A snoozed signal leaves the counts and queues, the card keeps showing its signals, and a new signal brings the list back.
 
-目标：用户可以把某张卡片当前的 attention **暂不处理（Dismiss）**，让它退出所有计数和 Attention 列表；卡片本身的信号保持可见，随时可恢复；之后**一旦有新情况**（新的问题、新的批准请求、新的错误、又一轮新结果），这张卡自动回到 Attention。
+What Snooze is not:
 
-不做的事（与“处理”区分开）：
+- It is not Mark as read: no read receipt, native Paseo attention untouched, the session's unread marker stays.
+- It does not answer a question, approve or deny a permission, or resolve an error. A waiting agent keeps waiting.
+- It changes no card status, task revision or Activity. Agents are unaffected (agent tools and the skill do not change).
+- There is no timed snooze. The only trigger back is something new; there is no background timer.
 
-- Dismiss **不是** Mark as read：不写已读回执，不清除 Paseo 原生 attention，session 的 Unread 标记照旧。
-- Dismiss **不回答**问题、**不批准/拒绝**权限、**不解决**错误。等待批准的 agent 仍然停着等。
-- 不改卡片业务状态、task revision 或 Activity；agent 看不到、也不受影响（agent 工具和 skill 不变）。
+## 2. Model
 
-## 2. 粒度与“新情况”的判定
+### 2.1 Two lists
 
-### 2.1 以卡片为单位
+Attention signals fall into two lists:
 
-Attention 列表一行一张卡，Dismiss 也按卡片：隐藏这张卡**当前**的全部 attention 信号。不做按 session 或按信号类型的 dismiss（列表里看不到那么细，粒度太细反而增加决策负担）。
+- **Needs you** ("N need you"): question, blocker, permission, error and automatic-review signals (`q:`, `b:`, `p:`, `e:` and `review:`).
+- **Updates** ("N updated"): unread turns (`u:`).
 
-### 2.2 信号身份（signal key）
+`signalList(key)` returns `updated` for a `u:` key and `needs` for every other key. Snooze acts only on the list where it was pressed: snoozing in Needs you leaves the card's unread turn in Updates, and snoozing in Updates leaves its need-you signals.
 
-`attentionItems` 为每张卡算出参与计数的 session 信号。新增纯函数 `attentionSignals(...)`，给每个信号一个稳定的身份字符串，代表“这一次具体的事”，而不是“这个 session”：
+### 2.2 Signal keys
 
-| 信号 | key | 何时变成新的 |
-| --- | --- | --- |
-| Kanban 提问（`kind=question`） | `q:<eventId>` | agent 再次提问（新事件） |
-| 权限请求 / AskUserQuestion | `p:<agentId>:<requestId>`（每个 pending request 一条；无 id 时用 `attentionTimestamp`） | 新的请求 |
-| 错误 | `e:<agentId>:<attentionTimestamp 或 "status">` | 新的错误时间戳 |
-| 未读结果 | `u:<nativeAttentionToken>`；手动未读为 `u:<agentId>:manual`；无 token 时 `u:<agentId>:<lastUserMessageAt>` | 又一轮结束（新 attention 时间戳） |
+`sessionSignalParts` (`shared/attention-dismiss.ts`) gives each signal a stable key for this one thing, not for the session.
 
-### 2.3 规则
+| Signal | Key | List | Becomes new when |
+| --- | --- | --- | --- |
+| Question report (`kind=question`) | `q:<eventId>` | needs | the agent asks again (new event) |
+| Blocker report (`kind=blocker`) | `b:<eventId>` | needs | a new blocker; it stays open until the session's next turn |
+| Permission request / AskUserQuestion | `p:<agentId>:<requestId>`, one per pending request; without an id `p:<agentId>:<attentionTimestamp>` | needs | a new request |
+| Error | `e:<agentId>:<attentionTimestamp or "status">` | needs | a new error timestamp |
+| Automatic review waiting for a person (failed or unavailable, `reviewSignal` in `shared/auto-review.ts`) | `review:<state>:<startedAt>` | needs | a new review run |
+| Unread result | `u:<nativeAttentionToken>`; manual unread `u:<agentId>:manual`; without a token `u:<agentId>:<lastUserMessageAt>` | updated | another turn ends |
 
-- Dismiss 时记录该卡当前信号 key 的集合。
-- 之后每次计算：卡片的当前信号 **全部** 包含在已记录集合内 → 视为已 dismiss，不计数、不进主列表；**出现任何一个新 key** → 卡片回到 Attention（整行恢复，显示全部当前信号）。dismiss 记录在用户下一次 dismiss 时被覆盖，或在恢复时删除。
-- 信号自然消失（问题被回答、权限被处理、session 被读）不影响规则：剩余信号仍是旧集合的子集，卡片继续隐藏；全部消失时卡片本来就不在 Attention 里。
-- 读状态不可用（`readUnavailable`）时未读信号本来就不参与计数，规则不变。
+### 2.3 Rule
 
-不采用定时 snooze（“1 小时后提醒”）：用户的诉求是“暂时不想管”，而不是“到点再来烦我”；以“有新情况才回来”作为唯一触发更不焦虑，也不需要后台计时。若之后需要定时，可作为扩展（见 §8）。
+Per list, independently:
 
-## 3. 界面
+- Snoozing a list stores that list's current keys.
+- A signal is snoozed when its key is in its list's stored set.
+- A list of a card is snoozed while the card has at least one current key of that list and all of them are stored. Any new key in that list brings that list back, and the other list is untouched. Asks whose own key was snoozed stay out of the counts and queues; only the new ones count.
+- Signals that disappear naturally (question answered, permission handled, session read) leave the rule unchanged.
+- A later snooze of the same list replaces that list's set. Unsnooze removes the card's record (both lists).
+- With read state unavailable, unread signals are not counted and the rule is unchanged.
 
-### 3.1 Attention 列表（左侧停靠栏的 Attention 标签页）
+## 3. Surfaces
 
-- Ruling (Noah, 2026-11-09，取代本节下面关于 Attention 标签页、铃铛与 Needs attention 弹层的规则)：没有 Attention 标签页，也没有 Needs attention 弹层。总览栏的 **“N need you”** chip（以及 `N` 快捷键、通知的 Needs attention 链接、手机的铃铛）在右侧卡片侧栏里开始逐个处理（DISPATCHER-SPEC §9.4）：按最新优先打开每张有 open ask 的卡片，它的 ask 置顶、就地回答，**Dismiss** 仍是暂不处理（规则见 §2.3，dismiss RPC 不变）。被 dismiss 的 ask 不计数、卡片离开队列，出现新信号时回来；卡片自身的菜单和侧栏仍可 Restore to Attention。计数口径（§3.2）合并为一个 “N need you” chip。
-- Ruling (Noah, 2026-11-09): unread is split out of "N need you" (DISPATCHER-SPEC §9.4). "N need you", its queue, `N`, the phone bell and the sidebar badge count only `q:`, `b:`, `p:` and `e:` signals; an open unread (`u:`) signal counts in "N updated" instead, whose queue is the dispatcher's changed cards plus the cards with an unread turn. Dismissal is unchanged: a dismissed unread signal leaves "N updated" until a new turn gives it a new key.
+### 3.1 Needs you rows
 
-- Ruling (Noah, 2026-11-09)：桌面不再有铃铛下拉。铃铛打开左侧停靠栏（DISPATCHER-SPEC §9.3）的 **Attention** 标签页（手机为全屏页的同名标签页），再按一次回到之前的标签页或最小化状态。该标签页按 ask 列出 **Needs you**（每个 open ask 可就地回答、Dismiss、Open card，DISPATCHER-SPEC §9.4），其下是不计入铃铛计数的 **Updates**（DISPATCHER-SPEC §9.2）。看板没有停靠栏时（既非项目看板也非 All projects），铃铛仍打开下文的 Needs attention 弹层（按卡片列出，规则如下）。
+In the dock's Attention tab and the need-you step-through in the card sidebar (DISPATCHER-SPEC §9.3 and §9.4), each open ask has a Snooze icon button (`BellOff`, accessibility label `Snooze {title}`), outside the row's tap area and always visible. It snoozes that one signal through `asks.dismiss { signal }`: the key is added to its list's set and every key already stored stays. Snoozing a need-you ask never touches `u:`.
 
-- Ruling (Noah, 2026-11-09)：Attention 标签页和 Needs attention 弹层都不再有 **Dismissed · N** 分组和 Restore 列表。Dismiss 只是暂不处理：卡片离开 Needs you，出现新信号时按 §2.3 自动回来；服务端与 dismiss RPC 不变。卡片自身的菜单和侧栏仍可 **Restore to Attention**（§3.3）。下面两条中关于 Dismissed 分组的部分已作废。
-- 每行右侧新增 **Dismiss** 图标按钮（`BellOff`，无障碍标签 `Dismiss {title} from Attention`），放在行的可点区域之外，常显（桌面与触控一致，便于发现）。点行本身仍是打开卡片。
-- Dismiss 后行用现有的列表移除动画淡出，原生 toast：`Dismissed. It comes back when something new happens.`。宿主 toast 不支持操作按钮（插件内无先例），撤销通过卡片菜单或侧栏的 Restore 完成。
-- 全部卡片都被 dismiss 时，主区空状态显示 `Nothing new needs your attention.`。
+- Toast: `Snoozed. It comes back when something new happens.`
+- There is no Snoozed group or restore list in either place. Asks leave Needs you and return on a new key.
+- The step-through's Updates side has no Snooze button; stepping onto a card there reads its turn.
 
-### 3.2 计数入口
+### 3.2 Card menu
 
-以下全部只算未 dismiss 的卡片，口径仍由同一个 `attentionFromSources` 产出：
+The card sidebar's actions menu offers (the board card's own menu has no Attention entries):
 
-- 看板铃铛角标、侧边栏 Flowly 行角标（`SIDEBAR-BADGE-SPEC`）；
-- 总览栏 “waiting on you / unread / errors” chip（Ruling, Noah 2026-11-09：合并为一个 “N need you” chip，按 open ask 计数，DISPATCHER-SPEC §9.4）；
-- 项目 tab 的 needs-you 指示与 `needs-you` / `agent-question` 提示触发条件。
+- **Snooze in Needs you**, only while the card has an open (not yet snoozed) need-you signal.
+- **Snooze in Updates**, only while the card has an open unread turn.
+- **Unsnooze**, while any list is snoozed; it clears both lists. Toast: `Unsnoozed.`
 
-### 3.3 卡片与侧栏（“仍然可以在任务卡片中看到”）
+Snooze in a list calls `attention.dismiss { taskId, list, signals }` with the card's current keys of that list.
 
-- 卡片保留原有的全部信号（Needs you、批准、错误、未读计数），文字和图标不变。
-- 额外在 attention 信号之后显示一个小 `BellOff` 标记（文字 `Dismissed`，卡片无障碍标签含 `Dismissed from Attention`），表示“这张卡的提醒已被你暂时收起”，避免用户以为提醒丢了。卡片本身没有 attention 专属强调色，其余样式不变。
-- 侧栏（drawer）内容区顶部在 dismissed 时显示 `Dismissed from Attention. It comes back when something new happens.` 和 **Restore** 按钮；侧栏的卡片操作菜单、看板卡片右键/长按菜单和手机 Actions 弹层在卡片有 attention 时提供 **Dismiss from Attention** 或 **Restore to Attention**（与列表同一动作）。
-- session 卡片、session 预览、Mark as read 行为不变。
+### 3.3 Card and sidebar
 
-## 4. 数据
+- The card keeps all its signals unchanged. A snoozed list adds a small `BellOff` marker with the text `Snoozed`; the card's accessibility label includes `Snoozed`.
+- While any list is snoozed, the card sidebar shows at the top `Snoozed. It comes back when something new happens.` and an **Unsnooze** button.
+- Session cards, session preview and Mark as read behave as usual.
 
-存在 `board.json` 新字段 `attentionDismissals`（参照 Ideas：同文件、随现有 etag 看板读取到达客户端，看板和侧边栏角标都不新增轮询或 RPC 读取）。旧文件没有该字段时读作 `[]`；看板版本仍为 v4，不迁移。
+### 3.4 Counts
+
+The "N need you" chip, the dock's Needs you queue, the `N` shortcut, the phone bell and the Paseo sidebar badge (`attention.count`, SIDEBAR-BADGE-SPEC) count only open, un-snoozed need-you signals. "N updated" and its queue count the cards the dispatcher saw change plus the cards with an un-snoozed open unread turn. All of them come from the same `asksFrom` / `attentionItems` rule, so board and sidebar match.
+
+### 3.5 Tip
+
+The tip `attention-dismiss` (id unchanged) appears when three or more cards have an open need-you signal and none is snoozed. Text: `Not ready to decide? Snooze it. It comes back when something new happens.` (ONBOARDING-SPEC tip table).
+
+## 4. Data
+
+`board.json` field `attentionDismissals`, delivered with the board's etag reads; no extra polling or RPC read. One record per card at most:
 
 ```
 attentionDismissals: [{
-  taskId,            // 每卡至多一条
-  signals: string[], // 1..100 个 key，每个 ≤600 字符，去重
-  dismissedAt,       // ISO 时间
+  taskId,
+  needs?:   { signals: string[1..100], snoozedAt },
+  updated?: { signals: string[1..100], snoozedAt },
 }]
 ```
 
-- 全局上限 10,000 条；超限返回错误，不淘汰旧记录。
-- 卡片永久删除、项目 Remove 时随卡片删除（与 Ideas 同路径；备份照旧）。卡片归档/收尾时保留（卡片恢复后仍有效）。
-- 不改 board / task / project revision，不写 Activity 事件；但更新看板 etag，使其他客户端（手机、侧边栏）在下次读取时同步。
+- At least one list is present. Every key in a list belongs to that list (`signalList`). Keys are unique and at most 600 characters.
+- Global limit 10,000 records; beyond it an error, nothing is evicted.
+- Records are deleted with the card (permanent delete, project Remove) and kept on archive.
+- No board, task or project revision change and no Activity event, but the board etag changes so other clients sync on their next read.
+- Files without the field read as `[]`. Board version unchanged.
+- **Migration:** a legacy record `{ taskId, signals, dismissedAt }` (one flat set) is read as snoozed in both lists: its non-`u:` keys become `needs`, its `u:` keys become `updated`, each list with `snoozedAt = dismissedAt` and omitted when empty. Nothing a card had hidden reappears or vanishes. The new shape is written on the next write of the board. The migration is one-way: an older Flowly cannot read the new record shape and refuses the board, so before going back to an older version, Unsnooze every card or restore a backup of the board from before the upgrade.
 
 ## 5. RPC
 
-- `attention.dismiss` `{ taskId, signals }`：串行写入内；校验卡片存在、卡片与项目未归档、`signals` 非空且合法；替换该卡已有记录。相同集合重复提交幂等（保留原 `dismissedAt`）。服务端不核对信号是否仍为当前（这是纯显示偏好，客户端集合即真相；过期集合只会让卡片更早回来）。
-- `attention.restore` `{ taskId }`：删除该卡记录；没有记录时幂等成功（卡片不存在时报 `Task not found.`）。
-- 错误：卡片/项目不存在或已归档、输入非法、容量超限、已保存数据非法（保留原文件）。daemon 错误保持英文。
+- `attention.dismiss { taskId, list: "needs" | "updated", signals }`: serialized write. The card and its project must exist and not be archived; `signals` must be non-empty, valid and all belong to `list`. It replaces only that list's set. The same set again is a no-op (keeps `snoozedAt`). The server does not check that the keys are still current; a stale set only brings the card back sooner.
+- `attention.restore { taskId }`: deletes the record. Idempotent when there is none; `Task not found.` for an unknown card.
+- `asks.dismiss { signal }` (DISPATCHER-SPEC §9.4): adds that one key to its list's set (creating the record if needed), keeping every stored key. When the list's set is full (100) it first drops its oldest stored keys that are no longer current, else errors.
+- Errors: card or project missing or archived, invalid input, capacity, invalid stored data (the file is preserved). Daemon errors stay English.
 
-## 6. 实现结构
+## 6. Implementation structure
 
-- `shared/attention-dismiss.ts`：schema、`attentionSignals` 与 `isDismissed(signals, record)` 纯函数。
-- `client/attention.ts`：`attentionItems` 增加 `signals` 和 `dismissed` 字段；`attentionFromSources` 接收 `dismissals`，主列表与计数排除 dismissed，另返回 dismissed 列表。看板与侧边栏共用。
-- `server/service.ts` + `shared/rpc.ts` + `index.server.ts`：两个 RPC，沿用看板串行写和原子替换。
-- `client/board.tsx`：列表按钮、toast；`card.tsx` / `drawer.tsx`：标记与 Dismiss/Restore 动作。
-- i18n：新字符串加入全部 catalog。
-- Onboarding：新提示 `attention-dismiss`，在 Attention（全部项目）有 ≥3 张未 dismiss 的卡、且还没有任何 dismissed 卡时出现，优先级紧跟 `needs-you`：`Not ready to decide? Dismiss a card from Attention. It comes back when something new happens.`；`ONBOARDING-SPEC` 提示表与 `onboarding-logic.test.ts` 同步。欢迎页特色列表不改（不是主流程能力）。
+- `shared/attention-dismiss.ts`: schema and legacy migration, `signalList`, per-list `isDismissed` and add helpers, `sessionSignalParts`.
+- `shared/attention.ts`: `attentionItems` with per-part `dismissed` and per-list `snoozed`; `asksFrom`.
+- `server/store.ts`: the RPC writes.
+- UI: `client/board.tsx`, `client/card.tsx`, `client/drawer.tsx`, `client/dispatcher-asks.tsx`.
 
-## 7. 验收
+## 7. Acceptance
 
-- 纯函数：各类信号 key 稳定；子集 → dismissed；新 key（新问题 / 新请求 / 新错误 / 新一轮未读 / 手动未读）→ 回到 Attention；信号减少仍隐藏；`readUnavailable` 下规则正确；看板与侧边栏计数来自同一函数且排除 dismissed。
-- 服务端：dismiss / restore 幂等；归档卡、未知卡、非法输入、容量上限报错；不改 revision 与 Activity；删卡/移除项目时一并删除；缺字段的旧 `board.json` 读作空。
-- `npm run typecheck`、`npm test` 通过。
-- UI（安装 reload 后在非全屏窗口）：列表 Dismiss → 计数立即减少、toast 出现；卡片菜单与侧栏可 Restore；卡片与侧栏仍显示信号和 Dismissed 标记；新的一轮结果让卡片回到列表；手机弹层同样可用。无法安全绑定窗口时记 UNRUN。
+- Pure functions: keys are stable; a per-list snooze does not hide the other list; a new key returns only its own list; vanished signals keep the rule; migrating a legacy record equals both lists snoozed; counts (N need you, N updated, bell, sidebar badge) respect per-list snooze.
+- Server: dismiss and restore are idempotent; keys of the wrong list are rejected; archived, unknown, invalid and capacity errors; no revision or Activity change; delete cascades; a legacy file reads.
+- `npm run typecheck` and `npm test` pass.
+- UI in a non-fullscreen window: Snooze on a Needs you row lowers the count and shows the toast; the card menu offers each list's Snooze and Unsnooze; the card and sidebar show the marker; a new key brings its list back. UNRUN if the window cannot be bound.
 
-## 7a. 按 ask 计数与单条 dismiss（2026-11-08，单窗格计划 Q1、Q5）
+## Rulings
 
-本节修改上文 §2.1、§2.2、§3.2、§5；其余规则不变。
-
-- **Blocker 进入 Attention（Q5）**：session 最新的 Kanban 报告是 `blocker` 且之后没有新的一轮开始时，记为信号 `b:<eventId>`，和提问一样直到该 session 的下一轮开始才消失。列表行详情显示 `{n} blocker(s)`，行的圆点与提问同色。
-- **一个信号就是一个 ask**：`asksFrom(board, agents, receipts, dismissals)`（`shared/attention.ts`）把每个信号变成一个 ask，状态为 `open`，或该信号在这张卡的 dismissal 集合里时为 `dismissed`。铃铛角标、侧边栏角标（`attention.count`）都改为统计 **open 的 ask 数**，不再统计卡片数；Dispatcher 聊天里的 ask 来自同一个函数（DISPATCHER-SPEC §9.4）。列表仍按卡片分组，每卡一行。
-- **单条 dismiss**：`asks.dismiss { signal }` 只把这一个 key 加入该卡已有的 dismissal 集合（没有记录时新建），已有的 key 全部保留；超过 100 个时先丢掉已不再是当前信号的最旧 key，仍超限则报错。卡片级 Dismiss（`attention.dismiss`）照旧用该卡当前全部信号替换集合，所以聊天里这张卡的全部 ask 也变成 dismissed。
-- **计数口径**：卡片的当前信号全部在集合里时整行隐藏（规则同 §2.3）；有新 key 时整行回来、显示全部当前信号，但计数只算不在集合里的那些 ask。
-- 存储格式不变：旧的 `attentionDismissals` 记录照常读取；旧集合里没有 `b:` key，所以已 dismiss 的卡若有未解决的 blocker 会回到 Attention 一次。
-
-## 8. 可能的扩展（不在本次范围）
-
-- 定时 snooze（1 小时 / 明天上午），到点后即使没有新情况也回到 Attention。
-- 按信号类型的全局静音（例如“未读结果不计入角标，只计问题和批准”），作为设置项。
+- Ruling (Noah, 2026-11-10): the user-facing name is Snooze (buttons, accessibility labels, toasts, the card's signal, Unsnooze, the tour demo, every catalog); the meaning is unchanged, it comes back when something new happens. The idea Dismiss and the question-form Dismiss are different features and keep their name.
+- Ruling (Noah, 2026-11-10): Snooze acts only on the list it was pressed in; keys are stored per list; existing dismissal records are read as snoozed in both lists.
+- Ruling (Noah, 2026-11-10): the spec describes the current design only; history lives in docs/PROGRESS.md.
+- Ruling (Noah, 2026-11-10): the card sidebar's actions menu offers Snooze in Needs you and Snooze in Updates separately, each only while that list has an open signal, and one Unsnooze for both; the Updates step-through has no Snooze button.
+- Ruling (Noah, 2026-11-10): internal names stay (`attentionDismissals`, `attention.dismiss`, `attention.restore`, `asks.dismiss`, ask state `dismissed`, this file's name).

@@ -1,7 +1,7 @@
 import { msg } from "./i18n";
 
 /** How a card's work is handed over (DELIVERY-MODE-SPEC §1). */
-export const deliveryModes = ["branch", "draft_pr", "ready_pr"] as const;
+export const deliveryModes = ["branch", "draft_pr", "ready_pr", "ship_main"] as const;
 export type DeliveryMode = (typeof deliveryModes)[number];
 export const defaultDeliveryMode: DeliveryMode = "branch";
 
@@ -10,6 +10,7 @@ export const deliveryModeLabels: Record<DeliveryMode, string> = {
   branch: msg("Branch, I bless"),
   draft_pr: msg("Draft PR"),
   ready_pr: msg("Ready PR"),
+  ship_main: msg("Ship to main"),
 };
 
 export function isDeliveryMode(value: unknown): value is DeliveryMode {
@@ -61,5 +62,7 @@ export function deliveryLine(mode: DeliveryMode): string {
       return `Delivery: push the card's branch and open a draft PR; register its URL as an output. ${permission} Leave the PR a draft; never mark it ready.`;
     case "ready_pr":
       return `Delivery: push the card's branch and open a PR ready for review; register its URL as an output. ${permission} Never mark a PR ready while review notes are open.`;
+    case "ship_main":
+      return `Delivery: ship to main only after the card's checks pass and its review has no open findings. Rebase the card's branch onto the latest main (fetch first), rerun the checks, call flowly_integrate, then git push origin main. Never force-push and never push any other branch. ${permission} Stop and report, leaving the card In review, when the rebase conflicts, checks fail after the rebase, flowly_integrate refuses, or a review finding is open; if the push is rejected, set integrated and report it. Do not update the installed plugin.`;
   }
 }

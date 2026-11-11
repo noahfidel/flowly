@@ -125,7 +125,7 @@ test("a sent message keeps its row key from the local echo to the session's own 
 });
 
 test("consecutive thinking and tool calls merge into one activity block", () => {
-  const entry = (key: string, author: string) => ({ key, author, text: key, kind: author, messageId: undefined });
+  const entry = (key: string, author: string) => ({ key, author, text: key, kind: author, messageId: undefined, sender: undefined });
   const blocks = groupTranscript([
     entry("u", "You"),
     entry("t1", "Thinking"),
@@ -158,4 +158,20 @@ describe("session view memo keys", () => {
     expect(samePreviewTask(card, { ...card, title: "y" })).toBe(false);
     expect(samePreviewTask(card, { ...card, archivedAt: "2026-10-18T00:00:00.000Z" })).toBe(false);
   });
+});
+
+test("a prompt from another agent is its own entry between two activity blocks", () => {
+  const call = (seq: number) => ({ seqStart: seq, item: { type: "tool_call", name: "bash", status: "completed" } });
+  const from = (seq: number, from: { id: string; title?: string; event: string }) => ({
+    seqStart: seq,
+    item: { type: "tool_call", name: "agent_message", status: "completed", text: "Hello\nthere", from },
+  });
+  const blocks = groupTranscript(
+    recentSessionOutput([call(1), from(2, { id: "a1", title: " Dispatcher ", event: "message" }), call(3), from(4, { id: "a2", event: "finished" })]),
+  );
+  expect(blocks.map((b) => b.kind)).toEqual(["activity", "entry", "activity", "entry"]);
+  const entries = blocks.flatMap((b) => (b.kind === "entry" ? [b.entry] : []));
+  expect(entries[0]).toMatchObject({ kind: "agent-message", sender: "Dispatcher", text: "Hello\nthere" });
+  expect(entries[1]).toMatchObject({ kind: "agent-message", sender: "a2" });
+  expect(entries[0].author).not.toBe("Tool");
 });

@@ -68,7 +68,7 @@ export function askItem(ask: Ask, state: AskState = ask.state, extra: Partial<As
 /** Kept to bound the in-memory card lookup for asks that left the live list. */
 const knownLimit = 5000;
 const noAnswer = "This ask has no answer; open the card.";
-/** Error (`e:`) and unread (`u:`) signals (ATTENTION-DISMISS-SPEC §2.2): never answered, never stored as resolved. */
+/** Error (`e:`) and unread (`u:`) signals (ATTENTION-DISMISS-SPEC, Signal keys): never answered, never stored as resolved. */
 const unanswerable = (signal: string) => signal.startsWith("e:") || signal.startsWith("u:");
 /**
  * A stored `session_ended` row whose session is still listed and not archived: written when a closed session's asks
@@ -127,7 +127,7 @@ export class DispatcherAsks {
     return [...this.resolved(stored, agents)].sort();
   }
 
-  /** `attention.count`: the open asks, exactly the chat's open rows (§9.4, ATTENTION-DISMISS-SPEC §7a). */
+  /** `attention.count`: the open asks, exactly the chat's open rows (§9.4, ATTENTION-DISMISS-SPEC, Counts). */
   async count(paseo: PaseoApi): Promise<{ count: number }> {
     const [stored, agents] = await Promise.all([this.deps.items.list(), this.agents.list(paseo)]);
     return readAttentionCount(this.deps.store, this.deps.reads, paseo, { agents: this.agents, resolved: this.resolved(stored, agents) });
@@ -166,8 +166,8 @@ export class DispatcherAsks {
   }
 
   /**
-   * `asks.dismiss`: a live ask's signal joins its card's dismissal set (ATTENTION-DISMISS-SPEC §7a); an ask
-   * whose session ended is stored as dismissed in the chat (its session is gone, so there is no live signal).
+   * `asks.dismiss`: a live ask's signal joins its list's snoozed set (the store derives the list from the key;
+   * ATTENTION-DISMISS-SPEC, Needs you rows and RPC); an ask whose session ended is stored as dismissed in the chat (its session is gone, so there is no live signal).
    */
   async dismiss(raw: unknown, paseo: PaseoApi): Promise<{ taskId: string }> {
     const { signal } = askDismissInputSchema.parse(raw);

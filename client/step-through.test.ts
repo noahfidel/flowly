@@ -13,7 +13,7 @@ const card = (id: string, projectId = "p", s = 0, parts: Array<{ key: string; di
     task: { id, projectId } as Task,
     project: { id: projectId } as Project,
     updatedAt: at(s),
-    dismissed: false,
+    snoozed: { needs: false, updated: false },
     parts: parts.map((p) => ({ key: p.key, kind: kinds[p.key[0]], agentId: p.agentId ?? "a", dismissed: !!p.dismissed })),
   }) as unknown as AttentionItem;
 const all = () => true;

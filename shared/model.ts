@@ -483,8 +483,21 @@ export const artifactSchema = z.object({
   external: externalRefSchema.optional(),
   /** Added and kept in sync by Flowly itself, never by a person or an agent (REVIEW-LEDGERS-SPEC §3). */
   origin: z.enum(["review-ledger"]).optional(),
+  /** Marks the card's one plan (CARD-PLAN-SPEC §1.1); absent on every other artifact. */
+  plan: z
+    .object({
+      /** null: a draft. */
+      approvedAt: timestamp.nullable(),
+      /** Present exactly when `approvedAt` is set. */
+      approvedBy: z.object({ kind: z.enum(["human", "agent"]), agentId: z.string().optional() }).optional(),
+      source: z.enum(["plan-mode", "tool", "manual"]),
+      /** When this artifact became the card's plan. */
+      setAt: timestamp,
+    })
+    .optional(),
 });
 export type Artifact = z.infer<typeof artifactSchema>;
+export type ArtifactPlan = NonNullable<Artifact["plan"]>;
 export type ArtifactRole = Artifact["role"];
 const artifactTitle = z.string().trim().max(artifactLimits.title);
 const artifactNote = z.string().trim().max(artifactLimits.note);
@@ -661,7 +674,7 @@ export const boardSchema = z.object({
   /** Absent in files written before workpads (WORKPAD-SPEC §2). */
   workpads: z.array(workpadSchema).default([]),
   plans: z.array(planSnapshotSchema).default([]),
-  /** Cards dismissed from Attention (ATTENTION-DISMISS-SPEC §4); absent in older files. */
+  /** Cards snoozed in Attention, per list (ATTENTION-DISMISS-SPEC, Data); absent in older files, legacy records migrated on read. */
   attentionDismissals: z.array(attentionDismissalSchema).max(attentionDismissLimits.records).default([]),
   /** Board groups (BOARD-GROUPS-SPEC §1); absent in files written before them, filled by the one-time migration (§7). */
   groups: z.array(groupSchema).max(groupLimits.groups).default([]),

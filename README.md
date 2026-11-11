@@ -79,6 +79,8 @@ Work an agent discovers along the way (a bug it tripped over, a limitation, the 
 
 Each card has an **Artifacts** list: the documents, links and deliverables it worked from (inputs) and produced (outputs). Agents register them through the board tools as they work; you add, edit or remove your own from the card. Only references are stored; files stay where they are and open in a read-only preview. Every entry shows whether you or an agent added it, and agents can't remove the ones you added.
 
+A card can also hold one **plan**, shown at the top of its details. When you approve a plan-mode plan in the card's session, Flowly keeps it there automatically; agents can set one with `flowly_set_plan` or pass one to `flowly_create_card`, and you can set or replace it from the card. New sessions on a card with an approved plan start from it instead of planning again. Replacing or removing the plan keeps the old file as an ordinary input.
+
 **Tickets, docs and pull requests** can be inputs too: Jira tickets, Confluence pages, GitHub or GitLab issues, pull requests and merge requests, Azure DevOps work items, Linear issues, and Shortcut stories and epics. Connect a service in Settings → Connections (self-hosted or cloud, with a personal access token, API token or API key), then start a card with **From Jira / From GitLab / From Linear / From Shortcut / …** or add an item from the one **+** in a card's Artifacts. The picker lists your recent items (assigned to you, awaiting your review, or pages you edited) and searches by key, link, number or title words; GitHub and GitLab search the project's own repositories first, found from its git remotes. Agents read the item with `flowly_read_external` (description or page content, comments, for pull/merge requests the branches, head commit and changed file names, and for a Shortcut epic its list of stories) and see when it changes. Flowly only reads: it never comments, approves, merges or changes anything, and an item's status never moves a card. Tokens stay on the daemon machine.
 
 With a Linear connection, **Linear** appears in Paseo's sidebar: a board of your Linear issues (assigned to you, or any team) in columns by state, or as one list. Open an issue to read it; **Start card** opens Quick task with the issue attached, so Enter starts the agent. An issue that already has a card offers **Open card**. The board only reads Linear.
@@ -131,7 +133,7 @@ The first time you open Flowly, a short welcome tour explains projects, cards an
 
 ### Models
 
-Pick the model new sessions start with under **Settings → Models**. A project can set its own default in its settings, which wins over the global one; with neither, new sessions start from the latest session's settings.
+Pick the model new sessions start with under **Settings → Models**. A project can set its own default in its settings, which wins over the global one; with neither, you pick the model when you start a session.
 
 Summary models are an ordered fallback list in Settings → Models: add models and move them up or down to set priority; the default is Haiku → Luna.
 

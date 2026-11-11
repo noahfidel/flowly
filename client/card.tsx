@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Animated, PanResponder, Pressable, View } from "react-native";
+import { Animated, PanResponder, Pressable, View, type GestureResponderEvent } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { taskTypeLabels, type Review, type Task } from "../shared/model";
 import { AiMark, Badge, Dot, IconButton, Label, font, radius, relativeTime, space, tint, touch, useTheme, noFocusRing } from "./ui";
@@ -9,7 +9,7 @@ import type { SessionAttentionSummary } from "../shared/session-attention";
 import { PulseDot, motionDuration, useMotionValue, useReducedMotion } from "./motion";
 import { RunningDots } from "./running-motion";
 import { useCardOutput, type CardOutput, type OutputSession } from "./card-output";
-import { menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
+import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { shallowEqual } from "./stable";
 import { t, tn } from "../shared/i18n";
 import type { WorkpadSignal } from "../shared/workpad";
@@ -35,7 +35,7 @@ export type LiveTaskCardProps = Omit<TaskCardProps, "output" | "menu" | "onOpen"
   outputSession?: OutputSession | null;
   /** Stable handlers shared by all cards; they receive the card's task (PERFORMANCE-SPEC §3). */
   onOpen(task: Task): void;
-  onActions(task: Task): void;
+  onActions(task: Task, at: Point): void;
   /** Absent when the host cannot open workspaces; used only while the card's workspace is available. */
   onOpenWorkspace?(task: Task): void;
   menuFor?(task: Task): MenuEntry[];
@@ -76,7 +76,7 @@ export const LiveTaskCard = memo(function LiveTaskCard({
     [openMenu, menuFor, task],
   );
   const onOpen = useCallback(() => openTask(task), [openTask, task]);
-  const onActions = useCallback(() => taskActions(task), [taskActions, task]);
+  const onActions = useCallback((event: GestureResponderEvent) => taskActions(task, eventPoint(event)), [taskActions, task]);
   const onOpenWorkspace = useCallback(() => openTaskWorkspace?.(task), [openTaskWorkspace, task]);
   return (
     <TaskCard
@@ -111,7 +111,7 @@ export function TaskCard({
   workpad = null,
   waiting = 0,
   waitingTitles = "",
-  attentionDismissed = false,
+  attentionSnoozed = false,
   projectLabel = "",
   display = defaultCardDisplay,
   flash = false,
@@ -153,8 +153,8 @@ export function TaskCard({
   /** Unresolved cards this one is blocked by, and their titles (CARD-LINKS-SPEC §5.1). */
   waiting?: number;
   waitingTitles?: string;
-  /** Dismissed from Attention; its signals still show (ATTENTION-DISMISS-SPEC §3.3). */
-  attentionDismissed?: boolean;
+  /** Snoozed in either Attention list; its signals still show (ATTENTION-DISMISS-SPEC, Card and sidebar). */
+  attentionSnoozed?: boolean;
   /** The card's project name, shown only on the All projects board (ALL-PROJECTS-SPEC §3). */
   projectLabel?: string;
   /** Which fields show (CARD-DISPLAY-SPEC); the accessibility label always lists everything. */
@@ -165,7 +165,8 @@ export function TaskCard({
   disabled?: boolean;
   drag?: CardDrag;
   onOpen(): void;
-  onActions(): void;
+  /** The press opens the card's menu at the press point. */
+  onActions(event: GestureResponderEvent): void;
   /** Shows the Open workspace button under the actions button (CARD-DISPLAY-SPEC §7). */
   onOpenWorkspace?(): void;
   /** Context-menu handlers (right-click / long-press) for the card body. */
@@ -302,7 +303,7 @@ export function TaskCard({
           progress: progress ?? null,
           workpad: workpad ?? null,
           review: task.review && visibleReview(task) ? reviewLabel(task.review) : "",
-          attentionDismissed,
+          attentionSnoozed,
           priority: task.priority,
           type: task.type,
           workspace: workspace ? workspaceLabel(workspace) : "",
@@ -356,7 +357,7 @@ export function TaskCard({
           ideas={ideas}
           workpad={workpad}
           waiting={waiting}
-          attentionDismissed={attentionDismissed}
+          attentionSnoozed={attentionSnoozed}
           display={display}
         />
       </Pressable>
@@ -578,7 +579,7 @@ function CardSignals({
   ideas,
   workpad,
   waiting,
-  attentionDismissed,
+  attentionSnoozed,
   display,
 }: {
   task: Task;
@@ -593,7 +594,7 @@ function CardSignals({
   ideas: number;
   workpad: WorkpadSignal | null;
   waiting: number;
-  attentionDismissed: boolean;
+  attentionSnoozed: boolean;
   display: CardDisplay;
 }) {
   const { colors } = useTheme();
@@ -648,7 +649,7 @@ function CardSignals({
         text={reviewLabel(review)}
       />,
     );
-  if (attentionDismissed) items.push(<Signal key="dismissed" icon="BellOff" text={t("Dismissed")} />);
+  if (attentionSnoozed) items.push(<Signal key="snoozed" icon="BellOff" text={t("Snoozed")} />);
   if (workpad && display.workpad && workpadText(workpad)) items.push(<Signal key="workpad" icon="ListChecks" text={workpadText(workpad)} />);
   if (ideas && display.ideas) items.push(<Signal key="ideas" icon="Lightbulb" color={colors.statusWarning} text={`${ideas}`} />);
   if (task.archivedAt) items.push(<Badge key="archived">{t("Archived")}</Badge>);

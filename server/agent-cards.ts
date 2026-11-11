@@ -5,15 +5,22 @@ import { linksOf } from "../shared/links";
 import { changeTags, normalizeTags, tagChangeNote } from "../shared/tags";
 import { tagLimits, type Board, type Project, type Task } from "../shared/model";
 import { isSummarizer } from "../shared/summary";
+import { absoluteTarget } from "../shared/artifacts";
+import { planApproved, planOf } from "../shared/plans";
 import {
   agentCardLimits,
+  clearPlanInputSchema,
   createCardInputSchema,
+  setPlanInputSchema,
   getCardInputSchema,
   listCardsInputSchema,
   updateCardInputSchema,
   type BoardIdentity,
   type CardView,
 } from "../shared/tools";
+import { ArtifactService, normalizeTarget, type ArtifactRoots } from "./artifacts";
+import { logFailure } from "./error-report";
+import { cardPlanView, clearPlan, planMissing, planTarget, setPlan } from "./plans";
 import { BoardService } from "./service";
 import { BoardStore, columnOrder, setTags } from "./store";
 import { digest } from "./tool-context";
@@ -41,6 +48,8 @@ export class AgentCards {
   private dispatched = new Map<string, number[]>();
   /** The Agents create and edit cards setting (§2.3); set by the plugin entry. */
   on: () => Promise<boolean> = async () => true;
+  /** The extra artifact folders from Settings, read at each use (CARD-PLAN-SPEC §3.1); set by the plugin entry. */
+  extraArtifactFolders: () => Promise<readonly string[]> = async () => [];
   /** The board service the New card form uses; set by the plugin entry so creations share its queue. */
   board: BoardService;
   constructor(
@@ -243,6 +252,9 @@ export class AgentCards {
       if (idea.status !== "open")
         throw new ToolError("IDEA_CLOSED", `This idea is ${idea.status}, not open; only an open idea becomes a card.`);
     }
+    // The plan's target is checked before anything is made (CARD-PLAN-SPEC §5.2); a file is kept absolute until
+    // the card's workspace exists, then stored relative to it when inside it.
+    const plan = input.plan ? { ...input.plan, ...(await this.projectPlanTarget(project, input.plan.target)) } : undefined;
     const release = this.reserve(caller.agentId, caller.dispatcher);
     let task: Task;
     try {
@@ -272,8 +284,91 @@ export class AgentCards {
         throw new ToolError("IDEA_CLOSED", "This idea is no longer open; another card took it up or it was dismissed meanwhile.");
       throw new ToolError("CARD_CREATE_FAILED", text);
     }
+    if (plan) await this.planOnCreate(caller, task.id, plan);
     const after = await this.store.read();
     return { card: cardView(after, this.project(after, caller), after.tasks.find((t) => t.id === task.id) ?? task), replayed: false };
+  }
+  /** A new card's plan target, checked against the project's directories and the extra folders (PLAN_INVALID). */
+  private async projectPlanTarget(project: Project, raw: string) {
+    const where: ArtifactRoots = {
+      workspace: project.primaryPath,
+      roots: [...new Set([project.primaryPath, ...project.repos, ...(project.links || []).map((l) => l.target)])],
+      resolved: await this.artifacts().extraRoots(),
+    };
+    try {
+      const found = await normalizeTarget(raw, where);
+      return found.kind === "file" ? { kind: found.kind, target: absoluteTarget(found.target, where.workspace) } : found;
+    } catch (e) {
+      throw new ToolError("PLAN_INVALID", e instanceof Error ? e.message : String(e));
+    }
+  }
+  /** Sets the plan of a card just created; the card stays when it fails (logged). */
+  private async planOnCreate(caller: CardCaller, taskId: string, plan: { kind: "file" | "url"; target: string; title?: string; approved: boolean }) {
+    try {
+      const where = await this.artifacts().where(taskId, this.api());
+      const { kind, target } = plan.kind === "url" ? plan : planTarget(await normalizeTarget(plan.target, where), where);
+      await this.store.transaction((board) => {
+        const result = setPlan(this.store, board, { taskId, kind, target, workspace: where.workspace, title: plan.title, approved: plan.approved, by: { kind: "agent", agentId: caller.agentId }, source: "tool" });
+        return { value: undefined, changed: result.changed };
+      });
+    } catch (e) {
+      logFailure("Flowly new card plan not set:", e, `card ${taskId}`);
+    }
+  }
+  private artifacts() {
+    return new ArtifactService(this.store, undefined, () => this.extraArtifactFolders());
+  }
+  /** A live card of the caller's project for the plan tools: CARD_NOT_FOUND, ARCHIVED. */
+  private planCard(board: Board, caller: CardCaller, taskId: string) {
+    const project = this.project(board, caller),
+      task = board.tasks.find((t) => t.id === taskId && t.projectId === project.id);
+    if (!task) throw new ToolError("CARD_NOT_FOUND", "No card with that id in this project. Use an id from flowly_list_cards.");
+    if (task.archivedAt || project.archivedAt) throw new ToolError("ARCHIVED", "The card or its project is archived.");
+    return task;
+  }
+  /** flowly_set_plan (CARD-PLAN-SPEC §5.2): the card's plan, set by this agent. */
+  async setPlan(caller: CardCaller, raw: unknown) {
+    const input = setPlanInputSchema.parse(raw);
+    await this.enabled();
+    const board = await this.store.read();
+    const task = this.planCard(board, caller, input.taskId);
+    let where: ArtifactRoots, found: Awaited<ReturnType<typeof normalizeTarget>>;
+    try {
+      where = await this.artifacts().where(task.id, this.api(), board);
+      found = planTarget(await normalizeTarget(input.target, where), where);
+    } catch (e) {
+      throw new ToolError("PLAN_INVALID", e instanceof Error ? e.message : String(e));
+    }
+    const artifact = await this.store.transaction((board) => {
+      this.planCard(board, caller, input.taskId);
+      let result;
+      try {
+        result = setPlan(this.store, board, {
+          taskId: input.taskId,
+          kind: found.kind,
+          target: found.target,
+          workspace: where.workspace,
+          title: input.title,
+          approved: input.approved,
+          by: { kind: "agent", agentId: caller.agentId },
+          source: "tool",
+        });
+      } catch (e) {
+        throw new ToolError("PLAN_INVALID", e instanceof Error ? e.message : String(e));
+      }
+      return { value: { ...result.artifact }, changed: result.changed };
+    });
+    return { plan: cardPlanView(artifact, where.workspace, await planMissing(artifact, where)) };
+  }
+  /** flowly_clear_plan (CARD-PLAN-SPEC §5.2): empties the slot; the file stays an ordinary input. */
+  async clearPlan(caller: CardCaller, raw: unknown) {
+    const input = clearPlanInputSchema.parse(raw);
+    await this.enabled();
+    return this.store.transaction((board) => {
+      this.planCard(board, caller, input.taskId);
+      const result = clearPlan(this.store, board, input.taskId, { kind: "agent", agentId: caller.agentId });
+      return { value: { cleared: result.changed }, changed: result.changed };
+    });
   }
   async update(caller: CardCaller, raw: unknown) {
     const input = updateCardInputSchema.parse(raw);
@@ -377,5 +472,9 @@ export function cardView(board: Board, project: Project, task: Task): CardView {
     links: linksOf(board, task.id)
       .filter((v) => v.other)
       .map(({ relation, other }) => ({ relation, taskId: other!.id, title: other!.title, status: other!.status })),
+    plan: (() => {
+      const plan = planOf(board.artifacts, task.id);
+      return plan ? { title: plan.title, approved: planApproved(plan) } : null;
+    })(),
   };
 }

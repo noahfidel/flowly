@@ -20,6 +20,7 @@ import {
   linkSchema,
   artifactInput,
   artifactEdit,
+  artifactLimits,
   artifactSchema,
   workpadSchema,
   workpadCheck,
@@ -327,13 +328,13 @@ export const importIdeas = defineRpc({
   input: z.strictObject({ projectId: z.string().min(1), rows: z.array(importRowSchema).max(importRowLimit), operationId: z.string().min(1).max(200) }),
   output: z.strictObject({ created: z.number().int().nonnegative(), skipped: z.array(z.strictObject({ line: z.number().int(), reason: z.string() })) }),
 });
-/** Hide a card from Attention until something new happens (ATTENTION-DISMISS-SPEC §5). */
+/** Snooze one list of a card until something new happens in it (ATTENTION-DISMISS-SPEC, RPC). */
 export const dismissAttention = defineRpc({
   name: "attention.dismiss",
   input: attentionDismissInput,
   output: attentionDismissalSchema,
 });
-/** Put a dismissed card back into Attention. */
+/** Unsnooze a card: clears both lists (ATTENTION-DISMISS-SPEC, RPC). */
 export const restoreAttention = defineRpc({
   name: "attention.restore",
   input: attentionRestoreInput,
@@ -435,6 +436,22 @@ export const deleteArtifact = defineRpc({
   name: "artifacts.delete",
   input: z.strictObject({ id: z.string().min(1) }),
   output: z.object({ id: z.string() }),
+});
+/** A card's plan (CARD-PLAN-SPEC §5.1): set (approved by the person), approve the draft, or empty the slot. */
+export const setPlan = defineRpc({
+  name: "plans.set",
+  input: z.strictObject({ taskId: z.string().min(1), target: z.string().trim().min(1).max(artifactLimits.target), title: z.string().trim().max(artifactLimits.title).optional() }),
+  output: artifactSchema,
+});
+export const approvePlan = defineRpc({
+  name: "plans.approve",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: artifactSchema,
+});
+export const clearPlan = defineRpc({
+  name: "plans.clear",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: z.null(),
 });
 /** A person ticks an acceptance criterion (WORKPAD-SPEC §6.3). */
 export const checkWorkpad = defineRpc({
@@ -1132,7 +1149,7 @@ export const dispatcherSend = defineRpc({ name: "dispatcher.send", input: dispat
 export const dispatcherWhatNext = defineRpc({ name: "dispatcher.what-next", input: dispatcherGroupInputSchema, output: z.strictObject({ sent: z.literal(true) }) });
 /** Answers one ask from the chat, re-checked against its session; `delivered` only after the Paseo call resolved (DISPATCHER-SPEC §9.4). */
 export const asksAnswer = defineRpc({ name: "asks.answer", input: askAnswerInputSchema, output: askAnswerResultSchema });
-/** Dismisses one ask: its signal joins the card's dismissal set (ATTENTION-DISMISS-SPEC §7a). */
+/** Snoozes one ask: its signal joins its list's snoozed set (ATTENTION-DISMISS-SPEC, Needs you rows). */
 export const asksDismiss = defineRpc({ name: "asks.dismiss", input: askDismissInputSchema, output: z.strictObject({ taskId: z.string() }) });
 /** The signals the chat resolved (answered, ended or dismissed there), sorted, for the board's bell (DISPATCHER-SPEC §9.4). */
 export const asksResolved = defineRpc({

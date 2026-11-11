@@ -103,6 +103,8 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "flowly_get_card",
     "flowly_create_card",
     "flowly_update_card",
+    "flowly_set_plan",
+    "flowly_clear_plan",
     "flowly_start_card",
   ]);
   // flowly_propose_review_rules is gone (GUARDRAILS-SPEC §9).
@@ -806,6 +808,8 @@ test("sessions outside cards: a board credential reaches only the card tools, ov
     "flowly_get_card",
     "flowly_create_card",
     "flowly_update_card",
+    "flowly_set_plan",
+    "flowly_clear_plan",
     "flowly_start_card",
     "flowly_propose_idea",
   ]);
@@ -825,6 +829,16 @@ test("sessions outside cards: a board credential reaches only the card tools, ov
   const updated = await mcp("tools/call", { name: "flowly_update_card", arguments: { taskId: "t", revision: 1, title: "Renamed by an outside session" } });
   expect(updated.result.structuredContent).toMatchObject({ changed: ["title"], card: { revision: 2 } });
   expect((await x.store.read()).events.at(-1)).toMatchObject({ actor: "agent", agentId: "second", action: "edited" });
+  // The plan tools (CARD-PLAN-SPEC §5.2) on the board server.
+  const planned = await mcp("tools/call", { name: "flowly_set_plan", arguments: { taskId: "t", target: "https://plans.example/card", title: "Board plan", approved: false } });
+  expect(planned.result.structuredContent).toMatchObject({ plan: { title: "Board plan", approved: false, approvedAt: null, source: "tool", target: "https://plans.example/card" } });
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ actor: "agent", agentId: "second", action: "plan_set", note: "Draft: Board plan" });
+  expect((await mcp("tools/call", { name: "flowly_get_card", arguments: { taskId: "t" } })).result.structuredContent.card.plan).toEqual({ title: "Board plan", approved: false });
+  const outside = await mcp("tools/call", { name: "flowly_set_plan", arguments: { taskId: "t", target: "/definitely/not/here.md", approved: true } });
+  expect(JSON.stringify(outside.result)).toContain("PLAN_INVALID");
+  expect((await mcp("tools/call", { name: "flowly_clear_plan", arguments: { taskId: "t" } })).result.structuredContent).toEqual({ cleared: true });
+  expect((await mcp("tools/call", { name: "flowly_clear_plan", arguments: { taskId: "t" } })).result.structuredContent).toEqual({ cleared: false });
+  expect(JSON.stringify((await mcp("tools/call", { name: "flowly_clear_plan", arguments: { taskId: "nope" } })).result)).toContain("CARD_NOT_FOUND");
   const card = await mcp("tools/call", { name: "flowly_get_task", arguments: {} });
   expect(card.result?.isError ?? !!card.error).toBe(true);
   // The CLI endpoint takes card credentials only.
@@ -858,4 +872,6 @@ test("card sessions reach the card tools over the CLI (AGENT-CARDS-SPEC §5)", a
   await expect(cli("update-card")).rejects.toMatchObject({ stderr: expect.stringContaining("update-card requires --input") });
   await expect(cli("card", "--id", "t", "--input", "{}")).rejects.toMatchObject({ stderr: expect.stringContaining("--input is only valid") });
   expect((await x.api("get_card", { taskId: "t" })).result.card.priority).toBe("high");
+  expect((await cli("set-plan", "--input", JSON.stringify({ taskId: "t", target: "https://plans.example/cli", approved: true }))).plan).toMatchObject({ approved: true, source: "tool" });
+  expect(await cli("clear-plan", "--input", JSON.stringify({ taskId: "t" }))).toEqual({ cleared: true });
 });

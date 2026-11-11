@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   allAnswered,
+  approvalDetail,
   answerReply,
   asksQuestion,
   buildAnswers,
@@ -126,4 +127,48 @@ test("stepQuestion moves with plain arrow keys inside the bounds only", () => {
   expect(stepQuestion({ key: "ArrowRight", repeat: true }, 0, 3)).toBeNull();
   expect(stepQuestion({ key: "ArrowRight" }, 0, 1)).toBeNull();
   expect(stepQuestion({ key: "l" }, 0, 3)).toBeNull();
+});
+
+test("approvalDetail shows a Bash command", () => {
+  expect(approvalDetail({ id: "1", name: "Bash", input: { command: "ls -la", description: "x" } })).toEqual({ kind: "command", command: "ls -la" });
+});
+
+test("approvalDetail shows an Edit and a MultiEdit as edits, skipping malformed entries", () => {
+  expect(approvalDetail({ id: "1", name: "Edit", input: { file_path: "/a.ts", old_string: "a", new_string: "b" } })).toEqual({
+    kind: "edits",
+    path: "/a.ts",
+    edits: [{ old: "a", new: "b" }],
+  });
+  expect(
+    approvalDetail({
+      id: "1",
+      name: "MultiEdit",
+      input: { file_path: "/a.ts", edits: [{ old_string: "a", new_string: "b" }, { old_string: 1 }, "x", { old_string: "c", new_string: "" }] },
+    }),
+  ).toEqual({ kind: "edits", path: "/a.ts", edits: [{ old: "a", new: "b" }, { old: "c", new: "" }] });
+  expect(approvalDetail({ id: "1", name: "MultiEdit", input: { file_path: "/a.ts", edits: [{ old_string: 1 }] } })?.kind).toBe("json");
+});
+
+test("approvalDetail shows a Write", () => {
+  expect(approvalDetail({ id: "1", name: "Write", input: { file_path: "/a.md", content: "hi" } })).toEqual({
+    kind: "write",
+    path: "/a.md",
+    content: "hi",
+  });
+});
+
+test("approvalDetail shows a plan from input.plan, or says it is missing", () => {
+  expect(approvalDetail({ id: "1", kind: "plan", name: "ExitPlanMode", input: { plan: "# Plan" } })).toEqual({ kind: "plan", text: "# Plan" });
+  expect(approvalDetail({ id: "1", kind: "plan", name: "ExitPlanMode", input: {} })).toEqual({ kind: "plan-missing" });
+  expect(approvalDetail({ id: "1", kind: "plan" })).toEqual({ kind: "plan-missing" });
+});
+
+test("approvalDetail falls back to JSON for other or malformed input, and null for none", () => {
+  expect(approvalDetail({ id: "1", name: "WebFetch", input: { url: "https://x" } })).toEqual({
+    kind: "json",
+    text: JSON.stringify({ url: "https://x" }, null, 2),
+  });
+  expect(approvalDetail({ id: "1", name: "Bash", input: { command: 3 } })?.kind).toBe("json");
+  expect(approvalDetail({ id: "1", name: "Bash", input: {} })).toBeNull();
+  expect(approvalDetail({ id: "1", name: "Bash" })).toBeNull();
 });

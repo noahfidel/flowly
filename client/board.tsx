@@ -57,9 +57,13 @@ import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
   attentionItemsWithFacts,
+  attentionOpen,
   attentionOpenToken,
-  lastSessionSettings,
+  listSignals,
+  openInList,
+  snoozeMenu,
   type AttentionItem,
+  type SnoozeList,
 } from "./attention";
 import { relativeTime } from "./ui";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
@@ -100,7 +104,8 @@ import { SwitchModal, type SwitchDirection } from "./workspace-switch";
 import { performanceLogOn, performanceSettings, featureSettings, featureSettingsValues, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, wrapupSettings, wrapupSettingsValues } from "../shared/settings";
 import { pickOutputSession } from "./card-output";
 import { statusChanges } from "./changes";
-import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuOpener, type MenuEntry } from "./context-menu";
+import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuControl, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
+import { boardCardMenu } from "./card-menu";
 import { DesktopColumns, OlderToggle, type Placement } from "./columns";
 import { olderFinishedFromDates } from "./finished-cards";
 import { ResizeGrip } from "./resize";
@@ -161,6 +166,7 @@ import { cardDisplay, cardWorkspace } from "../shared/card-display";
 import { parentOf } from "../shared/subagents";
 import { reviewLabel } from "./task-review";
 import { visibleReview } from "../shared/auto-review";
+import { planApproved, planOf, withoutPlan } from "../shared/plans";
 
 /** One-time tip texts (ONBOARDING-SPEC §5). */
 const tipText: Record<TipId, (compact?: boolean) => string> = {
@@ -190,13 +196,14 @@ const tipText: Record<TipId, (compact?: boolean) => string> = {
     // Compact puts the Sort choices and Card display… in the Filters dialog.
     ? t("Cards too busy? Choose what they show in Settings → Cards, or from Filters → Card display.")
     : t("Cards too busy? Choose what they show in Settings → Cards, or from the Sort menu → Card display."),
-  "attention-dismiss": () => t("Not ready to decide? Dismiss a card from Attention. It comes back when something new happens."),
+  "attention-dismiss": () => t("Not ready to decide? Snooze it. It comes back when something new happens."),
   "sidebar-order": () => t("Arrange an open card your way: reorder its sections and choose which start open in Settings → Cards → Card sidebar."),
   "session-history": () => t("A session's output now starts at the beginning of its current turn. Press Load earlier at the top to read further back."),
   "settings-entry": () => t("Turn features on or off and change settings here."),
   dispatcher: () => t("The dispatcher is one agent for all your projects. Open its chat with the robot button, ask for work, and it makes the cards and starts them."),
   "auto-review": () => t("Auto review checked this card after the agent delivered; open it to see each check's result."),
   "first-guardrail": () => t("Flowly learned a check from a card you sent back. Open Guardrails to see what it checks now."),
+  plan: () => t("This card's approved plan. New sessions start from it instead of planning again."),
   "first-workpad": () => t("This card has a workpad: the agent's acceptance list. The card shows how many items are met; open it to tick items yourself and to see the latest review."),
 };
 
@@ -382,7 +389,6 @@ function BoardContent(
     // Phones: a lane chosen from the status chooser fades in; a swiped one is already on screen (UI-UX-SPEC §5).
     [lanePick, setLanePick] = useState(0),
     [reveal, setReveal] = useState<{ status: Status; n: number; at: number; center?: boolean; taskId?: string }>({ status: "todo", n: 0, at: 0 }),
-    [actionTask, setActionTask] = useState<Task | null>(null),
     [projectForm, setProjectForm] = useState<"new" | "edit" | null>(null),
     // Group settings (BOARD-GROUPS-SPEC §5): `groupId` null opens on Add group; `projectId` opens that project's section.
     [groupSettings, setGroupSettings] = useState<{ groupId: string | null; projectId?: string; reviewOn?: boolean } | null>(null),
@@ -466,14 +472,12 @@ function BoardContent(
     ignoredLink.current = "";
     setSessionEntry(null);
     setMenu(null);
-    setActionTask(null);
     setTaskState("");
   }, [linkKey, input.error]);
   useEffect(() => {
     if (!resolvedLink.error || ignoredLink.current === linkKey) return;
     setSessionEntry(null);
     setMenu(null);
-    setActionTask(null);
     setTaskState("");
   }, [linkKey, resolvedLink.error]);
   const attentionToken = attentionOpenToken(props.params);
@@ -681,9 +685,6 @@ function BoardContent(
   useEffect(() => {
     if (pendingFocus.current) focusGroupOf(pendingFocus.current, false);
   }, [boardGroups, projectById]);
-  useEffect(() => {
-    setActionTask(null);
-  }, [viewKey]);
   // Guardrails needs one project; Insights, Ideas and Memory a project or a group's members; Search works across all.
   useEffect(() => {
     if (!project) setPage((current) => (current === "guardrails" || (!pages && current !== "search") ? null : current));
@@ -853,13 +854,14 @@ function BoardContent(
     [managed.data],
   );
   const readUnavailable = readState.isPending || readState.isError;
-  // Dismissed cards stay out of every count until something new happens (ATTENTION-DISMISS-SPEC).
+  // Snoozed signals stay out of every count until something new happens in their list (ATTENTION-DISMISS-SPEC).
   const allAttention = useMemo(
     () =>
       projected && agents.data ? attentionItemsWithFacts(projected, agents.data, receipts, readUnavailable, (task, agentId) => sessionFacts.get(task.id)?.get(agentId)) : [],
     [projected, agents.data, receipts, readUnavailable, sessionFacts],
   );
-  const attention = useMemo(() => allAttention.filter((i) => !i.dismissed), [allAttention]);
+  // Cards with something open in either list; one snoozed in a single list stays for the other.
+  const attention = useMemo(() => allAttention.filter(attentionOpen), [allAttention]);
   // Open asks (plan Q1) leave out the ones resolved in the chat until the live list drops them (DISPATCHER-SPEC §9.4):
   // the daemon's list covers a closed chat and a reload, this client's own set the moments before it catches up.
   const answeredAsks = useAnsweredAsks();
@@ -871,33 +873,22 @@ function BoardContent(
   useEffect(() => {
     if (liveSignals) forgetAnsweredMissing(liveSignals);
   }, [liveSignals]);
-  const dismissedAttention = useMemo(() => allAttention.filter((i) => i.dismissed), [allAttention]);
+  // Tip "attention-dismiss": three or more cards with an open need-you signal and none snoozed (ATTENTION-DISMISS-SPEC, Tip).
+  const crowdedAttention = useMemo(
+    () => allAttention.filter((i) => openInList(i, "needs")).length >= 3 && !allAttention.some((i) => i.snoozed.needs || i.snoozed.updated),
+    [allAttention],
+  );
   const attentionByTask = useMemo(() => new Map(allAttention.map((i) => [i.task.id, i])), [allAttention]);
-  // The project's default model wins over the global one; with neither, the latest session's settings (MODEL-DEFAULTS-SPEC).
+  // The project's default model, then its group's, then the global one; with none the picker starts empty (MODEL-DEFAULTS-SPEC §2).
   const modelPrefs = useSettings(modelSettings);
   const globalModel = agentModelFromValues(modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null);
   // The open form's or card's own project first: on the All board there is no board project. Then its group's default.
   const modelProject = formProject ?? taskProject ?? project;
   const defaultModel = effectiveAgentModel(modelProject, groupOf(modelProject), globalModel)?.model ?? null;
   const defaultModelKey = JSON.stringify(defaultModel);
-  const sessionDefaults = useMemo(
-    () =>
-      startingAgent(
-        lastSessionSettings(
-          agents.data || [],
-          new Set((board?.tasks || []).map((t) => t.workspaceId)),
-        ),
-        defaultModel,
-      ),
-    [agents.data, board?.tasks, defaultModelKey],
-  );
+  const sessionDefaults = useMemo(() => startingAgent(defaultModel), [defaultModelKey]);
   // Quick task's agent in any project: the same rule as sessionDefaults (QUICK-TASK-SPEC §1).
-  const agentDefaultsFor = useStableCallback((p: Project) =>
-    startingAgent(
-      lastSessionSettings(agents.data || [], new Set((board?.tasks || []).map((t) => t.workspaceId))),
-      effectiveAgentModel(p, groupOf(p), globalModel)?.model ?? null,
-    ),
-  );
+  const agentDefaultsFor = useStableCallback((p: Project) => startingAgent(effectiveAgentModel(p, groupOf(p), globalModel)?.model ?? null));
   // New task: Quick task unless the user turned that off (QUICK-TASK-SPEC §5), in the board's project unless pinned.
   // All projects: always Quick task, in the last quick-task project (ALL-PROJECTS-SPEC §5). `inAll` is false when
   // the caller switches to a project in the same moment (a project tab's New task).
@@ -1026,24 +1017,13 @@ function BoardContent(
   }
   const dismissRpc = useRpc(rpc.dismissAttention),
     restoreRpc = useRpc(rpc.restoreAttention);
-  const dismissFromAttention = useStableCallback((item: AttentionItem) =>
-    void doAction(
-      () => dismissRpc({ taskId: item.task.id, signals: item.signals }),
-      t("Dismissed. It comes back when something new happens."),
-    ),
-  );
-  const restoreToAttention = useStableCallback((taskId: string) =>
-    void doAction(() => restoreRpc({ taskId }), t("Back in Attention")),
-  );
-  const attentionMenuEntry = (card: Task) => {
-    const item = attentionByTask.get(card.id);
-    if (!item) return [];
-    return [
-      item.dismissed
-        ? { id: "attention-restore", label: t("Restore to Attention"), icon: "Bell", disabled: pending, onPress: () => restoreToAttention(card.id) }
-        : { id: "attention-dismiss", label: t("Dismiss from Attention"), icon: "BellOff", disabled: pending, onPress: () => dismissFromAttention(item) },
-    ];
-  };
+  // Snooze acts on one list with the card's current keys of that list; Unsnooze clears both (ATTENTION-DISMISS-SPEC, Card menu).
+  const snoozeList = useStableCallback((item: AttentionItem, list: SnoozeList) => {
+    const signals = listSignals(item, list);
+    if (!signals.length) return;
+    void doAction(() => dismissRpc({ taskId: item.task.id, list, signals }), t("Snoozed. It comes back when something new happens."));
+  });
+  const unsnooze = useStableCallback((taskId: string) => void doAction(() => restoreRpc({ taskId }), t("Unsnoozed.")));
   const move = (input: { id: string; revision: number; status: Status }) => {
     const card = data.data?.tasks.find((t) => t.id === input.id);
     const from = card?.status;
@@ -1069,102 +1049,37 @@ function BoardContent(
     );
   };
   const openMenu = useMenuOpener();
+  const menuControl = useMenuControl();
   // Open the card's workspace in Paseo (CARD-DISPLAY-SPEC §7): only a host that can, only a live workspace.
   const canOpenWorkspace = typeof props.navigation?.openWorkspace === "function";
   const openCardWorkspace = useStableCallback((card: Task) => openNativeWorkspace(props.navigation, card.workspaceId, props.host.id));
-  const workspaceMenuEntry = (card: Task) =>
-    canOpenWorkspace && cardIndex.workspaceIds.has(card.workspaceId)
-      ? [{ id: "workspace", label: t("Open workspace"), icon: "ArrowUpRight", onPress: () => openCardWorkspace(card) }]
-      : [];
-  const switchMenuEntry = (card: Task) => {
-    const kind = cardIndex.workspaceKinds.get(card.workspaceId);
-    const own = projectOf(card);
-    if (!kind || pending || own?.archivedAt || card.archivedAt || finished(card.status) || (kind === "local" && own?.links?.length)) return [];
-    const direction: SwitchDirection = kind === "worktree" ? "to_local" : "to_worktree";
-    return [
-      {
-        id: "switch",
-        label: kind === "worktree" ? t("Switch to local…") : t("Switch to worktree…"),
-        icon: kind === "worktree" ? "Folder" : "GitBranch",
-        onPress: () => setSwitchRequest({ taskId: card.id, direction }),
-      },
-    ];
-  };
-  const cardMenu = (card: Task): MenuEntry[] => {
-    const ownArchived = !!projectOf(card)?.archivedAt;
-    const locked = pending || ownArchived || !!card.archivedAt;
-    return [
-      { id: "open", label: t("Open details"), icon: "PanelRightOpen", onPress: () => setTask(card.id) },
-      ...workspaceMenuEntry(card),
-      ...switchMenuEntry(card),
-      {
-        id: "start",
-        label: t("Start session"),
-        icon: "Play",
-        disabled: locked,
-        onPress: () => {
+  const cardMenu = (card: Task): MenuEntry[] =>
+    boardCardMenu({
+      card,
+      statuses: cardStatuses(card),
+      laneName: (status) => cardLaneName(card, status),
+      ownArchived: !!projectOf(card)?.archivedAt,
+      pending,
+      compact,
+      allView,
+      groupOrder: !!group,
+      actions: {
+        open: () => setTask(card.id),
+        start: () => {
           setTask(card.id);
           setStartRequest({ taskId: card.id, key: `start-${Date.now()}` });
         },
-      },
-      { id: "link", label: t("Link to a card…"), icon: "Link", disabled: locked, onPress: () => setLinking(card) },
-      { id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: locked, onPress: () => followUp(card) },
-      ...attentionMenuEntry(card),
-      { kind: "separator", id: "s1" },
-      { kind: "label", id: "move", label: t("Move to") },
-      ...cardStatuses(card).map((status) => ({
-        id: `status-${status}`,
-        label: cardLaneName(card, status),
-        checked: status === card.status,
-        disabled: locked,
-        onPress: () => {
-          if (status !== card.status) move({ id: card.id, revision: card.revision, status });
-        },
-      })),
-      // A group board steps through its one order (BOARD-GROUPS-SPEC §4); a board of several projects with no group
-      // known has no shared order, so no Move up/down there (ALL-PROJECTS-SPEC §4).
-      ...(allView && !group
-        ? []
-        : ([
-            { kind: "separator", id: "s2" },
-            {
-              id: "up",
-              label: t("Move up"),
-              icon: "ArrowUp",
-              disabled: locked,
-              onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "up", scope: allView ? "group" : "project" })),
-            },
-            {
-              id: "down",
-              label: t("Move down"),
-              icon: "ArrowDown",
-              disabled: locked,
-              onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "down", scope: allView ? "group" : "project" })),
-            },
-          ] as MenuEntry[])),
-      { kind: "separator", id: "s3" },
-      {
-        id: "archive",
-        label: card.archivedAt ? t("Restore card") : t("Archive card"),
-        icon: card.archivedAt ? "ArchiveRestore" : "Archive",
-        danger: !card.archivedAt,
-        disabled: pending || ownArchived,
-        onPress: () =>
+        move: (status) => move({ id: card.id, revision: card.revision, status }),
+        // A group board steps through its one order: the group's unfiltered, the card's project's filtered (§4).
+        reorder: (direction) => void doAction(() => reorder({ id: card.id, revision: card.revision, direction, scope: allView ? "group" : "project" })),
+        archive: () =>
           void doAction(
             () => updateTask({ id: card.id, revision: card.revision, archived: !card.archivedAt }),
             card.archivedAt ? t("Card restored") : t("Card archived"),
           ),
+        remove: () => setDeleting(card),
       },
-      {
-        id: "delete",
-        label: t("Delete permanently…"),
-        icon: "Trash2",
-        danger: true,
-        disabled: pending || ownArchived,
-        onPress: () => setDeleting(card),
-      },
-    ];
-  };
+    });
   // One pass over events/agents/workspaces per data change; cards only look up
   // (each card used to filter every event and agent on every render).
   const cardIndex = useMemo(() => {
@@ -1206,7 +1121,7 @@ function BoardContent(
     setDrawerFocus(null);
     setTask(t.id);
   });
-  const openCardActions = useStableCallback((t: Task) => setActionTask(t));
+  const openCardActions = useStableCallback((t: Task, at: Point) => openMenu?.(at, t.title, cardMenu(t)));
   const cardMenuFor = useStableCallback((t: Task) => cardMenu(t));
   // Stable drawer callbacks (memoized drawer).
   const closeDrawer = useStableCallback(() => {
@@ -1326,8 +1241,17 @@ function BoardContent(
   const openTaskById = useStableCallback((id: string) => {
     setDrawerFocus(null);
     const target = currentDetail?.relatedTasks.find(t => t.id === id) ?? board?.tasks.find(t => t.id === id);
+    // Only the full overview proves a card is gone: a cold direct link holds just its own card.
+    if (!target && overviewData.data) return void toast.show(t("This card no longer exists."), { variant: "info" });
     if (target) { setDetailTarget(target); focusGroupOf(target.projectId); } // board-groups 3/7
     setTask(id);
+  });
+  // Card links in the dispatcher chat (§9.3): a card's current title and state from every project, archived included.
+  const resolveCard = useStableCallback((id: string) => {
+    const task = board?.tasks.find((x) => x.id === id);
+    if (!task) return null;
+    const owner = projectById.get(task.projectId);
+    return { title: task.title, archived: !!task.archivedAt, openable: !!owner && !owner.archivedAt };
   });
   // The left dock is the dispatcher chat (§9.3; Ruling, Noah 2026-11-09): open or minimized (phones: the page shown).
   const dockAvailable = !!project || allView;
@@ -1440,7 +1364,7 @@ function BoardContent(
       }
     >
       <LeftDock compact={compact} expanded={chatExpanded} onToggleSize={toggleChatSize} onClose={closeChat} groupName={dispatcherGroupName}>
-        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} groupId={dispatcherGroupId} />
+        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} resolveCard={resolveCard} cardsVersion={board?.tasks} groupId={dispatcherGroupId} />
       </LeftDock>
       {chatGrip}
     </Animated.View>
@@ -1658,7 +1582,7 @@ function BoardContent(
     welcomeSeen: onboarding.values?.welcomeSeen ?? false,
     whatsNewSeen: onboarding.values?.whatsNewSeen ?? "",
     release: latestRelease,
-    blocked: dialogOpen || !!actionTask || !!taskId || welcomeOpen || welcome === "show" || settingsHint,
+    blocked: dialogOpen || menuControl.isOpen() || !!taskId || welcomeOpen || welcome === "show" || settingsHint,
   });
   const whatsNewShown = useRef(false);
   useEffect(() => {
@@ -1712,9 +1636,9 @@ function BoardContent(
           hasWorkpad: !task && workpadEnabled(project) && projectTasks.some(x => factsByTask.get(x.id)?.hasWorkpad),
           busyBoard: !task && projectTasks.filter((x) => !x.archivedAt).length >= 6,
           hasSubagent: projectHasSubagent,
-          crowdedAttention: attention.length >= 3 && dismissedAttention.length === 0,
+          crowdedAttention,
           cardWithSession: !!task && !!cardIndex.agentsByWorkspace.get(task.workspaceId)?.length,
-          fullSidebar: !!task && !!currentDetail && (!!currentDetail.artifacts.length || !!currentDetail.ideas.length),
+          fullSidebar: !!task && !!currentDetail && (!!withoutPlan(currentDetail.artifacts).length || !!currentDetail.ideas.length),
           hasSummary: !task && !!summaries.data?.latest.some((e) => projectTasks.some((x) => x.id === e.taskId)),
           workflowSuggestion: features.insights && workflowTipDue && !!workflowView.data?.findings.some((f) => f.status === "open" && !(f.target === "skill" && f.skill)),
           skillDraft: features.insights && workflowTipDue && !!workflowView.data?.findings.some((f) => f.status === "open" && f.target === "skill" && !!f.skill),
@@ -1724,6 +1648,7 @@ function BoardContent(
           reviewShown: !task && projectTasks.some((x) => !!visibleReview(x)),
           learnedGuideline: !task && !!projectGuardrails?.added,
           laneSwipe: touch && !task && !page && shownStatuses.length > 1 && projectTasks.some((x) => !x.archivedAt),
+          cardPlan: !!task && !!currentDetail && planApproved(planOf(currentDetail.artifacts, task.id)),
         },
         blocked: tipBlocked,
       });
@@ -1743,11 +1668,14 @@ function BoardContent(
   );
   const stableRefresh = useStableCallback(() => refresh());
   const drawerAttention = drawer.item ? attentionByTask.get(drawer.item.task.id) : undefined;
-  const toggleDrawerAttention = useStableCallback(() => {
-    if (!drawerAttention) return;
-    if (drawerAttention.dismissed) restoreToAttention(drawerAttention.task.id);
-    else dismissFromAttention(drawerAttention);
-  });
+  // Content-compared so the memoized drawer does not re-render for an unchanged offer.
+  const drawerSnoozeOffer = snoozeMenu(drawerAttention);
+  const drawerSnooze = useMemo(
+    () => (drawerAttention ? drawerSnoozeOffer : undefined),
+    [!!drawerAttention, drawerSnoozeOffer.needs, drawerSnoozeOffer.updated, drawerSnoozeOffer.snoozed],
+  );
+  const snoozeDrawer = useStableCallback((list: SnoozeList) => drawerAttention && snoozeList(drawerAttention, list));
+  const unsnoozeDrawer = useStableCallback(() => drawerAttention && unsnooze(drawerAttention.task.id));
   const sessionEntryConsumed = useStableCallback((requestId: string) =>
     setSessionEntry((current) =>
       current?.requestId === requestId &&
@@ -1790,7 +1718,7 @@ function BoardContent(
       sessions: sessions.length,
       summary: sessionAttentionSummaryFromTurns(sessions, t, receipts, sessionFacts.get(t.id) || noTurnFacts),
       summaryState,
-      attentionDismissed: !!attentionByTask.get(t.id)?.dismissed,
+      attentionSnoozed: snoozeMenu(attentionByTask.get(t.id)).snoozed,
       outputSession: pickOutputSession(sessions, t.workspaceId, managedIds),
       progress: cardProgress(summaries.data, t.id),
       questions: facts?.questions ?? 0,
@@ -1919,6 +1847,8 @@ function BoardContent(
   const withKey = (text: string, key: string) =>
     shortcutsOn ? `${text} (${key})` : text;
   function runIntent(intent: BoardIntent | Exclude<ShortcutAction, BoardIntent>) {
+    // An open menu takes every shortcut but Esc (it steps out or closes).
+    if (intent !== "escape" && menuControl.isOpen()) return false;
     switch (intent) {
       case "new-task":
         if (!allView && (!project || project.archivedAt)) return false;
@@ -1978,6 +1908,7 @@ function BoardContent(
         else openSearch("");
         return true;
       case "escape":
+        if (menuControl.escape()) return true;
         if (decideEsc(false, true) === "closeDock") {
           closeChat();
           return true;
@@ -2134,8 +2065,9 @@ function BoardContent(
           sessionEntry?.taskId === drawer.item.task.id && drawer.active ? sessionEntry : undefined
         }
         onSessionEntryConsumed={sessionEntryConsumed}
-        attention={drawerAttention ? (drawerAttention.dismissed ? "dismissed" : "active") : undefined}
-        onAttention={toggleDrawerAttention}
+        attention={drawerSnooze}
+        onSnooze={snoozeDrawer}
+        onUnsnooze={unsnoozeDrawer}
         sectionOrder={(view.values?.drawerOrder || []).join(",")}
         sectionOpen={JSON.stringify(view.values?.drawerOpen || {})}
         focus={drawerFocus?.taskId === drawer.item.task.id ? drawerFocus : undefined}
@@ -2478,7 +2410,7 @@ function BoardContent(
                     statuses={shownStatuses}
                     tasks={visible}
                     disabled={pending || !!project?.archivedAt}
-                    cancelKey={`${viewKey}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!groupSettings}|${!!taskForm}|${!!quickTask}`}
+                    cancelKey={`${viewKey}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${projectForm}|${!!groupSettings}|${!!taskForm}|${!!quickTask}`}
                     sortColumn={sortColumn}
                     manualOrder={reorderAllowed(allView, boardSort, !!group)}
                     collapsed={collapsedColumns}
@@ -2769,134 +2701,6 @@ function BoardContent(
                   }}
                 />
               ))}
-            </Theme.Provider>
-          </Modal.Content>
-        </Modal>
-        <Modal
-          open={!!actionTask}
-          title={actionTask?.title || t("Task actions")}
-          onOpenChange={(open) => {
-            if (!open) setActionTask(null);
-          }}
-        >
-          <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
-            <Theme.Provider value={props.theme}>
-              {actionTask && (
-                <>
-                  <Row
-                    title={t("Open details")}
-                    icon="PanelRightOpen"
-                    onPress={() => {
-                      setTask(actionTask.id);
-                      setActionTask(null);
-                    }}
-                  />
-                  {[...workspaceMenuEntry(actionTask), ...switchMenuEntry(actionTask)].map((entry) => (
-                    <Row
-                      key={entry.id}
-                      title={entry.label}
-                      icon={entry.icon}
-                      onPress={() => {
-                        setActionTask(null);
-                        entry.onPress();
-                      }}
-                    />
-                  ))}
-                  <Row
-                    title={t("Start session")}
-                    icon="Play"
-                    disabled={!!projectOf(actionTask)?.archivedAt || !!actionTask.archivedAt}
-                    onPress={() => {
-                      setTask(actionTask.id);
-                      setStartRequest({ taskId: actionTask.id, key: `start-${Date.now()}` });
-                      setActionTask(null);
-                    }}
-                  />
-                  <Row
-                    title={t("Link to a card…")}
-                    icon="Link"
-                    disabled={!!projectOf(actionTask)?.archivedAt || !!actionTask.archivedAt}
-                    onPress={() => {
-                      setLinking(actionTask);
-                      setActionTask(null);
-                    }}
-                  />
-                  <Row
-                    title={t("New follow-up task")}
-                    icon="CornerDownRight"
-                    disabled={!!projectOf(actionTask)?.archivedAt || !!actionTask.archivedAt}
-                    onPress={() => {
-                      followUp(actionTask);
-                      setActionTask(null);
-                    }}
-                  />
-                  {attentionMenuEntry(actionTask).map((entry) => (
-                    <Row
-                      key={entry.id}
-                      title={entry.label}
-                      icon={entry.icon}
-                      disabled={entry.disabled}
-                      onPress={() => {
-                        entry.onPress();
-                        setActionTask(null);
-                      }}
-                    />
-                  ))}
-                  {/* A group board steps through its one order; no Move up/down with no group known (ALL-PROJECTS-SPEC §4). */}
-                  {(!allView || !!group) && (["up", "down"] as const).map((direction) => (
-                    <Row
-                      key={direction}
-                      title={direction === "up" ? t("Move up") : t("Move down")}
-                      icon={direction === "up" ? "ArrowUp" : "ArrowDown"}
-                      disabled={
-                        pending ||
-                        !!projectOf(actionTask)?.archivedAt ||
-                        !!actionTask.archivedAt
-                      }
-                      onPress={() => {
-                        const t = actionTask;
-                        setActionTask(null);
-                        void doAction(() =>
-                          reorder({
-                            id: t.id,
-                            revision: t.revision,
-                            direction,
-                            scope: allView ? "group" : "project",
-                          }),
-                        );
-                      }}
-                    />
-                  ))}
-                  <Divider style={{ marginVertical: space[2] }} />
-                  <View style={{ paddingHorizontal: space[3], paddingBottom: space[1] }}>
-                    <Label medium muted size={font.sm} selectable={false}>
-                      {t("Move to")}</Label>
-                  </View>
-                  {cardStatuses(actionTask).map((s) => (
-                    <Row
-                      key={s}
-                      title={cardLaneName(actionTask, s)}
-                      label={t("Move to: {name}", { name: cardLaneName(actionTask, s) })}
-                      leading={<StatusIcon status={s} size={16} />}
-                      selected={s === actionTask.status}
-                      disabled={
-                        pending ||
-                        !!projectOf(actionTask)?.archivedAt ||
-                        !!actionTask.archivedAt
-                      }
-                      onPress={() => {
-                        if (s !== actionTask.status)
-                          move({
-                            id: actionTask.id,
-                            revision: actionTask.revision,
-                            status: s,
-                          });
-                        setActionTask(null);
-                      }}
-                    />
-                  ))}
-                </>
-              )}
             </Theme.Provider>
           </Modal.Content>
         </Modal>

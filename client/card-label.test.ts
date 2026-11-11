@@ -10,7 +10,7 @@ const base = {
   waitingTitles: "",
   progress: null,
   workpad: null,
-  attentionDismissed: false,
+  attentionSnoozed: false,
   priority: "high",
   type: "feature",
   archivedAt: null,
@@ -24,6 +24,11 @@ const base = {
 test("the accessible name starts with the title and names the lane (automation names)", () => {
   const label = taskCardLabel({ ...base });
   expect(label.startsWith("Open task Add rate limiting to POST /shorten. Todo.")).toBe(true);
+});
+
+test("a snoozed card says so (ATTENTION-DISMISS-SPEC, Card and sidebar)", () => {
+  expect(taskCardLabel({ ...base })).not.toContain("Snoozed");
+  expect(taskCardLabel({ ...base, attentionSnoozed: true })).toContain("Snoozed.");
 });
 
 test("the lane segment is omitted when no lane is known", () => {

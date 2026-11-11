@@ -112,7 +112,7 @@ function HowPage() {
         {[
           <Legend key="n" title={t("Needs you")} text={t("When an agent asks, waits for approval or fails, its card says so.")} />,
           <Legend key="b" title={t("Step through")} text={t("“N need you” opens each waiting card in turn, with what it asks on top.")} />,
-          <Legend key="o" title={t("Open or dismiss")} text={t("Open a card to answer it, or dismiss it from the list.")} />,
+          <Legend key="o" title={t("Open or snooze")} text={t("Open a card to answer it, or snooze it until something new happens.")} />,
         ]}
       </Columns>
     </View>
@@ -426,6 +426,7 @@ function MoreFeatures() {
     { icon: "Zap", title: t("Quick task"), text: t("New task asks only what you want done. Enter creates the card, starts its agent in a new worktree and lets AI name it; More options opens the full form.") },
     { icon: "ListChecks", title: t("Workpad"), text: t("Agents set the card's type and tags and write an acceptance list before they start; the card shows how many items are met, next to the latest review.") },
     { icon: "ShieldCheck", title: t("Auto review"), text: t("Deliveries are checked before they reach you, and go back to the agent when they fall short.") },
+    { icon: "ClipboardCheck", title: t("A card's plan"), text: t("A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.") },
     { icon: "Package", title: t("Inputs and outputs"), text: t("Each card lists the files and links it worked from and delivered, added by agents or by you.") },
     { icon: "Ticket", title: t("Tickets, docs and PRs as inputs"), text: t("Start a card from a Jira ticket, Confluence page, GitHub/GitLab issue or pull request, Azure DevOps work item, Linear issue, or Shortcut story or epic, or add one with the Artifacts +. Agents read it every turn; Flowly never changes it.") },
     { icon: "Columns3", title: t("Linear board"), text: t("With a Linear connection, Linear in the sidebar shows your issues by state. Start card opens Quick task with the issue attached: press Enter to start the agent.") },

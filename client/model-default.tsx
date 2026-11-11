@@ -118,10 +118,10 @@ export function ModelDefaultGroup({
         <SettingSelect
           title={t("Permissions")}
           value={mode}
-          placeholder={t("Same as latest session")}
+          placeholder={t("Automatic")}
           disabled={disabled}
           options={[
-            { value: "", label: t("Same as latest session"), detail: t("Use the latest session's permission mode when it uses this provider, else the provider's own") },
+            { value: "", label: t("Automatic"), detail: t("Auto mode for Claude, Auto-review for Codex, else the provider's own") },
             ...modeList.map((m) => ({ value: m.id, label: m.label, detail: m.description })),
           ]}
           onChange={(next) => onChange({ provider, model, ...(thinking ? { thinking } : {}), ...(next ? { mode: next } : {}) })}

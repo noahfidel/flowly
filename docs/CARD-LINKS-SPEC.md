@@ -136,11 +136,11 @@
 2. `TextBox` 搜索框（标题包含匹配，忽略大小写，`commitDelay` 防抖），下面列出本项目未归档的卡片：类型图标、标题、泳道名；按泳道顺序再按看板位置排序。排除本卡；与本卡在所选关系下已有关联的卡显示为禁用并标注 “Linked”。
 3. 点一张卡即提交 `links.create`；成功关闭弹层并弹 success toast “Linked”；失败（环、上限、已关联、卡已不存在）弹层保留并在列表上方显示错误。
 
-入口：Links 区块 `+` 菜单；看板卡片右键/长按菜单新增 **Link to a card…**（位于 Start session 之后）。
+入口：Links 区块 `+` 菜单；卡片侧栏 ⋯ 菜单的 **Link to a card…**（位于 Start session 之后）。Ruling（Noah，2026-11-10）：看板卡片菜单不再有此项（UI-UX-SPEC §2）。
 
 ### 5.5 New follow-up task
 
-打开现有新建任务表单（同一组件），标题 “Create follow-up task”，表单顶部显示一行 “Follow-up of <来源卡标题>”。字段默认值同普通新建，类型与优先级继承来源卡；描述为空。保存时 `tasks.create` 带 `followUpOf`。入口：Links 区块 `+` 菜单；看板卡片菜单 **New follow-up task**。
+打开现有新建任务表单（同一组件），标题 “Create follow-up task”，表单顶部显示一行 “Follow-up of <来源卡标题>”。字段默认值同普通新建，类型与优先级继承来源卡；描述为空。保存时 `tasks.create` 带 `followUpOf`。入口：Links 区块 `+` 菜单；卡片侧栏 ⋯ 菜单的 **New follow-up task**（看板卡片菜单不再有，Ruling Noah 2026-11-10）。
 
 ## 6. 删除与归档
 

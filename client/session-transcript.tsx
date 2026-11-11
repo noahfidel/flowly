@@ -75,6 +75,8 @@ type TranscriptProps = {
   requests: readonly PendingRequest[];
   requestsDisabled: boolean;
   onRespond(request: PendingRequest, reply: PermissionReply): void;
+  /** Opens the session in Paseo from an approval's link; absent when the host cannot. */
+  onOpenInPaseo?: () => void;
   /** The composer's keyboard lift (native driver, negative = up); the transcript moves with it. */
   lift: Animated.AnimatedInterpolation<number> | Animated.AnimatedMultiplication<number>;
   /** The settled lift, for reaching the oldest output while the keyboard is up. */
@@ -114,6 +116,7 @@ function SessionTranscriptView({
   requests,
   requestsDisabled,
   onRespond,
+  onOpenInPaseo,
   lift,
   inset,
   onStreamError,
@@ -308,7 +311,7 @@ function SessionTranscriptView({
   const asking =
     showOutput && requests.length ? (
       <View style={{ paddingTop: blocks.length ? space[4] : 0 }}>
-        <PendingRequests requests={requests} disabled={requestsDisabled} onRespond={onRespond} />
+        <PendingRequests requests={requests} disabled={requestsDisabled} onRespond={onRespond} onOpenInPaseo={onOpenInPaseo} />
       </View>
     ) : null;
   const bottom =
@@ -468,7 +471,7 @@ function LoadEarlier({ loading, onPress }: { loading: boolean; onPress(): void }
 
 type OutputEntry = ReturnType<typeof recentSessionOutput>[number];
 const sameEntry = (a: OutputEntry, b: OutputEntry) =>
-  a === b || (a.key === b.key && a.text === b.text && a.author === b.author && a.messageId === b.messageId);
+  a === b || (a.key === b.key && a.text === b.text && a.author === b.author && a.messageId === b.messageId && a.sender === b.sender);
 
 /** One transcript entry: your message as a bubble, the agent's reply as markdown. Also the welcome tour's sample session. */
 export const TranscriptEntry = memo(function TranscriptEntry({
@@ -490,6 +493,7 @@ export const TranscriptEntry = memo(function TranscriptEntry({
     // Your own images stay compact beside your message.
     <SessionImage key={image.src} taskId={taskId} agentId={agentId} image={image} maxWidth={entry.author === "You" ? 200 : 360} />
   ));
+  if (entry.kind === "agent-message") return <AgentMessageRow sender={entry.sender ?? ""} text={entry.text} />;
   if (entry.author === "You" && !text && !pictures.length) return null;
   if (entry.author === "You")
     return (
@@ -525,6 +529,34 @@ export const TranscriptEntry = memo(function TranscriptEntry({
     </View>
   );
 }, (a, b) => a.taskId === b.taskId && a.agentId === b.agentId && sameEntry(a.entry, b.entry));
+
+/** A prompt another agent sent to this session: one muted line, pressed open to its full text. */
+const AgentMessageRow = memo(function AgentMessageRow({ sender, text }: { sender: string; text: string }) {
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  const line = `${t("From {name}", { name: sender })} · ${text.trim().split("\n")[0]}`;
+  return (
+    <View style={{ minWidth: 0, gap: space[1] }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={line}
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(!open)}
+        style={{ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}
+      >
+        <Icon name="CornerDownRight" size={12} color={colors.foregroundMuted} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label muted size={font.sm} lines={1} selectable={false}>{line}</Label>
+        </View>
+      </Pressable>
+      {open && (
+        <View style={{ paddingLeft: space[1.5] + 12 }}>
+          <Label muted size={font.sm}>{text.trim()}</Label>
+        </View>
+      )}
+    </View>
+  );
+});
 
 /**
  * Consecutive thinking and tool calls, collapsed by default to one summary

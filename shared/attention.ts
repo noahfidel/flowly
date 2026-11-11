@@ -1,11 +1,21 @@
 import type { Project, Task, BoardEvent } from "./model";
 import { openReport, silentTurn } from "./progress";
 import { parseQuestions, pendingRequests, showsTextInput, type PendingRequest } from "./permission-question";
-import { sessionSpeed, type ProviderFeature } from "./agent-speed";
-import { isDismissed, sessionSignalParts, waitsOnYou, type AskKind, type AskState, type AttentionDismissal, type SignalPart } from "./attention-dismiss";
+import {
+  isKeySnoozed,
+  listSnoozed,
+  sessionSignalParts,
+  signalList,
+  waitsOnYou,
+  type AskKind,
+  type AskState,
+  type AttentionDismissal,
+  type SignalPart,
+  type SnoozeList,
+} from "./attention-dismiss";
 import { reviewSignal, reviewing } from "./auto-review";
 
-export { askStates, type AskKind, type AskState } from "./attention-dismiss";
+export { askStates, type AskKind, type AskState, type SnoozeList } from "./attention-dismiss";
 import {
   sessionAttentionFromTurn,
   type AttentionAgent,
@@ -33,17 +43,20 @@ export type AttentionItem = {
   updatedAt: string;
   /** Sessions whose latest Flowly report is an open blocker (plan Q5). */
   blockers: number;
-  /** What the card is waiting on now, one key per concrete thing (ATTENTION-DISMISS-SPEC §2.2). */
+  /** What the card is waiting on now, one key per concrete thing (ATTENTION-DISMISS-SPEC, Signal keys). */
   signals: string[];
   /** The same signals with their session and kind; each is one ask (DISPATCHER-SPEC §9.4). */
   parts: AttentionPart[];
-  /** Dismissed from Attention and nothing new since: not counted, listed under Dismissed. */
-  dismissed: boolean;
+  /**
+   * Per list, snoozed and nothing new since in that list (ATTENTION-DISMISS-SPEC, Rule): Needs you over the card's
+   * need-you keys (the review key included), Updates over its unread turns. Each is false when the card has none.
+   */
+  snoozed: { needs: boolean; updated: boolean };
 };
 
 /**
- * One signal of a card: its session, and whether it is in the card's dismissal set. A closed session's signals stay
- * live: `closed` is a stopped process that a message reloads, not an ended session (DISPATCHER-SPEC §9.4).
+ * One signal of a card: its session, and whether it is in its list's snoozed set (`dismissed`). A closed session's
+ * signals stay live: `closed` is a stopped process that a message reloads, not an ended session (DISPATCHER-SPEC §9.4).
  */
 export type AttentionPart = SignalPart & { agentId: string; dismissed: boolean };
 
@@ -133,11 +146,11 @@ export function attentionItemsWithFacts(
       s.parts.map((p) => ({
         ...p,
         agentId: s.agent.id,
-        dismissed: !!record?.signals.includes(p.key),
+        dismissed: isKeySnoozed(p.key, record),
       })),
     );
-    // A finished review waiting for a person is a signal of the card, not of one session: it counts for dismissal
-    // but is not one of the sessions' asks (AUTO-REVIEW-SPEC §7).
+    // A finished review waiting for a person is a signal of the card, not of one session: it counts for Snooze in
+    // Needs you but is not one of the sessions' asks (AUTO-REVIEW-SPEC §7).
     const signals = [...parts.map((p) => p.key), ...(review ? [review.key] : [])];
     items.push({
       task,
@@ -157,7 +170,7 @@ export function attentionItemsWithFacts(
         .at(-1) || (review ? task.review?.finishedAt || "" : ""),
       signals,
       parts,
-      dismissed: isDismissed(signals, record),
+      snoozed: { needs: listSnoozed(signals, record, "needs"), updated: listSnoozed(signals, record, "updated") },
     });
   }
   return items.sort(
@@ -169,7 +182,7 @@ export function attentionItemsWithFacts(
 }
 
 /**
- * The bell's count, "N need you" (plan Q1): open asks that wait on you, each signal not in its card's dismissal set.
+ * The bell's count, "N need you" (plan Q1): open asks that wait on you, each signal not in its list's snoozed set.
  * Unread turns are not counted (Ruling, Noah 2026-11-09; they are in "N updated").
  */
 export function openAskCount(items: readonly AttentionItem[], resolved: ReadonlySet<string> = noSignals): number {
@@ -177,6 +190,27 @@ export function openAskCount(items: readonly AttentionItem[], resolved: Readonly
 }
 
 const noSignals: ReadonlySet<string> = new Set();
+
+/**
+ * Whether the card has an open signal in `list` (ATTENTION-DISMISS-SPEC, Card menu): a part of that list not snoozed
+ * and not resolved in the chat, or, for Needs you, a review waiting for a person whose list is not snoozed (the review
+ * is a card signal, not a part, so it is open exactly while the Needs you list is not snoozed).
+ */
+export function openInList(item: AttentionItem, list: SnoozeList, resolved: ReadonlySet<string> = noSignals): boolean {
+  if (item.parts.some((p) => signalList(p.key) === list && !p.dismissed && !resolved.has(p.key))) return true;
+  return list === "needs" && !!item.review && !item.snoozed.needs;
+}
+
+/** The card's current keys of one list, what Snooze in that list stores. */
+export function listSignals(item: AttentionItem, list: SnoozeList): string[] {
+  return item.signals.filter((key) => signalList(key) === list);
+}
+
+/** What the card menu offers (ATTENTION-DISMISS-SPEC, Card menu): each list's Snooze while it has an open signal, Unsnooze while any list is snoozed. */
+export function snoozeMenu(item: AttentionItem | undefined): { needs: boolean; updated: boolean; snoozed: boolean } {
+  if (!item) return { needs: false, updated: false, snoozed: false };
+  return { needs: openInList(item, "needs"), updated: openInList(item, "updated"), snoozed: item.snoozed.needs || item.snoozed.updated };
+}
 
 /**
  * The open asks: not dismissed, and not answered, ended or dismissed in the chat (`resolved`, the signals the
@@ -242,7 +276,7 @@ function requestOptions(request: PendingRequest | undefined, kind: AskKind): Pic
 
 /**
  * The one source of asks for the bell and the dispatcher chat (plan Q1, DISPATCHER-SPEC §9.4): every signal
- * of every card in Attention, `open` or `dismissed` by the card's dismissal set.
+ * of every card in Attention, `open`, or `dismissed` when its key is in its list's snoozed set.
  */
 export function asksFrom(
   board: FullBoard,
@@ -286,20 +320,23 @@ type AttentionSources = {
   readUnavailable: boolean;
 };
 
-/** Every card needing a human, dismissed ones included; null while unavailable. */
+/** Every card needing a human, snoozed ones included; null while unavailable. */
 export function allAttentionFromSources(sources: AttentionSources): AttentionItem[] | null {
   if (!sources.board || !sources.agents) return null;
   return attentionItems(sources.board, sources.agents, sources.receipts, sources.readUnavailable);
 }
 
+/** Whether a card still has something open in either list, i.e. it is not snoozed in every list it has a signal in. */
+export const attentionOpen = (item: AttentionItem): boolean =>
+  !item.signals.length || openInList(item, "needs") || openInList(item, "updated");
+
 /**
- * The one counting rule shared by the board Attention button and the sidebar badge:
- * cards needing a human that were not dismissed (ATTENTION-DISMISS-SPEC §3.2).
- * Returns null while the board or agent list is unavailable (loading or failed).
- * Read receipts that are pending or failed only drop finished-but-unread sessions.
+ * Cards needing a human with something open in either list (ATTENTION-DISMISS-SPEC, Counts): a card snoozed in one
+ * list stays while the other list has an open signal. Returns null while the board or agent list is unavailable
+ * (loading or failed). Read receipts that are pending or failed only drop finished-but-unread sessions.
  */
 export function attentionFromSources(sources: AttentionSources): AttentionItem[] | null {
-  return allAttentionFromSources(sources)?.filter((i) => !i.dismissed) ?? null;
+  return allAttentionFromSources(sources)?.filter(attentionOpen) ?? null;
 }
 
 /** Badge text for a count; null hides the badge. */
@@ -316,32 +353,4 @@ export function attentionScreenParams(token: string) {
 /** The open token when params ask for the Needs attention modal, else null. */
 export function attentionOpenToken(params: Record<string, string> | undefined): string | null {
   return params?.view === "attention" && params.open ? params.open : null;
-}
-
-/** Provider/model/mode/reasoning/speed of the most recently created session in any card workspace. */
-export function lastSessionSettings(
-  agents: readonly {
-    workspaceId?: string | null;
-    archivedAt?: string | null;
-    createdAt: string;
-    provider: string;
-    model: string | null;
-    currentModeId?: string | null;
-    thinkingOptionId?: string | null;
-    features?: readonly ProviderFeature[] | null;
-  }[],
-  workspaceIds: ReadonlySet<string>,
-) {
-  const latest = agents
-    .filter((a) => !a.archivedAt && !!a.workspaceId && workspaceIds.has(a.workspaceId))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  return latest
-    ? {
-        provider: latest.provider,
-        model: latest.model || "",
-        mode: latest.currentModeId || "",
-        thinking: latest.thinkingOptionId || "",
-        speed: sessionSpeed(latest.features),
-      }
-    : null;
 }

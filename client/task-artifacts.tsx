@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
@@ -6,6 +6,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import type { Artifact, ArtifactRole, Task } from "../shared/model";
 import { artifactGroups, artifactsOf, baseName } from "../shared/artifacts";
+import { withoutPlan } from "../shared/plans";
+import { artifactSaveSteps, formRoles, initialFormRole, type ArtifactFormRole } from "./task-plan-logic";
 import { Modal } from "./modal";
 import { IdeaRow, useExitList } from "./task-ideas";
 import { useTaskDetail, invalidateCardViews } from "./card-detail-query";
@@ -13,12 +15,29 @@ import { SessionMarkdown } from "./session-content";
 import { PagedRows, Section, ShowMore, pageSize, type SectionState } from "./disclosure";
 import { FocusTarget, Marked, limitFor, useFocusTarget, useMark } from "./drawer-focus";
 import { AiMark, Actions, Button, Choices, Field, IconButton, Label, Notice, Theme, font, message, space, touch, useTheme, noFocusRing } from "./ui";
-import { t, tn } from "../shared/i18n";
+import { msg, t, tn } from "../shared/i18n";
 import { BrandIcon } from "./brand-icons";
 import { ExternalPreview, LinkExternal, connectionsByFamily, pickKey, itemKindLabel, linkTitles, useConnections } from "./connectors";
 import { connectorFamilies, familyOf, itemTypeOf, type ConnectorFamily } from "../shared/connectors";
 import { eventPoint, useMenuOpener, type MenuEntry } from "./context-menu";
 import { useSettingsOpener } from "./settings-opener";
+
+/**
+ * Ids of the card's missing files: one batched check when the drawer shows the card or its files change
+ * (CARD-ARTIFACTS-SPEC §9). Artifacts and the Plan row pass the same list, so they share one query.
+ */
+export function useArtifactMissing(taskId: string, all: readonly Artifact[]): ReadonlySet<string> {
+  const readStatus = useRpc(rpc.artifactStatus);
+  const fileKey = all.filter((a) => a.kind === "file").map((a) => `${a.id}:${a.target}`).join("|");
+  const status = useQuery({
+    queryKey: ["flowly", "artifact-status", taskId, fileKey],
+    queryFn: () => readStatus({ taskId }),
+    enabled: !!fileKey,
+    staleTime: 30_000,
+    retry: false,
+  });
+  return useMemo(() => new Set(status.data?.missing || []), [status.data]);
+}
 
 /** Rows shown per group at first, and added by each Show more (CARD-ARTIFACTS-SPEC §5.2). */
 const firstPage: Record<ArtifactRole, number> = { input: pageSize, output: pageSize };
@@ -33,7 +52,6 @@ export function TaskArtifacts({ task, active, disabled, section }: { task: Task;
   const toast = useToast();
   const queryClient = useQueryClient();
   const deleteArtifact = useRpc(rpc.deleteArtifact);
-  const readStatus = useRpc(rpc.artifactStatus);
   const [removing, setRemoving] = useState<ReadonlySet<string>>(() => new Set());
   const [editing, setEditing] = useState<Artifact | "new" | null>(null);
   const [previewing, setPreviewing] = useState<Artifact | null>(null);
@@ -48,10 +66,9 @@ export function TaskArtifacts({ task, active, disabled, section }: { task: Task;
   useEffect(() => {
     if (active) setLimit(firstPage);
   }, [active]);
-  const list = useMemo(
-    () => (detail ? artifactsOf(detail.artifacts, task.id).filter((a) => !removing.has(a.id)) : []),
-    [detail, task.id, removing],
-  );
+  const all = useMemo(() => (detail ? artifactsOf(detail.artifacts, task.id) : []), [detail, task.id]);
+  // The card's plan has its own row above the sections (CARD-PLAN-SPEC §2.1).
+  const list = useMemo(() => withoutPlan(all).filter((a) => !removing.has(a.id)), [all, removing]);
   // A search hit on an artifact past the first page shows the pages up to it (DRAWER-SPEC "Focus from search").
   const focusTarget = useFocusTarget();
   useEffect(() => {
@@ -61,16 +78,7 @@ export function TaskArtifacts({ task, active, disabled, section }: { task: Task;
     const at = list.filter((a) => a.role === target.role).indexOf(target);
     setLimit((current) => ({ ...current, [target.role]: limitFor(at, current[target.role], pageSize) }));
   }, [focusTarget, list]);
-  const fileKey = list.filter((a) => a.kind === "file").map((a) => `${a.id}:${a.target}`).join("|");
-  // One batched check when the drawer shows the card or its files change (CARD-ARTIFACTS-SPEC §9).
-  const status = useQuery({
-    queryKey: ["flowly", "artifact-status", task.id, fileKey],
-    queryFn: () => readStatus({ taskId: task.id }),
-    enabled: !!fileKey,
-    staleTime: 30_000,
-    retry: false,
-  });
-  const missing = useMemo(() => new Set(status.data?.missing || []), [status.data]);
+  const missing = useArtifactMissing(task.id, all);
   // External statuses for the rows, cached by the daemon (EXTERNAL-TRACKER-SPEC §3.3).
   const externalKey = list.filter((a) => a.external).map((a) => a.id).join("|");
   const externalStatus = useQuery({
@@ -269,19 +277,24 @@ function hostOf(url: string) {
   }
 }
 
-const roleChoices = (): { value: ArtifactRole; label: string }[] => [
-  { value: "input", label: t("Input") },
-  { value: "output", label: t("Output") },
-];
+const roleLabels: Record<ArtifactFormRole, string> = { input: msg("Input"), output: msg("Output"), plan: msg("Plan") };
+const roleChoices = (roles: ArtifactFormRole[]): { value: ArtifactFormRole; label: string }[] => roles.map((value) => ({ value, label: t(roleLabels[value]) }));
 
-/** Add or edit an artifact (CARD-ARTIFACTS-SPEC §5.3). The target is fixed once added. */
-function ArtifactForm({ task, artifact, onClose }: { task: Task; artifact: Artifact | null; onClose(): void }) {
+/**
+ * Add or edit an artifact (CARD-ARTIFACTS-SPEC §5.3). The target is fixed once added. The Plan role makes it the
+ * card's plan, approved by you; Input or Output on the plan empties the slot (CARD-PLAN-SPEC §2.2).
+ */
+export function ArtifactForm({ task, artifact, preset, onClose }: { task: Task; artifact: Artifact | null; /** Set plan, Replace…: Plan chosen. */ preset?: ArtifactFormRole; onClose(): void }) {
   const theme = useTheme();
   const toast = useToast();
   const queryClient = useQueryClient();
   const create = useRpc(rpc.createArtifact);
   const update = useRpc(rpc.updateArtifact);
-  const [role, setRole] = useState<ArtifactRole>(artifact?.role ?? "input");
+  const setPlan = useRpc(rpc.setPlan);
+  const clearPlan = useRpc(rpc.clearPlan);
+  // The artifact as saved by an earlier, partly failed attempt, so a retry starts from its current `updatedAt`.
+  const saved = useRef(artifact);
+  const [role, setRole] = useState<ArtifactFormRole>(() => initialFormRole(artifact, preset));
   const [target, setTarget] = useState(artifact?.target ?? "");
   const [title, setTitle] = useState(artifact?.title ?? "");
   const [note, setNote] = useState(artifact?.note ?? "");
@@ -293,24 +306,31 @@ function ArtifactForm({ task, artifact, onClose }: { task: Task; artifact: Artif
     setPending(true);
     setError("");
     try {
-      if (artifact) await update({ id: artifact.id, updatedAt: artifact.updatedAt, role, title, note });
-      else await create({ taskId: task.id, role, target, title, note });
+      for (const step of artifactSaveSteps(saved.current, role, note)) {
+        const current = saved.current;
+        if (step === "create") await create({ taskId: task.id, role: role === "plan" ? "input" : role, target, title, note });
+        else if (step === "plan-set") saved.current = await setPlan({ taskId: task.id, target: current?.target ?? target, ...(title.trim() ? { title } : {}) });
+        else if (step === "plan-clear") await clearPlan({ taskId: task.id });
+        else if (current) saved.current = await update({ id: current.id, updatedAt: current.updatedAt, role: role === "plan" ? current.role : role, title, note });
+      }
       await invalidateCardViews(queryClient);
-      toast.show(artifact ? t("Artifact saved") : t("Artifact added"), { variant: "success" });
+      toast.show(role === "plan" && !artifact?.plan ? t("Plan set") : artifact ? t("Artifact saved") : t("Artifact added"), { variant: "success" });
       onClose();
     } catch (e) {
+      // Steps that went through are on the board now.
+      void invalidateCardViews(queryClient);
       setError(message(e));
     } finally {
       setPending(false);
     }
   };
   return (
-    <Modal open title={artifact ? t("Edit artifact") : t("Add artifact")} onOpenChange={(open) => !open && !pending && onClose()}>
+    <Modal open title={artifact ? t("Edit artifact") : preset === "plan" ? t("Set plan") : t("Add artifact")} onOpenChange={(open) => !open && !pending && onClose()}>
       <Modal.Content>
         <Theme.Provider value={theme}>
           <View style={{ gap: space[3] }}>
             {!!error && <Notice tone="danger">{error}</Notice>}
-            <Choices title={t("Role")} value={role} options={roleChoices()} onChange={setRole} />
+            <Choices title={t("Role")} value={role} options={roleChoices(formRoles(artifact, preset))} onChange={setRole} />
             <Field
               title={t("Path or link")}
               value={target}
@@ -333,7 +353,7 @@ function ArtifactForm({ task, artifact, onClose }: { task: Task; artifact: Artif
 }
 
 /** Read-only view of a file artifact (CARD-ARTIFACTS-SPEC §6.2), loaded once per opening. */
-function ArtifactPreview({ artifact, onClose }: { artifact: Artifact; onClose(): void }) {
+export function ArtifactPreview({ artifact, onClose }: { artifact: Artifact; onClose(): void }) {
   const theme = useTheme();
   const read = useRpc(rpc.previewArtifact);
   const preview = useQuery({

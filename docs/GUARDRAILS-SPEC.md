@@ -409,7 +409,7 @@ Fix these, rerun the checks, update the acceptance list and deliver to In review
 1. **Acceptance**：agent 开工时写的验收清单（3–5 条，`done` 可由 agent 或人勾），仍是 agent 对“做到什么算完”的承诺，评审当上下文读，不当门槛。
 2. **This card**：本卡的 `open` 专属项，每条显示原话和退了几次；`promoted` 的显示“已成为项目准则”。
 3. **Review**：最近一次评审，按 失败、争议、通过/不适用 排序；命令行显示命令与耗时，判断类的行显示依据与文件位置；观察中的命令标 “observing”；共享工作区注明；头部显示轮次、模型、token。有 **Rerun**（条件同 AUTO-REVIEW-SPEC §9.2）。
-4. **Plan**：来自原生 todo，不变（免费）。
+4. **Steps**（原 Plan，2026-11-10 改名，见 CARD-PLAN-SPEC）：来自原生 todo，不变（免费）。
 
 去掉：Checks（自报验证）、Confusions（agent 改用提问工具）、环境戳、新鲜度、“Delivered with N open items”。卡面信号只剩 `Acceptance n/m` 和评审状态（Checked / Sent back / Review failed / Review unavailable）；评审进行中不占信号行，由下面的指示条表示。
 

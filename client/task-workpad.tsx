@@ -141,7 +141,7 @@ export const TaskWorkpad = memo(function TaskWorkpad({
           </Group>
         )}
         {!!plans.length && (
-          <Group title={t("Plan")} note={t("From the agent's todo list · updated at turn end")}>
+          <Group title={t("Steps")} note={t("From the agent's todo list · updated at turn end")}>
             {plans.map((plan) => (
               <PlanList key={plan.agentId} plan={plan} title={plans.length > 1 ? titles.get(plan.agentId) || t("Session") : ""} />
             ))}

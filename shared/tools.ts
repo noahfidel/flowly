@@ -71,7 +71,7 @@ const nextMoveList = z
       moveTo: z
         .enum(nextMoveTargets)
         .optional()
-        .describe("\"done\": picking it moves the card to Done (the user's decision; nothing is sent, no prompt). Only when all work is delivered and committed (in draft_pr or ready_pr also pushed, with the PR opened). At most one per call."),
+        .describe("\"done\": picking it moves the card to Done (the user's decision; nothing is sent, no prompt). Only when all work is delivered and committed (in draft_pr or ready_pr also pushed, with the PR opened; in ship_main also pushed to main). At most one per call."),
     }),
   )
   .max(nextMoveLimits.count)
@@ -485,6 +485,30 @@ export const listCardsInputSchema = z.strictObject({
 export const getCardInputSchema = z.strictObject({
   taskId: z.string().min(1).describe("Card id from flowly_list_cards."),
 });
+/** A card's plan as agents read it (CARD-PLAN-SPEC §5.3). `absolutePath` only for files. */
+export const cardPlanSchema = z.object({
+  artifactId: z.string(),
+  target: z.string(),
+  absolutePath: z.string().optional(),
+  title: z.string(),
+  approved: z.boolean(),
+  approvedAt: z.string().nullable(),
+  approvedBy: z.object({ kind: z.enum(["human", "agent"]), agentId: z.string().optional() }).optional(),
+  source: z.enum(["plan-mode", "tool", "manual"]),
+  missing: z.boolean(),
+});
+export type CardPlan = z.infer<typeof cardPlanSchema>;
+/** approved: only the user's approval in the agent's chat counts (CARD-PLAN-SPEC §5.2). */
+const planApprovedField = z
+  .boolean()
+  .describe("true only when the user approved this plan in your chat (for example by accepting it in plan mode); otherwise false, a draft.");
+const planTargetField = z
+  .string()
+  .trim()
+  .min(1)
+  .max(artifactLimits.target)
+  .describe("The plan file (absolute path, or relative to the card's workspace) inside the card's directories or the extra artifact folders, or an http(s) link.");
+const planTitleField = z.string().trim().max(artifactLimits.title).optional().describe("Default: the file name or link.");
 export const createCardInputSchema = z.strictObject({
   title: z.string().trim().min(1).max(200),
   description: z.string().max(20000).default("").describe("The task as the card's agent will read it: goal, context, files, acceptance."),
@@ -502,11 +526,37 @@ export const createCardInputSchema = z.strictObject({
     .min(1)
     .max(200)
     .describe("A unique key you choose for this card, e.g. a slug of its title. Retrying with the same key returns the card already created instead of a second one."),
+  plan: z
+    .strictObject({ target: planTargetField, title: planTitleField, approved: planApprovedField })
+    .optional()
+    .describe("If you planned this card (plan mode writes the plan to a file), pass that file here so the card keeps it as its plan."),
 });
+/** flowly_set_plan and flowly_clear_plan (CARD-PLAN-SPEC §5.2). */
+export const setPlanInputSchema = z.strictObject({
+  taskId: z.string().min(1).describe("Card id from flowly_list_cards or flowly_create_card."),
+  target: planTargetField,
+  title: planTitleField,
+  approved: planApprovedField,
+});
+export const clearPlanInputSchema = z.strictObject({
+  taskId: z.string().min(1).describe("Card id from flowly_list_cards."),
+});
+export type SetPlanToolInput = z.input<typeof setPlanInputSchema>;
 /** flowly_start_card (START-CARD-SPEC §2). */
 export const startCardInputSchema = z.strictObject({
   taskId: z.string().min(1).describe("Card id from flowly_list_cards or flowly_create_card."),
-  prompt: z.string().max(20000).optional().describe("The session's first message; default the card's title and description."),
+  prompt: z
+    .string()
+    .max(20000)
+    .optional()
+    .describe("The session's first message; default the card's title and description, plus its approved plan when it has one."),
+  mode: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe("Permission mode id for the session (MODE_UNAVAILABLE lists the provider's ids). Default: the project's New task mode; a card with an approved plan does not start in plan mode."),
   idempotencyKey: z
     .string()
     .trim()
@@ -565,6 +615,8 @@ export const cardViewSchema = z.object({
   archived: z.boolean(),
   workspaceId: z.string(),
   links: z.array(z.object({ relation: z.enum(relations), taskId: z.string(), title: z.string(), status: statusSchema })),
+  /** The card's plan (CARD-PLAN-SPEC §5.3), or null. */
+  plan: z.object({ title: z.string(), approved: z.boolean() }).nullable(),
 });
 export const listCardsResultSchema = z.object({
   project: z.object({ id: z.string(), title: z.string() }),
@@ -574,6 +626,8 @@ export const listCardsResultSchema = z.object({
 });
 export const getCardResultSchema = z.object({ card: cardViewSchema, editable: z.boolean(), reason: z.string() });
 export const createCardResultSchema = z.object({ card: cardViewSchema, replayed: z.boolean() });
+export const setPlanResultSchema = z.object({ plan: cardPlanSchema });
+export const clearPlanResultSchema = z.object({ cleared: z.boolean() });
 export const updateCardResultSchema = z.object({ card: cardViewSchema, changed: z.array(z.string()) });
 export type CardView = z.infer<typeof cardViewSchema>;
 export type ListCardsInput = z.input<typeof listCardsInputSchema>;
@@ -665,6 +719,11 @@ export const toolContextSchema = z.object({
   projectTags: z.array(z.object({ tag: z.string(), count: z.number() })).optional(),
   /** The language for next-move labels and prompts and for ideas (AI-LANGUAGE-SPEC §5). */
   outputLanguage: z.object({ code: z.string(), name: z.string() }).optional(),
+  /**
+   * The card's plan (CARD-PLAN-SPEC §5.3), left out of `artifacts`; null when it has none. approved=true: execute
+   * it, don't plan again. Named apart from `plan`, the sessions' todo lists. Optional for older servers.
+   */
+  cardPlan: cardPlanSchema.nullable().optional(),
   /** The card's inputs and deliverables (CARD-ARTIFACTS-SPEC §4.2). `absolutePath` only for files. */
   artifacts: z.array(
     z.object({

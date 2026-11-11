@@ -170,3 +170,47 @@ export function pendingRequests(agent: { pendingPermissions?: readonly unknown[]
 /** Whether a session is waiting on an agent question (as opposed to a tool/plan approval). */
 export const asksQuestion = (agent: { pendingPermissions?: readonly unknown[] | null } | null | undefined) =>
   pendingRequests(agent).some((r) => r.kind === "question");
+
+/** What an approval request asks to do, for showing on the form (SESSION-QUESTION-SPEC §2). */
+export type ApprovalDetail =
+  | { kind: "command"; command: string }
+  | { kind: "edits"; path: string; edits: { old: string; new: string }[] }
+  | { kind: "write"; path: string; content: string }
+  | { kind: "plan"; text: string }
+  | { kind: "plan-missing" }
+  | { kind: "json"; text: string };
+
+export function approvalDetail(request: PendingRequest): ApprovalDetail | null {
+  const input = record(request.input) ? request.input : undefined;
+  if (request.kind === "plan") {
+    const plan = text(input?.plan);
+    return plan && plan.trim() ? { kind: "plan", text: plan } : { kind: "plan-missing" };
+  }
+  if (!input) return null;
+  if (request.name === "Bash") {
+    const command = text(input.command);
+    if (command !== undefined) return { kind: "command", command };
+  } else if (request.name === "Edit") {
+    const path = text(input.file_path);
+    const old = text(input.old_string);
+    const next = text(input.new_string);
+    if (path !== undefined && old !== undefined && next !== undefined) return { kind: "edits", path, edits: [{ old, new: next }] };
+  } else if (request.name === "MultiEdit") {
+    const path = text(input.file_path);
+    if (path !== undefined && Array.isArray(input.edits)) {
+      const edits: { old: string; new: string }[] = [];
+      for (const edit of input.edits) {
+        if (!record(edit)) continue;
+        const old = text(edit.old_string);
+        const next = text(edit.new_string);
+        if (old !== undefined && next !== undefined) edits.push({ old, new: next });
+      }
+      if (edits.length) return { kind: "edits", path, edits };
+    }
+  } else if (request.name === "Write") {
+    const path = text(input.file_path);
+    const content = text(input.content);
+    if (path !== undefined && content !== undefined) return { kind: "write", path, content };
+  }
+  return Object.keys(input).length ? { kind: "json", text: JSON.stringify(input, null, 2) } : null;
+}

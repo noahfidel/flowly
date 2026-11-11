@@ -101,3 +101,31 @@ test("an older page read for a window that was replaced meanwhile is dropped, no
   const replaced = win(range(300, 600));
   expect(mergeOlder(replaced, { epoch: "e", entries: range(50, 99), hasOlder: true }, { epoch: "e", seq: 100 })).toBe(replaced);
 });
+
+const agentCall = (agentMessage: unknown, extra: Record<string, unknown> = {}) => ({
+  seqStart: 3,
+  item: { type: "tool_call", name: "agent_message", callId: "paseo-agent-message:1", status: "completed", error: null, agentMessage, detail: { type: "plain_text", text: "secret detail", icon: "bot" }, ...extra },
+});
+
+test("a prompt from another agent keeps its sender and text, nothing else from the detail", () => {
+  const [entry] = slimTimeline([agentCall({ event: "message", sender: { id: "a1", serverId: "s", title: "Dispatcher" }, text: "Please fix X" })]);
+  expect(entry.item).toEqual({ type: "tool_call", name: "agent_message", status: "completed", callId: "paseo-agent-message:1", text: "Please fix X", from: { id: "a1", title: "Dispatcher", event: "message" } });
+  expect(JSON.stringify(entry)).not.toContain("secret detail");
+  const [bare] = slimTimeline([agentCall({ event: "finished", sender: { id: "a2" }, text: "Done" })]);
+  expect(bare.item.from).toEqual({ id: "a2", event: "finished" });
+  const [long] = slimTimeline([agentCall({ event: "message", sender: { id: "a3" }, text: "x".repeat(TAIL_TEXT_MAX + 50) })]);
+  expect(long.item.text!.length).toBe(TAIL_TEXT_MAX);
+});
+
+test("a plain tool call or a malformed agentMessage gets no from", () => {
+  const entries = slimTimeline([
+    { item: { type: "tool_call", name: "bash", status: "completed" } },
+    agentCall("nope"),
+    agentCall(null),
+    agentCall({ event: "message", sender: {}, text: "hi" }),
+    agentCall({ event: "message", sender: { id: "a" }, text: 5 }),
+    agentCall({ event: "message", sender: { id: "a", title: 7 }, text: "ok" }),
+  ]);
+  expect(entries.map((e) => e.item.from)).toEqual([undefined, undefined, undefined, undefined, undefined, { id: "a", event: "message" }]);
+  expect(entries.slice(0, 5).every((e) => e.item.text === undefined)).toBe(true);
+});

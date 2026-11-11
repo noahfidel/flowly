@@ -6,7 +6,7 @@ import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Status, Task } from "../shared/model";
 import { statusLabels } from "../shared/model";
 import { IconButton, Label, font, noFocusRing, radius, space, touch, useTheme, verticalScroll, verticalContent } from "./ui";
-import { menuHandlers, useMenuOpener } from "./context-menu";
+import { menuHandlers, useMenuOpener, useOnMenuChange } from "./context-menu";
 import { StatusIcon } from "./status";
 import type { CardDrag } from "./card";
 import { Enter, motionDuration, useMotionPresence, useMotionValue, lerp } from "./motion";
@@ -316,6 +316,10 @@ export function DesktopColumns({
     cancel();
     endPan();
   }, [cancelKey, disabled]);
+  // A menu opening ends a drag in progress, without re-rendering the columns.
+  useOnMenuChange((open) => {
+    if (open) latestDrag.current.cancel();
+  });
   useEffect(() => {
     if (!reveal?.n || Date.now() - reveal.at > 1000) return;
     // After the lane has expanded and the drawer has narrowed the board. Both are measured now: web onLayout

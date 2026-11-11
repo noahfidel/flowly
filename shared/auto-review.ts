@@ -198,6 +198,13 @@ export const failureSummary = (review: Pick<Review, "items">) =>
   review.items.filter((i) => i.gating && i.state === "failed").map((i) => (i.kind === "goal" ? GOAL_NAME : i.name)).join(", ");
 
 /**
+ * The marked message sent to a Ship to main card's session when its review passes (DELIVERY-MODE-SPEC §4): it starts
+ * the ship step. Agent-facing English; it carries the mark, so it never reads as the user's own words.
+ */
+export const shipMessage =
+  "[Flowly auto review · passed] Auto review passed and this card's delivery mode is Ship to main. Ship it now: git fetch, rebase the card's branch onto the latest main, rerun the checks, call flowly_integrate, then git push origin main. Never force-push or push another branch. Stop and report, leaving the card In review, if the rebase conflicts, the checks fail after the rebase, flowly_integrate refuses, or a review finding is open. If the push is rejected, fetch and rebase once more at most, then set integrated and report the push failure.";
+
+/**
  * The marked rework message sent to the delivering session (GUARDRAILS-SPEC §6.5). `words`: the user's own words for
  * a guideline or card item, by item id. Agent-facing English.
  */

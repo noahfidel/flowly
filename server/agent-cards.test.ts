@@ -289,3 +289,52 @@ test("sessions outside cards: who gets the tools, and every call checks the sess
   x.setWorkspace(null);
   expect(await x.cards.boardSession(open, false)).toBeNull();
 });
+
+test("create_card with a plan: checked before anything is made, then set on the new card (CARD-PLAN-SPEC §5.2)", async () => {
+  const x = await setup();
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  await mkdir(join(x.a, "plans"));
+  await writeFile(join(x.a, "plans", "split.md"), "# Split plan\n");
+  await mkdir(join(x.root, "elsewhere"));
+  await writeFile(join(x.root, "elsewhere", "plan.md"), "# Elsewhere\n");
+  const before = await x.store.read();
+  // A plan outside the project refuses the whole create: no workspace, no card, no slot taken.
+  expect(await x.failure(x.cards.create(x.card, { title: "Planned", idempotencyKey: "planned", plan: { target: join(x.root, "elsewhere", "plan.md"), approved: true } }))).toBe("PLAN_INVALID");
+  expect(x.workspaces).toEqual([]);
+  expect((await x.store.read()).tasks).toHaveLength(before.tasks.length);
+  const made = await x.cards.create(x.card, { title: "Planned", idempotencyKey: "planned", plan: { target: "plans/split.md", title: "Split plan", approved: true } });
+  expect(made.card.plan).toEqual({ title: "Split plan", approved: true });
+  const stored = (await x.store.read()).artifacts.filter((a) => a.taskId === made.card.taskId);
+  // The new card's workspace is a directory workspace, so the plan is stored absolute (CARD-PLAN-SPEC §3.1).
+  expect(stored).toEqual([
+    expect.objectContaining({ role: "input", target: join(x.a, "plans", "split.md"), createdBy: "agent", agentId: "actor", plan: expect.objectContaining({ source: "tool", approvedBy: { kind: "agent", agentId: "actor" } }) }),
+  ]);
+  // A replay returns the card as created, without a second plan write.
+  const again = await x.cards.create(x.card, { title: "Planned", idempotencyKey: "planned", plan: { target: "plans/split.md", approved: true } });
+  expect(again).toMatchObject({ replayed: true, card: { plan: { title: "Split plan", approved: true } } });
+  expect((await x.store.read()).artifacts).toHaveLength(1);
+});
+
+test("set_plan and clear_plan: project scope, setting, archived, the agent's draft and its approval", async () => {
+  const x = await setup();
+  const { writeFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  await writeFile(join(x.a, "plan.md"), "# Plan\n");
+  const draft = await x.cards.setPlan(x.card, { taskId: "t", target: "plan.md", approved: false });
+  expect(draft.plan).toMatchObject({ target: join(x.a, "plan.md"), absolutePath: join(x.a, "plan.md"), title: "plan.md", approved: false, source: "tool", missing: false });
+  expect((await x.store.read()).tasks.find((t) => t.id === "t")!.revision).toBe(1);
+  const approved = await x.cards.setPlan(x.board, { taskId: "t", target: join(x.a, "plan.md"), approved: true });
+  expect(approved.plan).toMatchObject({ approved: true, approvedBy: { kind: "agent", agentId: "outside" } });
+  expect((await x.cards.get(x.card, { taskId: "t" })).card.plan).toEqual({ title: "plan.md", approved: true });
+  expect(await x.failure(x.cards.setPlan(x.card, { taskId: "t", target: "missing.md", approved: true }))).toBe("PLAN_INVALID");
+  expect(await x.failure(x.cards.setPlan(x.card, { taskId: "nope", target: "plan.md", approved: true }))).toBe("CARD_NOT_FOUND");
+  expect(await x.failure(x.cards.setPlan({ ...x.card, projectId: "other" }, { taskId: "t", target: "plan.md", approved: true }))).toBe("ARCHIVED");
+  expect(await x.cards.clearPlan(x.card, { taskId: "t" })).toEqual({ cleared: true });
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "plan_cleared", actor: "agent", agentId: "actor" });
+  x.turn(false);
+  expect(await x.failure(x.cards.clearPlan(x.card, { taskId: "t" }))).toBe("AGENT_CARDS_DISABLED");
+  x.turn(true);
+  await x.store.mutate((b) => void (b.tasks.find((t) => t.id === "t")!.archivedAt = new Date().toISOString()));
+  expect(await x.failure(x.cards.setPlan(x.card, { taskId: "t", target: "plan.md", approved: true }))).toBe("ARCHIVED");
+});
