@@ -15,11 +15,13 @@ type LaneBoard = { groups: Board["groups"]; projects: Member[]; tasks: readonly 
  * The lanes a group gets when it has none (§7 step 7), from its live members and the statuses their live cards sit in:
  * a status is on when any live member has it on or a card sits in it; the order is the members' when every live
  * member's full lane list has the same order (so one member keeps its own), else the default order; a custom name is
- * kept only when every live member that has the status on uses that same name. No live member: every lane, built-in
- * names.
+ * kept only when every live member that has the status on uses that same name. No live member: the same rules over the
+ * archived members; no member at all: every lane, built-in names.
  */
 export function groupLanesFrom(members: readonly Pick<Member, "lanes" | "archivedAt">[], cardStatuses: Iterable<Status>): Lane[] {
-  const live = members.filter((m) => !m.archivedAt).map((m) => projectLanes(m));
+  // A group with no live member takes its lanes from its archived members instead, by the same rules.
+  const liveMembers = members.filter((m) => !m.archivedAt);
+  const live = (liveMembers.length ? liveMembers : members).map((m) => projectLanes(m));
   if (!live.length) return statuses.map((status) => ({ status, enabled: true }));
   const held = new Set(cardStatuses);
   const orders = new Set(live.map((lanes) => lanes.map((l) => l.status).join(",")));

@@ -94,6 +94,9 @@ exactly one group. Individual projects are no longer top-level navigation.
   a live card of the project can't be turned off) and Edit project still offers the lane editor; the migration later
   folds those lanes into the group's. This replaces the inherited "projects have no lane settings of their own" limit
   for that state only.
+- Ruling (Noah, 2026-11-10): the migration gives a group whose members are all archived the lanes its archived members
+  had (the same union, order and name-agreement rules as for live members) instead of every lane on with built-in
+  names; only a group with no member at all gets every lane. Replaces "a group with no live member gets every lane".
 
 ## 1. Model
 
@@ -333,7 +336,8 @@ next start (the record's session is still v1, the board has groups, so step 4 ru
      order, so a group of one member keeps that member's order; otherwise it is the default status order;
    - a custom name is kept only when every live member that has the status on uses that same non-empty name;
      otherwise the built-in name applies (no name stored);
-   - a group with no live member gets every lane, on, with built-in names.
+   - a group with no live member takes its lanes from its archived members by the same three rules (the statuses
+     holding live cards are none then); a group with no member at all gets every lane, on, with built-in names.
    The members' `lanes` are then set to the group's (§1). A group that already has `lanes` is never recomputed, so a
    second start writes nothing. Stored lanes that do not validate fail the board's parse as any invalid stored data
    does (the data is kept, not reset). The migration bumps no group or project revision.
@@ -364,7 +368,7 @@ Unit (server/shared, written with the follow-up cards):
 - Delivery mode: moving a project or editing a group default changes the default of cards without their own
   delivery mode, i.e. agent-created ones (resolution stays lazy, as `effectiveDeliveryMode` does today); a card's own mode never changes.
 - Group lanes: the §7 step 7 union (statuses on in any live member, plus statuses holding live cards), names kept
-  only when all agree, all lanes for an empty group, a second start writing nothing; after a group lane edit, a
+  only when all agree, all lanes for a group with no member (an all-archived group takes its archived members' lanes), a second start writing nothing; after a group lane edit, a
   project move (set-group, set_members, group delete), a project create and the migration, every member's lanes equal
   its group's; a project's lanes as read by server paths (start status, `laneProblem` in task create and move) are
   the group's; turning off a group lane holding a live card of any live member is `LANE_NOT_EMPTY`; a `lanes` edit

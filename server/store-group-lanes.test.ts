@@ -279,4 +279,15 @@ describe("group lanes: follow-ups", () => {
     const again = (await s.read()).projects[0];
     await expect(s.updateProject({ id: "a", revision: again.revision, lanes: lanes(() => true) })).rejects.toMatchObject({ code: "LANES_IN_GROUP" });
   });
+  test("migration: a group whose members are all archived takes its lanes from them", async () => {
+    const d = await directory();
+    await seed(d, [project("a", { archivedAt: at, lanes: lanes((x) => x === "todo" || x === "done", { todo: "Ready" }) }), project("b")]);
+    const s = open("json", d);
+    expect(await s.migrateGroups(legacy([{ id: "z", name: "Old", projectIds: ["a"] }]))).toBe(true);
+    const board = await onDisk("json", d);
+    const old = byName(board, "Old");
+    expect(on(old)).toEqual(["todo", "done"]);
+    expect(old.lanes!.find((l) => l.status === "todo")!.name).toBe("Ready");
+    expectInSync(board);
+  });
 });

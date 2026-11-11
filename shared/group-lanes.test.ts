@@ -93,7 +93,16 @@ describe("groupLanesFrom (the migration's union)", () => {
     const withDefault = groupLanesFrom([project("a", "g", { lanes: custom(() => true) }), project("b", "g")], []);
     expect(withDefault.map((l) => l.status)).toEqual([...statuses]);
   });
-  test("no live member: every lane on, built-in names", () => {
+  test("only archived members: their lanes, by the same rules", () => {
+    const a = project("a", "g", { archivedAt: at, lanes: lanes((s) => s === "todo" || s === "done", { todo: "Ready" }) });
+    const b = project("b", "g", { archivedAt: at, lanes: lanes((s) => s === "todo", { todo: "Ready" }) });
+    const result = groupLanesFrom([a, b], []);
+    expect(on({ lanes: result })).toEqual(["todo", "done"]);
+    expect(result.find((l) => l.status === "todo")!.name).toBe("Ready");
+    const disagree = groupLanesFrom([a, project("c", "g", { archivedAt: at, lanes: lanes(() => true, { todo: "Next" }) })], []);
+    expect(disagree.find((l) => l.status === "todo")!.name).toBeUndefined();
+  });
+  test("no member at all: every lane on, built-in names", () => {
     expect(groupLanesFrom([], [])).toEqual(statuses.map((status) => ({ status, enabled: true })));
   });
 });

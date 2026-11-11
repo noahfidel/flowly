@@ -1678,3 +1678,4 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 ## Group lanes review follow-ups (branch `group-needs-you`) — 2026-11-10
 
 - Per-project lanes while groups are not ready: `projects.update` takes `lanes` through the old path (with the live-card check) when the groups migration failed, and refuses with `LANES_IN_GROUP` only once groups are ready; Edit project shows the lane editor when the overview lists no groups. Spec §0 ruling, §2 and §5 updated. Test: `server/store-group-lanes.test.ts`.
+- Migration lanes of an all-archived group: `groupLanesFrom` falls back to the archived members (same union, order and name rules); only a memberless group gets every lane. Spec §0 ruling and §7 step 7. Tests: `shared/group-lanes.test.ts`, `server/store-group-lanes.test.ts`.
