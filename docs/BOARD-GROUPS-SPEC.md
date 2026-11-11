@@ -64,7 +64,8 @@ exactly one group. Individual projects are no longer top-level navigation.
 - Ruling (Noah, 2026-11-10): every aggregate count of a group board shows unfiltered too, summed over the group's
   live member projects (filtered: that project): the overview bar's task and Done counts, running, "N need you" and
   "N updated" (with the **N** / **U** step-throughs), and the column counts. Only the genuinely per-project parts
-  (Insights, Ideas, Memory, Guardrails, **I**, **B**, **M**) stay hidden unfiltered.
+  (Insights, Ideas, Memory, Guardrails, **I**, **B**, **M**) stay hidden unfiltered. (Insights, Ideas, Memory and
+  **I**, **B**, **M** are amended by the group pages ruling below; Guardrails stays hidden.)
 - Ruling (Noah, 2026-11-10): deleting a group archives its dispatcher session. The delete confirm says so. This is a
   new user-confirmed archive exception (AGENTS.md), like Replace dispatcher. A dispatcher cannot delete its own
   group.
@@ -117,6 +118,13 @@ exactly one group. Individual projects are no longer top-level navigation.
   chooser order, each keeping its own order). This replaces the inherited ALL-PROJECTS-SPEC §4 limit ("cards grouped
   by project", "reordering within a column is disabled… each project keeps its own order") on group boards (§1, §2,
   §4, §7 step 8).
+
+- Ruling (Noah, 2026-11-10): Insights, Ideas and Memory (and **I**, **B**, **M**) work on an unfiltered group board,
+  over every live member of the group; filtered (or a group of one live project) they act on that project, as before.
+  Ideas and Memory list every member's entries, each labelled with its project; an edit acts on the entry's own
+  project, and an addition (Import ideas, Add memory) asks which project. Insights shows the group's numbers summed
+  and splits by project where a part is per project (the day's summaries, skills, other suggestions). Storage stays per
+  project. Guardrails stays per project and hidden unfiltered (§4).
 
 ## 1. Model
 
@@ -278,9 +286,33 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 - **Overview bar:** shown on every group board with at least one live member, filtered or not. Its task count,
   running chip, "N need you" and "N updated" cover the filtered project, else every live member (the Done count
   sums the projects whose Done lane is on and is hidden when none has it). An empty group has no overview bar.
-- **Per-project entries:** with the filter on one project (or a group of exactly one live project) the overview
-  bar's Insights, Ideas, Guardrails and Memory chips and **I**, **B**, **M** act on that project. Unfiltered they do
-  nothing and are hidden. Project settings are reached from the group settings page.
+- **Insights, Ideas, Memory** (ruling above): with the filter on one project (or a group of exactly one live project)
+  the overview bar's Insights, Ideas and Memory chips and **I**, **B**, **M** act on that project. Unfiltered they
+  cover every live member of the group shown (`pageScope`); an empty group, and a board shown before its group is
+  known (a cold link), has none and they are hidden. A page left open when the filter is cleared stays open and widens
+  to the group.
+  - **Ideas:** every member's ideas, one etag read per project (a change re-downloads only that project's ideas). Each
+    project's own ideas form their own group, headed by the project's name; card groups and ungrouped rows name the
+    project too. Every action (Good, Dismiss, Discuss, New task, Restore) uses the idea's own project; an archived
+    project's ideas are read-only. The Ideas chip counts the open ideas of every member. **Import** asks which project
+    (a Project row on the paste step; live members only), starting with the project last added to from such a page
+    (board-view `lastAddProjectId`, while it is still offered) else the first member; it is hidden when no member is
+    live. "All ideas" from a card keeps an unfiltered board unfiltered; a board filtered to another project is filtered
+    to the card's.
+  - **Memory:** every member's memories (the guardrail notes), one etag read per project, each labelled with its
+    project. Edits, pins, archive and delete act on the entry's own project. A member that is archived or has
+    guardrails off is shown read-only, with one notice naming the projects whose guardrails are off. **Add memory**
+    asks which project (members with guardrails on only), starting as Import does; it is hidden when no member can
+    take one. The Memory chip sums the notes of the members with guardrails on and hides when none has them on.
+  - **Insights:** read as the group (`insights.group`, `insights.group-day`, `insights.group-tokens`,
+    `insights.group-guardrails`): the heatmap, the day's numbers and cards, workflow numbers, agent habits and the
+    guardrail ledger cover every live member as one, and each of the day's cards names its project. The parts that
+    are per project show once per member, each labelled with the project: the day's AI summary (one for each project
+    with a card that day, with its own Generate / Refresh), Skills ("Skills · {project}") and Other suggestions; a
+    suggestion's New task opens in its project. The ledger does not open Guardrails (it is per project).
+- **Guardrails** stays per project: its chip shows only with the filter on one project (or a group of one), and a
+  Guardrails page left open when the filter is cleared closes. Project settings are reached from the group settings
+  page.
 - **New task:** **T**, **Q**, a lane's Add task and the empty-board hint open Quick task with the filtered project,
   else the last quick-task project when it is a live member, else the group's first member. The Project picker lists
   the group's projects first, then the others (a card can be created in any project; it then belongs to that
@@ -460,6 +492,11 @@ Unit (server/shared, written with the follow-up cards):
   Move down step through the group (unfiltered) or the project (filtered), skipping archived cards and projects; the
   Manual sort of a group board is position order across projects; reorder is allowed with Manual on a group board,
   filtered or not, and never on a board of several projects with no group known.
+
+- Group pages (`client/board-groups.test.ts`, `client/idea-rows.test.ts`, `client/overview-query.test.ts`,
+  `server/insights.test.ts`): `pageScope` is the filtered project, else every live member read as the group, else none
+  (empty group, group not known); the add project is the last added while offered, else the first; each project's own
+  ideas form their own group; the Ideas count sums every member; the group Insights reads sum the members.
 
 Upkeep (the plan's last task): welcome-tour copy and tips, a What's new entry (All and project tabs and the global
 dispatcher go away for existing users), the telemetry decision, and every new string in all i18n catalogs.
