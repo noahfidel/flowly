@@ -1023,6 +1023,7 @@ const catalog: Catalog = {
   "Copy": "コピー",
   "Paseo's session view": "Paseo のセッション画面",
   "Tapping a suggested next step": "次のステップの提案をタップしたとき",
+  "Start progress rows collapsed": "進捗の行を折りたたんだ状態で表示",
   "A card has an item from a connected service as an input. Agents read it every turn and see when it changes. Flowly never changes it there, and its status doesn't move the card.": "このカードには接続済みサービスの項目が入力として付いています。エージェントは毎ターンそれを読み、変更にも気づきます。Flowly が元のサービスで変更することはなく、そのステータスでカードが移動することもありません。",
   "The Artifacts + now adds Confluence pages and GitHub or GitLab issues and pull requests too, besides files, links and Jira tickets. Connect services in Settings → Connections.": "成果物の + で、ファイル、リンク、Jira チケットに加えて、Confluence ページや GitHub・GitLab の issue とプルリクエストも追加できるようになりました。設定 → 接続 でサービスを接続してください。",
   "Ticket or issue": "チケットまたは issue",

@@ -145,6 +145,24 @@ export function useChipState(agentId: string) {
   return useSyncExternalStore(subscribe, () => chipState(agentId));
 }
 
+/**
+ * The *Start progress rows collapsed* setting (NATIVE-SESSION-SPEC §5.3) for the Progress timeline rows, which Paseo
+ * renders outside Flowly's tree: the chip refresh reads it with the other `native-session` settings. On (collapsed)
+ * until the first read and when the daemon does not send it.
+ */
+let progressCollapsed = true;
+export function setProgressRowsCollapsed(next: boolean) {
+  if (next === progressCollapsed) return;
+  progressCollapsed = next;
+  listeners.forEach((listener) => listener());
+}
+export function progressRowsCollapsed() {
+  return progressCollapsed;
+}
+export function useProgressRowsCollapsed() {
+  return useSyncExternalStore(subscribe, progressRowsCollapsed);
+}
+
 let refresher: (() => void) | null = null;
 /** Set by the chip refresh; null after teardown. */
 export function setChipRefresher(next: (() => void) | null) {

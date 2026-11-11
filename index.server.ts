@@ -619,6 +619,7 @@ export default function contribute(host: PluginServerContext) {
       ideas: await tools.agents.ideasOn(),
       autoWrapup: wrapupSettingsValues(wrap?.status === "ready" ? wrap.values : {}).autoWrapup,
       nextMoveTap: values.nextMoveTap,
+      progressCollapsed: values.progressCollapsed,
       outside: { enabled: values.outside, progress: values.outsideProgress, nextMoves: values.outsideNextMoves, ideas: values.outsideIdeas },
     };
   });

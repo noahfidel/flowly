@@ -607,6 +607,12 @@ export function AiPage() {
           onChange={(next) => native.save({ nextMoveTap: next === "copy" ? "copy" : "fill" })}
         />
         <SettingSwitch
+          title={t("Start progress rows collapsed")}
+          value={native.values?.progressCollapsed ?? true}
+          disabled={native.busy}
+          onChange={(progressCollapsed) => native.save({ progressCollapsed })}
+        />
+        <SettingSwitch
           title={t("Sessions outside Flowly")}
           detail={`${t("Also give sessions Flowly does not manage a progress row, suggested next steps and ideas. After each completed turn, the summary model reads the recent conversation (sent to that model's provider) in a short child session that is archived right after.")} ${aiCostText("outside", summaryModelOf(summary.values))}`}
           value={native.values?.outside ?? false}

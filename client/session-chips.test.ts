@@ -119,6 +119,7 @@ describe("Next and Ideas pills (NATIVE-SESSION-SPEC §6-8)", () => {
       etag: "e1",
       managed: ["a1"],
       ideasOn: true,
+      progressCollapsed: undefined as boolean | undefined,
       events: [
         { id: "ev1", taskId: "t1", actor: "agent", action: "next_moves_suggested", agentId: "a1", at: at(1), moves: [{ label: "Verify", prompt: "Verify it" }, { label: "Commit", prompt: "Commit it" }] },
         { id: "ev2", taskId: "t1", actor: "agent", action: "next_moves_suggested", agentId: "a2", at: at(1), moves: [{ label: "X", prompt: "x" }] },
@@ -136,7 +137,7 @@ describe("Next and Ideas pills (NATIVE-SESSION-SPEC §6-8)", () => {
         if (def.name === "sessions.archived-refs") return [];
         if (def.name === "sessions.native-chips") {
           await gate;
-          return { managed: state.managed.map((agentId) => ({ agentId, taskId: "t1", workspaceId: "w1" })), ideas: state.ideasOn, autoWrapup: false, nextMoveTap: "fill" };
+          return { managed: state.managed.map((agentId) => ({ agentId, taskId: "t1", workspaceId: "w1" })), ideas: state.ideasOn, autoWrapup: false, nextMoveTap: "fill", progressCollapsed: state.progressCollapsed };
         }
         if (input.etag === state.etag) return { etag: state.etag };
         return { etag: state.etag, value: { projects: [project], tasks: [{ ...task("Card"), status: "development", archivedAt: null }], events: state.events, ideas: state.ideas } };
@@ -178,6 +179,24 @@ describe("Next and Ideas pills (NATIVE-SESSION-SPEC §6-8)", () => {
     // The Task chip still shows on both sessions.
     expect(active("kanban-task").map((p) => p.agentId).sort()).toEqual(["a1", "a2"]);
     stop();
+  });
+
+  test("the Progress row's start-collapsed setting reaches its store; collapsed until known and when the daemon omits it", async () => {
+    const { client, state } = fakeNative();
+    const { progressRowsCollapsed, setProgressRowsCollapsed } = await import("./native-chips");
+    setProgressRowsCollapsed(true);
+    state.progressCollapsed = false;
+    const stop = registerSessionChips(client as never, 1000, 0, popovers);
+    expect(progressRowsCollapsed()).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(progressRowsCollapsed()).toBe(false);
+    stop();
+    // An older daemon without the field: rows start collapsed (the default).
+    const older = fakeNative();
+    const stopOlder = registerSessionChips(older.client as never, 1000, 0, popovers);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(progressRowsCollapsed()).toBe(true);
+    stopOlder();
   });
 
   test("the Ideas pill shows the open idea count, follows the Ideas switch and goes at 0", async () => {

@@ -172,6 +172,8 @@ export const nativeSessionSettings = defineSettings({
   version: 1,
   schema: z.object({
     nextMoveTap: z.enum(["fill", "copy"]).default("fill"),
+    /** The Progress row in Paseo's timeline starts as one line (heading, first recap sentence, time); off: the full card (NATIVE-SESSION-SPEC §5.3). */
+    progressCollapsed: z.boolean().default(true),
     /** Sessions Flowly does not manage get these too (NATIVE-SESSION-SPEC §12): off by default (it runs a model per turn). */
     outside: z.boolean().default(false),
     outsideProgress: z.boolean().default(true),

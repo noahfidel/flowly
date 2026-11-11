@@ -25,6 +25,7 @@ import {
   setChipRefresher,
   setChipState,
   setOutsideState,
+  setProgressRowsCollapsed,
   type ChipState,
   type OutsideState,
 } from "./native-chips";
@@ -460,6 +461,7 @@ export function registerSessionChips(
           ? { managed: new Set(info.managed.map((m) => m.agentId)), ideas: info.ideas, autoWrapup: info.autoWrapup, nextMoveTap: info.nextMoveTap, outside: info.outside ?? { enabled: false, progress: false, nextMoves: false, ideas: false } }
           : chipInfo;
         chipInfoAt = Date.now();
+        if (info) setProgressRowsCollapsed(info.progressCollapsed ?? true);
       }
       // Sessions Flowly does not manage (NATIVE-SESSION-SPEC §12.7): read only when switched on, by etag.
       if (popovers && chipInfo?.outside?.enabled) {

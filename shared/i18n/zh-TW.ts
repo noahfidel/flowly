@@ -1023,6 +1023,7 @@ const catalog: Catalog = {
   "Copy": "複製",
   "Paseo's session view": "Paseo 的 session 檢視",
   "Tapping a suggested next step": "點擊建議的下一步時",
+  "Start progress rows collapsed": "進度列預設摺疊",
   "A card has an item from a connected service as an input. Agents read it every turn and see when it changes. Flowly never changes it there, and its status doesn't move the card.": "這張卡片有一個來自已連線服務的輸入。agent 每輪都會讀取它，內容變更時也會知道。Flowly 不會在原服務中修改它，它的狀態也不會移動卡片。",
   "The Artifacts + now adds Confluence pages and GitHub or GitLab issues and pull requests too, besides files, links and Jira tickets. Connect services in Settings → Connections.": "產出物的 + 現在除了檔案、連結和 Jira 工單，還可以加入 Confluence 頁面以及 GitHub 或 GitLab 的 issue 和 PR。在 設定 → 連線 中連線這些服務。",
   "Ticket or issue": "工單或 issue",

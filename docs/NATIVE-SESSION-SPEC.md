@@ -79,7 +79,9 @@ P3/P4 的建议方向（未决，供以后评估）：不依赖 agent 调用工�
 ### 5.3 渲染（`addTimelineRenderer`）
 
 - 外观与侧栏 Progress 一致（共用 `ContentCard` 的框与正文）：卡片**外面**上方一行小标题（`AiMark` + “Progress”，灰色、中等字重、`font.sm`），卡片里是 `state`（强调）、Target / Recap / Next，脚注一行：左边 Show more / Show less，右边 “Updated 5m ago”（不显示模型，2026-10-23 用户决定；侧栏 Progress 仍显示）和 “Open card” 小按钮。**两张原生卡片的小标题相同**（2026-10-21 用户决定：保持 Progress 原来的样子，Next steps 向它对齐；曾试过把标题和 Open card 放进卡片头部，用户更喜欢原来的）：小标题在外（`client/native-card.tsx` 的 `NativeCardHeading`）。Next steps 之后又去掉了灰色卡片底（见 §6.3）。已知代价：手机宽度下 Progress 的脚注较挤，时间戳可能折成两行、按钮被截成 “Open ca…”（原版就如此，用户知情后仍选择保留原样）。
-- **默认展开**，完整显示 State、Target、Recap、Next（2026-10-29 用户反馈：原先超过约 5 行即收起，几乎每条都被截断）。Show less 收起到约 5 行（104 pt）并渐隐，Show more 再展开，规则同 TASK-SUMMARY-SPEC §7（动画、Reduce Motion、首次测量不播放）；内容不超过约 5 行时不出现按钮。展开的卡片在首次测量前不先按 104 pt 截断，行挂载时不会先矮后跳高。展开/收起状态不保存。
+- **默认收起为一行**（2026-11-11 用户决定，设置 *Start progress rows collapsed*，host 设置 `native-session.progressCollapsed`，默认开）：一行内依次是 `AiMark` + “Progress” 小标题、一句 recap（`client/summary-line.ts` 的 `recapLine`：recap 第一个非空行去掉开头的列表符号/编号/标题符号与 `**`、`__`、`*`、`_`、反引号，空白合并，取第一句：`. ! ?` 后跟空白或结尾，或中日文 `。！？`；超过 160 字符截断加 “…”；屏幕上再按一行省略），recap 为空时用 state 的第一句，然后是 “Updated 5m ago” 和右端的 Show more。收起行不是被截断的卡片（2026-10-29 的问题），没有卡片框、没有 Open card。Show more 换成下方的完整卡片（不截断），脚注左边是 Show less，回到这一行。展开/收起只记在这一个已挂载的行上，不保存；重新挂载（refetch、重新打开）时又是收起。设置在行挂载后才读到时，行跟随设置，直到用户在这一行按过 Show more / Show less。
+  - 设置关闭时与之前相同：**默认展开**，完整显示 State、Target、Recap、Next（2026-10-29 用户反馈：原先超过约 5 行即收起，几乎每条都被截断）。Show less 收起到约 5 行（104 pt）并渐隐，Show more 再展开，规则同 TASK-SUMMARY-SPEC §7（动画、Reduce Motion、首次测量不播放）；内容不超过约 5 行时不出现按钮。展开的卡片在首次测量前不先按 104 pt 截断，行挂载时不会先矮后跳高。
+  - 设置如何到达这一行：Paseo 在 Flowly 的树外渲染 timeline 行，行只能读客户端模块状态。与 `nextMoveTap` 相同，chip 刷新（`client/session-link.ts`）从 `sessions.native-chips` 读 `progressCollapsed`（看板变化时或至多每分钟一次），存进 `client/native-chips.ts`；首次读到之前、或旧 daemon 不返回该字段时按开处理。因此改设置后已打开的会话至多约一分钟后生效。
   - Paseo 在 Flowly 的组件树之外渲染 timeline 行，没有 `MotionProvider` 时动画钩子默认按“减少动态效果”处理、直接跳变（2026-10-20 用户反馈）。原生 timeline 行、Next moves 卡片与 Ideas 弹层都包在 `SharedMotionProvider` 里：所有行共用一个系统 Reduce Motion 查询与监听（`client/reduce-motion.ts`），系统回答前按减少动态效果处理。
 - 头部右侧的 “Open card” 小按钮，打开 Flowly 并定位到该卡概览（复用 Task chip 的 `openScreen("board", …)` 路径与校验）。
 - schema 校验不通过时由 host 处理（不渲染）；渲染器不抛错。
@@ -142,7 +144,7 @@ Next steps 没有边框、底色和内边距：小标题（与 Progress 的小�
   - 卡片保留到下一轮开始或用户关闭。
 - **Move to Done**：同前（重新校验建议仍当前、卡片未完成 → 移到 Done；未开 *Auto wrap up* 且有东西可收尾时在卡片内询问 Wrap up / Open in Flowly / Not now，有阻塞或警告时只给 Open in Flowly）。
 - **×**：本机隐藏这一组（`client/hidden-moves.ts`），不影响 Flowly 内建议行。
-- 设置位置：Flowly 设置 → AI features → “Paseo's session view”，选项 “Fill the message box”/“Copy”。这是 Flowly 内唯一新增的界面（用户要求可配置）。
+- 设置位置：Flowly 设置 → AI features → “Paseo's session view”，选项 “Fill the message box”/“Copy”。这是 Flowly 内唯一新增的界面（用户要求可配置）。同一组里还有 *Start progress rows collapsed* 开关（§5.3）。
 
 ## 7. Ideas chip
 

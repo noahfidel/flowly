@@ -776,6 +776,8 @@ export const nativeChips = defineRpc({
     autoWrapup: z.boolean(),
     /** What tapping a message suggestion on the Next moves card does (NATIVE-SESSION-SPEC §6.4). */
     nextMoveTap: z.enum(["fill", "copy"]),
+    /** Whether Progress rows in Paseo's timeline start as one line (NATIVE-SESSION-SPEC §5.3). Optional for older daemons: absent means on. */
+    progressCollapsed: z.boolean().optional(),
     /** Sessions Flowly does not manage (NATIVE-SESSION-SPEC §12.6): the switch and its three parts. */
     outside: z.object({ enabled: z.boolean(), progress: z.boolean(), nextMoves: z.boolean(), ideas: z.boolean() }),
   }),

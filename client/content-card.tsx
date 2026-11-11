@@ -189,8 +189,9 @@ function Clamped({
  * Show more / Show less. Its icon and label sit on the content's left edge so
  * it lines up with the text above while idle; the hover highlight pads out
  * past that edge by a few points but stays well inside the card's own padding.
+ * Also the collapsed timeline Progress row's toggle (NATIVE-SESSION-SPEC §5.3).
  */
-function Toggle({ open, onPress }: { open: boolean; onPress(): void }) {
+export function Toggle({ open, onPress }: { open: boolean; onPress(): void }) {
   const { colors } = useTheme();
   const label = open ? t("Show less") : t("Show more");
   return (
