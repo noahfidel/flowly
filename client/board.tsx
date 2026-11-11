@@ -166,7 +166,7 @@ import { cardDisplay, cardWorkspace } from "../shared/card-display";
 import { parentOf } from "../shared/subagents";
 import { reviewLabel } from "./task-review";
 import { visibleReview } from "../shared/auto-review";
-import { planApproved, planOf } from "../shared/plans";
+import { planApproved, planOf, withoutPlan } from "../shared/plans";
 
 /** One-time tip texts (ONBOARDING-SPEC §5). */
 const tipText: Record<TipId, (compact?: boolean) => string> = {
@@ -1611,7 +1611,7 @@ function BoardContent(
           hasSubagent: projectHasSubagent,
           crowdedAttention,
           cardWithSession: !!task && !!cardIndex.agentsByWorkspace.get(task.workspaceId)?.length,
-          fullSidebar: !!task && !!currentDetail && (!!currentDetail.artifacts.length || !!currentDetail.ideas.length),
+          fullSidebar: !!task && !!currentDetail && (!!withoutPlan(currentDetail.artifacts).length || !!currentDetail.ideas.length),
           hasSummary: !task && !!summaries.data?.latest.some((e) => projectTasks.some((x) => x.id === e.taskId)),
           workflowSuggestion: features.insights && workflowTipDue && !!workflowView.data?.findings.some((f) => f.status === "open" && !(f.target === "skill" && f.skill)),
           skillDraft: features.insights && workflowTipDue && !!workflowView.data?.findings.some((f) => f.status === "open" && f.target === "skill" && !!f.skill),

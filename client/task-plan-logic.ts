@@ -21,6 +21,12 @@ export function planChoiceAllowed(artifact: FormArtifact | null): boolean {
   return !artifact || (!artifact.external && artifact.origin !== "review-ledger");
 }
 
+/** The roles the form offers: only Plan when adding a plan (Set plan, Replace…); Plan only where allowed. */
+export function formRoles(artifact: FormArtifact | null, preset?: ArtifactFormRole): ArtifactFormRole[] {
+  if (!artifact && preset === "plan") return ["plan"];
+  return planChoiceAllowed(artifact) ? ["input", "output", "plan"] : ["input", "output"];
+}
+
 /**
  * The RPC steps that save the form (§2.2), in order. `update` edits title and note (and the role unless Plan is
  * chosen) from the artifact as it is after the earlier steps; `artifacts.update` never touches `plan`, so the plan

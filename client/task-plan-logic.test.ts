@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { artifactSaveSteps, initialFormRole, planAwareDefaults, planChoiceAllowed } from "./task-plan-logic";
+import { artifactSaveSteps, formRoles, initialFormRole, planAwareDefaults, planChoiceAllowed } from "./task-plan-logic";
 
 const plan = { approvedAt: "2026-11-10T10:00:00.000Z", approvedBy: { kind: "human" as const }, source: "manual" as const, setAt: "2026-11-10T10:00:00.000Z" };
 const input = { role: "input" as const };
@@ -10,6 +10,11 @@ describe("artifact form role (CARD-PLAN-SPEC §2.2)", () => {
     expect(initialFormRole(null, "plan")).toBe("plan");
     expect(initialFormRole(output, "plan")).toBe("plan");
   });
+  test("Set plan and Replace… offer only Plan; other forms offer all three", () => {
+    expect(formRoles(null, "plan")).toEqual(["plan"]);
+    expect(formRoles(null)).toEqual(["input", "output", "plan"]);
+    expect(formRoles(input)).toEqual(["input", "output", "plan"]);
+  });
   test("the plan artifact opens as Plan; others keep their role; a new one is an Input", () => {
     expect(initialFormRole({ ...input, plan })).toBe("plan");
     expect(initialFormRole(output)).toBe("output");
@@ -19,6 +24,7 @@ describe("artifact form role (CARD-PLAN-SPEC §2.2)", () => {
     expect(planChoiceAllowed(null)).toBe(true);
     expect(planChoiceAllowed(input)).toBe(true);
     expect(planChoiceAllowed({ ...output, origin: "review-ledger" })).toBe(false);
+    expect(formRoles({ ...output, origin: "review-ledger" })).toEqual(["input", "output"]);
     expect(planChoiceAllowed({ ...input, external: { provider: "jira", key: "A-1" } as never })).toBe(false);
   });
 });

@@ -4,7 +4,7 @@ import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
-import type { Task } from "../shared/model";
+import type { Artifact, Task } from "../shared/model";
 import { artifactsOf } from "../shared/artifacts";
 import { planApproved, planOf } from "../shared/plans";
 import { useTaskDetail, invalidateCardViews } from "./card-detail-query";
@@ -26,7 +26,8 @@ export const TaskPlan = memo(function TaskPlan({ task, active, archived }: { tas
   const approve = useRpc(rpc.approvePlan);
   const clear = useRpc(rpc.clearPlan);
   const openMenu = useMenuOpener();
-  const [form, setForm] = useState<"set" | "edit" | null>(null);
+  // The form keeps the artifact it opened on: a refetch after saving must not turn Edit into Add while it closes.
+  const [form, setForm] = useState<{ artifact: Artifact | null } | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [pending, setPending] = useState(false);
   const all = useMemo(() => (detail ? artifactsOf(detail.artifacts, task.id) : []), [detail, task.id]);
@@ -35,7 +36,7 @@ export const TaskPlan = memo(function TaskPlan({ task, active, archived }: { tas
   const missing = useArtifactMissing(task.id, all);
   if (!detail) return null;
   const formView = form && (
-    <ArtifactForm task={task} artifact={form === "edit" ? plan : null} preset={form === "set" ? "plan" : undefined} onClose={() => setForm(null)} />
+    <ArtifactForm task={task} artifact={form.artifact} preset={form.artifact ? undefined : "plan"} onClose={() => setForm(null)} />
   );
   if (!plan) {
     if (archived) return null;
@@ -44,7 +45,7 @@ export const TaskPlan = memo(function TaskPlan({ task, active, archived }: { tas
         <Pressable
           accessibilityRole="button"
           disabled={!active}
-          onPress={() => setForm("set")}
+          onPress={() => setForm({ artifact: null })}
           style={({ pressed }) => ({ ...noFocusRing, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: space[1], minHeight: touch ? 36 : 24, opacity: pressed ? 0.7 : 1 })}
         >
           <Icon name="Plus" size={13} color={colors.foregroundMuted} />
@@ -72,8 +73,8 @@ export const TaskPlan = memo(function TaskPlan({ task, active, archived }: { tas
   };
   const entries = (): MenuEntry[] => [
     ...(approved ? [] : [{ id: "approve", label: t("Mark approved"), icon: "Check", onPress: () => void run(() => approve({ taskId: task.id }), t("Plan approved")) }]),
-    { id: "replace", label: t("Replace…"), icon: "Replace", onPress: () => setForm("set") },
-    { id: "edit", label: t("Edit…"), icon: "Pencil", onPress: () => setForm("edit") },
+    { id: "replace", label: t("Replace…"), icon: "Replace", onPress: () => setForm({ artifact: null }) },
+    { id: "edit", label: t("Edit…"), icon: "Pencil", onPress: () => setForm({ artifact: plan }) },
     {
       id: "remove",
       label: t("Remove"),

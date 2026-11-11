@@ -1656,7 +1656,7 @@ const catalog: Catalog = {
   "Replace…": "Ersetzen…",
   "Edit…": "Bearbeiten…",
   "Plan removed. It stays in Inputs.": "Plan entfernt. Er bleibt unter Eingaben.",
-  "Plan removed. It stays in Outputs.": "Plan entfernt. Er bleibt unter Ergebnisse.",
+  "Plan removed. It stays in Outputs.": "Plan entfernt. Er bleibt unter Ergebnissen.",
   "Plan approved": "Plan genehmigt",
   "Plan set": "Plan festgelegt",
   "Steps": "Schritte",

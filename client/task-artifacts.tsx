@@ -7,7 +7,7 @@ import * as rpc from "../shared/rpc";
 import type { Artifact, ArtifactRole, Task } from "../shared/model";
 import { artifactGroups, artifactsOf, baseName } from "../shared/artifacts";
 import { withoutPlan } from "../shared/plans";
-import { artifactSaveSteps, initialFormRole, planChoiceAllowed, type ArtifactFormRole } from "./task-plan-logic";
+import { artifactSaveSteps, formRoles, initialFormRole, type ArtifactFormRole } from "./task-plan-logic";
 import { Modal } from "./modal";
 import { IdeaRow, useExitList } from "./task-ideas";
 import { useTaskDetail, invalidateCardViews } from "./card-detail-query";
@@ -15,7 +15,7 @@ import { SessionMarkdown } from "./session-content";
 import { PagedRows, Section, ShowMore, pageSize, type SectionState } from "./disclosure";
 import { FocusTarget, Marked, limitFor, useFocusTarget, useMark } from "./drawer-focus";
 import { AiMark, Actions, Button, Choices, Field, IconButton, Label, Notice, Theme, font, message, space, touch, useTheme, noFocusRing } from "./ui";
-import { t, tn } from "../shared/i18n";
+import { msg, t, tn } from "../shared/i18n";
 import { BrandIcon } from "./brand-icons";
 import { ExternalPreview, LinkExternal, connectionsByFamily, pickKey, itemKindLabel, linkTitles, useConnections } from "./connectors";
 import { connectorFamilies, familyOf, itemTypeOf, type ConnectorFamily } from "../shared/connectors";
@@ -277,11 +277,8 @@ function hostOf(url: string) {
   }
 }
 
-const roleChoices = (plan: boolean): { value: ArtifactFormRole; label: string }[] => [
-  { value: "input", label: t("Input") },
-  { value: "output", label: t("Output") },
-  ...(plan ? [{ value: "plan" as const, label: t("Plan") }] : []),
-];
+const roleLabels: Record<ArtifactFormRole, string> = { input: msg("Input"), output: msg("Output"), plan: msg("Plan") };
+const roleChoices = (roles: ArtifactFormRole[]): { value: ArtifactFormRole; label: string }[] => roles.map((value) => ({ value, label: t(roleLabels[value]) }));
 
 /**
  * Add or edit an artifact (CARD-ARTIFACTS-SPEC §5.3). The target is fixed once added. The Plan role makes it the
@@ -333,7 +330,7 @@ export function ArtifactForm({ task, artifact, preset, onClose }: { task: Task; 
         <Theme.Provider value={theme}>
           <View style={{ gap: space[3] }}>
             {!!error && <Notice tone="danger">{error}</Notice>}
-            <Choices title={t("Role")} value={role} options={roleChoices(planChoiceAllowed(artifact))} onChange={setRole} />
+            <Choices title={t("Role")} value={role} options={roleChoices(formRoles(artifact, preset))} onChange={setRole} />
             <Field
               title={t("Path or link")}
               value={target}
