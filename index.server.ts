@@ -1033,12 +1033,14 @@ export default function contribute(host: PluginServerContext) {
   });
   server.addHook("agent.permission.before", async (event, { paseo }) => {
     tools.attach(paseo);
-    const identity = await managedTask(event.agent);
+    const lookup = managedTask(event.agent);
+    // A plan-mode request is kept at once, before the lookup ends, so a fast approval still finds it; only a card
+    // session's counts (CARD-PLAN-SPEC §4). Never throws.
+    planPaseo = paseo;
+    planWatcher.before(lookup, event.request);
+    const identity = await lookup;
     // EVENT-BUS-SPEC §1: every session's request, with its card when Flowly manages the session.
     bus.publish([{ kind: "permission", agentId: event.agent.id, taskId: identity?.taskId ?? null, request: event.request }]);
-    // A plan-mode request of a card session is kept until its answer (CARD-PLAN-SPEC §4); never throws.
-    planPaseo = paseo;
-    planWatcher.before(identity, event.request);
     if (!identity) return;
     await store.mutate((board) =>
       // INSIGHTS-REDESIGN-SPEC §7.2: only the tool's name, never its input.

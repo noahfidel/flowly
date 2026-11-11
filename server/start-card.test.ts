@@ -760,3 +760,17 @@ test("an explicit mode is checked against the provider's modes for the card's di
   await x.starter.start(x.caller, { taskId: "d", mode: "custom-mode", idempotencyKey: "go" }, x.paseo);
   expect(x.createdSessions[1].config.modeId).toBe("custom-mode");
 });
+
+test("a directory card's plan in the project folder still opens after the start moves the card to a worktree", async () => {
+  const x = await setup();
+  const { ArtifactService } = await import("./artifacts");
+  await writeFile(join(x.a, "plan.md"), "# Plan\n");
+  await x.card("c", { ownsWorkspace: true });
+  await x.cards.setPlan(x.caller, { taskId: "c", target: "plan.md", approved: true });
+  const started = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(started.workspaceId).not.toBe("ws-c");
+  const plan = (await x.store.read()).artifacts.find((a) => a.taskId === "c" && a.plan)!;
+  expect(plan.target).toBe(join(x.a, "plan.md"));
+  expect((await new ArtifactService(x.store).status({ taskId: "c" }, x.paseo)).missing).toEqual([]);
+  expect(x.createdSessions[0].prompt).toContain(`Approved plan: ${join(x.a, "plan.md")}.`);
+});

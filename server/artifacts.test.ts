@@ -327,9 +327,9 @@ test("the plan: get_task.cardPlan, left out of artifacts and the session's Input
   const other = await x.artifacts.create({ taskId: "t", role: "input", target: "https://issue.example/2", title: "Issue" }, x.paseo);
   const plan = await new PlanService(x.store, x.artifacts).set({ taskId: "t", target: "docs/spec.md", title: "The plan" }, x.paseo);
   const ctx = await x.service.get(x.identity);
-  expect(ctx.cardPlan).toMatchObject({ artifactId: plan.id, target: "./docs/spec.md", absolutePath: join(x.a, "docs/spec.md"), title: "The plan", approved: true, source: "manual", missing: false });
+  expect(ctx.cardPlan).toMatchObject({ artifactId: plan.id, target: join(x.a, "docs/spec.md"), absolutePath: join(x.a, "docs/spec.md"), title: "The plan", approved: true, source: "manual", missing: false });
   expect(ctx.artifacts.map((a) => a.id)).toEqual([other.id]);
-  expect(artifactContextLines((await x.store.read()).artifacts)).toEqual(["Plan (approved): The plan: ./docs/spec.md", "Inputs:", "- [user] Issue: https://issue.example/2"]);
+  expect(artifactContextLines((await x.store.read()).artifacts)).toEqual([`Plan (approved): The plan: ${join(x.a, "docs/spec.md")}`, "Inputs:", "- [user] Issue: https://issue.example/2"]);
   // Even a plan an agent added is cleared with flowly_clear_plan, not removed.
   await x.store.mutate((b) => void Object.assign(b.artifacts.find((a) => a.id === plan.id)!, { createdBy: "agent", agentId: "actor" }));
   await expect(x.service.write(x.identity, "artifact_remove", { ...input(await x.service.get(x.identity)), id: plan.id })).rejects.toMatchObject({

@@ -17,7 +17,8 @@ import type { ConnectorService } from "./connectors/service";
 
 /** Where a card's files may live, and the directory "./" targets are relative to. */
 /** `roots` are resolved through symlinks at each check; `resolved` (the extra folders) were resolved at the settings read and are compared as they are. */
-export type ArtifactRoots = { workspace: string; roots: string[]; resolved?: string[] };
+/** `worktree`: the card's workspace is a worktree, so its `./` plan stays valid where the card works (CARD-PLAN-SPEC §3.1). */
+export type ArtifactRoots = { workspace: string; roots: string[]; resolved?: string[]; worktree?: boolean };
 
 /**
  * Extra folders from Settings as absolute roots: `~` expanded, normalized (no trailing slash), duplicates dropped.
@@ -202,7 +203,8 @@ export function putArtifact(
     };
     const changed = next.role !== existing.role || next.title !== existing.title || next.note !== existing.note;
     if (changed) Object.assign(existing, next, { updatedAt: now });
-    if (input.external && !existing.external) existing.external = input.external;
+    // The card's plan is never an external item (CARD-PLAN-SPEC §1.1).
+    if (input.external && !existing.external && !existing.plan) existing.external = input.external;
     return { artifact: existing, changed };
   }
   if (board.artifacts.filter((a) => a.taskId === task.id).length >= artifactLimits.perTask)
@@ -320,7 +322,7 @@ export async function previewFile(artifact: Artifact, where: ArtifactRoots): Pro
   }
 }
 
-type Paseo = { workspaces: { ref(id: string): { refresh(): Promise<{ workspaceDirectory: string } | null | undefined> } } };
+type Paseo = { workspaces: { ref(id: string): { refresh(): Promise<{ workspaceDirectory: string; workspaceKind?: string | null } | null | undefined> } } };
 
 /** Human RPCs for artifacts (CARD-ARTIFACTS-SPEC §3). */
 export class ArtifactService {
@@ -345,7 +347,10 @@ export class ArtifactService {
       .ref(task.workspaceId)
       .refresh()
       .catch(() => null);
-    return artifactRoots(task, project, workspace?.workspaceDirectory, await this.extraRoots(), this.store.directory);
+    return {
+      ...artifactRoots(task, project, workspace?.workspaceDirectory, await this.extraRoots(), this.store.directory),
+      worktree: workspace?.workspaceKind === "worktree",
+    };
   }
 
   async create(

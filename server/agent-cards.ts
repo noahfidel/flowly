@@ -20,7 +20,7 @@ import {
 } from "../shared/tools";
 import { ArtifactService, normalizeTarget, type ArtifactRoots } from "./artifacts";
 import { logFailure } from "./error-report";
-import { cardPlanView, clearPlan, setPlan } from "./plans";
+import { cardPlanView, clearPlan, planMissing, planTarget, setPlan } from "./plans";
 import { BoardService } from "./service";
 import { BoardStore, columnOrder, setTags } from "./store";
 import { digest } from "./tool-context";
@@ -305,9 +305,10 @@ export class AgentCards {
   /** Sets the plan of a card just created; the card stays when it fails (logged). */
   private async planOnCreate(caller: CardCaller, taskId: string, plan: { kind: "file" | "url"; target: string; title?: string; approved: boolean }) {
     try {
-      const { kind, target } = plan.kind === "url" ? plan : await normalizeTarget(plan.target, await this.artifacts().where(taskId, this.api()));
+      const where = await this.artifacts().where(taskId, this.api());
+      const { kind, target } = plan.kind === "url" ? plan : planTarget(await normalizeTarget(plan.target, where), where);
       await this.store.transaction((board) => {
-        const result = setPlan(this.store, board, { taskId, kind, target, title: plan.title, approved: plan.approved, by: { kind: "agent", agentId: caller.agentId }, source: "tool" });
+        const result = setPlan(this.store, board, { taskId, kind, target, workspace: where.workspace, title: plan.title, approved: plan.approved, by: { kind: "agent", agentId: caller.agentId }, source: "tool" });
         return { value: undefined, changed: result.changed };
       });
     } catch (e) {
@@ -334,11 +335,11 @@ export class AgentCards {
     let where: ArtifactRoots, found: Awaited<ReturnType<typeof normalizeTarget>>;
     try {
       where = await this.artifacts().where(task.id, this.api(), board);
-      found = await normalizeTarget(input.target, where);
+      found = planTarget(await normalizeTarget(input.target, where), where);
     } catch (e) {
       throw new ToolError("PLAN_INVALID", e instanceof Error ? e.message : String(e));
     }
-    return this.store.transaction((board) => {
+    const artifact = await this.store.transaction((board) => {
       this.planCard(board, caller, input.taskId);
       let result;
       try {
@@ -346,6 +347,7 @@ export class AgentCards {
           taskId: input.taskId,
           kind: found.kind,
           target: found.target,
+          workspace: where.workspace,
           title: input.title,
           approved: input.approved,
           by: { kind: "agent", agentId: caller.agentId },
@@ -354,8 +356,9 @@ export class AgentCards {
       } catch (e) {
         throw new ToolError("PLAN_INVALID", e instanceof Error ? e.message : String(e));
       }
-      return { value: { plan: cardPlanView(result.artifact, where.workspace, false) }, changed: result.changed };
+      return { value: { ...result.artifact }, changed: result.changed };
     });
+    return { plan: cardPlanView(artifact, where.workspace, await planMissing(artifact, where)) };
   }
   /** flowly_clear_plan (CARD-PLAN-SPEC §5.2): empties the slot; the file stays an ordinary input. */
   async clearPlan(caller: CardCaller, raw: unknown) {

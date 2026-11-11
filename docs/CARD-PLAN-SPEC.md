@@ -49,7 +49,7 @@ Plan changes increase the board revision only, never the task revision (same as 
 
 | Action | When | Note |
 | --- | --- | --- |
-| `plan_set` | an artifact becomes the card's plan (new or replacing) | `Approved: <title>` or `Draft: <title>` |
+| `plan_set` | an artifact becomes the card's plan (new or replacing), or the approved plan is approved again (§3.2) | `Approved: <title>` or `Draft: <title>` |
 | `plan_approved` | a draft plan is marked approved | `<title>` |
 | `plan_cleared` | the slot is emptied (Remove, `flowly_clear_plan`, or the plan artifact deleted) | `<title>` |
 
@@ -81,14 +81,16 @@ The artifact add/edit form's role choice gains a third option, **Plan**, next to
 
 The same rules as artifacts (CARD-ARTIFACTS-SPEC §2.2 and the extra-folders increment): http(s) URL, or an existing file inside the card's directories, the extra artifact folders, or the card's plan-copy folder. Errors reuse the artifact texts.
 
+Stored form: a file inside the card's workspace is stored `./relative` only when that workspace is a worktree. In a directory workspace the plan is stored as an absolute path, because `flowly_start_card` moves a directory card to a worktree without rewriting artifact targets, and a `./` plan would then be Missing. This applies to every writer (`plans.set`, `flowly_set_plan`, `flowly_create_card`'s plan, plan mode).
+
 ### 3.2 Setting
 
 `setPlan(store, board, { taskId, kind, target, title?, approved, by, source })`:
 
 1. The card is live (`Archived cards can't be changed.`).
-2. An artifact with the same `(kind, target)` on the card becomes the plan (its title changes only when the writer may edit it: a person, or an agent on an agent-added artifact; never a review ledger, which is refused: `A review ledger can't be the plan.`). Otherwise a new input artifact is added (`createdBy` per `by`; plan-mode copies `human`), subject to the 100-artifact limit.
+2. An artifact with the same `(kind, target)` on the card becomes the plan; a `./` record of the same file counts as the same target and its target is made absolute by the rule above (its title changes only when the writer may edit it: a person, or an agent on an agent-added artifact; never a review ledger, which is refused: `A review ledger can't be the plan.`). Otherwise a new input artifact is added (`createdBy` per `by`; plan-mode copies `human`), subject to the 100-artifact limit.
 3. Any other plan artifact of the card loses its `plan` field and stays as an ordinary artifact (§3.3).
-4. `approved: true` sets `approvedAt` = now and `approvedBy` = `by`; `false` leaves it a draft. Setting the same target that is already the plan only updates approval: `approved: true` approves a draft (event `plan_approved`), `approved: false` on an approved plan changes nothing (a plan is never un-approved; replace it instead).
+4. `approved: true` sets `approvedAt` = now and `approvedBy` = `by`; `false` leaves it a draft. Setting the same target that is already the plan only updates approval: `approved: true` approves a draft (event `plan_approved`); `approved: true` on an approved plan approves it again (new `approvedAt`, `approvedBy` and `source`; event `plan_set`, `Approved: <title>`), as when plan mode rewrites the same file and the user accepts it again; `approved: false` on an approved plan changes nothing (a plan is never un-approved; replace it instead).
 
 ### 3.3 Replacing and clearing
 
@@ -98,8 +100,8 @@ A later plan replaces the earlier one: the earlier artifact keeps everything but
 
 Observed in the daemon, so it works whether the user answered in Flowly's question UI or in Paseo:
 
-1. `agent.permission.before` with `request.kind === "plan"` from a Flowly-managed card session: Flowly keeps `{ agentId, taskId, text, path }` by `request.id` in memory (at most 200 entries, dropped after 24 h). `text` is `input.plan`; `path` is the first string among `input.planFilePath`, `input.plan_file_path`, `input.filePath`, `input.file_path`, `metadata.planFilePath`, `metadata.filePath`.
-2. `agent.permission.after` for a kept id with `resolution.behavior === "allow"`: the card's plan is set, approved, `source: "plan-mode"`, `approvedBy: { kind: "human" }`, actor `human`. Target: `path` when it passes §3.1 as a file; otherwise the text saved as a plan copy (§1.2); neither (no usable path, empty text): nothing is set, logged. Title: the text's first Markdown heading, else the file name, else *Plan*, at most 120 characters. A `deny` (Keep planning) sets nothing. Either way the entry is dropped.
+1. `agent.permission.before` with `request.kind === "plan"`: Flowly keeps `{ text, path }` by `request.id` in memory at once (at most 200 entries, dropped after 24 h), together with the pending lookup of whether the session is a Flowly-managed card session (its `agentId`, `taskId`); a session that is not one is forgotten when the lookup ends. Keeping it before the lookup ends means a fast approval still finds it. `text` is `input.plan`; `path` is the first string among `input.planFilePath`, `input.plan_file_path`, `input.filePath`, `input.file_path`, `metadata.planFilePath`, `metadata.filePath`.
+2. `agent.permission.after` for a kept id with `resolution.behavior === "allow"` waits for that lookup (at most 10 s) and goes on only for a card session answering its own request. What the user edited at approval wins: `resolution.updatedInput.plan` (when a string) over the kept text, and a path among the same keys of `updatedInput` over the kept path. The card must be live (not archived, project live) before anything is written, so an archived card gets no plan copy. Then the card's plan is set, approved, `source: "plan-mode"`, `approvedBy: { kind: "human" }`, actor `human`. Target: `path` when it passes §3.1 as a file; otherwise the text saved as a plan copy (§1.2); neither (no usable path, empty text): nothing is set, logged. Title: the text's first Markdown heading, else the file name, else *Plan*, at most 120 characters. A `deny` (Keep planning) sets nothing. Either way the entry is dropped.
 3. Failures are logged with `logFailure` and never affect the hook or the session. A request raised before a plugin reload is not known after it, so its approval is not captured (known limit).
 
 Sessions outside cards are not captured: they have no card. An agent that planned there and then creates a card passes the plan with `flowly_create_card` (§5.2).

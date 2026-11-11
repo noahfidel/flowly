@@ -2,8 +2,8 @@ import { afterEach, expect, test } from "vitest";
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { agentFixture } from "./agent-fixture";
-import { ArtifactService } from "./artifacts";
-import { PlanModeWatcher, PlanService, setPlan, type PlanRequestEntry } from "./plans";
+import { ArtifactService, normalizeTarget, putArtifact } from "./artifacts";
+import { PlanModeWatcher, PlanService, setPlan, writePlanCopy, type PlanRequestEntry } from "./plans";
 import { planOf } from "../shared/plans";
 
 const roots: string[] = [];
@@ -27,7 +27,8 @@ test("plans.set adds a new approved input, board revision only, events and actor
   const x = await setup();
   const before = await x.store.read();
   const plan = await x.plans.set({ taskId: "t", target: "docs/plan.md", title: "Ship the thing" }, x.paseo);
-  expect(plan).toMatchObject({ role: "input", target: "./docs/plan.md", title: "Ship the thing", createdBy: "human", plan: { source: "manual", approvedBy: { kind: "human" } } });
+  // A directory card stores the plan absolute, so it still opens after the card moves to a worktree.
+  expect(plan).toMatchObject({ role: "input", target: join(x.a, "docs", "plan.md"), title: "Ship the thing", createdBy: "human", plan: { source: "manual", approvedBy: { kind: "human" } } });
   expect(plan.plan!.approvedAt).toBeTruthy();
   const board = await x.store.read();
   expect(board.revision).toBe(before.revision + 1);
@@ -42,7 +43,8 @@ test("an existing artifact becomes the plan and keeps its role; replacing keeps 
   const x = await setup();
   const out = await x.artifacts.create({ taskId: "t", role: "output", target: "docs/plan.md" }, x.paseo);
   const first = await x.plans.set({ taskId: "t", target: "docs/plan.md" }, x.paseo);
-  expect(first).toMatchObject({ id: out.id, role: "output" });
+  // The existing "./" record is reused and its target made absolute, not duplicated.
+  expect(first).toMatchObject({ id: out.id, role: "output", target: join(x.a, "docs", "plan.md") });
   const second = await x.plans.set({ taskId: "t", target: "docs/next.md" }, x.paseo);
   const list = await card(x);
   expect(list.filter((a) => a.plan).map((a) => a.id)).toEqual([second.id]);
@@ -121,7 +123,7 @@ test("plan mode: an allowed request with a path inside the roots points at it", 
   const x = await setup();
   await entry(x, { id: "r1", input: { plan: "# Rework the store\nsteps", planFilePath: join(x.a, "docs", "plan.md") } });
   const plan = planOf(await card(x), "t")!;
-  expect(plan).toMatchObject({ target: "./docs/plan.md", title: "Rework the store", createdBy: "human", plan: { source: "plan-mode", approvedBy: { kind: "human" } } });
+  expect(plan).toMatchObject({ target: join(x.a, "docs", "plan.md"), title: "Rework the store", createdBy: "human", plan: { source: "plan-mode", approvedBy: { kind: "human" } } });
   expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "plan_set", actor: "human" });
 });
 
@@ -179,4 +181,83 @@ test("plan mode watcher keeps at most 200 requests and drops them after 24 h", a
   });
   failing.before({ agentId: "a", taskId: "t" }, { id: "x", kind: "plan", input: { plan: "# p" } });
   await expect(failing.after("a", "x", { behavior: "allow" })).resolves.toBeUndefined();
+});
+
+test("a worktree card keeps its plan relative to the worktree", async () => {
+  const x = await setup();
+  x.setWorkspace({ id: "w", projectId: "native", projectDisplayName: "Project", workspaceDirectory: x.a, workspaceKind: "worktree", status: "done", archivingAt: null });
+  const plan = await x.plans.set({ taskId: "t", target: "docs/plan.md" }, x.paseo);
+  expect(plan.target).toBe("./docs/plan.md");
+});
+
+test("approving the same, already approved target again renews the approval and records it (CARD-PLAN-SPEC §3.2)", async () => {
+  const x = await setup();
+  const first = await x.plans.set({ taskId: "t", target: "docs/plan.md" }, x.paseo);
+  await new Promise((r) => setTimeout(r, 5));
+  await x.store.transaction((board) => {
+    const r = setPlan(x.store, board, { taskId: "t", kind: "file", target: first.target, approved: true, by: { kind: "agent", agentId: "actor" }, source: "tool" });
+    return { value: r, changed: r.changed };
+  });
+  const plan = planOf(await card(x), "t")!;
+  expect(plan.plan.approvedAt! > first.plan!.approvedAt!).toBe(true);
+  expect(plan.plan).toMatchObject({ approvedBy: { kind: "agent", agentId: "actor" }, source: "tool" });
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "plan_set", actor: "agent", note: "Approved: plan.md" });
+});
+
+test("plan mode: the text and path the user edited at approval win over the request's", async () => {
+  const x = await setup();
+  const watcher = new PlanModeWatcher((e) => x.plans.fromPlanMode(e, x.paseo));
+  watcher.before({ agentId: "actor", taskId: "t" }, { id: "r1", kind: "plan", input: { plan: "# Original" } });
+  await watcher.after("actor", "r1", { behavior: "allow", updatedInput: { plan: "# Edited by the user\nbody" } });
+  const plan = planOf(await card(x), "t")!;
+  expect(plan.title).toBe("Edited by the user");
+  expect(await readFile(plan.target, "utf8")).toBe("# Edited by the user\nbody\n");
+  watcher.before({ agentId: "actor", taskId: "t" }, { id: "r2", kind: "plan", input: { plan: "# Second", planFilePath: join(x.root, "outside", "plan.md") } });
+  await watcher.after("actor", "r2", { behavior: "allow", updatedInput: { planFilePath: join(x.a, "docs", "next.md") } });
+  expect(planOf(await card(x), "t")!.target).toBe(join(x.a, "docs", "next.md"));
+});
+
+test("plan mode: an approval that arrives while the session lookup is still running is applied", async () => {
+  const x = await setup();
+  const watcher = new PlanModeWatcher((e) => x.plans.fromPlanMode(e, x.paseo));
+  let resolve!: (v: { agentId: string; taskId: string } | null) => void;
+  watcher.before(new Promise((r) => (resolve = r)), { id: "r1", kind: "plan", input: { plan: "# Fast allow" } });
+  const answered = watcher.after("actor", "r1", { behavior: "allow" });
+  resolve({ agentId: "actor", taskId: "t" });
+  await answered;
+  expect(planOf(await card(x), "t")!.title).toBe("Fast allow");
+  // A lookup that finds no card session, or fails, sets nothing and never throws.
+  watcher.before(Promise.resolve(null), { id: "r2", kind: "plan", input: { plan: "# None" } });
+  watcher.before(Promise.reject(new Error("lookup failed")), { id: "r3", kind: "plan", input: { plan: "# Failed" } });
+  await watcher.after("actor", "r2", { behavior: "allow" });
+  await watcher.after("actor", "r3", { behavior: "allow" });
+  expect(planOf(await card(x), "t")!.title).toBe("Fast allow");
+  expect(watcher.size).toBe(0);
+});
+
+test("plan mode on an archived card writes no copy", async () => {
+  const x = await setup();
+  await x.store.mutate((b) => void (b.tasks[0].archivedAt = new Date().toISOString()));
+  await entry(x, { id: "r1", input: { plan: "# Too late" } });
+  await expect(readdir(join(x.store.directory, "plans", "t"))).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("a later link to the plan's URL never turns the plan into an external item", async () => {
+  const x = await setup();
+  const plan = await x.plans.set({ taskId: "t", target: "https://plans.example/doc" }, x.paseo);
+  await x.store.mutate((board) => {
+    putArtifact(x.store, board, { taskId: "t", role: "input", kind: "url", target: plan.target, createdBy: "human", external: { connectionId: "c", provider: "linear", key: "AB-1", remoteId: "r" } as never });
+  });
+  const stored = planOf(await card(x), "t")!;
+  expect(stored.external).toBeUndefined();
+});
+
+test("a card's artifact roots hold its own plan copies, never another card's", async () => {
+  const x = await setup();
+  await x.store.mutate((b) => void b.tasks.push({ ...b.tasks[0], id: "t2", workspaceId: "w2", operationId: "create-2" }));
+  const own = await writePlanCopy(x.store.directory, "t", "# Mine");
+  const other = await writePlanCopy(x.store.directory, "t2", "# Theirs");
+  const where = await x.artifacts.where("t", x.paseo);
+  expect((await normalizeTarget(own, where)).target).toBe(own);
+  await expect(normalizeTarget(other, where)).rejects.toThrow("outside this card's directories");
 });
