@@ -71,6 +71,9 @@ import { SessionMarkdown } from "./session-content";
 import { TaskIdeas, type IdeaOther } from "./task-ideas";
 import { LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
+import { TaskPlan } from "./task-plan";
+import { planAwareDefaults } from "./task-plan-logic";
+import { planApproved, planOf } from "../shared/plans";
 import { TaskWorkpad } from "./task-workpad";
 import { TaskTags } from "./task-tags";
 import { ReleaseModal, ReleaseNotice, SwitchModal, type SwitchDirection } from "./workspace-switch";
@@ -212,6 +215,9 @@ function TaskDrawerView({
   // Only keep the shared poll alive. The root/data readers deliver changed props;
   // fetching flags must not re-render this entire retained detail tree.
   const detailState = useTaskDetail();
+  // A card with an approved plan doesn't start sessions in Plan mode by default (CARD-PLAN-SPEC §6.2).
+  const approvedPlan = !!detailState.detail && planApproved(planOf(detailState.detail.artifacts, task.id));
+  const startDefaults = useMemo(() => planAwareDefaults(sessionDefaults, approvedPlan), [sessionDefaults, approvedPlan]);
   useCardDetailQuery(hostId, task.id, task.workspaceId, pollBoard, pollBoard ? 3000 : undefined, true);
   const lock = useRef(false);
   const order = useMemo(() => drawerSectionOrder(sectionOrder ? sectionOrder.split(",") : []), [sectionOrder]);
@@ -1141,6 +1147,7 @@ function TaskDrawerView({
               <SessionMarkdown text={task.description} />
             )}
             {!!detailState.error && <Notice>{message(detailState.error)}</Notice>}
+            {!!detailState.detail && <TaskPlan task={task} active={active} archived={!!task.archivedAt || !!project.archivedAt} />}
             {!detailState.detail ? <Button quiet onPress={detailState.retry}>{detailState.error ? t("Retry") : t("Loading cards…")}</Button> : order.map((id) => <Fragment key={id}>{section(id)}</Fragment>)}
             {settled && (
             // Below the sessions, so mounting them after the transition moves nothing above.
@@ -1223,7 +1230,7 @@ function TaskDrawerView({
               .catch((e) => toast.show(t("Session started, but the idea was not marked: {message}", { message: message(e) }), { variant: "error" }));
         }}
         refresh={refreshAll}
-        defaults={sessionDefaults}
+        defaults={startDefaults}
         seed={ideaSession ? { title: ideaSession.title, prompt: ideaInstruction(ideaSession) } : null}
       />
       <WrapupModal
@@ -1429,6 +1436,9 @@ const activityText: Record<string, string> = localizedLabels({
   card_created: msg("Created a card"),
   review_started: msg("Started the auto review"),
   review_finished: msg("Finished the auto review"),
+  plan_set: msg("Set the plan"),
+  plan_approved: msg("Approved the plan"),
+  plan_cleared: msg("Removed the plan"),
   "agent.turn_started": msg("Started a turn"),
   "agent.turn_ended": msg("Finished a turn"),
 });

@@ -166,6 +166,7 @@ import { cardDisplay, cardWorkspace } from "../shared/card-display";
 import { parentOf } from "../shared/subagents";
 import { reviewLabel } from "./task-review";
 import { visibleReview } from "../shared/auto-review";
+import { planApproved, planOf } from "../shared/plans";
 
 /** One-time tip texts (ONBOARDING-SPEC §5). */
 const tipText: Record<TipId, (compact?: boolean) => string> = {
@@ -202,6 +203,7 @@ const tipText: Record<TipId, (compact?: boolean) => string> = {
   dispatcher: () => t("The dispatcher is one agent for all your projects. Open its chat with the robot button, ask for work, and it makes the cards and starts them."),
   "auto-review": () => t("Auto review checked this card after the agent delivered; open it to see each check's result."),
   "first-guardrail": () => t("Flowly learned a check from a card you sent back. Open Guardrails to see what it checks now."),
+  plan: () => t("This card's approved plan. New sessions start from it instead of planning again."),
   "first-workpad": () => t("This card has a workpad: the agent's acceptance list. The card shows how many items are met; open it to tick items yourself and to see the latest review."),
 };
 
@@ -1619,6 +1621,7 @@ function BoardContent(
           reviewShown: !task && projectTasks.some((x) => !!visibleReview(x)),
           learnedGuideline: !task && !!projectGuardrails?.added,
           laneSwipe: touch && !task && !page && shownStatuses.length > 1 && projectTasks.some((x) => !x.archivedAt),
+          cardPlan: !!task && !!currentDetail && planApproved(planOf(currentDetail.artifacts, task.id)),
         },
         blocked: tipBlocked,
       });
