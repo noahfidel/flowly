@@ -797,16 +797,19 @@ export const dismissSessionIdea = defineRpc({
   input: sessionIdeaTarget,
   output: z.object({ ok: z.literal(true) }),
 });
+// IDs become CLI arguments: never allow a leading "-" (option injection).
+const sessionChange = {
+  agentId: z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/),
+  thinkingOptionId: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/).optional(),
+  modeId: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/).optional(),
+  stop: z.boolean().optional(),
+};
 export const configureSession = defineRpc({
   name: "sessions.configure",
   input: z
     .strictObject({
       taskId: z.string().min(1).max(200),
-      // IDs become CLI arguments: never allow a leading "-" (option injection).
-      agentId: z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/),
-      thinkingOptionId: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/).optional(),
-      modeId: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/).optional(),
-      stop: z.boolean().optional(),
+      ...sessionChange,
       /** New display name of the session; a single line. */
       title: z.string().trim().min(1).max(200).regex(/^[^\u0000-\u001f\u007f]+$/, "A title is a single line.").optional(),
     })
@@ -1145,6 +1148,14 @@ export const dispatcherMarkSeen = defineRpc({
 });
 /** The user's chat message to the dispatcher, sent by the daemon; refused for an unguarded one (DISPATCHER-SPEC §3, §9.3). */
 export const dispatcherSend = defineRpc({ name: "dispatcher.send", input: dispatcherSendInputSchema, output: z.strictObject({ sent: z.literal(true) }) });
+/** The composer chips' changes (reasoning, permissions, stop) for the group's stored dispatcher session only (DISPATCHER-SPEC §9.3). */
+export const dispatcherConfigure = defineRpc({
+  name: "dispatcher.configure",
+  input: z
+    .strictObject({ groupId: dispatcherGroupId, ...sessionChange })
+    .refine((i) => i.thinkingOptionId || i.modeId || i.stop, { message: "Nothing to change." }),
+  output: z.object({ applied: z.array(z.string()) }),
+});
 /** "What should I do?" with the changed cards, sent to the dispatcher (DISPATCHER-SPEC §9.2). */
 export const dispatcherWhatNext = defineRpc({ name: "dispatcher.what-next", input: dispatcherGroupInputSchema, output: z.strictObject({ sent: z.literal(true) }) });
 /** Answers one ask from the chat, re-checked against its session; `delivered` only after the Paseo call resolved (DISPATCHER-SPEC §9.4). */

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoardStore } from "./store";
 import { SessionSettingsService } from "./session-settings";
-import { configureSession } from "../shared/rpc";
+import { configureSession, dispatcherConfigure } from "../shared/rpc";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -75,4 +75,46 @@ test("renaming passes one --name= argument, so a dash-leading title is never an 
   expect(parse("   ")).toBe(false);
   expect(parse("two\nlines")).toBe(false);
   expect(configureSession.input.parse({ taskId: "t", agentId: "a1", title: "  Fix login  " }).title).toBe("Fix login");
+});
+
+// dispatcher.configure (DISPATCHER-SPEC §9.3; Ruling, Noah 2026-11-11): the same changes, only for the group's stored dispatcher.
+test("dispatcher.configure changes only the group's stored dispatcher session, in its workspace", async () => {
+  const dispatcherAgent = { id: "d1", workspaceId: "dw", archivedAt: null, availableModes: [{ id: "default" }, { id: "bypassPermissions" }] };
+  const x = await setup(dispatcherAgent);
+  x.service.dispatcher = async (groupId) => (groupId === "g1" ? { agentId: "d1", workspaceId: "dw" } : null);
+  const result = await x.service.dispatcherApply({ groupId: "g1", agentId: "d1", modeId: "bypassPermissions", thinkingOptionId: "high", stop: true }, x.paseo);
+  expect(result.applied).toEqual(["stopped", "reasoning", "permissions"]);
+  expect(x.calls.map((c) => c.slice(0, 4))).toEqual([
+    ["agent", "stop", "d1", "--home"],
+    ["agent", "update", "d1", "--thinking"],
+    ["agent", "mode", "d1", "bypassPermissions"],
+  ]);
+});
+
+test("dispatcher.configure refuses any other session, another group, a moved session and unknown modes without running the CLI", async () => {
+  const refused = async (agent: Record<string, unknown>, input: { groupId: string; agentId: string; modeId?: string }, pattern: RegExp) => {
+    const x = await setup(agent);
+    x.service.dispatcher = async (groupId) => (groupId === "g1" ? { agentId: "d1", workspaceId: "dw" } : null);
+    await expect(x.service.dispatcherApply(input, x.paseo)).rejects.toThrow(pattern);
+    expect(x.calls).toEqual([]);
+  };
+  const d1 = { id: "d1", workspaceId: "dw", archivedAt: null, availableModes: [{ id: "default" }] };
+  // A card's session (or any other id) through the dispatcher route.
+  await refused({ ...live }, { groupId: "g1", agentId: "a1", modeId: "plan" }, /not the dispatcher/);
+  // A group with no dispatcher.
+  await refused(d1, { groupId: "g2", agentId: "d1", modeId: "default" }, /not the dispatcher/);
+  // The stored id, but Paseo has it in another workspace.
+  await refused({ ...d1, workspaceId: "w" }, { groupId: "g1", agentId: "d1", modeId: "default" }, /different workspace/);
+  await refused(d1, { groupId: "g1", agentId: "d1", modeId: "yolo" }, /not available/);
+});
+
+test("dispatcher.configure input: no taskId or title, option-like IDs and empty changes refused", () => {
+  const parse = (i: unknown) => dispatcherConfigure.input.safeParse(i).success;
+  expect(parse({ groupId: "g1", agentId: "d1", modeId: "bypassPermissions" })).toBe(true);
+  expect(parse({ groupId: "g1", agentId: "d1", stop: true })).toBe(true);
+  expect(parse({ groupId: "g1", agentId: "d1" })).toBe(false);
+  expect(parse({ groupId: "g1", agentId: "-d1", stop: true })).toBe(false);
+  expect(parse({ groupId: "g1", agentId: "d1", thinkingOptionId: "--home" })).toBe(false);
+  expect(parse({ groupId: "g1", agentId: "d1", taskId: "t", stop: true })).toBe(false);
+  expect(parse({ groupId: "g1", agentId: "d1", title: "x" })).toBe(false);
 });

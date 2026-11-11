@@ -21,6 +21,8 @@ import { dispatcherSessionIds } from "./dispatcher-items";
 import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
 import { SessionTailService } from "./session-tail";
+import { SessionSettingsService } from "./session-settings";
+import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
 import { agentFixture } from "./agent-fixture";
 import type { DispatcherIdentity } from "./tool-context";
@@ -2275,4 +2277,29 @@ test("a stop of a deleted group pushed after its delete recreates no batcher or 
 
 test("the charter asks for card links with real ids", () => {
   expect(dispatcherCharter({ name: "Main" })).toContain("flowly://card/<projectId>/<taskId>");
+});
+
+test("changing the dispatcher's permission mode from the chat keeps it guarded and its record unchanged (Ruling, Noah 2026-11-11)", async () => {
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5", modeId: "default" });
+  const agent = x.agents.get(agentId)!;
+  agent.status = "idle";
+  Object.assign(agent, { availableModes: [{ id: "default" }, { id: "bypassPermissions" }], currentModeId: "default" });
+  const before = await readFile(join(x.directory, "dispatcher.json"), "utf8");
+  expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "idle", agentId });
+  const calls: string[][] = [];
+  const settings = new SessionSettingsService({} as BoardStore, async (_bin, args) => {
+    calls.push(args);
+    // The CLI switches the mode; nothing else about the session changes.
+    if (args[1] === "mode") Object.assign(agent, { currentModeId: args[3] });
+    return "";
+  }, async () => "/bin/paseo");
+  settings.dispatcher = (groupId) => x.hub.groupSession(groupId);
+  expect(await settings.dispatcherApply({ groupId: G, agentId, modeId: "bypassPermissions" }, x.paseo)).toEqual({ applied: ["permissions"] });
+  expect(calls.map((c) => c.slice(0, 4))).toEqual([["agent", "mode", agentId, "bypassPermissions"]]);
+  // The guard is the stored start mark, not the mode: still guarded, no Replace offer, notes and messages still reach it.
+  expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "idle", agentId });
+  expect(await readFile(join(x.directory, "dispatcher.json"), "utf8")).toBe(before);
+  await x.dispatcher.send(x.paseo, { text: "hi", messageId: "m1" });
+  expect(x.sends.map((s) => s.text)).toContain("hi");
 });

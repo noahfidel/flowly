@@ -477,6 +477,8 @@ export default function contribute(host: PluginServerContext) {
       });
   });
   server.handle(rpc.dispatcherTail, (input, { paseo }) => tails.dispatcherTail(input, paseo));
+  sessionSettings.dispatcher = (groupId) => tools.dispatcher.groupSession(groupId);
+  server.handle(rpc.dispatcherConfigure, (input, { paseo }) => sessionSettings.dispatcherApply(input, paseo));
   server.handle(rpc.dispatcherMarkSeen, async ({ groupId, revision, ids }) => ({
     seenRevision: await tools.dispatcher.markSeen(groupId, revision, ids).catch((e: unknown) => {
       throw codedError(e);
