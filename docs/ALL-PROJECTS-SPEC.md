@@ -1,6 +1,6 @@
 # All projects board
 
-> **Superseded (draft, 2026-11-10):** the All projects board is retired (BOARD-GROUPS-SPEC v2 §0). Kept as the contract for a group's board columns, cards, order and filters (BOARD-GROUPS-SPEC §4).
+> **Superseded (draft, 2026-11-10):** the All projects board is retired (BOARD-GROUPS-SPEC v2 §0). Kept as the contract for a group's board cards and filters (BOARD-GROUPS-SPEC §4). Its columns (§2) and order (§4) are replaced on group boards: a group has its own lanes and one manual order per column across its projects, reorderable (BOARD-GROUPS-SPEC §0, §4); §4 still holds for a board shown before its group is known.
 
 Status: requested by Noah on 2026-11-05. Extends PROJECT-TABS-SPEC (tabs, which project opens) and
 QUICK-TASK-SPEC §3 (which project a new task starts in). Board groups (BOARD-GROUPS-SPEC) reuse this board

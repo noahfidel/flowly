@@ -104,6 +104,13 @@ exactly one group. Individual projects are no longer top-level navigation.
   mark stayed.
 - Ruling (Noah, 2026-11-10): the start migration bumps no group or project revision, including when it turns on a lane for a
   live card; only later writes bump the group's revision for that (§1, §7 step 7).
+- Ruling (Noah, 2026-11-10): Manual sort on a group board is **one order per column across all the group's projects**,
+  not grouped by project. The user drags a card up or down within its own column (or uses Move up / Move down) on a
+  group board, filtered to one project or not; the filtered board shows the group order restricted to that project.
+  The migration makes the first group order equal to what the unfiltered Manual sort showed before (projects in
+  chooser order, each keeping its own order). This replaces the inherited ALL-PROJECTS-SPEC §4 limit ("cards grouped
+  by project", "reordering within a column is disabled… each project keeps its own order") on group boards (§1, §2,
+  §4, §7 step 8).
 
 ## 1. Model
 
@@ -134,6 +141,26 @@ Lane { status, enabled, name? }   (the existing lane shape: every built-in statu
   example an automation such as the PR review cards writing a card into a lane the group had turned off) keeps
   happening, and is logged as an info line (`console.log`, not `logFailure`) naming the group id and the lane(s)
   and saying a live card of one of its projects sits in it; reads log nothing.
+
+- **Manual order** (ruling above): a card keeps its one `position`; within a group it is comparable across the
+  group's projects, so a group column's Manual order is position order (then creation) over every member's cards,
+  and one project's order (a project board, a filtered group board, agents and every other per-project reader) is
+  that order restricted to the project, unchanged for those readers. `project.orderGroupId` (optional, server-kept)
+  names the group whose order the project's card positions belong to. At the end of every write, in the same
+  serialized operation as the other group invariants, every project whose `orderGroupId` differs from its `groupId`
+  (a project that moved group by set-group, set_members, a group delete or the repair; a new or folder-restored
+  project; every project before this change) joins its group's order: its cards, archived ones too, are renumbered
+  per status to follow the group's last card in that column, in the project's own order, and `orderGroupId` is set.
+  Several joining projects go live ones first, then archived ones, each in chooser order. Only the joining
+  project's positions change; positions are presentation, so no card, project or group revision is bumped (the
+  DRAG-REORDER-SPEC amendment). A read applies the same to its copy. A project with no group (groups not ready) keeps
+  its own order. `orderGroupId` is not part of the project folder copy (§7 step 6).
+- **Where cards land in the group order**, chosen to match how a project's order behaves: a new card (`tasks.create`,
+  agent and dispatcher creates, quick task) and a card an automation moves into a lane (PR review cards) go after
+  the last card of the group's column, so they are last in the group and in their project. A status change through
+  the card form, an agent's or auto status keeps the card's `position`, as it did per project, so it lands at the
+  matching place of the group's new column. A placement (`tasks.place`) goes exactly where it is dropped (§2). A
+  card never changes project.
 
 - `name`: 1–80 characters after trimming, unique ignoring case (a duplicate is refused). `position` orders tabs and
   the switcher. At most 50 groups.
@@ -172,6 +199,17 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   project adopts the target group's lanes; when the project is live, the target group first turns on every status its
   live cards sit in (its revision is bumped, as for any membership change). The same holds for every project moved
   by `groups.delete`, `set_members` and the repair of §1.
+- `tasks.place` (DRAG-REORDER-SPEC §2) works on the group's column once groups are ready: the anchor (`beforeId` /
+  `afterId`) may be a card of any project of the card's group (archived projects' cards included, as archived cards
+  are); an anchor that is missing, the card itself, in another status or in a project of another group is refused
+  with "Drop position changed. Reload and try again." and nothing is written. The card's revision is checked as
+  before ("Revision conflict: this card changed. Reload before moving."), only that card's revision is bumped, and
+  equal neighbours renumber the group column's positions without revision bumps. Before groups are ready the column
+  is the card's project's, as before.
+- `tasks.move { id, revision, direction, scope? }` (menu Move up / Move down): `scope: "group"` steps past the
+  adjacent live card of the group's live projects in that column (the unfiltered group board); `project` (the
+  default, a filtered group board or a project board) past the adjacent live card of the card's own project. It then
+  places the card through `tasks.place`. Before groups are ready `group` acts as `project`.
 - `projects.create` gains an optional `groupId` (default: the default group); the project form and
   `flowly_create_project` pass it. The new project gets its group's lanes.
 - `projects.update` no longer takes lanes once groups are ready: a `lanes` field is refused with `LANES_IN_GROUP: Lanes
@@ -204,16 +242,23 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 
 ## 4. The group board
 
-- It is the All projects board (ALL-PROJECTS-SPEC §3–§6, which remain the contract for cards, Manual order by
-  project, filters and tags) over the group's live member projects. An archived project is never included, even with
+- It is the All projects board (ALL-PROJECTS-SPEC §3, §5, §6, which remain the contract for cards, filters and tags)
+  over the group's live member projects; its order is below. An archived project is never included, even with
   *Show archived* on.
 - **Columns:** the group's enabled lanes in the group's order, with the group's lane names, filtered or not (this
   replaces ALL-PROJECTS-SPEC §2's union of statuses with default names). Every card action (Move to lists, "Moved to
   …" toasts) uses the same names, since every member has the group's lanes.
-- **Drag:** dropping a card on another column changes its status (`tasks.place`, appended to the end of that
-  project's lane). Every column is a lane of every member, so the drop is always sent; the "{lane} is not a lane in
+- **Drag:** dropping a card on another column changes its status (`tasks.place`: with the Manual sort at the
+  slot it is dropped on, otherwise at the end of the group's column). Every column is a lane of every member, so the drop is always sent; the "{lane} is not a lane in
   {project}." refusal of ALL-PROJECTS-SPEC §4 no longer occurs on a group board (a board shown before its group is
-  known keeps it). Reordering within a column follows ALL-PROJECTS-SPEC §4 unfiltered and the project rules filtered.
+  known keeps it).
+- **Order:** with the Manual sort a column shows the group's one order (§1), unfiltered across every live member,
+  filtered restricted to that project. The user reorders within a column by dragging (desktop) or with Move up /
+  Move down (card menu and action sheet), filtered or not; the drop is anchored on the neighbouring visible cards,
+  whatever their project (`tasks.place`, §2). Other sorts (Recent activity, Priority, Newest, Title) apply across
+  the shown cards; ties fall back to the group order, then the project order; dragging within a column under them
+  shows the existing "Sorted by {sort}…" toast. A board of several projects shown before its group is known (a cold
+  link) keeps ALL-PROJECTS-SPEC §4: grouped by project, no reorder.
 - **Project filter:** a Project chip in the filter bar (with the Type, Priority and Tags filters) lists the group's
   projects. A filtered board shows one project's cards and ideas, in the group's lanes and lane names. The
   filter is per board instance, kept while the app runs, cleared when the project leaves the group or the group
@@ -351,6 +396,12 @@ next start (the record's session is still v1, the board has groups, so step 4 ru
    The members' `lanes` are then set to the group's (§1). A group that already has `lanes` is never recomputed, so a
    second start writes nothing. Stored lanes that do not validate fail the board's parse as any invalid stored data
    does (the data is kept, not reset). The migration bumps no group or project revision.
+8. **Group order:** part of the same start write (and of every later write and read-time repair, §1). Every project
+   without an `orderGroupId` equal to its `groupId` joins its group's order; on a board where no project has joined
+   yet this renumbers each group column to the order the unfiltered Manual sort showed before the change: the live
+   members in chooser order, each with its own cards in its own order (archived cards included), then the archived
+   members. Each project's own order is unchanged. No revision is bumped; a second start writes nothing. A downgrade
+   drops `orderGroupId`; re-upgrading migrates the order again from the then-current positions.
 
 ## 8. Acceptance
 
@@ -385,6 +436,16 @@ Unit (server/shared, written with the follow-up cards):
   in `projects.update` is `LANES_IN_GROUP`; a moved project's live card statuses are turned on in the target group.
 - Group board: columns and names are the group's, filtered or not; a drop on any column is allowed for every card of
   the group.
+- Group order (`shared/group-order.test.ts`, `server/store-group-order.test.ts` on JSON and SQLite,
+  `client/all-projects.test.ts`): the migration stores the former unfiltered Manual order (chooser order, each
+  project's own order, archived members last) with no revision bump and a second start writes nothing; a drop
+  anchored on another project's card of the group interleaves the projects and changes only the moved card's
+  revision; the filtered order is the group order restricted to the project; an anchor in another group and a stale
+  revision are refused without a write; a project moved by set-group or a group delete joins the end of the target's
+  columns in its own order and no other card's position changes; a new card is last in the group's column; Move up /
+  Move down step through the group (unfiltered) or the project (filtered), skipping archived cards and projects; the
+  Manual sort of a group board is position order across projects; reorder is allowed with Manual on a group board,
+  filtered or not, and never on a board of several projects with no group known.
 
 Upkeep (the plan's last task): welcome-tour copy and tips, a What's new entry (All and project tabs and the global
 dispatcher go away for existing users), the telemetry decision, and every new string in all i18n catalogs.

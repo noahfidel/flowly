@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Group boards: one manual order per column (branch `group-needs-you`) — 2026-11-10
+
+- Ruling (Noah, 2026-11-10): Manual sort on a group board is one order per column across the group's projects, reorderable by drag and Move up/down, filtered or not; the filtered board shows that order restricted to the project. BOARD-GROUPS-SPEC §0, §1, §2, §4, §7 step 8 and §8; ALL-PROJECTS-SPEC's superseded note.
+- Model: the card's one `position` is comparable across a group; `project.orderGroupId` (server-kept) marks which group's order a project's positions are in. `shared/group-order.ts`: `syncGroupOrder` (a project not yet in its group's order joins the end of each column in its own order: live first, then archived, in chooser order), `orderScope`, `columnEnd`, `neighborCard`. The store runs it in the start migration (same write as groups and lanes, no revision bump; on existing data it reproduces the old grouped-by-project display), before each operation and at the end of each commit (moves by set-group, set_members, group delete, the repair; new and folder-restored projects), and on each read's copy.
+- `tasks.place` anchors on any card of the card's group once groups are ready (another group: "Drop position changed"); `tasks.move` gains `scope: "group" | "project"`; new cards and PR-review lane moves go after the group column's last card. Status changes keep `position`, as per project before. The project folder copy omits `orderGroupId`.
+- Client: a group board's Manual sorts by position across projects (`sortAllColumn(..., groupOrder)`), `reorderAllowed` allows it with Manual on a group board, the card menu and phone action sheet show Move up/down there (scope `group` unfiltered, `project` filtered). A board shown before its group is known keeps the old rules.
+- Onboarding: no tip or tour change (drag reorder and Move up/down already exist on project boards; this lifts a limit rather than adding a moment worth pointing out). What's new: none (no release). Telemetry: no field. Strings: none.
+
 ## Review ledgers on cards (branch `review-ledgers-on-cards`) — 2026-11-10
 
 - `server/review-ledgers.ts` (REVIEW-LEDGERS-SPEC): matching (`cardIdentity`, `LedgerFolder.find`), the newest-round summary parser (`parseLedgerSummary`), `applyLedger` (adds, updates the note, swaps or removes only `origin: "review-ledger"` records; actor `system` events) and `ReviewLedgers` (card open via `artifacts.status`, `flowly_get_task` via `AgentService.syncLedger`, a sweep 30 s after start then every 5 min; 30 s per-card throttle). Git facts come from the workspace descriptor, `git` (argument arrays) only fills gaps.
