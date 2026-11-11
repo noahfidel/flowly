@@ -60,7 +60,7 @@ In the dock's Attention tab and the need-you step-through in the card sidebar (D
 
 ### 3.2 Card menu
 
-The board card's long-press or right-click menu, the sidebar's actions menu and the phone Actions sheet offer:
+The card sidebar's actions menu offers (the board card's own menu has no Attention entries):
 
 - **Snooze in Needs you**, only while the card has an open (not yet snoozed) need-you signal.
 - **Snooze in Updates**, only while the card has an open unread turn.
@@ -127,5 +127,5 @@ attentionDismissals: [{
 - Ruling (Noah, 2026-11-10): the user-facing name is Snooze (buttons, accessibility labels, toasts, the card's signal, Unsnooze, the tour demo, every catalog); the meaning is unchanged, it comes back when something new happens. The idea Dismiss and the question-form Dismiss are different features and keep their name.
 - Ruling (Noah, 2026-11-10): Snooze acts only on the list it was pressed in; keys are stored per list; existing dismissal records are read as snoozed in both lists.
 - Ruling (Noah, 2026-11-10): the spec describes the current design only; history lives in docs/PROGRESS.md.
-- Ruling (Noah, 2026-11-10): the card menu, sidebar and phone Actions offer Snooze in Needs you and Snooze in Updates separately, each only while that list has an open signal, and one Unsnooze for both; the Updates step-through has no Snooze button.
+- Ruling (Noah, 2026-11-10): the card sidebar's actions menu offers Snooze in Needs you and Snooze in Updates separately, each only while that list has an open signal, and one Unsnooze for both; the Updates step-through has no Snooze button.
 - Ruling (Noah, 2026-11-10): internal names stay (`attentionDismissals`, `attention.dismiss`, `attention.restore`, `asks.dismiss`, ask state `dismissed`, this file's name).
