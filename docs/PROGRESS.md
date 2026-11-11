@@ -1,5 +1,14 @@
 # Implementation progress
 
+## Group boards: Insights, Ideas and Memory per group; last group and filter kept (branch `group-needs-you`) — 2026-11-11
+
+- Ruling (Noah, 2026-11-10, relayed): Insights, Ideas and Memory (and I, B, M) work on an unfiltered group board over every live member; filtered, over that project. Guardrails stays per project. Spec §0 ruling, §4, §8.
+- `pageScope` / `addProject` (`client/board-groups.ts`); Ideas: `useProjectsIdeasQuery` (one etag read per project), `groupByCard` keeps one own-ideas group per project, project labels, Import asks which project (`client/project-choice.tsx`), `groupOpenIdeaCount`. Memory: `useGuardrailsQueries`, entries labelled by project, edits on the entry's project, read-only for archived or guardrails-off members, Add memory asks which project. Insights: the group reads of ecc2d83 (`insights.group*`) wired in the client; the day's summary, Skills and Other suggestions per project, labelled. board-view `lastAddProjectId`.
+- Last group and filter across restarts: board-view `lastGroupId` and `lastFilter`; `pickGroupView(..., stored)` falls back to the default group when the stored one is gone; `restoredFilter` (this run's choice wins); both are stored only once the board and the settings have loaded. Spec §3, §4, §7 step 5.
+- Merge of origin/main: the slim card menu (`client/card-menu.ts`) gains `groupOrder` (Move up / Move down on a group board's phone sheet, scope group unfiltered). The slim-menu change on main had dropped the Add group / Delete group dialogs from the render along with the old action sheet; they are kept here (main still lacks them until this merges).
+- Onboarding: no tip or tour change (the chips appear where they were, now also unfiltered; no new moment). README updated. What's new: none added (users meet the change on the board itself). Telemetry: no field. Strings: 2 new ("Skills · {project}", the guardrails-off notice for several projects) in all catalogs.
+- Lanes review follow-ups: none open (all in the entry below).
+
 ## Group boards: one manual order per column (branch `group-needs-you`) — 2026-11-10
 
 - Ruling (Noah, 2026-11-10): Manual sort on a group board is one order per column across the group's projects, reorderable by drag and Move up/down, filtered or not; the filtered board shows that order restricted to the project. BOARD-GROUPS-SPEC §0, §1, §2, §4, §7 step 8 and §8; ALL-PROJECTS-SPEC's superseded note.

@@ -105,7 +105,7 @@ Insights shows a year of the project's activity, GitHub style: one square per da
 
 ### 7. Board groups
 
-Projects sit in boards. Each group has its own tab, its own dispatcher and its own defaults for the agent model, the delivery mode and the dispatcher's model; a group's board shows its projects' cards together, with a project filter. Add groups from the project switcher.
+Projects sit in boards. Each group has its own tab, its own dispatcher and its own defaults for the agent model, the delivery mode and the dispatcher's model; a group's board shows its projects' cards together, with a project filter. Insights, Ideas and Memory cover the whole group until you filter to one project; each entry names its project. Flowly reopens the group and filter you last used, also after a restart. Add groups from the project switcher.
 
 ## Languages
 
