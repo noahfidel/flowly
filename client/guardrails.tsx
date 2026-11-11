@@ -54,11 +54,12 @@ export function useGuardrailActions(projectId: string) {
     updateRpc = useRpc(rpc.updateGuardrail),
     deleteRpc = useRpc(rpc.deleteGuardrail);
   const [busy, setBusy] = useState("");
-  const refresh = () => {
-    void client.invalidateQueries({ queryKey: guardrailsKey(projectId) });
+  // An entry's own project (on an unfiltered group board's Memory page they differ, BOARD-GROUPS-SPEC §4).
+  const refresh = (project: string) => {
+    void client.invalidateQueries({ queryKey: guardrailsKey(project) });
     void client.invalidateQueries({ queryKey: guardrailCountsKey });
   };
-  const run = async (id: string, work: () => Promise<unknown>, done?: string) => {
+  const run = async (id: string, work: () => Promise<unknown>, done?: string, project = projectId) => {
     setBusy(id);
     try {
       await work();
@@ -69,25 +70,26 @@ export function useGuardrailActions(projectId: string) {
       return false;
     } finally {
       setBusy("");
-      refresh();
+      refresh(project);
     }
   };
-  const update = (e: GuardrailEntry, patch: Omit<Parameters<typeof updateRpc>[0], "id" | "revision">) => run(e.id, () => updateRpc({ id: e.id, revision: e.revision, ...patch }));
+  const update = (e: GuardrailEntry, patch: Omit<Parameters<typeof updateRpc>[0], "id" | "revision">) => run(e.id, () => updateRpc({ id: e.id, revision: e.revision, ...patch }), undefined, e.projectId);
   return {
     busy,
     addCommand: (d: CommandDraft) =>
       run("new", () => createRpc({ projectId, kind: "command", text: d.name.trim(), argv: splitCommand(d.command), ...(d.timeout ? { timeoutSec: Number(d.timeout) } : {}) })),
-    addNote: (d: NoteDraft) =>
+    /** `into`: the project to add to, when the page shows several (else the hook's project). */
+    addNote: (d: NoteDraft, into = projectId) =>
       run("new", () =>
-        createRpc({ projectId, kind: "note", noteKind: d.kind, text: d.title.trim(), body: d.body.trim(), tags: list(d.tags).map((s) => s.toLowerCase()).slice(0, memoryLimits.tags), keywords: list(d.keywords).slice(0, memoryLimits.keywords), pinned: d.pinned }),
-      ),
+        createRpc({ projectId: into, kind: "note", noteKind: d.kind, text: d.title.trim(), body: d.body.trim(), tags: list(d.tags).map((s) => s.toLowerCase()).slice(0, memoryLimits.tags), keywords: list(d.keywords).slice(0, memoryLimits.keywords), pinned: d.pinned }),
+      undefined, into),
     saveCommand: (e: GuardrailEntry, d: CommandDraft) => update(e, { text: d.name.trim(), argv: splitCommand(d.command), ...(d.timeout ? { timeoutSec: Number(d.timeout) } : {}) }),
     saveGuideline: (e: GuardrailEntry, d: GuidelineDraft) => update(e, { text: d.text.trim(), body: d.body.trim() }),
     saveNote: (e: GuardrailEntry, d: NoteDraft) =>
       update(e, { text: d.title.trim(), body: d.body.trim(), tags: list(d.tags).map((s) => s.toLowerCase()).slice(0, memoryLimits.tags), keywords: list(d.keywords).slice(0, memoryLimits.keywords), pinned: d.pinned }),
     pin: (e: GuardrailEntry, pinned: boolean) => update(e, { pinned }),
     setState: (e: GuardrailEntry, state: GuardrailState, stateReason?: string) => update(e, { state, ...(stateReason ? { stateReason } : {}) }),
-    remove: (e: GuardrailEntry) => run(e.id, () => deleteRpc({ id: e.id, revision: e.revision }), t("Deleted.")),
+    remove: (e: GuardrailEntry) => run(e.id, () => deleteRpc({ id: e.id, revision: e.revision }), t("Deleted."), e.projectId),
     copyRule: async (e: GuardrailEntry) => {
       try {
         await copyText(agentsRule({ title: e.text, body: e.body || "" }));

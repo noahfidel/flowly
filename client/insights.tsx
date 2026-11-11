@@ -14,16 +14,21 @@ import { complexityLevel, complexityShare, type DayCard } from "../shared/day-de
 import { modelLabel } from "../shared/summary";
 import { Collapse, Disclosure, ShowMore } from "./disclosure";
 import { Enter } from "./motion";
-import { localZone, useDayQuery, useDigestQuery, useInsightsQuery, useTokensQuery, useWorkflowInsightsQuery } from "./queries";
+import { insightsScopeKey, localZone, useDayQuery, useDigestQuery, useInsightsQuery, useTokensQuery, useWorkflowInsightsQuery, type InsightsScope } from "./queries";
 import { lineDiff, skillFile, usageIn, type Finding, type FindingTarget, type WorkflowView } from "../shared/workflow-insights";
 import { AiMark, Button, IconButton, Label, Notice, TurnChevron, font, message, noFocusRing, pageBarHeight, radius, relativeTime, space, touch, useTheme, verticalContent, verticalScroll } from "./ui";
 import { formatLocale, msg, t, tn } from "../shared/i18n";
 import { AgentHabits, habitsSummary } from "./agent-habits";
 import { useStableCallback } from "./stable";
 
-/** Project Insights (INSIGHTS-REDESIGN-SPEC §2): a year of activity, the selected day, skills, other suggestions, the workflow. */
+/**
+ * Project Insights (INSIGHTS-REDESIGN-SPEC §2): a year of activity, the selected day, skills, other suggestions, the workflow.
+ * On an unfiltered group board (`groupId`) the numbers cover every live member as one, read as the group; the day's
+ * summaries, skills and suggestions are per project, so they show per project, each labelled (BOARD-GROUPS-SPEC §4).
+ */
 export const InsightsPage = memo(function InsightsPage({
-  project,
+  projects,
+  groupId,
   tasks,
   revision,
   compact,
@@ -34,7 +39,11 @@ export const InsightsPage = memo(function InsightsPage({
   onOpenSettings,
   onOpenGuardrails,
 }: {
-  project: Project;
+  /** The projects shown: the board's one project, or every live member of an unfiltered group board. */
+  projects: readonly Project[];
+  /** The group read as one when the board is unfiltered; null for one project. */
+  groupId: string | null;
+  /** The projects' cards, archived included. */
   tasks: readonly Task[];
   revision: number;
   compact: boolean;
@@ -42,20 +51,29 @@ export const InsightsPage = memo(function InsightsPage({
   nameOf(status: Status): string;
   onOpenTask(id: string): void;
   onBack(): void;
-  /** Opens the new-task form prefilled from a workflow-insights suggestion. */
-  onCreateFromFinding(finding: Finding): void;
+  /** Opens the new-task form prefilled from a workflow-insights suggestion, in the suggestion's project. */
+  onCreateFromFinding(finding: Finding, projectId: string): void;
   /** Settings → AI features, where Skills (workflow insights) are configured. */
   onOpenSettings(): void;
   /** The Guardrails page, when guardrails are on for the project (GUARDRAILS-SPEC §7.2). */
   onOpenGuardrails?(): void;
 }) {
   const { colors } = useTheme();
-  const insights = useInsightsQuery(project.id, revision, active);
+  const project = projects[0];
+  const scope = useMemo<InsightsScope>(() => (groupId ? { groupId } : { projectId: project.id }), [groupId, project.id]);
+  const insights = useInsightsQuery(scope, revision, active);
   const data = insights.data;
-  const workflow = useWorkflowInsightsQuery(project.id, active);
   const [picked, setPicked] = useState<string | null>(null);
   const day = picked ?? data?.today ?? null;
   const titleOf = (id: string) => tasks.find((x) => x.id === id)?.title || t("Removed card");
+  const projectOf = useMemo(() => {
+    const titles = new Map(projects.map((p) => [p.id, p.title]));
+    const of = new Map(tasks.map((x) => [x.id, x.projectId]));
+    return (taskId: string) => {
+      const id = of.get(taskId);
+      return id ? { id, title: titles.get(id) ?? "" } : undefined;
+    };
+  }, [projects, tasks]);
   const select = useStableCallback((d: string) => setPicked(d));
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
@@ -76,14 +94,15 @@ export const InsightsPage = memo(function InsightsPage({
             <Label muted>{t("Loading insights…")}</Label>
           ) : (
             <>
-              <GuardrailLedger projectId={project.id} active={active} onOpen={onOpenGuardrails} />
+              <GuardrailLedger scope={scope} active={active} onOpen={groupId ? undefined : onOpenGuardrails} />
               <Section title={t("Activity")}>
                 <Heatmap activity={data.activity} today={data.today} selected={day} compact={compact} onSelect={select} />
-                <DayPanel projectId={project.id} day={day} today={data.today} activity={data.activity} active={active} titleOf={titleOf} onOpenTask={onOpenTask} onSelect={select} />
+                <DayPanel scope={scope} projects={projects} projectOf={groupId ? projectOf : undefined} day={day} today={data.today} activity={data.activity} active={active} titleOf={titleOf} onOpenTask={onOpenTask} onSelect={select} />
               </Section>
-              <Skills projectId={project.id} view={workflow.data} error={workflow.error} titleOf={titleOf} onOpenTask={onOpenTask} onOpenSettings={onOpenSettings} />
-              <OtherSuggestions projectId={project.id} view={workflow.data} titleOf={titleOf} onOpenTask={onOpenTask} onCreate={onCreateFromFinding} />
-              <WorkflowNumbers projectId={project.id} flow={data.workflow} active={active} />
+              {projects.map((p) => (
+                <ProjectSuggestions key={p.id} project={p} labelled={!!groupId} active={active} titleOf={titleOf} onOpenTask={onOpenTask} onOpenSettings={onOpenSettings} onCreate={onCreateFromFinding} />
+              ))}
+              <WorkflowNumbers scope={scope} flow={data.workflow} active={active} />
               {!!data.habits && (
                 <Section title={t("Agent habits")} detail={[t("Last 7 days"), habitsSummary(data.habits)].filter(Boolean).join(" · ")}>
                   <AgentHabits habits={data.habits} today={data.today} compact={compact} titleOf={titleOf} onOpenTask={onOpenTask} />
@@ -224,39 +243,12 @@ const Heatmap = memo(function Heatmap({ activity, today, selected, compact, onSe
   );
 });
 
-/**
- * The day summary card (§2.2): arrows step to the previous or next day with activity; the day's
- * numbers, its AI summary and its cards, the busiest first, each with a bar for its share of the
- * busiest card's agent time.
- */
-function DayPanel({ projectId, day, today, activity, active, titleOf, onOpenTask, onSelect }: { projectId: string; day: string; today: string; activity: Activity; active: boolean; titleOf(id: string): string; onOpenTask(id: string): void; onSelect(day: string): void }) {
-  const { colors } = useTheme();
-  const stats = activity.days.find((d) => d.day === day);
-  const version = stats ? `${stats.turns}:${stats.cards}:${stats.done.length}` : "0";
-  const fast = useDayQuery(projectId, day, version, false, active && !!stats);
-  const full = useDayQuery(projectId, day, version, true, active && !!stats);
-  const detail = full.data ?? fast.data;
-  const digest = useDigestQuery(projectId, day, active && !!stats);
+/** A project's digest for the day and its Generate / Refresh (§2.2). */
+function useDayDigest(projectId: string, day: string, enabled: boolean) {
+  const digest = useDigestQuery(projectId, day, enabled);
   const refresh = useRpc(rpc.refreshDigest);
   const client = useQueryClient();
   const [failed, setFailed] = useState("");
-  const [limit, setLimit] = useState(DAY_CARDS);
-  // The day before the change: an earlier day slides in from the left, a later one from the right.
-  const shown = useRef(day);
-  const from = day < shown.current ? -DAY_SLIDE : DAY_SLIDE;
-  useEffect(() => {
-    shown.current = day;
-  }, [day]);
-  const view = digest.data;
-  const running = !!view?.running;
-  const entry = view?.entry;
-  const prev = [...activity.days].reverse().find((d) => d.day < day)?.day;
-  const next = activity.days.find((d) => d.day > day && d.day <= today)?.day;
-  const go = (to: string | undefined) => {
-    if (!to) return;
-    setLimit(DAY_CARDS);
-    onSelect(to);
-  };
   const generate = async () => {
     setFailed("");
     try {
@@ -266,8 +258,56 @@ function DayPanel({ projectId, day, today, activity, active, titleOf, onOpenTask
       setFailed(message(e));
     }
   };
+  const view = digest.data;
+  return { view, entry: view?.entry, running: !!view?.running, error: digest.error, failed, generate };
+}
+type DayDigest = ReturnType<typeof useDayDigest>;
+
+/**
+ * The day summary card (§2.2): arrows step to the previous or next day with activity; the day's
+ * numbers, its AI summary and its cards, the busiest first, each with a bar for its share of the
+ * busiest card's agent time. For a group (`projectOf`) the numbers and cards cover every member and
+ * each card names its project; the summaries are per project, one for each project active that day.
+ */
+function DayPanel({ scope, projects, projectOf, day, today, activity, active, titleOf, onOpenTask, onSelect }: {
+  scope: InsightsScope;
+  projects: readonly Project[];
+  /** A card's project, on an unfiltered group board; absent for one project. */
+  projectOf?(taskId: string): { id: string; title: string } | undefined;
+  day: string;
+  today: string;
+  activity: Activity;
+  active: boolean;
+  titleOf(id: string): string;
+  onOpenTask(id: string): void;
+  onSelect(day: string): void;
+}) {
+  const { colors } = useTheme();
+  const stats = activity.days.find((d) => d.day === day);
+  const version = stats ? `${stats.turns}:${stats.cards}:${stats.done.length}` : "0";
+  const fast = useDayQuery(scope, day, version, false, active && !!stats);
+  const full = useDayQuery(scope, day, version, true, active && !!stats);
+  const detail = full.data ?? fast.data;
+  // One project: its digest sits in the panel itself; a group's are per project, below.
+  const digest = useDayDigest(projects[0]?.id ?? "", day, !projectOf && active && !!stats);
+  const [limit, setLimit] = useState(DAY_CARDS);
+  // The day before the change: an earlier day slides in from the left, a later one from the right.
+  const shown = useRef(day);
+  const from = day < shown.current ? -DAY_SLIDE : DAY_SLIDE;
+  useEffect(() => {
+    shown.current = day;
+  }, [day]);
+  const prev = [...activity.days].reverse().find((d) => d.day < day)?.day;
+  const next = activity.days.find((d) => d.day > day && d.day <= today)?.day;
+  const go = (to: string | undefined) => {
+    if (!to) return;
+    setLimit(DAY_CARDS);
+    onSelect(to);
+  };
   const list = detail?.list ?? [];
   const done = list.filter((c) => c.done).length;
+  // The projects with a card that day, in the board's order.
+  const dayProjects = projectOf ? projects.filter((p) => list.some((c) => projectOf(c.taskId)?.id === p.id)) : [];
   const numbers = stats
     ? [
         tn(stats.turns, "{n} turn", "{n} turns"),
@@ -289,56 +329,19 @@ function DayPanel({ projectId, day, today, activity, active, titleOf, onOpenTask
           </Label>
           <IconButton icon="ChevronRight" label={t("Next day")} disabled={!next} onPress={() => go(next)} />
           <View style={{ flex: 1 }} />
-          {!!entry && (
-            <Button quiet small icon="RefreshCw" disabled={running} label={t("Regenerate the summary")} onPress={() => void generate()}>
-              {running ? t("Generating…") : t("Refresh")}
-            </Button>
-          )}
+          {!projectOf && <RefreshDigest digest={digest} />}
         </View>
         <Enter key={day} axis="x" distance={from} style={{ gap: space[2] }}>
           <Label muted size={font.sm} selectable={false}>
             {numbers}
           </Label>
+          {!!stats && !projectOf && <DigestBody digest={digest} day={day} today={today} titleOf={titleOf} onOpenTask={onOpenTask} />}
           {!!stats &&
-            (entry ? (
-              <View style={{ flexDirection: "row", gap: space[1.5], alignItems: "flex-start" }}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Label size={font.md}>{entry.headline}</Label>
-                </View>
-                <AiMark label={t("AI generated")} />
-              </View>
-            ) : running ? (
-              <Empty>{t("Writing the summary…")}</Empty>
-            ) : !view ? (
-              <Empty>{digest.error ? message(digest.error) : t("Loading…")}</Empty>
-            ) : (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], flexWrap: "wrap" }}>
-                <Empty>{day === today ? t("Generate a summary of today so far.") : view.enabled ? t("No summary for this day yet.") : t("Daily digest is off in settings. Generate one here.")}</Empty>
-                <Button small onPress={() => void generate()}>
-                  {t("Generate summary")}
-                </Button>
-              </View>
-            ))}
-          {!!entry?.issues.length && (
-            <View style={{ gap: space[1] }}>
-              <Label muted size={font.xs} selectable={false}>
-                {t("Issues")}
-              </Label>
-              {entry.issues.map((item, i) => (
-                <DigestLine key={i} item={item} title={item.taskId ? titleOf(item.taskId) : ""} onOpenTask={onOpenTask} />
-              ))}
-            </View>
-          )}
-          {!!entry && (
-            <Label muted size={font.xs} selectable={false}>
-              {t("Updated {time}", { time: relativeTime(entry.at) })} · {modelLabel(entry.model)}
-            </Label>
-          )}
-          {!!(failed || (view?.error && !running && !entry)) && <Empty>{failed || t("Last attempt failed: {message}", { message: view?.error?.message ?? "" })}</Empty>}
+            dayProjects.map((p) => <ProjectDayDigest key={p.id} project={p} day={day} today={today} active={active} titleOf={titleOf} onOpenTask={onOpenTask} />)}
           {!!stats && list.length > 0 && (
             <View style={{ marginHorizontal: -space[3], borderTopWidth: 1, borderColor: colors.border }}>
               {list.slice(0, limit).map((c, i) => (
-                <DayCardRow key={c.taskId} first={i === 0} card={c} share={complexityShare(c, list)} title={titleOf(c.taskId)} onOpenTask={onOpenTask} />
+                <DayCardRow key={c.taskId} first={i === 0} card={c} share={complexityShare(c, list)} title={titleOf(c.taskId)} project={projectOf?.(c.taskId)?.title ?? ""} onOpenTask={onOpenTask} />
               ))}
               {list.length > limit && (
                 <View style={{ paddingHorizontal: space[3] }}>
@@ -354,15 +357,86 @@ function DayPanel({ projectId, day, today, activity, active, titleOf, onOpenTask
   );
 }
 
+function RefreshDigest({ digest }: { digest: DayDigest }) {
+  if (!digest.entry) return null;
+  return (
+    <Button quiet small icon="RefreshCw" disabled={digest.running} label={t("Regenerate the summary")} onPress={() => void digest.generate()}>
+      {digest.running ? t("Generating…") : t("Refresh")}
+    </Button>
+  );
+}
+
+/** One project's summary of the day inside a group's day card: the project's name, its Refresh, then the summary. */
+function ProjectDayDigest({ project, day, today, active, titleOf, onOpenTask }: { project: Project; day: string; today: string; active: boolean; titleOf(id: string): string; onOpenTask(id: string): void }) {
+  const digest = useDayDigest(project.id, day, active);
+  return (
+    <View style={{ gap: space[1.5] }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: 28 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label bold size={font.sm} lines={1} selectable={false}>
+            {project.title}
+          </Label>
+        </View>
+        <RefreshDigest digest={digest} />
+      </View>
+      <DigestBody digest={digest} day={day} today={today} titleOf={titleOf} onOpenTask={onOpenTask} />
+    </View>
+  );
+}
+
+/** The day's AI summary: the headline, or its state and Generate; then issues, when it was written, and a failure. */
+function DigestBody({ digest, day, today, titleOf, onOpenTask }: { digest: DayDigest; day: string; today: string; titleOf(id: string): string; onOpenTask(id: string): void }) {
+  const { view, entry, running, failed } = digest;
+  return (
+    <>
+      {entry ? (
+        <View style={{ flexDirection: "row", gap: space[1.5], alignItems: "flex-start" }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Label size={font.md}>{entry.headline}</Label>
+          </View>
+          <AiMark label={t("AI generated")} />
+        </View>
+      ) : running ? (
+        <Empty>{t("Writing the summary…")}</Empty>
+      ) : !view ? (
+        <Empty>{digest.error ? message(digest.error) : t("Loading…")}</Empty>
+      ) : (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], flexWrap: "wrap" }}>
+          <Empty>{day === today ? t("Generate a summary of today so far.") : view.enabled ? t("No summary for this day yet.") : t("Daily digest is off in settings. Generate one here.")}</Empty>
+          <Button small onPress={() => void digest.generate()}>
+            {t("Generate summary")}
+          </Button>
+        </View>
+      )}
+      {!!entry?.issues.length && (
+        <View style={{ gap: space[1] }}>
+          <Label muted size={font.xs} selectable={false}>
+            {t("Issues")}
+          </Label>
+          {entry.issues.map((item, i) => (
+            <DigestLine key={i} item={item} title={item.taskId ? titleOf(item.taskId) : ""} onOpenTask={onOpenTask} />
+          ))}
+        </View>
+      )}
+      {!!entry && (
+        <Label muted size={font.xs} selectable={false}>
+          {t("Updated {time}", { time: relativeTime(entry.at) })} · {modelLabel(entry.model)}
+        </Label>
+      )}
+      {!!(failed || (view?.error && !running && !entry)) && <Empty>{failed || t("Last attempt failed: {message}", { message: view?.error?.message ?? "" })}</Empty>}
+    </>
+  );
+}
+
 /** Cards shown at first in the day summary card, and added by each Show more. */
 const DAY_CARDS = 8;
 /** How far a day's content slides in when the day changes. */
 const DAY_SLIDE = 16;
 
 /** A card in the day summary: done or not, its title, that day's turns, time and tokens, and a bar for its share of the day's busiest card. */
-const DayCardRow = memo(function DayCardRow({ first, card, share, title, onOpenTask }: { first: boolean; card: DayCard; share: number; title: string; onOpenTask(id: string): void }) {
+const DayCardRow = memo(function DayCardRow({ first, card, share, title, project, onOpenTask }: { first: boolean; card: DayCard; share: number; title: string; /** The card's project on a group's day (blank otherwise). */ project: string; onOpenTask(id: string): void }) {
   const { colors } = useTheme();
-  const note = [tn(card.turns, "{n} turn", "{n} turns"), card.agentMs ? compactDuration(card.agentMs) : "", card.tokens ? compactNumber(card.tokens) : ""].filter(Boolean).join(" · ");
+  const note = [project, tn(card.turns, "{n} turn", "{n} turns"), card.agentMs ? compactDuration(card.agentMs) : "", card.tokens ? compactNumber(card.tokens) : ""].filter(Boolean).join(" · ");
   return (
     <Pressable
       accessibilityRole="button"
@@ -404,12 +478,25 @@ const DayCardRow = memo(function DayCardRow({ first, card, share, title, onOpenT
 
 // ---- Skills (§2.3) --------------------------------------------------------------------
 
+/** One project's skills and other suggestions; on an unfiltered group board one per member, each named. */
+function ProjectSuggestions({ project, labelled, active, titleOf, onOpenTask, onOpenSettings, onCreate }: { project: Project; labelled: boolean; active: boolean; titleOf(id: string): string; onOpenTask(id: string): void; onOpenSettings(): void; onCreate(finding: Finding, projectId: string): void }) {
+  const workflow = useWorkflowInsightsQuery(project.id, active);
+  const create = useStableCallback((finding: Finding) => onCreate(finding, project.id));
+  const label = labelled ? project.title : "";
+  return (
+    <>
+      <Skills projectId={project.id} label={label} view={workflow.data} error={workflow.error} titleOf={titleOf} onOpenTask={onOpenTask} onOpenSettings={onOpenSettings} />
+      <OtherSuggestions projectId={project.id} label={label} view={workflow.data} titleOf={titleOf} onOpenTask={onOpenTask} onCreate={create} />
+    </>
+  );
+}
+
 const isDraft = (f: Finding) => f.target === "skill" && !!f.skill;
 const draftRank = (f: Finding) => (f.skill?.updates ? 0 : 1);
 const confidenceOrder = { high: 0, medium: 1, low: 2 } as const;
 
 /** Skill drafts from the cards and the skills Flowly added to the project (§2.3). */
-function Skills({ projectId, view, error, titleOf, onOpenTask, onOpenSettings }: { projectId: string; view: WorkflowView | undefined; error: unknown; titleOf(id: string): string; onOpenTask(id: string): void; onOpenSettings(): void }) {
+function Skills({ projectId, label, view, error, titleOf, onOpenTask, onOpenSettings }: { projectId: string; /** The project's name when the page shows several. */ label: string; view: WorkflowView | undefined; error: unknown; titleOf(id: string): string; onOpenTask(id: string): void; onOpenSettings(): void }) {
   const run = useRpc(rpc.runWorkflowInsights);
   const setStatus = useRpc(rpc.setWorkflowFinding);
   const install = useRpc(rpc.installSkill);
@@ -474,7 +561,7 @@ function Skills({ projectId, view, error, titleOf, onOpenTask, onOpenSettings }:
   const installed = view?.installed || [];
   const updating = new Set(drafts.filter((f) => f.skill?.updates).map((f) => f.skill!.name));
   return (
-    <Section title={t("Skills")} ai trailing={trailing}>
+    <Section title={label ? t("Skills · {project}", { project: label }) : t("Skills")} ai trailing={trailing}>
       {!view ? (
         <Empty>{error ? message(error) : t("Loading…")}</Empty>
       ) : (
@@ -664,7 +751,7 @@ function SkillRow({
 const FOLDED_TITLE_WIDTH = 150;
 
 /** Workflow insights other than skills, folded (§2.4): scripts, worktree setup, repo tools, AGENTS.md. */
-function OtherSuggestions({ projectId, view, titleOf, onOpenTask, onCreate }: { projectId: string; view: WorkflowView | undefined; titleOf(id: string): string; onOpenTask(id: string): void; onCreate(finding: Finding): void }) {
+function OtherSuggestions({ projectId, label, view, titleOf, onOpenTask, onCreate }: { projectId: string; /** The project's name when the page shows several. */ label: string; view: WorkflowView | undefined; titleOf(id: string): string; onOpenTask(id: string): void; onCreate(finding: Finding): void }) {
   const setStatus = useRpc(rpc.setWorkflowFinding);
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -688,7 +775,7 @@ function OtherSuggestions({ projectId, view, titleOf, onOpenTask, onCreate }: { 
   };
   const openCount = active.filter((f) => f.status === "open").length;
   return (
-    <Disclosure title={t("Other suggestions")} flush titleMinWidth={FOLDED_TITLE_WIDTH} summary={tn(openCount, "Scripts, repo tools, AGENTS.md · {n} open", "Scripts, repo tools, AGENTS.md · {n} open")} open={open} onChange={setOpen}>
+    <Disclosure title={t("Other suggestions")} flush titleMinWidth={FOLDED_TITLE_WIDTH} summary={[label, tn(openCount, "Scripts, repo tools, AGENTS.md · {n} open", "Scripts, repo tools, AGENTS.md · {n} open")].filter(Boolean).join(" · ")} open={open} onChange={setOpen}>
       <View style={{ gap: space[2], paddingTop: space[1] }}>
         {!!failed && <Empty>{failed}</Empty>}
         {active.length > 0 && (
@@ -719,12 +806,13 @@ function OtherSuggestions({ projectId, view, titleOf, onOpenTask, onCreate }: { 
  * misfire share (hidden while nothing was failed by judgement), then this week's guardrail changes, each opening the
  * Guardrails page. Read once per opening; hidden when the daemon cannot answer.
  */
-function GuardrailLedger({ projectId, active, onOpen }: { projectId: string; active: boolean; onOpen?(): void }) {
+function GuardrailLedger({ scope, active, onOpen }: { scope: InsightsScope; active: boolean; onOpen?(): void }) {
   const { colors } = useTheme();
-  const read = useRpc(rpc.guardrailsInsights);
+  const readProject = useRpc(rpc.guardrailsInsights);
+  const readGroup = useRpc(rpc.groupGuardrailsInsights);
   const ledger = useQuery({
-    queryKey: ["flowly", "insights-guardrails", projectId],
-    queryFn: () => read({ projectId, tz: localZone() }),
+    queryKey: ["flowly", "insights-guardrails", insightsScopeKey(scope)],
+    queryFn: () => ("groupId" in scope ? readGroup({ groupId: scope.groupId, tz: localZone() }) : readProject({ projectId: scope.projectId, tz: localZone() })),
     enabled: active,
     staleTime: 5 * 60_000,
     retry: false,
@@ -763,9 +851,9 @@ function GuardrailLedger({ projectId, active, onOpen }: { projectId: string; act
 }
 
 /** Rounds and tokens per model of the last 7 days, folded; the summary line gave way to the closed loop (GUARDRAILS-SPEC §7.2). */
-function WorkflowNumbers({ projectId, flow, active }: { projectId: string; flow: WorkflowStats; active: boolean }) {
+function WorkflowNumbers({ scope, flow, active }: { scope: InsightsScope; flow: WorkflowStats; active: boolean }) {
   const [open, setOpen] = useState(false);
-  const tokens = useTokensQuery(projectId, active && open);
+  const tokens = useTokensQuery(scope, active && open);
   return (
     <Disclosure title={t("Workflow")} flush titleMinWidth={FOLDED_TITLE_WIDTH} open={open} onChange={setOpen}>
       {flow.models.length > 0 ? (

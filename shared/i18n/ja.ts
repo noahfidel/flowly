@@ -1644,5 +1644,7 @@ const catalog: Catalog = {
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "グループごとに専用のディスパッチャーがあり、そのチャット、通知、新しいカードはそのグループのプロジェクトに留まります。",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "グループのタブがプロジェクトのタブに代わります。ドラッグしてグループを並べ替えられ、グループはプロジェクト切り替えから追加できます。",
   "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "レーンはグループのものになりました。グループ内のすべてのプロジェクトが同じレーンを使い、グループ設定で一度だけ編集します。",
+  "Skills · {project}": "スキル · {project}",
+  "Guardrails are off for {projects}. Their memories are shown and kept; turn guardrails on in a project's settings to change them.": "{projects} ではガードレールがオフです。メモリは表示され、保持されます。変更するには、プロジェクト設定でガードレールをオンにしてください。",
 };
 export default catalog;

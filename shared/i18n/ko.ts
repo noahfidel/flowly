@@ -1644,5 +1644,7 @@ const catalog: Catalog = {
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "그룹마다 자체 디스패처가 있어서, 채팅, 알림, 새 카드가 그 그룹의 프로젝트에 머뭅니다.",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "그룹 탭이 프로젝트 탭을 대신합니다. 그룹을 끌어서 순서를 바꾸고, 프로젝트 전환기에서 그룹을 추가하세요.",
   "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "이제 레인은 그룹에 속합니다. 그룹의 모든 프로젝트가 같은 레인을 사용하며, 그룹 설정에서 한 번만 편집합니다.",
+  "Skills · {project}": "스킬 · {project}",
+  "Guardrails are off for {projects}. Their memories are shown and kept; turn guardrails on in a project's settings to change them.": "{projects}에서 가드레일이 꺼져 있습니다. 메모리는 표시되고 유지됩니다. 바꾸려면 프로젝트 설정에서 가드레일을 켜세요.",
 };
 export default catalog;

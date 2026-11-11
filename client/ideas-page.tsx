@@ -22,10 +22,14 @@ const PAGE = 50;
 /**
  * Project Ideas page (IDEAS-INBOX-SPEC §4): every card's ideas, including
  * those of finished and archived cards. Replaces the board area while open,
- * like Insights. Actions are the drawer's (useIdeaActions).
+ * like Insights. Actions are the drawer's (useIdeaActions). On an unfiltered
+ * group board it lists every live member's ideas, each labelled with its
+ * project; every action uses the idea's own project (BOARD-GROUPS-SPEC §4).
  */
 export const IdeasPage = memo(function IdeasPage({
-  project,
+  projects,
+  importProjectId,
+  onImported,
   tasks,
   ideas,
   compact,
@@ -40,10 +44,15 @@ export const IdeasPage = memo(function IdeasPage({
   quick,
   onBack,
 }: {
-  project: Project;
-  /** The project's cards, archived included. */
+  /** The projects shown: the board's one project, or every live member of an unfiltered group board. */
+  projects: readonly Project[];
+  /** The project Import starts with when there are several (the one last added to); ignored for one. */
+  importProjectId: string;
+  /** An import into a project finished (remembered as the one last added to). */
+  onImported(projectId: string): void;
+  /** The projects' cards, archived included. */
   tasks: readonly Task[];
-  /** The project's ideas. */
+  /** The projects' ideas. */
   ideas: readonly Idea[];
   compact: boolean;
   /** Only this card's ideas ("All ideas" from a card); blank for all. */
@@ -73,8 +82,14 @@ export const IdeasPage = memo(function IdeasPage({
   const [importing, setImporting] = useState(false);
   const actions = useIdeaActions({ sessionsOf, onCreate, onNewSession, ideas, tasks, quick });
   const { hidden } = actions;
-  const lanes = useMemo(() => enabledStatuses(project), [project]);
+  // A group's projects share the group's lanes (BOARD-GROUPS-SPEC §1).
+  const lanes = useMemo(() => enabledStatuses(projects[0]), [projects]);
   const cards = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
+  const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  // Several projects: each idea and group names its project.
+  const several = projects.length > 1;
+  const archivedProject = (projectId: string) => !!byId.get(projectId)?.archivedAt;
+  const importable = useMemo(() => projects.filter((p) => !p.archivedAt), [projects]);
   // Ideas closed here but not yet on the board read as closed (optimistic).
   const effective = useMemo(
     () => (hidden.size ? ideas.map((i) => (hidden.has(i.id) && i.status === "open" ? { ...i, status: "dismissed" as const } : i)) : ideas),
@@ -88,7 +103,7 @@ export const IdeasPage = memo(function IdeasPage({
     // `query` is rebuilt every render; its parts are the dependencies.
     [effective, tasks, lanes, tab, search, scopes, finishedOnly, cardFilter, sort],
   );
-  const pageRows = usePageRows(JSON.stringify([project.id, tab, search, [...scopes], finishedOnly, cardFilter, sort, grouped]), list.length, compact);
+  const pageRows = usePageRows(JSON.stringify([projects.map((p) => p.id), tab, search, [...scopes], finishedOnly, cardFilter, sort, grouped]), list.length, compact);
   const filtered = !!(search.trim() || scopes.size || finishedOnly || cardFilter);
   const clearFilters = () => {
     setSearch("");
@@ -102,15 +117,26 @@ export const IdeasPage = memo(function IdeasPage({
       if (!next.delete(scope)) next.add(scope);
       return next;
     });
-  const source = (taskId: string | undefined) => taskId && cards.has(taskId) ? <SourceLine task={cards.get(taskId)} nameOf={nameOf} onOpenTask={onOpenTask} /> : undefined;
+  const cardLine = (taskId: string | undefined) => taskId && cards.has(taskId) ? <SourceLine task={cards.get(taskId)} nameOf={nameOf} onOpenTask={onOpenTask} /> : undefined;
+  // With several projects every idea names its project above its source card (none for a project's own idea).
+  const source = (idea: Idea) => {
+    const line = cardLine(idea.taskId);
+    if (!several) return line;
+    return (
+      <>
+        <ProjectLine title={byId.get(idea.projectId)?.title ?? ""} />
+        {line}
+      </>
+    );
+  };
   const cardTitle = (id: string) => cards.get(id)?.title;
   const renderOpen = (rows: ExitRows) =>
     rows.map((row) => (
       <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} restored={actions.restored.has(row.item.id)} spacing={space[3]}>
         <IdeaCard
           idea={row.item}
-          disabled={!!project.archivedAt || row.leaving}
-          source={grouped ? undefined : source(row.item.taskId)}
+          disabled={archivedProject(row.item.projectId) || row.leaving}
+          source={grouped ? undefined : source(row.item)}
           onGood={actions.choose}
           onDismiss={actions.dismiss}
           onDiscuss={onDiscuss}
@@ -126,19 +152,26 @@ export const IdeasPage = memo(function IdeasPage({
             idea={row.item}
             acceptedTitle={row.item.acceptedTaskId ? cardTitle(row.item.acceptedTaskId) : undefined}
             sentTo={row.item.acceptedAgentId && row.item.taskId ? sessionName(sessionsOf(row.item.taskId), row.item.acceptedAgentId) : undefined}
-            disabled={!!project.archivedAt || !!actions.restoring || row.leaving}
+            disabled={archivedProject(row.item.projectId) || !!actions.restoring || row.leaving}
             onOpenTask={onOpenTask}
             onRestore={actions.restore}
           />
-          {!grouped && <View style={{ marginHorizontal: -space[3] }}>{source(row.item.taskId)}</View>}
+          {!grouped && <View style={{ marginHorizontal: -space[3] }}>{source(row.item)}</View>}
         </View>
       </IdeaRow>
     ));
   const closedRows = tab === "open" ? noIdeas : list.slice(0, compact ? pageRows.limit : shown);
-  const renderGroups = <T extends { taskId?: string }>(rows: readonly T[], render: (rows: T[]) => ReactNode) =>
+  const renderGroups = <T extends { taskId?: string; projectId: string }>(rows: readonly T[], render: (rows: T[]) => ReactNode) =>
     groupByCard(rows).map((group) => (
-      <View key={group.taskId ?? "project"} style={{ gap: space[1.5], marginBottom: space[2] }}>
-        <GroupHeader task={group.taskId ? cards.get(group.taskId) : undefined} project={group.taskId === null} count={compact ? list.filter((idea) => (idea.taskId ?? null) === group.taskId).length : group.ideas.length} nameOf={nameOf} onOpenTask={onOpenTask} />
+      <View key={group.taskId ?? `project:${group.projectId}`} style={{ gap: space[1.5], marginBottom: space[2] }}>
+        <GroupHeader
+          task={group.taskId ? cards.get(group.taskId) : undefined}
+          project={group.taskId === null}
+          projectTitle={several ? byId.get(group.projectId)?.title ?? "" : ""}
+          count={compact ? list.filter((idea) => (group.taskId ? idea.taskId === group.taskId : !idea.taskId && idea.projectId === group.projectId)).length : group.ideas.length}
+          nameOf={nameOf}
+          onOpenTask={onOpenTask}
+        />
         {render(group.ideas)}
       </View>
     ));
@@ -177,14 +210,14 @@ export const IdeasPage = memo(function IdeasPage({
         <View style={{ flex: 1 }} />
         {/* Import also balances the Back button so the title stays centred. */}
         <View style={{ minWidth: compact ? 56 : 72, alignItems: "flex-end" }}>
-          {!project.archivedAt && (
+          {importable.length > 0 && (
             <Button quiet icon="Plus" label={t("Import ideas")} onPress={() => setImporting(true)}>
               {compact ? "" : t("Import")}
             </Button>
           )}
         </View>
       </View>
-      <IdeasImportModal projectId={project.id} open={importing} onClose={() => setImporting(false)} />
+      <IdeasImportModal projects={importable} initialProjectId={importProjectId} open={importing} onClose={() => setImporting(false)} onImported={onImported} />
       <ScrollView
         {...verticalScroll}
         keyboardShouldPersistTaps="handled"
@@ -276,7 +309,7 @@ export const IdeasPage = memo(function IdeasPage({
                   list={compact ? list.slice(0, pageRows.limit) : list}
                   empty={emptyState}
                   render={(rows) =>
-                    grouped ? renderGroups(rows.map((r) => ({ ...r, taskId: r.item.taskId })), renderOpen) : renderOpen(rows)
+                    grouped ? renderGroups(rows.map((r) => ({ ...r, taskId: r.item.taskId, projectId: r.item.projectId })), renderOpen) : renderOpen(rows)
                   }
                 />
               ) : (
@@ -286,7 +319,7 @@ export const IdeasPage = memo(function IdeasPage({
                   list={closedRows}
                   empty={emptyState}
                   render={(rows) =>
-                    grouped ? renderGroups(rows.map((r) => ({ ...r, taskId: r.item.taskId })), renderClosed) : renderClosed(rows)
+                    grouped ? renderGroups(rows.map((r) => ({ ...r, taskId: r.item.taskId, projectId: r.item.projectId })), renderClosed) : renderClosed(rows)
                   }
                 />
               )}
@@ -314,14 +347,23 @@ function OpenList({ list, empty, render }: { list: readonly Idea[]; empty: React
   return <>{rows.length ? render(rows) : empty}</>;
 }
 
-function GroupHeader({ task, project, count, nameOf, onOpenTask }: { task: Task | undefined; /** The project's own ideas, no card. */ project: boolean; count: number; nameOf(status: Status): string; onOpenTask(id: string): void }) {
+function GroupHeader({ task, project, projectTitle, count, nameOf, onOpenTask }: {
+  task: Task | undefined;
+  /** The project's own ideas, no card. */
+  project: boolean;
+  /** The group's project, when the page shows several (blank otherwise). */
+  projectTitle: string;
+  count: number;
+  nameOf(status: Status): string;
+  onOpenTask(id: string): void;
+}) {
   const { colors } = useTheme();
   if (project)
     return (
       <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: touch ? 40 : 30 }}>
         <Icon name="Lightbulb" size={14} color={colors.foregroundMuted} />
         <View style={{ flexShrink: 1, minWidth: 0 }}>
-          <Label bold size={font.md} lines={1} selectable={false}>{t("Project")}</Label>
+          <Label bold size={font.md} lines={1} selectable={false}>{projectTitle || t("Project")}</Label>
         </View>
         <Label muted size={font.sm} selectable={false}>{count}</Label>
       </View>
@@ -339,11 +381,25 @@ function GroupHeader({ task, project, count, nameOf, onOpenTask }: { task: Task 
         <Label bold size={font.md} lines={1} selectable={false}>{task.title}</Label>
       </View>
       <Label muted size={font.sm} selectable={false}>
+        {projectTitle ? `${projectTitle} · ` : ""}
         {task.archivedAt ? `${t("Archived")} · ` : ""}
         {count}
       </Label>
       <Icon name="ChevronRight" size={13} color={colors.foregroundMuted} />
     </Pressable>
+  );
+}
+
+/** The idea's project, above its source card, when the page shows several projects. */
+function ProjectLine({ title }: { title: string }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], marginHorizontal: space[3], marginBottom: space[1.5], paddingHorizontal: space[2] }}>
+      <Icon name="Folder" size={12} color={colors.foregroundMuted} />
+      <View style={{ flexShrink: 1, minWidth: 0 }}>
+        <Label muted size={font.xs} lines={1} selectable={false}>{title}</Label>
+      </View>
+    </View>
   );
 }
 

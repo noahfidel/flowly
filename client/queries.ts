@@ -1,11 +1,12 @@
 import { useEffect } from "react";
 import { usePaseo, useRpc } from "@getpaseo/plugin/client";
-import { useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import { queryOptions, useQueries, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import type { PaseoAgent, PaseoApi, PaseoAgentUpdate } from "@getpaseo/client";
 import * as rpc from "../shared/rpc";
 import { isSummarizer } from "../shared/summary";
 import { listAgents } from "./resources";
 import type { BoardOverview } from "../shared/overview";
+import type { GuardrailsView } from "../shared/guardrails";
 import { overviewKey, readOverviewDelta, type OverviewRead } from "./overview-query";
 
 /**
@@ -267,17 +268,29 @@ export const localZone = () => {
 };
 
 /**
+ * What one Insights read covers: a project, or a group's live members on an unfiltered group board (BOARD-GROUPS-SPEC
+ * §4, ruling 2026-11-10), summed on the daemon so the client decodes one value, not one per project.
+ */
+export type InsightsScope = { projectId: string } | { groupId: string };
+export const insightsScopeKey = (scope: InsightsScope) => ("groupId" in scope ? `group:${scope.groupId}` : scope.projectId);
+
+/**
  * Project Insights (INSIGHTS-REDESIGN-SPEC §7). Read only while the page is open; re-read
  * when the board changes (`revision`) and every few minutes (activity changes slowly).
  */
-export function useInsightsQuery(projectId: string, revision: number, enabled: boolean) {
-  const read = useRpc(rpc.projectInsights);
+export function useInsightsQuery(scope: InsightsScope, revision: number, enabled: boolean) {
+  const readProject = useRpc(rpc.projectInsights);
+  const readGroup = useRpc(rpc.groupInsights);
   const client = useQueryClient();
   const tz = localZone();
-  const key = ["flowly", "insights", projectId] as const;
+  const key = ["flowly", "insights", insightsScopeKey(scope)] as const;
   const query = useQuery({
     queryKey: key,
-    queryFn: () => readChanged(client, key, (etag) => read({ projectId, tz, ...(etag ? { etag } : {}) })),
+    queryFn: () =>
+      readChanged(client, key, (etag) => {
+        const extra = { tz, ...(etag ? { etag } : {}) };
+        return "groupId" in scope ? readGroup({ groupId: scope.groupId, ...extra }) : readProject({ projectId: scope.projectId, ...extra });
+      }),
     enabled,
     refetchInterval: enabled ? 300_000 : false,
     placeholderData: (previous) => previous,
@@ -306,26 +319,35 @@ export function useDigestQuery(projectId: string, day: string | null, enabled: b
  * move count from the heatmap, so the day refreshes when the page's activity does and never polls
  * on its own; `tokens` also reads local provider logs, as a second query the card does not wait on.
  */
-export function useDayQuery(projectId: string, day: string, version: string, tokens: boolean, enabled: boolean) {
-  const read = useRpc(rpc.projectDay);
+export function useDayQuery(scope: InsightsScope, day: string, version: string, tokens: boolean, enabled: boolean) {
+  const readProject = useRpc(rpc.projectDay);
+  const readGroup = useRpc(rpc.groupDay);
   const tz = localZone();
   return useQuery({
-    queryKey: ["flowly", "insights-day", projectId, day, version, tokens],
-    queryFn: () => read({ projectId, tz, day, ...(tokens ? { tokens } : {}) }),
+    queryKey: ["flowly", "insights-day", insightsScopeKey(scope), day, version, tokens],
+    queryFn: () => {
+      const extra = { tz, day, ...(tokens ? { tokens } : {}) };
+      return "groupId" in scope ? readGroup({ groupId: scope.groupId, ...extra }) : readProject({ projectId: scope.projectId, ...extra });
+    },
     enabled,
     staleTime: Infinity,
   });
 }
 
 /** Tokens per finished card from local provider logs (INSIGHTS-REDESIGN-SPEC §2.5); separate so the page never waits on log parsing. */
-export function useTokensQuery(projectId: string, enabled: boolean) {
-  const read = useRpc(rpc.projectTokens);
+export function useTokensQuery(scope: InsightsScope, enabled: boolean) {
+  const readProject = useRpc(rpc.projectTokens);
+  const readGroup = useRpc(rpc.groupTokens);
   const client = useQueryClient();
   const tz = localZone();
-  const key = ["flowly", "insights-tokens", projectId] as const;
+  const key = ["flowly", "insights-tokens", insightsScopeKey(scope)] as const;
   return useQuery({
     queryKey: key,
-    queryFn: () => readChanged(client, key, (etag) => read({ projectId, tz, ...(etag ? { etag } : {}) })),
+    queryFn: () =>
+      readChanged(client, key, (etag) => {
+        const extra = { tz, ...(etag ? { etag } : {}) };
+        return "groupId" in scope ? readGroup({ groupId: scope.groupId, ...extra }) : readProject({ projectId: scope.projectId, ...extra });
+      }),
     enabled,
     refetchInterval: enabled ? 300_000 : false,
     placeholderData: (previous) => previous,
@@ -353,11 +375,10 @@ export function useWorkflowInsightsQuery(projectId: string, enabled: boolean, po
 
 /** A project's guardrails (GUARDRAILS-SPEC §7.4): read while the Guardrails page is shown. */
 export const guardrailsKey = (projectId: string) => ["flowly", "guardrails", projectId] as const;
-export function useGuardrailsQuery(projectId: string, enabled: boolean) {
-  const read = useRpc(rpc.readGuardrails);
-  const client = useQueryClient();
+type GuardrailsRead = (input: { projectId: string; etag?: string }) => Promise<{ etag: string; value?: GuardrailsView }>;
+function guardrailsOptions(client: QueryClient, read: GuardrailsRead, projectId: string, enabled: boolean) {
   const key = guardrailsKey(projectId);
-  return useQuery({
+  return queryOptions({
     queryKey: key,
     queryFn: () => readChanged(client, key, (etag) => read({ projectId, ...(etag ? { etag } : {}) })),
     enabled: enabled && !!projectId,
@@ -366,6 +387,21 @@ export function useGuardrailsQuery(projectId: string, enabled: boolean) {
     refetchInterval: (q) => (enabled ? (q.state.data?.running.length ? 5_000 : 30_000) : false),
     placeholderData: (previous) => previous,
   });
+}
+export function useGuardrailsQuery(projectId: string, enabled: boolean) {
+  const read = useRpc(rpc.readGuardrails);
+  const client = useQueryClient();
+  return useQuery(guardrailsOptions(client, read, projectId, enabled));
+}
+/**
+ * Several projects' guardrails, one etag read each, sharing `useGuardrailsQuery`'s cache: an unfiltered group board's
+ * Memory page (BOARD-GROUPS-SPEC §4). Per project rather than one group read, so a change in one project re-downloads
+ * only that project's entries.
+ */
+export function useGuardrailsQueries(projectIds: readonly string[], enabled: boolean) {
+  const read = useRpc(rpc.readGuardrails);
+  const client = useQueryClient();
+  return useQueries({ queries: projectIds.map((projectId) => guardrailsOptions(client, read, projectId, enabled)) });
 }
 /** The dispatcher chat's items (DISPATCHER-SPEC §9.1): read only while the chat panel is visible. */
 export const dispatcherItemsKey = ["flowly", "dispatcher", "items"] as const;

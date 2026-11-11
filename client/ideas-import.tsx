@@ -7,6 +7,9 @@ import * as rpc from "../shared/rpc";
 import { importOutcome, type ImportRow } from "../shared/ideas-import";
 import { invalidateCardViews } from "./card-detail-query";
 import { Modal } from "./modal";
+import { ProjectChoice } from "./project-choice";
+import { addProject } from "./board-groups";
+import type { Project } from "../shared/model";
 import { Actions, Button, Field, Label, Notice, Theme, font, message, radius, space, noFocusRing, useTheme } from "./ui";
 import { t, tn } from "../shared/i18n";
 
@@ -62,9 +65,16 @@ const ReviewRow = memo(function ReviewRow({ index, row, kept, duplicate, disable
 
 /**
  * Import a markdown backlog into the project's ideas (IDEAS-IMPORT-EXPORT-SPEC §5): paste, review the rows
- * (finished and already-open ones start unchecked), then import the checked ones.
+ * (finished and already-open ones start unchecked), then import the checked ones. With several projects (an
+ * unfiltered group board, BOARD-GROUPS-SPEC §4) the paste step asks which one, starting with `initialProjectId`.
  */
-export function IdeasImportModal({ projectId, open, onClose }: { projectId: string; open: boolean; onClose(): void }) {
+export function IdeasImportModal({ projects, initialProjectId, open, onClose, onImported }: {
+  projects: readonly Project[];
+  initialProjectId: string;
+  open: boolean;
+  onClose(): void;
+  onImported?(projectId: string): void;
+}) {
   const theme = useTheme();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -77,8 +87,11 @@ export function IdeasImportModal({ projectId, open, onClose }: { projectId: stri
   const [error, setError] = useState("");
   // One operation per review: pressing Import again after a lost reply cannot create the ideas twice.
   const [operation, setOperation] = useState(operationId);
+  const [chosen, setChosen] = useState("");
+  const projectId = addProject(projects, chosen || initialProjectId)?.id ?? "";
   useEffect(() => {
     if (!open) return;
+    setChosen("");
     setMarkdown("");
     setPreview(null);
     setKept(new Set());
@@ -87,7 +100,7 @@ export function IdeasImportModal({ projectId, open, onClose }: { projectId: stri
   }, [open]);
   const busy = pending !== null;
   async function review() {
-    if (busy || !markdown.trim()) return;
+    if (busy || !markdown.trim() || !projectId) return;
     setPending("preview");
     setError("");
     try {
@@ -110,6 +123,7 @@ export function IdeasImportModal({ projectId, open, onClose }: { projectId: stri
       const rows = preview.rows.flatMap((row, i) => (kept.has(i) ? [{ ...row, keep: true }] : []));
       const result = await runImport({ projectId, rows, operationId: operation });
       await invalidateCardViews(queryClient);
+      onImported?.(projectId);
       const outcome = importOutcome(result);
       const skipped = result.skipped.length;
       // A retry after a daemon restart finds every title already open: neutral, not an error.
@@ -145,6 +159,7 @@ export function IdeasImportModal({ projectId, open, onClose }: { projectId: stri
     >
       <Modal.Content>
         <Theme.Provider value={theme}>
+          {!preview && projects.length > 1 && <ProjectChoice projects={projects} value={projectId} disabled={busy} onChange={setChosen} />}
           {!preview ? (
             <Field
               title={t("Backlog markdown")}

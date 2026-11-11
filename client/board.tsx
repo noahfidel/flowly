@@ -1,5 +1,5 @@
 import type { BoardOverview } from "../shared/overview";
-import { CardDetailProvider, detailQueryOptions, detailUnavailable, invalidateCardViews, useCardDetailQuery, useProjectIdeasQuery } from "./card-detail-query";
+import { CardDetailProvider, detailQueryOptions, detailUnavailable, invalidateCardViews, useCardDetailQuery, useProjectsIdeasQuery } from "./card-detail-query";
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Platform, Pressable, View, useWindowDimensions, type GestureResponderEvent } from "react-native";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
@@ -74,7 +74,7 @@ import { LinkPicker } from "./task-links";
 import { TaskDrawer } from "./drawer";
 import { DeleteTaskDialog } from "./task-delete";
 import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery, useOverviewQuery, useLiveAgents, useGuardrailCountsQuery, useResolvedAsksQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
-import { projectOpenIdeaCount } from "./overview-query";
+import { groupOpenIdeaCount } from "./overview-query";
 import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
 import { LaneList } from "./lane-list";
@@ -122,7 +122,7 @@ import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 // board-groups 3/7: group-only navigation (BOARD-GROUPS-SPEC §3).
 import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, rememberViewedGroupView } from "./project-memory";
-import { boardProject, boardScope, defaultGroup, focusFilter, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, overviewScope, pickGroupView, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
+import { boardProject, boardScope, defaultGroup, focusFilter, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, overviewScope, pageScope, pickGroupView, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
 import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { GroupTabs } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
@@ -218,6 +218,7 @@ const noTasks: Task[] = [];
 // board-groups 3/7: the overview's groups, empty until it loads.
 const noGroups: Group[] = [];
 const noProjects: Project[] = [];
+const noIds: string[] = [];
 const noAgents: PaseoAgent[] = [];
 const noTurnFacts: ReadonlyMap<string, { latestTurn?: { action: string; at: string } }> = new Map();
 
@@ -631,6 +632,9 @@ function BoardContent(
   // project of the group, each card using its own (projectOf).
   const project = boardProject(validFilterId, liveProjects);
   const allView = !project;
+  // Insights, Ideas and Memory: the board's one project, else every live member of the group (ruling, Noah 2026-11-10).
+  const pages = useMemo(() => pageScope(project, liveProjects, group?.id), [project, liveProjects, group?.id]);
+  const pageIds = useMemo(() => pages?.projects.map((p) => p.id) ?? noIds, [pages]);
   const viewKey = group ? groupViewId(group.id) : "";
   // Returning to the board in this app run reopens the group seen last; a cold start opens the default group.
   // Only with the full overview: until then no group is known, and the fallback must not replace a remembered group.
@@ -680,10 +684,10 @@ function BoardContent(
   useEffect(() => {
     setActionTask(null);
   }, [viewKey]);
-  // Project pages (Insights, Ideas, Memory) need one project; Search works across all of them.
+  // Guardrails needs one project; Insights, Ideas and Memory a project or a group's members; Search works across all.
   useEffect(() => {
-    if (!project) setPage((current) => (current === "search" ? current : null));
-  }, [project?.id]);
+    if (!project) setPage((current) => (current === "guardrails" || (!pages && current !== "search") ? null : current));
+  }, [project?.id, !!pages]);
   const task = currentDetail?.task.id === taskId && inView(currentDetail.task.projectId) ? currentDetail.task : board?.tasks.find(
     (t) => t.id === taskId && inView(t.projectId),
   );
@@ -1286,9 +1290,10 @@ function BoardContent(
     })();
   }, [ideaInput, board]);
   // WORKFLOW-INSIGHTS-SPEC §5.2: the new-task form, prefilled from a suggestion.
-  const createFromFinding = useStableCallback((finding: Finding) =>
+  const createFromFinding = useStableCallback((finding: Finding, projectId: string) =>
     setTaskForm({
       status: "todo",
+      projectId,
       seed: {
         insightFindingId: finding.id,
         title: finding.title,
@@ -1529,9 +1534,10 @@ function BoardContent(
     if (!features.insights) setPage((current) => (current === "insights" ? null : current));
   }, [features.insights]);
   const showCardIdeas = useStableCallback((id: string) => {
-    // Ideas is per project: from the All board, switch to the card's project first.
+    // The card's group's Ideas page, narrowed to the card. It lists every member's ideas, so an unfiltered board stays
+    // unfiltered; a board filtered to another project is filtered to the card's.
     const source = board?.tasks.find((x) => x.id === id);
-    if (source) focusGroupOf(source.projectId, false, true); // the Ideas page acts on that project
+    if (source) focusGroupOf(source.projectId, false, !!project && project.id !== source.projectId);
     setIdeaCard(id);
     setPage("ideas");
     setTask("");
@@ -1547,19 +1553,37 @@ function BoardContent(
     const list = (t && cardIndex.agentsByWorkspace.get(t.workspaceId)) || noAgents;
     return [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
   });
-  const projectIdeasData = useProjectIdeasQuery(props.host.id, project?.id || "", page === "ideas" && (!compact || !taskId));
-  const projectIdeaList = useMemo(() => projectIdeasData.data?.ideas || [], [projectIdeasData.data]);
-  const projectOpenIdeas = useMemo(() => projectOpenIdeaCount(projected, project?.id), [projected?.cards, projected?.tasks, projected?.projectIdeas, project?.id]);
+  // One etag read per project (an unfiltered group: each live member), so a change re-downloads one project's ideas.
+  const ideasReads = useProjectsIdeasQuery(props.host.id, pageIds, page === "ideas" && (!compact || !taskId));
+  const ideasStamp = ideasReads.map((q) => q.dataUpdatedAt).join(",");
+  const projectIdeasData = {
+    data: ideasReads.every((q) => q.data) ? true : undefined,
+    error: ideasReads.find((q) => q.error)?.error ?? null,
+    refetch: () => Promise.all(ideasReads.map((q) => q.refetch())),
+  };
+  const projectIdeaList = useMemo(() => ideasReads.flatMap((q) => q.data?.ideas ?? []), [pageIds, ideasStamp]);
+  const projectOpenIdeas = useMemo(() => groupOpenIdeaCount(projected, pageIds), [projected?.cards, projected?.tasks, projected?.projectIdeas, pageIds]);
   // Observing commands and guidelines learned this week (GUARDRAILS-SPEC §7.4); the chip hides when the project turned guardrails off.
-  const guardrailCounts = useGuardrailCountsQuery(boardActive && !!project && features.memory);
+  const guardrailCounts = useGuardrailCountsQuery(boardActive && !!pages && features.memory);
   const guardrailsOn = features.memory && !!project && project.memory !== false;
   const projectGuardrails = guardrailsOn ? guardrailCounts.data?.[project!.id] : undefined;
   const guardrailCount = guardrailsOn ? (projectGuardrails ? projectGuardrails.observing + projectGuardrails.added : 0) : null;
-  const memoryCount = guardrailsOn ? (projectGuardrails?.notes ?? 0) : null;
+  // Memory: the notes of every shown project with guardrails on; hidden when none has them on.
+  const memoryProjects = features.memory && pages ? pages.projects.filter((p) => p.memory !== false) : [];
+  const memoryCount = memoryProjects.length ? memoryProjects.reduce((n, p) => n + (guardrailCounts.data?.[p.id]?.notes ?? 0), 0) : null;
   // The Memory page's filter, sort and layout (board-view settings, GUARDRAILS-SPEC §7.4).
   const memoryKind = view.values?.memoryKind ?? "all", memorySort = view.values?.memorySort ?? "newest", memoryLayout = view.values?.memoryLayout ?? "list";
   const memoryPrefs = useMemo<MemoryPrefs>(() => ({ memoryKind, memorySort, memoryLayout }), [memoryKind, memorySort, memoryLayout]);
   const saveMemoryPrefs = useStableCallback((patch: Partial<MemoryPrefs>) => void view.update(patch));
+  // The project last added to from an unfiltered group's Memory or Ideas page: what the next addition starts with.
+  const lastAddProjectId = view.values?.lastAddProjectId ?? "";
+  const rememberAddProject = useStableCallback((id: string) => {
+    if (view.values && view.values.lastAddProjectId !== id) void view.update({ lastAddProjectId: id });
+  });
+  const pageTasks = useMemo(() => {
+    const ids = new Set(pageIds);
+    return (board?.tasks || []).filter((t) => ids.has(t.projectId));
+  }, [board?.tasks, pageIds]);
   const projectTasks = useMemo(() => (board?.tasks || []).filter((t) => t.projectId === project?.id), [board?.tasks, project?.id]);
   // A session of this project has a live Paseo child agent (SUBAGENTS-SPEC §7).
   const projectHasSubagent = useMemo(() => {
@@ -1925,11 +1949,11 @@ function BoardContent(
         setWelcomeOpen(true);
         return true;
       case "insights":
-        if (!project || !features.insights) return false;
+        if (!pages || !features.insights) return false;
         togglePage("insights");
         return true;
       case "ideas":
-        if (!project || !ideasOn) return false;
+        if (!pages || !ideasOn) return false;
         setIdeaCard("");
         togglePage("ideas");
         return true;
@@ -1938,7 +1962,7 @@ function BoardContent(
         togglePage("guardrails");
         return true;
       case "memory":
-        if (!project || !features.memory) return false;
+        if (!pages || !features.memory) return false;
         togglePage("memory");
         return true;
       case "dispatcher": {
@@ -2252,10 +2276,10 @@ function BoardContent(
             updated={updatedIds.length}
             onUpdated={startUpdated}
             updatedShortcut={shortcutsOn ? "U" : ""}
-            // Insights, Ideas, Guardrails and Memory act on one project: hidden unfiltered (§4).
-            onInsights={features.insights && overviewCover.perProject ? () => togglePage("insights") : undefined}
+            // Insights, Ideas and Memory cover the group's members unfiltered; Guardrails needs one project (§4).
+            onInsights={features.insights && pages ? () => togglePage("insights") : undefined}
             insightsShortcut={shortcutsOn ? "I" : ""}
-            openIdeas={ideasOn && overviewCover.perProject ? projectOpenIdeas : null}
+            openIdeas={ideasOn && pages ? projectOpenIdeas : null}
             onIdeas={() => {
               setIdeaCard("");
               togglePage("ideas");
@@ -2367,12 +2391,13 @@ function BoardContent(
                     : { width: resizingFrom, flexGrow: 0, flexShrink: 0, minHeight: 0, overflow: "hidden" }
                 }
               >
-                {page === "ideas" && project && (!projectIdeasData.data || projectIdeasData.error) ? (
+                {page === "ideas" && pages && (!projectIdeasData.data || projectIdeasData.error) ? (
                   <View style={{ padding: space[4] }}>{projectIdeasData.error ? <><Notice>{message(projectIdeasData.error)}</Notice><Button quiet onPress={() => void projectIdeasData.refetch()}>{t("Retry")}</Button></> : <Label muted>{t("Loading cards…")}</Label>}</View>
-                ) : page === "insights" && board && project ? (
+                ) : page === "insights" && board && pages ? (
                   <InsightsPage
-                    project={project}
-                    tasks={projectTasks}
+                    projects={pages.projects}
+                    groupId={pages.groupId}
+                    tasks={pageTasks}
                     revision={board.revision}
                     compact={compact}
                     active={!(compact && drawer.active)}
@@ -2383,10 +2408,12 @@ function BoardContent(
                     onOpenSettings={openAiSettings}
                     onOpenGuardrails={guardrailsOn ? () => setPage("guardrails") : undefined}
                   />
-                ) : page === "ideas" && ideasOn && board && project ? (
+                ) : page === "ideas" && ideasOn && board && pages ? (
                   <IdeasPage
-                    project={project}
-                    tasks={projectTasks}
+                    projects={pages.projects}
+                    importProjectId={lastAddProjectId}
+                    onImported={rememberAddProject}
+                    tasks={pageTasks}
                     ideas={projectIdeaList}
                     compact={compact}
                     cardFilter={ideaCard}
@@ -2414,8 +2441,8 @@ function BoardContent(
                   />
                 ) : page === "guardrails" && board && project ? (
                   <GuardrailsPage project={project} tasks={projectTasks} compact={compact} nameOf={nameOf} onOpenTask={openTaskById} onBack={closePage} />
-                ) : page === "memory" && board && project ? (
-                  <MemoryPage project={project} tasks={projectTasks} compact={compact} prefs={memoryPrefs} nameOf={nameOf} onPrefs={saveMemoryPrefs} onOpenTask={openTaskById} onBack={closePage} />
+                ) : page === "memory" && board && pages ? (
+                  <MemoryPage projects={pages.projects} addProjectId={lastAddProjectId} onAdded={rememberAddProject} tasks={pageTasks} compact={compact} prefs={memoryPrefs} nameOf={nameOf} onPrefs={saveMemoryPrefs} onOpenTask={openTaskById} onBack={closePage} />
                 ) : compact && !shownStatuses.length ? null : compact ? (
                   // No lanes (an empty group, BOARD-GROUPS-SPEC §3): no lane chooser or pager; the hint above explains.
                   <>

@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import { useRpc } from "@getpaseo/plugin/client";
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
-import { CARD_UNAVAILABLE, type CardDetail, type ProjectCardIndex } from "../shared/card-detail";
+import { CARD_UNAVAILABLE, type CardDetail, type ProjectCardIndex, type ProjectIdeas } from "../shared/card-detail";
 import { createChangedReader, boardKey } from "./queries";
 
 export const detailKey = (hostId: string, taskId: string, workspaceId: string) => ["flowly", "card-detail", hostId, 1, taskId, workspaceId] as const;
@@ -27,9 +27,23 @@ export function useProjectIndexQuery(hostId: string, projectId: string, enabled:
   const client = useQueryClient(), read = useRpc(rpc.readProjectCardIndexChanged), key = projectIndexKey(hostId, projectId);
   return useQuery({ queryKey: key, queryFn: () => readIndexChanged(client, key, etag => read({ projectId, ...(etag ? { etag } : {}) })), enabled: enabled && !!projectId, staleTime: 0, retry: false });
 }
+type IdeasRead = (input: { projectId: string; etag?: string }) => Promise<{ etag: string; value?: ProjectIdeas }>;
+const ideasOptions = (client: QueryClient, read: IdeasRead, hostId: string, projectId: string, enabled: boolean) => {
+  const key = projectIdeasKey(hostId, projectId);
+  return { queryKey: key, queryFn: () => readIdeasChanged(client, key, etag => read({ projectId, ...(etag ? { etag } : {}) })), enabled: enabled && !!projectId, refetchInterval: enabled ? 3000 : undefined, staleTime: 0, retry: false as const };
+};
 export function useProjectIdeasQuery(hostId: string, projectId: string, enabled: boolean) {
-  const client = useQueryClient(), read = useRpc(rpc.readProjectIdeasChanged), key = projectIdeasKey(hostId, projectId);
-  return useQuery({ queryKey: key, queryFn: () => readIdeasChanged(client, key, etag => read({ projectId, ...(etag ? { etag } : {}) })), enabled: enabled && !!projectId, refetchInterval: enabled ? 3000 : undefined, staleTime: 0, retry: false });
+  const client = useQueryClient(), read = useRpc(rpc.readProjectIdeasChanged);
+  return useQuery(ideasOptions(client, read, hostId, projectId, enabled));
+}
+/**
+ * Several projects' ideas, one etag read each, sharing `useProjectIdeasQuery`'s cache: an unfiltered group board's Ideas
+ * page (BOARD-GROUPS-SPEC §4). Per project rather than one group read, so a change in one project re-downloads only that
+ * project's ideas; an unchanged poll answers with the etag alone.
+ */
+export function useProjectsIdeasQuery(hostId: string, projectIds: readonly string[], enabled: boolean) {
+  const client = useQueryClient(), read = useRpc(rpc.readProjectIdeasChanged);
+  return useQueries({ queries: projectIds.map(projectId => ideasOptions(client, read, hostId, projectId, enabled)) });
 }
 /** Refresh the appropriate active display readers; disabled full observers do not fetch. */
 export async function invalidateCardViews(client: QueryClient) {

@@ -15,7 +15,9 @@ import { estimateHeight, gridColumns, placeMasonry, sortNotes } from "./memory-l
 import { Modal } from "./modal";
 import { Enter, useMotionValue } from "./motion";
 import { keepPageRows, usePageRows } from "./page-rows";
-import { useGuardrailsQuery } from "./queries";
+import { useGuardrailsQueries } from "./queries";
+import { addProject } from "./board-groups";
+import { ProjectChoice } from "./project-choice";
 import { useStableCallback } from "./stable";
 import { IdeaRow, useExitList } from "./task-ideas";
 import { Actions, Button, Choices, Dot, Field, IconButton, Label, Notice, Theme, Toggle, font, message, noFocusRing, pageBarHeight, radius, space, tint, touch, useTheme, verticalContent, verticalScroll } from "./ui";
@@ -55,7 +57,16 @@ const draftOf = (e?: GuardrailEntry): NoteDraft => ({
   pinned: !!e?.pinned,
 });
 
-const MemoryCard = memo(function MemoryCard({ entry, ops, busy, compact, source, nameOf }: { entry: GuardrailEntry; ops: Ops; busy: boolean; compact: boolean; source: Task | undefined; nameOf(status: Status): string }) {
+const MemoryCard = memo(function MemoryCard({ entry, ops, busy, compact, source, projectTitle, nameOf }: {
+  entry: GuardrailEntry;
+  ops: Ops;
+  busy: boolean;
+  compact: boolean;
+  source: Task | undefined;
+  /** The entry's project, when the page shows several (blank otherwise). */
+  projectTitle: string;
+  nameOf(status: Status): string;
+}) {
   const { colors } = useTheme();
   const openMenu = useMenuOpener();
   const [editing, setEditing] = useState(false);
@@ -114,6 +125,11 @@ const MemoryCard = memo(function MemoryCard({ entry, ops, busy, compact, source,
       <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: 24 }}>
         <Dot size={6} color={color} />
         <Label muted size={font.xs} selectable={false}>{t(kindLabels[kind])}</Label>
+        {!!projectTitle && (
+          <View style={{ flexShrink: 1, minWidth: 0 }}>
+            <Label muted size={font.xs} lines={1} selectable={false}>· {projectTitle}</Label>
+          </View>
+        )}
         {!!reason && <Label muted size={font.xs} selectable={false}>· {reason}</Label>}
         <View style={{ flex: 1 }} />
         {entry.pinned && <Icon name="Pin" size={13} color={colors.foregroundMuted} />}
@@ -208,11 +224,21 @@ function PromoteDialog({ entry, ops, onClose }: { entry: GuardrailEntry; ops: Op
   );
 }
 
-function NoteEditor({ title, submit, initial, adding = false, onCancel, onSubmit }: { title: string; submit: string; initial: NoteDraft; adding?: boolean; onCancel(): void; onSubmit(d: NoteDraft): Promise<unknown> }) {
+function NoteEditor({ title, submit, initial, adding = false, project, onCancel, onSubmit }: {
+  title: string;
+  submit: string;
+  initial: NoteDraft;
+  adding?: boolean;
+  /** Which project a new memory goes to, when the page shows several. */
+  project?: ReactNode;
+  onCancel(): void;
+  onSubmit(d: NoteDraft): Promise<unknown>;
+}) {
   const [draft, setDraft] = useState(initial);
   const set = (patch: Partial<NoteDraft>) => setDraft((d) => ({ ...d, ...patch }));
   return (
     <Editor title={title} submit={submit} valid={!!draft.title.trim()} onCancel={onCancel} onSubmit={() => onSubmit(draft)}>
+      {project}
       {/* The kind is set when the memory is added; guardrails.update does not change it. */}
       {adding && <Choices title={t("Kind")} value={draft.kind} options={memoryKinds.map((k) => ({ value: k, label: t(kindLabels[k]) }))} onChange={(kind) => set({ kind })} />}
       <Field title={t("Title")} value={draft.title} onChange={(value) => set({ title: value })} placeholder={t("The rule or fact itself")} autoFocus />
@@ -224,9 +250,15 @@ function NoteEditor({ title, submit, initial, adding = false, onCancel, onSubmit
   );
 }
 
-/** The project's Memory page. Replaces the board area while open, like Ideas and Guardrails. */
+/**
+ * The project's Memory page. Replaces the board area while open, like Ideas and Guardrails. On an unfiltered group
+ * board it shows every live member's memories, each labelled with its project; edits act on the entry's project and
+ * Add memory asks which project (BOARD-GROUPS-SPEC §4). Storage stays per project.
+ */
 export const MemoryPage = memo(function MemoryPage({
-  project,
+  projects,
+  addProjectId,
+  onAdded,
   tasks,
   compact,
   prefs,
@@ -235,8 +267,13 @@ export const MemoryPage = memo(function MemoryPage({
   onOpenTask,
   onBack,
 }: {
-  project: Project;
-  /** The project's cards, archived included. */
+  /** The projects shown: the board's one project, or every live member of an unfiltered group board. */
+  projects: readonly Project[];
+  /** The project Add memory starts with when there are several (the one last added to). */
+  addProjectId: string;
+  /** A memory was added to this project (remembered as the one last added to). */
+  onAdded(projectId: string): void;
+  /** The projects' cards, archived included. */
   tasks: readonly Task[];
   compact: boolean;
   /** Kind filter, sort and layout, remembered per host (board-view settings). */
@@ -249,23 +286,34 @@ export const MemoryPage = memo(function MemoryPage({
   usePerfRender("project.memory.render");
   const { colors } = useTheme();
   const openMenu = useMenuOpener();
-  const query = useGuardrailsQuery(project.id, true);
-  const view = query.data;
-  const actions = useGuardrailActions(project.id);
+  const ids = useMemo(() => projects.map((p) => p.id), [projects]);
+  const queries = useGuardrailsQueries(ids, true);
+  const views = queries.map((q) => q.data);
+  const error = queries.find((q) => q.error)?.error;
+  const actions = useGuardrailActions(projects[0]?.id ?? "");
   const [adding, setAdding] = useState(false);
+  const [chosen, setChosen] = useState("");
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [width, setWidth] = useState(0);
-  const disabled = !!project.archivedAt || !view?.enabled;
+  const several = projects.length > 1;
+  // A project's memories can change while it is live and its guardrails are on; the rest are shown read-only.
+  // One stamp for every project's read: the merged lists below change only when one of them does.
+  const stamp = queries.map((q) => q.dataUpdatedAt).join(",");
+  const editable = useMemo(() => new Set(projects.filter((p, i) => !p.archivedAt && views[i]?.enabled).map((p) => p.id)), [projects, stamp]);
+  const offTitles = projects.filter((p, i) => views[i] && !views[i]!.enabled).map((p) => p.title);
+  const addable = projects.filter((p) => editable.has(p.id));
+  const addTo = addProject(addable, chosen || addProjectId)?.id ?? "";
+  const titleOf = useMemo(() => new Map(projects.map((p) => [p.id, p.title])), [projects]);
   const grid = !compact && prefs.memoryLayout === "grid";
   const cards = useMemo(() => new Map(tasks.map((x) => [x.id, x])), [tasks]);
-  const entries = view?.entries ?? noEntries;
+  const entries = useMemo(() => (views.length === 1 ? views[0]?.entries ?? noEntries : views.flatMap((v) => v?.entries ?? noEntries)), [ids, stamp]);
   const { live, archived } = useMemo(() => {
     const notes = entries.filter((e) => e.kind === "note" && (prefs.memoryKind === "all" || e.noteKind === prefs.memoryKind));
     return { live: sortNotes(notes.filter((e) => e.state !== "archived"), prefs.memorySort), archived: sortNotes(notes.filter((e) => e.state === "archived"), "newest") };
   }, [entries, prefs.memoryKind, prefs.memorySort]);
   const anyNotes = entries.some((e) => e.kind === "note");
   const listed = [...live, ...(archivedOpen ? archived : [])];
-  const pageRows = usePageRows(JSON.stringify([project.id, prefs.memoryKind, prefs.memorySort, archivedOpen]), listed.length, compact);
+  const pageRows = usePageRows(JSON.stringify([ids, prefs.memoryKind, prefs.memorySort, archivedOpen]), listed.length, compact);
   const [keptRows, setKeptRows] = useState<ReadonlySet<string>>(() => new Set());
   const windowed = new Set(keepPageRows(listed, pageRows.limit, keptRows).map((e) => e.id));
   const inWindow = (rows: readonly GuardrailEntry[]) => rows.filter((e) => windowed.has(e.id));
@@ -280,7 +328,17 @@ export const MemoryPage = memo(function MemoryPage({
   const ops = useMemo<Ops>(() => ({ save, pin, setState, remove, copyRule, openTask, keep }), []);
   const card = (e: GuardrailEntry, leaving: boolean) => {
     const sourceId = e.source?.taskId ?? e.sources[0]?.taskId;
-    return <MemoryCard entry={e} ops={ops} busy={disabled || leaving || actions.busy === e.id} compact={compact} source={sourceId ? cards.get(sourceId) : undefined} nameOf={nameOf} />;
+    return (
+      <MemoryCard
+        entry={e}
+        ops={ops}
+        busy={!editable.has(e.projectId) || leaving || actions.busy === e.id}
+        compact={compact}
+        source={sourceId ? cards.get(sourceId) : undefined}
+        projectTitle={several ? titleOf.get(e.projectId) ?? "" : ""}
+        nameOf={nameOf}
+      />
+    );
   };
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
@@ -296,8 +354,11 @@ export const MemoryPage = memo(function MemoryPage({
       </View>
       <ScrollView {...verticalScroll} keyboardShouldPersistTaps="handled" onScroll={pageRows.onScroll} scrollEventThrottle={100} style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ ...verticalContent, padding: space[3], paddingBottom: space[6] * 2, alignItems: "center" }}>
         <View onLayout={(e) => setWidth(Math.round(e.nativeEvent.layout.width))} style={{ width: "100%", maxWidth: grid ? 1120 : 760, gap: space[3] }}>
-          {query.error && <Notice>{message(query.error)}</Notice>}
-          {view && !view.enabled && <Notice tone="info">{t("Guardrails are off for this project. Turn them on in the project's settings; what is here is kept.")}</Notice>}
+          {!!error && <Notice>{message(error)}</Notice>}
+          {!several && !!offTitles.length && <Notice tone="info">{t("Guardrails are off for this project. Turn them on in the project's settings; what is here is kept.")}</Notice>}
+          {several && !!offTitles.length && (
+            <Notice tone="info">{t("Guardrails are off for {projects}. Their memories are shown and kept; turn guardrails on in a project's settings to change them.", { projects: offTitles.join(", ") })}</Notice>
+          )}
           <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
             <View style={{ flex: 1, minWidth: 0, flexDirection: "row", flexWrap: "wrap", gap: space[1.5] }}>
               <FilterChip on={prefs.memoryKind === "all"} label={t("All")} onPress={() => onPrefs({ memoryKind: "all" })} />
@@ -328,7 +389,7 @@ export const MemoryPage = memo(function MemoryPage({
               </View>
             )}
           </View>
-          {!disabled && !adding && (
+          {!!addable.length && !adding && (
             <View style={{ flexDirection: "row" }}>
               <Button small quiet icon="Plus" onPress={() => setAdding(true)}>
                 {t("Add memory")}</Button>
@@ -339,9 +400,14 @@ export const MemoryPage = memo(function MemoryPage({
               title={t("Add memory")}
               submit={t("Add")}
               adding
+              project={addable.length > 1 ? <ProjectChoice projects={addable} value={addTo} onChange={setChosen} /> : undefined}
               initial={{ ...draftOf(), kind: prefs.memoryKind === "all" ? "decision" : prefs.memoryKind }}
               onCancel={() => setAdding(false)}
-              onSubmit={async (d) => (await actions.addNote(d)) && setAdding(false)}
+              onSubmit={async (d) => {
+                if (!addTo || !(await actions.addNote(d, addTo))) return;
+                if (several) onAdded(addTo);
+                setAdding(false);
+              }}
             />
           </Collapse>
           <Enter key={`${prefs.memoryKind}-${prefs.memorySort}-${grid}`} distance={0}>

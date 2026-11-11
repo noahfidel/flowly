@@ -1644,5 +1644,7 @@ const catalog: Catalog = {
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "每個群組有自己的調度器，其聊天、提示和新卡片只屬於該群組的專案。",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "群組分頁取代了專案分頁：拖曳群組可調整順序，並可在專案切換器中新增群組。",
   "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "泳道現在屬於群組：群組內的每個專案都使用相同的泳道，只需在群組設定中編輯一次。",
+  "Skills · {project}": "Skills · {project}",
+  "Guardrails are off for {projects}. Their memories are shown and kept; turn guardrails on in a project's settings to change them.": "{projects} 關閉了護欄。它們的記憶會顯示並保留；在專案設定裡打開護欄後才能修改。",
 };
 export default catalog;

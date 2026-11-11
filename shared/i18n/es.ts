@@ -1644,5 +1644,7 @@ const catalog: Catalog = {
   "Each group has its own dispatcher, so its chat, notes and new cards stay with that group's projects.": "Cada grupo tiene su propio dispatcher, así que su chat, sus notas y sus tarjetas nuevas se quedan con los proyectos de ese grupo.",
   "Group tabs replace the project tabs: drag a group to reorder it, and add groups from the project switcher.": "Las pestañas de grupo sustituyen a las de proyecto: arrastra un grupo para reordenarlo y añade grupos desde el selector de proyectos.",
   "Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.": "Los carriles ahora pertenecen al grupo: todos sus proyectos usan los mismos carriles, que se editan una sola vez en los ajustes del grupo.",
+  "Skills · {project}": "Skills · {project}",
+  "Guardrails are off for {projects}. Their memories are shown and kept; turn guardrails on in a project's settings to change them.": "Las salvaguardas están desactivadas en {projects}. Sus recuerdos se muestran y se conservan; activa las salvaguardas en los ajustes de un proyecto para cambiarlos.",
 };
 export default catalog;
