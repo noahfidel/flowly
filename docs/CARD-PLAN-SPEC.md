@@ -1,6 +1,6 @@
 # A card's plan (CARD-PLAN-SPEC)
 
-Status: requested 2026-11-10 (Noah, via a planning session). Contract only; progress is in `docs/PROGRESS.md`.
+Status: requested 2026-11-10 (Noah, via a planning session); design approved 2026-11-10 with rulings: agents may replace or clear any plan (the old one stays an input); a Set plan action when a card has none; the Workpad's to-do group becomes Steps. Contract only; progress is in `docs/PROGRESS.md`.
 
 An approved plan had no first-class place on a card. It could only be a generic input artifact, so Flowly could not tell "this card is planned and approved" from any other attachment. A session that planned in Claude plan mode and then made a card with `flowly_create_card` pasted the plan into the description; the plan file itself never reached the card. This spec gives a card one **Plan** slot, fills it automatically when a plan-mode request in the card's session is approved, lets agents and people set it, and uses it when a session starts (no re-planning of approved work).
 
@@ -59,13 +59,15 @@ A newly created plan artifact also records the usual `artifact_added`. Actor: `h
 
 ### 2.1 The Plan row
 
-A **Plan** row at the top of the card details, under the description and above the first section; not one of the movable sections (DRAWER-SPEC), and shown only when the card has a plan. Implementation: `client/task-plan.tsx`.
+A **Plan** row at the top of the card details, under the description and above the first section; not one of the movable sections (DRAWER-SPEC), shown when the card has a plan; otherwise the Set plan action below. Implementation: `client/task-plan.tsx`.
 
 - Icon (`FileText`, or `Link` for a URL), the title (one line, truncated), and below it, muted, *Approved <relative time>* or *Draft*; a Missing file shows *Missing* first, as artifact rows do.
 - Press the row: opens the plan with the artifact opener (URL in the browser, file in the artifact preview).
 - Overflow menu (`MoreHorizontal`): **Mark approved** (drafts only), **Replace…**, **Remove**. Replace opens the artifact form (§2.2) with the Plan role chosen. Remove empties the slot and keeps the file as an ordinary input (toast *Plan removed. It stays in Inputs.*); no confirm.
 - The plan artifact is not listed again under Inputs or Outputs.
+- No plan: the row's place holds a small **Set plan** action (`Plus` icon, muted text) that opens the artifact form (§2.2) with the Plan role chosen (ruling, Noah 2026-11-10: discoverability). Hidden on archived cards.
 - Archived card or project: the menu is disabled; the row still opens.
+- The Workpad's to-do group (WORKPAD-SPEC §2.2) is renamed from *Plan* to *Steps* in every locale, so only the card's plan is called Plan (ruling, Noah 2026-11-10).
 - Tour: the More features list gains *A card's plan*; a one-time tip `plan` on the first open of a card with an approved plan: *This card's approved plan. New sessions start from it instead of planning again.*
 
 ### 2.2 Setting a plan by hand
