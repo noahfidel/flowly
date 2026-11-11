@@ -694,3 +694,69 @@ test("a group's default model is used when the project has none, and the project
   await x.starter.start(x.caller, { taskId: "g2", idempotencyKey: "go2" }, x.paseo);
   expect(x.createdSessions[1].config).toMatchObject({ provider: "claude/claude-opus-5-5", modeId: "plan" });
 });
+
+test("a card with an approved plan starts out of plan mode and its default prompt carries the plan (CARD-PLAN-SPEC §6.1)", async () => {
+  const x = await setup();
+  x.starter.modelDefault = async () => ({ provider: "claude", model: "claude-sonnet-5-5", mode: "plan" });
+  const at = new Date().toISOString();
+  const plan = (taskId: string, approvedAt: string | null) =>
+    x.store.mutate((board) => {
+      board.artifacts.push({
+        id: `plan-${taskId}`,
+        taskId,
+        projectId: "p",
+        role: "input",
+        kind: "file",
+        target: "./plans/ship.md",
+        title: "Ship plan",
+        note: "",
+        createdBy: "human",
+        createdAt: at,
+        updatedAt: at,
+        plan: { approvedAt, ...(approvedAt ? { approvedBy: { kind: "human" as const } } : {}), source: "manual", setAt: at },
+      });
+    });
+  await x.card("c", {}, "worktree");
+  await plan("c", at);
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[0].config.modeId).toBe("auto");
+  expect(x.createdSessions[0].prompt).toBe(`Card c\n\nDo c.\n\nApproved plan: ${join(x.a, "plans/ship.md")}. Execute this plan; do not plan again.`);
+  // A draft plan: the resolved plan mode stands and the prompt has no plan line.
+  await x.card("d", {}, "worktree");
+  await plan("d", null);
+  await x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[1]).toMatchObject({ prompt: "Card d\n\nDo d.", config: { modeId: "plan" } });
+  // An explicit mode wins, also plan mode on an approved card; a given prompt is sent as is.
+  await x.card("e", {}, "worktree");
+  await plan("e", at);
+  await x.starter.start(x.caller, { taskId: "e", mode: "plan", prompt: "Plan again.", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[2]).toMatchObject({ prompt: "Plan again.", config: { modeId: "plan" } });
+});
+
+test("an explicit mode is checked against the provider's modes for the card's directory", async () => {
+  const x = await setup();
+  const asked: { provider: string; cwd?: string }[] = [];
+  let listing: () => Promise<unknown> = async () => ({ modes: [{ id: "auto" }, { id: "plan" }, { id: "acceptEdits" }] });
+  Object.assign(x.paseo as unknown as Record<string, unknown>, {
+    providers: {
+      listModes: async (provider: string, options?: { cwd?: string }) => {
+        asked.push({ provider, cwd: options?.cwd });
+        return listing();
+      },
+    },
+  });
+  await x.card("c", {}, "worktree");
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", mode: "yolo", idempotencyKey: "go" }, x.paseo))).toBe("MODE_UNAVAILABLE");
+  await expect(x.starter.start(x.caller, { taskId: "c", mode: "yolo", idempotencyKey: "go2" }, x.paseo)).rejects.toThrow("auto, plan, acceptEdits");
+  expect(asked[0]).toEqual({ provider: "claude", cwd: x.a });
+  expect(x.createdSessions).toEqual([]);
+  await x.starter.start(x.caller, { taskId: "c", mode: "acceptEdits", idempotencyKey: "go3" }, x.paseo);
+  expect(x.createdSessions[0].config.modeId).toBe("acceptEdits");
+  // When the list can't be read, the mode is passed as given.
+  listing = async () => {
+    throw new Error("provider offline");
+  };
+  await x.card("d", {}, "worktree");
+  await x.starter.start(x.caller, { taskId: "d", mode: "custom-mode", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[1].config.modeId).toBe("custom-mode");
+});

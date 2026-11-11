@@ -6,6 +6,8 @@ import { switchLimits, type Board, type Project, type Task } from "../shared/mod
 import { groupOfProject } from "../shared/groups";
 import { effectiveAgentModel, providerBase, startingAgent, suggestedMode, type AgentModel } from "../shared/agent-defaults";
 import { itemTypeOf } from "../shared/connectors";
+import { absoluteTarget } from "../shared/artifacts";
+import { planApproved, planOf, suggestPlanAwareMode } from "../shared/plans";
 import { startCardInputSchema, type StartCardInput, type StartCardResult, type ToolPreparation } from "../shared/tools";
 import type { AgentCards, CardCaller } from "./agent-cards";
 import type { ConnectorService } from "./connectors/service";
@@ -22,6 +24,14 @@ export { startCardInputSchema, startCardResultSchema } from "../shared/tools";
 const execute = promisify(execFile);
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const finished = (status: string) => status === "done" || status === "cancelled";
+
+/**
+ * The first message when the caller gives none: the card's title and description, then its approved plan
+ * (CARD-PLAN-SPEC §6.1).
+ */
+export function defaultPrompt(task: Pick<Task, "title" | "description">, approvedPlan: string | null) {
+  return [task.title, task.description.trim(), approvedPlan ? `Approved plan: ${approvedPlan}. Execute this plan; do not plan again.` : ""].filter(Boolean).join("\n\n");
+}
 
 /** The `workspaces.create` request a start sends; kept per operation so retries send it unchanged (§4.1). */
 const worktreeRequestSchema = z.object({
@@ -174,7 +184,14 @@ export class CardStarter {
     }
     const release = caller.human ? () => undefined : this.cards.reserve(caller.agentId, caller.dispatcher);
     try {
-      const model = await this.model(project, board);
+      const defaults = await this.model(project, board);
+      // A card's plan (CARD-PLAN-SPEC §6.1), apart from how the defaults are chosen: an explicit mode is checked,
+      // otherwise an approved plan keeps the session out of plan mode.
+      const plan = planOf(board.artifacts, task.id);
+      const approvedPlan = planApproved(plan) ? plan : null;
+      const model = { ...defaults, mode: await this.planAwareMode(defaults, input.mode, !!approvedPlan, workspace.workspaceDirectory || project.primaryPath, paseo) };
+      // The plan file as it exists now; a worktree made below may not have an untracked plan.
+      const planTarget = approvedPlan ? (approvedPlan.kind === "file" ? absoluteTarget(approvedPlan.target, workspace.workspaceDirectory || task.sourcePath) : approvedPlan.target) : null;
       let workspaceId = task.workspaceId;
       const warnings: string[] = [];
       // After the limit and the model, so a refused start makes no branch and keeps no request.
@@ -184,7 +201,7 @@ export class CardStarter {
         workspaceId = moved.workspaceId;
         warnings.push(...moved.warnings);
       }
-      const agentId = await this.createSession(caller, task, workspaceId, model, input.prompt, operationId, paseo);
+      const agentId = await this.createSession(caller, task, workspaceId, model, input.prompt?.trim() ? input.prompt : defaultPrompt(task, planTarget), operationId, paseo);
       return { taskId: task.id, workspaceId, agentId, replayed: false, ...(warnings.length ? { warnings } : {}) };
     } catch (e) {
       release();
@@ -255,6 +272,26 @@ export class CardStarter {
     if (!start)
       throw new ToolError("MODEL_UNAVAILABLE", "No model to start with: no default model is set for this project, its group or globally. Ask the user to set one in Settings → Models (or the project's Default model).");
     return { provider: start.provider, model: start.model, mode: start.mode || suggestedMode(providerBase(start.provider)), thinking: start.thinking };
+  }
+
+  /**
+   * The session's mode after the defaults (CARD-PLAN-SPEC §6, §6.1): an explicit `mode` must be one of the provider's
+   * modes for the card's directory when Paseo lists them (MODE_UNAVAILABLE), and is passed as given when the list
+   * can't be read; otherwise `suggestPlanAwareMode`.
+   */
+  private async planAwareMode(defaults: { provider: string; mode: string }, explicit: string | undefined, approvedPlan: boolean, cwd: string, paseo: PaseoApi) {
+    if (explicit !== undefined) {
+      let ids: string[] | null = null;
+      try {
+        const listed = await paseo.providers.listModes(defaults.provider as Parameters<PaseoApi["providers"]["listModes"]>[0], { cwd });
+        if (!listed.error && listed.modes?.length) ids = listed.modes.map((m) => m.id);
+      } catch {
+        ids = null;
+      }
+      if (ids && !ids.includes(explicit))
+        throw new ToolError("MODE_UNAVAILABLE", `${explicit} is not a mode of ${defaults.provider} here. Use one of: ${ids.join(", ")}.`);
+    }
+    return suggestPlanAwareMode({ resolved: defaults.mode, explicit, approvedPlan, suggested: suggestedMode(providerBase(defaults.provider)) });
   }
 
   /** Creates the worktree, moves the card to it, then archives the empty directory workspace (§4.1–4.3). */
@@ -364,7 +401,7 @@ export class CardStarter {
     task: Task,
     workspaceId: string,
     model: { provider: string; model: string; mode: string; thinking: string },
-    prompt: string | undefined,
+    prompt: string,
     operationId: string,
     paseo: PaseoApi,
   ) {
@@ -373,7 +410,7 @@ export class CardStarter {
       const found = await paseo.agents.ref(preparation.agentId).refresh();
       return found?.agent && found.agent.workspaceId === workspaceId && !found.agent.archivedAt ? found.agent.id : null;
     };
-    const first = (prompt?.trim() || [task.title, task.description.trim()].filter(Boolean).join("\n\n")).trim();
+    const first = prompt.trim();
     try {
       const created = await paseo.workspaces.ref(workspaceId).agents.create({
         agentId: preparation.agentId,
