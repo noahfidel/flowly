@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { answersWithText, chatRows, discussAvailable, discussDraft, discussFill, discussIdeaText, displayRows, mergeTimeline, modelLabel, newToolsNotice, replaceOffer } from "./dispatcher-panel-logic";
+import { answersWithText, chatRows, discussAvailable, discussDraft, discussFill, discussIdeaText, displayRows, mergeTimeline, newToolsNotice, replaceOffer } from "./dispatcher-panel-logic";
 import type { ChatItem } from "../shared/dispatcher";
 import { lastOutputRow } from "./session-state";
 import type { TailEntry } from "../shared/session-tail";
@@ -131,13 +131,6 @@ test("Replace dispatcher is offered for an unguarded dispatcher and for one miss
   expect(replaceOffer(undefined)).toBeNull();
   expect(newToolsNotice).toContain("Replace dispatcher");
   expect(newToolsNotice).not.toContain("Archive its session in Paseo");
-});
-
-test("the composer's footer names the dispatcher's model, else its provider; no state word (Ruling, Noah 2026-11-09)", () => {
-  expect(modelLabel({ provider: "claude", model: "claude-sonnet-5-5" })).toBe("claude-sonnet-5-5");
-  expect(modelLabel({ provider: "claude", model: null })).toBe("claude");
-  expect(modelLabel({ provider: "", model: "" })).toBe("");
-  expect(modelLabel(undefined)).toBe("");
 });
 
 test("a prompt from another agent stays its own entry row beside note items", () => {

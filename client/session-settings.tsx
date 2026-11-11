@@ -24,11 +24,13 @@ const featureValue = (f: Feature) =>
 /**
  * Session configuration for the composer chips. Reasoning / permissions / stop
  * go through the plugin daemon (official CLI); model and provider features are
- * read-only because the plugin SDK has no API to change them.
+ * read-only because the plugin SDK has no API to change them. The target is a
+ * card (its id) or a board group's dispatcher (`dispatcher.configure`, DISPATCHER-SPEC §9.3).
  */
-export function useSessionConfig(taskId: string, agent: PaseoAgent | undefined, enabled: boolean, onChanged: () => void) {
+export function useSessionConfig(target: string | { groupId: string }, agent: PaseoAgent | undefined, enabled: boolean, onChanged: () => void) {
   const paseo = usePaseo(),
     configure = useRpc(rpc.configureSession),
+    configureDispatcher = useRpc(rpc.dispatcherConfigure),
     toast = useToast();
   const models = useQuery({
     queryKey: ["flowly", "models", agent?.provider, agent?.cwd],
@@ -50,7 +52,12 @@ export function useSessionConfig(taskId: string, agent: PaseoAgent | undefined, 
   async function apply(change: { thinkingOptionId?: string; modeId?: string; stop?: boolean; title?: string }, done: string) {
     if (!agent) return false;
     try {
-      await configure({ taskId, agentId: agent.id, ...change });
+      if (typeof target === "string") await configure({ taskId: target, agentId: agent.id, ...change });
+      else {
+        // The dispatcher's name is Flowly's (DISPATCHER-SPEC §3): only reasoning, permissions and stop.
+        const { title: _, ...rest } = change;
+        await configureDispatcher({ groupId: target.groupId, agentId: agent.id, ...rest });
+      }
       toast.show(done, { variant: "success" });
       onChanged();
       return true;

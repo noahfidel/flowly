@@ -21,7 +21,8 @@ import { useReducedMotion } from "./motion";
 import { useKeyboardInset } from "./keyboard";
 import { useDispatcherItemsQuery, useLiveAgents } from "./queries";
 import { useStableCallback } from "./stable";
-import { chatRows, discussFill, modelLabel, newToolsNotice, replaceOffer, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
+import { chatRows, discussFill, newToolsNotice, replaceOffer, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
+import { ComposerChips, useSessionConfig, type ChipMenuId } from "./session-settings";
 
 /**
  * The dispatcher chat next to the board (DISPATCHER-SPEC §9.3), on the card session view's own parts: the session
@@ -61,9 +62,13 @@ type Props = {
   onBoxFocus?(): void;
   /** The board group whose dispatcher this chat talks to (DISPATCHER-SPEC §0); null while none is known: nothing is read. */
   groupId: string | null;
+  /** Opens the dispatcher session in Paseo, as a card session's Open in Paseo; absent when the host cannot. */
+  onOpenInPaseo?(agentId: string): void;
+  /** The dispatcher session the chat shows while it is up, else null: the dock header offers Open in Paseo for it. */
+  onSession?(agentId: string | null): void;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, resolveCard, cardsVersion, fill, onFilled, focusRequest = 0, onEscape, onBoxFocus, groupId }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, resolveCard, cardsVersion, fill, onFilled, focusRequest = 0, onEscape, onBoxFocus, groupId, onOpenInPaseo, onSession }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -106,6 +111,14 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   const polled = current.data?.agent;
   const agent = agentId ? (streamed && (!polled || streamed.updatedAt >= polled.updatedAt) ? streamed : polled) : undefined;
   const running = agent ? agent.status === "running" || agent.status === "initializing" : state === "running";
+  // The card session view's chips (Ruling, Noah 2026-11-11): model (read-only), reasoning, speed, permissions; same mode list.
+  const config = useSessionConfig({ groupId: groupId ?? "" }, agent, visible && !!agent && !!groupId, () => void current.refetch());
+  const [chipMenu, setChipMenu] = useState<ChipMenuId | null>(null);
+  const shownSession = up && agent ? agentId : null;
+  useEffect(() => onSession?.(shownSession), [shownSession]);
+  useEffect(() => {
+    if (!visible || !shownSession) setChipMenu(null);
+  }, [visible, shownSession]);
 
   const start = useStableCallback(async () => {
     if (!groupId) return;
@@ -295,6 +308,13 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
         extra={extra}
       />
       </CardLinkContext.Provider>
+      {!!chipMenu && (
+        <Pressable
+          accessibilityLabel={t("Close menu")}
+          onPress={() => setChipMenu(null)}
+          style={{ ...noFocusRing, position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 }}
+        />
+      )}
       <Animated.View
         style={{ flexShrink: 0, minWidth: 0, backgroundColor: colors.surface0, transform: [{ translateY: keyboard.translate }], zIndex: 25, paddingHorizontal: space[3], paddingTop: space[2], paddingBottom: space[3], gap: space[2] }}
       >
@@ -318,6 +338,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
         )}
         {confirmReplace && <ReplaceDialog pending={starting} onClose={() => setConfirmReplace(false)} onConfirm={() => void replace()} />}
         {up && agentId ? (
+          <>
           <ComposerBox
             composer={box}
             canWrite={canWrite}
@@ -327,10 +348,9 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
             compact={compact}
             editable={!!agent && !locked}
             placeholder={t("Message the dispatcher")}
-            // The model, read-only, where Paseo's chats show it; no status line (§9.3; Ruling, Noah 2026-11-09).
-            footer={modelLabel(agent)}
             keyboard={keyboard}
             onSubmit={() => void submit()}
+            onStop={() => void config.apply({ stop: true }, t("Session stopped"))}
             // Esc: the board decides (escAction); only a kept draft leaves the box here, a close unmounts or hides it.
             onFocus={onBoxFocus}
             onEscape={() => {
@@ -338,6 +358,26 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
               if (action === "blur" || !onEscape) box.inputRef.current?.blur?.();
             }}
           />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], zIndex: 2 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ComposerChips
+                config={config}
+                menu={chipMenu}
+                setMenu={setChipMenu}
+                inline={false}
+                disabled={!agent || locked}
+                onOpenInPaseo={
+                  onOpenInPaseo && agentId
+                    ? () => {
+                        setChipMenu(null);
+                        onOpenInPaseo(agentId);
+                      }
+                    : undefined
+                }
+              />
+            </View>
+          </View>
+          </>
         ) : (
           !!state && (
             <View style={{ gap: space[2], alignItems: "flex-start" }}>

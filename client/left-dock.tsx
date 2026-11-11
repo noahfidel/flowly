@@ -5,10 +5,10 @@ import { IconButton, Label, font, space, useTheme } from "./ui";
 
 /**
  * The left dock (DISPATCHER-SPEC §9.3; Ruling, Noah 2026-11-09): the dispatcher chat only. Its header has the title,
- * Expand/Restore and Minimize (Close on phones); the chat stays mounted while minimized so its draft and scroll survive.
+ * Open in Paseo (while a dispatcher session shows), Expand/Restore and Minimize (Close on phones); the chat stays mounted while minimized so its draft and scroll survive.
  * The title is followed by the name of the board group whose dispatcher it shows, when known (DISPATCHER-SPEC §0).
  */
-export function LeftDock({ compact, expanded, onToggleSize, onClose, groupName, children }: { compact: boolean; expanded: boolean; onToggleSize?(): void; onClose(): void; groupName?: string; children: ReactNode }) {
+export function LeftDock({ compact, expanded, onToggleSize, onClose, onOpenInPaseo, groupName, children }: { compact: boolean; expanded: boolean; onToggleSize?(): void; onClose(): void; onOpenInPaseo?(): void; groupName?: string; children: ReactNode }) {
   const { colors } = useTheme();
   return (
     <View style={{ flex: 1, minHeight: 0, minWidth: 0, backgroundColor: colors.surface0 }}>
@@ -25,6 +25,8 @@ export function LeftDock({ compact, expanded, onToggleSize, onClose, groupName, 
             </View>
           ) : null}
         </View>
+        {/* As a card session's header: Open in Paseo for the dispatcher session it shows (Ruling, Noah 2026-11-11). */}
+        {onOpenInPaseo ? <IconButton icon="ArrowUpRight" label={t("Open in Paseo")} onPress={onOpenInPaseo} /> : null}
         {!compact && onToggleSize ? (
           <IconButton icon={expanded ? "Minimize2" : "Maximize2"} label={expanded ? t("Restore size") : t("Expand")} onPress={onToggleSize} />
         ) : null}

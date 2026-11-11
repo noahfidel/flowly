@@ -137,8 +137,3 @@ export function replaceOffer(status: { state: string; agentId: string | null; ne
   if (!status?.agentId || (status.state !== "running" && status.state !== "idle")) return null;
   return status.unguarded ? "unguarded" : status.newTools ? "new-tools" : null;
 }
-
-/** The model named, read-only, in the composer's footer (§9.3; Ruling, Noah 2026-11-09): the model, else the provider. */
-export function modelLabel(agent: { provider?: string | null; model?: string | null } | undefined): string {
-  return agent?.model || agent?.provider || "";
-}

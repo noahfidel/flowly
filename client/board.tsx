@@ -88,7 +88,7 @@ import { laneRows, sameRows, type LaneRow } from "./lane-rows";
 import { LanePager } from "./lane-pager";
 import { useAndroidBack } from "./android-back";
 import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
-import { openNativeWorkspace } from "./session-state";
+import { openNativeSession, openNativeWorkspace } from "./session-state";
 import { externalError, useConnections } from "./connectors";
 import { linearQuickSeed, parseLinearOpen, parseLinearStart } from "./linear-start";
 import { cardProgress, useSummaries } from "./task-progress";
@@ -1080,6 +1080,13 @@ function BoardContent(
   // Open the card's workspace in Paseo (CARD-DISPLAY-SPEC §7): only a host that can, only a live workspace.
   const canOpenWorkspace = typeof props.navigation?.openWorkspace === "function";
   const openCardWorkspace = useStableCallback((card: Task) => openNativeWorkspace(props.navigation, card.workspaceId, props.host.id));
+  // The dispatcher session in Paseo, as a card session's Open in Paseo (DISPATCHER-SPEC §9.3; Ruling, Noah 2026-11-11).
+  const canOpenAgent = typeof props.navigation?.openAgent === "function";
+  const [dispatcherSession, setDispatcherSession] = useState<string | null>(null);
+  const openDispatcherSession = useStableCallback((agentId: string) => openNativeSession(props.navigation, agentId, props.host.id));
+  const openDispatcherHere = useStableCallback(() => {
+    if (dispatcherSession) openNativeSession(props.navigation, dispatcherSession, props.host.id);
+  });
   const cardMenu = (card: Task): MenuEntry[] =>
     boardCardMenu({
       card,
@@ -1390,8 +1397,8 @@ function BoardContent(
             }
       }
     >
-      <LeftDock compact={compact} expanded={chatExpanded} onToggleSize={toggleChatSize} onClose={closeChat} groupName={dispatcherGroupName}>
-        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} resolveCard={resolveCard} cardsVersion={board?.tasks} groupId={dispatcherGroupId} />
+      <LeftDock compact={compact} expanded={chatExpanded} onToggleSize={toggleChatSize} onClose={closeChat} onOpenInPaseo={canOpenAgent && dispatcherSession ? openDispatcherHere : undefined} groupName={dispatcherGroupName}>
+        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} resolveCard={resolveCard} cardsVersion={board?.tasks} groupId={dispatcherGroupId} onOpenInPaseo={canOpenAgent ? openDispatcherSession : undefined} onSession={setDispatcherSession} />
       </LeftDock>
       {chatGrip}
     </Animated.View>
