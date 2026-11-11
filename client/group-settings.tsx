@@ -285,7 +285,8 @@ export function GroupSettings({
                 />
               )}
               <Collapse open={adding} id="group-add">
-                <AddGroup onCreated={open} onCancel={group ? () => setAdding(false) : onClose} />
+                {/* Opening the new group leaves this one: unsaved edits ask first (ruling, Noah 2026-11-11). */}
+                <AddGroup onCreated={(created) => guard(() => open(created))} onCancel={group ? () => setAdding(false) : onClose} />
               </Collapse>
               {group && !group.isDefault && (
                 <SettingRow
