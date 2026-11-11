@@ -12,7 +12,7 @@ Create task form stays one tap away.
   - **Agent**: provider · model · permission mode (its label, e.g. `claude · Opus 5.5 · Plan`; one line,
     truncated on narrow screens). Pressing it opens the same agent choice as New task (provider, model,
     reasoning, speed, permissions) inline. Defaults are the same as the full form's: the project's default
-    model, else the global one, else the latest session's settings (MODEL-DEFAULTS-SPEC). Choosing another
+    model, else its group's, else the global one; with none, the picker starts empty (MODEL-DEFAULTS-SPEC §2). Choosing another
     project resets the agent to that project's defaults.
     **Permission mode**: `plan` whenever the chosen provider offers a `plan` mode (`quickTaskMode`,
     `shared/agent-defaults.ts`), instead of the remembered session mode; a provider without one (e.g. Codex)
