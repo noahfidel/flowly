@@ -131,3 +131,7 @@ The skill replaces "never start one or create cards yourself" with: create or ed
 - `server/tool-server.test.ts`: the card MCP server lists the four tools; a board credential (from `boardServer`) lists only them, cannot call card tools and gets 401 on `/api`; the CLI's four commands.
 - Not covered by tests: the hook's feature detection itself (`index.server.ts`), which needs a live Paseo 0.14 host.
 - `npm run typecheck` and `npm test` pass; all catalogs have the new strings.
+
+## 9. The card's plan (2026-11-10)
+
+Card tools gain `flowly_set_plan` and `flowly_clear_plan` (same callers, scope and switch as `flowly_update_card`), `flowly_create_card` gains optional `plan: { target, title?, approved }`, and the card view gains `plan: { title, approved } | null`. This amends the §1 non-goal "editing … artifacts … of other cards" for the plan slot only. See [CARD-PLAN-SPEC](CARD-PLAN-SPEC.md) §5.2.

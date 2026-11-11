@@ -105,3 +105,7 @@ New codes: `NOT_FOUND`, `PROJECT_ARCHIVED`, `CARD_FINISHED`, `CARD_HAS_SESSION`,
 - `server/connectors/linear.test.ts`: the issue summary carries `branchName`.
 - `server/tool-server.test.ts`: card and board tool lists include `flowly_start_card`.
 - `npm run typecheck` and `npm test` exit 0.
+
+## 10. Mode and the card's plan (2026-11-10)
+
+`startCardInputSchema` gains optional `mode` (a permission mode id, checked against `providers.listModes` when Paseo lists them: `MODE_UNAVAILABLE`). Without it, §5's defaults are resolved first and then adjusted by `suggestPlanAwareMode`: a card with an approved plan does not start in `plan`. The default prompt gains a line naming the approved plan. See [CARD-PLAN-SPEC](CARD-PLAN-SPEC.md) §6.
