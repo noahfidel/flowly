@@ -102,6 +102,10 @@ describe("groupLanesFrom (the migration's union)", () => {
     const disagree = groupLanesFrom([a, project("c", "g", { archivedAt: at, lanes: lanes(() => true, { todo: "Next" }) })], []);
     expect(disagree.find((l) => l.status === "todo")!.name).toBeUndefined();
   });
+  test("a result with every lane off falls back to every lane on", () => {
+    const off = project("a", "g", { archivedAt: at, lanes: lanes(() => false) });
+    expect(groupLanesFrom([off], [])).toEqual(statuses.map((status) => ({ status, enabled: true })));
+  });
   test("no member at all: every lane on, built-in names", () => {
     expect(groupLanesFrom([], [])).toEqual(statuses.map((status) => ({ status, enabled: true })));
   });

@@ -90,10 +90,16 @@ exactly one group. Individual projects are no longer top-level navigation.
   of any live member can't be turned off. A project that moves to another group adopts that group's lanes, the group
   first turning on every status the project's live cards sit in. The migration is §7 step 7.
 - Ruling (Noah, 2026-11-10): lanes are refused per project only while groups are ready. When the groups migration has
-  failed (groups not ready), `projects.update` still accepts `lanes` through the old per-project path (a lane holding
-  a live card of the project can't be turned off) and Edit project still offers the lane editor; the migration later
-  folds those lanes into the group's. This replaces the inherited "projects have no lane settings of their own" limit
-  for that state only.
+  failed (groups not ready) on a board that has no stored groups, `projects.update` still accepts `lanes` through the
+  old per-project path (a lane holding a live card of the project can't be turned off) and Edit project still offers
+  the lane editor; the migration later folds those lanes into the group's. When the board already has stored groups
+  and this start's migration has not succeeded yet (a retry, a failed re-migration), the edit is refused with
+  `GROUPS_UNAVAILABLE` (the more accurate code: Group settings is unavailable too), because the next migration would
+  overwrite it from the group's lanes. This replaces the inherited "projects have no lane settings of their own"
+  limit for the first state only.
+- Ruling (Noah, 2026-11-10): a group never ends up with every lane off: when the migration's computation (live or
+  archived members) leaves no lane on, the group gets every lane on with built-in names. The per-project path's rules
+  are unchanged.
 - Ruling (Noah, 2026-11-10): the migration gives a group whose members are all archived the lanes its archived members
   had (the same union, order and name-agreement rules as for live members) instead of every lane on with built-in
   names; only a group with no member at all gets every lane. Replaces "a group with no live member gets every lane".
@@ -213,8 +219,9 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 - `projects.create` gains an optional `groupId` (default: the default group); the project form and
   `flowly_create_project` pass it. The new project gets its group's lanes.
 - `projects.update` no longer takes lanes once groups are ready: a `lanes` field is refused with `LANES_IN_GROUP: Lanes
-  belong to the project's group. Edit them in Group settings.` and nothing is written. While groups are not ready (the
-  migration failed) it takes them as before: the lanes of a project turn off only when it holds no live card there.
+  belong to the project's group. Edit them in Group settings.` and nothing is written. While groups are not ready and the
+  board has no stored group (the migration failed) it takes them as before: the lanes of a project turn off only when
+  it holds no live card there; with stored groups and groups not ready it is refused with `GROUPS_UNAVAILABLE`.
 - The old `boardGroups` value in `board-view` is no longer read after migration (§7) and no longer written.
 
 ## 3. Navigation
@@ -299,7 +306,7 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   elsewhere reloads an untouched editor, and refuses the first Save of an edited one with "Lanes changed elsewhere.
   Your edits were kept; review and save again." (a second Save overwrites). Edit project
   has no lane editor while groups are ready (a project whose group is not on the board yet, as on a cold link, has
-  none either); while they are not ready (the overview lists no group) it shows the project's own lane editor. The
+  none either); while they are not ready and the overview lists no group it shows the project's own lane editor. The
   New project form has none.
 - **Entry:** every entry opens the page through one board entry point, `onGroupSettings(groupId, focus?)`: `focus`
   opens one project's section. The tab menu and the switcher row open their group with the filtered project's
@@ -391,6 +398,7 @@ next start (the record's session is still v1, the board has groups, so step 4 ru
      order, so a group of one member keeps that member's order; otherwise it is the default status order;
    - a custom name is kept only when every live member that has the status on uses that same non-empty name;
      otherwise the built-in name applies (no name stored);
+   - a result with no lane on becomes every lane on, built-in names;
    - a group with no live member takes its lanes from its archived members by the same three rules (the statuses
      holding live cards are none then); a group with no member at all gets every lane, on, with built-in names.
    The members' `lanes` are then set to the group's (§1). A group that already has `lanes` is never recomputed, so a

@@ -26,12 +26,14 @@ export function groupLanesFrom(members: readonly Pick<Member, "lanes" | "archive
   const held = new Set(cardStatuses);
   const orders = new Set(live.map((lanes) => lanes.map((l) => l.status).join(",")));
   const order: readonly Status[] = orders.size === 1 ? live[0].map((l) => l.status) : statuses;
-  return order.map((status) => {
+  const result = order.map((status) => {
     const using = live.map((lanes) => lanes.find((l) => l.status === status)!).filter((l) => l.enabled);
     const names = new Set(using.map((l) => l.name?.trim() || ""));
     const name = names.size === 1 ? [...names][0] : "";
     return { status, enabled: using.length > 0 || held.has(status), ...(name ? { name } : {}) };
   });
+  // A group never has every lane off (the per-project path could leave a member so): every lane on, built-in names.
+  return result.some((l) => l.enabled) ? result : statuses.map((status) => ({ status, enabled: true }));
 }
 
 /** Live cards per lane over a group's live member projects: what holds a group lane on (§2 `LANE_NOT_EMPTY`). */

@@ -781,7 +781,7 @@ export const projectEdit = z.strictObject({
   linearTicket: z.boolean().optional(),
   /** "" removes the team (LINEAR-TICKET-SPEC §1). */
   linearTeam: z.string().max(200).optional(),
-  /** Refused (`LANES_IN_GROUP`): lanes belong to the project's group (BOARD-GROUPS-SPEC §2). */
+  /** Refused once groups are ready (`LANES_IN_GROUP`: lanes belong to the project's group, BOARD-GROUPS-SPEC §2); taken only while groups are not ready and the board has none stored. */
   lanes: lanesSchema.optional(),
   /** A model sets the project default; null removes it (the global default applies again). */
   agentModel: agentModelSchema.nullable().optional(),

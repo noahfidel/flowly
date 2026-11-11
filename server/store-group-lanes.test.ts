@@ -317,4 +317,13 @@ describe("group lanes: follow-ups", () => {
     expect(board.projects[0].revision).toBe(7);
     expectInSync(board);
   });
+  test("stored groups but not ready (migration not succeeded this start): projects.update refuses lanes, nothing is written", async () => {
+    const d = await directory();
+    const group = { id: "g", name: "Zen", position: 0, isDefault: true, revision: 3, createdAt: at, updatedAt: at, lanes: lanes((x) => x !== "backlog") };
+    await seed(d, [project("a", { groupId: "g", lanes: lanes((x) => x !== "backlog") })], [], [group]);
+    const s = open("json", d);
+    const a = (await s.read()).projects[0];
+    await expect(s.updateProject({ id: "a", revision: a.revision, lanes: lanes(() => true) })).rejects.toMatchObject({ code: "GROUPS_UNAVAILABLE" });
+    expect(on((await onDisk("json", d)).projects[0])).not.toContain("backlog");
+  });
 });

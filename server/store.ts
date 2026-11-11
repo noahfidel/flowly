@@ -523,9 +523,12 @@ export class BoardStore {
         throw new Error("Revision conflict: reload the project before saving.");
       if (input.lanes) {
         // Once groups are ready, lanes belong to the group (BOARD-GROUPS-SPEC §2). While the migration has not run
-        // (it failed), the old per-project path stays so Edit project keeps its lane editor; the migration folds
-        // these lanes into the group's.
+        // (it failed on a board that has no groups yet), the old per-project path stays so Edit project keeps its
+        // lane editor; the migration folds these lanes into the group's.
         if (this.groupsReady) throw new ToolError("LANES_IN_GROUP", "Lanes belong to the project's group. Edit them in Group settings.");
+        // Stored groups that are not ready yet (a retry or a failed re-migration): the next migration would overwrite
+        // a per-project edit from the group's lanes, so it is refused rather than lost.
+        if (board.groups.length) throw groupsUnavailable();
         const blocked = input.lanes
           .filter((l) => !l.enabled)
           .map((l) => ({
