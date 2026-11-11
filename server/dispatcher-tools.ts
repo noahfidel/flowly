@@ -44,7 +44,7 @@ import { directory } from "./service";
 import type { CardStarter } from "./start-card";
 import type { BoardStore } from "./store";
 import type { DispatcherIdentity } from "./tool-context";
-import { ToolError, toolResult } from "./tool-error";
+import { checkGroup, ToolError, toolResult } from "./tool-error";
 
 /** The dispatcher's cross-project tools and their caller check (DISPATCHER-SPEC §4–5). */
 
@@ -228,14 +228,17 @@ export class DispatcherTools {
     return { agentId: identity.agentId, groupId: own.groupId };
   }
 
-  /** The dispatcher acting on one live project of its group (§4); a project of another group is refused. */
+  /**
+   * The dispatcher acting on one live project of its group (§4); a project of another group is refused. The caller
+   * carries the group, so each write checks it again when it is stored (`checkGroup`).
+   */
   async projectCaller(identity: DispatcherIdentity, projectId: string, write = false): Promise<CardCaller> {
     const { agentId, groupId } = await this.caller(identity);
     // Read now, so a project that moved to another group since the last call is refused too.
     const project = (await this.store.read()).projects.find((p) => p.id === projectId);
     if (project && project.groupId !== groupId)
       throw new ToolError("PROJECT_OUT_OF_GROUP", "This project belongs to another board group; its own dispatcher handles it. Tell the user.");
-    return this.cards.dispatcherCaller(projectId, agentId, write);
+    return { ...(await this.cards.dispatcherCaller(projectId, agentId, write)), groupId };
   }
 
   /** The live projects of the dispatcher's group (§5). */
@@ -261,7 +264,7 @@ export class DispatcherTools {
     const caller = await this.projectCaller(identity, input.projectId, true);
     if (!(await this.ideasOn()))
       throw new ToolError("IDEAS_DISABLED", "Ideas are turned off in Flowly settings. Mention the idea to the user instead.");
-    return { idea: await this.ideas.propose(caller.projectId, rest(input), { actor: "agent", agentId: caller.agentId }) };
+    return { idea: await this.ideas.propose(caller.projectId, rest(input), { actor: "agent", agentId: caller.agentId }, caller.groupId) };
   }
 
   /** One project's ideas, card and project ideas together, newest first (§5.1). A read. */
@@ -313,6 +316,7 @@ export class DispatcherTools {
       throw new ToolError("TAG_INVALID", e instanceof Error ? e.message : String(e));
     }
     return this.store.transaction((board) => {
+      checkGroup(board.projects.find((p) => p.id === caller.projectId), caller.groupId);
       const idea = board.ideas.find((i) => i.id === ideaId && i.projectId === caller.projectId);
       if (!idea) throw new ToolError("IDEA_NOT_FOUND", `No idea ${ideaId} in this project. Use an id from flowly_list_ideas.`);
       const tags = full ?? (add && remove ? editedTags(idea.tags ?? [], add, remove) : undefined);
@@ -333,6 +337,7 @@ export class DispatcherTools {
       const project = board.projects.find((p) => p.id === caller.projectId);
       if (!project) throw new ToolError("NOT_FOUND", "The Flowly project was removed.");
       if (project.archivedAt) throw new ToolError("PROJECT_ARCHIVED", "The Flowly project is archived.");
+      checkGroup(project, caller.groupId);
       for (const id of [input.taskId, input.otherTaskId])
         if (!board.tasks.some((t) => t.id === id && t.projectId === project.id))
           throw new ToolError("CARD_NOT_FOUND", `No card ${id} in this project. Use ids from flowly_list_cards.`);
@@ -429,6 +434,7 @@ export class DispatcherTools {
     const input = dispatcherInputs.archiveCard.parse(raw);
     const caller = await this.projectCaller(identity, input.projectId, true);
     return this.store.transaction((board) => {
+      checkGroup(board.projects.find((p) => p.id === caller.projectId), caller.groupId);
       const t = board.tasks.find((x) => x.id === input.taskId && x.projectId === caller.projectId);
       if (!t) throw new ToolError("CARD_NOT_FOUND", `No card ${input.taskId} in this project. Use an id from flowly_list_cards (includeArchived: true lists archived ones).`);
       const changed = !!t.archivedAt !== input.archived;

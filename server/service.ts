@@ -13,6 +13,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { BoardStore } from "./store";
+import { checkGroup } from "./tool-error";
 import { readSnapshot, SnapshotInvalidError, type ProjectSnapshot } from "./project-folder";
 import { linkLimits } from "../shared/model";
 import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
@@ -488,7 +489,7 @@ export class BoardService {
    * leaves the card and the suggestion open (logged). `by`: an agent creates
    * the card (AGENT-CARDS-SPEC §3.3); its activity, tags and follow-up link say so.
    */
-  async createTask(input: TaskInput, paseo: PaseoApi, by?: { agentId: string }) {
+  async createTask(input: TaskInput, paseo: PaseoApi, by?: { agentId: string; groupId?: string }) {
     const findingId = input.insightFindingId;
     if (findingId) {
       if (!this.insightFindings) throw new Error("Workflow insights are unavailable.");
@@ -503,7 +504,7 @@ export class BoardService {
       );
     return task;
   }
-  private createCard(input: TaskInput, paseo: PaseoApi, by?: { agentId: string }) {
+  private createCard(input: TaskInput, paseo: PaseoApi, by?: { agentId: string; groupId?: string }) {
     return this.serialize(async () => {
       const board = await this.store.read();
       const previous = board.tasks.find(
@@ -513,6 +514,8 @@ export class BoardService {
       const project = board.projects.find((p) => p.id === input.projectId);
       if (!project || project.archivedAt)
         throw new Error("Project is unavailable or archived.");
+      // A dispatcher's card (`by.groupId`): checked before the workspace is made and again when the card is written.
+      checkGroup(project, by?.groupId);
       const laneError = laneProblem(project, input.status);
       if (laneError) throw new Error(laneError);
       // Validated before any workspace exists (CARD-TAGS-SPEC §3).
@@ -613,6 +616,7 @@ export class BoardService {
           const p = current.projects.find((p) => p.id === project.id);
           if (!p || p.archivedAt || p.primaryPath !== sourcePath)
             throw new Error("Project changed during workspace creation.");
+          checkGroup(p, by?.groupId);
           const idea = input.ideaId ? openIdea(current, input.ideaId, project.id) : undefined;
           if (input.followUpOf) followUpSource(current, input.followUpOf, project.id);
           const now = new Date().toISOString();
@@ -675,6 +679,8 @@ export class BoardService {
           return task;
         });
       } catch (error) {
+        if (error instanceof ToolError)
+          throw new ToolError(error.code, `Card was not saved. Workspace ${id} remains available. ${error.message}`);
         throw new Error(
           `Card was not saved. Workspace ${id} remains available; retry with the same operation or link it. ${error instanceof Error ? error.message : String(error)}`,
         );

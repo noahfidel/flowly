@@ -15,7 +15,7 @@ import { logFailure } from "./error-report";
 import { generatedBranchName, resolveWorktreeBaseRef } from "./service";
 import type { BoardStore } from "./store";
 import { digest } from "./tool-context";
-import { ToolError } from "./tool-error";
+import { checkGroup, ToolError } from "./tool-error";
 import { workspaceSessions } from "./workspace-switch";
 import { cardWorkspaceIds } from "../shared/workspace-switch";
 
@@ -151,6 +151,9 @@ export class CardStarter {
     const project = board.projects.find((p) => p.id === caller.projectId);
     if (!project) throw new ToolError("NOT_FOUND", "The Flowly project was removed.");
     if (project.archivedAt) throw new ToolError("PROJECT_ARCHIVED", "The Flowly project is archived.");
+    // A dispatcher's start (`caller.groupId`): checked here, again when the card moves to its worktree, and before
+    // the session is made (DISPATCHER-SPEC §4).
+    checkGroup(project, caller.groupId);
     const task = board.tasks.find((t) => t.id === input.taskId && t.projectId === project.id);
     if (!task || task.archivedAt) throw new ToolError("NOT_FOUND", "No live card with that id in this project. Use an id from flowly_list_cards.");
     if (finished(task.status)) throw new ToolError("CARD_FINISHED", "The card is Done or Cancelled; only the user reopens it.");
@@ -201,6 +204,7 @@ export class CardStarter {
         workspaceId = moved.workspaceId;
         warnings.push(...moved.warnings);
       }
+      checkGroup((await this.store.read()).projects.find((p) => p.id === project.id), caller.groupId);
       const agentId = await this.createSession(caller, task, workspaceId, model, input.prompt?.trim() ? input.prompt : defaultPrompt(task, planTarget), operationId, paseo);
       return { taskId: task.id, workspaceId, agentId, replayed: false, ...(warnings.length ? { warnings } : {}) };
     } catch (e) {
@@ -328,7 +332,7 @@ export class CardStarter {
       throw new ToolError("CARD_HAS_SESSION", `A session started on the card meanwhile (${meanwhile[0].id}); the card stays where it is. Send that session instructions instead.`);
     }
     const now = new Date().toISOString();
-    type Rebind = { shared: boolean } | { refused: string; referenced: boolean };
+    type Rebind = { shared: boolean } | { refused: string; referenced: boolean; code?: string };
     let rebind: Rebind;
     try {
       rebind = await this.store.transaction<Rebind>((board) => {
@@ -336,6 +340,11 @@ export class CardStarter {
         const referenced = () => board.tasks.some((x) => cardWorkspaceIds(x).includes(created.id));
         if (!t || t.archivedAt || finished(t.status) || t.workspaceId !== old)
           return { value: { refused: "The card changed while its worktree was made; it was not moved.", referenced: referenced() }, changed: false };
+        if (caller.groupId !== undefined && board.projects.find((p) => p.id === t.projectId)?.groupId !== caller.groupId)
+          return {
+            value: { refused: "The card's project moved to another board group while its worktree was made; it was not moved.", referenced: referenced(), code: "PROJECT_OUT_OF_GROUP" },
+            changed: false,
+          };
         if (board.tasks.some((x) => x.workspaceId === created.id))
           return { value: { refused: `Workspace ${created.id} is already bound to another card; the card was not moved.`, referenced: true }, changed: false };
         t.previousWorkspaces = [
@@ -367,7 +376,7 @@ export class CardStarter {
         kept = !used ? "its sessions could not be read" : used.length ? "it has a session" : await this.archive(paseo, created.id);
       }
       logFailure("Flowly start_card card not moved:", new Error(`${rebind.refused}${kept ? ` Worktree kept: ${kept}.` : " Worktree archived."}`), `card ${task.id} worktree ${created.id}`);
-      throw new ToolError("START_FAILED", `${rebind.refused} ${kept ? `Worktree workspace ${created.id} was kept (${kept}).` : `The unused worktree workspace ${created.id} was archived.`}`);
+      throw new ToolError(rebind.code ?? "START_FAILED", `${rebind.refused} ${kept ? `Worktree workspace ${created.id} was kept (${kept}).` : `The unused worktree workspace ${created.id} was archived.`}`);
     }
     const shared = rebind.shared;
     // Archived only while it still never had a session and no other card refers to it (§4.3).

@@ -988,6 +988,47 @@ test("a project moved to another group between calls is refused, and its new gro
   expect(projectIds(await b.call("flowly_list_projects", {}))).toEqual(["q", "r"]);
 });
 
+test("a project moved to another group during a write is refused when the write is stored (DISPATCHER-SPEC §4)", async () => {
+  const x = await setup();
+  const { clients, a } = await twoGroups(x);
+  const home = (await x.store.read()).projects.find((p) => p.id === "q")!.groupId!;
+  const idea = (await a.call("flowly_propose_idea", { projectId: "q", title: "Keep", detail: "x", rationale: "y" })).structuredContent as { idea: { id: string } };
+  // The move lands after the caller's group check and before the write, as another call's would.
+  const tools = x.server.dispatcherTools as unknown as { projectCaller: (...args: unknown[]) => Promise<unknown> };
+  const check = tools.projectCaller.bind(tools);
+  const moveQ = async (groupId: string) => {
+    const q = (await x.store.read()).projects.find((p) => p.id === "q")!;
+    await x.store.setProjectGroup({ projectId: "q", revision: q.revision, groupId });
+  };
+  // The board right after the move (moving re-places the project's cards in its new group's order).
+  let moved: Awaited<ReturnType<typeof x.store.read>> | undefined;
+  tools.projectCaller = async (...args) => {
+    const caller = await check(...args);
+    await moveQ(clients.id);
+    moved = await x.store.read();
+    return caller;
+  };
+  const q1 = () => x.store.read().then((b) => b.tasks.find((t) => t.id === "q1")!);
+  const writes: [string, () => Promise<Record<string, unknown>>][] = [
+    ["flowly_create_card", async () => ({ title: "Nope", idempotencyKey: "k-race" })],
+    ["flowly_update_card", async () => ({ taskId: "q1", revision: (await q1()).revision, title: "Nope" })],
+    ["flowly_link_cards", async () => ({ taskId: "q1", relation: "blocks", otherTaskId: "q2" })],
+    ["flowly_propose_idea", async () => ({ title: "Nope", detail: "x", rationale: "y" })],
+    ["flowly_update_idea", async () => ({ ideaId: idea.idea.id, title: "Nope" })],
+    ["flowly_archive_card", async () => ({ taskId: "q1" })],
+    ["flowly_start_card", async () => ({ taskId: "q1", idempotencyKey: "s-race" })],
+  ];
+  for (const [name, args] of writes) {
+    expect(code(await a.call(name, { projectId: "q", ...(await args()) })), name).toBe("PROJECT_OUT_OF_GROUP");
+    const before = moved!;
+    const after = await x.store.read();
+    expect(after.tasks.filter((t) => t.projectId === "q"), name).toEqual(before.tasks.filter((t) => t.projectId === "q"));
+    expect(after.ideas.filter((i) => i.projectId === "q"), name).toEqual(before.ideas.filter((i) => i.projectId === "q"));
+    expect(after.links ?? [], name).toEqual(before.links ?? []);
+    await moveQ(home);
+  }
+});
+
 test("another group's start in a new workspace leaves a live dispatcher's tools and open hook working (DISPATCHER-SPEC §1, §2, §4)", async () => {
   const x = await setup();
   // The stored workspace is no longer in the dispatcher folder (as one in the old in-data folder): the next start makes a new one.

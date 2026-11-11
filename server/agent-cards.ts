@@ -24,13 +24,14 @@ import { cardPlanView, clearPlan, planMissing, planTarget, setPlan } from "./pla
 import { BoardService } from "./service";
 import { BoardStore, columnOrder, setTags } from "./store";
 import { digest } from "./tool-context";
-import { ToolError } from "./tool-error";
+import { checkGroup, ToolError } from "./tool-error";
 
 /**
  * Who calls a card tool: a card session (its card is `taskId`), a session outside cards (AGENT-CARDS-SPEC §2), the
  * dispatcher (`dispatcher`, its own hourly limit, DISPATCHER-SPEC §5), or the user's own Start again (`human`, §9.4).
  */
-export type CardCaller = { agentId: string; projectId: string; taskId?: string; human?: true; dispatcher?: true };
+/** `groupId`: a dispatcher's board group, checked again inside each write (`checkGroup`). */
+export type CardCaller = { agentId: string; projectId: string; taskId?: string; human?: true; dispatcher?: true; groupId?: string };
 
 const hour = 3600000;
 /** The New card path's refusal of an idea that is no longer open (`openIdea` in service.ts). */
@@ -156,6 +157,7 @@ export class AgentCards {
   private project(board: Board, caller: CardCaller) {
     const project = board.projects.find((p) => p.id === caller.projectId);
     if (!project) throw new ToolError("ARCHIVED", "The Flowly project was removed.");
+    checkGroup(project, caller.groupId);
     return project;
   }
   async list(caller: CardCaller, raw: unknown) {
@@ -274,10 +276,11 @@ export class AgentCards {
           ...(fromIdea ? { ideaId: fromIdea.ideaId } : {}),
         },
         this.api(),
-        { agentId: caller.agentId },
+        { agentId: caller.agentId, ...(caller.groupId !== undefined ? { groupId: caller.groupId } : {}) },
       );
     } catch (e) {
       release();
+      if (e instanceof ToolError) throw e;
       const text = e instanceof Error ? e.message : String(e);
       // Taken up or dismissed after the check above, e.g. by a create from the same idea at the same time.
       if (fromIdea && text.includes(ideaGone))

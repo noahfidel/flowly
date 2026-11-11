@@ -9,6 +9,15 @@ export class ToolError extends Error {
     super(message);
   }
 }
+/**
+ * A dispatcher's write is stored only while the project is still in the caller's board group (DISPATCHER-SPEC §4):
+ * checked inside the write's own transaction, so a move after the call's first check is refused too. No `groupId`
+ * (a card session, a human) checks nothing.
+ */
+export function checkGroup(project: { groupId?: string } | undefined, groupId: string | undefined) {
+  if (groupId !== undefined && project && project.groupId !== groupId)
+    throw new ToolError("PROJECT_OUT_OF_GROUP", "This project belongs to another board group; its own dispatcher handles it. Tell the user.");
+}
 /** Only an error's message crosses a plugin RPC: a tool error keeps its code as a `CODE: ` prefix for the client. */
 export function codedError(error: unknown): unknown {
   return error instanceof ToolError ? new Error(`${error.code}: ${error.message}`) : error;

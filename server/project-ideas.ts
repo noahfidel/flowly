@@ -5,7 +5,7 @@ import type { Board, Idea } from "../shared/model";
 import { normalizeTags } from "../shared/tags";
 import { projectIdeaInputSchema, type ProjectIdeaInput } from "../shared/tools";
 import type { BoardStore } from "./store";
-import { ToolError } from "./tool-error";
+import { checkGroup, ToolError } from "./tool-error";
 
 /** Who proposed a project idea: a person, an import, or a session outside cards. */
 export type IdeaProposer = { actor: "human" | "agent"; agentId?: string };
@@ -20,7 +20,8 @@ export class ProjectIdeas {
   constructor(private readonly store: BoardStore) {}
 
   /** Stores a new open idea, or refuses with `PROJECT_ARCHIVED`, `NOT_FOUND`, `DUPLICATE_IDEA` or `INVALID_INPUT`. */
-  async propose(projectId: string, raw: ProjectIdeaInput, by: IdeaProposer): Promise<Idea> {
+  /** `groupId`: a dispatcher's board group, checked when the idea is stored (`checkGroup`). */
+  async propose(projectId: string, raw: ProjectIdeaInput, by: IdeaProposer, groupId?: string): Promise<Idea> {
     const input = projectIdeaInputSchema.parse(raw);
     let tags: string[];
     try {
@@ -29,6 +30,7 @@ export class ProjectIdeas {
       throw new ToolError("INVALID_INPUT", e instanceof Error ? e.message : String(e));
     }
     return this.store.transaction((board) => {
+      checkGroup(board.projects.find((p) => p.id === projectId), groupId);
       const idea = addProjectIdea(board, projectId, input, tags, by);
       return { value: { ...idea }, changed: true };
     });
