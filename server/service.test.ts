@@ -356,6 +356,25 @@ test("a new card is appended after fractional or reordered positions in its colu
   expect(third.position).toBeGreaterThan(first.position);
 });
 
+test("a new card is last in its group's column, after other projects' cards there (BOARD-GROUPS-SPEC §1 manual order)", async () => {
+  const x = await setup();
+  expect(await x.store.migrateGroups(async () => [])).toBe(true);
+  await x.store.mutate((board) => {
+    const p = board.projects[0];
+    board.projects.push({ ...p, id: "q", paseoProjectId: "native-q", primaryPath: "/q", repos: ["/q"], position: 1 });
+    board.tasks.push({
+      id: "q1", projectId: "q", workspaceId: "wq", sourcePath: "/q", repoPaths: [], title: "Q", description: "",
+      status: "todo", priority: "normal", position: 41, revision: 1, operationId: "oq", createdAt: p.createdAt,
+      updatedAt: p.createdAt, archivedAt: null,
+    });
+  });
+  const created = await x.service.createTask({ ...x.input, operationId: "o1" }, x.paseo);
+  const board = await x.store.read();
+  expect(board.projects.find((p) => p.id === "q")!.groupId).toBe(board.projects.find((p) => p.id === "p")!.groupId);
+  const column = board.tasks.filter((t) => t.status === "todo").sort((a, b) => a.position - b.position).map((t) => t.id);
+  expect(column).toEqual(["q1", created.id]);
+});
+
 test("a new card stores the delivery mode it was created with; none stored when omitted (DELIVERY-MODE-SPEC §2)", async () => {
   const x = await setup();
   const plain = await x.service.createTask(x.input, x.paseo);

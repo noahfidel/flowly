@@ -490,6 +490,11 @@ export const moveTask = defineRpc({
     id: z.string(),
     revision: z.number(),
     direction: z.enum(["up", "down"]),
+    /**
+     * Which order the step goes through (BOARD-GROUPS-SPEC §2): `project` (default) the card's own project, as a project
+     * board or a filtered group board shows it; `group` the unfiltered group board's one order over its live projects.
+     */
+    scope: z.enum(["project", "group"]).optional(),
   }),
   output: taskSchema,
 });

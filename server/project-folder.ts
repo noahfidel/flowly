@@ -46,12 +46,13 @@ export type ProjectSnapshot = {
 
 /**
  * The project's records as stored on the board, without its board group: a group is the board's, not the folder's
- * (BOARD-GROUPS-SPEC §7 step 6), so moving a project between groups never rewrites its folder copy.
+ * (BOARD-GROUPS-SPEC §7 step 6). Moving a project between groups still rewrites its folder copy once: its cards'
+ * positions change as they join the new group's manual order (§1).
  */
 export function projectRecords(board: Board, projectId: string, summaries: readonly SummaryEntry[] = []) {
   const stored = board.projects.find((p) => p.id === projectId);
   if (!stored) return null;
-  const { groupId: _groupId, ...project } = stored;
+  const { groupId: _groupId, orderGroupId: _orderGroupId, ...project } = stored;
   const ids = new Set(board.tasks.filter((t) => t.projectId === projectId).map((t) => t.id));
   return {
     project,

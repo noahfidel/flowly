@@ -32,6 +32,7 @@ import type { removeProject as removeProjectRpc, restoreProjectCheck as restoreP
 import { logFailure } from "./error-report";
 import { ToolError } from "./tool-error";
 import { runPaseo } from "./paseo-cli";
+import { columnEnd } from "../shared/group-order";
 
 const execute = promisify(execFile);
 type RemoveResult = z.infer<typeof removeProjectRpc.output>;
@@ -630,14 +631,8 @@ export class BoardService {
             ...(tags.length
               ? { tags: tags.map((tag) => (by ? { tag, by: "agent" as const, agentId: by.agentId, at: now } : { tag, by: "human" as const, at: now })) }
               : {}),
-            position: Math.max(
-              -1,
-              ...current.tasks
-                .filter(
-                  (t) => t.projectId === project.id && t.status === input.status,
-                )
-                .map((t) => t.position),
-            ) + 1,
+            // Last in its column of the group's manual order, so last on the project's own order too (BOARD-GROUPS-SPEC §1).
+            position: columnEnd(current, project.id, input.status),
             revision: 1,
             operationId: input.operationId,
             createdAt: now,

@@ -1,6 +1,7 @@
 import { deliveryModeLocked, inDeliveryLane } from "../shared/delivery-mode";
 import { laneName, laneProblem, projectLanes } from "../shared/lanes";
 import { groupLaneCounts, syncGroupLanes } from "../shared/group-lanes";
+import { orderScope, syncGroupOrder } from "../shared/group-order";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -204,6 +205,8 @@ export class BoardStore {
     if (!this.groupsReady) return board;
     const now = new Date().toISOString();
     const repair = ensureGroups(board, now, () => this.nextGroupId);
+    // One manual order per group column (BOARD-GROUPS-SPEC §1, §7 step 8) on the copy too, so a read shows it at once.
+    syncGroupOrder(board);
     // Group lanes (BOARD-GROUPS-SPEC §1, §7 step 7) on the copy too, so a read never shows a member out of step.
     syncGroupLanes(board, now, { bumpRevision: false });
     const key = [...repair.projectIds, ...repair.groupIds].join(",");
@@ -229,10 +232,13 @@ export class BoardStore {
           const now = new Date().toISOString();
           const migrated = !board.groups.length && board.projects.length ? migrateLegacyGroups(board, await load(), now, randomUUID) : false;
           const repair = ensureGroups(board, now, this.takeGroupId);
+          // One manual order per group column (§7 step 8): each project's cards join its group's columns once, in
+          // chooser order, which is the order the group board's Manual sort showed before. No revision changes.
+          const order = syncGroupOrder(board);
           // Group lanes (§7 step 7): computed once for groups that have none, then mirrored to their members.
           // The migration bumps no group or project revision (§7), even for a live card in a lane the group has off.
           const lanes = syncGroupLanes(board, now, { bumpRevision: false });
-          return { value: migrated ? { ...repair, projectIds: [] } : repair, changed: migrated || repair.changed || lanes.changed };
+          return { value: migrated ? { ...repair, projectIds: [] } : repair, changed: migrated || repair.changed || order.changed || lanes.changed };
         }, true);
         // Set inside the queued job, so the next queued read or write already sees it.
         this.groupsReady = true;
@@ -289,6 +295,9 @@ export class BoardStore {
     this.pending = [];
     const persistence = await this.persistence();
     const board = await persistence.load();
+    // The operation works on the group order (placements anchor across a group's projects); stored data always has
+    // it after the start migration, so this only matters for data written past the store.
+    if (this.groupsReady) syncGroupOrder(board);
     const result = await operation(board);
     const events = this.pending;
     this.pending = [];
@@ -297,6 +306,8 @@ export class BoardStore {
     if (this.groupsReady || migrating) {
       const now = new Date().toISOString();
       const repair = ensureGroups(board, now, this.takeGroupId);
+      // Moved, new and restored projects join their group's manual order at the end of each column (§1).
+      syncGroupOrder(board);
       // Lanes are group-level (BOARD-GROUPS-SPEC §1): moved, new and restored projects take their group's lanes, the
       // group first turning on any status their live cards sit in.
       const lanes = syncGroupLanes(board, now);
@@ -458,8 +469,11 @@ export class BoardStore {
         const laneError = laneProblem(project, input.status);
         if (laneError) throw new Error(laneError);
       }
+      // The column is the group's (BOARD-GROUPS-SPEC §1 manual order): an anchor may be a card of another project of
+      // the card's group. Before groups are ready it is the project's alone.
+      const scope = this.groupsReady ? orderScope(board, task.projectId) : new Set([task.projectId]);
       const column = board.tasks
-        .filter((t) => t.projectId === task.projectId && t.status === input.status)
+        .filter((t) => scope.has(t.projectId) && t.status === input.status)
         .sort(columnOrder);
       const peers = column.filter((t) => t !== task);
       const anchorId = input.beforeId ?? input.afterId;
@@ -604,7 +618,7 @@ export class BoardStore {
   restoreProject(snapshot: ProjectSnapshot, at: { primaryPath: string; paseoProjectId: string }) {
     return this.mutate((board) => {
       // A folder copy carries no group (BOARD-GROUPS-SPEC §7 step 6): the restored project joins the default group.
-      const { groupId: _groupId, ...source } = snapshot.project;
+      const { groupId: _groupId, orderGroupId: _orderGroupId, ...source } = snapshot.project;
       if (board.projects.some((p) => p.id === source.id)) throw new Error("This project is already on the board.");
       if (board.projects.some((p) => p.paseoProjectId === at.paseoProjectId))
         throw new Error("Paseo project is already linked; open or restore its board project.");

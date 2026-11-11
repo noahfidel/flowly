@@ -14,6 +14,7 @@ import {
 } from "../shared/pr-review";
 import { cardWorkspaceIds } from "../shared/workspace-switch";
 import { switchLimits } from "../shared/model";
+import { columnEnd } from "../shared/group-order";
 import type { BoardService } from "./service";
 import { repoMatcher } from "./repos";
 
@@ -209,7 +210,7 @@ export class PrReviewCards {
       if (t.status !== lane) {
         const from = t.status;
         t.status = lane;
-        t.position = Math.max(-1, ...current.tasks.filter((x) => x.projectId === project.id && x.status === lane).map((x) => x.position)) + 1;
+        t.position = columnEnd(current, project.id, lane);
         this.service.store.event(current, { taskId: t.id, ...actor, action: "status_changed", from, to: lane });
       }
       t.revision++;

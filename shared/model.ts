@@ -293,6 +293,11 @@ export const projectSchema = z.object({
   autoReview: autoReviewSchema.optional(),
   /** The board group it belongs to (BOARD-GROUPS-SPEC §1); every live project has one once groups are migrated. */
   groupId: z.string().optional(),
+  /**
+   * The group whose one manual order its cards' positions belong to (BOARD-GROUPS-SPEC §1 manual order). Kept equal
+   * to `groupId` by the server; a project whose value differs has its cards joined to the end of its group's columns.
+   */
+  orderGroupId: z.string().optional(),
   /** Delivery mode override for its cards (BOARD-GROUPS-SPEC §5); a plain string, as the card's. Absent: inherit. */
   deliveryMode: z.string().optional(),
 });

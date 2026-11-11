@@ -1,7 +1,8 @@
 import { readCardDetail, readProjectCardIndex, readProjectIdeas } from "./server/card-detail";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import type { PaseoApi } from "@getpaseo/client";
-import { BoardStore, columnOrder } from "./server/store";
+import { BoardStore } from "./server/store";
+import { neighborCard } from "./shared/group-order";
 import { BoardService, dataDirectory, migrateLegacyPluginData, paseoHome } from "./server/service";
 import { readPaseoVersion } from "./server/paseo-version";
 import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./server/directories";
@@ -886,16 +887,9 @@ export default function contribute(host: PluginServerContext) {
     const board = await store.read();
     const task = board.tasks.find((t) => t.id === input.id);
     if (!task) throw new Error("Task not found.");
-    const visible = board.tasks
-      .filter(
-        (t) =>
-          t.projectId === task.projectId &&
-          t.status === task.status &&
-          !t.archivedAt,
-      )
-      .sort(columnOrder);
-    const index = visible.findIndex((t) => t.id === task.id);
-    const other = visible[index + (input.direction === "up" ? -1 : 1)];
+    // The neighbour in the order the board shows: the card's project, or the unfiltered group board's one order
+    // (BOARD-GROUPS-SPEC §2); per project until groups are ready.
+    const other = neighborCard(board, task, input.direction, input.scope === "group" && store.groupsAvailable ? "group" : "project");
     if (!other) {
       if (task.revision !== input.revision)
         throw new Error("Revision conflict: reload before moving.");
