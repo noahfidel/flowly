@@ -41,14 +41,33 @@ export function extraFolderRoots(folders: readonly string[], home = homedir()): 
  * The card's workspace directory (or its source path) plus its scope directories and linked repositories,
  * and, apart in `resolved`, the extra folders set in Settings (textual cleanup only: pass `resolveExtraRoots` output).
  */
-export function artifactRoots(task: Task, project: Project, workspaceDirectory?: string | null, extra: readonly string[] = []): ArtifactRoots {
+export function artifactRoots(
+  task: Task,
+  project: Project,
+  workspaceDirectory?: string | null,
+  extra: readonly string[] = [],
+  /** The plugin data folder: the card's own plan copies (`planCopyFolder`) are one of its roots (CARD-PLAN-SPEC §1.2). */
+  dataDirectory?: string,
+): ArtifactRoots {
   const workspace = workspaceDirectory || task.sourcePath;
   return {
     workspace,
-    roots: [...new Set([workspace, task.sourcePath, project.primaryPath, ...effectiveRepos(task, project), ...(project.links || []).map((l) => l.target)])],
+    roots: [
+      ...new Set([
+        workspace,
+        task.sourcePath,
+        project.primaryPath,
+        ...effectiveRepos(task, project),
+        ...(project.links || []).map((l) => l.target),
+        ...(dataDirectory ? [planCopyFolder(dataDirectory, task.id)] : []),
+      ]),
+    ],
     resolved: extraFolderRoots(extra),
   };
 }
+
+/** Where Flowly keeps a card's plan copies, plans written from plan-mode text (CARD-PLAN-SPEC §1.2). */
+export const planCopyFolder = (dataDirectory: string, taskId: string) => join(dataDirectory, "plans", taskId);
 
 const real = (path: string) => realpath(path).catch(() => null);
 const inside = (path: string, root: string) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
@@ -122,7 +141,7 @@ export async function missingArtifacts(list: readonly Artifact[], where: Artifac
   return missing;
 }
 
-function liveCard(board: Board, taskId: string) {
+export function liveCard(board: Board, taskId: string) {
   const task = board.tasks.find((t) => t.id === taskId);
   const project = board.projects.find((p) => p.id === task?.projectId);
   if (!task || !project) throw new Error("Task not found.");
@@ -208,16 +227,23 @@ export function putArtifact(
   return { artifact, changed: true, eventId: event.id };
 }
 
+/** An agent's removal of the plan artifact (`ARTIFACT_FORBIDDEN`, CARD-PLAN-SPEC §6.1). */
+export const planRemovalRefused = "This is the card's plan; use flowly_clear_plan.";
+
 /** Removes an artifact; an agent may remove only artifacts agents added (CARD-ARTIFACTS-SPEC §4.1). */
 export function dropArtifact(store: BoardStore, board: Board, id: string, by: { createdBy: Artifact["createdBy"]; agentId?: string; taskId?: string }) {
   const artifact = board.artifacts.find((a) => a.id === id && (!by.taskId || a.taskId === by.taskId));
   if (!artifact) throw new Error("This artifact no longer exists.");
   liveCard(board, artifact.taskId);
   if (by.createdBy === "agent" && artifact.createdBy === "human") throw new Error("Only the user can remove artifacts they added.");
+  // An agent empties the plan slot with flowly_clear_plan; deleting the file record is the user's (CARD-PLAN-SPEC §6.1).
+  if (by.createdBy === "agent" && artifact.plan) throw new Error(planRemovalRefused);
   board.artifacts = board.artifacts.filter((a) => a !== artifact);
+  const actor = by.createdBy === "agent" ? { actor: "agent" as const, agentId: by.agentId } : { actor: "human" as const };
+  if (artifact.plan) store.event(board, { taskId: artifact.taskId, ...actor, action: "plan_cleared", note: artifact.title });
   const event = store.event(board, {
     taskId: artifact.taskId,
-    ...(by.createdBy === "agent" ? { actor: "agent" as const, agentId: by.agentId } : { actor: "human" as const }),
+    ...actor,
     action: "artifact_removed",
     note: artifactNoteLine(artifact),
   });
@@ -319,7 +345,7 @@ export class ArtifactService {
       .ref(task.workspaceId)
       .refresh()
       .catch(() => null);
-    return artifactRoots(task, project, workspace?.workspaceDirectory, await this.extraRoots());
+    return artifactRoots(task, project, workspace?.workspaceDirectory, await this.extraRoots(), this.store.directory);
   }
 
   async create(

@@ -1,5 +1,4 @@
 import type { Artifact, ArtifactPlan } from "./model";
-import { baseName } from "./artifacts";
 
 /** A card's plan (CARD-PLAN-SPEC): pure helpers shared by daemon, tools and client. */
 
@@ -67,5 +66,5 @@ export function planRequestFacts(request: { input?: Metadata | null; metadata?: 
 /** The plan's title (§4 step 2): its first Markdown heading, else the file name, else "Plan"; at most 120 characters. */
 export function planTitle(text: string, path: string | null | undefined): string {
   const heading = /^ {0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/m.exec(text)?.[1]?.trim();
-  return (heading || (path ? baseName(path) : "") || "Plan").slice(0, 120);
+  return (heading || (path ? path.replace(/\/+$/, "").split("/").pop() : "") || "Plan").slice(0, 120);
 }

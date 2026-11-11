@@ -579,6 +579,19 @@ export type CardView = z.infer<typeof cardViewSchema>;
 export type ListCardsInput = z.input<typeof listCardsInputSchema>;
 export type CreateCardInput = z.input<typeof createCardInputSchema>;
 export type UpdateCardInput = z.input<typeof updateCardInputSchema>;
+/** A card's plan as agents read it (CARD-PLAN-SPEC §5.3). `absolutePath` only for files. */
+export const cardPlanSchema = z.object({
+  artifactId: z.string(),
+  target: z.string(),
+  absolutePath: z.string().optional(),
+  title: z.string(),
+  approved: z.boolean(),
+  approvedAt: z.string().nullable(),
+  approvedBy: z.object({ kind: z.enum(["human", "agent"]), agentId: z.string().optional() }).optional(),
+  source: z.enum(["plan-mode", "tool", "manual"]),
+  missing: z.boolean(),
+});
+export type CardPlan = z.infer<typeof cardPlanSchema>;
 export const toolContextSchema = z.object({
   identity: identitySchema,
   /** Latest action checklist, including for sessions created with an older skill. Optional for older servers. */
@@ -665,6 +678,11 @@ export const toolContextSchema = z.object({
   projectTags: z.array(z.object({ tag: z.string(), count: z.number() })).optional(),
   /** The language for next-move labels and prompts and for ideas (AI-LANGUAGE-SPEC §5). */
   outputLanguage: z.object({ code: z.string(), name: z.string() }).optional(),
+  /**
+   * The card's plan (CARD-PLAN-SPEC §5.3), left out of `artifacts`; null when it has none. approved=true: execute
+   * it, don't plan again. Named apart from `plan`, the sessions' todo lists. Optional for older servers.
+   */
+  cardPlan: cardPlanSchema.nullable().optional(),
   /** The card's inputs and deliverables (CARD-ARTIFACTS-SPEC §4.2). `absolutePath` only for files. */
   artifacts: z.array(
     z.object({

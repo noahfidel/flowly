@@ -320,3 +320,22 @@ test("the Settings note flags exactly the entries the server ignores by text", (
   // The server drops what the note flags.
   expect(extraFolderRoots(["plans", "~other/x", "/", "~", "~/..", "~/a/.."], "/home/me")).toEqual([]);
 });
+
+test("the plan: get_task.cardPlan, left out of artifacts and the session's Inputs; an agent can't remove it (CARD-PLAN-SPEC §5.3, §6.1)", async () => {
+  const x = await setup();
+  const { PlanService } = await import("./plans");
+  const other = await x.artifacts.create({ taskId: "t", role: "input", target: "https://issue.example/2", title: "Issue" }, x.paseo);
+  const plan = await new PlanService(x.store, x.artifacts).set({ taskId: "t", target: "docs/spec.md", title: "The plan" }, x.paseo);
+  const ctx = await x.service.get(x.identity);
+  expect(ctx.cardPlan).toMatchObject({ artifactId: plan.id, target: "./docs/spec.md", absolutePath: join(x.a, "docs/spec.md"), title: "The plan", approved: true, source: "manual", missing: false });
+  expect(ctx.artifacts.map((a) => a.id)).toEqual([other.id]);
+  expect(artifactContextLines((await x.store.read()).artifacts)).toEqual(["Plan (approved): The plan: ./docs/spec.md", "Inputs:", "- [user] Issue: https://issue.example/2"]);
+  // Even a plan an agent added is cleared with flowly_clear_plan, not removed.
+  await x.store.mutate((b) => void Object.assign(b.artifacts.find((a) => a.id === plan.id)!, { createdBy: "agent", agentId: "actor" }));
+  await expect(x.service.write(x.identity, "artifact_remove", { ...input(await x.service.get(x.identity)), id: plan.id })).rejects.toMatchObject({
+    code: "ARTIFACT_FORBIDDEN",
+    message: "This is the card's plan; use flowly_clear_plan.",
+  });
+  await rm(join(x.a, "docs", "spec.md"));
+  expect((await x.service.get(x.identity)).cardPlan).toMatchObject({ missing: true });
+});

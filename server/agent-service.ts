@@ -13,7 +13,8 @@ import { turnChecklist } from "../shared/turn-checklist";
 import { changeTags, normalizeTags, projectTagStats, tagChangeNote } from "../shared/tags";
 import { setTags } from "./store";
 import { fingerprintChanged } from "./connectors/fingerprint";
-import { artifactRoots, dropArtifact, externalArtifact, missingArtifacts, normalizeTarget, putArtifact, resolveExtraRoots, type NewArtifact } from "./artifacts";
+import { cardPlanView } from "./plans";
+import { artifactRoots, dropArtifact, planRemovalRefused, externalArtifact, missingArtifacts, normalizeTarget, putArtifact, resolveExtraRoots, type NewArtifact } from "./artifacts";
 import { ArtifactReadStore } from "./artifact-reads";
 import { ExternalError } from "./connectors/http";
 import { ExternalReadStore, refKey, type ConnectorService } from "./connectors/service";
@@ -410,12 +411,17 @@ export class AgentService {
               ...(i.acceptedTaskId ? { acceptedTaskId: i.acceptedTaskId } : {}),
               ...(i.acceptedAgentId ? { acceptedAgentId: i.acceptedAgentId } : {}),
             })),
-          artifacts: await (async () => {
-            const list = artifactsOf(board.artifacts, r.task.id).slice(0, 100);
-            const where = artifactRoots(r.task, r.project, r.workspace.workspaceDirectory, await this.extraArtifactRoots());
-            const missing = await missingArtifacts(list, where);
+          ...(await (async () => {
+            const all = artifactsOf(board.artifacts, r.task.id).slice(0, 100);
+            // The plan is its own field, not listed again under artifacts (CARD-PLAN-SPEC §5.3).
+            const plan = all.find((a) => a.plan);
+            const list = all.filter((a) => !a.plan);
+            const where = artifactRoots(r.task, r.project, r.workspace.workspaceDirectory, await this.extraArtifactRoots(), this.store.directory);
+            const missing = await missingArtifacts(all, where);
             externals = await this.externalInfo(identity.agentId, list);
-            return list.map((a) => ({
+            return {
+              cardPlan: plan ? cardPlanView(plan, where.workspace, missing.has(plan.id)) : null,
+              artifacts: list.map((a) => ({
               id: a.id,
               role: a.role,
               kind: a.kind,
@@ -433,8 +439,9 @@ export class AgentService {
               ...(externals.has(a.id) ? { external: externals.get(a.id)!.external } : {}),
               // Sessions started with the older skill look for `ticket` (CONNECTORS-SPEC §3.3).
               ...(externals.has(a.id) && familyOf(a.external!.provider) === "jira" ? { ticket: externals.get(a.id)!.external } : {}),
-            }));
-          })(),
+            })),
+            };
+          })()),
           ...(workpadEnabled(r.project)
             ? { workpadEnabled: true, ...workpadContext(board.workpads, board.plans, r.task.id, identity.agentId) }
             : { workpadEnabled: false, workpad: null, plan: [] }),
@@ -547,7 +554,7 @@ export class AgentService {
             if (!(e instanceof ExternalError) || !/^https?:\/\//i.test(output.target)) throw e;
             notice = "External details could not be read; no external status or content was verified.";
           }
-          const target = external ?? await normalizeTarget(output.target, artifactRoots(resources.task, resources.project, resources.workspace.workspaceDirectory, await this.extraArtifactRoots()));
+          const target = external ?? await normalizeTarget(output.target, artifactRoots(resources.task, resources.project, resources.workspace.workspaceDirectory, await this.extraArtifactRoots(), this.store.directory));
           outputTargets.push({ ...output, ...target, title: output.title || external?.title, ...(notice ? { notice } : {}) });
         } catch (e) {
           throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
@@ -568,7 +575,7 @@ export class AgentService {
           ? { kind: externalTarget.kind, target: externalTarget.target, external: externalTarget.external, externalTitle: externalTarget.title }
           : await normalizeTarget(
               (input as ArtifactToolInput).target,
-              artifactRoots(resources.task, resources.project, resources.workspace.workspaceDirectory, await this.extraArtifactRoots()),
+              artifactRoots(resources.task, resources.project, resources.workspace.workspaceDirectory, await this.extraArtifactRoots(), this.store.directory),
             ).catch((e) => {
               throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
             })
@@ -771,7 +778,7 @@ export class AgentService {
             } catch (e) {
               if (e instanceof ToolError) throw e;
               const text = e instanceof Error ? e.message : String(e);
-              throw new ToolError(text.startsWith("Only the user") ? "ARTIFACT_FORBIDDEN" : "ARTIFACT_INVALID", text);
+              throw new ToolError(text.startsWith("Only the user") || text === planRemovalRefused ? "ARTIFACT_FORBIDDEN" : "ARTIFACT_INVALID", text);
             }
           })()
         : undefined;

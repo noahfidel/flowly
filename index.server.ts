@@ -30,6 +30,7 @@ import { ComposerService, ComposerStore } from "./server/composer";
 import { adoptIdea } from "./server/ideas";
 import { createLink, deleteLink } from "./server/links";
 import { ArtifactService } from "./server/artifacts";
+import { PlanModeWatcher, PlanService } from "./server/plans";
 import { WorkpadService } from "./server/workpad";
 import { ConnectorService, migrateTicketDirectory, refKey } from "./server/connectors/service";
 import { agentModelFromValues } from "./shared/agent-defaults";
@@ -767,6 +768,12 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.createLink, (input) => createLink(store, input));
   server.handle(rpc.deleteLink, (input) => deleteLink(store, input));
   const artifacts = new ArtifactService(store, connectors, extraArtifactFolders);
+  // A card's plan (CARD-PLAN-SPEC): the human RPCs, and plan-mode approvals of card sessions (§4).
+  const plans = new PlanService(store, artifacts);
+  let planPaseo: PaseoApi | null = null;
+  const planWatcher = new PlanModeWatcher(async (entry) => {
+    if (planPaseo) await plans.fromPlanMode(entry, planPaseo);
+  });
   const workpads = new WorkpadService(store);
   // Automatic review of agent deliveries (AUTO-REVIEW-SPEC); rework goes out through the composer queue.
   const reviews = new AutoReviewService(store, {
@@ -844,6 +851,9 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.createArtifact, (input, { paseo }) => artifacts.create(input, paseo));
   server.handle(rpc.updateArtifact, (input) => artifacts.update(input));
   server.handle(rpc.deleteArtifact, (input) => artifacts.delete(input));
+  server.handle(rpc.setPlan, (input, { paseo }) => plans.set(input, paseo));
+  server.handle(rpc.approvePlan, (input) => plans.approve(input));
+  server.handle(rpc.clearPlan, (input) => plans.clear(input));
   server.handle(rpc.artifactStatus, async (input, { paseo }) => {
     // Opening a card's artifacts brings its review ledger up to date first (REVIEW-LEDGERS-SPEC §4).
     await ledgers.syncCardSoon(input.taskId, paseo);
@@ -1025,14 +1035,20 @@ export default function contribute(host: PluginServerContext) {
     const identity = await managedTask(event.agent);
     // EVENT-BUS-SPEC §1: every session's request, with its card when Flowly manages the session.
     bus.publish([{ kind: "permission", agentId: event.agent.id, taskId: identity?.taskId ?? null, request: event.request }]);
+    // A plan-mode request of a card session is kept until its answer (CARD-PLAN-SPEC §4); never throws.
+    planPaseo = paseo;
+    planWatcher.before(identity, event.request);
     if (!identity) return;
     await store.mutate((board) =>
       // INSIGHTS-REDESIGN-SPEC §7.2: only the tool's name, never its input.
       recordLifecycle(store, board, identity, "agent.permission_requested", undefined, { tool: event.request.name || event.request.kind }),
     );
   });
-  server.addHook("agent.permission.after", async (event) => {
+  server.addHook("agent.permission.after", async (event, { paseo }) => {
     bus.publish([{ kind: "permission_resolved", agentId: event.agent.id, requestId: event.requestId }]);
+    // An approved plan becomes the card's plan; after the hook, never blocking it (CARD-PLAN-SPEC §4).
+    planPaseo = paseo;
+    void planWatcher.after(event.agent.id, event.requestId, event.resolution);
   });
   // Anonymous daily heartbeat (TELEMETRY-SPEC); off by the setting, DO_NOT_TRACK or FLOWLY_TELEMETRY=0, and always off while POSTHOG_KEY is empty.
   const ready = <T,>(state: { status: string; values?: unknown } | null, parse: (values: unknown) => T) => parse(state?.status === "ready" ? state.values : {});

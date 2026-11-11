@@ -20,6 +20,7 @@ import {
   linkSchema,
   artifactInput,
   artifactEdit,
+  artifactLimits,
   artifactSchema,
   workpadSchema,
   workpadCheck,
@@ -435,6 +436,22 @@ export const deleteArtifact = defineRpc({
   name: "artifacts.delete",
   input: z.strictObject({ id: z.string().min(1) }),
   output: z.object({ id: z.string() }),
+});
+/** A card's plan (CARD-PLAN-SPEC §5.1): set (approved by the person), approve the draft, or empty the slot. */
+export const setPlan = defineRpc({
+  name: "plans.set",
+  input: z.strictObject({ taskId: z.string().min(1), target: z.string().trim().min(1).max(artifactLimits.target), title: z.string().trim().max(artifactLimits.title).optional() }),
+  output: artifactSchema,
+});
+export const approvePlan = defineRpc({
+  name: "plans.approve",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: artifactSchema,
+});
+export const clearPlan = defineRpc({
+  name: "plans.clear",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: z.null(),
 });
 /** A person ticks an acceptance criterion (WORKPAD-SPEC §6.3). */
 export const checkWorkpad = defineRpc({
