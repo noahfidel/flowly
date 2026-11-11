@@ -645,9 +645,10 @@ function BoardContent(
   }, [!!view.values]);
   const validFilterId = validProjectFilter(projectFilter, group?.id ?? "", liveProjects.map((p) => p.id));
   useEffect(() => {
-    // Only once the stored filter and group are read: before that a stored filter would be cleared against the default group.
+    // Only once the stored filter and group are read: before that a stored filter would be cleared against the default
+    // group. `projectFilter` is a dependency: a stale stored filter restored after the overview loaded is cleared too.
     if (projectFilter && group && overviewData.data && view.values && !validFilterId) setProjectFilter(null);
-  }, [groupKey, validFilterId, !!overviewData.data, !!view.values]);
+  }, [groupKey, validFilterId, !!overviewData.data, !!view.values, projectFilter?.groupId, projectFilter?.projectId]);
   // `project` is a board's one project: the filtered one, or the only one of a one-project group; none shows every
   // project of the group, each card using its own (projectOf).
   const project = boardProject(validFilterId, liveProjects);
