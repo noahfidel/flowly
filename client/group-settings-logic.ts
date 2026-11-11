@@ -51,8 +51,12 @@ export function withDirty(dirty: ReadonlySet<string>, projectId: string, isDirty
 /** The key unsaved lane edits use among the page's unsaved sections (project ids otherwise). */
 export const lanesDirtyKey = "*lanes";
 
-/** Discard drops the unsaved lane draft's key (the draft itself is reset by remounting the editor). */
-export const withoutLaneDraft = (dirty: ReadonlySet<string>): ReadonlySet<string> => withDirty(dirty, lanesDirtyKey, false);
+/**
+ * Discard drops every unsaved section's key, the lane draft's and each project section's (ruling, Noah 2026-11-11); the
+ * drafts themselves are reset by remounting the editors (the page's discard epoch).
+ */
+const clean: ReadonlySet<string> = new Set();
+export const afterDiscard = (dirty: ReadonlySet<string>): ReadonlySet<string> => (dirty.size ? clean : dirty);
 
 /** Closing, moving a project or deleting the group asks first while any section holds unsaved edits. */
 export const needsDiscardConfirm = (dirty: ReadonlySet<string>): boolean => dirty.size > 0;

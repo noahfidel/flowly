@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Group, Project } from "../shared/model";
-import { agentModelText, currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, lanesDirtyKey, needsDiscardConfirm, withoutLaneDraft, shownGroup, withDirty } from "./group-settings-logic";
+import { agentModelText, currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, afterDiscard, lanesDirtyKey, needsDiscardConfirm, shownGroup, withDirty } from "./group-settings-logic";
 
 const at = "2026-11-10T00:00:00.000Z";
 const group = (id: string, position: number, defaults?: Group["defaults"]): Group => ({ id, name: id.toUpperCase(), position, revision: 1, createdAt: at, updatedAt: at, ...(defaults ? { defaults } : {}) });
@@ -53,12 +53,12 @@ describe("unsaved edits guard and stale state", () => {
     expect(withDirty(none, "a", false)).toBe(none);
     expect(withDirty(one, "a", false).size).toBe(0);
   });
-  test("Discard drops the lane draft's dirty key and keeps the other sections'", () => {
-    const dirty: ReadonlySet<string> = new Set([lanesDirtyKey, "p1"]);
-    expect([...withoutLaneDraft(dirty)]).toEqual(["p1"]);
-    const clean: ReadonlySet<string> = new Set(["p1"]);
-    expect(withoutLaneDraft(clean)).toBe(clean);
-    expect(needsDiscardConfirm(withoutLaneDraft(new Set([lanesDirtyKey])))).toBe(false);
+  // Ruling (Noah, 2026-11-11): Discard resets every section with unsaved edits, the lane draft and each project's.
+  test("Discard drops every dirty key, the lane draft's and every project section's", () => {
+    expect(afterDiscard(new Set([lanesDirtyKey, "p1", "p2"])).size).toBe(0);
+    expect(needsDiscardConfirm(afterDiscard(new Set(["p1"])))).toBe(false);
+    const clean: ReadonlySet<string> = new Set();
+    expect(afterDiscard(clean)).toBe(clean);
   });
   test("a leave asks only while a section is dirty", () => {
     expect(needsDiscardConfirm(new Set())).toBe(false);

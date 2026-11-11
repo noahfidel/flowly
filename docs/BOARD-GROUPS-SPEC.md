@@ -109,9 +109,11 @@ exactly one group. Individual projects are no longer top-level navigation.
   names; only a group with no member at all gets every lane. Replaces "a group with no live member gets every lane".
 - Ruling (Noah, 2026-11-10): when a write outside the migration turns a group's lane back on for a live card, the lane
   still comes back on, and the store logs one info line per write naming the group, the lane(s) and the reason (§1).
-- Ruling (Noah, 2026-11-10): **Discard** in the group settings page's unsaved-changes question also resets the lane
-  editor to the group's stored lanes and clears its unsaved mark (§5); before, only the leave ran and the draft and
-  mark stayed.
+- Ruling (Noah, 2026-11-11): **Discard** in the group settings page's unsaved-changes question resets every section
+  with unsaved edits, the lane editor and each project's section, to what is stored and clears every unsaved mark;
+  then the leave runs (§5).
+- Ruling (Noah, 2026-11-11): **Add group** inside the group settings page asks about unsaved edits first, like any
+  other leave (§5).
 - Ruling (Noah, 2026-11-10): the start migration bumps no group or project revision, including when it turns on a lane for a
   live card; only later writes bump the group's revision for that (§1, §7 step 7).
 - Ruling (Noah, 2026-11-10): Manual sort on a group board is **one order per column across all the group's projects**,
@@ -340,11 +342,13 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   setting, setup is the repo's `paseo.json`) and none is added here. Each project's section also has **Restore
   {project}** (archived projects only; `projects.update` with `archived: false`) and **Remove “{project}”…**, which
   closes the page and opens the Remove project dialog (PROJECT-REMOVE-SPEC); they replace the switcher's former
-  project rows. Unsaved edits in another section ask to be discarded first.
+  project rows. Unsaved edits in another section ask to be discarded first. A leave (close, moving a project, Remove,
+  opening a group just added) asks while any section, the lanes included, holds unsaved edits; **Discard** resets every
+  such section to what is stored (a shared discard epoch remounts them) and then leaves; **Keep editing** stays.
 - **Lanes** on the group settings page: the lane editor the project form had (order by drag, or arrows on touch;
   on/off; an optional name), editing the group's lanes, with **Cancel** and **Save** (one `groups.update` with
   `lanes`). A lane that holds live cards of any live member, or the last lane on, can't be switched off there (the
-  server refuses the same, §2). Unsaved lane edits count as unsaved edits for the discard question, and Discard resets the lane editor to the stored lanes. They survive a
+  server refuses the same, §2). Unsaved lane edits count as unsaved edits for the discard question, and Discard resets the lane editor to the stored lanes with the other sections. They survive a
   change of the group that leaves its lanes as they were (rename, defaults, a project move); a lane change made
   elsewhere reloads an untouched editor, and refuses the first Save of an edited one with "Lanes changed elsewhere.
   Your edits were kept; review and save again." (a second Save overwrites). Edit project
@@ -369,7 +373,9 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 - **Add and delete groups** (ruling, Noah 2026-11-10): **Add group** is on the group settings page and in the
   switcher, and **Delete group…** on the group settings page and in the tab menu (not for the default group; the
   confirm says its projects move to the default group and its dispatcher, if it has one, is archived). `GROUP_BUSY`
-  and `DISPATCHER_UNAVAILABLE` refusals show on the page. Renaming a group is the page's name field.
+  and `DISPATCHER_UNAVAILABLE` refusals show on the page. Renaming a group is the page's name field. On the page,
+  opening the group just added is a leave: with unsaved edits it asks first (the group is already created; **Keep
+  editing** stays on the current group).
 
 ## 6. Dispatcher per group
 
