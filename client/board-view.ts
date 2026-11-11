@@ -23,7 +23,10 @@ export async function saveMerged(read: () => Settings, patch: Partial<BoardView>
       await pause(150);
       continue;
     }
-    const base = boardViewValues(current.values);
+    // Keys the schema does not know (the v1 `boardGroups` the migration reads, BOARD-GROUPS-SPEC §7 step 1) are kept:
+    // the host hands over the stored values unparsed, and the save replaces the whole document.
+    const raw = typeof current.values === "object" && current.values !== null && !Array.isArray(current.values) ? current.values : {};
+    const base = { ...raw, ...boardViewValues(current.values) };
     const next = { ...base, ...patch };
     if (JSON.stringify(next) === JSON.stringify(base)) return true;
     if (await current.save(next, current.revision)) return true;

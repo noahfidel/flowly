@@ -50,3 +50,14 @@ test("an unchanged value does not write", async () => {
   expect(await saveMerged(() => s.state, { boardSort: "title" }, async () => undefined)).toBe(true);
   expect(s.state.revision).toBe(before);
 });
+
+// BOARD-GROUPS-SPEC §7 step 1: the migration reads the v1 `boardGroups` from the stored file, which the typed schema
+// no longer has. A save of another field must keep it (and any other key this version does not know) in place.
+test("a save keeps stored keys the schema does not know, such as the legacy boardGroups", async () => {
+  const s = store({ boardSort: "manual" });
+  const legacy = [{ id: "g1", name: "Work", projectIds: ["p1"] }];
+  s.external({ boardGroups: legacy, futureKey: 7 } as unknown as Partial<BoardView>);
+  await s.state.reload();
+  expect(await saveMerged(() => s.state, { boardSort: "priority" }, async () => undefined)).toBe(true);
+  expect(s.doc).toMatchObject({ boardSort: "priority", boardGroups: legacy, futureKey: 7 });
+});
