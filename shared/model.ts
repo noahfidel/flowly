@@ -478,8 +478,21 @@ export const artifactSchema = z.object({
   external: externalRefSchema.optional(),
   /** Added and kept in sync by Flowly itself, never by a person or an agent (REVIEW-LEDGERS-SPEC §3). */
   origin: z.enum(["review-ledger"]).optional(),
+  /** Marks the card's one plan (CARD-PLAN-SPEC §1.1); absent on every other artifact. */
+  plan: z
+    .object({
+      /** null: a draft. */
+      approvedAt: timestamp.nullable(),
+      /** Present exactly when `approvedAt` is set. */
+      approvedBy: z.object({ kind: z.enum(["human", "agent"]), agentId: z.string().optional() }).optional(),
+      source: z.enum(["plan-mode", "tool", "manual"]),
+      /** When this artifact became the card's plan. */
+      setAt: timestamp,
+    })
+    .optional(),
 });
 export type Artifact = z.infer<typeof artifactSchema>;
+export type ArtifactPlan = NonNullable<Artifact["plan"]>;
 export type ArtifactRole = Artifact["role"];
 const artifactTitle = z.string().trim().max(artifactLimits.title);
 const artifactNote = z.string().trim().max(artifactLimits.note);
