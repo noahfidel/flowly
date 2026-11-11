@@ -5,9 +5,9 @@ import { dispatcherDefaultModel } from "./dispatcher";
 export const agentModelSchema = z.strictObject({
   provider: z.string().min(1).max(100),
   model: z.string().min(1).max(200),
-  /** Reasoning option id of the model; absent gets the picker's suggestion (`suggestedThinking`). */
+  /** Reasoning option id of the model; absent keeps the model's own default. */
   thinking: z.string().min(1).max(100).optional(),
-  /** Permission mode id of the provider; absent keeps the latest session's (same provider) or the provider default. */
+  /** Permission mode id of the provider; absent gets the picker's suggestion (`suggestedMode`). */
   mode: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/).optional(),
 });
 export type AgentModel = z.infer<typeof agentModelSchema>;
@@ -19,7 +19,7 @@ type WithAgentModel = { agentModel?: AgentModel | null } | null | undefined;
 
 type WithGroupDefaults = { defaults?: { agentModel?: AgentModel | null } | null } | null | undefined;
 
-/** The model new sessions in `project` start with: the project's own default, then its group's, then the global one; none means "follow the latest session". */
+/** The model new sessions in `project` start with: the project's own default, then its group's, then the global one; none means the user chooses (no earlier session decides). */
 export function effectiveAgentModel(project: WithAgentModel, group: WithGroupDefaults, global: AgentModel | null | undefined): { model: AgentModel; source: AgentModelSource } | null {
   if (project?.agentModel) return { model: project.agentModel, source: "project" };
   if (group?.defaults?.agentModel) return { model: group.defaults.agentModel, source: "group" };
@@ -39,23 +39,24 @@ export function effectiveDispatcherModel(
   return group?.defaults?.dispatcherModel ?? host ?? { ...dispatcherDefaultModel };
 }
 
-type LastSession ={ provider: string; model: string; mode: string; thinking?: string; speed?: string } | null | undefined;
-
 /**
- * Starting point of the session form: the chosen default replaces provider,
- * model and reasoning of the latest session; the permission mode and the speed
- * (AGENT-SPEED-SPEC) are only kept when they belong to the same provider.
- * A mode or speed left unset here gets the picker's suggestion (`suggestedMode`, `suggestedSpeed`).
+ * Starting point of a new session (MODEL-DEFAULTS-SPEC §2): the chosen default's provider, model, reasoning and mode;
+ * null when none is set. Never taken from an earlier session. An unset mode ("") gets the picker's suggestion
+ * (`suggestedMode`), an unset reasoning ("") is the model's own default, and the speed is the picker's suggestion.
  */
-export function startingAgent(last: LastSession, chosen: AgentModel | null | undefined) {
-  if (!chosen) return last ?? null;
-  const sameProvider = !!last && last.provider === chosen.provider;
+export function startingAgent(chosen: AgentModel | null | undefined) {
+  if (!chosen) return null;
+  return { provider: chosen.provider, model: chosen.model, mode: chosen.mode ?? "", thinking: chosen.thinking ?? "", speed: undefined as string | undefined };
+}
+
+/** The agent picker's first state for `defaults`; with none, provider and model stay empty until the user picks. */
+export function pickerSeed(defaults: { provider: string; model: string; mode: string; thinking?: string; speed?: string } | null | undefined) {
   return {
-    provider: chosen.provider,
-    model: chosen.model,
-    mode: chosen.mode ?? (sameProvider ? last.mode : ""),
-    thinking: chosen.thinking ?? "",
-    speed: sameProvider ? last.speed : undefined,
+    provider: defaults?.provider || "",
+    model: defaults?.model || "",
+    mode: defaults?.mode || undefined,
+    thinking: defaults?.thinking || undefined,
+    speed: defaults?.speed,
   };
 }
 
@@ -98,7 +99,7 @@ export function providerBase(provider: string, modeIds: readonly string[] = []):
   return provider;
 }
 
-/** Reasoning suggestion for any provider: Extra High (`xhigh`) when the model offers it, else the model's own default (""). */
-export function suggestedThinking(options: readonly { id: string }[] = []): string {
-  return options.some((o) => o.id === "xhigh") ? "xhigh" : "";
+/** Reasoning the picker sends: the chosen option when the model offers it, else the model's own default (""). */
+export function chosenThinking(thinking: string | undefined, options: readonly { id: string }[] = []): string {
+  return thinking && options.some((o) => o.id === thinking) ? thinking : "";
 }

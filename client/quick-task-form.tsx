@@ -89,7 +89,7 @@ export function QuickTaskForm({
   const firstText = quickPrompt(text, items);
   const modelName = (choice.models.data?.models || []).find((m) => m.id === choice.chosenModel)?.label || choice.chosenModel;
   const modeLabel = choice.chosenMode ? (choice.modes.data?.modes || []).find((m) => m.id === choice.chosenMode)?.label || choice.chosenMode : "";
-  const agentText = [choice.provider, modelName, modeLabel].filter(Boolean).join(" · ");
+  const agentText = [choice.provider, modelName, modeLabel].filter(Boolean).join(" · ") || t("Choose a model");
   async function save() {
     if (!project) return;
     setPending(true);

@@ -59,7 +59,6 @@ import {
   attentionItemsWithFacts,
   attentionOpen,
   attentionOpenToken,
-  lastSessionSettings,
   listSignals,
   openInList,
   snoozeMenu,
@@ -873,31 +872,16 @@ function BoardContent(
     [allAttention],
   );
   const attentionByTask = useMemo(() => new Map(allAttention.map((i) => [i.task.id, i])), [allAttention]);
-  // The project's default model wins over the global one; with neither, the latest session's settings (MODEL-DEFAULTS-SPEC).
+  // The project's default model, then its group's, then the global one; with none the picker starts empty (MODEL-DEFAULTS-SPEC §2).
   const modelPrefs = useSettings(modelSettings);
   const globalModel = agentModelFromValues(modelPrefs.status === "ready" ? modelSettingsValues(modelPrefs.values) : null);
   // The open form's or card's own project first: on the All board there is no board project. Then its group's default.
   const modelProject = formProject ?? taskProject ?? project;
   const defaultModel = effectiveAgentModel(modelProject, groupOf(modelProject), globalModel)?.model ?? null;
   const defaultModelKey = JSON.stringify(defaultModel);
-  const sessionDefaults = useMemo(
-    () =>
-      startingAgent(
-        lastSessionSettings(
-          agents.data || [],
-          new Set((board?.tasks || []).map((t) => t.workspaceId)),
-        ),
-        defaultModel,
-      ),
-    [agents.data, board?.tasks, defaultModelKey],
-  );
+  const sessionDefaults = useMemo(() => startingAgent(defaultModel), [defaultModelKey]);
   // Quick task's agent in any project: the same rule as sessionDefaults (QUICK-TASK-SPEC §1).
-  const agentDefaultsFor = useStableCallback((p: Project) =>
-    startingAgent(
-      lastSessionSettings(agents.data || [], new Set((board?.tasks || []).map((t) => t.workspaceId))),
-      effectiveAgentModel(p, groupOf(p), globalModel)?.model ?? null,
-    ),
-  );
+  const agentDefaultsFor = useStableCallback((p: Project) => startingAgent(effectiveAgentModel(p, groupOf(p), globalModel)?.model ?? null));
   // New task: Quick task unless the user turned that off (QUICK-TASK-SPEC §5), in the board's project unless pinned.
   // All projects: always Quick task, in the last quick-task project (ALL-PROJECTS-SPEC §5). `inAll` is false when
   // the caller switches to a project in the same moment (a project tab's New task).

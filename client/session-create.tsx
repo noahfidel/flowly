@@ -29,7 +29,7 @@ export function SessionCreate({
   open: boolean;
   /** Prefill for a session started from an idea (IDEAS-SPEC §6.3); read when the form opens. */
   seed?: { title: string; prompt: string } | null;
-  /** Provider/model/mode of the latest session, reused as this form's starting point. */
+  /** The New task defaults (MODEL-DEFAULTS-SPEC §2), this form's starting point; none leaves the picker empty. */
   defaults?: { provider: string; model: string; mode: string } | null;
   workspaceDirectory?: string;
   unavailable: boolean;

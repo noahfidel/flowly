@@ -1,7 +1,6 @@
 import type { Project, Task, BoardEvent } from "./model";
 import { openReport, silentTurn } from "./progress";
 import { parseQuestions, pendingRequests, showsTextInput, type PendingRequest } from "./permission-question";
-import { sessionSpeed, type ProviderFeature } from "./agent-speed";
 import {
   isKeySnoozed,
   listSnoozed,
@@ -354,32 +353,4 @@ export function attentionScreenParams(token: string) {
 /** The open token when params ask for the Needs attention modal, else null. */
 export function attentionOpenToken(params: Record<string, string> | undefined): string | null {
   return params?.view === "attention" && params.open ? params.open : null;
-}
-
-/** Provider/model/mode/reasoning/speed of the most recently created session in any card workspace. */
-export function lastSessionSettings(
-  agents: readonly {
-    workspaceId?: string | null;
-    archivedAt?: string | null;
-    createdAt: string;
-    provider: string;
-    model: string | null;
-    currentModeId?: string | null;
-    thinkingOptionId?: string | null;
-    features?: readonly ProviderFeature[] | null;
-  }[],
-  workspaceIds: ReadonlySet<string>,
-) {
-  const latest = agents
-    .filter((a) => !a.archivedAt && !!a.workspaceId && workspaceIds.has(a.workspaceId))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  return latest
-    ? {
-        provider: latest.provider,
-        model: latest.model || "",
-        mode: latest.currentModeId || "",
-        thinking: latest.thinkingOptionId || "",
-        speed: sessionSpeed(latest.features),
-      }
-    : null;
 }

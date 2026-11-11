@@ -5,7 +5,6 @@ import { z } from "zod";
 import { switchLimits, type Board, type Project, type Task } from "../shared/model";
 import { groupOfProject } from "../shared/groups";
 import { effectiveAgentModel, providerBase, startingAgent, suggestedMode, type AgentModel } from "../shared/agent-defaults";
-import { lastSessionSettings } from "../shared/attention";
 import { itemTypeOf } from "../shared/connectors";
 import { startCardInputSchema, type StartCardInput, type StartCardResult, type ToolPreparation } from "../shared/tools";
 import type { AgentCards, CardCaller } from "./agent-cards";
@@ -175,7 +174,7 @@ export class CardStarter {
     }
     const release = caller.human ? () => undefined : this.cards.reserve(caller.agentId, caller.dispatcher);
     try {
-      const model = await this.model(project, board, paseo);
+      const model = await this.model(project, board);
       let workspaceId = task.workspaceId;
       const warnings: string[] = [];
       // After the limit and the model, so a refused start makes no branch and keeps no request.
@@ -250,34 +249,12 @@ export class CardStarter {
     return request;
   }
 
-  /** The New task defaults: project model, else global, else the project's latest session (§5). */
-  private async model(project: Project, board: Board, paseo: PaseoApi) {
-    const chosen = effectiveAgentModel(project, groupOfProject(board, project), await this.modelDefault().catch(() => null))?.model ?? null;
-    let last: ReturnType<typeof lastSessionSettings> = null;
-    if (!chosen?.mode) {
-      const agents: Parameters<typeof lastSessionSettings>[0][number][] = [];
-      let cursor: string | undefined;
-      do {
-        const page = await paseo.agents.list({ filter: { includeArchived: false }, page: { limit: 200, cursor } });
-        for (const { agent } of page.entries)
-          agents.push({
-            workspaceId: agent.workspaceId,
-            archivedAt: agent.archivedAt,
-            createdAt: agent.createdAt,
-            provider: agent.provider,
-            model: agent.model,
-            currentModeId: agent.currentModeId,
-            thinkingOptionId: agent.thinkingOptionId,
-            features: agent.features,
-          });
-        cursor = page.pageInfo.nextCursor ?? undefined;
-      } while (cursor);
-      last = lastSessionSettings(agents, new Set(board.tasks.filter((t) => t.projectId === project.id).map((t) => t.workspaceId)));
-    }
-    const start = startingAgent(last, chosen);
-    if (!start?.provider || !start.model)
-      throw new ToolError("MODEL_UNAVAILABLE", "No model to start with: the user has no default model in Flowly settings and the project has no earlier session. Ask the user to choose one.");
-    return { provider: start.provider, model: start.model, mode: start.mode || suggestedMode(providerBase(start.provider)), thinking: start.thinking || "" };
+  /** The New task defaults: the project's model, else its group's, else the global one; never an earlier session (§5). */
+  private async model(project: Project, board: Board) {
+    const start = startingAgent(effectiveAgentModel(project, groupOfProject(board, project), await this.modelDefault().catch(() => null))?.model ?? null);
+    if (!start)
+      throw new ToolError("MODEL_UNAVAILABLE", "No model to start with: no default model is set for this project, its group or globally. Ask the user to set one in Settings → Models (or the project's Default model).");
+    return { provider: start.provider, model: start.model, mode: start.mode || suggestedMode(providerBase(start.provider)), thinking: start.thinking };
   }
 
   /** Creates the worktree, moves the card to it, then archives the empty directory workspace (§4.1–4.3). */

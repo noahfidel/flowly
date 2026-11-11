@@ -219,17 +219,28 @@ test("start_card starts a labelled session in the card's worktree", async () => 
   await x.starter.start(x.caller, { taskId: "d", prompt: "Only the tests.", idempotencyKey: "go" }, x.paseo);
   expect(x.createdSessions[1].config).toMatchObject({ provider: "codex/gpt-6", modeId: "full-access", thinkingOptionId: "high" });
   expect(x.createdSessions[1].prompt).toBe("Only the tests.");
-  // With no default at all, the project's latest session decides, as in the New task form.
+  // With no default at all, an earlier session never decides: not even a newer one in the project's cards.
   await x.store.mutate((board) => {
     delete board.projects[0].agentModel;
   });
   x.starter.modelDefault = async () => null;
-  x.agents.get(x.createdSessions[1].agentId)!.archivedAt = new Date().toISOString();
-  x.agents.get(x.createdSessions[0].agentId)!.archivedAt = new Date().toISOString();
   x.session("elsewhere", "ws-c");
   await x.card("e", {}, "worktree");
-  await x.starter.start(x.caller, { taskId: "e", idempotencyKey: "go" }, x.paseo);
-  expect(x.createdSessions[2].config).toMatchObject({ provider: "claude/claude-opus-5-5", modeId: "auto" });
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "e", idempotencyKey: "go" }, x.paseo))).toBe("MODEL_UNAVAILABLE");
+  expect(x.createdSessions).toHaveLength(2);
+});
+
+test("start_card ignores a newer summarizer session and starts on the default's reasoning, else the model's own", async () => {
+  const x = await setup();
+  x.starter.modelDefault = async () => ({ provider: "claude", model: "claude-sonnet-5-5" });
+  await x.card("c", {}, "worktree");
+  // A newer Haiku summarizer in the card's workspace (made-up ids).
+  x.agents.set("sum-1", { id: "sum-1", workspaceId: "ws-c", title: "Summary", status: "idle", archivedAt: null, createdAt: new Date(Date.now() + 60000).toISOString(), provider: "claude", model: "claude-haiku-5-5", labels: { flowly: "summarizer" }, thinkingOptionId: "low", currentModeId: "plan" } as never);
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  const config = x.createdSessions[0].config;
+  expect(config).toMatchObject({ provider: "claude/claude-sonnet-5-5", modeId: "auto" });
+  // No reasoning in the default: the model's own (no thinkingOptionId), never Extra High.
+  expect(config.thinkingOptionId).toBeUndefined();
 });
 
 test("a retried start_card returns the same session", async () => {
@@ -309,9 +320,8 @@ test("a Done card cannot be started; other refusals come before anything is crea
   await x.card("c", {}, "worktree");
   // Another project's card is not found from this caller.
   expect(await x.failure(x.starter.start({ ...x.caller, projectId: "q" }, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("NOT_FOUND");
-  // No default model and no live session in the project to follow.
+  // No default model: nothing else decides, a live session in the project included.
   x.starter.modelDefault = async () => null;
-  x.agents.get("live")!.archivedAt = new Date().toISOString();
   expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("MODEL_UNAVAILABLE");
   x.turn(false);
   expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("AGENT_CARDS_DISABLED");

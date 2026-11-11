@@ -1,4 +1,4 @@
-import { providerBase, quickTaskMode, suggestedMode, suggestedThinking } from "../shared/agent-defaults";
+import { chosenThinking as thinkingFor, pickerSeed, providerBase, quickTaskMode, suggestedMode } from "../shared/agent-defaults";
 import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { usePaseo } from "@getpaseo/plugin/client";
@@ -13,18 +13,20 @@ export type AgentDefaults = { provider: string; model: string; mode: string; thi
 
 /**
  * Provider / model / reasoning / speed / permission choice shared by "New
- * session" and "New task → Start an agent now". Remembered defaults fall back
- * to the provider's defaults when no longer offered. A mode, speed or reasoning
- * not chosen yet (undefined) gets its suggestion (MODEL-DEFAULTS-SPEC).
+ * session" and "New task → Start an agent now". Defaults fall back to the
+ * provider's defaults when no longer offered; with no default the provider and
+ * model stay empty until picked. A mode or speed not chosen yet (undefined) gets
+ * its suggestion; reasoning not chosen is the model's own (MODEL-DEFAULTS-SPEC).
  * `cwd` scopes model/mode discovery.
  */
 export function useAgentChoice({ enabled, cwd, defaults, planFirst = false }: { enabled: boolean; cwd?: string; defaults: AgentDefaults; /** Quick task: start in `plan` when the provider offers it, unless a mode is picked. */ planFirst?: boolean }) {
   const paseo = usePaseo();
-  const [provider, setProviderState] = useState(defaults?.provider || "codex"),
-    [model, setModel] = useState(defaults?.model || ""),
-    [mode, setMode] = useState<string | undefined>(defaults?.mode || undefined),
-    [thinking, setThinking] = useState<string | undefined>(defaults?.thinking || undefined),
-    [speed, setSpeed] = useState<string | undefined>(defaults?.speed);
+  const [seed] = useState(() => pickerSeed(defaults));
+  const [provider, setProviderState] = useState(seed.provider),
+    [model, setModel] = useState(seed.model),
+    [mode, setMode] = useState<string | undefined>(seed.mode),
+    [thinking, setThinking] = useState<string | undefined>(seed.thinking),
+    [speed, setSpeed] = useState<string | undefined>(seed.speed);
   const providers = useQuery({
     queryKey: ["flowly", "providers"],
     queryFn: () => paseo.providers.listAvailable(),
@@ -43,7 +45,7 @@ export function useAgentChoice({ enabled, cwd, defaults, planFirst = false }: { 
       if (result.error) throw new Error(result.error);
       return result;
     },
-    enabled: enabled && !!cwd,
+    enabled: enabled && !!cwd && !!provider,
   });
   const modes = useQuery({
     queryKey: ["flowly", "modes", provider, cwd],
@@ -52,11 +54,12 @@ export function useAgentChoice({ enabled, cwd, defaults, planFirst = false }: { 
       if (result.error) throw new Error(result.error);
       return result;
     },
-    enabled: enabled && !!cwd,
+    enabled: enabled && !!cwd && !!provider,
   });
+  // A default whose provider is not available here falls back to an available one; no default stays empty.
   useEffect(() => {
     const available = providers.data?.providers.filter((p) => p.available) || [];
-    if (!providers.isSuccess || !available.length) return;
+    if (!provider || !providers.isSuccess || !available.length) return;
     if (!available.some((p) => p.provider === provider)) {
       setProviderState(available.find((p) => p.provider === "codex")?.provider || available[0].provider);
       setModel("");
@@ -74,8 +77,7 @@ export function useAgentChoice({ enabled, cwd, defaults, planFirst = false }: { 
   // Reasoning effort: the model's own options; "" keeps the model default.
   const thinkingOptions = selectable.find((m) => m.id === chosenModel)?.thinkingOptions || [];
   const defaultThinking = selectable.find((m) => m.id === chosenModel)?.defaultThinkingOptionId || "";
-  const wantedThinking = thinking ?? suggestedThinking(thinkingOptions);
-  const chosenThinking = wantedThinking && thinkingOptions.some((t) => t.id === wantedThinking) ? wantedThinking : "";
+  const chosenThinking = thinkingFor(thinking, thinkingOptions);
   // A custom provider (`codex-connected`, …) gets its base provider's suggestions.
   const base = providerBase(provider, modes.data?.modes?.map((m) => m.id));
   const modeIds = modes.data?.modes?.map((m) => m.id);
@@ -112,11 +114,12 @@ export function useAgentChoice({ enabled, cwd, defaults, planFirst = false }: { 
     setThinking,
     setSpeed,
     reset(next: AgentDefaults) {
-      setProviderState(next?.provider || "codex");
-      setModel(next?.model || "");
-      setMode(next?.mode || undefined);
-      setThinking(next?.thinking || undefined);
-      setSpeed(next?.speed);
+      const seed = pickerSeed(next);
+      setProviderState(seed.provider);
+      setModel(seed.model);
+      setMode(seed.mode);
+      setThinking(seed.thinking);
+      setSpeed(seed.speed);
     },
     chosenModel,
     chosenMode,
@@ -176,7 +179,7 @@ export function AgentPicker({ choice, disabled = false }: { choice: AgentChoice;
           icon="Cpu"
           open={picker === "model"}
           disabled={disabled}
-          loading={choice.models.isPending}
+          loading={!!choice.provider && choice.models.isPending}
           value={choice.chosenModel}
           placeholder={t("Choose a model")}
           options={modelOptions(choice.models.data?.models || [])}
@@ -231,7 +234,7 @@ export function AgentPicker({ choice, disabled = false }: { choice: AgentChoice;
           icon="ShieldCheck"
           open={picker === "mode"}
           disabled={disabled}
-          loading={choice.modes.isPending}
+          loading={!!choice.provider && choice.modes.isPending}
           value={choice.chosenMode}
           placeholder={t("Provider default")}
           options={[
@@ -249,6 +252,11 @@ export function AgentPicker({ choice, disabled = false }: { choice: AgentChoice;
           }}
         />
       </PickerGroup>
+      {!choice.provider && (
+        <Label size={font.sm} muted>
+          {t("No default model. Set one in Settings → Models.")}
+        </Label>
+      )}
     </View>
   );
 }
