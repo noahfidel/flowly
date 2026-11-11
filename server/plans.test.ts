@@ -195,13 +195,32 @@ test("approving the same, already approved target again renews the approval and 
   const first = await x.plans.set({ taskId: "t", target: "docs/plan.md" }, x.paseo);
   await new Promise((r) => setTimeout(r, 5));
   await x.store.transaction((board) => {
-    const r = setPlan(x.store, board, { taskId: "t", kind: "file", target: first.target, approved: true, by: { kind: "agent", agentId: "actor" }, source: "tool" });
+    const r = setPlan(x.store, board, { taskId: "t", kind: "file", target: first.target, approved: true, by: { kind: "human" }, source: "plan-mode" });
     return { value: r, changed: r.changed };
   });
-  const plan = planOf(await card(x), "t")!;
+  let plan = planOf(await card(x), "t")!;
   expect(plan.plan.approvedAt! > first.plan!.approvedAt!).toBe(true);
-  expect(plan.plan).toMatchObject({ approvedBy: { kind: "agent", agentId: "actor" }, source: "tool" });
-  expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "plan_set", actor: "agent", note: "Approved: plan.md" });
+  expect(plan.plan).toMatchObject({ approvedBy: { kind: "human" }, source: "plan-mode" });
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "plan_set", actor: "human", note: "Approved: plan.md" });
+  // An agent renews only an agent's approval.
+  const set = (agentId: string) =>
+    x.store.transaction((board) => {
+      const r = setPlan(x.store, board, { taskId: "t", kind: "file", target: first.target, approved: true, by: { kind: "agent", agentId }, source: "tool" });
+      return { value: r, changed: r.changed };
+    });
+  await x.plans.set({ taskId: "t", target: "docs/next.md" }, x.paseo);
+  await x.store.transaction((board) => {
+    const r = setPlan(x.store, board, { taskId: "t", kind: "file", target: first.target, approved: false, by: { kind: "agent", agentId: "actor" }, source: "tool" });
+    return { value: r, changed: r.changed };
+  });
+  await set("actor");
+  await new Promise((r) => setTimeout(r, 5));
+  const before = planOf(await card(x), "t")!.plan.approvedAt!;
+  await set("second");
+  plan = planOf(await card(x), "t")!;
+  expect(plan.plan.approvedAt! > before).toBe(true);
+  expect(plan.plan).toMatchObject({ approvedBy: { kind: "agent", agentId: "second" }, source: "tool" });
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "plan_set", actor: "agent", agentId: "second" });
 });
 
 test("plan mode: the text and path the user edited at approval win over the request's", async () => {
@@ -260,4 +279,58 @@ test("a card's artifact roots hold its own plan copies, never another card's", a
   const where = await x.artifacts.where("t", x.paseo);
   expect((await normalizeTarget(own, where)).target).toBe(own);
   await expect(normalizeTarget(other, where)).rejects.toThrow("outside this card's directories");
+});
+
+test("adding a directory card's plan file again by its relative path reuses the plan record", async () => {
+  const x = await setup();
+  const plan = await x.plans.set({ taskId: "t", target: "docs/plan.md" }, x.paseo);
+  const again = await x.artifacts.create({ taskId: "t", role: "input", target: "docs/plan.md", note: "same file" }, x.paseo);
+  expect(again.id).toBe(plan.id);
+  const ctx = await x.service.get(x.identity);
+  await x.service.write(x.identity, "artifact", { expectedRevision: ctx.revision, request: ctx.request, role: "input", target: "docs/plan.md" });
+  const list = await card(x);
+  expect(list).toHaveLength(1);
+  expect(list[0]).toMatchObject({ target: join(x.a, "docs", "plan.md"), note: "same file" });
+  expect(list[0].plan).toBeTruthy();
+});
+
+test("plan mode: text the user edited at approval is saved as a copy even when the request named a file", async () => {
+  const x = await setup();
+  const watcher = new PlanModeWatcher((e) => x.plans.fromPlanMode(e, x.paseo));
+  watcher.before({ agentId: "actor", taskId: "t" }, { id: "r1", kind: "plan", input: { plan: "# First plan", planFilePath: join(x.a, "docs", "plan.md") } });
+  await watcher.after("actor", "r1", { behavior: "allow", updatedInput: { plan: "# First plan, edited", planFilePath: join(x.a, "docs", "plan.md") } });
+  const plan = planOf(await card(x), "t")!;
+  expect(plan.target.startsWith(join(x.store.directory, "plans", "t"))).toBe(true);
+  expect(await readFile(plan.target, "utf8")).toBe("# First plan, edited\n");
+  // The same text returned unchanged keeps the file.
+  watcher.before({ agentId: "actor", taskId: "t" }, { id: "r2", kind: "plan", input: { plan: "# Second plan", planFilePath: join(x.a, "docs", "next.md") } });
+  await watcher.after("actor", "r2", { behavior: "allow", updatedInput: { plan: "# Second plan" } });
+  expect(planOf(await card(x), "t")!.target).toBe(join(x.a, "docs", "next.md"));
+});
+
+test("an agent's approval never overrides an approval by the user or plan mode", async () => {
+  const x = await setup();
+  const first = await x.plans.set({ taskId: "t", target: "docs/plan.md" }, x.paseo);
+  const events = (await x.store.read()).events.length;
+  const revision = (await x.store.read()).revision;
+  await x.store.transaction((board) => {
+    const r = setPlan(x.store, board, { taskId: "t", kind: "file", target: first.target, approved: true, by: { kind: "agent", agentId: "actor" }, source: "tool" });
+    return { value: r, changed: r.changed };
+  });
+  const plan = planOf(await card(x), "t")!;
+  expect(plan.plan).toMatchObject({ approvedAt: first.plan!.approvedAt, approvedBy: { kind: "human" }, source: "manual" });
+  expect((await x.store.read()).events).toHaveLength(events);
+  expect((await x.store.read()).revision).toBe(revision);
+});
+
+test("a plan lookup that never answers is given up and logged", async () => {
+  const applied: string[] = [];
+  const watcher = new PlanModeWatcher(async (e) => void applied.push(e.text), () => Date.now(), 20);
+  const errors: unknown[][] = [];
+  const spy = (await import("vitest")).vi.spyOn(console, "error").mockImplementation((...args) => void errors.push(args));
+  watcher.before(new Promise(() => undefined), { id: "slow", kind: "plan", input: { plan: "# Slow" } });
+  await watcher.after("a", "slow", { behavior: "allow" });
+  spy.mockRestore();
+  expect(applied).toEqual([]);
+  expect(errors.some((args) => String(args[0]).startsWith("Flowly plan request session lookup timed out"))).toBe(true);
 });

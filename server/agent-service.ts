@@ -735,6 +735,7 @@ export class AgentService {
             taskId: task.id, role: "output", kind: output.kind, target: output.target,
             title: output.title, note: output.note, createdBy: "agent", agentId: identity.agentId,
             ...("external" in output ? { external: output.external } : {}),
+            workspace: resources.workspace.workspaceDirectory || resources.task.sourcePath,
           }, new Date(this.clock()).toISOString());
           if (!artifactIds.includes(put.artifact.id)) artifactIds.push(put.artifact.id);
           if (output.notice) notice = [notice, `${output.target}: ${output.notice}`].filter(Boolean).join("\n");
@@ -761,6 +762,7 @@ export class AgentService {
                     createdBy: "agent",
                     agentId: identity.agentId,
                     ...("external" in artifactTarget! ? { external: artifactTarget.external } : {}),
+                    workspace: resources.workspace.workspaceDirectory || resources.task.sourcePath,
                   },
                   new Date(this.clock()).toISOString(),
                 );

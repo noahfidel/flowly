@@ -161,7 +161,16 @@ export type NewArtifact = {
   agentId?: string;
   /** A recognized item link of a connection (CONNECTORS-SPEC §3.1); always an input. */
   external?: ExternalRef;
+  /** The card's workspace folder: a `./x` file and its absolute form there are the same target. */
+  workspace?: string;
 };
+
+/** Whether a stored artifact names this target: equal, or a file whose `./` and absolute forms meet in the workspace (CARD-PLAN-SPEC §3.1). */
+export function sameTarget(a: Pick<Artifact, "kind" | "target">, kind: Artifact["kind"], target: string, workspace?: string) {
+  if (a.kind !== kind) return false;
+  if (a.target === target) return true;
+  return kind === "file" && !!workspace && absoluteTarget(a.target, workspace) === absoluteTarget(target, workspace);
+}
 
 /**
  * An item link or bare key of a configured connection, checked with the
@@ -188,7 +197,7 @@ export function putArtifact(
 ): { artifact: Artifact; changed: boolean; eventId?: string; notice?: string } {
   const { task } = liveCard(board, input.taskId);
   const actor = input.createdBy === "agent" ? { actor: "agent" as const, agentId: input.agentId } : { actor: "human" as const };
-  const existing = board.artifacts.find((a) => a.taskId === task.id && a.kind === input.kind && a.target === input.target);
+  const existing = board.artifacts.find((a) => a.taskId === task.id && sameTarget(a, input.kind, input.target, input.workspace));
   if (existing) {
     if (input.createdBy === "agent" && existing.createdBy === "human")
       return {
@@ -363,12 +372,14 @@ export class ArtifactService {
       picked && this.connectors
         ? await this.connectors.resolve(picked.connectionId, picked.key, picked.itemType).then((found) => ({ kind: "url" as const, target: found.url, ...found }))
         : await externalArtifact(this.connectors, rest.target);
-    const { kind, target } = external || (await normalizeTarget(rest.target, await this.where(rest.taskId, paseo)));
+    const where = external ? null : await this.where(rest.taskId, paseo);
+    const { kind, target } = external || (await normalizeTarget(rest.target, where!));
     return this.store.transaction((board) => {
       const { artifact, changed } = putArtifact(this.store, board, {
         ...rest,
         kind,
         target,
+        ...(where ? { workspace: where.workspace } : {}),
         createdBy: "human",
         ...(external ? { external: external.external, title: rest.title?.trim() || external.title } : {}),
       });

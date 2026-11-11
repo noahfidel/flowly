@@ -4,7 +4,7 @@ import type { Artifact, ArtifactPlan, Board } from "../shared/model";
 import { absoluteTarget } from "../shared/artifacts";
 import { planApproved, planOf, planRequestFacts, planTitle } from "../shared/plans";
 import type { CardPlan } from "../shared/tools";
-import { liveCard, missingArtifacts, normalizeTarget, planCopyFolder, putArtifact, type ArtifactRoots, type ArtifactService } from "./artifacts";
+import { liveCard, missingArtifacts, normalizeTarget, planCopyFolder, putArtifact, sameTarget, type ArtifactRoots, type ArtifactService } from "./artifacts";
 import { logFailure } from "./error-report";
 import type { BoardStore } from "./store";
 import { writePrivate } from "./tool-context";
@@ -72,12 +72,7 @@ export function setPlan(store: BoardStore, board: Board, input: SetPlanInput, no
   const { task } = liveCard(board, input.taskId);
   const actor = actorOf(input.by);
   const current = planOf(board.artifacts, task.id);
-  const existing = board.artifacts.find(
-    (a) =>
-      a.taskId === task.id &&
-      a.kind === input.kind &&
-      (a.target === input.target || (!!input.workspace && a.kind === "file" && a.target.startsWith("./") && absoluteTarget(a.target, input.workspace) === input.target)),
-  );
+  const existing = board.artifacts.find((a) => a.taskId === task.id && sameTarget(a, input.kind, input.target, input.workspace));
   if (existing?.origin === "review-ledger") throw new Error("A review ledger can't be the plan.");
   if (existing?.external) throw new Error("An external item can't be the plan.");
   // The plan keeps the stored form chosen by `planTarget` (an existing `./` record becomes absolute).
@@ -89,6 +84,8 @@ export function setPlan(store: BoardStore, board: Board, input: SetPlanInput, no
     // A plan is never un-approved; replace it instead.
     if (!input.approved) return { artifact: existing, changed: existing.updatedAt === now };
     const renewed = planApproved(existing);
+    // An agent renews only an agent's approval; the user's or plan mode's stays as it is (CARD-PLAN-SPEC §3.2).
+    if (renewed && input.by.kind === "agent" && existing.plan!.approvedBy?.kind !== "agent") return { artifact: existing, changed: existing.updatedAt === now };
     existing.plan = { ...existing.plan!, approvedAt: now, approvedBy: approver(input.by), ...(renewed ? { source: input.source } : {}) };
     existing.updatedAt = now;
     // Approved again (plan mode rewrote the same file and the user accepted it again): recorded as a new plan.
@@ -234,21 +231,34 @@ export class PlanModeWatcher {
     this.entries.delete(requestId);
     if (resolution.behavior !== "allow" || this.clock() - pending.at > maxAge) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = Symbol("timed out");
     const session = await Promise.race([
       pending.identity,
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), this.lookupWait);
+      new Promise<typeof timedOut>((resolve) => {
+        timer = setTimeout(() => resolve(timedOut), this.lookupWait);
       }),
     ]).finally(() => clearTimeout(timer));
+    if (session === timedOut) {
+      logFailure("Flowly plan request session lookup timed out:", new Error(`No answer within ${this.lookupWait} ms`), `request ${requestId}`);
+      return;
+    }
     if (!session || session.agentId !== agentId) return;
-    const edited = resolution.behavior === "allow" && resolution.updatedInput ? planRequestFacts({ input: resolution.updatedInput }) : { text: "", path: null };
-    const entry: PlanRequestEntry = {
-      agentId: session.agentId,
-      taskId: session.taskId,
-      text: typeof resolution.updatedInput?.plan === "string" ? edited.text : pending.text,
-      path: edited.path ?? pending.path,
-      at: pending.at,
-    };
+    let entry: PlanRequestEntry;
+    try {
+      const edited = resolution.updatedInput ? planRequestFacts({ input: resolution.updatedInput }) : { text: "", path: null };
+      // Text the user edited at approval is what they approved: it becomes a copy even when the request named a file.
+      const rewritten = typeof resolution.updatedInput?.plan === "string" && !!edited.text && edited.text !== pending.text;
+      entry = {
+        agentId: session.agentId,
+        taskId: session.taskId,
+        text: rewritten ? edited.text : pending.text,
+        path: rewritten ? null : (edited.path ?? pending.path),
+        at: pending.at,
+      };
+    } catch (e) {
+      logFailure("Flowly plan request not read:", e, `card ${session.taskId} request ${requestId}`);
+      return;
+    }
     try {
       await this.apply(entry);
     } catch (e) {
