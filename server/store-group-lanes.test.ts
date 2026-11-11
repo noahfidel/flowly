@@ -305,4 +305,16 @@ describe("group lanes: follow-ups", () => {
     expect(on((await onDisk("json", d)).groups[0])).toContain("test");
     log.mockRestore();
   });
+  test("the migration bumps no group or project revision, even when it turns a lane on for a live card", async () => {
+    const d = await directory();
+    const group = { id: "g", name: "Zen", position: 0, isDefault: true, revision: 3, createdAt: at, updatedAt: at, lanes: lanes((x) => x !== "blocked") };
+    await seed(d, [project("a", { groupId: "g", revision: 7, lanes: lanes((x) => x !== "blocked") })], [task("t1", "a", "blocked")], [group]);
+    const s = open("json", d);
+    expect(await s.migrateGroups(legacy([]))).toBe(true);
+    const board = await onDisk("json", d);
+    expect(on(board.groups[0])).toContain("blocked");
+    expect(board.groups[0]).toMatchObject({ revision: 3, updatedAt: at });
+    expect(board.projects[0].revision).toBe(7);
+    expectInSync(board);
+  });
 });

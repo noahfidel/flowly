@@ -99,6 +99,8 @@ exactly one group. Individual projects are no longer top-level navigation.
   names; only a group with no member at all gets every lane. Replaces "a group with no live member gets every lane".
 - Ruling (Noah, 2026-11-10): when a write outside the migration turns a group's lane back on for a live card, the lane
   still comes back on, and the store logs one info line per write naming the group, the lane(s) and the reason (§1).
+- Ruling (Noah, 2026-11-10): the start migration bumps no group or project revision, including when it turns on a lane for a
+  live card; only later writes bump the group's revision for that (§1, §7 step 7).
 
 ## 1. Model
 

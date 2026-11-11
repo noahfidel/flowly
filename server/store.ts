@@ -230,7 +230,8 @@ export class BoardStore {
           const migrated = !board.groups.length && board.projects.length ? migrateLegacyGroups(board, await load(), now, randomUUID) : false;
           const repair = ensureGroups(board, now, this.takeGroupId);
           // Group lanes (§7 step 7): computed once for groups that have none, then mirrored to their members.
-          const lanes = syncGroupLanes(board, now);
+          // The migration bumps no group or project revision (§7), even for a live card in a lane the group has off.
+          const lanes = syncGroupLanes(board, now, { bumpRevision: false });
           return { value: migrated ? { ...repair, projectIds: [] } : repair, changed: migrated || repair.changed || lanes.changed };
         }, true);
         // Set inside the queued job, so the next queued read or write already sees it.
