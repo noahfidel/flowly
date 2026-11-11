@@ -112,6 +112,26 @@ export function focusFilter(current: ProjectFilter, shownGroupId: string, target
   return targetGroupId !== shownGroupId ? { groupId: targetGroupId, projectId } : current;
 }
 
+/**
+ * Where focusing a project takes the board (§3): opening a card, a session chip, an idea link or a search hit, and a
+ * project just created (pinned; ruling, Noah 2026-11-11). The target group is always returned as the explicit choice,
+ * so a stored group read later never replaces it. In the shown group the filter stays, unless `pin` (the board must act
+ * on this project: Ideas from a card, Memory, a new project) and the board does not already show only it; another
+ * group's project opens that group filtered to it.
+ */
+export function focusProject<G extends Pick<Group, "id" | "isDefault" | "position">>(
+  groups: readonly G[],
+  projects: readonly Pick<Project, "id" | "groupId">[],
+  shown: { groupId: string; filter: ProjectFilter; boardProjectId: string },
+  projectId: string,
+  pin: boolean,
+): { groupId: string; filter: ProjectFilter } | null {
+  const target = groups.length ? groupOfProject(groups, projects, projectId) : undefined;
+  if (!target) return null;
+  if (target.id !== shown.groupId) return { groupId: target.id, filter: focusFilter(shown.filter, shown.groupId, target.id, projectId) };
+  return { groupId: target.id, filter: pin && shown.boardProjectId !== projectId ? { groupId: target.id, projectId } : shown.filter };
+}
+
 /** The project picker on a group's board: the group's projects first, then the rest, each in its given order (§5). */
 export function membersFirst<P extends { id: string }>(projects: readonly P[], memberIds: readonly string[]): P[] {
   const ids = new Set(memberIds);

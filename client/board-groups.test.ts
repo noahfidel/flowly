@@ -4,6 +4,7 @@ import {
   boardScope,
   defaultGroup,
   focusFilter,
+  focusProject,
   groupMembers,
   groupOfProject,
   groupOfView,
@@ -324,5 +325,29 @@ describe("what Insights, Ideas and Memory cover", () => {
     // A project that left the group (or was archived) is not offered, so the first member is used.
     expect(addProject(members, "gone")?.id).toBe("a");
     expect(addProject([], "b")).toBeUndefined();
+  });
+});
+
+// §3: opening a card, link or search hit, and a project just created (ruling, Noah 2026-11-11: the board is filtered
+// to the new project).
+describe("focusing a project", () => {
+  const shown = (groupId: string, filter: { groupId: string; projectId: string } | null = null, boardProjectId = "") => ({ groupId, filter, boardProjectId });
+  test("always names the target group as the explicit choice, so a stored group read later cannot replace it", () => {
+    expect(focusProject(groups, projects, shown("g1"), "a", false)).toEqual({ groupId: "g1", filter: null });
+  });
+  test("in the shown group the filter is left as it is", () => {
+    const f = { groupId: "g1", projectId: "b" };
+    expect(focusProject(groups, projects, shown("g1", f, "b"), "a", false)).toEqual({ groupId: "g1", filter: f });
+  });
+  test("pinned (Ideas, Memory, a new project) filters to the project unless the board already shows only it", () => {
+    expect(focusProject(groups, projects, shown("g1"), "a", true)).toEqual({ groupId: "g1", filter: { groupId: "g1", projectId: "a" } });
+    const f = { groupId: "g1", projectId: "a" };
+    expect(focusProject(groups, projects, shown("g1", f, "a"), "a", true)).toEqual({ groupId: "g1", filter: f });
+  });
+  test("another group's project opens that group filtered to it", () => {
+    expect(focusProject(groups, projects, shown("g1"), "c", false)).toEqual({ groupId: "g2", filter: { groupId: "g2", projectId: "c" } });
+  });
+  test("no group to open: nothing", () => {
+    expect(focusProject([], projects, shown(""), "a", false)).toBeNull();
   });
 });

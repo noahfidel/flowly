@@ -128,7 +128,7 @@ import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 // board-groups 3/7: group-only navigation (BOARD-GROUPS-SPEC §3).
 import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, rememberViewedGroupView } from "./project-memory";
-import { boardProject, boardScope, defaultGroup, focusFilter, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, otherGroupNeeds, overviewScope, pageScope, pickGroupView, restoredFilter, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
+import { boardProject, boardScope, defaultGroup, focusFilter, focusProject, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, otherGroupNeeds, overviewScope, pageScope, pickGroupView, restoredFilter, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
 import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { GroupTabs, needLabel } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
@@ -670,12 +670,12 @@ function BoardContent(
     if (choiceStale) setProject("");
   }, [choiceStale]);
   // A card opened before the groups are known (a cold link) selects its group once they arrive.
-  const pendingFocus = useRef("");
+  const pendingFocus = useRef<{ id: string; pin: boolean } | null>(null);
   // Add group and Delete group… dialogs; Group settings is its own page (onGroupSettings).
   const [groupDialog, setGroupDialog] = useState<{ kind: "add" } | { kind: "delete"; groupId: string } | null>(null);
   const chooseGroup = (id: string) => {
     ignoredLink.current = linkKey;
-    pendingFocus.current = "";
+    pendingFocus.current = null;
     setProject(groupViewId(id));
     setPage(null);
   };
@@ -688,21 +688,22 @@ function BoardContent(
   // `manual`: a user's own navigation, which supersedes the current session link (as setTask does).
   const focusGroupOf = (id: string, manual = true, pin = false) => {
     // A project the board does not hold yet (just created, or a cold link's) waits for the refreshed board.
-    if (!boardGroups.length || !projectById.has(id)) return void (pendingFocus.current = id);
-    pendingFocus.current = "";
-    const target = groupOfProject(boardGroups, board?.projects || [], id);
-    if (!target) return;
-    // `pin`: the board must act on this project (Memory, Ideas), so a board of several shows only it.
-    if (target.id === group?.id) {
-      if (pin && !(project && project.id === id)) setProjectFilter({ groupId: target.id, projectId: id });
-      return;
-    }
-    if (manual) ignoredLink.current = linkKey;
-    setProjectFilter(focusFilter(projectFilter, group?.id ?? "", target.id, id));
-    setProject(groupViewId(target.id));
+    if (!boardGroups.length || !projectById.has(id)) return void (pendingFocus.current = { id, pin });
+    pendingFocus.current = null;
+    // `pin`: the board must act on this project (Memory, Ideas, a new project), so a board of several shows only it.
+    const next = focusProject(boardGroups, board?.projects || [], { groupId: group?.id ?? "", filter: projectFilter, boardProjectId: project?.id ?? "" }, id, pin);
+    if (!next) return;
+    if (manual && next.groupId !== group?.id) ignoredLink.current = linkKey;
+    // Also when unchanged on a fresh run: the focus is this run's filter choice, so a stored filter restored later
+    // cannot hide the focused card (restoredFilter).
+    if (lastProjectFilter() === undefined || JSON.stringify(next.filter) !== JSON.stringify(projectFilter)) setProjectFilter(next.filter);
+    // Always the explicit choice, also in the group shown: before the settings load the shown group is the default one,
+    // and the stored group read then must not take the card's group away (§3).
+    setProject(groupViewId(next.groupId));
   };
   useEffect(() => {
-    if (pendingFocus.current) focusGroupOf(pendingFocus.current, false);
+    const pending = pendingFocus.current;
+    if (pending) focusGroupOf(pending.id, false, pending.pin);
   }, [boardGroups, projectById]);
   // Guardrails needs one project; Insights, Ideas and Memory a project or a group's members; Search works across all.
   useEffect(() => {
@@ -2829,7 +2830,8 @@ function BoardContent(
               setReviewOn(false);
             }}
             onSaved={(id, restored) => {
-              focusGroupOf(id); // board-groups 3/7
+              // A new project: its group's board, filtered to it (ruling, Noah 2026-11-11); an edit: its group's board.
+              focusGroupOf(id, true, projectForm === "new");
               setProjectForm(null);
               setReviewOn(false);
               refresh();
