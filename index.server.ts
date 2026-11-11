@@ -65,7 +65,7 @@ import { exportMarkdown } from "./shared/board-export";
 import type { MemoryEntry } from "./shared/memory";
 import { MemoryService, setMemoryEverywhere, memoryOn } from "./server/memory";
 import { GuardrailsService } from "./server/guardrails";
-import { guardrailsLedger } from "./shared/guardrails";
+import { guardrailsLedger, sumLedgers } from "./shared/guardrails";
 import { validZone } from "./shared/insights";
 import { SearchService } from "./server/search";
 import { QuickTitleService } from "./server/quick-title";
@@ -177,6 +177,10 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.projectDay, (input, { paseo }) => insights.day(input, paseo));
   server.handle(rpc.projectTokens, async ({ etag, ...input }, { paseo }) => ifChanged(await insights.tokens(input, paseo), etag));
   server.handle(rpc.refreshDigest, (input, { paseo }) => insights.refresh(input, paseo));
+  // An unfiltered group board's Insights: the group's live members as one (BOARD-GROUPS-SPEC §0, ruling 2026-11-10).
+  server.handle(rpc.groupInsights, async ({ etag, ...input }, { paseo }) => ifChanged(await insights.group(input, paseo), etag));
+  server.handle(rpc.groupDay, (input, { paseo }) => insights.groupDay(input, paseo));
+  server.handle(rpc.groupTokens, async ({ etag, ...input }, { paseo }) => ifChanged(await insights.groupTokens(input, paseo), etag));
   server.handle(rpc.readSummaries, () => summaries.overview());
   server.handle(rpc.readSummariesChanged, async (input) => ifChanged(await summaries.overview(), input.etag));
   const usage = new UsageService(store);
@@ -354,6 +358,12 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.guardrailsInsights, async ({ projectId, tz }) => {
     const [state, entries] = await Promise.all([guardrails.store.read(), flow.read(projectId)]);
     return guardrailsLedger({ flow: entries, entries: state.entries, projectId, now: Date.now(), tz: validZone(tz) });
+  });
+  server.handle(rpc.groupGuardrailsInsights, async ({ groupId, tz }) => {
+    const [ids, state] = await Promise.all([insights.groupProjectIds(groupId), guardrails.store.read()]);
+    const now = Date.now();
+    const ledgers = await Promise.all(ids.map(async (projectId) => guardrailsLedger({ flow: await flow.read(projectId), entries: state.entries, projectId, now, tz: validZone(tz) })));
+    return sumLedgers(ledgers);
   });
   server.handle(rpc.retroGuardrails, (input, { paseo }) => memory.manual(input.taskId, paseo));
   // Unreadable settings keep the default (on).

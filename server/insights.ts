@@ -53,6 +53,10 @@ export const DIGEST_TIMEOUT_MS = 120_000;
 type DayInput = { projectId: string; tz: string; day?: string };
 /** INSIGHTS-REDESIGN-SPEC §7: the page has no window; everything is relative to today. */
 type WindowInput = { projectId: string; tz: string };
+/** An unfiltered group board's Insights (BOARD-GROUPS-SPEC §0, ruling 2026-11-10): every live member of the group. */
+type GroupInput = { groupId: string; tz: string };
+/** The projects one Insights read covers: one project, or a group's live members. */
+type Scope = { tz: string; projectIds: readonly string[] };
 
 /** `digests.json`: serialized writes, backup, atomic replacement; invalid data is preserved. */
 export class DigestStore {
@@ -184,6 +188,32 @@ export class InsightsService {
     return { board, project, tasks, entries };
   }
 
+  /**
+   * The live member projects of a group (BOARD-GROUPS-SPEC §0, ruling 2026-11-10): what an unfiltered group board's
+   * Insights covers. Archived members are left out, as on the board.
+   */
+  async groupProjectIds(groupId: string): Promise<string[]> {
+    const board = await this.board.read();
+    if (!board.groups.some((g) => g.id === groupId)) throw new Error("Group not found.");
+    return board.projects.filter((p) => p.groupId === groupId && !p.archivedAt).map((p) => p.id);
+  }
+
+  /** One project's context, or several projects' merged: their cards, and their flow logs in time order. */
+  private async scopeContext(projectIds: readonly string[]) {
+    if (projectIds.length === 1) return this.context(projectIds[0]);
+    await (this.reconciled ??= this.reconcile().finally(() => (this.reconciled = null)));
+    const board = await this.board.read();
+    const ids = new Set(projectIds);
+    const tasks = board.tasks.filter((t) => ids.has(t.projectId));
+    // Each log is in time order and a card belongs to one project, so a stable sort by time keeps every card's order.
+    const entries = (await Promise.all(projectIds.map((id) => this.flow.read(id)))).flat().sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+    return { board, tasks, entries };
+  }
+
+  private async groupScope(input: GroupInput): Promise<Scope> {
+    return { tz: input.tz, projectIds: await this.groupProjectIds(input.groupId) };
+  }
+
   private async commits(project: Project, day: string, tz: string | undefined) {
     const since = dayStart(addDays(day, -(TREND_DAYS + 1)), tz);
     return this.git.commits(project.primaryPath, since, this.now());
@@ -236,7 +266,7 @@ export class InsightsService {
     return models;
   }
 
-  private window(input: WindowInput) {
+  private window(input: { tz: string }) {
     const tz = validZone(input.tz);
     const now = this.now();
     return { tz, now, today: dayKey(now, tz) };
@@ -249,9 +279,18 @@ export class InsightsService {
   }
 
   /** The Insights page (INSIGHTS-REDESIGN-SPEC §7): a year of activity, the last week's workflow, habits for developers. */
-  async project(input: WindowInput, paseo: PaseoApi): Promise<InsightsView> {
+  project(input: WindowInput, paseo: PaseoApi): Promise<InsightsView> {
+    return this.view({ tz: input.tz, projectIds: [input.projectId] }, paseo);
+  }
+
+  /** The same page over a group's live members, computed as one (heatmap, workflow and habits summed). */
+  async group(input: GroupInput, paseo: PaseoApi): Promise<InsightsView> {
+    return this.view(await this.groupScope(input), paseo);
+  }
+
+  private async view(input: Scope, paseo: PaseoApi): Promise<InsightsView> {
     const { tz, now, today } = this.window(input);
-    const { board, tasks, entries } = await this.context(input.projectId);
+    const { board, tasks, entries } = await this.scopeContext(input.projectIds);
     const workspaces = new Set(tasks.flatMap(cardWorkspaceIds));
     const modelless = new Set(entries.filter((e) => e.action === "agent.turn_ended" && !e.model && e.agentId).map((e) => e.agentId!));
     const models = await this.agentModels(modelless, workspaces, paseo);
@@ -265,10 +304,18 @@ export class InsightsService {
    * Tokens by day for every session in the project's card workspaces (archived
    * and summarizer sessions included), read from local provider logs only.
    */
-  async tokens(input: WindowInput, paseo: PaseoApi): Promise<CardTokens> {
+  tokens(input: WindowInput, paseo: PaseoApi): Promise<CardTokens> {
+    return this.scopeTokens({ tz: input.tz, projectIds: [input.projectId] }, paseo);
+  }
+
+  async groupTokens(input: GroupInput, paseo: PaseoApi): Promise<CardTokens> {
+    return this.scopeTokens(await this.groupScope(input), paseo);
+  }
+
+  private async scopeTokens(input: Scope, paseo: PaseoApi): Promise<CardTokens> {
     if (!this.usage) throw new Error("Token usage is not available.");
     const { tz, now, today } = this.window(input);
-    const { tasks, entries } = await this.context(input.projectId);
+    const { tasks, entries } = await this.scopeContext(input.projectIds);
     const { agents, models } = await this.cardAgents(tasks, paseo);
     // The same cards and model attribution as insights.project.
     const { cards } = this.finished(tasks, entries, now, tz, today, (id) => models.get(id));
@@ -309,9 +356,18 @@ export class InsightsService {
    * only the flow log; with it, it also lists the sessions (a running turn counts until now)
    * and adds the day's tokens from local provider logs.
    */
-  async day(input: DayInput & { day: string; tokens?: boolean }, paseo: PaseoApi): Promise<DayDetail> {
+  day(input: DayInput & { day: string; tokens?: boolean }, paseo: PaseoApi): Promise<DayDetail> {
+    return this.scopeDay({ tz: input.tz, projectIds: [input.projectId], day: input.day, tokens: input.tokens }, paseo);
+  }
+
+  /** The day over a group's live members: every member's cards of that day in one list. */
+  async groupDay(input: GroupInput & { day: string; tokens?: boolean }, paseo: PaseoApi): Promise<DayDetail> {
+    return this.scopeDay({ ...(await this.groupScope(input)), day: input.day, tokens: input.tokens }, paseo);
+  }
+
+  private async scopeDay(input: Scope & { day: string; tokens?: boolean }, paseo: PaseoApi): Promise<DayDetail> {
     const tz = validZone(input.tz);
-    const { tasks, entries } = await this.context(input.projectId);
+    const { tasks, entries } = await this.scopeContext(input.projectIds);
     if (!input.tokens || !this.usage) return dayDetail({ entries, day: input.day, tz, now: this.now() });
     const usage = this.usage;
     const { agents, running } = await this.cardAgents(tasks, paseo);

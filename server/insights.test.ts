@@ -212,3 +212,34 @@ test("daily digest follows summary model priority and records the successful mod
   expect(x.removed).toEqual(["digest-1", "digest-2"]);
   expect(x.archived()).toBe(0);
 });
+
+test("group insights cover the group's live members as one; archived members and other groups are left out", async () => {
+  const x = await setup();
+  const at = (day: string) => `${day}T09:00:00.000Z`;
+  const card = (id: string, projectId: string, workspaceId: string) => ({ id, projectId, workspaceId, sourcePath: x.root, repoPaths: [x.root], title: id.toUpperCase(), description: "", status: "todo" as const, priority: "normal" as const, position: 0, revision: 1, operationId: `o-${id}`, createdAt: at("2026-10-10"), updatedAt: at("2026-10-10"), archivedAt: null });
+  const project = (id: string, groupId: string, archivedAt: string | null = null) => ({ id, paseoProjectId: `n-${id}`, title: id.toUpperCase(), description: "", primaryPath: x.root, repos: [x.root], revision: 1, createdAt: "", updatedAt: "", archivedAt, groupId });
+  const group = (id: string, position: number) => ({ id, name: id, position, revision: 1, createdAt: at("2026-10-01"), updatedAt: at("2026-10-01") });
+  await x.board.mutate((b) => {
+    b.groups.push({ ...group("g", 0), isDefault: true }, group("h", 1));
+    b.projects[0].groupId = "g";
+    b.projects.push(project("q", "g"), project("r", "g", at("2026-10-12")), project("s", "h"));
+    b.tasks.push(card("tq", "q", "wq"), card("tr", "r", "wr"), card("ts", "s", "ws"));
+    b.events.push(
+      { id: "q1", taskId: "tq", actor: "agent", action: "status_changed", from: "todo", to: "done", at: at("2026-10-14") },
+      { id: "r1", taskId: "tr", actor: "agent", action: "status_changed", from: "todo", to: "development", at: at("2026-10-13") },
+      { id: "s1", taskId: "ts", actor: "agent", action: "status_changed", from: "todo", to: "development", at: at("2026-10-12") },
+    );
+  });
+  expect(await x.service.groupProjectIds("g")).toEqual(["p", "q"]);
+  const view = insightsViewSchema.parse(await x.service.group({ groupId: "g", tz: "UTC" }, x.paseo));
+  // p moved on the 15th, q on the 14th; r is archived and s is in another group.
+  expect(view.activity.days.map((d) => [d.day, d.cards, d.done])).toEqual([["2026-10-14", 1, ["tq"]], ["2026-10-15", 1, []]]);
+  // A single project reads exactly as before.
+  expect((await x.service.project({ projectId: "p", tz: "UTC" }, x.paseo)).activity.days.map((d) => d.day)).toEqual(["2026-10-15"]);
+  const day = await x.service.groupDay({ groupId: "g", tz: "UTC", day: "2026-10-14" }, x.paseo);
+  expect(day.list.map((c) => c.taskId)).toEqual(["tq"]);
+  await expect(x.service.group({ groupId: "nope", tz: "UTC" }, x.paseo)).rejects.toThrow("Group not found.");
+  // A group with no live member reads as no activity, not an error.
+  await x.board.mutate((b) => void b.groups.push(group("e", 2)));
+  expect((await x.service.group({ groupId: "e", tz: "UTC" }, x.paseo)).activity.days).toEqual([]);
+});

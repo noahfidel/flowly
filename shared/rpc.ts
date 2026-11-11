@@ -946,6 +946,35 @@ export const projectTokens = defineRpc({
   input: z.strictObject({ ...insightsDay, etag: z.string().max(200).optional() }),
   output: z.object({ etag: z.string(), value: cardTokensSchema.optional() }),
 });
+/**
+ * The same reads over a group's live member projects, for an unfiltered group board (BOARD-GROUPS-SPEC §0, ruling
+ * 2026-11-10): summed on the daemon, so the client decodes one heatmap, not one per project. Digests, skills and
+ * suggestions stay per project (`insights.digest`, `workflow-insights.*`).
+ */
+const insightsGroup = {
+  groupId: z.string().min(1).max(200),
+  tz: z.string().max(100),
+};
+export const groupInsights = defineRpc({
+  name: "insights.group",
+  input: z.strictObject({ ...insightsGroup, etag: z.string().max(200).optional() }),
+  output: z.object({ etag: z.string(), value: insightsViewSchema.optional() }),
+});
+export const groupDay = defineRpc({
+  name: "insights.group-day",
+  input: z.strictObject({ ...insightsGroup, day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), tokens: z.boolean().optional() }),
+  output: dayDetailSchema,
+});
+export const groupTokens = defineRpc({
+  name: "insights.group-tokens",
+  input: z.strictObject({ ...insightsGroup, etag: z.string().max(200).optional() }),
+  output: z.object({ etag: z.string(), value: cardTokensSchema.optional() }),
+});
+export const groupGuardrailsInsights = defineRpc({
+  name: "insights.group-guardrails",
+  input: z.strictObject({ ...insightsGroup }),
+  output: guardrailsLedgerSchema,
+});
 
 // ---- Workflow insights (WORKFLOW-INSIGHTS-SPEC §6) ----
 export const workflowInsights = defineRpc({

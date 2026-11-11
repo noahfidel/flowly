@@ -763,6 +763,20 @@ export function guardrailsLedger(input: { flow: readonly LedgerEntry[]; entries:
   };
 }
 
+/** Several projects' ledgers as one: an unfiltered group board's Insights (BOARD-GROUPS-SPEC §0, ruling 2026-11-10). */
+export function sumLedgers(ledgers: readonly GuardrailsLedger[]): GuardrailsLedger {
+  const sum = { deliveries: 0, reviewed: 0, firstPass: 0, judged: 0, misfires: 0, changes: { learned: 0, widened: 0, revived: 0, retired: 0, observing: 0 } };
+  for (const l of ledgers) {
+    sum.deliveries += l.deliveries;
+    sum.reviewed += l.reviewed;
+    sum.firstPass += l.firstPass;
+    sum.judged += l.judged;
+    sum.misfires += l.misfires;
+    for (const key of Object.keys(sum.changes) as (keyof GuardrailsLedger["changes"])[]) sum.changes[key] += l.changes[key];
+  }
+  return sum;
+}
+
 // ---- Notes as the former project memory (compatibility for memory.* until the Guardrails page) ----
 
 const archivedReasons = ["retired", "promoted", "superseded"] as const;

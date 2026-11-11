@@ -5,6 +5,7 @@ import {
   catchUpPrompt,
   correctionOf,
   guardrailsLedger,
+  sumLedgers,
   mergeInto,
   mergePair,
   parseCatchUp,
@@ -394,4 +395,11 @@ describe("the Insights ledger (§7.2, §7.5)", () => {
       changes: { learned: 1, widened: 1, revived: 1, retired: 1, observing: 1 },
     });
   });
+});
+
+test("an unfiltered group board's ledger sums its projects' ledgers", () => {
+  const one = { deliveries: 3, reviewed: 2, firstPass: 1, judged: 3, misfires: 1, changes: { learned: 1, widened: 1, revived: 0, retired: 1, observing: 1 } };
+  const two = { deliveries: 1, reviewed: 1, firstPass: 1, judged: 0, misfires: 0, changes: { learned: 0, widened: 0, revived: 2, retired: 0, observing: 3 } };
+  expect(sumLedgers([one, two])).toEqual({ deliveries: 4, reviewed: 3, firstPass: 2, judged: 3, misfires: 1, changes: { learned: 1, widened: 1, revived: 2, retired: 1, observing: 4 } });
+  expect(sumLedgers([])).toEqual({ deliveries: 0, reviewed: 0, firstPass: 0, judged: 0, misfires: 0, changes: { learned: 0, widened: 0, revived: 0, retired: 0, observing: 0 } });
 });
