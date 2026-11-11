@@ -331,7 +331,7 @@ export class ArtifactService {
     private extraFolders: () => Promise<readonly string[]> = async () => [],
   ) {}
 
-  private async extraRoots() {
+  async extraRoots() {
     return resolveExtraRoots(await this.extraFolders());
   }
 

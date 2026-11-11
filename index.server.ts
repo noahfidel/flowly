@@ -375,6 +375,7 @@ export default function contribute(host: PluginServerContext) {
     return artifactSettingsValues(state?.status === "ready" ? state.values : {}).extraFolders;
   };
   tools.agents.extraArtifactFolders = extraArtifactFolders;
+  tools.cards.extraArtifactFolders = extraArtifactFolders;
   tools.agents.artifactsOn = async () => {
     const state = await ideasPrefs.read().catch(() => null);
     return ideasSettingsValues(state?.status === "ready" ? state.values : {}).artifacts;

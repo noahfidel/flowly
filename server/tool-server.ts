@@ -49,6 +49,10 @@ import {
   updateCardResultSchema,
   startCardInputSchema,
   startCardResultSchema,
+  setPlanInputSchema,
+  setPlanResultSchema,
+  clearPlanInputSchema,
+  clearPlanResultSchema,
   workpadInputSchema,
   progressInputSchema,
   statusInputSchema,
@@ -197,7 +201,7 @@ export class ToolServer {
       throw new ToolError("UNAUTHORIZED", "Missing Kanban session credential.");
     return this.secrets.authenticateAny(value.slice(7));
   }
-  /** The four card tools (AGENT-CARDS-SPEC §3), for card sessions and sessions outside cards alike. */
+  /** The card tools (AGENT-CARDS-SPEC §3, CARD-PLAN-SPEC §5.2), for card sessions and sessions outside cards alike. */
   private registerCardTools(mcp: McpServer, caller: () => Promise<CardCaller>) {
     const run = (operation: (c: CardCaller) => Promise<object>) => wrap(async () => operation(await caller()));
     mcp.registerTool(
@@ -226,7 +230,7 @@ export class ToolServer {
       "flowly_create_card",
       {
         description:
-          'Create a card in this Flowly project when the user asked you to create cards (for example "split this into cards" or "make a card for X"), or when you are about to start repo work that has no card yet (every workspace belongs to a card). Other follow-up work the user did not ask for is an idea (flowly_propose_idea in a card session), not a card. The card gets its own new workspace in the project folder (workspace=directory, default) or a new worktree (workspace=worktree) and lands in Backlog (default) or Todo; no session starts until you call flowly_start_card or the user starts it. Its agent cannot see this conversation: write the description with the goal, context, files and acceptance criteria. From a card session the new card follows up your card. Pass a unique idempotencyKey; retrying with the same key returns the same card (replayed=true). At most 20 cards per session per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off; tell them instead.',
+          'Create a card in this Flowly project when the user asked you to create cards (for example "split this into cards" or "make a card for X"), or when you are about to start repo work that has no card yet (every workspace belongs to a card). Other follow-up work the user did not ask for is an idea (flowly_propose_idea in a card session), not a card. The card gets its own new workspace in the project folder (workspace=directory, default) or a new worktree (workspace=worktree) and lands in Backlog (default) or Todo; no session starts until you call flowly_start_card or the user starts it. Its agent cannot see this conversation: write the description with the goal, context, files and acceptance criteria. From a card session the new card follows up your card. If you planned this card (plan mode writes the plan to a file), pass that file as plan so the card keeps it; plan.approved=true only when the user approved it in your chat (PLAN_INVALID: the file is outside the project, nothing is created). Pass a unique idempotencyKey; retrying with the same key returns the same card (replayed=true). At most 20 cards per session per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off; tell them instead.',
         inputSchema: createCardInputSchema,
         outputSchema: createCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -245,10 +249,32 @@ export class ToolServer {
       (input) => run((c) => this.cards.update(c, input)),
     );
     mcp.registerTool(
+      "flowly_set_plan",
+      {
+        description:
+          "Make a file or link the card's plan, its one Plan slot (shown at the top of the card; a new session of an approved card executes it instead of planning again). Use it when you planned a card, for example the file plan mode wrote. approved=true only when the user approved this plan in your chat (for example by accepting it in plan mode); otherwise false, a draft. The target follows the artifact rules (inside the card's directories or the extra artifact folders, or an http(s) link; PLAN_INVALID otherwise). An existing artifact with that target becomes the plan; an earlier plan stays as an ordinary input. Setting the current plan again with approved=true approves it; a plan is never un-approved. CARD_NOT_FOUND, ARCHIVED, AGENT_CARDS_DISABLED.",
+        inputSchema: setPlanInputSchema,
+        outputSchema: setPlanResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      (input) => run((c) => this.cards.setPlan(c, input)),
+    );
+    mcp.registerTool(
+      "flowly_clear_plan",
+      {
+        description:
+          "Empty a card's Plan slot. The file or link stays on the card as an ordinary input. cleared=false: the card had no plan. CARD_NOT_FOUND, ARCHIVED, AGENT_CARDS_DISABLED.",
+        inputSchema: clearPlanInputSchema,
+        outputSchema: clearPlanResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      (input) => run((c) => this.cards.clearPlan(c, input)),
+    );
+    mcp.registerTool(
       "flowly_start_card",
       {
         description:
-          "Start a session on a card of this Flowly project, in the card's own worktree. A card whose workspace is the empty directory workspace Flowly made for it (it never had a session) first moves to a new worktree branched off the main checkout's current branch (named after its Linear issue's branch when it has one); that empty workspace is archived. A card already in a worktree starts there; a linked multi-repo project starts in its folder. NEEDS_WORKTREE: the card's directory workspace had sessions or is not its own; ask the user to switch it to a worktree. CARD_HAS_SESSION: send that session instructions instead. The session uses the project's New task model, gets the card's tools and starts with prompt (default: the card's title and description). Done/Cancelled cards are refused (CARD_FINISHED). Pass a unique idempotencyKey; retrying with the same key returns the same session (replayed=true). Counts against the 20-per-hour limit shared with flowly_create_card (CARD_LIMIT).",
+          "Start a session on a card of this Flowly project, in the card's own worktree. A card whose workspace is the empty directory workspace Flowly made for it (it never had a session) first moves to a new worktree branched off the main checkout's current branch (named after its Linear issue's branch when it has one); that empty workspace is archived. A card already in a worktree starts there; a linked multi-repo project starts in its folder. NEEDS_WORKTREE: the card's directory workspace had sessions or is not its own; ask the user to switch it to a worktree. CARD_HAS_SESSION: send that session instructions instead. The session uses the project's New task model and mode (or mode, a permission mode id: MODE_UNAVAILABLE lists the provider's ids; a card with an approved plan does not default to plan mode), gets the card's tools and starts with prompt (default: the card's title and description, plus its approved plan). Done/Cancelled cards are refused (CARD_FINISHED). Pass a unique idempotencyKey; retrying with the same key returns the same session (replayed=true). Counts against the 20-per-hour limit shared with flowly_create_card (CARD_LIMIT).",
         inputSchema: startCardInputSchema,
         outputSchema: startCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -638,7 +664,7 @@ export class ToolServer {
     }
     const body = z
       .strictObject({
-        action: z.enum(["get", "status", "progress", "idea", "idea_update", "idea_remove", "remember", "recall", "search", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "handover", "integrate", "external", "ticket", "list_cards", "get_card", "create_card", "update_card"]),
+        action: z.enum(["get", "status", "progress", "idea", "idea_update", "idea_remove", "remember", "recall", "search", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "handover", "integrate", "external", "ticket", "list_cards", "get_card", "create_card", "update_card", "set_plan", "clear_plan"]),
         input: z.unknown(),
       })
       .parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
@@ -652,7 +678,7 @@ export class ToolServer {
             ? await this.agents.recall(identity, recallInputSchema.parse(body.input))
             : body.action === "search"
               ? await this.agents.searchCards(identity, agentSearchInputSchema.parse(body.input))
-            : body.action === "list_cards" || body.action === "get_card" || body.action === "create_card" || body.action === "update_card"
+            : body.action === "list_cards" || body.action === "get_card" || body.action === "create_card" || body.action === "update_card" || body.action === "set_plan" || body.action === "clear_plan"
               ? await this.cardAction(identity, body.action, body.input)
             : body.action === "integrate"
               ? await this.agents.integrate(identity, integrateInputSchema.parse(body.input))
@@ -660,11 +686,13 @@ export class ToolServer {
     this.json(res, { ok: true, result: value });
   }
   /** A card tool over the CLI (AGENT-CARDS-SPEC §5). */
-  private async cardAction(identity: ToolIdentity, action: "list_cards" | "get_card" | "create_card" | "update_card", input: unknown) {
+  private async cardAction(identity: ToolIdentity, action: "list_cards" | "get_card" | "create_card" | "update_card" | "set_plan" | "clear_plan", input: unknown) {
     const caller = await this.agents.cardCaller(identity);
     if (action === "list_cards") return this.cards.list(caller, input);
     if (action === "get_card") return this.cards.get(caller, input);
     if (action === "create_card") return this.cards.create(caller, input);
+    if (action === "set_plan") return this.cards.setPlan(caller, input);
+    if (action === "clear_plan") return this.cards.clearPlan(caller, input);
     return this.cards.update(caller, input);
   }
   /** The project's card tools for a session outside cards, or null (AGENT-CARDS-SPEC §2.2). */
