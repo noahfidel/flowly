@@ -41,7 +41,7 @@ export function boardScope(projectIds: readonly string[]): (projectId: string) =
 /**
  * What the board's overview bar covers (§3, §4; Ruling, Noah 2026-11-10): the "N need you" / "N updated" counts and
  * the N/U step-throughs cover the filtered project, else every live member of the group shown; `perProject` says
- * whether the project-only entries (Insights, Ideas, Memory, I/B/M) show. An empty group covers nothing.
+ * whether the one entry that stays per project (Guardrails, **G**) shows. An empty group covers nothing.
  */
 export function overviewScope<P extends { id: string }>(project: P | undefined, members: readonly P[]): { projects: P[]; perProject: boolean } {
   return project ? { projects: [project], perProject: true } : { projects: [...members], perProject: false };
@@ -115,4 +115,23 @@ export function membersFirst<P extends { id: string }>(projects: readonly P[], m
 export function mobileLane(shown: readonly Status[], current: Status): Status {
   if (!shown.length || shown.includes(current)) return current;
   return shown.includes("todo") ? "todo" : shown[0];
+}
+
+/**
+ * What Insights, Ideas and Memory (and **I**, **B**, **M**) cover (§4; Ruling, Noah 2026-11-10): the board's one
+ * project (filtered, or a group of one), else every live member of the group shown, read as that group (`groupId`).
+ * None for an empty group, or a board shown before its group is known (a cold link): the entries hide there.
+ */
+export type PageScope<P> = { projects: P[]; groupId: string | null };
+export function pageScope<P extends { id: string }>(project: P | undefined, members: readonly P[], groupId: string | undefined): PageScope<P> | null {
+  if (project) return { projects: [project], groupId: null };
+  return groupId && members.length ? { projects: [...members], groupId } : null;
+}
+
+/**
+ * The project Add memory and Import ideas start with on an unfiltered group board (§4): the one last added to there
+ * (board-view `lastAddProjectId`) while it is still offered, else the first.
+ */
+export function addProject<P extends { id: string }>(projects: readonly P[], lastId: string): P | undefined {
+  return projects.find((p) => p.id === lastId) ?? projects[0];
 }

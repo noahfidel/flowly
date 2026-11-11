@@ -36,6 +36,10 @@ export async function readOverviewDelta(read: OverviewRead, cached: BoardOvervie
 }
 
 /** Open ideas of a project: on its cards (the overview's per-card counts) plus the project's own. */
+/** Open ideas over several projects: an unfiltered group board's Ideas chip (BOARD-GROUPS-SPEC §4). */
+export function groupOpenIdeaCount(board: BoardOverview | undefined, projectIds: readonly string[]) {
+  return projectIds.reduce((count, id) => count + projectOpenIdeaCount(board, id), 0);
+}
 export function projectOpenIdeaCount(board: BoardOverview | undefined, projectId: string | undefined) {
   if (!board || !projectId) return 0;
   const tasks = new Set(board.tasks.filter(task => task.projectId === projectId).map(task => task.id));

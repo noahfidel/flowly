@@ -13,6 +13,8 @@ import {
   membersFirst,
   mobileLane,
   overviewScope,
+  pageScope,
+  addProject,
   pickGroupView,
   staleGroupChoice,
   validProjectFilter,
@@ -258,5 +260,28 @@ describe("project filter", () => {
     expect(focusFilter(null, "g1", "g2", "c")).toEqual({ groupId: "g2", projectId: "c" });
     expect(focusFilter(f, "g1", "g1", "b")).toBe(f);
     expect(focusFilter(null, "g1", "g1", "b")).toBeNull();
+  });
+});
+
+// Ruling (Noah, 2026-11-10): Insights, Ideas and Memory work on an unfiltered group board, over every live member;
+// filtered (or a group of one), over that project. Guardrails stays single-project.
+describe("what Insights, Ideas and Memory cover", () => {
+  const members = [project("a"), project("b")];
+  test("filtered: the one project, no group read", () => {
+    expect(pageScope(members[1], members, "g")).toEqual({ projects: [members[1]], groupId: null });
+  });
+  test("unfiltered: every live member, read as the group", () => {
+    expect(pageScope(undefined, members, "g")).toEqual({ projects: members, groupId: "g" });
+  });
+  test("nothing for an empty group or a board whose group is not known yet", () => {
+    expect(pageScope(undefined, [], "g")).toBeNull();
+    expect(pageScope(undefined, members, undefined)).toBeNull();
+  });
+  test("adding while unfiltered defaults to the member last added to, else the first", () => {
+    expect(addProject(members, "b")?.id).toBe("b");
+    expect(addProject(members, "")?.id).toBe("a");
+    // A project that left the group (or was archived) is not offered, so the first member is used.
+    expect(addProject(members, "gone")?.id).toBe("a");
+    expect(addProject([], "b")).toBeUndefined();
   });
 });

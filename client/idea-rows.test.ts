@@ -82,3 +82,15 @@ test("project ideas form a group with key null, sorted first", () => {
   expect(visibleIdeas([project], tasks, lanes, query({ search: "idea p1" })).map((i) => i.id)).toEqual(["p1"]);
   expect(visibleIdeas([project], tasks, lanes, query({ finishedOnly: true }))).toEqual([]);
 });
+
+// Ruling (Noah, 2026-11-10): an unfiltered group board's Ideas page lists every live member's ideas; each project's own
+// ideas form their own group, labelled with that project.
+test("project ideas of several projects form one group per project, before the cards", () => {
+  const own = (id: string, projectId: string) => idea(id, undefined as unknown as string, { taskId: undefined, projectId });
+  const rows = [idea("1", "w"), own("p1", "p"), own("q1", "q"), own("p2", "p")];
+  expect(groupByCard(rows).map((g) => [g.taskId, g.projectId, ids(g.ideas)])).toEqual([
+    [null, "p", ["p1", "p2"]],
+    [null, "q", ["q1"]],
+    ["w", "p", ["1"]],
+  ]);
+});

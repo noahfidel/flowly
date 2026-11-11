@@ -74,15 +74,18 @@ export function visibleIdeas(ideas: readonly Idea[], tasks: readonly Card[], lan
   return rows.sort(by[q.sort]);
 }
 
-/** One group per card in list order; the project's own ideas (key null) form the first group (group by card). */
-export function groupByCard<T extends Pick<Idea, "taskId">>(ideas: readonly T[]): { taskId: string | null; ideas: T[] }[] {
-  const groups = new Map<string | null, T[]>();
+/**
+ * One group per card in list order; each project's own ideas (`taskId` null) form a group per project, first
+ * (group by card). One project's page has at most one such group; an unfiltered group board's has one per member.
+ */
+export function groupByCard<T extends Pick<Idea, "taskId" | "projectId">>(ideas: readonly T[]): { taskId: string | null; projectId: string; ideas: T[] }[] {
+  const groups = new Map<string, { taskId: string | null; projectId: string; ideas: T[] }>();
   for (const idea of ideas) {
-    const key = idea.taskId ?? null;
+    const key = idea.taskId ? `card:${idea.taskId}` : `project:${idea.projectId}`;
     const group = groups.get(key);
-    if (group) group.push(idea);
-    else groups.set(key, [idea]);
+    if (group) group.ideas.push(idea);
+    else groups.set(key, { taskId: idea.taskId ?? null, projectId: idea.projectId, ideas: [idea] });
   }
-  const list = [...groups].map(([taskId, items]) => ({ taskId, ideas: items }));
+  const list = [...groups.values()];
   return [...list.filter((g) => g.taskId === null), ...list.filter((g) => g.taskId !== null)];
 }

@@ -3,7 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { boardSchema } from "../shared/model";
 import { boardOverview, OverviewDeltas } from "../server/board-overview";
 import { boardKey, overviewQueryOptions } from "./queries";
-import { applyOverviewPatch, readOverviewDelta, overviewKey, projectOpenIdeaCount } from "./overview-query";
+import { applyOverviewPatch, readOverviewDelta, overviewKey, projectOpenIdeaCount, groupOpenIdeaCount } from "./overview-query";
 
 vi.mock("@getpaseo/plugin/client", () => ({ usePaseo: () => null, useRpc: () => null }));
 const full = () => boardSchema.parse({ events: [], version: 5, revision: 1, projects: [], tasks: [] });
@@ -51,6 +51,10 @@ test("the project Ideas count comes from the overview's card facts", () => {
   const withOwn = { ...overview, projectIdeas: [{ projectId: "p", open: 3 }, { projectId: "other", open: 5 }] };
   expect(projectOpenIdeaCount(withOwn, "p")).toBe(5);
   expect(projectOpenIdeaCount(withOwn, "other")).toBe(6);
+  // An unfiltered group board counts every live member's open ideas (ruling, Noah 2026-11-10).
+  expect(groupOpenIdeaCount(withOwn, ["p", "other"])).toBe(11);
+  expect(groupOpenIdeaCount(withOwn, ["p"])).toBe(5);
+  expect(groupOpenIdeaCount(withOwn, [])).toBe(0);
 });
 
 test("an overview patch that only changes project ideas changes the count and keeps cards and tasks identity", () => {
