@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   columnAtPoint,
   boardPanDecision,
+  boardPress,
   panOffset,
   dragThreshold,
   listDropIndex,
@@ -241,6 +242,14 @@ describe("board pan", () => {
     expect(boardPanDecision(null, 100, 0)).toBe("none");
     expect(boardPanDecision({ ...mouse, mouse: false }, 100, 0)).toBe("none");
     expect(boardPanDecision({ ...mouse, primary: false }, 100, 0)).toBe("none");
+  });
+  test("a pointer press is recorded from the pointer event itself (RN-web drops onPointerDownCapture)", () => {
+    expect(boardPress({ pointerType: "mouse", button: 0 }, false)).toEqual(mouse);
+    expect(boardPress({ pointerType: "mouse", button: 0 }, true)).toEqual({ ...mouse, onCard: true });
+    expect(boardPress({ pointerType: "mouse", button: 2 }, false)).toEqual({ ...mouse, primary: false });
+    expect(boardPress({ pointerType: "touch", button: 0 }, false)).toEqual({ ...mouse, mouse: false });
+    expect(boardPress({ pointerType: "pen", button: 0 }, false)).toEqual({ ...mouse, mouse: false });
+    expect(boardPress({}, false)).toEqual({ mouse: false, primary: false, onCard: false });
   });
   test("pan offset follows the pointer opposite to the drag and stays in range", () => {
     expect(panOffset(100, 30, 1000, 400)).toBe(70);

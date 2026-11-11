@@ -12,6 +12,7 @@ import type { CardDrag } from "./card";
 import { Enter, motionDuration, useMotionPresence, useMotionValue, lerp } from "./motion";
 import {
   boardPanDecision,
+  boardPress,
   columnAtPoint,
   columnGap,
   columnWidth,
@@ -200,7 +201,10 @@ export function DesktopColumns({
     setDragging(null);
   };
   // Board pan (desktop mouse only): a press on empty space moves the board sideways, immediately, no animation.
+  // Recorded in the viewport's bubble-phase onPointerDown: RN-web's View does not forward onPointerDownCapture,
+  // so a capture handler never ran. A card's slot sees the same native event first and marks it.
   const press = useRef<BoardPress | null>(null);
+  const [cardEvents] = useState(() => new WeakSet<object>());
   const panStart = useRef<number | null>(null);
   const [panning, setPanning] = useState(false);
   const endPan = () => {
@@ -388,11 +392,11 @@ export function DesktopColumns({
         ...(touch ? null : ({ cursor: panning ? "grabbing" : "grab", ...(panning ? { userSelect: "none" } : null) } as object)),
       }}
       {...(touch ? {} : panResponder.panHandlers)}
-      onPointerDownCapture={
+      onPointerDown={
         touch
           ? undefined
           : (e) => {
-              press.current = { mouse: e.nativeEvent.pointerType === "mouse", primary: e.nativeEvent.button === 0, onCard: false };
+              press.current = boardPress(e.nativeEvent, cardEvents.has(e.nativeEvent));
             }
       }
       onPointerUp={touch ? undefined : () => (press.current = null)}
@@ -448,8 +452,8 @@ export function DesktopColumns({
           const cardSlot = (t: Task) => (
             <View
               key={t.id}
-              onPointerDown={() => {
-                if (press.current) press.current.onCard = true;
+              onPointerDown={(e) => {
+                cardEvents.add(e.nativeEvent);
               }}
               onLayout={(e) => {
                 const { y, height } = e.nativeEvent.layout;

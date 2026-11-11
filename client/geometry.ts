@@ -14,6 +14,11 @@ export const dragThreshold = 8;
 /** How a mouse press started: `onCard` when it began on a card (card drag wins over a board pan). */
 export type BoardPress = { mouse: boolean; primary: boolean; onCard: boolean };
 
+/** Records a pointer press from its event; `onCard` when a card's slot saw the same event first. */
+export function boardPress(event: { pointerType?: string; button?: number }, onCard: boolean): BoardPress {
+  return { mouse: event.pointerType === "mouse", primary: event.button === 0, onCard };
+}
+
 /**
  * What a held press means for the board: "pan" once a primary mouse press that began off a card has moved
  * `dragThreshold`, "wait" until then (a plain click still reaches its button), "none" when it can never pan.
