@@ -60,15 +60,15 @@ exactly one group. Individual projects are no longer top-level navigation.
 - Ruling (Noah, 2026-11-10): preference defaults resolve host → group → project (→ card for delivery mode); the
   dispatcher model resolves host → group. Today's host settings stay as the base, so migration changes nothing a
   user sees.
-- Ruling (Noah, 2026-11-10): on a group board, with the project filter on one project (or a group of one project),
-  the overview bar, Insights, Ideas, Memory and **I**, **B**, **M** act on that project. Unfiltered they stay
-  hidden. Project settings live in the group settings page's per-project sections. (The overview bar's counts are
-  amended by the next ruling.)
-- Ruling (Noah, 2026-11-10): every aggregate count of a group board shows unfiltered too, summed over the group's
-  live member projects (filtered: that project): the overview bar's task and Done counts, running, "N need you" and
-  "N updated" (with the **N** / **U** step-throughs), and the column counts. Only the genuinely per-project parts
-  (Insights, Ideas, Memory, Guardrails, **I**, **B**, **M**) stay hidden unfiltered. (Insights, Ideas, Memory and
-  **I**, **B**, **M** are amended by the group pages ruling below; Guardrails stays hidden.)
+- Ruling (Noah, 2026-11-10; live members only, 2026-11-11): on a group board, with the project filter on one project
+  (or a group of one live project), everything acts on that project; unfiltered, it covers every live member of the
+  group (an archived project is never a member of the board). Every aggregate count is summed that way: the overview
+  bar's task and Done counts, running, "N need you" and "N updated" (with the **N** / **U** step-throughs), and the
+  column counts. Insights, Ideas and Memory (and **I**, **B**, **M**) work unfiltered too: Ideas and Memory list every
+  member's entries, each labelled with its project, an edit acts on the entry's own project and an addition (Import
+  ideas, Add memory) asks which project; Insights sums the group's numbers and splits by project where a part is per
+  project (the day's summaries, skills, other suggestions). Storage stays per project. Only Guardrails (**G**) needs
+  one project and is hidden unfiltered. Project settings live in the group settings page's per-project sections.
 - Ruling (Noah, 2026-11-10): deleting a group archives its dispatcher session. The delete confirm says so. This is a
   new user-confirmed archive exception (AGENTS.md), like Replace dispatcher. A dispatcher cannot delete its own
   group.
@@ -88,8 +88,8 @@ exactly one group. Individual projects are no longer top-level navigation.
 - Ruling (Noah, 2026-11-10): `isDefault: false` in `groups.update` is a no-op on a group that is not the default; it
   is refused with `DEFAULT_REQUIRED` only on the default group.
 - Ruling (Noah, 2026-11-10): lanes are group-level. A group owns its lanes (which built-in statuses are on, their
-  order, custom names) and every project in the group uses them; projects have no lane settings of their own and
-  lanes are edited once, on the group settings page. The group board, filtered or not, shows the group's lanes with
+  order, custom names) and every project in the group uses them; once groups are ready projects have no lane
+  settings of their own and lanes are edited once, on the group settings page (a failed migration: next ruling). The group board, filtered or not, shows the group's lanes with
   the group's names, and a drop onto any column is valid for every card of the group. A lane that holds a live card
   of any live member can't be turned off. A project that moves to another group adopts that group's lanes, the group
   first turning on every status the project's live cards sit in. The migration is §7 step 7.
@@ -99,14 +99,12 @@ exactly one group. Individual projects are no longer top-level navigation.
   the lane editor; the migration later folds those lanes into the group's. When the board already has stored groups
   and this start's migration has not succeeded yet (a retry, a failed re-migration), the edit is refused with
   `GROUPS_UNAVAILABLE` (the more accurate code: Group settings is unavailable too), because the next migration would
-  overwrite it from the group's lanes. This replaces the inherited "projects have no lane settings of their own"
-  limit for the first state only.
-- Ruling (Noah, 2026-11-10): a group never ends up with every lane off: when the migration's computation (live or
-  archived members) leaves no lane on, the group gets every lane on with built-in names. The per-project path's rules
-  are unchanged.
-- Ruling (Noah, 2026-11-10): the migration gives a group whose members are all archived the lanes its archived members
-  had (the same union, order and name-agreement rules as for live members) instead of every lane on with built-in
-  names; only a group with no member at all gets every lane. Replaces "a group with no live member gets every lane".
+  overwrite it from the group's lanes.
+- Ruling (Noah, 2026-11-10): the migration gives a group the lanes of its live members (§7 step 7); a group whose
+  members are all archived takes its archived members' lanes by the same union, order and name-agreement rules; only
+  a group with no member at all gets every lane on with built-in names. A group never ends up with every lane off:
+  when that computation leaves no lane on, the group gets every lane on with built-in names. The per-project path's
+  rules are unchanged.
 - Ruling (Noah, 2026-11-10): when a write outside the migration turns a group's lane back on for a live card, the lane
   still comes back on, and the store logs one info line per write naming the group, the lane(s) and the reason (§1).
 - Ruling (Noah, 2026-11-11): **Discard** in the group settings page's unsaved-changes question resets every section
@@ -123,14 +121,11 @@ exactly one group. Individual projects are no longer top-level navigation.
   chooser order, each keeping its own order). This replaces the inherited ALL-PROJECTS-SPEC §4 limit ("cards grouped
   by project", "reordering within a column is disabled… each project keeps its own order") on group boards (§1, §2,
   §4, §7 step 8).
-
-- Ruling (Noah, 2026-11-10): Insights, Ideas and Memory (and **I**, **B**, **M**) work on an unfiltered group board,
-  over every live member of the group; filtered (or a group of one live project) they act on that project, as before.
-  They cover live members only (an archived project is never a member of the board, §4). Ideas and Memory list every
-  member's entries, each labelled with its project; an edit acts on the entry's own
-  project, and an addition (Import ideas, Add memory) asks which project. Insights shows the group's numbers summed
-  and splits by project where a part is per project (the day's summaries, skills, other suggestions). Storage stays per
-  project. Guardrails stays per project and hidden unfiltered (§4).
+- Ruling (Noah, 2026-11-11): the last viewed group and the project filter are kept in the host's `board-view` settings,
+  so they survive a restart and are shared by every client of that host (desktop and phone), like the other board
+  preferences (§3, §4).
+- Ruling (Noah, 2026-11-11): after **New project** the board shows the new project's group filtered to the new project
+  (§3).
 
 ## 1. Model
 
@@ -254,9 +249,12 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   re-runs the client and module state is gone) → the default group. A chosen or stored group that no longer exists
   falls back to the default group once the board has loaded. The shown group is stored only once both the board and
   the settings have loaded, so a cold start never overwrites the stored group with the default one.
-  Opening a card, a session chip, an idea link or a search result selects that card's project's group; the project
-  filter is set to the card's project only when the card is not in the group already shown (otherwise the filter
-  is left as it is).
+  Opening a card, a session chip, an idea link or a search result selects that card's project's group, always as the
+  explicit choice (so the stored group, read later on a cold start, never replaces it); the project filter is set to
+  the card's project only when the card is not in the group already shown (otherwise the filter is left as it is),
+  and that is this run's filter choice. A card of an archived project leaves the board unfiltered (an archived
+  project is never a member, so its filter is cleared). Saving **New project** selects the new project's group and
+  filters the board to it (ruling above); it waits for the refreshed board when the project is not on it yet.
 - **No project at all:** the first-run "No projects yet / Create project" screen shows instead of a board.
 - **Bell, badge, Search** (ruling above): the bell (desktop and phone), the "N need you" / "N updated" counts of a
   board and the `N`/`U` step-throughs use the shown board's scope (`boardScope`): the filtered project, else every
@@ -290,11 +288,13 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   projects. A filtered board shows one project's cards and ideas, in the group's lanes and lane names. The
   filter is per board instance, kept while the app runs and in the host's `board-view` settings (`lastFilter`: the
   group and project it was set in), so a restart starts from it; a filter set or cleared in this run wins over the
-  stored one. It is cleared (and the cleared value stored) when the project leaves the group or the group changes,
-  checked only once the board and the settings have loaded, and counted in "{n} shown".
+  stored one. The stored filter, like the stored group (§3), is per host: every client of the host (desktop, phone)
+  shares it (ruling above). It is cleared (and the cleared value stored) when the project leaves the group, is
+  archived, or the group changes, checked once the board and the settings have loaded (also when the stored filter is
+  read after the board), and counted in "{n} shown".
 - **Overview bar:** shown on every group board with at least one live member, filtered or not. Its task count,
-  running chip, "N need you" and "N updated" cover the filtered project, else every live member (the Done count
-  sums the projects whose Done lane is on and is hidden when none has it). An empty group has no overview bar.
+  running chip, "N need you" and "N updated" cover the filtered project, else every live member; the Done count is
+  shown when the group's Done lane is on (lanes are the group's, §1). An empty group has no overview bar.
 - **Insights, Ideas, Memory** (ruling above): with the filter on one project (or a group of exactly one live project)
   the overview bar's Insights, Ideas and Memory chips and **I**, **B**, **M** act on that project. Unfiltered they
   cover every live member of the group shown (`pageScope`); an empty group, and a board shown before its group is
@@ -329,6 +329,12 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   project** (preset to the group) and **Group settings**.
 - Everything a card does uses the card's own project (ALL-PROJECTS-SPEC §3), including the session defaults chain
   of §5.
+- **Phones (compact layouts):** there are no group tabs. The top bar's switcher title (the group's name, with a dot
+  while another group has need-you asks, §3) opens the switcher, whose group rows carry the other groups' counts and
+  are followed by **Group settings** (the shown group's page; phones have no tab menu), **Add group** and **New
+  project**. **Delete group…** is on the group settings page. The **Project** filter is a row of the Filters sheet
+  (shown while the group has more than one live member). Import ideas and Add memory show the same Project row, which
+  opens the group's projects in place, as on desktop. Move up / Move down are in the card menu's sheet (§4 Order).
 
 ## 5. Settings
 
