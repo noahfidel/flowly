@@ -791,9 +791,10 @@ function BoardContent(
   const toggleOlder = (status: Status) =>
     setOlderShown((lanes) => (lanes.includes(status) ? lanes.filter((s) => s !== status) : [...lanes, status]));
   const onScreen = visible.filter((t) => !older.has(t.id) || olderShown.includes(t.status));
-  // Within a lane the older cards always come last, under their toggle. All orders across projects (ALL-PROJECTS-SPEC §4).
+  // Within a lane the older cards always come last, under their toggle. A group board's Manual is the group's one order
+  // (BOARD-GROUPS-SPEC §4); filtered, it is that order restricted to the project, i.e. plain position order.
   const sortColumn = (column: Task[]) => {
-    const sorted = allView ? sortAllColumn(column, boardSort, taskActivity, projectRank) : sortTasks(column, boardSort, taskActivity);
+    const sorted = allView ? sortAllColumn(column, boardSort, taskActivity, projectRank, !!group) : sortTasks(column, boardSort, taskActivity);
     return older.size ? [...sorted.filter((t) => !older.has(t.id)), ...sorted.filter((t) => older.has(t.id))] : sorted;
   };
   // The phone's lanes: the selected one, plus its neighbours in the native lane pager (UI-UX-SPEC §5).
@@ -1116,8 +1117,9 @@ function BoardContent(
           if (status !== card.status) move({ id: card.id, revision: card.revision, status });
         },
       })),
-      // Order is per project: no Move up/down on the All board (ALL-PROJECTS-SPEC §4).
-      ...(allView
+      // A group board steps through its one order (BOARD-GROUPS-SPEC §4); a board of several projects with no group
+      // known has no shared order, so no Move up/down there (ALL-PROJECTS-SPEC §4).
+      ...(allView && !group
         ? []
         : ([
             { kind: "separator", id: "s2" },
@@ -1126,14 +1128,14 @@ function BoardContent(
               label: t("Move up"),
               icon: "ArrowUp",
               disabled: locked,
-              onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "up" })),
+              onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "up", scope: allView ? "group" : "project" })),
             },
             {
               id: "down",
               label: t("Move down"),
               icon: "ArrowDown",
               disabled: locked,
-              onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "down" })),
+              onPress: () => void doAction(() => reorder({ id: card.id, revision: card.revision, direction: "down", scope: allView ? "group" : "project" })),
             },
           ] as MenuEntry[])),
       { kind: "separator", id: "s3" },
@@ -2451,7 +2453,7 @@ function BoardContent(
                     disabled={pending || !!project?.archivedAt}
                     cancelKey={`${viewKey}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${actionTask?.id}|${projectForm}|${!!groupSettings}|${!!taskForm}|${!!quickTask}`}
                     sortColumn={sortColumn}
-                    manualOrder={reorderAllowed(allView, boardSort)}
+                    manualOrder={reorderAllowed(allView, boardSort, !!group)}
                     collapsed={collapsedColumns}
                     older={older}
                     olderShown={olderShown}
@@ -2460,7 +2462,7 @@ function BoardContent(
                     nameOf={nameOf}
                     onToggleCollapse={toggleCollapse}
                     onReorderBlocked={() =>
-                      allView
+                      allView && !group
                         ? toast.show(t("Each project keeps its own order. Open the project to reorder its cards."), { variant: "info" })
                         : toast.show(t("Sorted by {sort}. Drop on another lane to change status; switch to Manual to reorder within a column.", { sort: t(boardSortText[boardSort].label) }), { variant: "info" })
                     }
@@ -2813,8 +2815,8 @@ function BoardContent(
                       }}
                     />
                   ))}
-                  {/* Order is per project: no Move up/down on the All board (ALL-PROJECTS-SPEC §4). */}
-                  {!allView && (["up", "down"] as const).map((direction) => (
+                  {/* A group board steps through its one order; no Move up/down with no group known (ALL-PROJECTS-SPEC §4). */}
+                  {(!allView || !!group) && (["up", "down"] as const).map((direction) => (
                     <Row
                       key={direction}
                       title={direction === "up" ? t("Move up") : t("Move down")}
@@ -2832,6 +2834,7 @@ function BoardContent(
                             id: t.id,
                             revision: t.revision,
                             direction,
+                            scope: allView ? "group" : "project",
                           }),
                         );
                       }}

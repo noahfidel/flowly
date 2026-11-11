@@ -52,20 +52,27 @@ export function scopeTasks(tasks: readonly Task[], scope: { all: true; projectId
 }
 
 /**
- * One All column in display order (§4): Manual groups cards by project in chooser order and keeps each
- * project's manual order; other sorts apply across projects, ties falling back to manual, then project order.
+ * One column of a board of several projects in display order. On a group board (`groupOrder`) Manual is the group's
+ * one order: positions are comparable across its projects (BOARD-GROUPS-SPEC §1, §4), ties falling back to creation,
+ * then project order. With no group known, Manual groups cards by project in chooser order and keeps each project's
+ * manual order (ALL-PROJECTS-SPEC §4). Other sorts apply across projects, ties falling back to manual, then project order.
  */
-export function sortAllColumn(column: readonly Task[], mode: BoardSort, activity: ReadonlyMap<string, string>, projectRank: ReadonlyMap<string, number>) {
+export function sortAllColumn(column: readonly Task[], mode: BoardSort, activity: ReadonlyMap<string, string>, projectRank: ReadonlyMap<string, number>, groupOrder = false) {
   const rank = (t: Task) => projectRank.get(t.projectId) ?? Number.MAX_SAFE_INTEGER;
+  if (mode === "manual" && groupOrder)
+    return [...column].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt) || rank(a) - rank(b));
   if (mode === "manual")
     return [...column].sort((a, b) => rank(a) - rank(b) || a.position - b.position || a.createdAt.localeCompare(b.createdAt));
   // sortTasks is stable for equal keys; pre-order by project so its manual tie-break stays deterministic.
   return sortTasks([...column].sort((a, b) => rank(a) - rank(b)), mode, activity);
 }
 
-/** Drag reorder within a column (§4): never in All, on a project board only with the Manual sort. */
-export function reorderAllowed(all: boolean, sort: BoardSort) {
-  return !all && sort === "manual";
+/**
+ * Drag reorder and Move up/down within a column: only with the Manual sort, on a project board or a group board,
+ * filtered or not (BOARD-GROUPS-SPEC §4); never on a board of several projects with no group known (ALL-PROJECTS-SPEC §4).
+ */
+export function reorderAllowed(all: boolean, sort: BoardSort, grouped = false) {
+  return (!all || grouped) && sort === "manual";
 }
 
 /**

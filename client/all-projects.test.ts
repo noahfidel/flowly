@@ -111,7 +111,14 @@ describe("order within a column (§4)", () => {
   test("Manual groups by project in chooser order and keeps each project's order", () => {
     expect(sortAllColumn(column, "manual", new Map(), rank).map((t) => t.id)).toEqual(["b-first", "b-second", "a-first", "a-second"]);
   });
+  test("a group board's Manual is the group's one order: position across projects, not grouped (BOARD-GROUPS-SPEC §4)", () => {
+    expect(sortAllColumn(column, "manual", new Map(), rank, true).map((t) => t.id)).toEqual(["a-first", "a-second", "b-first", "b-second"]);
+    // Equal positions fall back to creation, then the project order.
+    const tied = [card("a-x", "a", { position: 1 }), card("b-x", "b", { position: 1 })];
+    expect(sortAllColumn(tied, "manual", new Map(), rank, true).map((t) => t.id)).toEqual(["b-x", "a-x"]);
+  });
   test("another sort applies across projects", () => {
+    expect(sortAllColumn(column, "priority", new Map(), rank, true)[0].id).toBe("b-second");
     expect(sortAllColumn(column, "priority", new Map(), rank)[0].id).toBe("b-second");
     const activity = new Map([["a-second", "2026-11-04T00:00:00.000Z"]]);
     expect(sortAllColumn(column, "activity", activity, rank)[0].id).toBe("a-second");
@@ -119,8 +126,13 @@ describe("order within a column (§4)", () => {
 });
 
 describe("drag (§4)", () => {
-  test("reordering within a column is never allowed in All", () => {
+  test("reordering within a column is never allowed on a board of several projects with no group known", () => {
     for (const sort of ["manual", "activity", "priority", "created", "title"] as const) expect(reorderAllowed(true, sort)).toBe(false);
+  });
+  test("a group board reorders with Manual, filtered or not (BOARD-GROUPS-SPEC §4)", () => {
+    expect(reorderAllowed(true, "manual", true)).toBe(true);
+    expect(reorderAllowed(false, "manual", true)).toBe(true);
+    expect(reorderAllowed(true, "priority", true)).toBe(false);
   });
   test("a project board reorders only with Manual", () => {
     expect(reorderAllowed(false, "manual")).toBe(true);
