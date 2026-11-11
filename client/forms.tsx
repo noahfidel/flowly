@@ -1,5 +1,6 @@
 import { linearTeamValue } from "../shared/linear-ticket";
-import { enabledStatuses, laneName } from "../shared/lanes";
+import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
+import { LaneEditor } from "./lane-editor";
 import { useBoardView } from "./board-view";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -18,6 +19,7 @@ import {
   taskTypeLabels,
   type TaskType,
   type Group,
+  type Lane,
   type Project,
   type Task,
   type Status,
@@ -56,7 +58,7 @@ const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.
  * only what changed (`projects.update`, then the links). The project's revision is the one it opened with, so a
  * stale edit is refused.
  */
-export function useProjectSettings(project: Project) {
+export function useProjectSettings(project: Project, withLanes = false) {
   const update = useRpc(rpc.updateProject),
     setLinks = useRpc(rpc.setProjectLinks);
   const stored = autoReviewOf(project);
@@ -76,6 +78,7 @@ export function useProjectSettings(project: Project) {
     [review, setReview] = useState<ReviewEdit>({ on: stored.enabled, rounds: String(stored.maxRounds) }),
     [agentModel, setAgentModel] = useState<AgentModel | null>(project.agentModel ?? null),
     [deliveryMode, setDeliveryMode] = useState<DeliveryMode | null>(storedDelivery),
+    [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
   const patch = {
@@ -88,6 +91,8 @@ export function useProjectSettings(project: Project) {
     ...(linearTicket !== (project.linearTicket === true) ? { linearTicket } : {}),
     ...(linearTeamValue(linearTeam) !== (project.linearTeam ?? "") ? { linearTeam: linearTeamValue(linearTeam) } : {}),
     ...(review.on !== stored.enabled || Number(review.rounds) !== stored.maxRounds ? { autoReview: autoReviewPatch(review) } : {}),
+    // Only while groups are not ready (the project has no group): the per-project lanes path.
+    ...(withLanes && JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
     ...(JSON.stringify(agentModel) !== JSON.stringify(project.agentModel ?? null) ? { agentModel } : {}),
     // An unknown stored mode shows as Inherit and is left as it is until another mode is chosen.
     ...(deliveryMode !== storedDelivery ? { deliveryMode } : {}),
@@ -113,7 +118,7 @@ export function useProjectSettings(project: Project) {
   return {
     title, setTitle, description, setDescription, links, setLinkList, autoStatus, setAutoStatus, workpad, setWorkpad,
     workflowInsights, setWorkflowInsights, memory, setMemory, linearTicket, setLinearTicket, linearTeam, setLinearTeam,
-    review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode,
+    review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode, lanes, setLanes,
     pending, error, dirty, valid, save, reviewPreset,
   };
 }
@@ -128,6 +133,7 @@ export function ProjectSettingsFields({
   state,
   group,
   reviewOn,
+  laneCounts,
 }: {
   project: Project;
   state: ProjectSettingsState;
@@ -135,6 +141,8 @@ export function ProjectSettingsFields({
   group: Group | null;
   /** Opened from What's new to turn Auto review on: the section first, its switch on (GUARDRAILS-SPEC §10). */
   reviewOn?: boolean;
+  /** Live cards per lane: given only while groups are not ready, when the project's own lanes are edited here. */
+  laneCounts?: Partial<Record<Status, number>>;
 }) {
   const s = state;
   const modelPrefs = useSettings(modelSettings);
@@ -155,6 +163,7 @@ export function ProjectSettingsFields({
       <Field title={t("Description")} value={s.description} onChange={s.setDescription} multiline />
       {!project.links && <Field title={t("Paseo project root")} value={project.primaryPath} onChange={noop} editable={false} />}
       {!!project.links && <LinkList links={s.links} root={project.primaryPath} disabled={s.pending} onChange={s.setLinkList} />}
+      {laneCounts && <LaneEditor lanes={s.lanes} counts={laneCounts} disabled={s.pending} onChange={s.setLanes} />}
       <ModelDefaultGroup
         title={t("Default model")}
         value={s.agentModel}
@@ -220,6 +229,8 @@ export function ProjectForm(props: {
   group?: Group | null;
   /** Opened from What's new to turn Auto review on: the section first, its switch on (GUARDRAILS-SPEC §10). */
   reviewOn?: boolean;
+  /** Given only while board groups are not ready (their migration failed): Edit project then keeps the project's own lane editor. */
+  laneCounts?: Partial<Record<Status, number>>;
   /** The board's Show archived view setting; edited here, stored with Save. */
   showArchived?: boolean;
   onShowArchived?: (next: boolean) => void;
@@ -236,6 +247,7 @@ export function ProjectForm(props: {
 function EditProjectForm({
   project,
   group = null,
+  laneCounts,
   showArchived,
   onShowArchived,
   onClose,
@@ -245,13 +257,14 @@ function EditProjectForm({
   project: Project;
   group?: Group | null;
   reviewOn?: boolean;
+  laneCounts?: Partial<Record<Status, number>>;
   showArchived?: boolean;
   onShowArchived?: (next: boolean) => void;
   onClose: () => void;
   onSaved: (id: string) => void;
 }) {
   const theme = useTheme();
-  const state = useProjectSettings(project);
+  const state = useProjectSettings(project, !!laneCounts);
   const [archivedShown, setArchivedShown] = useState(!!showArchived);
   async function save() {
     const saved = await state.save();
@@ -270,7 +283,7 @@ function EditProjectForm({
       <Modal.Content>
         <Theme.Provider value={theme}>
         <View style={{ gap: 16 }}>
-          <ProjectSettingsFields project={project} state={state} group={group} reviewOn={reviewOn} />
+          <ProjectSettingsFields project={project} state={state} group={group} reviewOn={reviewOn} laneCounts={laneCounts} />
           {onShowArchived && <Toggle title={t("Show archived")} value={archivedShown} onChange={setArchivedShown} />}
           <Actions>
             <Button quiet disabled={state.pending} onPress={onClose}>

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { PaseoApi } from "@getpaseo/client";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -260,5 +260,23 @@ describe.each(["json", "sqlite"] as const)("group lanes in the store (%s)", (bac
     expect(board.projects.find((p) => p.id === first.id)!.lanes!.find((l) => l.status === "todo")!.name).toBe("Ready");
     expect(on(board.projects.find((p) => p.id === second.id))).toEqual(["todo"]);
     expectInSync(board);
+  });
+});
+
+describe("group lanes: follow-ups", () => {
+  test("groups not ready (migration failed): projects.update still takes lanes, with the card check; once ready it refuses", async () => {
+    const d = await directory();
+    await seed(d, [project("a")], [task("t1", "a", "blocked")]);
+    const s = open("json", d);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(await s.migrateGroups(async () => Promise.reject(new Error("host settings unreadable")))).toBe(false);
+    const a = (await s.read()).projects[0];
+    await expect(s.updateProject({ id: "a", revision: a.revision, lanes: lanes((x) => x !== "blocked") })).rejects.toThrow(/Move the cards out of Blocked \(1\)/);
+    const saved = await s.updateProject({ id: "a", revision: a.revision, lanes: lanes((x) => x !== "backlog", { todo: " Up " }) });
+    expect(on(saved)).not.toContain("backlog");
+    expect(saved.lanes!.find((l) => l.status === "todo")!.name).toBe("Up");
+    expect(await s.migrateGroups(legacy([]))).toBe(true);
+    const again = (await s.read()).projects[0];
+    await expect(s.updateProject({ id: "a", revision: again.revision, lanes: lanes(() => true) })).rejects.toMatchObject({ code: "LANES_IN_GROUP" });
   });
 });

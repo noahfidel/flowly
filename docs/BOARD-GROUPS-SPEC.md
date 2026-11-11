@@ -89,6 +89,11 @@ exactly one group. Individual projects are no longer top-level navigation.
   the group's names, and a drop onto any column is valid for every card of the group. A lane that holds a live card
   of any live member can't be turned off. A project that moves to another group adopts that group's lanes, the group
   first turning on every status the project's live cards sit in. The migration is §7 step 7.
+- Ruling (Noah, 2026-11-10): lanes are refused per project only while groups are ready. When the groups migration has
+  failed (groups not ready), `projects.update` still accepts `lanes` through the old per-project path (a lane holding
+  a live card of the project can't be turned off) and Edit project still offers the lane editor; the migration later
+  folds those lanes into the group's. This replaces the inherited "projects have no lane settings of their own" limit
+  for that state only.
 
 ## 1. Model
 
@@ -156,8 +161,9 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   by `groups.delete`, `set_members` and the repair of §1.
 - `projects.create` gains an optional `groupId` (default: the default group); the project form and
   `flowly_create_project` pass it. The new project gets its group's lanes.
-- `projects.update` no longer takes lanes: a `lanes` field is refused with `LANES_IN_GROUP: Lanes belong to the
-  project's group. Edit them in Group settings.` and nothing is written.
+- `projects.update` no longer takes lanes once groups are ready: a `lanes` field is refused with `LANES_IN_GROUP: Lanes
+  belong to the project's group. Edit them in Group settings.` and nothing is written. While groups are not ready (the
+  migration failed) it takes them as before: the lanes of a project turn off only when it holds no live card there.
 - The old `boardGroups` value in `board-view` is no longer read after migration (§7) and no longer written.
 
 ## 3. Navigation
@@ -234,7 +240,9 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   change of the group that leaves its lanes as they were (rename, defaults, a project move); a lane change made
   elsewhere reloads an untouched editor, and refuses the first Save of an edited one with "Lanes changed elsewhere.
   Your edits were kept; review and save again." (a second Save overwrites). Edit project
-  (a project whose group is not on the board yet) and the New project form have no lane editor.
+  has no lane editor while groups are ready (a project whose group is not on the board yet, as on a cold link, has
+  none either); while they are not ready (the overview lists no group) it shows the project's own lane editor. The
+  New project form has none.
 - **Entry:** every entry opens the page through one board entry point, `onGroupSettings(groupId, focus?)`: `focus`
   opens one project's section. The tab menu and the switcher row open their group with the filtered project's
   section open when the board is filtered to a project of that group (§4); What's new's *Turn on for this project*

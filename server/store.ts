@@ -494,15 +494,33 @@ export class BoardStore {
    * data: no revision bump, so agent writes holding a project revision are
    * unaffected. All projects are renumbered 0..n in the resulting order.
    */
-  /** Project settings. Lanes are not among them: they belong to the project's group (BOARD-GROUPS-SPEC §2). */
+  /** Project settings. Lanes belong to the project's group once groups are ready (BOARD-GROUPS-SPEC §2). */
   updateProject(input: ProjectEdit) {
     return this.mutate((board) => {
       const p = board.projects.find((p) => p.id === input.id);
       if (!p) throw new Error("Project not found.");
       if (p.revision !== input.revision)
         throw new Error("Revision conflict: reload the project before saving.");
-      if (input.lanes)
-        throw new ToolError("LANES_IN_GROUP", "Lanes belong to the project's group. Edit them in Group settings.");
+      if (input.lanes) {
+        // Once groups are ready, lanes belong to the group (BOARD-GROUPS-SPEC §2). While the migration has not run
+        // (it failed), the old per-project path stays so Edit project keeps its lane editor; the migration folds
+        // these lanes into the group's.
+        if (this.groupsReady) throw new ToolError("LANES_IN_GROUP", "Lanes belong to the project's group. Edit them in Group settings.");
+        const blocked = input.lanes
+          .filter((l) => !l.enabled)
+          .map((l) => ({
+            lane: l,
+            count: board.tasks.filter((t) => t.projectId === p.id && !t.archivedAt && t.status === l.status).length,
+          }))
+          .filter((x) => x.count);
+        if (blocked.length)
+          throw new Error(
+            `Move the cards out of ${blocked
+              .map((x) => `${laneName(p, x.lane.status)} (${x.count})`)
+              .join(", ")} before turning ${blocked.length === 1 ? "it" : "them"} off.`,
+          );
+        p.lanes = input.lanes.map((l) => ({ status: l.status, enabled: l.enabled, ...(l.name?.trim() ? { name: l.name.trim() } : {}) }));
+      }
       if (input.title !== undefined) p.title = input.title;
       if (input.description !== undefined) p.description = input.description;
       if (input.autoStatus !== undefined) p.autoStatus = input.autoStatus;

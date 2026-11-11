@@ -1870,6 +1870,11 @@ function BoardContent(
   const openGroupSettings = (groupId: string) =>
     onGroupSettings(groupId, project && groupOf(project)?.id === groupId ? { projectId: project.id } : undefined);
   // Live cards per lane over a group's live members, so Group settings can't turn off a lane in use (BOARD-GROUPS-SPEC §5).
+  const projectLaneCounts = (() => {
+    const counts: Partial<Record<Status, number>> = {};
+    for (const t of board?.tasks || noTasks) if (t.projectId === project?.id && !t.archivedAt) counts[t.status] = (counts[t.status] ?? 0) + 1;
+    return counts;
+  })();
   const laneCountsOf = (groupId: string) => groupLaneCounts({ projects: board?.projects || noProjects, tasks: board?.tasks || noTasks }, groupId);
   const groupTabMenu = (g: Group, index: number): MenuEntry[] => [
     { id: "settings", label: t("Group settings"), icon: "SlidersHorizontal", onPress: () => openGroupSettings(g.id) },
@@ -2948,6 +2953,8 @@ function BoardContent(
             project={projectForm === "edit" ? project : undefined}
             group={projectForm === "edit" ? groupOf(project) : null}
             reviewOn={projectForm === "edit" && reviewOn}
+            // While groups are not ready (the overview lists none) the project keeps its own lane editor (BOARD-GROUPS-SPEC §0).
+            laneCounts={projectForm === "edit" && projected && !projected.groups.length ? projectLaneCounts : undefined}
             // board-groups 3/7: a new project goes to the group shown (BOARD-GROUPS-SPEC §3, the + and the empty-group hint).
             groupId={projectForm === "new" ? group?.id : undefined}
             showArchived={archived}
