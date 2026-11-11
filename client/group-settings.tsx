@@ -20,7 +20,7 @@ import { Collapse, Disclosure } from "./disclosure";
 import { ModelDefaultGroup } from "./model-default";
 import { ProjectSettingsFields, useProjectSettings } from "./forms";
 import { useStableCallback } from "./stable";
-import { currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, needsDiscardConfirm, shownGroup, withDirty } from "./group-settings-logic";
+import { currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, lanesDirtyKey, needsDiscardConfirm, shownGroup, withDirty, withoutLaneDraft } from "./group-settings-logic";
 
 type GroupDefaultsEdit = { agentModel?: AgentModel | null; deliveryMode?: DeliveryMode | null; dispatcherModel?: AgentModel | null };
 
@@ -85,6 +85,8 @@ export function GroupSettings({
   // Projects with unsaved edits, and the leave (close, move, delete) waiting for the user's answer.
   const [dirty, setDirty] = useState<ReadonlySet<string>>(new Set());
   const [leave, setLeave] = useState<(() => void) | null>(null);
+  // Bumped by Discard: remounts the lane editor, so its unsaved draft goes back to the stored lanes.
+  const [laneReset, setLaneReset] = useState(0);
   const reportDirty = useStableCallback((projectId: string, isDirty: boolean) => setDirty((all) => withDirty(all, projectId, isDirty)));
   const guard = (action: () => void) => (needsDiscardConfirm(dirty) ? setLeave(() => action) : action());
   // The newest project and the revisions section saves returned, so a move never sends a stale revision.
@@ -207,7 +209,7 @@ export function GroupSettings({
                   invalidText={t("The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.")}
                 />
                 <GroupLanes
-                  key={group.id}
+                  key={`${group.id}:${laneReset}`}
                   group={group}
                   counts={laneCounts(group.id)}
                   busy={busy}
@@ -259,6 +261,9 @@ export function GroupSettings({
                     onPress={() => {
                       const action = leave;
                       setLeave(null);
+                      // The unsaved lane draft goes with it (the other sections reset when the page closes or reloads).
+                      setDirty(withoutLaneDraft);
+                      setLaneReset((n) => n + 1);
                       action();
                     }}
                   >
@@ -325,9 +330,6 @@ export function GroupSettings({
     </Modal>
   );
 }
-
-/** The key unsaved lane edits use among the page's unsaved sections (project ids otherwise). */
-const lanesDirtyKey = "*lanes";
 
 /**
  * The group's lanes (BOARD-GROUPS-SPEC §5): the lane editor with Cancel and Save, one `groups.update` with the whole

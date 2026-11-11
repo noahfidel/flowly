@@ -99,6 +99,9 @@ exactly one group. Individual projects are no longer top-level navigation.
   names; only a group with no member at all gets every lane. Replaces "a group with no live member gets every lane".
 - Ruling (Noah, 2026-11-10): when a write outside the migration turns a group's lane back on for a live card, the lane
   still comes back on, and the store logs one info line per write naming the group, the lane(s) and the reason (§1).
+- Ruling (Noah, 2026-11-10): **Discard** in the group settings page's unsaved-changes question also resets the lane
+  editor to the group's stored lanes and clears its unsaved mark (§5); before, only the leave ran and the draft and
+  mark stayed.
 - Ruling (Noah, 2026-11-10): the start migration bumps no group or project revision, including when it turns on a lane for a
   live card; only later writes bump the group's revision for that (§1, §7 step 7).
 
@@ -246,7 +249,7 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 - **Lanes** on the group settings page: the lane editor the project form had (order by drag, or arrows on touch;
   on/off; an optional name), editing the group's lanes, with **Cancel** and **Save** (one `groups.update` with
   `lanes`). A lane that holds live cards of any live member, or the last lane on, can't be switched off there (the
-  server refuses the same, §2). Unsaved lane edits count as unsaved edits for the discard question. They survive a
+  server refuses the same, §2). Unsaved lane edits count as unsaved edits for the discard question, and Discard resets the lane editor to the stored lanes. They survive a
   change of the group that leaves its lanes as they were (rename, defaults, a project move); a lane change made
   elsewhere reloads an untouched editor, and refuses the first Save of an edited one with "Lanes changed elsewhere.
   Your edits were kept; review and save again." (a second Save overwrites). Edit project
