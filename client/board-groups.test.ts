@@ -310,7 +310,11 @@ describe("what Insights, Ideas and Memory cover", () => {
   test("unfiltered: every live member, read as the group", () => {
     expect(pageScope(undefined, members, "g")).toEqual({ projects: members, groupId: "g" });
   });
-  test("nothing for an empty group or a board whose group is not known yet", () => {
+  // Ruling (Noah, 2026-11-11): the group pages cover live members only; an archived member is never on them.
+  test("a group's archived member is not covered", () => {
+    expect(pageScope(undefined, groupMembers(loadout, projects), "g1")?.projects.map((p) => p.id).sort()).toEqual(["a", "b"]);
+  });
+    test("nothing for an empty group or a board whose group is not known yet", () => {
     expect(pageScope(undefined, [], "g")).toBeNull();
     expect(pageScope(undefined, members, undefined)).toBeNull();
   });

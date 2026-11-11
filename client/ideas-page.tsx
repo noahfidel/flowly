@@ -88,8 +88,6 @@ export const IdeasPage = memo(function IdeasPage({
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   // Several projects: each idea and group names its project.
   const several = projects.length > 1;
-  const archivedProject = (projectId: string) => !!byId.get(projectId)?.archivedAt;
-  const importable = useMemo(() => projects.filter((p) => !p.archivedAt), [projects]);
   // Ideas closed here but not yet on the board read as closed (optimistic).
   const effective = useMemo(
     () => (hidden.size ? ideas.map((i) => (hidden.has(i.id) && i.status === "open" ? { ...i, status: "dismissed" as const } : i)) : ideas),
@@ -135,7 +133,7 @@ export const IdeasPage = memo(function IdeasPage({
       <IdeaRow key={row.item.id} leaving={row.leaving} entering={row.entering} restored={actions.restored.has(row.item.id)} spacing={space[3]}>
         <IdeaCard
           idea={row.item}
-          disabled={archivedProject(row.item.projectId) || row.leaving}
+          disabled={row.leaving}
           source={grouped ? undefined : source(row.item)}
           onGood={actions.choose}
           onDismiss={actions.dismiss}
@@ -152,7 +150,7 @@ export const IdeasPage = memo(function IdeasPage({
             idea={row.item}
             acceptedTitle={row.item.acceptedTaskId ? cardTitle(row.item.acceptedTaskId) : undefined}
             sentTo={row.item.acceptedAgentId && row.item.taskId ? sessionName(sessionsOf(row.item.taskId), row.item.acceptedAgentId) : undefined}
-            disabled={archivedProject(row.item.projectId) || !!actions.restoring || row.leaving}
+            disabled={!!actions.restoring || row.leaving}
             onOpenTask={onOpenTask}
             onRestore={actions.restore}
           />
@@ -210,14 +208,14 @@ export const IdeasPage = memo(function IdeasPage({
         <View style={{ flex: 1 }} />
         {/* Import also balances the Back button so the title stays centred. */}
         <View style={{ minWidth: compact ? 56 : 72, alignItems: "flex-end" }}>
-          {importable.length > 0 && (
+          {projects.length > 0 && (
             <Button quiet icon="Plus" label={t("Import ideas")} onPress={() => setImporting(true)}>
               {compact ? "" : t("Import")}
             </Button>
           )}
         </View>
       </View>
-      <IdeasImportModal projects={importable} initialProjectId={importProjectId} open={importing} onClose={() => setImporting(false)} onImported={onImported} />
+      <IdeasImportModal projects={projects} initialProjectId={importProjectId} open={importing} onClose={() => setImporting(false)} onImported={onImported} />
       <ScrollView
         {...verticalScroll}
         keyboardShouldPersistTaps="handled"

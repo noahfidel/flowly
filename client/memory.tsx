@@ -296,10 +296,10 @@ export const MemoryPage = memo(function MemoryPage({
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [width, setWidth] = useState(0);
   const several = projects.length > 1;
-  // A project's memories can change while it is live and its guardrails are on; the rest are shown read-only.
+  // The page covers live projects only (BOARD-GROUPS-SPEC §4); one with guardrails off is shown read-only.
   // One stamp for every project's read: the merged lists below change only when one of them does.
   const stamp = queries.map((q) => q.dataUpdatedAt).join(",");
-  const editable = useMemo(() => new Set(projects.filter((p, i) => !p.archivedAt && views[i]?.enabled).map((p) => p.id)), [projects, stamp]);
+  const editable = useMemo(() => new Set(projects.filter((_, i) => views[i]?.enabled).map((p) => p.id)), [projects, stamp]);
   const offTitles = projects.filter((p, i) => views[i] && !views[i]!.enabled).map((p) => p.title);
   const addable = projects.filter((p) => editable.has(p.id));
   const addTo = addProject(addable, chosen || addProjectId)?.id ?? "";

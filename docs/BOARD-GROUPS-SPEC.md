@@ -124,7 +124,8 @@ exactly one group. Individual projects are no longer top-level navigation.
 
 - Ruling (Noah, 2026-11-10): Insights, Ideas and Memory (and **I**, **B**, **M**) work on an unfiltered group board,
   over every live member of the group; filtered (or a group of one live project) they act on that project, as before.
-  Ideas and Memory list every member's entries, each labelled with its project; an edit acts on the entry's own
+  They cover live members only (an archived project is never a member of the board, §4). Ideas and Memory list every
+  member's entries, each labelled with its project; an edit acts on the entry's own
   project, and an addition (Import ideas, Add memory) asks which project. Insights shows the group's numbers summed
   and splits by project where a part is per project (the day's summaries, skills, other suggestions). Storage stays per
   project. Guardrails stays per project and hidden unfiltered (§4).
@@ -299,15 +300,14 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   to the group.
   - **Ideas:** every member's ideas, one etag read per project (a change re-downloads only that project's ideas). Each
     project's own ideas form their own group, headed by the project's name; card groups and ungrouped rows name the
-    project too. Every action (Good, Dismiss, Discuss, New task, Restore) uses the idea's own project; an archived
-    project's ideas are read-only. The Ideas chip counts the open ideas of every member. **Import** asks which project
-    (a Project row on the paste step; live members only), starting with the project last added to from such a page
-    (board-view `lastAddProjectId`, while it is still offered) else the first member; it is hidden when no member is
-    live. "All ideas" from a card keeps an unfiltered board unfiltered; a board filtered to another project is filtered
+    project too. Every action (Good, Dismiss, Discuss, New task, Restore) uses the idea's own project. The Ideas chip
+    counts the open ideas of every member. **Import** asks which project (a Project row on the paste step), starting
+    with the project last added to from such a page (board-view `lastAddProjectId`, while it is still offered) else
+    the first member. "All ideas" from a card keeps an unfiltered board unfiltered; a board filtered to another project is filtered
     to the card's.
   - **Memory:** every member's memories (the guardrail notes), one etag read per project, each labelled with its
-    project. Edits, pins, archive and delete act on the entry's own project. A member that is archived or has
-    guardrails off is shown read-only, with one notice naming the projects whose guardrails are off. **Add memory**
+    project. Edits, pins, archive and delete act on the entry's own project. A member with guardrails off is shown
+    read-only, with one notice naming the projects whose guardrails are off. **Add memory**
     asks which project (members with guardrails on only), starting as Import does; it is hidden when no member can
     take one. The Memory chip sums the notes of the members with guardrails on and hides when none has them on.
   - **Insights:** read as the group (`insights.group`, `insights.group-day`, `insights.group-tokens`,
