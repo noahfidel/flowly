@@ -9,6 +9,7 @@ import {
   groupOfProject,
   groupOfView,
   groupQuickProject,
+  groupNewTask,
   groupViewId,
   isGroupView,
   membersFirst,
@@ -349,5 +350,23 @@ describe("focusing a project", () => {
   });
   test("no group to open: nothing", () => {
     expect(focusProject([], projects, shown(""), "a", false)).toBeNull();
+  });
+});
+
+// §3, §4: a tab menu's New task opens in that group, whatever the board shows: its filtered project, else the last
+// quick-task project when a member, else its first member; Quick task or the form by the user's setting.
+describe("New task from a group's tab", () => {
+  test("another group's tab ignores the shown board's filter and project", () => {
+    expect(groupNewTask(zen, projects, { groupId: "g1", projectId: "a" }, "", true)).toEqual({ kind: "quick", projectId: "c" });
+    expect(groupNewTask(zen, projects, { groupId: "g1", projectId: "a" }, "a", false)).toEqual({ kind: "form", projectId: "c" });
+  });
+  test("its own filter wins, then the last quick-task project when a member, then the first member", () => {
+    expect(groupNewTask(loadout, projects, { groupId: "g1", projectId: "a" }, "b", true)).toEqual({ kind: "quick", projectId: "a" });
+    expect(groupNewTask(loadout, projects, null, "a", true)).toEqual({ kind: "quick", projectId: "a" });
+    expect(groupNewTask(loadout, projects, null, "c", true)).toEqual({ kind: "quick", projectId: "b" });
+  });
+  test("an empty group falls back to All's rule (the form needs a project too)", () => {
+    expect(groupNewTask(empty, projects, null, "c", false)).toEqual({ kind: "form", projectId: "c" });
+    expect(groupNewTask(empty, [], null, "", true)).toBeNull();
   });
 });

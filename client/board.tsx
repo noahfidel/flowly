@@ -128,7 +128,7 @@ import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 // board-groups 3/7: group-only navigation (BOARD-GROUPS-SPEC §3).
 import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, rememberViewedGroupView } from "./project-memory";
-import { boardProject, boardScope, defaultGroup, focusFilter, focusProject, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, otherGroupNeeds, overviewScope, pageScope, pickGroupView, restoredFilter, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
+import { boardProject, boardScope, defaultGroup, focusFilter, focusProject, mobileLane, groupMembers, groupNewTask, groupOfProject, groupQuickProject, groupViewId, membersFirst, otherGroupNeeds, overviewScope, pageScope, pickGroupView, restoredFilter, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
 import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { GroupTabs, needLabel } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
@@ -1859,7 +1859,20 @@ function BoardContent(
   const laneCountsOf = (groupId: string) => groupLaneCounts({ projects: board?.projects || noProjects, tasks: board?.tasks || noTasks }, groupId);
   const groupTabMenu = (g: Group, index: number): MenuEntry[] => [
     { id: "settings", label: t("Group settings"), icon: "SlidersHorizontal", onPress: () => openGroupSettings(g.id) },
-    { id: "new-task", label: t("New task"), icon: "Plus", onPress: () => { chooseGroup(g.id); openNewTask("todo"); } },
+    {
+      id: "new-task",
+      label: t("New task"),
+      icon: "Plus",
+      // Resolved against this tab's group, not the board shown (§4): its filter, else the last quick-task project when a
+      // member, else its first member.
+      onPress: () => {
+        const next = groupNewTask(g, board?.projects || noProjects, projectFilter, view.values?.lastQuickProjectId ?? "", view.values?.quickTaskDefault ?? true);
+        chooseGroup(g.id);
+        if (!next) return;
+        if (next.kind === "form") setTaskForm({ status: "todo", projectId: next.projectId });
+        else setQuickTask({ status: "todo", projectId: next.projectId });
+      },
+    },
     { kind: "separator", id: "order" },
     { id: "left", label: t("Move left"), icon: "ChevronLeft", disabled: index === 0 || pending, onPress: () => reorderGroup(g.id, { direction: "up" }) },
     { id: "right", label: t("Move right"), icon: "ChevronRight", disabled: index === boardGroups.length - 1 || pending, onPress: () => reorderGroup(g.id, { direction: "down" }) },

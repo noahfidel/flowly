@@ -185,3 +185,22 @@ export function otherGroupNeeds<P extends Pick<Project, "id" | "archivedAt" | "p
   }
   return counts;
 }
+
+/**
+ * What a group tab's **New task** opens (§3, §4): resolved against that group, not the board shown (which may be
+ * another group, filtered to a project the tab's group does not hold). The project is `groupQuickProject` over the
+ * group's live members with its own valid filter; Quick task or the form by the user's setting. None when there is no
+ * live project at all.
+ */
+export function groupNewTask(
+  group: Pick<Group, "id">,
+  projects: readonly Project[],
+  filter: ProjectFilter,
+  lastQuickProjectId: string,
+  quickDefault: boolean,
+): { kind: "quick" | "form"; projectId: string } | null {
+  const members = groupMembers(group, projects);
+  const filtered = validProjectFilter(filter, group.id, members.map((p) => p.id));
+  const target = groupQuickProject(members, [...projects], lastQuickProjectId, filtered);
+  return target ? { kind: quickDefault ? "quick" : "form", projectId: target.id } : null;
+}
