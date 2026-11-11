@@ -47,6 +47,8 @@ test("unpositioned (new) projects sort after ordered ones by creation", () => {
 test("project lanes are not edited per project: projects.update refuses lanes (BOARD-GROUPS-SPEC §2)", async () => {
   // Turning a lane off with cards in it and disabled lanes refusing cards moved to the group: server/store-group-lanes.test.ts.
   const store = await setup();
+  // Once groups are ready (while they are not, the old per-project path stays: server/store-group-lanes.test.ts).
+  await store.migrateGroups(async () => []);
   const rev = async () => (await store.read()).projects.find((p) => p.id === "a")!.revision;
   const lanes = (["backlog", "todo", "design", "development", "test", "in_review", "blocked", "done", "cancelled"] as const).map((status) => ({ status, enabled: true }));
   await expect(store.updateProject({ id: "a", revision: await rev(), lanes })).rejects.toMatchObject({ code: "LANES_IN_GROUP" });
