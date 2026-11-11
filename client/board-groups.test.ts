@@ -12,6 +12,7 @@ import {
   isGroupView,
   membersFirst,
   mobileLane,
+  otherGroupNeeds,
   overviewScope,
   pageScope,
   addProject,
@@ -125,6 +126,16 @@ describe("scope predicate", () => {
     expect(updatedQueue(null, items, none, zenScope)).toEqual([]);
     const emptyScope = boardScope([]);
     expect(needsCount(items, none, emptyScope)).toBe(0);
+  });
+
+  // Ruling (Noah, 2026-11-11): the tabs and switcher rows show each OTHER group's need-you count, over its live members,
+  // so an ask in one group is seen from another; the shown group's is the bell's, so it gets none.
+  test("other groups' need-you counts: every group but the shown one, live members only, zero left out", () => {
+    const none = new Set<string>();
+    const withArchived = [...items, item("o1", "old", "permission", "2026-11-10T04:00:00.000Z")];
+    expect(otherGroupNeeds(groups, projects, "g1", (scope) => needsCount(withArchived, none, scope))).toEqual(new Map([["g2", 1]]));
+    expect(otherGroupNeeds(groups, projects, "g2", (scope) => needsCount(withArchived, none, scope))).toEqual(new Map([["g1", 1]]));
+    expect(otherGroupNeeds(groups, projects, "g2", (scope) => needsCount(withArchived, new Set(["a1:permission"]), scope))).toEqual(new Map());
   });
 
   // Ruling (Noah, 2026-11-10): the counts and step-throughs show on an unfiltered group board too, over every live

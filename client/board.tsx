@@ -45,7 +45,7 @@ import {
   touch,
   useTheme,
   verticalScroll,
-  verticalContent, noFocusRing } from "./ui";
+  verticalContent, noFocusRing, CountPill, Dot } from "./ui";
 import { StatusIcon, priorityLabels } from "./status";
 import { AttentionButton } from "./attention-button";
 import { DispatcherPanel } from "./dispatcher-panel";
@@ -56,6 +56,7 @@ import { cardAsks, changeItem, needsCount, needsQueue, stepAt, stepPosition, ste
 import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
+  attentionBadgeText,
   attentionItemsWithFacts,
   attentionOpen,
   attentionOpenToken,
@@ -127,9 +128,9 @@ import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 // board-groups 3/7: group-only navigation (BOARD-GROUPS-SPEC §3).
 import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, rememberViewedGroupView } from "./project-memory";
-import { boardProject, boardScope, defaultGroup, focusFilter, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, overviewScope, pageScope, pickGroupView, restoredFilter, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
+import { boardProject, boardScope, defaultGroup, focusFilter, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, otherGroupNeeds, overviewScope, pageScope, pickGroupView, restoredFilter, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
 import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
-import { GroupTabs } from "./project-tabs";
+import { GroupTabs, needLabel } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
 import { RemoveProjectDialog } from "./project-remove";
 import { boardOverview } from "./overview";
@@ -938,6 +939,12 @@ function BoardContent(
   const stepScope = useMemo(() => boardScope(overviewCover.projects.map((p) => p.id)), [overviewCover]);
   const needsIds = useMemo(() => needsQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const needYouCount = useMemo(() => needsCount(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
+  // Every other group's need-you count, on its tab and switcher row (§3; Ruling, Noah 2026-11-11). Only with the groups known.
+  const otherNeeds = useMemo(
+    () => otherGroupNeeds(boardGroups, board?.projects || noProjects, group?.id ?? "", (scope) => needsCount(attention, resolvedSignals, scope)),
+    [boardGroups, board?.projects, group?.id, attention, resolvedSignals],
+  );
+  const otherNeedTotal = useMemo(() => [...otherNeeds.values()].reduce((n, x) => n + x, 0), [otherNeeds]);
   const changed = useMemo(() => changeItem(dispatcherItems.data), [dispatcherItems.data]);
   const updatedIds = useMemo(() => updatedQueue(changed, attention, resolvedSignals, stepScope), [changed, attention, resolvedSignals, stepScope]);
   const [step, setStep] = useState<(Step & { kind: StepKind }) | null>(null);
@@ -2125,6 +2132,7 @@ function BoardContent(
             {compact || boardGroups.length === 0 ? (
               <ProjectSwitcher
                 title={group?.name ?? t("Projects")}
+                otherNeeds={otherNeedTotal}
                 shortcut={shortcutsOn ? "P" : ""}
                 onPress={() => setMenu("projects")}
               />
@@ -2139,6 +2147,7 @@ function BoardContent(
                 menuFor={groupTabMenu}
                 onMove={dropGroup}
                 reorderDisabled={pending}
+                needs={otherNeeds}
               />
             )}
             {!compact && (!!project || allView) && filterCount > 0 && (
@@ -2485,12 +2494,16 @@ function BoardContent(
                         </View>
                       ) : undefined
                     }
+                    label={needLabel(g.name, otherNeeds.get(g.id) ?? 0)}
                     trailing={
                       touch && boardGroups.length > 1 ? (
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                          {!!otherNeeds.get(g.id) && <CountPill text={attentionBadgeText(otherNeeds.get(g.id)!) || ""} />}
                           <IconButton icon="ChevronUp" size={36} label={t("Move {title} up", { title: g.name })} disabled={index === 0 || pending} onPress={() => reorderGroup(g.id, { direction: "up" })} />
                           <IconButton icon="ChevronDown" size={36} label={t("Move {title} down", { title: g.name })} disabled={index === boardGroups.length - 1 || pending} onPress={() => reorderGroup(g.id, { direction: "down" })} />
                         </View>
+                      ) : otherNeeds.get(g.id) ? (
+                        <CountPill text={attentionBadgeText(otherNeeds.get(g.id)!) || ""} />
                       ) : undefined
                     }
                     onPress={() => {
@@ -3010,10 +3023,13 @@ function BoardContent(
 // board-groups 3/7: the compact switcher names the shown group and opens the group switcher.
 function ProjectSwitcher({
   title,
+  otherNeeds,
   shortcut,
   onPress,
 }: {
   title: string;
+  /** Need-you asks in the other groups (§3): a dot on the switcher, so phones see them from any group. */
+  otherNeeds: number;
   shortcut: string;
   onPress(): void;
 }) {
@@ -3021,7 +3037,7 @@ function ProjectSwitcher({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={shortcut ? t("Group: {title}. Choose or manage groups ({shortcut})", { title, shortcut }) : t("Group: {title}. Choose or manage groups", { title })}
+      accessibilityLabel={needLabel(shortcut ? t("Group: {title}. Choose or manage groups ({shortcut})", { title, shortcut }) : t("Group: {title}. Choose or manage groups", { title }), otherNeeds)}
       onPress={onPress}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
@@ -3047,6 +3063,7 @@ function ProjectSwitcher({
           {title}
         </Label>
       </View>
+      {otherNeeds > 0 && <Dot size={7} color={colors.accent} />}
       <Icon name="ChevronsUpDown" size={14} color={colors.foregroundMuted} />
     </Pressable>
   );

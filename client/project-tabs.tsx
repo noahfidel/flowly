@@ -4,8 +4,9 @@ import { ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Group } from "../shared/model";
 import { menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { SortableList } from "./sortable-list";
-import { IconButton, Label, font, noFocusRing, radius, space, useTheme } from "./ui";
-import { t } from "../shared/i18n";
+import { attentionBadgeText } from "./attention";
+import { CountPill, IconButton, Label, font, noFocusRing, radius, space, useTheme } from "./ui";
+import { t, tn } from "../shared/i18n";
 
 /**
  * Desktop group tabs (BOARD-GROUPS-SPEC §3): one tab per group, one click opens its board; the trailing
@@ -22,6 +23,7 @@ export function GroupTabs({
   menuFor,
   onMove,
   reorderDisabled,
+  needs,
 }: {
   /** In position order. */
   groups: readonly Group[];
@@ -35,6 +37,8 @@ export function GroupTabs({
   /** Drop a dragged tab at `to`, an index in `groups`. */
   onMove(id: string, to: number): void;
   reorderDisabled: boolean;
+  /** Other groups' need-you counts (§3; Ruling, Noah 2026-11-11): a tab with one shows it, so an ask elsewhere is seen. */
+  needs?: ReadonlyMap<string, number>;
 }) {
   const openMenu = useMenuOpener();
   const scroll = useRef<RNScrollView>(null);
@@ -75,7 +79,8 @@ export function GroupTabs({
           renderItem={(g, index, pressable) => (
             <Tab
               title={g.name}
-              label={t("Group {name}", { name: g.name })}
+              label={needLabel(t("Group {name}", { name: g.name }), needs?.get(g.id) ?? 0)}
+              need={needs?.get(g.id) ?? 0}
               active={g.id === activeId}
               menu={menuHandlers(openMenu, g.name, () => menuFor(g, index))}
               // The release that ends a drag is not a click.
@@ -94,15 +99,23 @@ export function GroupTabs({
   );
 }
 
+/** A group's accessibility label with its need-you count, when it has one. */
+export function needLabel(label: string, need: number) {
+  return need ? `${label}, ${tn(need, "{n} needs you", "{n} need you")}` : label;
+}
+
 function Tab({
   title,
   label,
+  need,
   active,
   menu,
   onPress,
 }: {
   title: string;
   label: string;
+  /** The group's need-you count (other groups only); 0 shows none. */
+  need: number;
   active: boolean;
   menu: object;
   onPress(): void;
@@ -144,6 +157,7 @@ function Tab({
           {title}
         </Label>
       </View>
+      {need > 0 && <CountPill text={attentionBadgeText(need) || ""} />}
     </Pressable>
   );
 }

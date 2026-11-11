@@ -27,7 +27,10 @@ exactly one group. Individual projects are no longer top-level navigation.
   and can override (new-card model, mode and thinking level, delivery mode, the group's dispatcher model). A group
   settings page shows the group defaults plus a section per project. Lanes are not per project: see the lanes
   ruling below.
-- Ruling (Noah, 2026-11-10): the bell and the Paseo sidebar badge keep counting across all groups.
+- Ruling (Noah, 2026-11-11): the board's bell (on phones too), its "N need you" and "N updated" counts and the **N** /
+  **U** step-throughs cover the shown group (or the filtered project). Each other group with need-you asks shows its
+  count on its tab and its switcher row (phones: a dot on the switcher title), so an ask in one group is seen from
+  another. The Paseo sidebar badge stays global over every group.
 - Ruling (Noah, 2026-11-10): board groups move out of the per-host `board-view` settings into the board's own data,
   so the server can write them. A dispatcher tool for board groups (create, rename, set member projects, delete) is
   confirmed by the user on every call, like `flowly_create_project` (DISPATCHER-SPEC §5.2: allowed modes only, not
@@ -252,11 +255,14 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   filter is set to the card's project only when the card is not in the group already shown (otherwise the filter
   is left as it is).
 - **No project at all:** the first-run "No projects yet / Create project" screen shows instead of a board.
-- **Bell, badge, Search:** the bell, the "N need you" / "N updated" counts of a board and the `N`/`U` step-throughs
-  use the shown board's scope (`boardScope`): the filtered project, else every live member of the shown group (§4);
-  a step opens each card in the card sidebar whatever its project; the sidebar badge (`attention.count`) and the phone's bell stay
-  global over every group (ruling above). Search (button, **S**) keeps searching every project and shows each
-  result's project and group.
+- **Bell, badge, Search** (ruling above): the bell (desktop and phone), the "N need you" / "N updated" counts of a
+  board and the `N`/`U` step-throughs use the shown board's scope (`boardScope`): the filtered project, else every
+  live member of the shown group (§4); a step opens each card in the card sidebar whatever its project. Every other
+  group's need-you count (its live members' open asks, as the bell counts them; `otherGroupNeeds`) shows as a count on
+  its tab and its switcher row, and none when it has none; on compact layouts the switcher title carries a dot while
+  any other group has one. The accessibility label adds "{n} need you". The sidebar badge (`attention.count`) stays
+  global over every group. Search (button, **S**) keeps searching every project and shows each result's project and
+  group.
 
 ## 4. The group board
 

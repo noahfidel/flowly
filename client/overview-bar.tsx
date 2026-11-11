@@ -31,7 +31,7 @@ export function OverviewBar({
   memoryShortcut,
 }: {
   overview: BoardOverview;
-  /** Every open ask on the board's cards, the bell's count (DISPATCHER-SPEC §9.4); a press starts the step-through. */
+  /** Open asks on the shown board's cards (its filtered project, else the group's live members), as the bell counts them (DISPATCHER-SPEC §9.4, BOARD-GROUPS-SPEC §3); a press starts the step-through. */
   needYou: number;
   onNeedYou(): void;
   /** Cards the dispatcher saw change since you looked (§9.2); never part of needYou. */

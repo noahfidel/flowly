@@ -145,3 +145,23 @@ export function pageScope<P extends { id: string }>(project: P | undefined, memb
 export function addProject<P extends { id: string }>(projects: readonly P[], lastId: string): P | undefined {
   return projects.find((p) => p.id === lastId) ?? projects[0];
 }
+
+/**
+ * Each OTHER group's need-you count, for its tab and switcher row (§3; Ruling, Noah 2026-11-11): `count` is
+ * `needsCount` over a scope of that group's live members. The shown group's count is the bell's, so it is left out, as
+ * is every group with none.
+ */
+export function otherGroupNeeds<P extends Pick<Project, "id" | "archivedAt" | "position" | "createdAt" | "groupId">>(
+  groups: readonly Pick<Group, "id">[],
+  projects: readonly P[],
+  shownGroupId: string,
+  count: (inScope: (projectId: string) => boolean) => number,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const g of groups) {
+    if (g.id === shownGroupId) continue;
+    const n = count(boardScope(groupMembers(g, projects).map((p) => p.id)));
+    if (n > 0) counts.set(g.id, n);
+  }
+  return counts;
+}
