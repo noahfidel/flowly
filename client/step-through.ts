@@ -90,11 +90,35 @@ export function cardAsks(items: readonly ChatItem[] | undefined, taskId: string,
 }
 
 /**
- * What a press on a step-through chip (N need you / N updated, the N shortcut, the phone bell) does (Ruling, Noah
- * 2026-11-09): with that kind already open it keeps the current card (restarting at the first one would silently mark
- * every unread chat read, as each card's chat preview opens); otherwise it starts at the kind's first card.
+ * What a press on a step-through chip (N need you / N updated, the N and U shortcuts, the phone bell) does (Ruling,
+ * Noah 2026-11-09): with that kind already open it keeps the current card and place (`keep`: nothing is reopened;
+ * restarting at the first one would silently mark every unread chat read, as each card's chat preview opens).
+ * Otherwise it opens the kind's first card, except that Updates starts on the open card when it is in its queue, so its
+ * bar never sits over a card it does not count (Ruling, Noah 2026-11-11). Null: the queue is empty.
  */
-export function stepStartTarget(current: Step | null, currentKind: StepKind | null, kind: StepKind, queue: readonly string[]): string | null {
-  if (current && currentKind === kind) return current.taskId;
-  return queue[0] ?? null;
+export function stepStartTarget(
+  current: Step | null,
+  currentKind: StepKind | null,
+  kind: StepKind,
+  queue: readonly string[],
+  openTaskId: string | null,
+): { taskId: string; keep: boolean } | null {
+  if (current && currentKind === kind) return { taskId: current.taskId, keep: true };
+  if (kind === "updated" && openTaskId && queue.includes(openTaskId)) return { taskId: openTaskId, keep: false };
+  return queue[0] ? { taskId: queue[0], keep: false } : null;
+}
+
+/**
+ * The bar's label and next control. In the queue: "i of N" and the › arrow. A card that left the queue stays shown:
+ * Need you labels it "Answered" and offers Next card as the primary button; Updates has nothing answered (opening a
+ * card reads its unread turn, which drops it mid-flip), so it keeps the plain arrow (Ruling, Noah 2026-11-11). With no
+ * card left: "All caught up" and Done.
+ */
+export function stepBarState(
+  kind: StepKind,
+  position: { index: number | null; next: string | null },
+): { where: "position" | "answered" | "none" | "caught-up"; next: "arrow" | "pill" | "done" } {
+  if (position.index !== null) return { where: "position", next: "arrow" };
+  if (!position.next) return { where: "caught-up", next: "done" };
+  return kind === "needs" ? { where: "answered", next: "pill" } : { where: "none", next: "arrow" };
 }

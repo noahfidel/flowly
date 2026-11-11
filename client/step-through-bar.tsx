@@ -8,7 +8,7 @@ import { Button, IconButton, Label, Notice, font, message, space, verticalConten
 import { AskRow } from "./dispatcher-asks";
 import { dispatcherStartMessage } from "./start-again";
 import { dispatcherStatusKey } from "./dispatcher-panel";
-import type { AskItem, ChangeItem, StepKind } from "./step-through";
+import { stepBarState, type AskItem, type ChangeItem, type StepKind } from "./step-through";
 
 type Position = { index: number | null; total: number; prev: string | null; next: string | null };
 
@@ -50,15 +50,16 @@ export function StepThroughBar({
   groupId: string | null;
 }) {
   const { colors } = useTheme();
-  const left = position.index === null;
+  const bar = stepBarState(kind, position);
   const title = kind === "needs" ? t("Needs you") : t("Updates");
-  const where = !left
-    ? t("{index} of {total}", { index: position.index! + 1, total: position.total })
-    : position.next
-      ? kind === "needs"
+  const where =
+    bar.where === "position"
+      ? t("{index} of {total}", { index: position.index! + 1, total: position.total })
+      : bar.where === "answered"
         ? t("Answered")
-        : ""
-      : t("All caught up");
+        : bar.where === "caught-up"
+          ? t("All caught up")
+          : "";
   return (
     <View style={{ flexShrink: 0, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface1 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], paddingLeft: space[3], paddingRight: space[2], paddingVertical: space[1.5], minWidth: 0 }}>
@@ -71,11 +72,11 @@ export function StepThroughBar({
           </Label>
         </View>
         <IconButton icon="ChevronLeft" label={t("Previous card")} disabled={!position.prev} onPress={onPrev} />
-        {left && position.next ? (
+        {bar.next === "pill" ? (
           <Button small primary onPress={onNext}>
             {t("Next card")}
           </Button>
-        ) : left ? (
+        ) : bar.next === "done" ? (
           <Button small onPress={onEnd}>
             {t("Done")}
           </Button>

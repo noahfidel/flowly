@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { Project, Task } from "../shared/model";
 import type { AttentionItem } from "../shared/attention";
 import type { ChatItem } from "../shared/dispatcher";
-import { cardAsks, needsCount, needsQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type ChangeItem } from "./step-through";
+import { cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, updatedQueue, type ChangeItem } from "./step-through";
 
 /** The need-you and updated step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). */
 
@@ -136,14 +136,38 @@ test("a need-you card pins no unread turns: those are in N updated (Ruling, Noah
   expect(cardAsks(items, "a").map((x) => x.signal)).toEqual(["q"]);
 });
 
-test("pressing the chip of the open step-through keeps the current card; the other kind starts at its first card", () => {
+test("pressing the chip of the open step-through keeps the current card and place; the other kind starts at its first card", () => {
   const queue = ["a", "b", "c"];
   const open = stepAt(queue, "b");
-  expect(stepStartTarget(open, "needs", "needs", queue)).toBe("b");
+  expect(stepStartTarget(open, "needs", "needs", queue, "b")).toEqual({ taskId: "b", keep: true });
   // Still the same card once it dropped out of the queue.
-  expect(stepStartTarget(open, "needs", "needs", ["a", "c"])).toBe("b");
-  expect(stepStartTarget(open, "needs", "updated", ["x", "y"])).toBe("x");
-  expect(stepStartTarget(null, null, "needs", queue)).toBe("a");
-  expect(stepStartTarget(null, null, "needs", [])).toBeNull();
-  expect(stepStartTarget(open, "needs", "updated", [])).toBeNull();
+  expect(stepStartTarget(open, "needs", "needs", ["a", "c"], "b")).toEqual({ taskId: "b", keep: true });
+  expect(stepStartTarget(open, "needs", "updated", ["x", "y"], "b")).toEqual({ taskId: "x", keep: false });
+  expect(stepStartTarget(null, null, "needs", queue, null)).toEqual({ taskId: "a", keep: false });
+  expect(stepStartTarget(null, null, "needs", [], null)).toBeNull();
+  expect(stepStartTarget(open, "needs", "updated", [], "b")).toBeNull();
+});
+
+test("starting Updates on a card it counts starts there; on any other card it opens the queue's first (Ruling, Noah 2026-11-11)", () => {
+  const queue = ["a", "b", "c"];
+  expect(stepStartTarget(null, null, "updated", queue, "b")).toEqual({ taskId: "b", keep: false });
+  expect(stepStartTarget(null, null, "updated", queue, "zzz")).toEqual({ taskId: "a", keep: false });
+  expect(stepStartTarget(null, null, "updated", queue, null)).toEqual({ taskId: "a", keep: false });
+  expect(stepStartTarget(stepAt(["b"], "b"), "needs", "updated", queue, "b")).toEqual({ taskId: "b", keep: false });
+  expect(stepStartTarget(null, null, "updated", [], "b")).toBeNull();
+  // Need you is unchanged: always its first card.
+  expect(stepStartTarget(null, null, "needs", queue, "b")).toEqual({ taskId: "a", keep: false });
+});
+
+test("the bar: in the queue it shows i of N with the arrow; a card that left it differs by kind (Ruling, Noah 2026-11-11)", () => {
+  const inQueue = { index: 1, total: 3, prev: "a", next: "c" };
+  const left = { index: null, total: 2, prev: "a", next: "c" };
+  const last = { index: null, total: 1, prev: "a", next: null };
+  expect(stepBarState("needs", inQueue)).toEqual({ where: "position", next: "arrow" });
+  expect(stepBarState("updated", inQueue)).toEqual({ where: "position", next: "arrow" });
+  expect(stepBarState("needs", left)).toEqual({ where: "answered", next: "pill" });
+  // Updates has nothing answered: reading a card's unread turn drops it mid-flip, so the plain arrow stays.
+  expect(stepBarState("updated", left)).toEqual({ where: "none", next: "arrow" });
+  expect(stepBarState("needs", last)).toEqual({ where: "caught-up", next: "done" });
+  expect(stepBarState("updated", last)).toEqual({ where: "caught-up", next: "done" });
 });

@@ -969,7 +969,12 @@ function BoardContent(
     setMenu(null);
     const item = attentionByTask.get(id);
     const sessionId = stepSession(item, kind, resolvedSignals);
-    if (!item || !sessionId) return openTaskById(id);
+    if (!item || !sessionId) {
+      openTaskById(id);
+      // An empty session entry returns an already open card from its chat to its details (as a card link does);
+      // setTask alone keeps a card that is already open where it was.
+      return setSessionEntry({ taskId: id, sessionId: "", requestId: `step-${Date.now()}` });
+    }
     setDrawerFocus(null);
     focusGroupOf(item.project.id); // board-groups 3/7
     setTask(item.task.id);
@@ -983,9 +988,10 @@ function BoardContent(
     if (!projected || !agents.data) return setPendingStep(kind);
     const queue = kind === "updated" ? updatedIds : needsIds;
     if (!queue.length) return void toast.show(kind === "needs" ? t("Nothing needs your attention.") : t("Nothing new to read."), { variant: "info" });
-    // Pressing the open step-through's own chip keeps its card (it would otherwise restart and mark every chat read).
-    const target = stepStartTarget(step, step?.kind ?? null, kind, queue);
-    if (target) showStepCard(kind, target);
+    // Pressing the open step-through's own chip keeps its card and place (it would otherwise restart and mark every
+    // chat read); Updates starts on the open card when it counts it, else at its first card.
+    const target = stepStartTarget(step, step?.kind ?? null, kind, queue, taskId || null);
+    if (target && !target.keep) showStepCard(kind, target.taskId);
   });
   useEffect(() => {
     if (pendingStep && projected && agents.data) {

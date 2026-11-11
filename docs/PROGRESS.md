@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Updates step-through: start opens the card, starts on a counted card, no "Answered" (branch `updates-stepper-start`) — 2026-11-11
+
+- Ruling (Noah, 2026-11-11), DISPATCHER-SPEC §9.4. Cause of "Updates attaches over the open chat": `showStepCard` opened a card with no unread session through `openTaskById`, whose `setTask` is a no-op for the card already open, so the drawer stayed on its chat. It now also sends an empty session entry (as a card link does), returning the card to its details.
+- `stepStartTarget` takes the open card and returns `{ taskId, keep }`: same kind open keeps card and place (nothing reopened); Updates starts on the open card when it is in its queue, else the first. Need you unchanged. `stepBarState` (pure) drives the bar: Updates keeps the › arrow and no "Answered" when its card left the queue.
+- Checks: `npm run typecheck` 0; `npm test` 211 files passed, 1 skipped; 2381 tests passed, 7 skipped. UNRUN: live UI on desktop and phone.
+- Onboarding: no tip or tour change (a fix to an existing flow). Telemetry: no field. No new strings.
+
 ## Group boards: Insights, Ideas and Memory per group; last group and filter kept (branch `group-needs-you`) — 2026-11-11
 
 - Ruling (Noah, 2026-11-10, relayed): Insights, Ideas and Memory (and I, B, M) work on an unfiltered group board over every live member; filtered, over that project. Guardrails stays per project. Spec §0 ruling, §4, §8.
