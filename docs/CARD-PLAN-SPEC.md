@@ -33,7 +33,7 @@ Backward compatibility: the field is optional, so older boards read as "no plan"
 Invariants (checked in every write, `server/plans.ts`):
 
 - At most one artifact per card has `plan`. Setting a plan clears the field on any other artifact of the card in the same transaction.
-- A plan artifact is never `origin: "review-ledger"` and never `external` (a Jira or Linear item is not a plan file).
+- A plan artifact is never `origin: "review-ledger"` and never `external` (a Jira or Linear item is not a plan file; refused with `An external item can't be the plan.`).
 - `approvedBy` is present exactly when `approvedAt` is not null.
 - A new plan artifact gets `role: "input"`. An existing artifact made the plan keeps its role (a design card's output can be its plan).
 
@@ -41,7 +41,7 @@ Helpers in `shared/plans.ts`: `planOf(artifacts, taskId)` (the card's plan artif
 
 ### 1.2 Plan copies
 
-When Flowly has only the plan's text (§4), it writes it to `<plugin data>/plans/<taskId>/<UTC timestamp, colons replaced by "-">.md` (atomic write, created folders `0700`, file `0600`) and the plan points at that absolute path. The card's own copy folder, `<plugin data>/plans/<taskId>`, is one of that card's artifact roots (passed to `artifactRoots` wherever card roots are built: `ArtifactService.where`, `AgentService`'s three call sites, `get_task`'s missing check), so its copies preview and never show as Missing; another card's copies stay outside that card's roots. Copies are not deleted when the plan is replaced or cleared (the old plan remains an input and still opens) nor when the card is deleted (its `removed/` backup still points at them).
+When Flowly has only the plan's text (§4), it writes it to `<plugin data>/plans/<taskId>/<UTC timestamp, colons replaced by "-">.md` (atomic write, created folders `0700`, file `0600`; a name already taken gets `-2`, `-3`, …) and the plan points at that absolute path. The card's own copy folder, `<plugin data>/plans/<taskId>`, is one of that card's artifact roots (passed to `artifactRoots` wherever card roots are built: `ArtifactService.where`, `AgentService`'s three call sites, `get_task`'s missing check), so its copies preview and never show as Missing; another card's copies stay outside that card's roots. Copies are not deleted when the plan is replaced or cleared (the old plan remains an input and still opens) nor when the card is deleted (its `removed/` backup still points at them).
 
 ### 1.3 Events
 
@@ -98,7 +98,7 @@ A later plan replaces the earlier one: the earlier artifact keeps everything but
 Observed in the daemon, so it works whether the user answered in Flowly's question UI or in Paseo:
 
 1. `agent.permission.before` with `request.kind === "plan"` from a Flowly-managed card session: Flowly keeps `{ agentId, taskId, text, path }` by `request.id` in memory (at most 200 entries, dropped after 24 h). `text` is `input.plan`; `path` is the first string among `input.planFilePath`, `input.plan_file_path`, `input.filePath`, `input.file_path`, `metadata.planFilePath`, `metadata.filePath`.
-2. `agent.permission.after` for a kept id with `resolution.behavior === "allow"`: the card's plan is set, approved, `source: "plan-mode"`, `approvedBy: { kind: "human" }`, actor `human`. Target: `path` when it passes §3.1; otherwise the text saved as a plan copy (§1.2); neither (no usable path, empty text): nothing is set, logged. Title: the text's first Markdown heading, else the file name, else *Plan*, at most 120 characters. A `deny` (Keep planning) sets nothing. Either way the entry is dropped.
+2. `agent.permission.after` for a kept id with `resolution.behavior === "allow"`: the card's plan is set, approved, `source: "plan-mode"`, `approvedBy: { kind: "human" }`, actor `human`. Target: `path` when it passes §3.1 as a file; otherwise the text saved as a plan copy (§1.2); neither (no usable path, empty text): nothing is set, logged. Title: the text's first Markdown heading, else the file name, else *Plan*, at most 120 characters. A `deny` (Keep planning) sets nothing. Either way the entry is dropped.
 3. Failures are logged with `logFailure` and never affect the hook or the session. A request raised before a plugin reload is not known after it, so its approval is not captured (known limit).
 
 Sessions outside cards are not captured: they have no card. An agent that planned there and then creates a card passes the plan with `flowly_create_card` (§5.2).
@@ -121,16 +121,17 @@ Card tools (AGENT-CARDS-SPEC §2): on card sessions' `flowly` server and session
 
 - `flowly_set_plan` `{ taskId, target, title?, approved }`: §3 with `by: { kind: "agent", agentId }`, `source: "tool"`. Errors: `CARD_NOT_FOUND`, `ARCHIVED`, `PLAN_INVALID` (target refused; the artifact message). Result `{ plan }` (§5.3).
 - `flowly_clear_plan` `{ taskId }`: §3.3. Result `{ cleared: boolean }`.
-- `flowly_create_card` gains optional `plan: { target, title?, approved }`. The target is checked against the project's directories, the extra folders before the card is created (`PLAN_INVALID`, nothing created), and set in the same create after the workspace exists (stored relative to it when inside it). Replays return the card as created.
+- `flowly_create_card` gains optional `plan: { target, title?, approved }`. The target is checked against the project's directories (a relative path is relative to the project root) and the extra folders before the card is created (`PLAN_INVALID`, nothing created), and set in the same create after the workspace exists (stored relative to it when inside it). If that last step fails, the card stays and the failure is logged. Replays return the card as created.
+- CLI (card sessions, like the other card tools): `set-plan --input <JSON>` and `clear-plan --input <JSON>`.
 - `flowly_start_card` gains optional `mode` (§6).
 - Tool text: *approved=true only when the user approved this plan in your chat (for example by accepting it in plan mode); otherwise false, a draft.* `flowly_create_card`'s `plan` text: *If you planned this card (plan mode writes the plan to a file), pass that file here so the card keeps it.*
 
 ### 5.3 Reading it
 
-- `flowly_get_task` gains `plan: { artifactId, target, absolutePath?, title, approved, approvedAt, approvedBy, source, missing } | null`; the plan artifact is left out of `artifacts`.
+- `flowly_get_task` gains `cardPlan: { artifactId, target, absolutePath?, title, approved, approvedAt, approvedBy?, source, missing } | null`; the plan artifact is left out of `artifacts`. (`plan` in `get_task` is already the sessions' todo lists, WORKPAD-SPEC §2.2.) `flowly_set_plan` returns the same shape as `{ plan }`.
 - `flowly_get_card`'s card view gains `plan: { title, approved } | null`.
 - Session context (`sessionContext`): before *Inputs:*, one line `Plan (approved): <title>: <target>` or `Plan (draft): …`.
-- Skill: when `get_task.plan.approved` is true, execute that plan; don't plan again unless the user asks or the plan is Missing.
+- Skill: when `get_task.cardPlan.approved` is true, execute that plan; don't plan again unless the user asks or the plan is Missing.
 
 ## 6. Starting a session
 
@@ -141,9 +142,9 @@ Card tools (AGENT-CARDS-SPEC §2): on card sessions' `flowly` server and session
 
 ### 6.1 `flowly_start_card`
 
-- `mode` (optional, 1–80 characters): the permission mode id. When Paseo lists the provider's modes for the card's workspace (`providers.listModes`), a mode not among them is `MODE_UNAVAILABLE` (listing the ids); when the list cannot be read, the mode is passed as given.
+- `mode` (optional, 1–80 characters): the permission mode id. When Paseo lists the provider's modes for the card's workspace directory as it is before the start (`providers.listModes`, checked before any worktree is made), a mode not among them is `MODE_UNAVAILABLE` (listing the ids); when the list cannot be read, the mode is passed as given.
 - No `mode`: the New task defaults, then `suggestPlanAwareMode`.
-- The default prompt (no `prompt`) is the title and description, then, with an approved plan, one paragraph: `Approved plan: <absolute path or URL>. Execute this plan; do not plan again.` A given `prompt` is sent as is.
+- The default prompt (no `prompt`) is the title and description, then, with an approved plan, one paragraph: `Approved plan: <absolute path or URL>. Execute this plan; do not plan again.` A `./` target is made absolute against the card's workspace directory before the start (the file that exists now; a new worktree may not have an untracked plan file). A given `prompt` is sent as is.
 - `flowly_remove_artifact` on the plan artifact is refused: `ARTIFACT_FORBIDDEN` *This is the card's plan; use flowly_clear_plan.*
 
 ### 6.2 Board forms
