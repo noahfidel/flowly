@@ -298,7 +298,12 @@ export class BoardStore {
       const repair = ensureGroups(board, now, this.takeGroupId);
       // Lanes are group-level (BOARD-GROUPS-SPEC §1): moved, new and restored projects take their group's lanes, the
       // group first turning on any status their live cards sit in.
-      syncGroupLanes(board, now);
+      const lanes = syncGroupLanes(board, now);
+      // A lane turned back on for a live card is the behaviour, not a failure (an automation wrote a card into a lane
+      // the group had turned off); log which one and why so it can be traced.
+      if (!migrating)
+        for (const { groupId, statuses } of lanes.reenabled)
+          console.log(`Flowly board groups: lane ${statuses.join(", ")} re-enabled for group ${groupId} because a live card of one of its projects sits in it.`);
       // New projects joining the default group are the normal path; only a broken group list is worth a log.
       if (!migrating && repair.groupIds.length) logGroupRepair("Flowly board groups repaired on write:", { projectIds: [], groupIds: repair.groupIds });
       assertGroupInvariants(board);

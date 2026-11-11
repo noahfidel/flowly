@@ -290,4 +290,19 @@ describe("group lanes: follow-ups", () => {
     expect(old.lanes!.find((l) => l.status === "todo")!.name).toBe("Ready");
     expectInSync(board);
   });
+  test("a lane turned back on by a write outside the migration is logged with the group, lane and reason", async () => {
+    const d = await directory();
+    await seed(d, [project("a")]);
+    const s = open("json", d);
+    expect(await s.migrateGroups(legacy([]))).toBe(true);
+    const zen = (await s.read()).groups[0];
+    await s.updateGroup({ id: zen.id, revision: zen.revision, lanes: lanes((x) => x !== "test") });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await s.mutate((board) => void board.tasks.push(task("t9", "a", "test")));
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines.filter((l) => l.includes("re-enabled"))).toEqual([expect.stringContaining(`group ${zen.id}`)]);
+    expect(lines.join("\n")).toMatch(/test/);
+    expect(on((await onDisk("json", d)).groups[0])).toContain("test");
+    log.mockRestore();
+  });
 });

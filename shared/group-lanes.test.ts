@@ -144,7 +144,7 @@ describe("syncGroupLanes", () => {
     board.tasks.push(task("t2", "a", "blocked"));
     const later = "2026-11-11T00:00:00.000Z";
     const r = syncGroupLanes(board, later);
-    expect(r).toMatchObject({ changed: true, enabled: ["g"] });
+    expect(r).toMatchObject({ changed: true, enabled: ["g"], reenabled: [{ groupId: "g", statuses: ["blocked"] }] });
     expect(on(board.groups[0])).toEqual(["todo", "blocked"]);
     expect(board.groups[0]).toMatchObject({ revision: 2, updatedAt: later });
     expect(board.projects[0].lanes).toEqual(board.groups[0].lanes);

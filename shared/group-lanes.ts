@@ -50,13 +50,14 @@ const copy = (lanes: readonly Lane[]): Lane[] => lanes.map((l) => ({ status: l.s
  * The lane invariants of §1, kept at the end of every write and on each read's copy: each group has lanes (computed
  * once by `groupLanesFrom` when absent, bumping nothing); a status a live card of a live member sits in is turned on
  * (the group's revision is bumped: its lanes changed); every member, archived ones too, mirrors its group's lanes.
- * `enabled` lists the groups that had a lane turned on for a card. `bumpRevision: false` (reads, which write nothing)
+ * `enabled` lists the groups that had a lane turned on for a card, `reenabled` which statuses (so a caller can log it). `bumpRevision: false` (reads, which write nothing)
  * turns the lane on in the copy without touching the group's revision or `updatedAt`.
  */
-export function syncGroupLanes(board: LaneBoard, now: string, options: { bumpRevision?: boolean } = {}): { changed: boolean; enabled: string[] } {
+export function syncGroupLanes(board: LaneBoard, now: string, options: { bumpRevision?: boolean } = {}): { changed: boolean; enabled: string[]; reenabled: { groupId: string; statuses: Status[] }[] } {
   const bump = options.bumpRevision !== false;
   let changed = false;
   const enabled: string[] = [];
+  const reenabled: { groupId: string; statuses: Status[] }[] = [];
   const membersOf = new Map<string, Member[]>();
   for (const p of board.projects) if (p.groupId) membersOf.set(p.groupId, [...(membersOf.get(p.groupId) ?? []), p]);
   const liveStatuses = new Map<string, Set<Status>>();
@@ -88,6 +89,7 @@ export function syncGroupLanes(board: LaneBoard, now: string, options: { bumpRev
           group.updatedAt = now;
         }
         enabled.push(group.id);
+        reenabled.push({ groupId: group.id, statuses: off.map((l) => l.status) });
       }
     }
     const mirror = laneKey(group.lanes);
@@ -97,5 +99,5 @@ export function syncGroupLanes(board: LaneBoard, now: string, options: { bumpRev
         changed = true;
       }
   }
-  return { changed, enabled };
+  return { changed, enabled, reenabled };
 }

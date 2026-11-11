@@ -97,6 +97,8 @@ exactly one group. Individual projects are no longer top-level navigation.
 - Ruling (Noah, 2026-11-10): the migration gives a group whose members are all archived the lanes its archived members
   had (the same union, order and name-agreement rules as for live members) instead of every lane on with built-in
   names; only a group with no member at all gets every lane. Replaces "a group with no live member gets every lane".
+- Ruling (Noah, 2026-11-10): when a write outside the migration turns a group's lane back on for a live card, the lane
+  still comes back on, and the store logs one info line per write naming the group, the lane(s) and the reason (§1).
 
 ## 1. Model
 
@@ -123,7 +125,10 @@ Lane { status, enabled, name? }   (the existing lane shape: every built-in statu
   is on in that group's lanes, turning it on when needed and bumping that group's revision; (3) every member project,
   archived ones too, has `lanes` equal to its group's. (2) is what makes a project move, a project restore and a
   card restore safe; lane edits and card moves are refused before they could break it. A read applies the same
-  invariants to its copy without changing any revision.
+  invariants to its copy without changing any revision. Turning a lane on in a write outside the migration (for
+  example an automation such as the PR review cards writing a card into a lane the group had turned off) keeps
+  happening, and is logged as an info line (`console.log`, not `logFailure`) naming the group id and the lane(s)
+  and saying a live card of one of its projects sits in it; reads log nothing.
 
 - `name`: 1–80 characters after trimming, unique ignoring case (a duplicate is refused). `position` orders tabs and
   the switcher. At most 50 groups.
