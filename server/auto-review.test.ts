@@ -223,6 +223,15 @@ test("a pass on a Ship to main card sends the ship message; any other mode sends
   expect(branch.sent).toEqual([]);
 });
 
+test("a Ship to main card whose review fails gets the rework message, never the ship message (DELIVERY-MODE-SPEC §4)", async () => {
+  const x = await setup({ deliveryMode: "ship_main", exits: { "npm test": 1 } });
+  const board = await x.deliver("development");
+  expect(board.tasks[0]).toMatchObject({ review: { state: "rework" } });
+  expect(x.sent).toHaveLength(1);
+  expect(x.sent[0]!.text).not.toBe(shipMessage);
+  expect(x.sent[0]!.text.startsWith("[Flowly auto review")).toBe(true);
+});
+
 test("a passing review leaves the card in In review; a person's move into In review starts none", async () => {
   const x = await setup();
   const board = await x.deliver("development");
