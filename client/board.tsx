@@ -127,7 +127,7 @@ import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 // board-groups 3/7: group-only navigation (BOARD-GROUPS-SPEC §3).
 import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, rememberViewedGroupView } from "./project-memory";
-import { boardProject, boardScope, defaultGroup, focusFilter, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, overviewScope, pageScope, pickGroupView, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
+import { boardProject, boardScope, defaultGroup, focusFilter, mobileLane, groupMembers, groupOfProject, groupQuickProject, groupViewId, membersFirst, overviewScope, pageScope, pickGroupView, restoredFilter, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
 import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { GroupTabs } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
@@ -614,24 +614,39 @@ function BoardContent(
     () => (groupOrderOverride ? serverGroups.slice().sort((a, b) => groupOrderOverride.indexOf(a.id) - groupOrderOverride.indexOf(b.id)) : serverGroups),
     [serverGroups, groupOrderOverride],
   );
-  const group = pickGroupView(boardGroups, board?.projects || [], projectId, lastViewedGroupView());
+  // Explicit choice → the group last viewed in this run → the one stored in board-view (a restart) → the default (§3).
+  const group = pickGroupView(boardGroups, board?.projects || [], projectId, lastViewedGroupView(), view.values?.lastGroupId ?? "");
   const groupKey = group ? `${group.id}|${allLiveProjects.filter((p) => p.groupId === group.id).map((p) => p.id).join(",")}` : "";
   // No group known yet (a cold direct link's board holds just the card's project): show the live projects it has.
   const liveProjects = useMemo(
     () => (group ? groupMembers(group, board?.projects || []) : allLiveProjects),
     [board?.projects, groupKey, allLiveProjects],
   );
-  // The Project filter (BOARD-GROUPS-SPEC §3): one project of the group shown, remembered for this app run. It is read
-  // through validProjectFilter (the group may differ or the project have left) and cleared once the group is known.
-  const [projectFilter, setProjectFilterState] = useState<ProjectFilter>(lastProjectFilter);
+  // The Project filter (BOARD-GROUPS-SPEC §4): one project of the group shown, remembered for this app run and in the
+  // board-view settings (a restart starts from the stored one). It is read through validProjectFilter (the group may
+  // differ or the project have left) and cleared once the group is known.
+  const [projectFilter, setProjectFilterState] = useState<ProjectFilter>(() => lastProjectFilter() ?? null);
   const setProjectFilter = useStableCallback((next: ProjectFilter) => {
     rememberProjectFilter(next);
     setProjectFilterState(next);
+    if (JSON.stringify(view.values?.lastFilter ?? null) !== JSON.stringify(next)) void view.update({ lastFilter: next });
   });
+  // A fresh run (nothing set in this run yet) takes the stored filter once the settings have loaded.
+  const filterRestored = useRef(false);
+  useEffect(() => {
+    if (filterRestored.current || !view.values) return;
+    filterRestored.current = true;
+    const start = restoredFilter(lastProjectFilter(), view.values.lastFilter);
+    if (start && JSON.stringify(start) !== JSON.stringify(projectFilter)) {
+      rememberProjectFilter(start);
+      setProjectFilterState(start);
+    }
+  }, [!!view.values]);
   const validFilterId = validProjectFilter(projectFilter, group?.id ?? "", liveProjects.map((p) => p.id));
   useEffect(() => {
-    if (projectFilter && group && overviewData.data && !validFilterId) setProjectFilter(null);
-  }, [groupKey, validFilterId, !!overviewData.data]);
+    // Only once the stored filter and group are read: before that a stored filter would be cleared against the default group.
+    if (projectFilter && group && overviewData.data && view.values && !validFilterId) setProjectFilter(null);
+  }, [groupKey, validFilterId, !!overviewData.data, !!view.values]);
   // `project` is a board's one project: the filtered one, or the only one of a one-project group; none shows every
   // project of the group, each card using its own (projectOf).
   const project = boardProject(validFilterId, liveProjects);
@@ -640,11 +655,14 @@ function BoardContent(
   const pages = useMemo(() => pageScope(project, liveProjects, group?.id), [project, liveProjects, group?.id]);
   const pageIds = useMemo(() => pages?.projects.map((p) => p.id) ?? noIds, [pages]);
   const viewKey = group ? groupViewId(group.id) : "";
-  // Returning to the board in this app run reopens the group seen last; a cold start opens the default group.
-  // Only with the full overview: until then no group is known, and the fallback must not replace a remembered group.
+  // Returning to the board reopens the group seen last, in this run and after a restart (board-view `lastGroupId`).
+  // Only with the full overview and the settings: until then no group is known or the stored one is not read yet, and
+  // the fallback must not replace a remembered group.
   useEffect(() => {
-    if (overviewData.data && group) rememberViewedGroupView(groupViewId(group.id));
-  }, [viewKey, !!overviewData.data]);
+    if (!overviewData.data || !group || !view.values) return;
+    rememberViewedGroupView(groupViewId(group.id));
+    if (view.values.lastGroupId !== group.id) void view.update({ lastGroupId: group.id });
+  }, [viewKey, !!overviewData.data, !!view.values]);
   // A chosen group that was deleted falls back to the default group once the board has loaded.
   const choiceStale = staleGroupChoice(projectId, boardGroups, !!overviewData.data);
   useEffect(() => {

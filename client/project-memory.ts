@@ -10,8 +10,9 @@ export function rememberViewedProject(id: string | undefined) {
 }
 
 /**
- * The group view last viewed on the board during this run (BOARD-GROUPS-SPEC §6): a `*group:<id>` view id.
- * Module state like the above: it survives leaving and re-entering Flowly; a cold start opens the default group.
+ * The group view last viewed on the board during this run (BOARD-GROUPS-SPEC §3): a `*group:<id>` view id. Module
+ * state like the above: it survives leaving and re-entering Flowly. A restart (a fresh client bundle) starts again from
+ * the board-view settings' `lastGroupId`.
  */
 let lastGroupView = "";
 export const lastViewedGroupView = () => lastGroupView;
@@ -20,10 +21,11 @@ export function rememberViewedGroupView(viewId: string | undefined) {
 }
 
 /**
- * The Project filter last set on a group board during this run (BOARD-GROUPS-SPEC §3). Module state like the above;
- * always read through `validProjectFilter`, since the group or project may be gone.
+ * The Project filter last set or cleared on a group board during this run (BOARD-GROUPS-SPEC §4); `undefined` until
+ * then, so a fresh run starts from the board-view settings' `lastFilter` (`restoredFilter`). Always read through
+ * `validProjectFilter`, since the group or project may be gone.
  */
-let lastFilter: { groupId: string; projectId: string } | null = null;
+let lastFilter: { groupId: string; projectId: string } | null | undefined = undefined;
 export const lastProjectFilter = () => lastFilter;
 export function rememberProjectFilter(filter: { groupId: string; projectId: string } | null) {
   lastFilter = filter;

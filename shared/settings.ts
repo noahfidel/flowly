@@ -34,6 +34,10 @@ export const boardViewSettings = defineSettings({
     lastQuickProjectId: z.string().max(200).catch("").default(""),
     /** The project last added to from an unfiltered group board's Memory (Add memory) or Ideas (Import) page (BOARD-GROUPS-SPEC §4). */
     lastAddProjectId: z.string().max(200).catch("").default(""),
+    /** The group last viewed on the board (BOARD-GROUPS-SPEC §3); a group that no longer exists opens the default group. */
+    lastGroupId: z.string().max(200).catch("").default(""),
+    /** The board's Project filter, with the group it was set in (BOARD-GROUPS-SPEC §4); read through validProjectFilter. */
+    lastFilter: z.object({ groupId: z.string().min(1).max(200), projectId: z.string().min(1).max(200) }).nullable().catch(null).default(null),
     /** Order of cards inside each column. */
     boardSort: z.enum(boardSorts).default("manual"),
     /** Desktop columns shown as a narrow strip. */

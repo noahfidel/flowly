@@ -57,6 +57,8 @@ export function pickGroupView<G extends Pick<Group, "id" | "isDefault" | "positi
   projects: readonly Pick<Project, "id" | "groupId">[],
   chosen: string,
   viewed: string,
+  /** The group last viewed as stored in the board-view settings (survives a restart; §3). */
+  stored = "",
 ): G | undefined {
   const resolve = (id: string): G | undefined => {
     if (!id) return undefined;
@@ -64,7 +66,7 @@ export function pickGroupView<G extends Pick<Group, "id" | "isDefault" | "positi
     if (id === LEGACY_ALL) return defaultGroup(groups);
     return projects.some((p) => p.id === id) ? groupOfProject(groups, projects, id) : undefined;
   };
-  return resolve(chosen) ?? resolve(viewed) ?? defaultGroup(groups);
+  return resolve(chosen) ?? resolve(viewed) ?? (stored ? groupOfView(groups, groupViewId(stored)) : undefined) ?? defaultGroup(groups);
 }
 
 /**
@@ -88,6 +90,14 @@ export function groupQuickProject(members: readonly Project[], projects: readonl
 export type ProjectFilter = { groupId: string; projectId: string } | null;
 
 /** The filtered project's id while it applies: cleared ("") when no filter, another group is shown or the project left the group. */
+/**
+ * The Project filter a board starts with (§4): the one set or cleared in this app run (`undefined`: none yet), else the
+ * one stored in the board-view settings. Always read through `validProjectFilter`: the group or project may be gone.
+ */
+export function restoredFilter(run: ProjectFilter | undefined, stored: ProjectFilter): ProjectFilter {
+  return run === undefined ? stored : run;
+}
+
 export function validProjectFilter(filter: ProjectFilter, groupId: string, memberIds: readonly string[]): string {
   return filter && filter.groupId === groupId && memberIds.includes(filter.projectId) ? filter.projectId : "";
 }

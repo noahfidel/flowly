@@ -16,6 +16,7 @@ import {
   pageScope,
   addProject,
   pickGroupView,
+  restoredFilter,
   staleGroupChoice,
   validProjectFilter,
 } from "./board-groups";
@@ -189,6 +190,23 @@ describe("which view opens", () => {
   });
 });
 
+// BOARD-GROUPS-SPEC §3: the group last viewed is kept in the board-view settings, so it survives a restart (a fresh
+// client bundle wipes module state); a stored group that no longer exists falls back to the default group.
+describe("stored last group", () => {
+  const pick = (chosen: string, viewed: string, stored: string) => pickGroupView(groups, projects, chosen, viewed, stored)?.id;
+  test("a fresh run opens the stored group", () => {
+    expect(pick("", "", "g2")).toBe("g2");
+  });
+  test("this run's last viewed and an explicit choice win over the stored group", () => {
+    expect(pick("", groupViewId("g3"), "g2")).toBe("g3");
+    expect(pick(groupViewId("g3"), "", "g2")).toBe("g3");
+  });
+  test("a stored group that was deleted opens the default group", () => {
+    expect(pick("", "", "gone")).toBe("g1");
+    expect(pick("", groupViewId("gone"), "g2")).toBe("g2");
+  });
+});
+
 describe("stale choices", () => {
   test("a deleted group's choice is dropped, only once everything is loaded", () => {
     expect(staleGroupChoice(groupViewId("gone"), groups, true)).toBe(true);
@@ -238,6 +256,14 @@ describe("review fixes (2026-11-10)", () => {
 });
 
 describe("project filter", () => {
+  // §4: the filter is kept in the board-view settings too; this run's own choice (even "none") wins once made.
+  test("a fresh board takes the stored filter; a filter already set or cleared in this run wins", () => {
+    const stored = { groupId: "g1", projectId: "a" };
+    expect(restoredFilter(undefined, stored)).toEqual(stored);
+    expect(restoredFilter(undefined, null)).toBeNull();
+    expect(restoredFilter({ groupId: "g2", projectId: "b" }, stored)).toEqual({ groupId: "g2", projectId: "b" });
+    expect(restoredFilter(null, stored)).toBeNull();
+  });
   const f = { groupId: "g1", projectId: "a" };
   test("valid while the group is shown and the project is a member", () => {
     expect(validProjectFilter(f, "g1", ["a", "b"])).toBe("a");

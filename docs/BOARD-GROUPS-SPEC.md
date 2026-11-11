@@ -236,7 +236,10 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 - **View ids:** a group's view id is `*group:<id>`. `*all` and bare project ids are no longer view ids (§7 maps
   stored ones).
 - **Which view opens:** an explicit choice in this board instance → the group last viewed during this app run → the
-  default group. A chosen group that no longer exists falls back to the default group once the board has loaded.
+  group last viewed as stored in the host's `board-view` settings (`lastGroupId`, so it survives a restart, when Paseo
+  re-runs the client and module state is gone) → the default group. A chosen or stored group that no longer exists
+  falls back to the default group once the board has loaded. The shown group is stored only once both the board and
+  the settings have loaded, so a cold start never overwrites the stored group with the default one.
   Opening a card, a session chip, an idea link or a search result selects that card's project's group; the project
   filter is set to the card's project only when the card is not in the group already shown (otherwise the filter
   is left as it is).
@@ -268,8 +271,10 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   link) keeps ALL-PROJECTS-SPEC §4: grouped by project, no reorder.
 - **Project filter:** a Project chip in the filter bar (with the Type, Priority and Tags filters) lists the group's
   projects. A filtered board shows one project's cards and ideas, in the group's lanes and lane names. The
-  filter is per board instance, kept while the app runs, cleared when the project leaves the group or the group
-  changes, and counted in "{n} shown".
+  filter is per board instance, kept while the app runs and in the host's `board-view` settings (`lastFilter`: the
+  group and project it was set in), so a restart starts from it; a filter set or cleared in this run wins over the
+  stored one. It is cleared (and the cleared value stored) when the project leaves the group or the group changes,
+  checked only once the board and the settings have loaded, and counted in "{n} shown".
 - **Overview bar:** shown on every group board with at least one live member, filtered or not. Its task count,
   running chip, "N need you" and "N updated" cover the filtered project, else every live member (the Done count
   sums the projects whose Done lane is on and is hidden when none has it). An empty group has no overview bar.
@@ -384,7 +389,8 @@ next start (the record's session is still v1, the board has groups, so step 4 ru
    answers are not shown in the chat. The change-line mark stays with the migrated dispatcher; other groups start
    with no mark.
 5. **View preferences:** a remembered `*all` or project view id (client module state, not persisted) opens the
-   default group, or the project's group for a project id. `board-view.allProjectsTab`, `lastProjectId` and
+   default group, or the project's group for a project id. The group and filter stored since (`lastGroupId`,
+   `lastFilter`, §3, §4) are new fields with empty defaults, so an older install opens the default group once. `board-view.allProjectsTab`, `lastProjectId` and
    `boardGroups` are dropped on read (never written), keeping the settings parser's rule that one bad field never
    resets the others.
 6. **Project folder copies:** `<root>/.flowly/project.json` (PROJECT-FOLDER-SPEC) does not carry `groupId`; a
