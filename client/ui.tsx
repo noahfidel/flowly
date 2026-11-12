@@ -215,6 +215,7 @@ export function IconButton({
   color,
   size = control,
   onHoverChange,
+  expanded,
 }: {
   icon: string;
   label: string;
@@ -224,13 +225,15 @@ export function IconButton({
   color?: string;
   size?: number;
   onHoverChange?(hovered: boolean): void;
+  /** For a button that expands or collapses something: its current state, for assistive tech. */
+  expanded?: boolean;
 }) {
   const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled, selected: active }}
+      accessibilityState={{ disabled, selected: active, expanded }}
       disabled={disabled}
       onPress={onPress}
       onHoverIn={onHoverChange && (() => onHoverChange(true))}

@@ -28,6 +28,31 @@ export function boardPanDecision(press: BoardPress | null, dx: number, dy: numbe
   return Math.hypot(dx, dy) >= dragThreshold ? "pan" : "wait";
 }
 
+/** A mouse press tracked by the board so a lane toggle fires only on a click in place on itself. `toggle` is the toggle the press began on; `moved` the farthest the pointer got from the start; `upAt` when it was released. */
+export type TogglePress = { x: number; y: number; moved: number; toggle: string | null; upAt: number | null };
+
+export function togglePressStart(point: Point, toggle: string | null): TogglePress {
+  return { x: point.x, y: point.y, moved: 0, toggle, upAt: null };
+}
+
+export function togglePressMove(press: TogglePress, point: Point): TogglePress {
+  return { ...press, moved: Math.max(press.moved, Math.hypot(point.x - press.x, point.y - press.y)) };
+}
+
+export function togglePressEnd(press: TogglePress, point: Point, now: number): TogglePress {
+  return { ...togglePressMove(press, point), upAt: now };
+}
+
+/** How long after its release a tracked press still counts as the one behind a click. */
+export const togglePressStaleMs = 1000;
+
+/** Whether activating toggle `key` now should toggle. No tracked press, or one released more than togglePressStaleMs ago: keyboard or assistive activation, fires. Otherwise only when the press began on this toggle and never moved dragThreshold. */
+export function laneToggleFires(press: TogglePress | null, key: string, now: number): boolean {
+  if (!press) return true;
+  if (press.upAt !== null && now - press.upAt > togglePressStaleMs) return true;
+  return press.toggle === key && press.moved < dragThreshold;
+}
+
 /** The board's scroll offset after a pan of `dx` from `start`, clamped to the scrollable range. */
 export function panOffset(start: number, dx: number, contentWidth: number, viewportWidth: number): number {
   return Math.max(0, Math.min(Math.max(0, contentWidth - viewportWidth), start - dx));

@@ -14,6 +14,12 @@ import {
   boardPanDecision,
   boardPress,
   columnAtPoint,
+  dragThreshold,
+  laneToggleFires,
+  togglePressEnd,
+  togglePressMove,
+  togglePressStart,
+  type TogglePress,
   columnGap,
   columnWidth,
   contentY,
@@ -31,6 +37,12 @@ import {
   collapsedWidth,
 } from "./geometry";
 import { t, tn } from "../shared/i18n";
+
+/** A pointer event's page position, from a loosely typed native event. */
+function pointOf(event: unknown): Point {
+  const ne = event as { pageX?: number; pageY?: number; clientX?: number; clientY?: number };
+  return { x: ne.pageX ?? ne.clientX ?? 0, y: ne.pageY ?? ne.clientY ?? 0 };
+}
 
 type DragState = { task: Task; point: Point; target: Status | null; slot: DropSlot | null; sequence: number };
 export type Placement = NonNullable<ReturnType<typeof placementUpdate>>;
@@ -205,6 +217,15 @@ export function DesktopColumns({
   // so a capture handler never ran. A card's slot sees the same native event first and marks it.
   const press = useRef<BoardPress | null>(null);
   const [cardEvents] = useState(() => new WeakSet<object>());
+  // A lane toggle fires only for a mouse press that began on it and stayed put (`laneToggleFires`); toggles mark
+  // the native event like cards do.
+  const togglePress = useRef<TogglePress | null>(null);
+  const [toggleEvents] = useState(() => new WeakMap<object, string>());
+  const activateToggle = (status: Status) => {
+    const fires = touch || laneToggleFires(togglePress.current, status, Date.now());
+    togglePress.current = null;
+    if (fires) onToggleCollapse?.(status);
+  };
   const panStart = useRef<number | null>(null);
   const [panning, setPanning] = useState(false);
   const endPan = () => {
@@ -218,6 +239,7 @@ export function DesktopColumns({
       onMoveShouldSetPanResponderCapture: (_e, g) =>
         !touch && !live.current && boardPanDecision(press.current, g.dx, g.dy) === "pan",
       onPanResponderGrant: () => {
+        if (togglePress.current) togglePress.current = { ...togglePress.current, moved: Math.max(togglePress.current.moved, dragThreshold) };
         panStart.current = offset.current;
         setPanning(true);
       },
@@ -396,11 +418,39 @@ export function DesktopColumns({
         touch
           ? undefined
           : (e) => {
-              press.current = boardPress(e.nativeEvent, cardEvents.has(e.nativeEvent));
+              const bp = boardPress(e.nativeEvent, cardEvents.has(e.nativeEvent));
+              press.current = bp;
+              togglePress.current =
+                bp.mouse && bp.primary ? togglePressStart(pointOf(e.nativeEvent), toggleEvents.get(e.nativeEvent) ?? null) : null;
             }
       }
-      onPointerUp={touch ? undefined : () => (press.current = null)}
-      onPointerCancel={touch ? undefined : () => (press.current = null)}
+      onPointerMove={
+        touch
+          ? undefined
+          : (e) => {
+              const p = togglePress.current;
+              if (p && p.upAt === null) togglePress.current = togglePressMove(p, pointOf(e.nativeEvent));
+            }
+      }
+      onPointerUp={
+        touch
+          ? undefined
+          : (e) => {
+              press.current = null;
+              const p = togglePress.current;
+              // Kept: the click that drives the toggle's onPress arrives after pointerup.
+              if (p) togglePress.current = togglePressEnd(p, pointOf(e.nativeEvent), Date.now());
+            }
+      }
+      onPointerCancel={
+        touch
+          ? undefined
+          : () => {
+              press.current = null;
+              const p = togglePress.current;
+              if (p) togglePress.current = { ...p, moved: Infinity, upAt: Date.now() };
+            }
+      }
       onLayout={() => {
         cancel();
         viewportRef.current?.measureInWindow((x, y, width, height) => {
@@ -473,25 +523,36 @@ export function DesktopColumns({
             return (
               <LaneFrame key={status} status={status} collapsed animate={animatesCollapse(toggled.current, status)} onLayout={measure} frameRef={frameRef}>
               <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={tn(column.length, "Expand {lane}, {n} task", "Expand {lane}, {n} tasks", { lane: nameOf(status) })}
-                onPress={() => onToggleCollapse?.(status)}
+                accessible={false}
                 {...headerMenu}
-                style={(state) => {
-                  const { hovered } = state as typeof state & { hovered?: boolean };
-                  return {
-                    ...noFocusRing,
-                    flex: 1,
-                    minHeight: 0,
-                    alignItems: "center",
-                    paddingTop: space[3],
-                    gap: space[2],
-                    borderRadius: radius.xl,
-                    backgroundColor: highlighted ? colors.surface2 : hovered ? colors.surface2 : colors.surface1,
-                    overflow: "hidden",
-                  };
+                style={{
+                  ...noFocusRing,
+                  flex: 1,
+                  minHeight: 0,
+                  alignItems: "center",
+                  paddingTop: space[2],
+                  gap: space[2],
+                  borderRadius: radius.xl,
+                  backgroundColor: highlighted ? colors.surface2 : colors.surface1,
+                  overflow: "hidden",
+                  ...({ cursor: touch ? "default" : "grab" } as object),
                 }}
               >
+                {onToggleCollapse && (
+                  <View
+                    onPointerDown={(e) => {
+                      toggleEvents.set(e.nativeEvent, status);
+                    }}
+                  >
+                    <IconButton
+                      icon="ChevronsLeftRight"
+                      size={28}
+                      expanded={false}
+                      label={tn(column.length, "Expand {lane}, {n} task", "Expand {lane}, {n} tasks", { lane: nameOf(status) })}
+                      onPress={() => activateToggle(status)}
+                    />
+                  </View>
+                )}
                 <StatusIcon status={status} />
                 <Label muted size={font.sm} selectable={false}>{column.length}</Label>
                 {/* Vertical title: a rotated label in a box as tall as the text is wide. */}
@@ -543,13 +604,19 @@ export function DesktopColumns({
                 </View>
                 {onToggleCollapse && (
                   // Always mounted (RN-web clears hover on press); revealed on header hover, always shown on touch.
-                  <View style={{ opacity: touch || hoverHeader === status || hoverHeaderButton?.startsWith(`${status}:`) ? 1 : 0 }}>
+                  <View
+                    onPointerDown={(e) => {
+                      toggleEvents.set(e.nativeEvent, status);
+                    }}
+                    style={{ opacity: touch || hoverHeader === status || hoverHeaderButton?.startsWith(`${status}:`) ? 1 : 0 }}
+                  >
                     <IconButton
                       icon="ChevronsRightLeft"
                       size={28}
+                      expanded
                       label={t("Collapse {name}", { name: nameOf(status) })}
                       onHoverChange={trackHeaderButton(`${status}:collapse`)}
-                      onPress={() => onToggleCollapse(status)}
+                      onPress={() => activateToggle(status)}
                     />
                   </View>
                 )}

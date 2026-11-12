@@ -21,6 +21,11 @@ import {
   cardRevealOffset,
   chatWidth,
   defaultChatWidth,
+  laneToggleFires,
+  togglePressEnd,
+  togglePressMove,
+  togglePressStart,
+  togglePressStaleMs,
 } from "./geometry";
 
 const viewport = { x: 100, y: 80, width: 600, height: 500 };
@@ -257,5 +262,47 @@ describe("board pan", () => {
     expect(panOffset(20, 90, 1000, 400)).toBe(0);
     expect(panOffset(500, -400, 1000, 400)).toBe(600);
     expect(panOffset(0, -50, 300, 400)).toBe(0);
+  });
+});
+
+describe("lane toggle press", () => {
+  const at = { x: 100, y: 50 };
+  const mouse = { mouse: true, primary: true, onCard: false };
+  test("a click on the toggle fires", () => {
+    const p = togglePressEnd(togglePressStart(at, "todo"), at, 1000);
+    expect(laneToggleFires(p, "todo", 1010)).toBe(true);
+  });
+  test("a press-release under the threshold on the toggle fires", () => {
+    let p = togglePressStart(at, "todo");
+    p = togglePressMove(p, { x: 105, y: 50 });
+    p = togglePressEnd(p, { x: 105, y: 50 }, 1000);
+    expect(laneToggleFires(p, "todo", 1010)).toBe(true);
+  });
+  test("a click on the lane header or body does not fire, nor does another lane's toggle", () => {
+    expect(laneToggleFires(togglePressEnd(togglePressStart(at, null), at, 1000), "todo", 1010)).toBe(false);
+    expect(laneToggleFires(togglePressEnd(togglePressStart(at, "development"), at, 1000), "todo", 1010)).toBe(false);
+  });
+  test("a drag that starts on the toggle and returns does not fire, and it pans", () => {
+    let p = togglePressStart(at, "todo");
+    p = togglePressMove(p, { x: 140, y: 50 });
+    p = togglePressEnd(p, at, 1000);
+    expect(laneToggleFires(p, "todo", 1010)).toBe(false);
+    expect(boardPanDecision(mouse, 40, 0)).toBe("pan");
+  });
+  test("a drag that ends on the toggle does not fire", () => {
+    let p = togglePressStart({ x: 40, y: 50 }, null);
+    p = togglePressEnd(p, at, 1000);
+    expect(laneToggleFires(p, "todo", 1010)).toBe(false);
+  });
+  test("keyboard activation (no press) fires", () => {
+    expect(laneToggleFires(null, "todo", 1000)).toBe(true);
+  });
+  test("a press released long ago is not the one behind this activation", () => {
+    const p = togglePressEnd(togglePressStart(at, null), at, 1000);
+    expect(laneToggleFires(p, "todo", 1000 + togglePressStaleMs + 1)).toBe(true);
+  });
+  test("a cancelled press does not fire", () => {
+    const p = { ...togglePressStart(at, "todo"), moved: Infinity, upAt: 1000 };
+    expect(laneToggleFires(p, "todo", 1010)).toBe(false);
   });
 });
