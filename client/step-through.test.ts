@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { Project, Task } from "../shared/model";
 import type { AttentionItem } from "../shared/attention";
 import type { ChatItem } from "../shared/dispatcher";
-import { cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, updatedQueue, type ChangeItem } from "./step-through";
+import { afterMarkSeen, changeSummary, stableQueue, cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, updatedQueue, type ChangeItem } from "./step-through";
 
 /** The need-you and updated step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). */
 
@@ -170,4 +170,36 @@ test("the bar: in the queue it shows i of N with the arrow; a card that left it 
   expect(stepBarState("updated", left)).toEqual({ where: "none", next: "arrow" });
   expect(stepBarState("needs", last)).toEqual({ where: "caught-up", next: "done" });
   expect(stepBarState("updated", last)).toEqual({ where: "caught-up", next: "done" });
+});
+
+test("the walk keeps its order: marking or reading cards and new updates never move the current card's neighbours", () => {
+  // live queue is recomputed on every poll: newest change first
+  const walk = ["a", "b", "c", "d"];
+  // On b; b is read (drops out of the live queue) and d changes again (moves to the front).
+  const live = ["d", "a", "c"];
+  expect(stepPosition(live, { taskId: "b", index: 1 }).next).toBe("a"); // the jump (this was the bug)
+  const stable = stableQueue(walk, live, "b");
+  expect(stable).toEqual(["a", "b", "c", "d"]);
+  expect(stepPosition(stable, { taskId: "b", index: 1 })).toMatchObject({ prev: "a", next: "c" });
+  // A card that changed meanwhile joins at the end; a card seen elsewhere leaves, unless it is the one shown.
+  expect(stableQueue(["a", "b", "c"], ["c", "e", "a"], "b")).toEqual(["a", "b", "c", "e"]);
+  expect(stableQueue(["a", "b", "c"], ["c"], "a")).toEqual(["a", "c"]);
+});
+
+test("after Mark seen the walk goes to the next unseen card, or ends when none is left", () => {
+  expect(afterMarkSeen(["a", "b", "c"], "b")).toBe("c");
+  expect(afterMarkSeen(["a", "b", "c"], "c")).toBe("a");
+  expect(afterMarkSeen(["a"], "a")).toBeNull();
+});
+
+test("a changed card's summary reads in plain words", () => {
+  const t = (s: string, v?: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(v?.[k]));
+  expect(
+    changeSummary(
+      [{ kind: "moved", status: "committed" }, { kind: "result" }, { kind: "session_finished" }, { kind: "question" }],
+      t,
+      (status) => status[0].toUpperCase() + status.slice(1),
+    ),
+  ).toBe("Moved to Committed · New result note · Session finished · New question");
+  expect(changeSummary(undefined, t, (s) => s)).toBe("");
 });

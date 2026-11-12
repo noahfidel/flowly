@@ -77,7 +77,12 @@ const stopReports: readonly (BoardEvent["reportKind"] & string)[] = ["question",
 export function isStop(fact: BusFact): boolean {
   if (fact.kind === "permission") return true;
   if (fact.kind !== "board") return false;
-  const { action, to, reportKind, outcome } = fact.event;
+  return isStopEvent(fact.event);
+}
+
+/** Whether a board event is a stop: a delivery or block, a question, blocker or result, or a failed turn. */
+export function isStopEvent(event: Pick<BoardEvent, "action" | "to" | "reportKind" | "outcome">): boolean {
+  const { action, to, reportKind, outcome } = event;
   if (action === "status_changed" && to && (stopStatuses as readonly string[]).includes(to)) return true;
   if ((action === "status_changed" || action === "progress_reported") && reportKind && stopReports.includes(reportKind)) return true;
   return action === "agent.turn_ended" && outcome === "failed";

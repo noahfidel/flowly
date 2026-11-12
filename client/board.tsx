@@ -52,7 +52,7 @@ import { DispatcherPanel } from "./dispatcher-panel";
 import { LeftDock } from "./left-dock";
 import { lastCollapsed, rememberCollapsed, shownCollapsed } from "./collapsed-columns";
 import { dockShortcut, escAction, toolbarDockButtons } from "./dock-logic";
-import { cardAsks, changeItem, needsCount, needsQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
+import { afterMarkSeen, cardAsks, changeItem, changeSummary, needsCount, needsQueue, stableQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
 import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
@@ -958,7 +958,18 @@ function BoardContent(
   const changed = useMemo(() => changeItem(dispatcherItems.data), [dispatcherItems.data]);
   const updatedIds = useMemo(() => updatedQueue(changed, attention, resolvedSignals, stepScope), [changed, attention, resolvedSignals, stepScope]);
   const [step, setStep] = useState<(Step & { kind: StepKind }) | null>(null);
-  const stepQueue = step?.kind === "updated" ? updatedIds : needsIds;
+  // The updated walk keeps its own order (stableQueue): the live queue reorders on every poll and drops cards as they are read.
+  const walkRef = useRef<{ kind: StepKind; ids: string[] } | null>(null);
+  const stepQueue = useMemo(() => {
+    if (step?.kind !== "updated") {
+      walkRef.current = null;
+      return needsIds;
+    }
+    const prev = walkRef.current?.kind === "updated" ? walkRef.current.ids : [];
+    const ids = stableQueue(prev, updatedIds, step.taskId);
+    walkRef.current = { kind: "updated", ids };
+    return ids;
+  }, [step?.kind, step?.taskId, updatedIds, needsIds]);
   const stepWhere = step ? stepPosition(stepQueue, step) : null;
   // Remember where the card sits while it is in the queue, to find its neighbours once it drops out.
   useEffect(() => {
@@ -1012,6 +1023,14 @@ function BoardContent(
   const stepPrev = useStableCallback(() => step && stepWhere?.prev && showStepCard(step.kind, stepWhere.prev));
   const stepNext = useStableCallback(() => step && stepWhere?.next && showStepCard(step.kind, stepWhere.next));
   const endStep = useStableCallback(() => setStep(null));
+  const changedCard = useMemo(() => (step?.kind === "updated" ? (changed?.cards.find((c) => c.taskId === step.taskId) ?? null) : null), [step?.kind, step?.taskId, changed]);
+  // Mark seen marked the card shown only: the walk goes on to the next unseen card, or ends when none is left (§9.4).
+  const markedSeen = useStableCallback(() => {
+    if (!step) return;
+    const next = afterMarkSeen(stepQueue, step.taskId);
+    if (next) showStepCard(step.kind, next);
+    else endStep();
+  });
   const stepChanged = useStableCallback(() => {
     void queryClient.invalidateQueries({ queryKey: dispatcherItemsKey });
     void queryClient.invalidateQueries({ queryKey: ["flowly", "attention-count"] });
@@ -2086,6 +2105,9 @@ function BoardContent(
           onOpenCard={openTaskById}
           onChanged={stepChanged}
           change={changed}
+          summary={step.kind === "updated" ? changeSummary(changedCard?.changes, t, (status) => laneName(drawer.item!.project, status as Status)) : ""}
+          changedCard={changedCard}
+          onMarkedSeen={markedSeen}
           onAskedDispatcher={openDock}
           groupId={dispatcherGroupId}
         />

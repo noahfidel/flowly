@@ -1,5 +1,15 @@
 # Implementation progress
 
+## Updated picker: per-card Mark seen, stable walk, change summaries, no echoes of the user's own requests (branch `kanban/fix-the-updated-picker-wrong-mark-seen-u-bffc04`) — 2026-11-12
+
+- DISPATCHER-SPEC §9.2 ruling (2026-11-12). Mark seen: `dispatcher.mark-seen` gains `taskId`; per-card marks in `seenCards` of the group entry; `changeLine` counts an event only after both the group mark and the card's mark; the picker marks the shown card and moves to the next one (`afterMarkSeen`), ending when none is left.
+- Cause of the jumping position (found by reading the data flow, shown by a test): the walk used the live queue, recomputed on every poll; opening a card reads its turn and drops it, and any new event moved a card to the front, so the neighbours of the card shown changed. Fix: `stableQueue` keeps the walk's own order.
+- Change summaries: `ChangedCard.changes` (`changeOf` in `server/dispatcher-items.ts`), shown by `changeSummary` as one line on the picker. 7 new strings in all catalogs ("Moved to {lane}" already existed).
+- Echoes: on a card the dispatcher created, the card session's events up to its first stop are not news (`echoes`, `isStopEvent` now shared from `server/event-bus.ts`). The product rule is the narrowest reading and awaits Noah's confirmation; the cases left uncovered are listed in the spec and in the card's progress note.
+- Failing-then-passing tests: `server/dispatcher-items.test.ts` (per-card mark, summaries, echoes), `client/step-through.test.ts` (stable walk, after Mark seen, summary text).
+- Checks: `npm run typecheck` 0; `npm test` 214 files passed, 1 skipped; 2421 tests passed, 7 skipped. UNRUN: live UI on desktop and phone.
+- Onboarding: no tip or tour change (a fix to an existing flow). Telemetry: no field. What's new: none.
+
 ## A card's Linear link on the board tools (branch `kanban/first-class-linear-link-on-cards-with-bo-869450`) — 2026-11-12
 
 - Spec: `docs/LINEAR-LINK-SPEC.md` (new); DISPATCHER-SPEC §5 tool list and write list updated. No new card field: the Linear input artifact stays the one source; `linearIssueOf` (`shared/linear-ticket.ts`) is the one finder for the branch, the card tools and the ticket check.

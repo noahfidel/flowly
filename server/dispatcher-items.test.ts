@@ -63,7 +63,7 @@ test("the change line counts cards changed since the seen revision", () => {
   );
   const line = changeLine(b, mark(T0), ["disp"]);
   expect(line).toMatchObject({ kind: "change", id: "change", revision: T0 + 5_000, ids: [`e-t1-${T0 + 5_000}`], at: iso(T0 + 5_000) });
-  expect(line?.kind === "change" && line.cards).toEqual([
+  expect(line?.kind === "change" && line.cards).toMatchObject([
     { taskId: "t1", projectId: "p", title: "Card t1", status: "in_progress", events: 2 },
     { taskId: "t2", projectId: "p", title: "Card t2", status: "in_review", events: 1 },
   ]);
@@ -270,4 +270,63 @@ test("concurrent first reads of a corrupt items file keep it aside once", async 
   expect([a, b]).toEqual([[], []]);
   expect((await readdir(dir)).filter((f) => f.startsWith("dispatcher-items.json.invalid-"))).toHaveLength(1);
   expect(vi.mocked(logFailure)).toHaveBeenCalledTimes(1);
+});
+
+// ---- Updated picker: per-card mark seen, change summaries, echoes of the user's requests (DISPATCHER-SPEC §9.2) ----
+
+const cardsOf = (line: ReturnType<typeof changeLine>) => (line?.kind === "change" ? line.cards : []);
+
+test("mark seen with a card marks only that card; the others stay changed", async () => {
+  const dir = await directory();
+  const dispatcher = groupDispatcher(dir, () => T0 + 60_000);
+  const b = board();
+  b.tasks.push({ ...(b.tasks[0] as object), id: "t5", title: "Card t5" } as never);
+  b.events.push(event("t1", T0 + 1_000), event("t2", T0 + 2_000), event("t5", T0 + 3_000));
+  const line = changeLine(b, mark(T0));
+  const t2 = cardsOf(line).find((c) => c.taskId === "t2")!;
+  expect(cardsOf(line).map((c) => c.taskId)).toEqual(["t5", "t2", "t1"]);
+  await dispatcher.markSeen("g1", t2.revision!, t2.ids, "t2");
+  const marked = async () => ({ ...mark(T0), cards: (await dispatcher.record()).groups.g1.seenCards });
+  expect(cardsOf(changeLine(b, await marked())).map((c) => c.taskId)).toEqual(["t5", "t1"]);
+  // The group mark did not move, and a later change on the marked card shows again.
+  expect((await dispatcher.record()).groups.g1.seenRevision).toBeUndefined();
+  b.events.push(event("t2", T0 + 4_000));
+  expect(cardsOf(changeLine(b, await marked())).map((c) => c.taskId)).toEqual(["t2", "t5", "t1"]);
+});
+
+test("each changed card says what changed, in plain kinds", () => {
+  const b = board();
+  b.events.push(
+    event("t1", T0 + 1_000, { action: "status_changed", to: "committed" }),
+    event("t1", T0 + 2_000, { action: "progress_reported", reportKind: "result" }),
+    event("t1", T0 + 3_000, { action: "agent.turn_ended", outcome: "completed" }),
+    event("t2", T0 + 4_000, { action: "progress_reported", reportKind: "question" }),
+    event("t2", T0 + 5_000, { action: "progress_reported", reportKind: "blocker" }),
+  );
+  const cards = cardsOf(changeLine(b, mark(T0)));
+  expect(cards.find((c) => c.taskId === "t1")?.changes).toEqual([
+    { kind: "moved", status: "committed" },
+    { kind: "result" },
+    { kind: "session_finished" },
+  ]);
+  expect(cards.find((c) => c.taskId === "t2")?.changes).toEqual([{ kind: "question" }, { kind: "blocker" }]);
+});
+
+test("a card the dispatcher started at the user's request: its start-up is no news, its first stop is", () => {
+  const b = board();
+  b.events.push(
+    event("t1", T0 + 1_000, { action: "created", agentId: "disp" }),
+    event("t1", T0 + 2_000, { action: "agent.turn_started", actor: "system", agentId: "card-session" }),
+    event("t1", T0 + 3_000, { action: "status_changed", to: "development", agentId: "card-session" }),
+    event("t1", T0 + 4_000, { action: "tags_changed", agentId: "card-session" }),
+  );
+  // Only echoes of the request so far: nothing is news.
+  expect(changeLine(b, mark(T0), ["disp"])).toBeNull();
+  // The card then stops on its own: that is news, and only the stop counts.
+  b.events.push(event("t1", T0 + 5_000, { action: "status_changed", to: "in_review", agentId: "card-session" }));
+  const cards = cardsOf(changeLine(b, mark(T0), ["disp"]));
+  expect(cards).toHaveLength(1);
+  expect(cards[0]).toMatchObject({ taskId: "t1", events: 1, changes: [{ kind: "moved", status: "in_review" }] });
+  // Without the dispatcher's request, the same start-up counts.
+  expect(cardsOf(changeLine(b, mark(T0), ["someone-else"]))[0].events).toBe(5);
 });

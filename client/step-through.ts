@@ -1,7 +1,7 @@
 import type { AttentionItem } from "../shared/attention";
 import { openAskCount } from "../shared/attention";
 import { waitsOnYou } from "../shared/attention-dismiss";
-import type { ChatItem } from "../shared/dispatcher";
+import type { CardChange, ChatItem } from "../shared/dispatcher";
 
 /**
  * Pure parts of the step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09): "N need you"
@@ -121,4 +121,57 @@ export function stepBarState(
   if (position.index !== null) return { where: "position", next: "arrow" };
   if (!position.next) return { where: "caught-up", next: "done" };
   return kind === "needs" ? { where: "answered", next: "pill" } : { where: "none", next: "arrow" };
+}
+
+/**
+ * The order of one updated walk (§9.4). The live queue is recomputed on every poll (newest change first, reads drop
+ * cards, a new event moves a card to the front), so walking it directly made the neighbours of the card shown jump.
+ * The walk keeps its own order instead: cards still in the live queue stay where they were, a card that changed
+ * meanwhile joins at the end, and the card shown stays until the user leaves it.
+ */
+export function stableQueue(prev: readonly string[], live: readonly string[], shown: string | null): string[] {
+  const liveSet = new Set(live);
+  const kept = prev.filter((id) => liveSet.has(id) || id === shown);
+  const known = new Set(kept);
+  return [...kept, ...live.filter((id) => !known.has(id))];
+}
+
+/** The card the walk goes to once `taskId` was marked seen: the next one, else the first one before it; null when it was the only one. */
+export function afterMarkSeen(queue: readonly string[], taskId: string): string | null {
+  const rest = queue.filter((id) => id !== taskId);
+  if (!rest.length) return null;
+  const at = queue.indexOf(taskId);
+  return at >= 0 && at < queue.length - 1 ? queue[at + 1] : rest[0];
+}
+
+/** What changed on a card, in plain words, for the picker (§9.2): "Moved to Committed · New result note". Empty when unknown. */
+export function changeSummary(
+  changes: readonly CardChange[] | undefined,
+  t: (text: string, values?: Record<string, string | number>) => string,
+  lane: (status: string) => string,
+): string {
+  const words = (c: CardChange) => {
+    switch (c.kind) {
+      case "moved":
+        return c.status ? t("Moved to {lane}", { lane: lane(c.status) }) : t("Card updated");
+      case "result":
+        return t("New result note");
+      case "question":
+        return t("New question");
+      case "blocker":
+        return t("New blocker");
+      case "session_finished":
+        return t("Session finished");
+      case "session_failed":
+        return t("Session failed");
+      case "note":
+        return t("New progress note");
+      default:
+        return t("Card updated");
+    }
+  };
+  const parts = (changes ?? []).map(words);
+  // "Card updated" is only the fallback for bookkeeping, shown when nothing plainer happened.
+  const plain = parts.filter((p) => p !== t("Card updated"));
+  return [...new Set(plain.length ? plain : parts)].join(" · ");
 }

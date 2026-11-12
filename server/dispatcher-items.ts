@@ -7,12 +7,14 @@ import {
   seenIdLimit,
   storedChatItemsSchema,
   whatNextText,
+  type CardChange,
   type ChangedCard,
   type ChatItem,
   type DispatcherNote,
   type StoredChatItem as Stored,
 } from "../shared/dispatcher";
-import type { Board } from "../shared/model";
+import type { Board, BoardEvent } from "../shared/model";
+import { isStopEvent } from "./event-bus";
 import { logFailure } from "./error-report";
 import type { DispatcherEntry } from "./dispatcher";
 
@@ -66,13 +68,49 @@ export function groupItems<T extends ChatItem>(items: readonly T[], groupId: str
 
 /** The mark the change line counts from: the user's Mark seen, else the dispatcher's start, else none (§9.2). */
 /** Where "Changed since you looked" starts: a millisecond, and the events at exactly that ms already seen. */
-export type SeenMark = { revision: number; ids: readonly string[] };
+export type SeenMark = { revision: number; ids: readonly string[]; /** Cards marked seen one by one (§9.2): each its own mark. */ cards?: Readonly<Record<string, { revision: number; ids: readonly string[] }>> };
 
-export function seenMark(record: Partial<Pick<DispatcherEntry, "seenRevision" | "seenIds" | "startedAt">>): SeenMark | null {
-  if (typeof record.seenRevision === "number") return { revision: record.seenRevision, ids: record.seenIds ?? [] };
+export function seenMark(record: Partial<Pick<DispatcherEntry, "seenRevision" | "seenIds" | "seenCards" | "startedAt">>): SeenMark | null {
+  const cards = record.seenCards && Object.keys(record.seenCards).length ? { cards: record.seenCards } : {};
+  if (typeof record.seenRevision === "number") return { revision: record.seenRevision, ids: record.seenIds ?? [], ...cards };
   const started = record.startedAt ? Date.parse(record.startedAt) : NaN;
-  return Number.isFinite(started) ? { revision: started, ids: [] } : null;
+  return Number.isFinite(started) ? { revision: started, ids: [], ...cards } : null;
 }
+
+/** What one event changed, in plain kinds (§9.2); null for bookkeeping that says nothing to the user. */
+export function changeOf(event: BoardEvent): CardChange {
+  if (event.reportKind === "question" || event.reportKind === "blocker" || event.reportKind === "result") return { kind: event.reportKind };
+  if (event.action === "status_changed" && event.to) return { kind: "moved", status: event.to };
+  if (event.action === "progress_reported") return { kind: "note" };
+  if (event.action === "agent.turn_ended") return { kind: event.outcome === "failed" ? "session_failed" : "session_finished" };
+  return { kind: "other" };
+}
+
+/**
+ * The events that are echoes of an action the user asked the dispatcher for (§9.2, ruling pending Noah's
+ * confirmation): on a card the dispatcher created, what the card's own session does from there up to its first stop
+ * (it starts, tags and plans itself, moves to a work stage). The stop itself is news, and so is everything after it.
+ */
+function echoes(events: readonly BoardEvent[], dispatchers: ReadonlySet<string>): Set<string> {
+  const open = new Set<string>();
+  const closed = new Set<string>();
+  const echo = new Set<string>();
+  for (const event of events) {
+    if (closed.has(event.taskId)) continue;
+    if (event.agentId && dispatchers.has(event.agentId)) {
+      if (event.action === "created") open.add(event.taskId);
+      continue;
+    }
+    if (!open.has(event.taskId) || event.actor === "human") continue;
+    if (isStopEvent(event)) closed.add(event.taskId);
+    else echo.add(event.id);
+  }
+  return echo;
+}
+
+/** Whether `event` is after `mark` (a later ms, or the same ms with an id not seen). */
+const afterMark = (event: BoardEvent, mark: { revision: number; ids: readonly string[] } | undefined, at: number) =>
+  !mark || at > mark.revision || (at === mark.revision && !mark.ids.includes(event.id));
 
 /**
  * "Changed since you looked" (§9.2): cards with an agent's or the system's event after `mark` (event revision =
@@ -88,26 +126,44 @@ export function changeLine(board: Board, mark: SeenMark | null, dispatcherAgentI
   const only = projectIds ? new Set(projectIds) : null;
   const live = new Set(board.projects.filter((p) => !p.archivedAt && (!only || only.has(p.id))).map((p) => p.id));
   const tasks = new Map(board.tasks.filter((t) => !t.archivedAt && live.has(t.projectId)).map((t) => [t.id, t]));
-  const changed = new Map<string, { card: ChangedCard; newest: number }>();
+  const requested = echoes(board.events, dispatchers);
+  const changed = new Map<string, { card: ChangedCard; newest: number; ids: string[] }>();
   let newest = -Infinity;
   let newestIds: string[] = [];
   for (const event of board.events) {
-    if (event.actor === "human" || (event.agentId && dispatchers.has(event.agentId))) continue;
+    if (event.actor === "human" || (event.agentId && dispatchers.has(event.agentId)) || requested.has(event.id)) continue;
     const revision = Date.parse(event.at);
     if (!(revision > mark.revision || (revision === mark.revision && !seenAtMark.has(event.id)))) continue;
+    if (!afterMark(event, mark.cards?.[event.taskId], revision)) continue;
     const task = tasks.get(event.taskId);
     if (!task) continue;
     if (revision > newest) [newest, newestIds] = [revision, [event.id]];
     else if (revision === newest) newestIds.push(event.id);
+    const change = changeOf(event);
     const seen = changed.get(task.id);
     if (seen) {
       seen.card.events++;
-      seen.newest = Math.max(seen.newest, revision);
-    } else changed.set(task.id, { card: { taskId: task.id, projectId: task.projectId, title: task.title, status: task.status, events: 1 }, newest: revision });
+      if (revision > seen.newest) [seen.newest, seen.ids] = [revision, [event.id]];
+      else if (revision === seen.newest) seen.ids.push(event.id);
+      const list = seen.card.changes!;
+      if (!list.some((c) => c.kind === change.kind && c.status === change.status) && list.length < 12) list.push(change);
+    } else
+      changed.set(task.id, {
+        card: { taskId: task.id, projectId: task.projectId, title: task.title, status: task.status, events: 1, changes: [change] },
+        newest: revision,
+        ids: [event.id],
+      });
   }
   if (!changed.size) return null;
   const cards = [...changed.values()].sort((a, b) => b.newest - a.newest);
-  return { id: "change", at: new Date(newest).toISOString(), kind: "change", revision: newest, ids: newestIds.slice(-seenIdLimit), cards: cards.map((c) => c.card) };
+  return {
+    id: "change",
+    at: new Date(newest).toISOString(),
+    kind: "change",
+    revision: newest,
+    ids: newestIds.slice(-seenIdLimit),
+    cards: cards.map((c) => ({ ...c.card, revision: c.newest, ids: c.ids.slice(-50) })),
+  };
 }
 
 /** A group's live project ids: the projects whose cards its change line counts (§0, §9.2). */

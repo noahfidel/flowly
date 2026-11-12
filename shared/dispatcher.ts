@@ -222,7 +222,22 @@ export const askDismissInputSchema = z.strictObject({ signal });
 /** `tasks.start-again`: the user's Start again on an ended ask, through the flowly_start_card path. */
 export const startAgainInputSchema = z.strictObject({ taskId: id, idempotencyKey: z.string().trim().min(1).max(200) });
 /** One card in "Changed since you looked" (§9.2). */
-export const changedCardSchema = z.object({ taskId: id, projectId: id, title: z.string(), status: z.string(), events: z.number().int().positive() });
+export const changeKinds = ["moved", "result", "question", "blocker", "session_finished", "session_failed", "note", "other"] as const;
+/** One plain thing that changed on a card: a move (with its lane), a result, a question, a finished session… */
+export const cardChangeSchema = z.object({ kind: z.enum(changeKinds), status: z.string().optional() });
+export type CardChange = z.infer<typeof cardChangeSchema>;
+export const changedCardSchema = z.object({
+  taskId: id,
+  projectId: id,
+  title: z.string(),
+  status: z.string(),
+  events: z.number().int().positive(),
+  /** The newest counted event's millisecond and the counted ids at it: what Mark seen on this card sends. */
+  revision: z.number().int().nonnegative().optional(),
+  ids: z.array(z.string()).max(50).optional(),
+  /** What changed, in event order, each kind once (a move per lane). */
+  changes: z.array(cardChangeSchema).max(12).optional(),
+});
 export type ChangedCard = z.infer<typeof changedCardSchema>;
 /**
  * Flowly-rendered rows of the dispatcher chat (DISPATCHER-SPEC §9.1): notes the dispatcher received, asks and

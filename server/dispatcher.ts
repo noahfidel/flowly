@@ -89,6 +89,8 @@ async function projectedPath(path: string): Promise<string | null> {
 export const previousAgentIdLimit = 20;
 /** How many earlier dispatcher session ids the record's global list keeps (§0: overflow and deleted groups' ids). */
 export const globalPreviousAgentIdLimit = 100;
+/** How many cards' own seen marks a group's entry keeps (§9.2). */
+export const seenCardLimit = 200;
 
 const sessionId = z.string().min(1).max(300);
 /** One group's dispatcher session and marks; also the v1 record's fields (the v1 workspace is the record's). */
@@ -99,6 +101,8 @@ const sessionShape = {
   seenRevision: z.number().int().nonnegative().optional(),
   /** Ids of the seen events at exactly `seenRevision`, so later events in that millisecond still count. */
   seenIds: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional(),
+  /** Cards marked seen one by one (Mark seen on a card, §9.2): the card's own mark, as `seenRevision`/`seenIds`. */
+  seenCards: z.record(z.string().min(1).max(300), z.object({ revision: z.number().int().nonnegative(), ids: z.array(z.string().min(1).max(300)).max(50) })).optional(),
   /** The group's earlier dispatcher sessions, oldest first (their actions are not news either, §9.2). */
   previousAgentIds: z.array(sessionId).max(previousAgentIdLimit).optional(),
   /**
@@ -1112,7 +1116,7 @@ export class Dispatcher {
    * Mark seen (§9.2), for one group: the mark only moves forward and never past the daemon's clock. At the same
    * millisecond the event ids add up; a clamped mark keeps no ids (they belong to a later millisecond).
    */
-  async markSeen(groupId: string, revision: number, ids: readonly string[] = []): Promise<number> {
+  async markSeen(groupId: string, revision: number, ids: readonly string[] = [], taskId?: string): Promise<number> {
     await this.boardGroup(groupId);
     // After the v1 migration, so a mark written now is not displaced by the migrated session's entry.
     await this.resolvedRecord();
@@ -1122,6 +1126,18 @@ export class Dispatcher {
     let seen = 0;
     await this.save((r) => {
       const entry: DispatcherEntry = r.groups[groupId] ?? { agentId: null, startedAt: null };
+      if (taskId) {
+        // One card (§9.2): its own mark moves forward only; the group's mark stays.
+        const cards = { ...(entry.seenCards ?? {}) };
+        const old = cards[taskId];
+        seen = Math.max(old?.revision ?? 0, target);
+        if (!old || target > old.revision) cards[taskId] = { revision: target, ids: [...marked].slice(-50) };
+        else if (target === old.revision) cards[taskId] = { revision: target, ids: [...new Set([...old.ids, ...marked])].slice(-50) };
+        // Oldest cards go first once the list is long; a card dropped here shows again only for a change after the group's mark.
+        const keys = Object.keys(cards);
+        for (const key of keys.slice(0, Math.max(0, keys.length - seenCardLimit))) delete cards[key];
+        return { ...r, groups: { ...r.groups, [groupId]: { ...entry, seenCards: cards } } };
+      }
       if (entry.seenRevision !== undefined && target < entry.seenRevision) {
         seen = entry.seenRevision;
         return r;

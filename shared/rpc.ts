@@ -1141,11 +1141,17 @@ export const dispatcherItemsChanged = defineRpc({
 export const dispatcherTail = defineRpc({ name: "dispatcher.tail", input: sessionTail.input.omit({ taskId: true }).extend({ groupId: dispatcherGroupId }), output: tailPageSchema });
 /**
  * Mark seen: the change line counts from `revision` on, except the event `ids` seen at that very ms; never moves
- * back, clamped to the daemon's clock (DISPATCHER-SPEC §9.2).
+ * back, clamped to the daemon's clock. With `taskId` only that card is marked (DISPATCHER-SPEC §9.2).
  */
 export const dispatcherMarkSeen = defineRpc({
   name: "dispatcher.mark-seen",
-  input: z.strictObject({ groupId: dispatcherGroupId, revision: z.number().int().nonnegative(), ids: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional() }),
+  input: z.strictObject({
+    groupId: dispatcherGroupId,
+    revision: z.number().int().nonnegative(),
+    ids: z.array(z.string().min(1).max(300)).max(seenIdLimit).optional(),
+    /** Marks only this card's changes up to `revision` seen; the group's mark does not move (DISPATCHER-SPEC §9.2). */
+    taskId: z.string().min(1).max(300).optional(),
+  }),
   output: z.strictObject({ seenRevision: z.number().int().nonnegative() }),
 });
 /** The user's chat message to the dispatcher, sent by the daemon; refused for an unguarded one (DISPATCHER-SPEC §3, §9.3). */

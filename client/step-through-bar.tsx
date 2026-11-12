@@ -8,6 +8,7 @@ import { Button, IconButton, Label, Notice, font, message, space, verticalConten
 import { AskRow } from "./dispatcher-asks";
 import { dispatcherStartMessage } from "./start-again";
 import { dispatcherStatusKey } from "./dispatcher-panel";
+import type { ChangedCard } from "../shared/dispatcher";
 import { stepBarState, type AskItem, type ChangeItem, type StepKind } from "./step-through";
 
 type Position = { index: number | null; total: number; prev: string | null; next: string | null };
@@ -28,6 +29,9 @@ export function StepThroughBar({
   onOpenCard,
   onChanged,
   change,
+  summary,
+  changedCard,
+  onMarkedSeen,
   onAskedDispatcher,
   groupId,
 }: {
@@ -44,6 +48,12 @@ export function StepThroughBar({
   onChanged(): void;
   /** Updated: the change line (Mark seen needs its revision). */
   change: ChangeItem | null;
+  /** Updated: what changed on the shown card, in plain words (empty for a card with only an unread turn). */
+  summary: string;
+  /** Updated: the shown card's own entry in the change line (what Mark seen marks). */
+  changedCard: ChangedCard | null;
+  /** The shown card was marked seen: the walk moves on. */
+  onMarkedSeen(): void;
   /** Ask dispatcher was sent: the dock opens on the chat. */
   onAskedDispatcher(): void;
   /** The board group whose dispatcher Mark seen and Ask dispatcher reach (DISPATCHER-SPEC §0); null: both are off. */
@@ -97,14 +107,33 @@ export function StepThroughBar({
           </ScrollView>
         ) : null
       ) : (
-        <UpdatedActions change={change} onChanged={onChanged} onAsked={onAskedDispatcher} groupId={groupId} />
+        <UpdatedActions change={change} summary={summary} card={changedCard} onChanged={onChanged} onMarked={onMarkedSeen} onAsked={onAskedDispatcher} groupId={groupId} />
       )}
     </View>
   );
 }
 
-/** Mark seen (every changed card, `dispatcher.mark-seen`) and Ask dispatcher (`dispatcher.what-next`, §9.2). */
-function UpdatedActions({ change, onChanged, onAsked, groupId }: { change: ChangeItem | null; onChanged(): void; onAsked(): void; groupId: string | null }) {
+/**
+ * What changed on the shown card, then Mark seen (this card only, `dispatcher.mark-seen` with its `taskId`; the walk
+ * moves on) and Ask dispatcher (`dispatcher.what-next`, §9.2).
+ */
+function UpdatedActions({
+  change,
+  summary,
+  card,
+  onChanged,
+  onMarked,
+  onAsked,
+  groupId,
+}: {
+  change: ChangeItem | null;
+  summary: string;
+  card: ChangedCard | null;
+  onChanged(): void;
+  onMarked(): void;
+  onAsked(): void;
+  groupId: string | null;
+}) {
   const markSeen = useRpc(rpc.dispatcherMarkSeen);
   const whatNext = useRpc(rpc.dispatcherWhatNext);
   const readStatus = useRpc(rpc.dispatcherStatus);
@@ -135,8 +164,17 @@ function UpdatedActions({ change, onChanged, onAsked, groupId }: { change: Chang
   };
   return (
     <View style={{ paddingHorizontal: space[3], paddingBottom: space[2], gap: space[2] }}>
+      {!!summary && (
+        <Label size={font.sm} selectable={false}>
+          {summary}
+        </Label>
+      )}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[2] }}>
-        <Button small disabled={busy || !change || !groupId} onPress={() => change && groupId && run(() => markSeen({ groupId, revision: change.revision, ids: change.ids }))}>
+        <Button
+          small
+          disabled={busy || !change || !card || card.revision === undefined || !groupId}
+          onPress={() => card && card.revision !== undefined && groupId && run(() => markSeen({ groupId, revision: card.revision!, ids: card.ids ?? [], taskId: card.taskId }), onMarked)}
+        >
           {t("Mark seen")}
         </Button>
         <Button small primary disabled={busy || locked || !groupId} onPress={() => groupId && run(() => whatNext({ groupId }), onAsked)}>
