@@ -1,4 +1,5 @@
 import { linearTeamValue } from "../shared/linear-ticket";
+import { defaultSessionStartText, sessionStartMax, sessionStartValue } from "../shared/session-start";
 import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
 import { useBoardView } from "./board-view";
@@ -78,6 +79,7 @@ export function useProjectSettings(project: Project, withLanes = false) {
     [review, setReview] = useState<ReviewEdit>({ on: stored.enabled, rounds: String(stored.maxRounds) }),
     [agentModel, setAgentModel] = useState<AgentModel | null>(project.agentModel ?? null),
     [deliveryMode, setDeliveryMode] = useState<DeliveryMode | null>(storedDelivery),
+    [sessionStart, setSessionStart] = useState(project.sessionStartText ?? ""),
     [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
@@ -96,6 +98,7 @@ export function useProjectSettings(project: Project, withLanes = false) {
     ...(JSON.stringify(agentModel) !== JSON.stringify(project.agentModel ?? null) ? { agentModel } : {}),
     // An unknown stored mode shows as Inherit and is left as it is until another mode is chosen.
     ...(deliveryMode !== storedDelivery ? { deliveryMode } : {}),
+    ...(sessionStartValue(sessionStart) !== (project.sessionStartText ?? "") ? { sessionStartText: sessionStartValue(sessionStart) } : {}),
   };
   const linksChanged = !!project.links && !sameList(links, storedLinks);
   const dirty = Object.keys(patch).length > 0 || linksChanged;
@@ -118,7 +121,7 @@ export function useProjectSettings(project: Project, withLanes = false) {
   return {
     title, setTitle, description, setDescription, links, setLinkList, autoStatus, setAutoStatus, workpad, setWorkpad,
     workflowInsights, setWorkflowInsights, memory, setMemory, linearTicket, setLinearTicket, linearTeam, setLinearTeam,
-    review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode, lanes, setLanes,
+    review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode, sessionStart, setSessionStart, lanes, setLanes,
     pending, error, dirty, valid, save, reviewPreset,
   };
 }
@@ -179,6 +182,15 @@ export function ProjectSettingsFields({
           ...deliveryModes.map((m) => ({ value: m, label: t(deliveryModeLabels[m]), disabled: s.pending })),
         ]}
         onChange={(next) => s.setDeliveryMode(next || null)}
+      />
+      <Field
+        title={t("New session starting text")}
+        value={s.sessionStart}
+        onChange={s.setSessionStart}
+        placeholder={defaultSessionStartText}
+        maxLength={sessionStartMax}
+        multiline
+        editable={!s.pending}
       />
       {folder.data && (
         <View style={{ gap: 4 }}>

@@ -13,6 +13,7 @@ import { Pressable } from "react-native";
 import { t } from "../shared/i18n";
 import { ImageAttachments, useImageAttachments } from "./image-attach";
 import { newMessageId, rememberSentImages } from "./sent-images";
+import { sessionFirstMessage } from "../shared/session-start";
 
 export function SessionCreate({
   task,
@@ -24,11 +25,14 @@ export function SessionCreate({
   refresh,
   defaults,
   seed,
+  startText,
 }: {
   task: Task;
   open: boolean;
   /** Prefill for a session started from an idea (IDEAS-SPEC §6.3); read when the form opens. */
   seed?: { title: string; prompt: string } | null;
+  /** The project's New session starting text (SESSION-START-TEXT-SPEC); the box opens with it unless an idea seeds it. */
+  startText: string;
   /** The New task defaults (MODEL-DEFAULTS-SPEC §2), this form's starting point; none leaves the picker empty. */
   defaults?: { provider: string; model: string; mode: string } | null;
   workspaceDirectory?: string;
@@ -51,13 +55,13 @@ export function SessionCreate({
     [creationPending, setCreationPending] = useState(false);
   // Images with the first message (web: paste, drop or Add images).
   const attachments = useImageAttachments();
-  // Reset each time the form opens. The instruction starts empty: the task's
-  // title and description already reach the session as its work instructions.
+  // Reset each time the form opens, from the defaults only (MODEL-DEFAULTS-SPEC §2). The instruction opens with the
+  // project's starting text, or an idea's own prompt (SESSION-START-TEXT-SPEC).
   const wasOpen = useRef(false);
   useEffect(() => {
     if (open && !wasOpen.current) {
       choice.reset(defaults);
-      setPrompt(seed?.prompt || "");
+      setPrompt(seed?.prompt || startText);
       setTitle(seed?.title || "");
       attachments.clear();
       setError("");
@@ -75,12 +79,8 @@ export function SessionCreate({
     enabled: open,
     refetchInterval: open ? 5000 : false,
   });
-  const hasInstruction = !!newPrompt.trim();
-  const canCreate =
-    !sending &&
-    !unavailable &&
-    choice.ready &&
-    hasInstruction;
+  // An empty box sends the card's title and description (SESSION-START-TEXT-SPEC).
+  const canCreate = !sending && !unavailable && choice.ready;
   async function perform(action: () => Promise<unknown>) {
     if (lock.current) return;
     lock.current = true;
@@ -174,7 +174,7 @@ export function SessionCreate({
           : { idempotencyKey: attempt.current.operationId }),
         title: newTitle.trim() || task.title,
         labels: { "flowly-task": task.id },
-        prompt: newPrompt.trim(),
+        prompt: sessionFirstMessage(newPrompt, task),
         ...(images.length ? { images, clientMessageId: messageId } : {}),
       };
       const created = preparation
@@ -227,7 +227,7 @@ export function SessionCreate({
             value={newPrompt}
             onChange={setPrompt}
             multiline
-            placeholder={t("What should this session do first?")}
+            placeholder={t("Empty sends the card's title and description")}
             editable={!sending}
             onSubmit={submit}
           />

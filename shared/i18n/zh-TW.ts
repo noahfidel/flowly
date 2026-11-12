@@ -469,7 +469,6 @@ const catalog: Catalog = {
   "Kanban configuration provided. Successful tool calls will be shown separately.": "已提供 Kanban 配置。成功的工具呼叫會單獨顯示。",
   "New session": "新建工作階段",
   "Session title (optional)": "工作階段標題（可選）",
-  "What should this session do first?": "這個工作階段要先做什麼？",
   "The task's title and description are included automatically, along with Kanban tools.": "任務的標題和描述會自動附上，同時提供 Kanban 工具。",
   "No providers are available. Configure a provider in Paseo to create a session.": "沒有可用的供應商。請先在 Paseo 中配置供應商再建立工作階段。",
   "Choose an available provider.": "選擇一個可用的供應商。",
@@ -1671,6 +1670,8 @@ const catalog: Catalog = {
   "This card's approved plan. New sessions start from it instead of planning again.": "這是此卡片已核准的計畫。新工作階段會直接從它開始，不再重新規劃。",
   "A card's plan": "卡片的計畫",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "在卡片工作階段中核准的計畫，或你設定的計畫，會保留在卡片上；新工作階段直接從它開始，不再重新規劃。",
+  "Empty sends the card's title and description": "留空則傳送卡片的標題與描述",
+  "New session starting text": "新工作階段的起始文字",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "{provider} 不提供預設模型 {model}。請在設定 → 模型中另選一個。",
 };
 export default catalog;

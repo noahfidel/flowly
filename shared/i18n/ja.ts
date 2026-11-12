@@ -469,7 +469,6 @@ const catalog: Catalog = {
   "Kanban configuration provided. Successful tool calls will be shown separately.": "Kanban の設定を提供しました。成功したツール呼び出しは別途表示されます。",
   "New session": "新規セッション",
   "Session title (optional)": "セッションのタイトル（任意）",
-  "What should this session do first?": "このセッションは最初に何をしますか？",
   "The task's title and description are included automatically, along with Kanban tools.": "タスクのタイトルと説明が、Kanban ツールとともに自動的に含まれます。",
   "No providers are available. Configure a provider in Paseo to create a session.": "利用できるプロバイダーがありません。セッションを作成するには Paseo でプロバイダーを設定してください。",
   "Choose an available provider.": "利用できるプロバイダーを選択してください。",
@@ -1671,6 +1670,8 @@ const catalog: Catalog = {
   "This card's approved plan. New sessions start from it instead of planning again.": "このカードの承認済み計画です。新しいセッションは計画し直さず、ここから始めます。",
   "A card's plan": "カードの計画",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "カードのセッションで承認された計画や自分で設定した計画はカードに残り、新しいセッションは計画し直さずそこから始めます。",
+  "Empty sends the card's title and description": "空のときはカードのタイトルと説明を送信します",
+  "New session starting text": "新しいセッションの開始テキスト",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "デフォルトのモデル {model} は {provider} で提供されていません。設定 → モデルで別のモデルを選んでください。",
 };
 export default catalog;

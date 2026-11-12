@@ -469,7 +469,6 @@ const catalog: Catalog = {
   "Kanban configuration provided. Successful tool calls will be shown separately.": "Kanban 설정을 제공했습니다. 성공한 도구 호출은 별도로 표시됩니다.",
   "New session": "새 세션",
   "Session title (optional)": "세션 제목(선택)",
-  "What should this session do first?": "이 세션이 먼저 무엇을 해야 하나요?",
   "The task's title and description are included automatically, along with Kanban tools.": "작업의 제목과 설명이 Kanban 도구와 함께 자동으로 포함됩니다.",
   "No providers are available. Configure a provider in Paseo to create a session.": "사용할 수 있는 제공자가 없습니다. 세션을 만들려면 Paseo에서 제공자를 설정하세요.",
   "Choose an available provider.": "사용할 수 있는 제공자를 선택하세요.",
@@ -1671,6 +1670,8 @@ const catalog: Catalog = {
   "This card's approved plan. New sessions start from it instead of planning again.": "이 카드의 승인된 계획입니다. 새 세션은 다시 계획하지 않고 여기서 시작합니다.",
   "A card's plan": "카드의 계획",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "카드 세션에서 승인된 계획이나 직접 설정한 계획은 카드에 남고, 새 세션은 다시 계획하지 않고 그 계획에서 시작합니다.",
+  "Empty sends the card's title and description": "비워 두면 카드의 제목과 설명을 보냅니다",
+  "New session starting text": "새 세션 시작 텍스트",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "기본 모델 {model}을(를) {provider}에서 제공하지 않습니다. 설정 → 모델에서 다른 기본 모델을 선택하세요.",
 };
 export default catalog;

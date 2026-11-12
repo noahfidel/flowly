@@ -300,6 +300,8 @@ export const projectSchema = z.object({
   orderGroupId: z.string().optional(),
   /** Delivery mode override for its cards (BOARD-GROUPS-SPEC §5); a plain string, as the card's. Absent: inherit. */
   deliveryMode: z.string().optional(),
+  /** The text a card's New session box opens with (SESSION-START-TEXT-SPEC); absent: the built-in default. */
+  sessionStartText: z.string().max(2000).optional(),
 });
 /** Board groups kept at most, and a group name's length (BOARD-GROUPS-SPEC §1). */
 export const groupLimits = { groups: 50, name: 80 } as const;
@@ -801,6 +803,8 @@ export const projectEdit = z.strictObject({
   autoReview: autoReviewInput.optional(),
   /** The project's delivery mode override (BOARD-GROUPS-SPEC §5); null removes it (the group's or host's applies again). */
   deliveryMode: z.enum(deliveryModes).nullable().optional(),
+  /** The New session starting text (SESSION-START-TEXT-SPEC); "" removes it (the built-in default applies again). */
+  sessionStartText: z.string().max(4000).optional(),
 });
 /** What a group's defaults edit sends: a value sets a default, null removes it (inherit again). */
 export const groupDefaultsInput = z.strictObject({

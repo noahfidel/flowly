@@ -469,7 +469,6 @@ const catalog: Catalog = {
   "Kanban configuration provided. Successful tool calls will be shown separately.": "Kanban-Konfiguration bereitgestellt. Erfolgreiche Werkzeugaufrufe werden separat angezeigt.",
   "New session": "Neue Sitzung",
   "Session title (optional)": "Sitzungstitel (optional)",
-  "What should this session do first?": "Was soll diese Sitzung zuerst tun?",
   "The task's title and description are included automatically, along with Kanban tools.": "Titel und Beschreibung der Aufgabe werden automatisch mitgesendet, zusammen mit den Kanban-Werkzeugen.",
   "No providers are available. Configure a provider in Paseo to create a session.": "Keine Anbieter verfügbar. Konfiguriere in Paseo einen Anbieter, um eine Sitzung zu erstellen.",
   "Choose an available provider.": "Wähle einen verfügbaren Anbieter.",
@@ -1671,6 +1670,8 @@ const catalog: Catalog = {
   "This card's approved plan. New sessions start from it instead of planning again.": "Der genehmigte Plan dieser Karte. Neue Sitzungen setzen darauf auf, statt erneut zu planen.",
   "A card's plan": "Der Plan einer Karte",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "Ein in der Sitzung einer Karte genehmigter oder von dir festgelegter Plan bleibt an der Karte; neue Sitzungen setzen darauf auf, statt erneut zu planen.",
+  "Empty sends the card's title and description": "Leer sendet Titel und Beschreibung der Karte",
+  "New session starting text": "Starttext für neue Sitzungen",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "Das Standardmodell {model} wird von {provider} nicht angeboten. Wähle unter Einstellungen → Modelle ein anderes.",
 };
 export default catalog;

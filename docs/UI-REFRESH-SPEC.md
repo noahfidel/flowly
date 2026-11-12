@@ -203,6 +203,7 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 
 ## 7s. Session instruction is required and starts empty (2026-10-15, user feedback)
 
+- Superseded for New session (Noah, 2026-11-12): the box opens with the project's starting text and an empty box sends the card's title and description; see [SESSION-START-TEXT-SPEC](SESSION-START-TEXT-SPEC.md). New task is unchanged.
 - New session: the field is now "Instruction". It is required (Create is disabled until it has text) and starts empty each time the dialog opens; it is no longer prefilled with the task title and description. Session title stays optional.
 - New task → Start an agent now: same rule. "Instruction" is empty and required for "Create and start". "Create task" without an agent is unaffected.
 - Exception (user decision 2026-11-04): when New task has at least one item picked with **From …** (any service), "Instruction" is optional and its placeholder reads "Optional: the agent starts with the attached items". An empty (or whitespace-only) instruction then sends the agent-facing default `Start on this card: read its inputs, including <names>, then begin.`, where `<names>` are the attached items' keys joined with ", " (a Confluence page by its title, its key being an opaque id). Typed text is sent as typed (trimmed, as before), without the default. Nothing is prefilled; without an attached item the instruction stays required. Logic: `client/first-message.ts`.

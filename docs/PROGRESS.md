@@ -1,5 +1,13 @@
 # Implementation progress
 
+## New session form: default model no longer offered is named; starting text per project (branch `session-form-defaults`) — 2026-11-12
+
+- Cause of "New session shows the last card's session's model, not my default" (Noah): not a remembered pick. The host default stored in Settings → Models is `claude/opusplan`, and no project or group overrides it. Paseo lists a Claude model that is not in its manifest only while Claude Code's `~/.claude/settings.json` names it (`model`, "From Claude settings.json model"); that file now says `claude-opus-5-5` (Claude Code's `/model` rewrites it), so `opusplan` is no longer offered and Paseo refuses unlisted models. The picker's `chosenModel` then fell back silently to the provider's default model (Opus 5.5) and showed it as if it were the default. The reset on open, the drawer memo and `planAwareDefaults` were checked and are correct; nothing writes a picked model into any default.
+- Fix: `pickModel` (`shared/agent-defaults.ts`) keeps the same fallback but reports the unoffered default; the agent picker (New session, New task, Quick task) shows "Default model {model} is not offered by {provider}. Choose another default in Settings → Models." MODEL-DEFAULTS-SPEC §2. Noah still needs to choose a new default in Settings → Models.
+- Feature: SESSION-START-TEXT-SPEC. Project setting `sessionStartText` (Project settings → New session starting text), built-in default "Read the card and pick up where it left off."; the New session box opens with it (an idea's own prompt wins); an empty box sends the card's title and description. UI-REFRESH-SPEC §7s marked superseded for New session. Note: the title and description are already in the session's system prompt, so an empty box repeats them as the first message (the duplication §7s removed); kept as requested.
+- Checks: `npm run typecheck` 0; `npm test` 214 files passed, 1 skipped; 2414 tests passed, 7 skipped. UNRUN: live UI on desktop and phone.
+- Onboarding: no tour or tip change (a fix and a small project setting next to existing defaults). Telemetry: no field. What's new: none (not a release).
+
 ## Updates step-through: start opens the card, starts on a counted card, no "Answered" (branch `updates-stepper-start`) — 2026-11-11
 
 - Ruling (Noah, 2026-11-11), DISPATCHER-SPEC §9.4. Cause of "Updates attaches over the open chat": `showStepCard` opened a card with no unread session through `openTaskById`, whose `setTask` is a no-op for the card already open, so the drawer stayed on its chat. It now also sends an empty session entry (as a card link does), returning the card to its details.

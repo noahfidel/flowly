@@ -24,6 +24,7 @@ import {
 } from "../shared/attention-dismiss";
 import type { FlowLog } from "./flow-log";
 import { linearTeamValue } from "../shared/linear-ticket";
+import { sessionStartValue } from "../shared/session-start";
 import type { ProjectSnapshot } from "./project-folder";
 import {
   boardSchema,
@@ -567,6 +568,11 @@ export class BoardStore {
       if (input.deliveryMode !== undefined) {
         if (input.deliveryMode) p.deliveryMode = input.deliveryMode;
         else delete p.deliveryMode;
+      }
+      if (input.sessionStartText !== undefined) {
+        const text = sessionStartValue(input.sessionStartText);
+        if (text) p.sessionStartText = text;
+        else delete p.sessionStartText;
       }
       if (input.archived !== undefined)
         p.archivedAt = input.archived ? new Date().toISOString() : null;

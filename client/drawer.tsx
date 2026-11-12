@@ -79,6 +79,7 @@ import { TaskTags } from "./task-tags";
 import { ReleaseModal, ReleaseNotice, SwitchModal, type SwitchDirection } from "./workspace-switch";
 import { drawerSectionOrder, drawerSectionsOpen, type AnyDrawerSection, type DrawerSection } from "../shared/drawer-sections";
 import { ideaInstruction } from "../shared/ideas";
+import { sessionStartText } from "../shared/session-start";
 import { prReviewCardUrl } from "../shared/pr-review";
 import { getLocale, localizedLabels, msg, t, tn } from "../shared/i18n";
 
@@ -1232,6 +1233,7 @@ function TaskDrawerView({
         refresh={refreshAll}
         defaults={startDefaults}
         seed={ideaSession ? { title: ideaSession.title, prompt: ideaInstruction(ideaSession) } : null}
+        startText={sessionStartText(project)}
       />
       <WrapupModal
         task={task}
