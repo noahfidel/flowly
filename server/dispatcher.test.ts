@@ -1405,6 +1405,13 @@ test("the charter limits flowly_reply_to_agent to answering an agent that wrote 
   expect(line).toMatch(/never .*relay/i);
 });
 
+test("the charter says to answer an agent once: the tool or final text, never both (DISPATCHER-SPEC §5.4)", () => {
+  const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("flowly_reply_to_agent"))!;
+  expect(line).toMatch(/Answer once/);
+  expect(line).toMatch(/final turn text/);
+  expect(line).toMatch(/never both/);
+});
+
 test("the charter says plainly that only the user answers a card's asks", () => {
   expect(dispatcherCharter({ name: "Projects" })).toContain("You have no tool that answers them");
   expect(dispatcherCharter({ name: "Projects" })).toContain("buttons");

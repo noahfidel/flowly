@@ -147,7 +147,13 @@ export const dispatcherProjectsPerHour = 5;
  */
 export const promptingModes: readonly string[] = ["default", "acceptEdits", "plan"];
 const messageResultSchema = z.object({ sent: z.literal(true), sessionId: z.string() });
-const replyResultSchema = z.object({ sent: z.literal(true), agentId: z.string() });
+/**
+ * Paseo reports the dispatcher's final turn text to a sender that is notified on finish (its default), so a tool reply
+ * followed by a final text that repeats it reaches the sender twice. The result says so (DISPATCHER-SPEC §5.4).
+ */
+export const replyOnceNote =
+  "Delivered. The sender also receives your final turn text from Paseo, so don't repeat or summarise this reply there: end your turn with nothing more to say to it (a bare \"Replied.\" at most).";
+const replyResultSchema = z.object({ sent: z.literal(true), agentId: z.string(), note: z.string() });
 /** How far back flowly_reply_to_agent reads the dispatcher's own timeline for a prompt: pages of this size, at most this many (§5.4). */
 const replyScanPage = 200;
 const replyScanPages = 10;
@@ -480,7 +486,7 @@ export class DispatcherTools {
       release();
       throw new ToolError("SEND_FAILED", `Paseo could not deliver the reply: ${e instanceof Error ? e.message : String(e)}`, true);
     }
-    return { sent: true as const, agentId: target.id };
+    return { sent: true as const, agentId: target.id, note: replyOnceNote };
   }
 
   /**
@@ -823,7 +829,7 @@ export class DispatcherTools {
     mcp.registerTool(
       "flowly_reply_to_agent",
       {
-        description: `Answer another agent that messaged you (its prompt shows in your conversation as coming from that agent): a short plain-text reply, steered into its turn and marked as coming from the dispatcher. Only to an agent that wrote to you in the last 24 hours; you can't start a conversation, and keep replies short. Never use it to relay a card's asks or answer anything for the user. REPLY_NOT_ALLOWED: it did not write to you, it is a card's session (use flowly_message_card) or a dispatcher. SESSION_WAITING_ON_USER: it waits on the user. AGENT_NOT_FOUND, SEND_FAILED, TRANSCRIPT_UNAVAILABLE. At most ${dispatcherRepliesPerAgentPerHour} per agent and ${dispatcherRepliesPerHour} in all per hour (REPLY_LIMIT: stop, tell the user). AGENT_CARDS_DISABLED: the user turned this off.`,
+        description: `Answer another agent that messaged you (its prompt shows in your conversation as coming from that agent): a short plain-text reply, steered into its turn and marked as coming from the dispatcher. Only to an agent that wrote to you in the last 24 hours; you can't start a conversation, and keep replies short. Answer once: Paseo also hands the sender your final turn text when it finishes, so either use this tool or answer in your final text, never both; after this tool, don't repeat the reply in your final text. Never use it to relay a card's asks or answer anything for the user. REPLY_NOT_ALLOWED: it did not write to you, it is a card's session (use flowly_message_card) or a dispatcher. SESSION_WAITING_ON_USER: it waits on the user. AGENT_NOT_FOUND, SEND_FAILED, TRANSCRIPT_UNAVAILABLE. At most ${dispatcherRepliesPerAgentPerHour} per agent and ${dispatcherRepliesPerHour} in all per hour (REPLY_LIMIT: stop, tell the user). AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.replyToAgent,
         outputSchema: replyResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

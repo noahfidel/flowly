@@ -6,6 +6,7 @@ import { ToolServer } from "./tool-server";
 import { groupWriter } from "./group-writes";
 import { agentFixture } from "./agent-fixture";
 import { changeLine } from "./dispatcher-items";
+import { replyOnceNote } from "./dispatcher-tools";
 import { BoardService } from "./service";
 import { projectCreator } from "./project-create";
 import {
@@ -1454,7 +1455,10 @@ test("flowly_reply_to_agent steers a prefixed reply to an agent that wrote to th
   x.prompt("bot", 60_000, "Ops");
   const result = await x.reply({ text: "  Two cards run; nothing waits.  " });
   expect(code(result)).toBeUndefined();
-  expect(result.structuredContent).toEqual({ sent: true, agentId: "bot" });
+  expect(result.structuredContent).toEqual({ sent: true, agentId: "bot", note: replyOnceNote });
+  // The sender also gets the dispatcher's final turn text from Paseo, so the result tells it not to repeat the reply there.
+  expect(replyOnceNote).toMatch(/final turn text/);
+  expect(replyOnceNote).toMatch(/don't repeat/);
   expect(x.sent).toEqual([{ id: "bot", text: `${dispatcherMessagePrefix}Two cards run; nothing waits.`, options: { activeTurnBehavior: "steer" } }]);
   // It reads only its own timeline to know who wrote to it.
   expect(new Set(x.timelineReads.map((r) => r.id))).toEqual(new Set(["disp"]));

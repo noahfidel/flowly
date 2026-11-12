@@ -1809,3 +1809,7 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - Not recorded as a card event or in Insights, like `flowly_message_card` (which has no audit path either). Not run against a live dispatcher.
 - Onboarding: none (an agent tool, no UI). Telemetry: no field. What's new: none (not a release).
 
+## 2026-11-12 Dispatcher replies reached agents twice (branch `kanban/dispatcher-replies-reach-agents-twice-653331`)
+- Cause (verified): Paseo reports a prompted agent's final turn text to a sender notified on finish (default). Checked live: a throwaway Haiku agent's finish report to this session carried its final text verbatim. So `flowly_reply_to_agent` followed by a final text that restates the reply reaches the sender twice. Not reproduced against a live dispatcher (the tool half is covered by its existing tests).
+- Fix: charter line and tool description say to answer through the tool or the final text, never both; the tool result carries `note` (`replyOnceNote`) saying not to repeat the reply in the final text. Limits unchanged (24 hours, no card or dispatcher, rate limits, never a card's asks). DISPATCHER-SPEC §5, §5.4.
+- Tests: `server/dispatcher-tools.test.ts` (result note), `server/dispatcher.test.ts` (charter); both fail on the previous source and pass now. Onboarding: none. Telemetry: no field. What's new: none.
