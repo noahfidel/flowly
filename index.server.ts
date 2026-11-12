@@ -78,6 +78,7 @@ import { ReviewLedgers } from "./server/review-ledgers";
 import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
 import { FLOWLY_VERSION } from "./shared/version";
 import { logFailure, reportError, reportRpcErrors, setErrorSink } from "./server/error-report";
+import { moveStartedCard } from "./server/start-stage";
 import { EventBus, commitHandler } from "./server/event-bus";
 import { legacyNoteGroup, recordAgentIds, wireDispatcher, type DispatcherRecord } from "./server/dispatcher";
 import { dispatcherServerName } from "./shared/dispatcher";
@@ -645,9 +646,13 @@ export default function contribute(host: PluginServerContext) {
     await tools.start().catch(() => undefined);
     return tools.health();
   });
-  server.handle(rpc.prepareSession, (input, { paseo }) =>
-    tools.prepareSession(input.id, input.operationId, paseo),
-  );
+  // The board starts the session itself after this call (drawer, New task, quick task): the card leaves Backlog/Todo
+  // here (DISPATCHER-SPEC §4.1), the one server step every such start passes through.
+  server.handle(rpc.prepareSession, async (input, { paseo }) => {
+    const prepared = await tools.prepareSession(input.id, input.operationId, paseo);
+    await moveStartedCard(store, input.id).catch((e) => logFailure("Flowly card not moved out of Backlog:", e, input.id));
+    return prepared;
+  });
   server.handle(rpc.prepareExisting, (input, { paseo }) =>
     tools.prepareExisting(input.id, input.agentId, paseo),
   );

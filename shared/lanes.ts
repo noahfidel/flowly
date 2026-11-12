@@ -1,4 +1,4 @@
-import { completeLanes, statusLabels, statuses, type Lane, type Project, type Status } from "./model";
+import { completeLanes, isWorkStatus, statusLabels, statuses, type Lane, type Project, type Status } from "./model";
 
 type WithLanes = Pick<Project, "lanes"> | null | undefined;
 
@@ -29,4 +29,15 @@ export function laneName(project: WithLanes, status: Status) {
 /** Error text when a status is not part of the project's workflow, else "". */
 export function laneProblem(project: WithLanes, status: Status) {
   return laneEnabled(project, status) ? "" : `${laneName(project, status)} is not a lane in this project.`;
+}
+
+/**
+ * The lane a started card moves to (DISPATCHER-SPEC §4.1): only a card still in Backlog or Todo moves, to the project's
+ * active-work lane chosen by role, never by id: Development when enabled, else the first enabled work lane. Null when
+ * the card stays (any other status, or the workflow has no work lane).
+ */
+export function startedStatus(project: WithLanes, status: Status): Status | null {
+  if (status !== "backlog" && status !== "todo") return null;
+  const enabled = enabledStatuses(project);
+  return enabled.includes("development") ? "development" : (enabled.find((s) => isWorkStatus(s)) ?? null);
 }

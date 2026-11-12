@@ -16,6 +16,7 @@ import { generatedBranchName, resolveWorktreeBaseRef } from "./service";
 import type { BoardStore } from "./store";
 import { digest } from "./tool-context";
 import { checkGroup, ToolError } from "./tool-error";
+import { moveStartedCard } from "./start-stage";
 import { workspaceSessions } from "./workspace-switch";
 import { cardWorkspaceIds } from "../shared/workspace-switch";
 
@@ -206,6 +207,8 @@ export class CardStarter {
       }
       checkGroup((await this.store.read()).projects.find((p) => p.id === project.id), caller.groupId);
       const agentId = await this.createSession(caller, task, workspaceId, model, input.prompt?.trim() ? input.prompt : defaultPrompt(task, planTarget), operationId, paseo);
+      // Only once the session exists, so a failed start leaves the card where it was.
+      await moveStartedCard(this.store, task.id).catch((e) => logFailure("Flowly start_card card not moved out of Backlog:", e, `card ${task.id}`));
       return { taskId: task.id, workspaceId, agentId, replayed: false, ...(warnings.length ? { warnings } : {}) };
     } catch (e) {
       release();

@@ -269,10 +269,10 @@ test("an owned card that never had a session moves to a new worktree and its dir
   expect(source.branchName).toMatch(/^kanban\/.+-[0-9a-f]{6}$/);
   expect(started.workspaceId).toBe("created-1");
   const task = (await x.store.read()).tasks.find((t) => t.id === "c")!;
-  expect(task).toMatchObject({ workspaceId: "created-1", ownsWorkspace: true, revision: 2 });
+  expect(task).toMatchObject({ workspaceId: "created-1", ownsWorkspace: true, revision: 3, status: "development" });
   expect(task.previousWorkspaces).toEqual([expect.objectContaining({ id: "ws-c", kind: "directory", directory: x.a })]);
   expect(task.switch).toBeUndefined();
-  expect((await x.store.read()).events.filter((e) => e.taskId === "c").at(-1)).toMatchObject({
+  expect((await x.store.read()).events.filter((e) => e.taskId === "c" && e.action === "workspace_switched").at(-1)).toMatchObject({
     action: "workspace_switched",
     actor: "agent",
     agentId: "outside",
@@ -633,7 +633,7 @@ test("the user's Start again takes the same path without the agent switch or lim
   const started = await x.starter.start(user, { taskId: "c", idempotencyKey: "again-1" }, x.paseo);
   expect(started).toMatchObject({ taskId: "c", workspaceId: "created-1", replayed: false });
   expect(x.createdSessions[0].labels).toEqual({ "flowly-task": "c", "flowly-started-by": "user" });
-  const moved = (await x.store.read()).events.filter((e) => e.taskId === "c").at(-1);
+  const moved = (await x.store.read()).events.filter((e) => e.taskId === "c" && e.action === "workspace_switched").at(-1);
   expect(moved).toMatchObject({ action: "workspace_switched", actor: "human" });
   expect(moved?.agentId).toBeUndefined();
   // The same refusals as an agent's start: a live session is not started twice.
@@ -773,4 +773,51 @@ test("a directory card's plan in the project folder still opens after the start 
   expect(plan.target).toBe(join(x.a, "plan.md"));
   expect((await new ArtifactService(x.store).status({ taskId: "c" }, x.paseo)).missing).toEqual([]);
   expect(x.createdSessions[0].prompt).toContain(`Approved plan: ${join(x.a, "plan.md")}.`);
+});
+
+// A started card leaves Backlog/Todo for the project's active-work lane (DISPATCHER-SPEC §4.1, START-CARD-SPEC §7).
+const statusOf = async (x: Awaited<ReturnType<typeof setup>>, id: string) => (await x.store.read()).tasks.find((t) => t.id === id)!.status;
+
+test.each(["backlog", "todo"] as const)("start_card moves a card in %s to Development", async (from) => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true, status: from }, "worktree");
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(await statusOf(x, "c")).toBe("development");
+  const board = await x.store.read();
+  const moved = board.events.filter((e) => e.taskId === "c" && e.action === "status_changed");
+  expect(moved).toMatchObject([{ actor: "system", from, to: "development" }]);
+  expect(board.tasks.find((t) => t.id === "c")!.revision).toBe(2);
+});
+
+test.each(["development", "test", "in_review", "blocked"] as const)("start_card leaves a card in %s where it is", async (from) => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true, status: from }, "worktree");
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(await statusOf(x, "c")).toBe(from);
+  const board = await x.store.read();
+  expect(board.events.filter((e) => e.taskId === "c" && e.action === "status_changed")).toEqual([]);
+  expect(board.tasks.find((t) => t.id === "c")!.revision).toBe(1);
+});
+
+test("start_card picks the lane by role when Backlog or Development is removed", async () => {
+  const x = await setup();
+  await x.store.mutate((board) => {
+    const p = board.projects.find((q) => q.id === "p")!;
+    p.lanes = ["backlog", "todo", "design", "development", "test", "in_review", "committed", "integrated", "blocked", "done", "cancelled"].map((status) => ({
+      status,
+      enabled: status !== "backlog" && status !== "development",
+    })) as typeof p.lanes;
+  });
+  await x.card("c", { ownsWorkspace: true, status: "todo" }, "worktree");
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  // No Development lane: the first enabled work lane after Backlog/Todo.
+  expect(await statusOf(x, "c")).toBe("design");
+});
+
+test("start_card leaves a Backlog card in Backlog when the session fails to start", async () => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true, status: "backlog" }, "worktree");
+  vi.spyOn(x.paseo.workspaces, "ref").mockImplementation(((id: string) => ({ refresh: async () => x.workspaces.get(id) ?? null, agents: { create: async () => { throw new Error("boom"); } } })) as never);
+  await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo));
+  expect(await statusOf(x, "c")).toBe("backlog");
 });

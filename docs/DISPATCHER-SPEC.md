@@ -78,6 +78,16 @@ A stored session is **dead** when Paseo does not return it or it is archived (on
 - Every tool with a `projectId` then checks the project: unknown → `NOT_FOUND`; archived → `PROJECT_ARCHIVED`. A write also needs its root (`primaryPath`) to be a readable directory, else `ROOT_UNAVAILABLE`; reads (`flowly_list_cards`, `flowly_get_card`, `flowly_list_ideas`) of a project whose root is missing are allowed. A card id must belong to that project (`CARD_NOT_FOUND`). Refusals write nothing.
 - A legacy multi-repo project (more than one stored `repos`, SINGLE-ROOT-SPEC) follows the same rules as the card agents' tools there: its cards can be created, edited, linked and started, and ideas proposed (SINGLE-ROOT-SPEC §21 lets users edit legacy cards; the read-only rule covers its scope data).
 
+### 4.1 A started card leaves Backlog and Todo (2026-11-12)
+
+Applies to every start of a card's session, a dispatcher's `flowly_start_card` included (START-CARD-SPEC §5) and the board's own starts (drawer Start session, New task, Quick task, via `prepareSession`).
+
+- A card still in Backlog or Todo moves to the project's active-work lane, chosen by role (`startedStatus`, `shared/lanes.ts`): Development when that lane is enabled, else the first enabled work lane (Design, Test); no work lane enabled leaves the card where it is. Never by lane id, and it works when Backlog or Todo is not in the workflow.
+- Any other status stays: a card already in a work stage, In review, Committed or Integrated is never moved, never backwards; Blocked, Done and Cancelled are left alone; an archived card does not move.
+- The move is one write (`server/start-stage.ts`): revision +1, a `status_changed` event by actor `system` with note "Session started". It runs after the session exists for `flowly_start_card` (a failed start leaves the card in place) and after `prepareSession` for the board's starts (the board creates that session itself afterwards). A failed move is logged and never fails the start.
+- The card's own `flowly_update_status` is unchanged and still overrides the stage.
+- Why: sessions that never call `flowly_update_status` (the eight "Move Loadout memory into…" cards: their event logs hold progress, tags, workpad and memory writes but no `status_changed`; nothing was refused) left a started card in Backlog.
+
 ## 5. Tools
 
 All take `projectId` explicitly, except `flowly_list_projects` and `flowly_create_project`. Writes are recorded with `actor: "agent"` and the dispatcher's `agentId`.
@@ -308,6 +318,7 @@ One source (plan Q1): `asksFrom(board, agents, receipts, dismissals)` in `shared
 
 ## 10. Acceptance
 
+- Starting a card in Backlog or Todo (`flowly_start_card` and `prepareSession`) moves it to Development; a card in Development, Test, In review or Blocked, or Done, Cancelled or archived, stays; with Development disabled it moves to the first enabled work lane (§4.1).
 - Per group: start, replace, status and `DISPATCHER_RUNNING` are per group on one queue; a dead group's dispatcher is not replaced by another group's start; two groups starting at once create the workspace once; a token of group A is refused on group B's projects (`PROJECT_OUT_OF_GROUP`), also after a project moved; an old token without `groupId` works through the record, a deleted group's is `DISPATCHER_REPLACED`; the hourly buckets are independent per session.
 - v1 migration: the old session lands on the group with the most open cards (ties: first), keeps every field, other groups read `none`; with no group it waits as `unassigned`; running it twice changes nothing; an unknown or invalid file is preserved.
 - Notes are routed by the project's group when the stop is pushed, one batcher, held map, cooldown and start window per group; after a project moves, its held notes follow (dropped when the target has no dispatcher); `exclude` covers every recorded session id; chat notes are stamped and each chat shows only its own session's notes (unstamped v1 notes: the migrated group); the 500 cap is per key.

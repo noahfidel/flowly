@@ -1,5 +1,13 @@
 # Implementation progress
 
+## A started card leaves Backlog/Todo (branch `kanban/starting-a-card-moves-it-out-of-backlog-5a564c`) — 2026-11-12
+
+- Cause (verified in the board's event log, not assumed): the eight "Move Loadout memory into…" cards had sessions that wrote tags, workpad, memory and a progress report but never called `flowly_update_status`; no `status_changed` event and no refusal (directory workspaces are not refused) exists for any of them, so nothing ever moved them out of Backlog.
+- Fix: starting a card moves it from Backlog/Todo to the active-work lane by role (`startedStatus` in `shared/lanes.ts`: Development, else first enabled work lane; none leaves it). `server/start-stage.ts` `moveStartedCard` runs after `flowly_start_card` creates the session and in the `prepareSession` RPC for the board's starts. Other statuses, archived cards and Blocked/Done/Cancelled stay. Spec: DISPATCHER-SPEC §4.1, START-CARD-SPEC §5.
+- Tests: `server/start-card.test.ts` (Backlog, Todo, Development/Test/In review/Blocked unchanged, lane chosen by role, failed start leaves the card), `server/start-stage.test.ts` (board path, all statuses, archived, lane choice); red first (3 failing), then green. Two older start-card assertions now expect the extra move (revision 3, last `workspace_switched` event looked up by action).
+- Checks: `npm run typecheck` exit 0; `npm test` 215 files passed, 2433 tests passed, 7 skipped. Not run: live board/UI check of the drawer Start session.
+- Onboarding upkeep: no tour or tip change (behavior fix, no new control).
+
 ## New session form: default model no longer offered is named; starting text per project (branch `session-form-defaults`) — 2026-11-12
 
 - Cause of "New session shows the last card's session's model, not my default" (Noah): not a remembered pick. The host default stored in Settings → Models is `claude/opusplan`, and no project or group overrides it. Paseo lists a Claude model that is not in its manifest only while Claude Code's `~/.claude/settings.json` names it (`model`, "From Claude settings.json model"); that file now says `claude-opus-5-5` (Claude Code's `/model` rewrites it), so `opusplan` is no longer offered and Paseo refuses unlisted models. The picker's `chosenModel` then fell back silently to the provider's default model (Opus 5.5) and showed it as if it were the default. The reset on open, the drawer memo and `planAwareDefaults` were checked and are correct; nothing writes a picked model into any default.
