@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { boardOverview, overviewRow } from "./overview";
+import { boardOverview, mergeRunning, overviewRow, runningRows } from "./overview";
 import type { Task, Project } from "../shared/model";
 import type { AttentionItem } from "./attention";
 
@@ -61,4 +61,26 @@ test("the overview row: running only while something runs, one need-you chip, up
   expect(overviewRow({ ...base, runningTasks: 2 }, none)).toEqual({ running: true, needYou: false, updated: false, statusDivider: true, toolsDivider: false });
   expect(overviewRow({ ...base, needYou: 3 }, { ...none, insights: true })).toEqual({ running: false, needYou: true, updated: false, statusDivider: true, toolsDivider: true });
   expect(overviewRow({ ...base, updated: 2 }, none)).toEqual({ running: false, needYou: false, updated: true, statusDivider: true, toolsDivider: false });
+});
+
+test("running list: running cards, oldest first; none running is empty", () => {
+  const tasks = [task("a", "development", { title: "A" }), task("b", "test", { title: "B" }), task("c", "todo"), task("e", "todo", { archivedAt: "2026-10-15T00:00:00Z" })];
+  const agents = [
+    { workspaceId: "w-a", status: "running", activeTurn: { startedAt: "2026-11-12T10:05:00Z" } },
+    { workspaceId: "w-b", status: "initializing", activeTurn: { startedAt: "2026-11-12T10:00:00Z" } },
+    { workspaceId: "w-c", status: "idle" },
+    { workspaceId: "w-e", status: "running" },
+  ];
+  expect(runningRows([project], tasks, agents).map((r) => r.taskId)).toEqual(["b", "a"]);
+  expect(runningRows([project], tasks, agents.map((a) => ({ ...a, status: "idle" })))).toEqual([]);
+});
+
+test("running list: a session that ends while it is open stays, marked ended, and new ones append", () => {
+  const tasks = [task("a", "development"), task("b", "test"), task("d", "development")];
+  const run = (...ws: string[]) => runningRows([project], tasks, ws.map((w) => ({ workspaceId: `w-${w}`, status: "running", activeTurn: { startedAt: `2026-11-12T10:0${w === "a" ? 1 : w === "b" ? 2 : 3}:00Z` } })));
+  const open = mergeRunning([], run("a", "b"));
+  expect(open.map((r) => [r.taskId, r.ended])).toEqual([["a", false], ["b", false]]);
+  const next = mergeRunning(open, run("b", "d"));
+  expect(next.map((r) => [r.taskId, r.ended])).toEqual([["a", true], ["b", false], ["d", false]]);
+  expect(mergeRunning(next, run("a", "b", "d")).map((r) => [r.taskId, r.ended])).toEqual([["a", false], ["b", false], ["d", false]]);
 });

@@ -1673,5 +1673,7 @@ const catalog: Catalog = {
   "Empty sends the card's title and description": "空のときはカードのタイトルと説明を送信します",
   "New session starting text": "新しいセッションの開始テキスト",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "デフォルトのモデル {model} は {provider} で提供されていません。設定 → モデルで別のモデルを選んでください。",
+  "Running now": "実行中",
+  "Nothing is running": "実行中のものはありません",
 };
 export default catalog;

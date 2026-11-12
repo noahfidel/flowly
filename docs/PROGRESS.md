@@ -8,6 +8,13 @@
 - Checks: `npm run typecheck` exit 0; `npm test` 215 files passed, 2433 tests passed, 7 skipped. Not run: live board/UI check of the drawer Start session.
 - Onboarding upkeep: no tour or tip change (behavior fix, no new control).
 
+## Running chip opens a list of what is running (branch `kanban/make-the-running-indicator-clickable-and-b0b3e1`) — 2026-11-12
+
+- Feature, DISPATCHER-SPEC §9.2a: the overview's "N running" chip is pressable and opens **Running now** (modal / phone sheet): card title, project · lane, time since the working turn started; a row opens the card. Order is fixed (oldest run first); a card that stops while the list is open stays as "Finished" until it closes. Empty state "Nothing is running". Pure logic `runningRows` / `mergeRunning` in `client/overview.ts`; no unread or attention rule touched, so no conflict with the updated-picker card (2ac9987), which was not integrated when this was written.
+- Strings: "Running now", "Nothing is running" added to all nine catalogs ("Finished" already existed).
+- Checks: `npm run typecheck` 0; `npm test` 215 files passed, 1 skipped; 2435 tests passed, 7 skipped, after rebase onto 5440244 (3 new in `client/overview.test.ts`: running, none running, session ends while open). UNRUN: live UI on desktop and phone.
+- Onboarding: no tour or tip change (an existing chip became pressable). Telemetry: no field. What's new: none (not a release).
+
 ## New session form: default model no longer offered is named; starting text per project (branch `session-form-defaults`) — 2026-11-12
 
 - Cause of "New session shows the last card's session's model, not my default" (Noah): not a remembered pick. The host default stored in Settings → Models is `claude/opusplan`, and no project or group overrides it. Paseo lists a Claude model that is not in its manifest only while Claude Code's `~/.claude/settings.json` names it (`model`, "From Claude settings.json model"); that file now says `claude-opus-5-5` (Claude Code's `/model` rewrites it), so `opusplan` is no longer offered and Paseo refuses unlisted models. The picker's `chosenModel` then fell back silently to the provider's default model (Opus 5.5) and showed it as if it were the default. The reset on open, the drawer memo and `planAwareDefaults` were checked and are correct; nothing writes a picked model into any default.

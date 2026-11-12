@@ -1673,5 +1673,7 @@ const catalog: Catalog = {
   "Empty sends the card's title and description": "留空则发送卡片的标题和描述",
   "New session starting text": "新会话的起始文本",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "{provider} 不提供默认模型 {model}。请在设置 → 模型中另选一个。",
+  "Running now": "正在运行",
+  "Nothing is running": "没有正在运行的任务",
 };
 export default catalog;

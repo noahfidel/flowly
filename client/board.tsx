@@ -133,7 +133,7 @@ import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen,
 import { GroupTabs, needLabel } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
 import { RemoveProjectDialog } from "./project-remove";
-import { boardOverview } from "./overview";
+import { boardOverview, mergeRunning, runningRows, type RunningRow } from "./overview";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import { groupLaneCounts } from "../shared/group-lanes";
 import { boardSortText, boardSorts, sortTasks, turnEndActivity, type BoardSort } from "../shared/sort";
@@ -360,7 +360,7 @@ function BoardContent(
     [taskType, setTaskTypeState] = useState("all"),
     [tagFilter, setTagFilterState] = useState<string[]>([]),
     [archived, setArchivedState] = useState(false),
-    [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "shortcuts" | "settings" | null>(null),
+    [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "running" | "shortcuts" | "settings" | null>(null),
     // First-run welcome tour (ONBOARDING-SPEC): opened once automatically, or by hand.
     [welcomeOpen, setWelcomeOpen] = useState(false),
     // The tour opened by itself for a new user (ONBOARDING-SETUP-SPEC §4); manual opens are not first runs.
@@ -939,6 +939,14 @@ function BoardContent(
   // (BOARD-GROUPS-SPEC §3, §4; Ruling, Noah 2026-11-10); the sidebar badge and Search stay global.
   const overviewCover = useMemo(() => overviewScope(project, liveProjects), [project, liveProjects]);
   const stepScope = useMemo(() => boardScope(overviewCover.projects.map((p) => p.id)), [overviewCover]);
+  // The running list (DISPATCHER-SPEC §9.2a): rows stay in place while it is open; stopped ones grey out until it closes.
+  const runningNow = useMemo(() => runningRows(overviewCover.projects, board?.tasks ?? [], agents.data ?? []), [overviewCover, board?.tasks, agents.data]);
+  const [runningKept, setRunningKept] = useState<RunningRow[]>([]);
+  const runningOpen = menu === "running";
+  const runningShown = useMemo(() => (runningOpen ? mergeRunning(runningKept, runningNow) : []), [runningOpen, runningKept, runningNow]);
+  useEffect(() => {
+    setRunningKept(runningOpen ? runningShown : []);
+  }, [runningOpen, runningShown]);
   const needsIds = useMemo(() => needsQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const needYouCount = useMemo(() => needsCount(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   // Every other group's need-you count, on its tab and switcher row (§3; Ruling, Noah 2026-11-11). Only with the groups known.
@@ -2260,6 +2268,7 @@ function BoardContent(
             overview={boardOverview(overviewCover.projects, board.tasks, agents.data || [], attention)}
             needYou={needYouCount}
             onNeedYou={startNeeds}
+            onRunning={() => setMenu("running")}
             updated={updatedIds.length}
             onUpdated={startUpdated}
             updatedShortcut={shortcutsOn ? "U" : ""}
@@ -2760,6 +2769,42 @@ function BoardContent(
                   }}
                 />
               ))}
+            </Theme.Provider>
+          </Modal.Content>
+        </Modal>
+        <Modal
+          open={runningOpen}
+          title={t("Running now")}
+          onOpenChange={(open) => {
+            if (!open) setMenu(null);
+          }}
+        >
+          <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
+            <Theme.Provider value={props.theme}>
+              {runningShown.length === 0 ? (
+                <Label muted size={font.md} selectable={false}>{t("Nothing is running")}</Label>
+              ) : (
+                runningShown.map((r) => {
+                  const card = projectById.get(r.projectId);
+                  return (
+                    <Row
+                      key={r.taskId}
+                      title={r.title}
+                      detail={`${card?.title ?? ""} · ${laneName(card, r.status)}`}
+                      testID={`running-row-${r.taskId}`}
+                      trailing={
+                        <Label muted size={font.md} selectable={false}>
+                          {r.ended ? t("Finished") : relativeTime(r.since)}
+                        </Label>
+                      }
+                      onPress={() => {
+                        setMenu(null);
+                        openTaskById(r.taskId);
+                      }}
+                    />
+                  );
+                })
+              )}
             </Theme.Provider>
           </Modal.Content>
         </Modal>

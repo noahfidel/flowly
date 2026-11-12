@@ -1673,5 +1673,7 @@ const catalog: Catalog = {
   "Empty sends the card's title and description": "Если пусто, отправляются название и описание карточки",
   "New session starting text": "Начальный текст новой сессии",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "{provider} не предлагает модель по умолчанию {model}. Выберите другую в Настройки → Модели.",
+  "Running now": "Выполняется",
+  "Nothing is running": "Ничего не выполняется",
 };
 export default catalog;

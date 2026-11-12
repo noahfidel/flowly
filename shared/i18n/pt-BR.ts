@@ -1673,5 +1673,7 @@ const catalog: Catalog = {
   "Empty sends the card's title and description": "Vazio envia o título e a descrição do cartão",
   "New session starting text": "Texto inicial de novas sessões",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "{provider} não oferece o modelo padrão {model}. Escolha outro em Configurações → Modelos.",
+  "Running now": "Em execução",
+  "Nothing is running": "Nada em execução",
 };
 export default catalog;

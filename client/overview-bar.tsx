@@ -15,6 +15,7 @@ export function OverviewBar({
   overview,
   needYou,
   onNeedYou,
+  onRunning,
   updated,
   onUpdated,
   updatedShortcut,
@@ -34,6 +35,8 @@ export function OverviewBar({
   /** Open asks on the shown board's cards (its filtered project, else the group's live members), as the bell counts them (DISPATCHER-SPEC §9.4, BOARD-GROUPS-SPEC §3); a press starts the step-through. */
   needYou: number;
   onNeedYou(): void;
+  /** Opens the list of running cards (DISPATCHER-SPEC §9.2a). */
+  onRunning(): void;
   /** Cards the dispatcher saw change since you looked (§9.2); never part of needYou. */
   updated: number;
   onUpdated(): void;
@@ -83,6 +86,7 @@ export function OverviewBar({
           <Chip
             label={o.runningSessions > o.runningTasks ? t("{tasks} running ({sessions})", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks"), sessions: tn(o.runningSessions, "{n} session", "{n} sessions") }) : t("{tasks} running", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks") })}
             icon={<PulseDot color={colors.statusSuccess} size={7} />}
+            onPress={onRunning}
           >
             {t("{n} running", { n: o.runningTasks })}
           </Chip>

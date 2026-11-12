@@ -1673,5 +1673,7 @@ const catalog: Catalog = {
   "Empty sends the card's title and description": "비워 두면 카드의 제목과 설명을 보냅니다",
   "New session starting text": "새 세션 시작 텍스트",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "기본 모델 {model}을(를) {provider}에서 제공하지 않습니다. 설정 → 모델에서 다른 기본 모델을 선택하세요.",
+  "Running now": "실행 중",
+  "Nothing is running": "실행 중인 항목이 없습니다",
 };
 export default catalog;
