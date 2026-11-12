@@ -1671,5 +1671,6 @@ const catalog: Catalog = {
   "This card's approved plan. New sessions start from it instead of planning again.": "이 카드의 승인된 계획입니다. 새 세션은 다시 계획하지 않고 여기서 시작합니다.",
   "A card's plan": "카드의 계획",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "카드 세션에서 승인된 계획이나 직접 설정한 계획은 카드에 남고, 새 세션은 다시 계획하지 않고 그 계획에서 시작합니다.",
+  "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "기본 모델 {model}을(를) {provider}에서 제공하지 않습니다. 설정 → 모델에서 다른 기본 모델을 선택하세요.",
 };
 export default catalog;

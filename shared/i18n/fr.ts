@@ -1671,5 +1671,6 @@ const catalog: Catalog = {
   "This card's approved plan. New sessions start from it instead of planning again.": "Le plan approuvé de cette carte. Les nouvelles sessions partent de lui au lieu de replanifier.",
   "A card's plan": "Le plan d'une carte",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "Un plan approuvé dans la session d'une carte, ou que vous définissez, reste sur la carte ; les nouvelles sessions partent de lui au lieu de replanifier.",
+  "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "{provider} ne propose pas le modèle par défaut {model}. Choisissez-en un autre dans Paramètres → Modèles.",
 };
 export default catalog;

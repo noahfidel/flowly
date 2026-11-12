@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentModelFromValues, agentModelSchema, chosenThinking, effectiveAgentModel, effectiveDispatcherModel, pickerSeed, providerBase, quickTaskMode, startingAgent, suggestedMode } from "./agent-defaults";
+import { agentModelFromValues, agentModelSchema, chosenThinking, effectiveAgentModel, effectiveDispatcherModel, pickerSeed, pickModel, providerBase, quickTaskMode, startingAgent, suggestedMode } from "./agent-defaults";
 import { dispatcherDefaultModel } from "./dispatcher";
 
 const claude = { provider: "claude", model: "claude-sonnet-5-5", thinking: "high" };
@@ -131,5 +131,33 @@ describe("quickTaskMode", () => {
   it("lets an explicit pick win, even a mode that is not plan", () => {
     expect(quickTaskMode({ provider: "claude", modeIds: ["plan", "auto"], explicit: "auto" })).toBe("auto");
     expect(quickTaskMode({ provider: "claude", modeIds: ["plan"], explicit: "" })).toBe("");
+  });
+});
+
+describe("pickModel (a default the provider no longer offers)", () => {
+  const listed = [
+    { id: "model-a", isDefault: true },
+    { id: "model-b" },
+    { id: "alias-a", isSelectable: false },
+  ];
+  const defaults = { provider: "claude", model: "gone-model", mode: "" };
+  it("keeps an offered model", () => {
+    expect(pickModel({ wanted: "model-b", provider: "claude", defaults, models: listed })).toEqual({ id: "model-b", unofferedDefault: "" });
+  });
+  it("names the default it could not use instead of silently showing another model as the default", () => {
+    expect(pickModel({ wanted: "gone-model", provider: "claude", defaults, models: listed })).toEqual({ id: "model-a", unofferedDefault: "gone-model" });
+  });
+  it("treats a non-selectable alias as not offered", () => {
+    expect(pickModel({ wanted: "alias-a", provider: "claude", defaults: { ...defaults, model: "alias-a" }, models: listed })).toEqual({ id: "model-a", unofferedDefault: "alias-a" });
+  });
+  it("says nothing for another provider or a cleared pick", () => {
+    expect(pickModel({ wanted: "gone-model", provider: "codex", defaults, models: listed }).unofferedDefault).toBe("");
+    expect(pickModel({ wanted: "", provider: "claude", defaults, models: listed })).toEqual({ id: "model-a", unofferedDefault: "" });
+  });
+  it("says nothing while the list is not loaded", () => {
+    expect(pickModel({ wanted: "gone-model", provider: "claude", defaults, models: [] })).toEqual({ id: "", unofferedDefault: "" });
+  });
+  it("falls back to the first offered model when none is marked default", () => {
+    expect(pickModel({ wanted: "gone-model", provider: "claude", defaults, models: [{ id: "model-b" }] })).toEqual({ id: "model-b", unofferedDefault: "gone-model" });
   });
 });

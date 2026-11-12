@@ -1,4 +1,4 @@
-import { chosenThinking as thinkingFor, pickerSeed, providerBase, quickTaskMode, suggestedMode } from "../shared/agent-defaults";
+import { chosenThinking as thinkingFor, pickerSeed, pickModel, providerBase, quickTaskMode, suggestedMode } from "../shared/agent-defaults";
 import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { usePaseo } from "@getpaseo/plugin/client";
@@ -69,11 +69,8 @@ export function useAgentChoice({ enabled, cwd, defaults, planFirst = false }: { 
     }
   }, [providers.data, provider]);
   const selectable = (models.data?.models || []).filter((m) => m.isSelectable !== false);
-  const chosenModel =
-    (selectable.some((m) => m.id === model) ? model : "") ||
-    selectable.find((m) => m.isDefault)?.id ||
-    selectable[0]?.id ||
-    "";
+  // A default the provider no longer offers is named in the picker, never passed off as the default (MODEL-DEFAULTS-SPEC §2).
+  const { id: chosenModel, unofferedDefault } = pickModel({ wanted: model, provider, defaults, models: models.data?.models || [] });
   // Reasoning effort: the model's own options; "" keeps the model default.
   const thinkingOptions = selectable.find((m) => m.id === chosenModel)?.thinkingOptions || [];
   const defaultThinking = selectable.find((m) => m.id === chosenModel)?.defaultThinkingOptionId || "";
@@ -122,6 +119,8 @@ export function useAgentChoice({ enabled, cwd, defaults, planFirst = false }: { 
       setSpeed(seed.speed);
     },
     chosenModel,
+    /** The configured default model when the provider does not offer it (another model is shown instead); else "". */
+    unofferedDefault,
     chosenMode,
     chosenThinking,
     chosenSpeed,
@@ -252,6 +251,11 @@ export function AgentPicker({ choice, disabled = false }: { choice: AgentChoice;
           }}
         />
       </PickerGroup>
+      {!!choice.unofferedDefault && (
+        <Label size={font.sm} muted>
+          {t("Default model {model} is not offered by {provider}. Choose another default in Settings → Models.", { model: choice.unofferedDefault, provider: choice.provider })}
+        </Label>
+      )}
       {!choice.provider && (
         <Label size={font.sm} muted>
           {t("No default model. Set one in Settings → Models.")}

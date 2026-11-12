@@ -60,6 +60,24 @@ export function pickerSeed(defaults: { provider: string; model: string; mode: st
   };
 }
 
+/**
+ * The model the picker shows (MODEL-DEFAULTS-SPEC §2): `wanted` while the provider offers it (selectable), else the
+ * provider's default, else its first model. `unofferedDefault` names the configured default when that is what could
+ * not be used, so the form says so instead of passing the provider's default off as the user's.
+ */
+export function pickModel({ wanted, provider, defaults, models }: {
+  wanted: string;
+  provider: string;
+  defaults: { provider: string; model: string } | null | undefined;
+  models: readonly { id: string; isDefault?: boolean; isSelectable?: boolean }[];
+}): { id: string; unofferedDefault: string } {
+  const selectable = models.filter((m) => m.isSelectable !== false);
+  if (wanted && selectable.some((m) => m.id === wanted)) return { id: wanted, unofferedDefault: "" };
+  const id = selectable.find((m) => m.isDefault)?.id || selectable[0]?.id || "";
+  const unofferedDefault = id && wanted && defaults && defaults.provider === provider && defaults.model === wanted ? wanted : "";
+  return { id, unofferedDefault };
+}
+
 /** Flat host-setting values (`defaultProvider`/`defaultModel`/`defaultThinking`/`defaultMode`) as a model, or null while incomplete. */
 export function agentModelFromValues(values: { defaultProvider?: string; defaultModel?: string; defaultThinking?: string; defaultMode?: string } | null | undefined): AgentModel | null {
   if (!values?.defaultProvider || !values.defaultModel) return null;

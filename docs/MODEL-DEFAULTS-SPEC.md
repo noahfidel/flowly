@@ -22,6 +22,10 @@ No setting of a new session ever comes from an earlier session (2026-11-10, Noah
 
 `startingAgent(chosen)` turns the result into the form's starting point: the default's provider, model, reasoning (`thinking`, else "" = the model's own default) and mode (else "" = the picker's suggestion); no speed. With no default it is null.
 
+Every time a form opens it starts again from this default: a model picked earlier, in this card or another, is never kept (the New session form resets its picker on each open).
+
+A default model the provider no longer offers (not in its selectable list, e.g. a Claude model that was only listed because Claude Code's own `settings.json` named it) cannot be used: Paseo refuses an unlisted model. The picker then shows the provider's default model (else its first), as before, and says so under the picker: "Default model {model} is not offered by {provider}. Choose another default in Settings → Models." (`pickModel` in `shared/agent-defaults.ts`). It never passes the substitute off silently as the default (2026-11-12, Noah's report: the form "showed the last session's model").
+
 A higher default replaces a lower one as a whole (provider, model, reasoning and mode together); it is never merged field by field. If the chosen provider is not available on this machine the form falls back as it always did (an available provider, its default model).
 
 Acceptance (2026-11-10):
@@ -30,6 +34,7 @@ Acceptance (2026-11-10):
 - No default anywhere: `flowly_start_card` refuses with `MODEL_UNAVAILABLE` before creating anything, even when the project's cards have live sessions.
 - A default without reasoning: the session starts with no `thinkingOptionId` (the model's own default), never Extra High by suggestion.
 - A default without mode: Claude starts in `auto`, Codex in `auto-review`; Quick task still starts in `plan` when offered.
+- A default model the provider does not offer: the picker shows the provider's default model and the "is not offered" line names the configured one; picking another provider or model hides the line.
 
 ## 3. Data
 

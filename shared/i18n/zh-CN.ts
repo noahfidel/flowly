@@ -1671,5 +1671,6 @@ const catalog: Catalog = {
   "This card's approved plan. New sessions start from it instead of planning again.": "这是该卡片已批准的计划。新会话会直接从它开始，不再重新规划。",
   "A card's plan": "卡片的计划",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "在卡片会话中批准的计划，或你设置的计划，会保留在卡片上；新会话直接从它开始，不再重新规划。",
+  "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "{provider} 不提供默认模型 {model}。请在设置 → 模型中另选一个。",
 };
 export default catalog;
