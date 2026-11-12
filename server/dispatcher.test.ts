@@ -1395,6 +1395,16 @@ test("only the MCP servers Paseo passes load: --strict-mcp-config keeps Claude C
   expect(Object.keys(config.mcpServers ?? {})).toEqual(["flowly-dispatcher"]);
 });
 
+test("the charter limits flowly_reply_to_agent to answering an agent that wrote (DISPATCHER-SPEC §5.4, §6)", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  const line = charter.split("\n").find((l) => l.includes("flowly_reply_to_agent"))!;
+  expect(line).toBeDefined();
+  expect(line).toMatch(/only to answer an agent that messaged you/i);
+  expect(line).toMatch(/short/);
+  expect(line).toMatch(/never start/i);
+  expect(line).toMatch(/never .*relay/i);
+});
+
 test("the charter says plainly that only the user answers a card's asks", () => {
   expect(dispatcherCharter({ name: "Projects" })).toContain("You have no tool that answers them");
   expect(dispatcherCharter({ name: "Projects" })).toContain("buttons");

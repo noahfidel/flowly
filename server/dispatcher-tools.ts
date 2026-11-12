@@ -32,7 +32,15 @@ import {
   type IdeaView,
 } from "../shared/tools";
 import { isSummarizer } from "../shared/summary";
-import { dispatcherMessagePrefix, dispatcherMessagesPerHour, userSendOptions } from "../shared/dispatcher";
+import {
+  dispatcherMessagePrefix,
+  dispatcherMessagesPerHour,
+  dispatcherRepliesPerAgentPerHour,
+  dispatcherRepliesPerHour,
+  dispatcherReplyWindowMs,
+  userSendOptions,
+} from "../shared/dispatcher";
+import { slimTimeline } from "../shared/session-tail";
 import { pendingRequests } from "../shared/permission-question";
 import { openReport } from "../shared/progress";
 import { rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
@@ -86,6 +94,10 @@ export const dispatcherInputs = {
       .optional()
       .describe("Only when the card has several live sessions (SESSION_AMBIGUOUS lists them): the session to message."),
   }),
+  replyToAgent: z.strictObject({
+    agentId: z.string().min(1).max(200).describe("The id of the agent that wrote to you (the sender of its prompt)."),
+    text: z.string().trim().min(1).max(10000).describe("Your short answer, plain text. Flowly marks it as coming from the dispatcher."),
+  }),
   archiveCard: z.strictObject({
     projectId,
     taskId: z.string().min(1).max(200).describe("Card id from flowly_list_cards."),
@@ -135,6 +147,10 @@ export const dispatcherProjectsPerHour = 5;
  */
 export const promptingModes: readonly string[] = ["default", "acceptEdits", "plan"];
 const messageResultSchema = z.object({ sent: z.literal(true), sessionId: z.string() });
+const replyResultSchema = z.object({ sent: z.literal(true), agentId: z.string() });
+/** How far back flowly_reply_to_agent reads the dispatcher's own timeline for a prompt: pages of this size, at most this many (§5.4). */
+const replyScanPage = 200;
+const replyScanPages = 10;
 const hour = 3_600_000;
 /** Whether `path` is `parent` or inside it (canonical paths). */
 const within = (path: string, parent: string) => path === parent || path.startsWith(parent.endsWith(sep) ? parent : parent + sep);
@@ -198,6 +214,8 @@ export class DispatcherTools {
   private projectSlots = new Map<string, number[]>();
   /** The dispatcher's card messages in the last hour, per session (§5.3). */
   private messageSlots = new Map<string, number[]>();
+  /** The dispatcher's replies to agents in the last hour, per session and per answered agent (§5.4). */
+  private replySlots = new Map<string, { to: string; at: number }[]>();
   /** The dispatcher's board group calls in the last hour, per session (DISPATCHER-SPEC §5.2). */
   private groupSlots = new Map<string, number[]>();
   /** The board group writes flowly_manage_groups shares with the groups.* RPCs (group-writes.ts, §5.2). */
@@ -424,6 +442,84 @@ export class DispatcherTools {
       if (at >= 0) list.splice(at, 1);
       this.messageSlots.set(agentId, list);
     };
+  }
+
+  /**
+   * A short answer to an agent that wrote to the dispatcher (DISPATCHER-SPEC §5.4; ruling, Noah 2026-11-12): only to
+   * the sender of a prompt its own session received within `dispatcherReplyWindowMs`, never to a card's session (that
+   * is flowly_message_card), a dispatcher, or an agent that waits on the user. A narrow exception to the withheld
+   * `paseo` server, which stays withheld: it cannot start a conversation.
+   */
+  async replyToAgent(identity: DispatcherIdentity, raw: unknown) {
+    const input = dispatcherInputs.replyToAgent.parse(raw);
+    const caller = await this.caller(identity);
+    await this.cards.enabled();
+    const notAllowed = (why: string) => new ToolError("REPLY_NOT_ALLOWED", why);
+    if (input.agentId === caller.agentId || this.dispatcher.allAgentIds().includes(input.agentId))
+      throw notAllowed("That is a Flowly dispatcher session; you can't message it.");
+    if (!(await this.heardFrom(caller.agentId, input.agentId)))
+      throw notAllowed(
+        "You can only answer an agent that messaged you in the last 24 hours, and this one has not. Don't start conversations with other agents; tell the user instead.",
+      );
+    const paseo = this.cards.api();
+    const target = (await paseo.agents.ref(input.agentId).refresh())?.agent;
+    if (!target || target.archivedAt) throw new ToolError("AGENT_NOT_FOUND", "That agent is gone or archived; the reply can't be delivered.");
+    if (await this.dispatcher.owns(target.workspaceId ?? "")) throw notAllowed("That is a Flowly dispatcher session; you can't message it.");
+    if ((await this.store.read()).tasks.some((t) => t.workspaceId === target.workspaceId))
+      throw notAllowed("That agent is a card's session. Use flowly_message_card for a card's session, only for what the user asked.");
+    // Never sidestep a request: a pending permission or question is the user's.
+    if (pendingRequests(target).length)
+      throw new ToolError(
+        "SESSION_WAITING_ON_USER",
+        "That agent waits on the user (a permission request or a question). Only the user answers it; don't reply now.",
+      );
+    const release = this.reserveReply(caller.agentId, target.id);
+    try {
+      await paseo.agents.ref(target.id).send(dispatcherMessagePrefix + input.text, userSendOptions);
+    } catch (e) {
+      release();
+      throw new ToolError("SEND_FAILED", `Paseo could not deliver the reply: ${e instanceof Error ? e.message : String(e)}`, true);
+    }
+    return { sent: true as const, agentId: target.id };
+  }
+
+  /**
+   * Whether `sender`'s prompt (Paseo's `agent_message` provenance) reached the dispatcher's own session within the
+   * window: its timeline read back page by page, newest first, until the window or `replyScanPages` pages.
+   */
+  private async heardFrom(dispatcherId: string, sender: string) {
+    const since = this.clock() - dispatcherReplyWindowMs;
+    const handle = this.cards.api().agents.ref(dispatcherId);
+    let options: Parameters<typeof handle.timeline.refetch>[0] = { direction: "tail", limit: replyScanPage, projection: "projected" };
+    for (let page = 0; page < replyScanPages; page++) {
+      const response = await handle.timeline.refetch(options);
+      if (response.error) throw new ToolError("TRANSCRIPT_UNAVAILABLE", `Flowly could not read your own conversation: ${response.error}`, true);
+      let oldest = Infinity;
+      for (const entry of slimTimeline(response.entries)) {
+        const at = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
+        if (Number.isFinite(at)) oldest = Math.min(oldest, at);
+        if (entry.item.from?.id === sender && Number.isFinite(at) && at >= since) return true;
+      }
+      if (oldest < since || !response.hasOlder || !response.startCursor) return false;
+      options = { direction: "before", cursor: response.startCursor, limit: replyScanPage, projection: "projected" };
+    }
+    return false;
+  }
+
+  /** Takes a reply slot for `to`, or REPLY_LIMIT: per answered agent, and over all agents, per hour (§5.4). */
+  private reserveReply(agentId: string, to: string) {
+    const now = this.clock();
+    const recent = (this.replySlots.get(agentId) ?? []).filter((r) => now - r.at < hour);
+    if (recent.filter((r) => r.to === to).length >= dispatcherRepliesPerAgentPerHour)
+      throw new ToolError(
+        "REPLY_LIMIT",
+        `You already replied to this agent ${dispatcherRepliesPerAgentPerHour} times in the last hour; that looks like two agents looping. Stop replying to it and tell the user.`,
+      );
+    if (recent.length >= dispatcherRepliesPerHour)
+      throw new ToolError("REPLY_LIMIT", `You already replied to agents ${dispatcherRepliesPerHour} times in the last hour. Stop and ask the user.`);
+    const slot = { to, at: now };
+    this.replySlots.set(agentId, [...recent, slot]);
+    return () => this.replySlots.set(agentId, (this.replySlots.get(agentId) ?? []).filter((r) => r !== slot));
   }
 
   /**
@@ -723,6 +819,16 @@ export class DispatcherTools {
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },
       (raw) => toolResult(() => this.messageCard(identity, raw)),
+    );
+    mcp.registerTool(
+      "flowly_reply_to_agent",
+      {
+        description: `Answer another agent that messaged you (its prompt shows in your conversation as coming from that agent): a short plain-text reply, steered into its turn and marked as coming from the dispatcher. Only to an agent that wrote to you in the last 24 hours; you can't start a conversation, and keep replies short. Never use it to relay a card's asks or answer anything for the user. REPLY_NOT_ALLOWED: it did not write to you, it is a card's session (use flowly_message_card) or a dispatcher. SESSION_WAITING_ON_USER: it waits on the user. AGENT_NOT_FOUND, SEND_FAILED, TRANSCRIPT_UNAVAILABLE. At most ${dispatcherRepliesPerAgentPerHour} per agent and ${dispatcherRepliesPerHour} in all per hour (REPLY_LIMIT: stop, tell the user). AGENT_CARDS_DISABLED: the user turned this off.`,
+        inputSchema: dispatcherInputs.replyToAgent,
+        outputSchema: replyResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      },
+      (raw) => toolResult(() => this.replyToAgent(identity, raw)),
     );
     mcp.registerTool(
       "flowly_archive_card",

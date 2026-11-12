@@ -35,3 +35,8 @@ No `paseo` stub tool is listed in any run. Exit 0 for every run. Each run is kil
 ## Scripts
 
 `probe.mjs <tools|-> <disallowed,csv> <mode> ""` and `sdk-probe.mjs <tools>` with `stub.mjs` and `cfg.json`, kept in `/tmp/flowly-probe` for this run (not committed). Strict runs: `run.mjs <mode> <tools> <sources> [strict]` and `sdk-strict-probe.mjs [strict]` (create, then resume of the same session id) with `stub.mjs`, `cfg.json` and `withheld.txt`, in `/tmp/rev-mcp2` (not committed).
+
+## `flowly_reply_to_agent` (ruling, Noah 2026-11-12)
+
+No change to the allowlist or the withheld list: `flowly_reply_to_agent` is a tool of the `flowly-dispatcher` server, preapproved by name like the other Flowly tools (`dispatcherToolNames`, saved in `savedTools`). `dispatcherWithheldTools` (the whole `paseo` server, `send_agent_prompt` included), `dispatcherBuiltinTools` and `--strict-mcp-config` are unchanged, so the probes above still describe what a dispatcher session can reach and `dispatcherGuardVersion` stays 2. A dispatcher started before this tool gets the new-tools warning. Covered by `server/dispatcher-tools.test.ts` (tool list, preapproval, refusals, limits); not probed against a live Claude Code session.
+

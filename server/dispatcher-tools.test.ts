@@ -8,7 +8,13 @@ import { agentFixture } from "./agent-fixture";
 import { changeLine } from "./dispatcher-items";
 import { BoardService } from "./service";
 import { projectCreator } from "./project-create";
-import { dispatcherConfirmedToolNames, dispatcherMessagePrefix, dispatcherToolNames } from "../shared/dispatcher";
+import {
+  dispatcherConfirmedToolNames,
+  dispatcherMessagePrefix,
+  dispatcherRepliesPerAgentPerHour,
+  dispatcherRepliesPerHour,
+  dispatcherToolNames,
+} from "../shared/dispatcher";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -28,6 +34,7 @@ const dispatcherTools = [
   "flowly_list_ideas",
   "flowly_update_idea",
   "flowly_message_card",
+  "flowly_reply_to_agent",
   "flowly_archive_card",
   // Not preapproved: the user confirms each call (ruling, Noah 2026-11-10).
   "flowly_create_project",
@@ -102,6 +109,9 @@ async function setup() {
   /** Messages sent to sessions through `agents.ref(id).send`, and whether the next sends fail. */
   const sent: { id: string; text: string; options?: unknown }[] = [];
   let failSend = false;
+  /** Each session's projected timeline, oldest first, paged as Paseo pages it (tail, then before a cursor). */
+  const timelines: Record<string, { seqStart: number; seqEnd: number; timestamp?: string; item: Record<string, unknown> }[]> = {};
+  const timelineReads: { id: string; direction: string }[] = [];
   const paseo = {
     ...(fixture.paseo as unknown as Record<string, unknown>),
     agents: {
@@ -110,6 +120,23 @@ async function setup() {
         send: async (text: string, options?: unknown) => {
           if (failSend) throw new Error("daemon down");
           sent.push({ id, text, options });
+        },
+        timeline: {
+          refetch: async (o: { direction: string; limit: number; cursor?: { seq: number } }) => {
+            timelineReads.push({ id, direction: o.direction });
+            const all = timelines[id] ?? [];
+            const before = o.direction === "before" ? all.filter((e) => e.seqStart < o.cursor!.seq) : all;
+            const entries = before.slice(-o.limit);
+            const first = entries[0];
+            return {
+              entries,
+              epoch: "e1",
+              hasOlder: before.length > entries.length,
+              hasNewer: false,
+              startCursor: first ? { epoch: "e1", seq: first.seqStart } : null,
+              error: null,
+            };
+          },
         },
       }),
       list: async () => ({ entries: Object.values(agents).map((agent) => ({ agent })), pageInfo: { nextCursor: null } }),
@@ -176,7 +203,7 @@ async function setup() {
   const dispatcherToken = server.secrets.dispatcherCredential({ agentId: "disp", workspaceId: "dw" });
   /** Group `groupId`'s entry of the stored record (DISPATCHER-SPEC §1). */
   const entry = async (id = groupId) => (await server.dispatcher.resolvedRecord()).groups[id];
-  return { ...fixture, server, paseo, agents, sent, failSend: (v: boolean) => (failSend = v), url, createdWorkspaces, launched, policies, connect, dispatcherToken, groupId, entry };
+  return { ...fixture, server, paseo, agents, sent, timelines, timelineReads, failSend: (v: boolean) => (failSend = v), url, createdWorkspaces, launched, policies, connect, dispatcherToken, groupId, entry };
 }
 
 const code = (result: { isError?: boolean; structuredContent?: { error?: { code?: string } } }) =>
@@ -1397,3 +1424,142 @@ test("a membership change bumps every group it touches, so a stale set_members i
   expect(await revisionOf(clients.id)).toBe(current + 1);
   expect(await revisionOf(x.groupId)).toBeGreaterThan(defaultRevision + 1);
 });
+
+/** flowly_reply_to_agent (DISPATCHER-SPEC §5.4): answers only an agent that wrote to the dispatcher. */
+async function withPrompts() {
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  let now = Date.parse("2026-11-12T12:00:00.000Z");
+  x.server.dispatcherTools.clock = () => now;
+  const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
+  let seq = 0;
+  /** A prompt from `id` in the dispatcher's timeline, `msAgo` before now. */
+  const prompt = (id: string, msAgo = 60_000, title?: string) =>
+    (x.timelines.disp ??= []).push({
+      seqStart: ++seq,
+      seqEnd: seq,
+      timestamp: iso(msAgo),
+      item: { type: "tool_call", name: "agent_message", callId: `paseo-agent-message:${seq}`, status: "completed", agentMessage: { sender: { id, ...(title ? { title } : {}) }, text: "How is it going?", event: "message" } },
+    });
+  const filler = (n: number, msAgo = 30_000) => {
+    for (let i = 0; i < n; i++) (x.timelines.disp ??= []).push({ seqStart: ++seq, seqEnd: seq, timestamp: iso(msAgo), item: { type: "assistant_message", text: "…" } });
+  };
+  x.agents.bot = { id: "bot", workspaceId: "bot-ws", status: "idle", archivedAt: null };
+  const reply = (args: Record<string, unknown> = {}) => d.call("flowly_reply_to_agent", { agentId: "bot", text: "On it.", ...args });
+  return { ...x, d, reply, prompt, filler, advance: (ms: number) => (now += ms) };
+}
+
+test("flowly_reply_to_agent steers a prefixed reply to an agent that wrote to the dispatcher (DISPATCHER-SPEC §5.4)", async () => {
+  const x = await withPrompts();
+  x.prompt("bot", 60_000, "Ops");
+  const result = await x.reply({ text: "  Two cards run; nothing waits.  " });
+  expect(code(result)).toBeUndefined();
+  expect(result.structuredContent).toEqual({ sent: true, agentId: "bot" });
+  expect(x.sent).toEqual([{ id: "bot", text: `${dispatcherMessagePrefix}Two cards run; nothing waits.`, options: { activeTurnBehavior: "steer" } }]);
+  // It reads only its own timeline to know who wrote to it.
+  expect(new Set(x.timelineReads.map((r) => r.id))).toEqual(new Set(["disp"]));
+});
+
+test("flowly_reply_to_agent finds a prompt deep in a long day, page by page (DISPATCHER-SPEC §5.4)", async () => {
+  const x = await withPrompts();
+  x.prompt("bot", 20 * 3_600_000);
+  x.filler(450);
+  expect(code(await x.reply())).toBeUndefined();
+  expect(x.timelineReads.filter((r) => r.direction === "before").length).toBeGreaterThan(0);
+});
+
+test("flowly_reply_to_agent never starts a conversation, reaches a card or a dispatcher (DISPATCHER-SPEC §5.4)", async () => {
+  const x = await withPrompts();
+  // Nobody wrote: refused.
+  const none = await x.reply();
+  expect(code(none)).toBe("REPLY_NOT_ALLOWED");
+  expect(none.structuredContent.error.message).toMatch(/only answer an agent that messaged you/i);
+  // A prompt older than 24 hours no longer counts; another agent's prompt does not open this one.
+  x.prompt("bot", 24 * 3_600_000 + 1);
+  x.prompt("someone-else");
+  expect(code(await x.reply())).toBe("REPLY_NOT_ALLOWED");
+  // Itself, even if its own id showed up as a sender.
+  x.prompt("disp");
+  expect(code(await x.reply({ agentId: "disp" }))).toBe("REPLY_NOT_ALLOWED");
+  // A card's session that wrote to it: refused, flowly_message_card is the route to a card.
+  x.agents.s1 = { id: "s1", workspaceId: "w-q1", status: "idle", archivedAt: null };
+  x.prompt("s1");
+  const card = await x.reply({ agentId: "s1" });
+  expect(code(card)).toBe("REPLY_NOT_ALLOWED");
+  expect(card.structuredContent.error.message).toContain("flowly_message_card");
+  // Another dispatcher session (one in the dispatcher workspace).
+  x.agents.d2 = { id: "d2", workspaceId: "dw", status: "idle", archivedAt: null };
+  x.prompt("d2");
+  expect(code(await x.reply({ agentId: "d2" }))).toBe("REPLY_NOT_ALLOWED");
+  // A sender that is gone or archived.
+  x.prompt("ghost");
+  expect(code(await x.reply({ agentId: "ghost" }))).toBe("AGENT_NOT_FOUND");
+  x.agents.old = { id: "old", workspaceId: "bot-ws", status: "idle", archivedAt: stamp };
+  x.prompt("old");
+  expect(code(await x.reply({ agentId: "old" }))).toBe("AGENT_NOT_FOUND");
+  expect(x.sent).toEqual([]);
+});
+
+test("flowly_reply_to_agent never answers an agent that waits on the user (DISPATCHER-SPEC §5.4)", async () => {
+  const x = await withPrompts();
+  x.prompt("bot");
+  x.agents.bot.pendingPermissions = [{ id: "req-1", kind: "question", name: "AskUserQuestion", input: {} }];
+  expect(code(await x.reply())).toBe("SESSION_WAITING_ON_USER");
+  x.agents.bot.pendingPermissions = [{ id: "req-2", kind: "tool", name: "Bash", input: {} }];
+  expect(code(await x.reply())).toBe("SESSION_WAITING_ON_USER");
+  expect(x.sent).toEqual([]);
+  x.agents.bot.pendingPermissions = [];
+  expect(code(await x.reply())).toBeUndefined();
+});
+
+test("flowly_reply_to_agent: per-agent and hourly caps stop two bots looping; refusals and failed sends give the slot back (DISPATCHER-SPEC §5.4)", async () => {
+  const x = await withPrompts();
+  expect(dispatcherRepliesPerAgentPerHour).toBe(5);
+  x.prompt("bot");
+  x.failSend(true);
+  expect(code(await x.reply())).toBe("SEND_FAILED");
+  x.failSend(false);
+  for (let i = 0; i < dispatcherRepliesPerAgentPerHour; i++) expect(code(await x.reply()), `#${i + 1}`).toBeUndefined();
+  const over = await x.reply();
+  expect(code(over)).toBe("REPLY_LIMIT");
+  expect(over.structuredContent.error.message).toContain(`${dispatcherRepliesPerAgentPerHour}`);
+  // The shared cap across agents.
+  const others = Array.from({ length: 10 }, (_, i) => `bot${i}`);
+  for (const id of others) {
+    x.agents[id] = { id, workspaceId: "bot-ws", status: "idle", archivedAt: null };
+    x.prompt(id);
+  }
+  let sentTotal = dispatcherRepliesPerAgentPerHour;
+  outer: for (const id of others)
+    for (let i = 0; i < dispatcherRepliesPerAgentPerHour; i++) {
+      const r = await x.reply({ agentId: id });
+      if (code(r) === "REPLY_LIMIT") {
+        expect(r.structuredContent.error.message).toContain(`${dispatcherRepliesPerHour}`);
+        break outer;
+      }
+      expect(code(r)).toBeUndefined();
+      sentTotal++;
+    }
+  expect(sentTotal).toBe(dispatcherRepliesPerHour);
+  expect(x.sent.length).toBe(dispatcherRepliesPerHour);
+  // flowly_message_card has its own bucket; an hour later there is room again.
+  x.agents.s1 = { id: "s1", workspaceId: "w-q1", status: "idle", archivedAt: null };
+  expect(code(await x.d.call("flowly_message_card", { projectId: "q", taskId: "q1", text: "integrate" }))).toBeUndefined();
+  x.advance(3_600_001);
+  expect(code(await x.reply())).toBeUndefined();
+});
+
+test("flowly_reply_to_agent is gated like every dispatcher write, and only the dispatcher has it (DISPATCHER-SPEC §4, §5.4)", async () => {
+  const x = await withPrompts();
+  x.prompt("bot");
+  x.server.cards.on = async () => false;
+  expect(code(await x.reply())).toBe("AGENT_CARDS_DISABLED");
+  x.server.cards.on = async () => true;
+  expect((await x.reply({ text: "   " })).isError).toBe(true);
+  expect(x.sent).toEqual([]);
+  const card = await x.connect(x.server.secrets.boardCredential({ agentId: "actor", workspaceId: "w", projectId: "p" }));
+  expect(await card.names()).not.toContain("flowly_reply_to_agent");
+  // Preapproved by name like the other tools: a dispatcher saved without it shows the new-tools warning.
+  expect(dispatcherToolNames).toContain("flowly_reply_to_agent");
+});
+
