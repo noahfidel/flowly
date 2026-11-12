@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
 import { BoardStore } from "./store";
-import { EventBus, NoteBatcher, commitHandler, factsFromCommit, isStop, type BusFact } from "./event-bus";
+import { EventBus, NoteBatcher, commitHandler, factsFromCommit, isStop, RestoreRepeats, type BusFact } from "./event-bus";
 import type { DispatcherNote } from "../shared/dispatcher";
 import { emptyBoard, type Board, type BoardEvent } from "../shared/model";
 
@@ -338,5 +338,62 @@ describe("note batching", () => {
     expect(flushed[0][0].detail).toBe("→ cancelled");
     expect(error).toHaveBeenCalled();
     error.mockRestore();
+  });
+});
+
+describe("RestoreRepeats", () => {
+  const restore = (patch: Partial<BoardEvent> = {}, taskId = "t1") =>
+    fact({ taskId, actor: "system", rule: "A1r", from: "development", to: "in_review", note: "No work was reported in that turn; restored", ...patch });
+  const passes = (r: RestoreRepeats, ...facts: BusFact[]) => r.filter(facts).length;
+
+  test("an identical restore right after another is dropped", () => {
+    const r = new RestoreRepeats();
+    const first = restore();
+    expect(r.filter([first])).toEqual([first]);
+    expect(passes(r, restore())).toBe(0);
+  });
+  test("real work between two restores lets the second through", () => {
+    const r = new RestoreRepeats();
+    expect(passes(r, restore())).toBe(1);
+    expect(passes(r, fact({ action: "progress_reported", reportKind: "progress" }))).toBe(1);
+    expect(passes(r, restore())).toBe(1);
+  });
+  test("a restore with a different move passes", () => {
+    const r = new RestoreRepeats();
+    expect(passes(r, restore())).toBe(1);
+    expect(passes(r, restore({ from: "test" }))).toBe(1);
+  });
+  test("neutral facts do not clear the entry", () => {
+    for (const neutral of [
+      fact({ action: "next_moves_suggested" }),
+      fact({ actor: "system", rule: "A1", from: "in_review", to: "development" }),
+      fact({ action: "agent.turn_started" }),
+      fact({ action: "agent.turn_ended", outcome: "completed" }),
+      fact({ action: "agent.turn_ended", outcome: "canceled" }),
+      fact({ action: "agent.permission_requested" }),
+      fact({ actor: "system", action: "task_edited" }),
+    ]) {
+      const r = new RestoreRepeats();
+      r.filter([restore()]);
+      expect(passes(r, neutral, restore())).toBe(1);
+    }
+  });
+  test("a human change, a failed turn or another rule clears the entry", () => {
+    for (const clearing of [
+      fact({ actor: "human", action: "task_edited" }),
+      fact({ action: "agent.turn_ended", outcome: "failed" }),
+      fact({ actor: "system", rule: "A5", from: "development", to: "test" }),
+    ]) {
+      const r = new RestoreRepeats();
+      r.filter([restore()]);
+      expect(passes(r, clearing, restore())).toBe(2);
+    }
+  });
+  test("cards are independent and non-board facts pass", () => {
+    const r = new RestoreRepeats();
+    expect(passes(r, restore({}, "t1"), restore({}, "t2"))).toBe(2);
+    expect(passes(r, restore({}, "t2"))).toBe(0);
+    expect(passes(r, restore({}, "t1"), restore({}, "t2"))).toBe(0);
+    expect(passes(r, { kind: "permission_resolved", agentId: "a", requestId: "r" })).toBe(1);
   });
 });

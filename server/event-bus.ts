@@ -1,4 +1,5 @@
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
+import { nextMovesAction } from "../shared/next-moves";
 import { mergeNotes, type DispatcherNote } from "../shared/dispatcher";
 import type { Board, BoardEvent, Status } from "../shared/model";
 import { logFailure } from "./error-report";
@@ -86,6 +87,44 @@ export function isStopEvent(event: Pick<BoardEvent, "action" | "to" | "reportKin
   if (action === "status_changed" && to && (stopStatuses as readonly string[]).includes(to)) return true;
   if ((action === "status_changed" || action === "progress_reported") && reportKind && stopReports.includes(reportKind)) return true;
   return action === "agent.turn_ended" && outcome === "failed";
+}
+
+const restoreRepeatsCap = 5000;
+
+/**
+ * Drops an A1r restore ("No work was reported in that turn; restored") identical to the last one let through for the
+ * same card, until real work or another transition on the card (EVENT-BUS-SPEC §3.1). In memory only.
+ */
+export class RestoreRepeats {
+  private readonly last = new Map<string, string>();
+
+  filter(facts: BusFact[]): BusFact[] {
+    const kept: BusFact[] = [];
+    for (const fact of facts) {
+      if (fact.kind !== "board") {
+        kept.push(fact);
+        continue;
+      }
+      const { event } = fact;
+      if (event.action === "status_changed" && event.rule === "A1r") {
+        const signature = `${event.from ?? ""}→${event.to ?? ""}:${event.note ?? ""}`;
+        if (this.last.get(event.taskId) === signature) continue;
+        this.last.delete(event.taskId);
+        this.last.set(event.taskId, signature);
+        if (this.last.size > restoreRepeatsCap) this.last.delete(this.last.keys().next().value as string);
+      } else if (this.clears(event)) this.last.delete(event.taskId);
+      kept.push(fact);
+    }
+    return kept;
+  }
+
+  private clears(event: BoardEvent): boolean {
+    if (event.actor === "human") return true;
+    if (event.action === "agent.turn_ended") return event.outcome === "failed";
+    if (event.action === "agent.turn_started" || event.action === "agent.permission_requested" || event.action === nextMovesAction) return false;
+    if (event.action === "status_changed" && event.rule === "A1") return false;
+    return event.actor === "agent" || event.action === "status_changed";
+  }
 }
 
 function noteOf(fact: Extract<BusFact, { kind: "board" }>): DispatcherNote {

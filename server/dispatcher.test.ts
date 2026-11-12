@@ -615,6 +615,45 @@ test("only stops reach the batcher and the dispatcher's own facts never do", asy
   expect(deliver).toHaveBeenCalledTimes(1);
 });
 
+test("a repeated A1r restore notifies once until real work or another transition", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await setup();
+  const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
+  x.agents.get(agentId)!.status = "idle";
+  const bus = new EventBus();
+  const delivered: (readonly DispatcherNote[])[] = [];
+  const deliver = vi.spyOn(x.hub, "deliver").mockImplementation(async (_groupId, notes) => {
+    delivered.push(notes);
+  });
+  wireDispatcher(bus, x.hub, () => x.paseo);
+  let seq = 0;
+  const fact = (patch: Partial<BoardEvent>): BusFact => ({
+    kind: "board",
+    projectId: "p",
+    groupId: G,
+    title: "Card t1",
+    event: { id: `e${++seq}`, taskId: "t1", actor: "agent", action: "status_changed", at: "2026-11-08T10:00:00.000Z", ...patch },
+  });
+  const chat = () => [
+    fact({ actor: "system", rule: "A1", from: "in_review", to: "development" }),
+    fact({ actor: "system", rule: "A1r", from: "development", to: "in_review", note: "No work was reported in that turn; restored" }),
+  ];
+  bus.publish(chat());
+  await vi.advanceTimersByTimeAsync(11_000);
+  bus.publish(chat());
+  await vi.advanceTimersByTimeAsync(11_000);
+  expect(deliver).toHaveBeenCalledTimes(1);
+  // A real delivery is not a restore and is delivered.
+  bus.publish([fact({ from: "development", to: "in_review", note: "Done, please review" })]);
+  await vi.advanceTimersByTimeAsync(11_000);
+  expect(deliver).toHaveBeenCalledTimes(2);
+  expect(delivered[1][0]).toMatchObject({ taskId: "t1", detail: "development → in_review: Done, please review" });
+  // After it, a restore notifies again.
+  bus.publish(chat());
+  await vi.advanceTimersByTimeAsync(11_000);
+  expect(deliver).toHaveBeenCalledTimes(3);
+});
+
 test("NoteBatcher.dispose drops pending notes and its timer", async () => {
   vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
   const flush = vi.fn();
