@@ -105,6 +105,8 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "flowly_update_card",
     "flowly_set_plan",
     "flowly_clear_plan",
+    "flowly_set_linear",
+    "flowly_clear_linear",
     "flowly_start_card",
   ]);
   // flowly_propose_review_rules is gone (GUARDRAILS-SPEC §9).
@@ -810,6 +812,8 @@ test("sessions outside cards: a board credential reaches only the card tools, ov
     "flowly_update_card",
     "flowly_set_plan",
     "flowly_clear_plan",
+    "flowly_set_linear",
+    "flowly_clear_linear",
     "flowly_start_card",
     "flowly_propose_idea",
   ]);

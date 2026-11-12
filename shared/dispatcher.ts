@@ -63,6 +63,8 @@ export const dispatcherToolNames = [
   "flowly_message_card",
   "flowly_archive_card",
   "flowly_reply_to_agent",
+  "flowly_set_linear",
+  "flowly_clear_linear",
 ] as const;
 /**
  * What the card agent sees in front of a dispatcher message (DISPATCHER-SPEC §5.3): an exception to "a card's

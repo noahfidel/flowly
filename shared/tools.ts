@@ -509,6 +509,11 @@ const planTargetField = z
   .max(artifactLimits.target)
   .describe("The plan file (absolute path, or relative to the card's workspace) inside the card's directories or the extra artifact folders, or an http(s) link.");
 const planTitleField = z.string().trim().max(artifactLimits.title).optional().describe("Default: the file name or link.");
+const linearIssueText =
+  "The card's Linear issue: a key like ZEN-9132 or a linear.app issue URL. It is read through Flowly's Linear connection and refused (LINEAR_INVALID) when that can't see it; it is never saved as text.";
+/** A card's Linear issue as the card tools show it (LINEAR-LINK-SPEC §4); state is the last known status, "" when unknown. */
+export const cardLinearSchema = z.object({ key: z.string(), url: z.string(), title: z.string(), state: z.string() });
+export type CardLinear = z.infer<typeof cardLinearSchema>;
 export const createCardInputSchema = z.strictObject({
   title: z.string().trim().min(1).max(200),
   description: z.string().max(20000).default("").describe("The task as the card's agent will read it: goal, context, files, acceptance."),
@@ -530,6 +535,15 @@ export const createCardInputSchema = z.strictObject({
     .strictObject({ target: planTargetField, title: planTitleField, approved: planApprovedField })
     .optional()
     .describe("If you planned this card (plan mode writes the plan to a file), pass that file here so the card keeps it as its plan."),
+  linear: z.string().trim().min(1).max(artifactLimits.target).optional().describe(linearIssueText),
+});
+/** flowly_set_linear and flowly_clear_linear (LINEAR-LINK-SPEC §3). */
+export const setLinearInputSchema = z.strictObject({
+  taskId: z.string().min(1).describe("Card id from flowly_list_cards or flowly_create_card."),
+  issue: z.string().trim().min(1).max(artifactLimits.target).describe(linearIssueText),
+});
+export const clearLinearInputSchema = z.strictObject({
+  taskId: z.string().min(1).describe("Card id from flowly_list_cards."),
 });
 /** flowly_set_plan and flowly_clear_plan (CARD-PLAN-SPEC §5.2). */
 export const setPlanInputSchema = z.strictObject({
@@ -597,6 +611,8 @@ const cardSummarySchema = z.object({
   archived: z.boolean(),
   /** A PR review card's pull request, `owner/repo#n` in lower case (PR-REVIEW-CARDS-SPEC §8). */
   prRef: z.string().optional(),
+  /** The card's Linear issue (LINEAR-LINK-SPEC §4); left out when it has none. */
+  linear: cardLinearSchema.optional(),
   description: z.string(),
   descriptionTruncated: z.boolean().optional(),
 });
@@ -617,6 +633,8 @@ export const cardViewSchema = z.object({
   links: z.array(z.object({ relation: z.enum(relations), taskId: z.string(), title: z.string(), status: statusSchema })),
   /** The card's plan (CARD-PLAN-SPEC §5.3), or null. */
   plan: z.object({ title: z.string(), approved: z.boolean() }).nullable(),
+  /** The card's Linear issue (LINEAR-LINK-SPEC §4), or null. */
+  linear: cardLinearSchema.nullable(),
 });
 export const listCardsResultSchema = z.object({
   project: z.object({ id: z.string(), title: z.string() }),
@@ -628,6 +646,8 @@ export const getCardResultSchema = z.object({ card: cardViewSchema, editable: z.
 export const createCardResultSchema = z.object({ card: cardViewSchema, replayed: z.boolean() });
 export const setPlanResultSchema = z.object({ plan: cardPlanSchema });
 export const clearPlanResultSchema = z.object({ cleared: z.boolean() });
+export const setLinearResultSchema = z.object({ linear: cardLinearSchema });
+export const clearLinearResultSchema = z.object({ cleared: z.boolean(), notice: z.string().optional() });
 export const updateCardResultSchema = z.object({ card: cardViewSchema, changed: z.array(z.string()) });
 export type CardView = z.infer<typeof cardViewSchema>;
 export type ListCardsInput = z.input<typeof listCardsInputSchema>;

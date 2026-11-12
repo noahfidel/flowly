@@ -1,5 +1,14 @@
 # Implementation progress
 
+## A card's Linear link on the board tools (branch `kanban/first-class-linear-link-on-cards-with-bo-869450`) — 2026-11-12
+
+- Spec: `docs/LINEAR-LINK-SPEC.md` (new); DISPATCHER-SPEC §5 tool list and write list updated. No new card field: the Linear input artifact stays the one source; `linearIssueOf` (`shared/linear-ticket.ts`) is the one finder for the branch, the card tools and the ticket check.
+- `flowly_create_card` `linear` (read through a Linear connection before anything is made; unreadable is `LINEAR_INVALID`, nothing created), new `flowly_set_linear` / `flowly_clear_linear` on card, board and dispatcher servers, `linear: {key,url,title,state}` on get/create/list, list `query` matches the key. `ConnectorService.recognizeLinear` only considers Linear connections. `flowly_start_card`, `flowly_update_card` and `links` unchanged.
+- Decisions made here (the card did not fix them): set over an issue an agent linked replaces it; set over a different issue the user linked is refused (`LINEAR_ALREADY_SET`); clear removes only agent-added links and reports a `notice` when the user's stays. Not added: a CLI command for the two tools (the plan tools have one).
+- Noticed: the dispatcher has `plan` on `flowly_create_card` but no `flowly_set_plan` / `flowly_clear_plan`; left as is (not in this card).
+- Checks: `npm run typecheck` 0; `npm test` 214 files passed, 1 skipped; 2420 tests passed, 7 skipped. UNRUN: a live Linear connection and a running dispatcher (new tools need Replace dispatcher).
+- Onboarding: no tour or tip change (agent-facing tools only, no UI). Telemetry: no field. No new strings (agent-facing). What's new: none.
+
 ## A started card leaves Backlog/Todo (branch `kanban/starting-a-card-moves-it-out-of-backlog-5a564c`) — 2026-11-12
 
 - Cause (verified in the board's event log, not assumed): the eight "Move Loadout memory into…" cards had sessions that wrote tags, workpad, memory and a progress report but never called `flowly_update_status`; no `status_changed` event and no refusal (directory workspaces are not refused) exists for any of them, so nothing ever moved them out of Backlog.

@@ -12,6 +12,10 @@ import type { GroupWriter } from "./group-writes";
 import { normalizeTag, normalizeTags } from "../shared/tags";
 import {
   agentCardLimits,
+  clearLinearInputSchema,
+  clearLinearResultSchema,
+  setLinearInputSchema,
+  setLinearResultSchema,
   createCardInputSchema,
   createCardResultSchema,
   dispatcherIdeaUpdateSchema,
@@ -71,6 +75,8 @@ export const dispatcherInputs = {
       .describe("Create the card from this open idea of the project (from flowly_list_ideas); the idea is marked taken up."),
   }),
   updateCard: withProject(updateCardInputSchema),
+  setLinear: withProject(setLinearInputSchema),
+  clearLinear: withProject(clearLinearInputSchema),
   startCard: withProject(startCardInputSchema),
   proposeIdea: withProject(projectIdeaInputSchema),
   listIdeas: withProject(listIdeasInputSchema),
@@ -717,7 +723,7 @@ export class DispatcherTools {
     mcp.registerTool(
       "flowly_list_cards",
       {
-        description: "List one project's cards with lane, priority, type, tags and revision (descriptions cut to 300 characters). Filter by words (query) and lanes (status). Read-only.",
+        description: "List one project's cards with lane, priority, type, tags, Linear issue (linear) and revision (descriptions cut to 300 characters). Filter by words (query, which also match a Linear key) and lanes (status). Read-only.",
         inputSchema: dispatcherInputs.listCards,
         outputSchema: listCardsResultSchema,
         annotations: read,
@@ -727,7 +733,7 @@ export class DispatcherTools {
     mcp.registerTool(
       "flowly_get_card",
       {
-        description: "Read one card of a project in full: title, description, lane, priority, type, tags, links and revision. Read-only.",
+        description: "Read one card of a project in full: title, description, lane, priority, type, tags, links, plan, Linear issue (linear) and revision. Read-only.",
         inputSchema: dispatcherInputs.getCard,
         outputSchema: getCardResultSchema,
         annotations: read,
@@ -738,7 +744,7 @@ export class DispatcherTools {
       "flowly_create_card",
       {
         description:
-          `Create a card in a project: one deliverable, one branch or PR. Use workspace="worktree" for repo work, then start it with flowly_start_card. Write the description for an agent that cannot see this conversation (goal, context, files, acceptance). Lands in Backlog (default) or Todo. Pass a unique idempotencyKey; retrying with the same key returns the same card. Pass ideaId to make it from an open idea of the project, which is then marked taken up (IDEA_NOT_FOUND, IDEA_CLOSED: not open). Pass plan with a plan file for the card (PLAN_INVALID: outside the project, nothing is created); plan.approved=true only when the user approved that plan in this chat. At most ${agentCardLimits.dispatcherPerHour} cards or starts per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
+          `Create a card in a project: one deliverable, one branch or PR. Use workspace="worktree" for repo work, then start it with flowly_start_card. Write the description for an agent that cannot see this conversation (goal, context, files, acceptance). Lands in Backlog (default) or Todo. Pass a unique idempotencyKey; retrying with the same key returns the same card. Pass ideaId to make it from an open idea of the project, which is then marked taken up (IDEA_NOT_FOUND, IDEA_CLOSED: not open). Pass plan with a plan file for the card (PLAN_INVALID: outside the project, nothing is created); plan.approved=true only when the user approved that plan in this chat. Pass linear (a key like ZEN-9132 or a Linear URL) to link the card's Linear issue before it starts, so flowly_start_card names the branch from it (LINEAR_INVALID: Linear can't see it, nothing is created). At most ${agentCardLimits.dispatcherPerHour} cards or starts per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.createCard,
         outputSchema: createCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -761,6 +767,28 @@ export class DispatcherTools {
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       },
       (raw) => inProject(dispatcherInputs.updateCard, raw, (c, input) => this.cards.update(c, input), true),
+    );
+    mcp.registerTool(
+      "flowly_set_linear",
+      {
+        description:
+          "Link a card's Linear issue (a key like ZEN-9132 or a linear.app URL), read through Flowly's Linear connection (LINEAR_INVALID: it can't see that issue; LINEAR_UNAVAILABLE: Linear can't be reached, try again). It is saved as the card's Linear input, the same record the user's own link is, and shown as linear on flowly_get_card and flowly_list_cards. An issue you linked earlier is replaced; one the user linked is kept (LINEAR_ALREADY_SET). A card that has already started keeps its branch name: the link only names the branch of a worktree made later. CARD_NOT_FOUND, ARCHIVED, AGENT_CARDS_DISABLED.",
+        inputSchema: dispatcherInputs.setLinear,
+        outputSchema: setLinearResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      (raw) => inProject(dispatcherInputs.setLinear, raw, (c, input) => this.cards.setLinear(c, input), true),
+    );
+    mcp.registerTool(
+      "flowly_clear_linear",
+      {
+        description:
+          "Remove the Linear link an agent added to a card. A link the user added stays (cleared=false with a notice). The branch name is never changed. CARD_NOT_FOUND, ARCHIVED, AGENT_CARDS_DISABLED.",
+        inputSchema: dispatcherInputs.clearLinear,
+        outputSchema: clearLinearResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      (raw) => inProject(dispatcherInputs.clearLinear, raw, (c, input) => this.cards.clearLinear(c, input), true),
     );
     mcp.registerTool(
       "flowly_start_card",

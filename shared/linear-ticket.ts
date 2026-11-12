@@ -1,3 +1,4 @@
+import { itemTypeOf } from "./connectors";
 import type { Artifact, Project } from "./model";
 
 /**
@@ -51,4 +52,17 @@ export function linearTicketLines(
       : "3. Agent artifacts are turned off in Flowly, so you can't link the ticket to the card: title a new ticket like this card where you can, and name the ticket ID and URL in your first progress report.",
     "If you have no Linear tools, say so in one line and carry on with the card.",
   ];
+}
+
+/** The card's Linear issue inputs, oldest first. */
+export function linearIssuesOf<T extends Pick<Artifact, "taskId" | "role" | "external">>(artifacts: readonly T[], taskId: string): T[] {
+  return artifacts.filter((a) => a.taskId === taskId && a.role === "input" && a.external?.provider === "linear" && itemTypeOf(a.external) === "issue");
+}
+
+/**
+ * The card's Linear issue: its first Linear issue input (the one flowly_start_card names the branch from, START-CARD-SPEC §6).
+ * Further Linear inputs are plain references. One place for the branch, the card tools and the ticket check.
+ */
+export function linearIssueOf<T extends Pick<Artifact, "taskId" | "role" | "external">>(artifacts: readonly T[], taskId: string): T | undefined {
+  return linearIssuesOf(artifacts, taskId)[0];
 }

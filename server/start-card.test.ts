@@ -821,3 +821,42 @@ test("start_card leaves a Backlog card in Backlog when the session fails to star
   await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo));
   expect(await statusOf(x, "c")).toBe("backlog");
 });
+
+/** A Linear connection that knows ZEN-9132 and gives it a branch name. */
+const linearConnection = (branch: string) => ({
+  recognizeLinear: async () => ({
+    external: { connectionId: "lin", provider: "linear" as const, itemType: "issue" as const, key: "ZEN-9132", remoteId: "uuid" },
+    url: "https://linear.app/acme/issue/ZEN-9132",
+    title: "ZEN-9132 Link cards",
+  }),
+  resolve: async () => ({}) as never,
+  cached: async () => ({ summary: "Link cards", status: "Todo", branchName: branch }) as never,
+});
+
+test("a card created with linear gets the Linear branch name when it starts (LINEAR-LINK-SPEC §5)", async () => {
+  const x = await setup();
+  const connection = linearConnection("noah/zen-9132-link-cards");
+  x.cards.connectors = connection;
+  x.starter.connectors = connection;
+  const made = await x.cards.create(x.caller, { title: "Linked card", idempotencyKey: "linked", linear: "ZEN-9132" });
+  await x.starter.start(x.caller, { taskId: made.card.taskId, idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces.at(-1)!.source).toMatchObject({ action: "branch-off", branchName: "noah/zen-9132-link-cards" });
+});
+
+test("linking after the card started does not rename its branch; it only applies to a worktree made later", async () => {
+  const x = await setup();
+  const connection = linearConnection("noah/zen-9132-link-cards");
+  x.cards.connectors = connection;
+  x.starter.connectors = connection;
+  const made = await x.cards.create(x.caller, { title: "Late link", idempotencyKey: "late" });
+  await x.starter.start(x.caller, { taskId: made.card.taskId, idempotencyKey: "go" }, x.paseo);
+  const started = x.createdWorkspaces.length;
+  const before = (await x.store.read()).tasks.find((t) => t.id === made.card.taskId)!.workspaceId;
+  expect(x.createdWorkspaces.at(-1)!.source.branchName).toMatch(/^kanban\/late-link-[0-9a-f]{6}$/);
+  await x.cards.setLinear(x.caller, { taskId: made.card.taskId, issue: "ZEN-9132" });
+  // No workspace was made or moved, and a second start still finds the session.
+  expect(x.createdWorkspaces).toHaveLength(started);
+  expect((await x.store.read()).tasks.find((t) => t.id === made.card.taskId)!.workspaceId).toBe(before);
+  expect(await x.failure(x.starter.start(x.caller, { taskId: made.card.taskId, idempotencyKey: "again" }, x.paseo))).toBe("CARD_HAS_SESSION");
+  expect((await x.cards.get(x.caller, { taskId: made.card.taskId })).card.linear).toMatchObject({ key: "ZEN-9132" });
+});

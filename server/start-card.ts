@@ -5,7 +5,7 @@ import { z } from "zod";
 import { switchLimits, type Board, type Project, type Task } from "../shared/model";
 import { groupOfProject } from "../shared/groups";
 import { effectiveAgentModel, providerBase, startingAgent, suggestedMode, type AgentModel } from "../shared/agent-defaults";
-import { itemTypeOf } from "../shared/connectors";
+import { linearIssueOf } from "../shared/linear-ticket";
 import { absoluteTarget } from "../shared/artifacts";
 import { planApproved, planOf, suggestPlanAwareMode } from "../shared/plans";
 import { startCardInputSchema, type StartCardInput, type StartCardResult, type ToolPreparation } from "../shared/tools";
@@ -83,9 +83,7 @@ async function checkedOutBranches(root: string) {
  * (START-CARD-SPEC §6); null when there is none, it can't be read, or git rejects it.
  */
 export async function linearBranchFor(task: Task, board: Board, connectors: Pick<ConnectorService, "resolve" | "cached"> | undefined): Promise<string | null> {
-  const input = board.artifacts.find(
-    (a) => a.taskId === task.id && a.role === "input" && a.external?.provider === "linear" && itemTypeOf(a.external) === "issue",
-  );
+  const input = linearIssueOf(board.artifacts, task.id);
   if (!input?.external || !connectors) return null;
   const ref = input.external;
   try {

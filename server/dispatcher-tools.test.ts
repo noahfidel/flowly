@@ -29,6 +29,8 @@ const dispatcherTools = [
   "flowly_get_card",
   "flowly_create_card",
   "flowly_update_card",
+  "flowly_set_linear",
+  "flowly_clear_linear",
   "flowly_start_card",
   "flowly_propose_idea",
   "flowly_link_cards",
@@ -245,6 +247,24 @@ test("a dispatcher token can write to any live project", async () => {
   expect((await d.call("flowly_get_card", { projectId: "q", taskId: "q1" })).structuredContent.card).toMatchObject({ taskId: "q1" });
   const updated = await d.call("flowly_update_card", { projectId: "q", taskId: "q1", revision: 1, priority: "high" });
   expect(updated.structuredContent).toMatchObject({ changed: ["priority"], card: { revision: 2 } });
+  // A card's Linear issue: read through Linear, saved as its input, shown by get and list, cleared again (LINEAR-LINK-SPEC §3).
+  x.server.cards.connectors = {
+    recognizeLinear: async (text: string) => {
+      if (!text.includes("ZEN-9132")) throw new Error(`${text} was not found in Linear.`);
+      return {
+        external: { connectionId: "lin", provider: "linear" as const, itemType: "issue" as const, key: "ZEN-9132", remoteId: "id" },
+        url: "https://linear.app/acme/issue/ZEN-9132",
+        title: "ZEN-9132 Link cards",
+      };
+    },
+    cached: async () => ({ summary: "Link cards", status: "Todo" }) as never,
+  };
+  const set = await d.call("flowly_set_linear", { projectId: "q", taskId: "q1", issue: "ZEN-9132" });
+  expect(set.structuredContent).toEqual({ linear: { key: "ZEN-9132", url: "https://linear.app/acme/issue/ZEN-9132", title: "Link cards", state: "Todo" } });
+  expect((await d.call("flowly_get_card", { projectId: "q", taskId: "q1" })).structuredContent.card.linear).toMatchObject({ key: "ZEN-9132" });
+  expect((await d.call("flowly_list_cards", { projectId: "q", query: "zen-9132" })).structuredContent.cards).toMatchObject([{ taskId: "q1", linear: { key: "ZEN-9132" } }]);
+  expect(code(await d.call("flowly_set_linear", { projectId: "q", taskId: "q1", issue: "ZEN-1" }))).toBe("LINEAR_INVALID");
+  expect((await d.call("flowly_clear_linear", { projectId: "q", taskId: "q1" })).structuredContent).toEqual({ cleared: true });
   const linked = await d.call("flowly_link_cards", { projectId: "q", taskId: "q1", relation: "blocks", otherTaskId: "q2" });
   expect(linked.structuredContent).toMatchObject({ created: true, link: { kind: "blocks", from: "q1", to: "q2" } });
   const again = await d.call("flowly_link_cards", { projectId: "q", taskId: "q1", relation: "blocks", otherTaskId: "q2" });
@@ -272,6 +292,8 @@ test("an archived project is refused", async () => {
     ["flowly_get_card", { taskId: "z1" }],
     ["flowly_create_card", { title: "Nope", idempotencyKey: "k-z" }],
     ["flowly_update_card", { taskId: "z1", revision: 1, title: "Nope" }],
+    ["flowly_set_linear", { taskId: "z1", issue: "ZEN-9132" }],
+    ["flowly_clear_linear", { taskId: "z1" }],
     ["flowly_start_card", { taskId: "z1", idempotencyKey: "s-z" }],
     ["flowly_propose_idea", { title: "Nope", detail: "x", rationale: "y" }],
     ["flowly_link_cards", { taskId: "z1", relation: "blocks", otherTaskId: "q1" }],
@@ -316,6 +338,8 @@ test("the Agents create and edit cards switch turns off every dispatcher write",
   const writes: [string, Record<string, unknown>][] = [
     ["flowly_create_card", { title: "Nope", idempotencyKey: "k-off" }],
     ["flowly_update_card", { taskId: "q1", revision: 1, title: "Nope" }],
+    ["flowly_set_linear", { taskId: "q1", issue: "ZEN-9132" }],
+    ["flowly_clear_linear", { taskId: "q1" }],
     ["flowly_start_card", { taskId: "q1", idempotencyKey: "s-off" }],
     ["flowly_link_cards", { taskId: "q1", relation: "blocks", otherTaskId: "q2" }],
     ["flowly_propose_idea", { title: "Nope", detail: "x", rationale: "y" }],

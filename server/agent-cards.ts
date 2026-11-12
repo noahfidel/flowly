@@ -7,18 +7,24 @@ import { tagLimits, type Board, type Project, type Task } from "../shared/model"
 import { isSummarizer } from "../shared/summary";
 import { absoluteTarget } from "../shared/artifacts";
 import { planApproved, planOf } from "../shared/plans";
+import { linearIssueOf, linearIssuesOf } from "../shared/linear-ticket";
 import {
   agentCardLimits,
+  clearLinearInputSchema,
   clearPlanInputSchema,
   createCardInputSchema,
+  setLinearInputSchema,
   setPlanInputSchema,
   getCardInputSchema,
   listCardsInputSchema,
   updateCardInputSchema,
   type BoardIdentity,
+  type CardLinear,
   type CardView,
 } from "../shared/tools";
-import { ArtifactService, normalizeTarget, type ArtifactRoots } from "./artifacts";
+import { ArtifactService, dropArtifact, normalizeTarget, putArtifact, type ArtifactRoots } from "./artifacts";
+import type { ConnectorService } from "./connectors/service";
+import { ExternalError } from "./connectors/http";
 import { logFailure } from "./error-report";
 import { cardPlanView, clearPlan, planMissing, planTarget, setPlan } from "./plans";
 import { BoardService } from "./service";
@@ -51,6 +57,8 @@ export class AgentCards {
   on: () => Promise<boolean> = async () => true;
   /** The extra artifact folders from Settings, read at each use (CARD-PLAN-SPEC §3.1); set by the plugin entry. */
   extraArtifactFolders: () => Promise<readonly string[]> = async () => [];
+  /** Linear issues (LINEAR-LINK-SPEC): read to check a link, and the last known state; set by the plugin entry. */
+  connectors?: Pick<ConnectorService, "recognizeLinear" | "cached">;
   /** The board service the New card form uses; set by the plugin entry so creations share its queue. */
   board: BoardService;
   constructor(
@@ -160,19 +168,30 @@ export class AgentCards {
     checkGroup(project, caller.groupId);
     return project;
   }
+  /** The card's Linear issue with its last known state, or null (LINEAR-LINK-SPEC §4). */
+  private async linearView(board: Board, taskId: string): Promise<CardLinear | null> {
+    const artifact = linearIssueOf(board.artifacts, taskId);
+    if (!artifact?.external) return null;
+    const summary = await this.connectors?.cached(artifact.external).catch(() => undefined);
+    return { key: artifact.external.key, url: artifact.target, title: summary?.summary || artifact.title, state: summary?.status || "" };
+  }
   async list(caller: CardCaller, raw: unknown) {
     const input = listCardsInputSchema.parse(raw);
     const board = await this.store.read(),
       project = this.project(board, caller);
     const words = input.query.toLowerCase().split(/\s+/).filter(Boolean);
     const lanes = projectLanes(project).map((l) => l.status);
+    // The Linear key is searchable, like the tags (LINEAR-LINK-SPEC §4).
+    const issues = new Map<string, Board["artifacts"][number]>();
+    for (const a of board.artifacts)
+      if (a.projectId === project.id && !issues.has(a.taskId) && linearIssueOf([a], a.taskId)) issues.set(a.taskId, a);
     const found = board.tasks
       .filter(
         (t) =>
           t.projectId === project.id &&
           (input.includeArchived || !t.archivedAt) &&
           (!input.status || input.status.includes(t.status)) &&
-          words.every((w) => [t.title, t.description, ...(t.tags || []).map((x) => x.tag)].join("\n").toLowerCase().includes(w)),
+          words.every((w) => [t.title, t.description, ...(t.tags || []).map((x) => x.tag), issues.get(t.id)?.external?.key ?? ""].join("\n").toLowerCase().includes(w)),
       )
       .sort((a, b) => lanes.indexOf(a.status) - lanes.indexOf(b.status) || columnOrder(a, b));
     return {
@@ -180,8 +199,9 @@ export class AgentCards {
       lanes: projectLanes(project)
         .filter((l) => l.enabled)
         .map((l) => ({ status: l.status, name: laneName(project, l.status) })),
-      cards: found.slice(0, input.limit).map((t) => {
+      cards: await Promise.all(found.slice(0, input.limit).map(async (t) => {
         const cut = t.description.length > agentCardLimits.preview;
+        const linear = await this.linearView(board, t.id);
         return {
           taskId: t.id,
           title: t.title,
@@ -194,10 +214,11 @@ export class AgentCards {
           updatedAt: t.updatedAt,
           archived: !!t.archivedAt,
           ...(t.prRef ? { prRef: t.prRef } : {}),
+          ...(linear ? { linear } : {}),
           description: cut ? t.description.slice(0, agentCardLimits.preview) : t.description,
           ...(cut ? { descriptionTruncated: true } : {}),
         };
-      }),
+      })),
       truncated: found.length > input.limit,
     };
   }
@@ -212,7 +233,7 @@ export class AgentCards {
       : ["done", "cancelled"].includes(task.status)
         ? "The card is finished; only the user reopens or changes it."
         : "";
-    return { card: cardView(board, project, task), editable: !reason, reason };
+    return { card: cardView(board, project, task, await this.linearView(board, task.id)), editable: !reason, reason };
   }
   /**
    * `fromIdea`: the dispatcher creating the card from an idea of the project (DISPATCHER-SPEC §5.1). A replay
@@ -231,7 +252,7 @@ export class AgentCards {
       // The same key from another idea, or with or without one, is another request (DISPATCHER-SPEC §5.1).
       if (previous.projectId !== project.id || previous.title !== input.title || previous.origin?.ideaId !== fromIdea?.ideaId)
         throw new ToolError("REQUEST_REUSED", "This idempotencyKey already created a different card. Use a new key for a new card.");
-      return { card: cardView(board, project, previous), replayed: true };
+      return { card: cardView(board, project, previous, await this.linearView(board, previous.id)), replayed: true };
     }
     const status = input.status ?? (laneEnabled(project, "backlog") ? "backlog" : "todo");
     if (!laneEnabled(project, status))
@@ -257,6 +278,8 @@ export class AgentCards {
     // The plan's target is checked before anything is made (CARD-PLAN-SPEC §5.2); a file is kept absolute until
     // the card's workspace exists, then stored relative to it when inside it.
     const plan = input.plan ? { ...input.plan, ...(await this.projectPlanTarget(project, input.plan.target)) } : undefined;
+    // An issue Linear can't show is refused before anything is made, like the plan (LINEAR-LINK-SPEC §2).
+    const linear = input.linear ? await this.readLinear(input.linear) : undefined;
     const release = this.reserve(caller.agentId, caller.dispatcher);
     let task: Task;
     try {
@@ -288,8 +311,9 @@ export class AgentCards {
       throw new ToolError("CARD_CREATE_FAILED", text);
     }
     if (plan) await this.planOnCreate(caller, task.id, plan);
+    if (linear) await this.linearOnCreate(caller, task.id, linear);
     const after = await this.store.read();
-    return { card: cardView(after, this.project(after, caller), after.tasks.find((t) => t.id === task.id) ?? task), replayed: false };
+    return { card: cardView(after, this.project(after, caller), after.tasks.find((t) => t.id === task.id) ?? task, await this.linearView(after, task.id)), replayed: false };
   }
   /** A new card's plan target, checked against the project's directories and the extra folders (PLAN_INVALID). */
   private async projectPlanTarget(project: Project, raw: string) {
@@ -317,6 +341,73 @@ export class AgentCards {
     } catch (e) {
       logFailure("Flowly new card plan not set:", e, `card ${taskId}`);
     }
+  }
+  /** Links the checked Linear issue to a card just created; the card stays when it fails (logged). */
+  private async linearOnCreate(caller: CardCaller, taskId: string, found: LinearFound) {
+    try {
+      await this.store.transaction((board) => {
+        const result = putArtifact(this.store, board, linearArtifact(taskId, found, caller.agentId));
+        return { value: undefined, changed: result.changed };
+      });
+    } catch (e) {
+      logFailure("Flowly new card Linear issue not linked:", e, `card ${taskId}`);
+    }
+  }
+  /** An issue or link read through the Linear connection (LINEAR_INVALID; LINEAR_UNAVAILABLE when Linear can't be reached). */
+  private async readLinear(raw: string): Promise<LinearFound> {
+    if (!this.connectors) throw new ToolError("LINEAR_UNAVAILABLE", "Linear is not available in this Flowly process.", true);
+    try {
+      return await this.connectors.recognizeLinear(raw);
+    } catch (e) {
+      const text = e instanceof Error ? e.message : String(e);
+      if (e instanceof ExternalError && e.code === "EXTERNAL_UNAVAILABLE") throw new ToolError("LINEAR_UNAVAILABLE", text, true);
+      throw new ToolError("LINEAR_INVALID", text);
+    }
+  }
+  /**
+   * flowly_set_linear (LINEAR-LINK-SPEC §3): the card's Linear issue, saved as its Linear input. An issue this agent
+   * linked before is replaced; one the user linked stays and refuses the change. It never renames a branch.
+   */
+  async setLinear(caller: CardCaller, raw: unknown) {
+    const input = setLinearInputSchema.parse(raw);
+    await this.enabled();
+    this.planCard(await this.store.read(), caller, input.taskId);
+    const found = await this.readLinear(input.issue);
+    await this.store.transaction((board) => {
+      const task = this.planCard(board, caller, input.taskId);
+      const others = linearIssuesOf(board.artifacts, task.id).filter((a) => !sameIssue(a.external, found.external));
+      const theirs = others.find((a) => a.createdBy === "human");
+      if (theirs)
+        throw new ToolError("LINEAR_ALREADY_SET", `The user linked ${theirs.external?.key} to this card; agents don't replace it. Tell the user instead.`);
+      for (const a of others) dropArtifact(this.store, board, a.id, { createdBy: "agent", agentId: caller.agentId });
+      let changed;
+      try {
+        changed = putArtifact(this.store, board, linearArtifact(task.id, found, caller.agentId));
+      } catch (e) {
+        throw new ToolError("LINEAR_REFUSED", e instanceof Error ? e.message : String(e));
+      }
+      // The user's entry for this issue may sit as an output, which an agent doesn't change.
+      if (!linearIssueOf(board.artifacts, task.id))
+        throw new ToolError("LINEAR_REFUSED", changed.notice ?? "The issue could not be linked as an input.");
+      return { value: undefined, changed: others.length > 0 || changed.changed };
+    });
+    return { linear: (await this.linearView(await this.store.read(), input.taskId))! };
+  }
+  /** flowly_clear_linear (LINEAR-LINK-SPEC §3): removes the Linear links agents added; the user's stays. */
+  async clearLinear(caller: CardCaller, raw: unknown) {
+    const input = clearLinearInputSchema.parse(raw);
+    await this.enabled();
+    return this.store.transaction((board) => {
+      const task = this.planCard(board, caller, input.taskId);
+      const issues = linearIssuesOf(board.artifacts, task.id);
+      const mine = issues.filter((a) => a.createdBy === "agent");
+      for (const a of mine) dropArtifact(this.store, board, a.id, { createdBy: "agent", agentId: caller.agentId });
+      const kept = issues.find((a) => a.createdBy === "human");
+      return {
+        value: { cleared: mine.length > 0, ...(kept ? { notice: `The user linked ${kept.external?.key} to this card; only they can remove it.` } : {}) },
+        changed: mine.length > 0,
+      };
+    });
   }
   private artifacts() {
     return new ArtifactService(this.store, undefined, () => this.extraArtifactFolders());
@@ -376,6 +467,7 @@ export class AgentCards {
   async update(caller: CardCaller, raw: unknown) {
     const input = updateCardInputSchema.parse(raw);
     await this.enabled();
+    const linear = await this.linearView(await this.store.read(), input.taskId);
     const fields = ["title", "description", "priority", "type", "status", "addTags", "removeTags"] as const;
     if (!fields.some((k) => input[k] !== undefined))
       throw new ToolError("INVALID_INPUT", "Give at least one field to change.");
@@ -418,7 +510,7 @@ export class AgentCards {
         if (input[k] !== undefined && input[k] !== task[k]) changed.push(k);
       const tagsChanged = !!tagChange && (tagChange.added.length > 0 || tagChange.removed.length > 0);
       if (tagsChanged) changed.push("tags");
-      if (!changed.length) return { value: { card: cardView(board, project, task), changed }, changed: false };
+      if (!changed.length) return { value: { card: cardView(board, project, task, linear), changed }, changed: false };
       const previous = task.status;
       if (input.title !== undefined) task.title = input.title;
       if (input.description !== undefined) task.description = input.description;
@@ -440,7 +532,7 @@ export class AgentCards {
         });
       if (tagsChanged)
         this.store.event(board, { taskId: task.id, actor: "agent", agentId: caller.agentId, action: "tags_changed", note: tagChangeNote(tagChange!) });
-      return { value: { card: cardView(board, project, task), changed }, changed: true };
+      return { value: { card: cardView(board, project, task, linear), changed }, changed: true };
     });
   }
 }
@@ -457,7 +549,7 @@ export async function rootAvailable(path: string) {
 }
 
 /** The card as the card tools return it (AGENT-CARDS-SPEC §3). */
-export function cardView(board: Board, project: Project, task: Task): CardView {
+export function cardView(board: Board, project: Project, task: Task, linear: CardLinear | null = null): CardView {
   return {
     taskId: task.id,
     title: task.title,
@@ -479,5 +571,20 @@ export function cardView(board: Board, project: Project, task: Task): CardView {
       const plan = planOf(board.artifacts, task.id);
       return plan ? { title: plan.title, approved: planApproved(plan) } : null;
     })(),
+    linear,
   };
 }
+
+type LinearFound = Awaited<ReturnType<ConnectorService["recognizeLinear"]>>;
+const sameIssue = (a: { connectionId: string; key: string } | undefined, b: { connectionId: string; key: string }) => !!a && a.connectionId === b.connectionId && a.key === b.key;
+/** The input artifact of a Linear issue an agent links: the same record a card session's flowly_add_artifact makes. */
+const linearArtifact = (taskId: string, found: LinearFound, agentId: string) => ({
+  taskId,
+  role: "input" as const,
+  kind: "url" as const,
+  target: found.url,
+  title: found.title,
+  createdBy: "agent" as const,
+  agentId,
+  external: found.external,
+});

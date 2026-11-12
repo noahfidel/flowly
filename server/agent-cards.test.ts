@@ -7,6 +7,9 @@ import { agentFixture } from "./agent-fixture";
 import { toolFailure } from "./tool-error";
 import { statuses, tagLimits } from "../shared/model";
 import { agentCardLimits } from "../shared/tools";
+import { ExternalError } from "./connectors/http";
+import { putArtifact } from "./artifacts";
+import { hasLinearItem } from "../shared/linear-ticket";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -337,4 +340,110 @@ test("set_plan and clear_plan: project scope, setting, archived, the agent's dra
   x.turn(true);
   await x.store.mutate((b) => void (b.tasks.find((t) => t.id === "t")!.archivedAt = new Date().toISOString()));
   expect(await x.failure(x.cards.setPlan(x.card, { taskId: "t", target: "plan.md", approved: true }))).toBe("ARCHIVED");
+});
+
+/** A Linear connection that sees ZEN-9132 and ZEN-9133 only. */
+function fakeLinear(unavailable = false) {
+  const issues: Record<string, { title: string; status: string }> = {
+    "ZEN-9132": { title: "Link cards to Linear", status: "In Progress" },
+    "ZEN-9133": { title: "Backfill links", status: "Todo" },
+  };
+  return {
+    recognizeLinear: async (text: string) => {
+      if (unavailable) throw new ExternalError("EXTERNAL_UNAVAILABLE", "Linear is busy.");
+      const key = /ZEN-\d+/i.exec(text)?.[0].toUpperCase();
+      if (!key || !issues[key]) throw new ExternalError("EXTERNAL_NOT_FOUND", `${text} was not found in Linear.`);
+      return {
+        external: { connectionId: "lin", provider: "linear" as const, itemType: "issue" as const, key, remoteId: `id-${key}` },
+        url: `https://linear.app/acme/issue/${key}`,
+        title: `${key} ${issues[key]!.title}`,
+      };
+    },
+    cached: async (ref: { key: string }) => (issues[ref.key] ? ({ summary: issues[ref.key]!.title, status: issues[ref.key]!.status } as never) : undefined),
+  };
+}
+const linearInputs = async (x: Awaited<ReturnType<typeof setup>>, taskId: string) =>
+  (await x.store.read()).artifacts.filter((a) => a.taskId === taskId && a.external?.provider === "linear");
+
+test("create_card with linear: read through Linear before anything is made, saved as the input, shown by get and list (LINEAR-LINK-SPEC §2, §4)", async () => {
+  const x = await setup();
+  x.cards.connectors = fakeLinear();
+  // An issue Linear can't see refuses the whole create: no workspace, no card, no hourly slot taken.
+  expect(await x.failure(x.cards.create(x.card, { title: "Linked", idempotencyKey: "linked", linear: "ZEN-1" }))).toBe("LINEAR_INVALID");
+  expect(await x.failure(x.cards.create(x.card, { title: "Linked", idempotencyKey: "linked", linear: "not an issue" }))).toBe("LINEAR_INVALID");
+  expect(x.workspaces).toHaveLength(0);
+  expect((await x.store.read()).tasks.map((t) => t.title)).not.toContain("Linked");
+  const made = await x.cards.create(x.card, { title: "Linked", idempotencyKey: "linked", linear: "https://linear.app/acme/issue/ZEN-9132/link-cards" });
+  expect(made.card.linear).toEqual({ key: "ZEN-9132", url: "https://linear.app/acme/issue/ZEN-9132", title: "Link cards to Linear", state: "In Progress" });
+  // The input artifact is the one source, the same record a card session's own flowly_add_artifact makes.
+  expect(await linearInputs(x, made.card.taskId)).toEqual([
+    expect.objectContaining({ role: "input", kind: "url", createdBy: "agent", agentId: "actor", external: expect.objectContaining({ provider: "linear", key: "ZEN-9132" }) }),
+  ]);
+  expect((await x.cards.get(x.card, { taskId: made.card.taskId })).card.linear).toMatchObject({ key: "ZEN-9132" });
+  // A replay returns the card without a second link.
+  const again = await x.cards.create(x.card, { title: "Linked", idempotencyKey: "linked", linear: "ZEN-9132" });
+  expect(again).toMatchObject({ replayed: true, card: { linear: { key: "ZEN-9132" } } });
+  expect(await linearInputs(x, made.card.taskId)).toHaveLength(1);
+  // The list shows it and searches by key; a card without one has no linear.
+  const listed = await x.cards.list(x.card, { query: "zen-9132" });
+  expect(listed.cards.map((c) => c.taskId)).toEqual([made.card.taskId]);
+  expect(listed.cards[0]!.linear).toMatchObject({ key: "ZEN-9132", state: "In Progress" });
+  expect((await x.cards.list(x.card, {})).cards.find((c) => c.taskId === "t")).not.toHaveProperty("linear");
+  expect((await x.cards.get(x.card, { taskId: "t" })).card.linear).toBeNull();
+});
+
+test("create_card with linear but no Linear connection, or one that is down, is refused", async () => {
+  const x = await setup();
+  expect(await x.failure(x.cards.create(x.card, { title: "No Linear", idempotencyKey: "a", linear: "ZEN-9132" }))).toBe("LINEAR_UNAVAILABLE");
+  x.cards.connectors = fakeLinear(true);
+  expect(await x.failure(x.cards.create(x.card, { title: "Down", idempotencyKey: "b", linear: "ZEN-9132" }))).toBe("LINEAR_UNAVAILABLE");
+  expect(x.workspaces).toHaveLength(0);
+});
+
+test("set_linear and clear_linear: set, replace the agent's own, refuse over the user's, clear only what an agent added", async () => {
+  const x = await setup();
+  x.cards.connectors = fakeLinear();
+  const set = await x.cards.setLinear(x.board, { taskId: "t", issue: "ZEN-9132" });
+  expect(set.linear).toEqual({ key: "ZEN-9132", url: "https://linear.app/acme/issue/ZEN-9132", title: "Link cards to Linear", state: "In Progress" });
+  expect((await x.cards.get(x.card, { taskId: "t" })).card.linear).toMatchObject({ key: "ZEN-9132" });
+  // "Make sure there's a Linear ticket" counts a link these tools made (same artifact).
+  expect(hasLinearItem((await x.store.read()).artifacts.filter((a) => a.taskId === "t"))).toBe(true);
+  // The same issue again changes nothing; revisions of the card never move.
+  await x.cards.setLinear(x.card, { taskId: "t", issue: "https://linear.app/acme/issue/ZEN-9132" });
+  expect(await linearInputs(x, "t")).toHaveLength(1);
+  expect((await x.store.read()).tasks.find((t) => t.id === "t")!.revision).toBe(1);
+  // Another issue replaces the one an agent linked: still exactly one, and it is the first.
+  expect((await x.cards.setLinear(x.card, { taskId: "t", issue: "ZEN-9133" })).linear.key).toBe("ZEN-9133");
+  expect((await linearInputs(x, "t")).map((a) => a.external!.key)).toEqual(["ZEN-9133"]);
+  // Unreadable, other cards and other projects.
+  expect(await x.failure(x.cards.setLinear(x.card, { taskId: "t", issue: "ZEN-1" }))).toBe("LINEAR_INVALID");
+  expect(await x.failure(x.cards.setLinear(x.card, { taskId: "nope", issue: "ZEN-9132" }))).toBe("CARD_NOT_FOUND");
+  expect(await x.failure(x.cards.setLinear({ ...x.card, projectId: "other" }, { taskId: "t", issue: "ZEN-9132" }))).toBe("ARCHIVED");
+  expect((await linearInputs(x, "t")).map((a) => a.external!.key)).toEqual(["ZEN-9133"]);
+  // Clearing removes the agent's link and says so in the activity.
+  expect(await x.cards.clearLinear(x.card, { taskId: "t" })).toEqual({ cleared: true });
+  expect(await linearInputs(x, "t")).toHaveLength(0);
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "artifact_removed", actor: "agent", agentId: "actor" });
+  expect(await x.cards.clearLinear(x.card, { taskId: "t" })).toEqual({ cleared: false });
+  expect((await x.cards.get(x.card, { taskId: "t" })).card.linear).toBeNull();
+  // A link the user added stays: clear leaves it, set doesn't replace it, the same issue is already there.
+  await x.store.transaction((board) => {
+    putArtifact(x.store, board, {
+      taskId: "t",
+      role: "input",
+      kind: "url",
+      target: "https://linear.app/acme/issue/ZEN-9132",
+      title: "ZEN-9132 Link cards to Linear",
+      createdBy: "human",
+      external: { connectionId: "lin", provider: "linear", itemType: "issue", key: "ZEN-9132", remoteId: "id-ZEN-9132" },
+    });
+    return { value: undefined, changed: true };
+  });
+  expect(await x.cards.clearLinear(x.card, { taskId: "t" })).toMatchObject({ cleared: false, notice: expect.stringContaining("ZEN-9132") });
+  expect(await x.failure(x.cards.setLinear(x.card, { taskId: "t", issue: "ZEN-9133" }))).toBe("LINEAR_ALREADY_SET");
+  expect((await x.cards.setLinear(x.card, { taskId: "t", issue: "ZEN-9132" })).linear.key).toBe("ZEN-9132");
+  expect(await linearInputs(x, "t")).toEqual([expect.objectContaining({ createdBy: "human" })]);
+  x.turn(false);
+  expect(await x.failure(x.cards.setLinear(x.card, { taskId: "t", issue: "ZEN-9132" }))).toBe("AGENT_CARDS_DISABLED");
+  expect(await x.failure(x.cards.clearLinear(x.card, { taskId: "t" }))).toBe("AGENT_CARDS_DISABLED");
 });

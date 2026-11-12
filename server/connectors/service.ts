@@ -367,6 +367,20 @@ export class ConnectorService {
     });
   }
 
+  /**
+   * A Linear issue named by a key or a link, read with a Linear connection (LINEAR-LINK-SPEC §2). Unlike `recognize`, only
+   * Linear connections are considered, so a bare ZEN-9132 is never taken for a Jira key; it throws when there is none,
+   * the text is not an issue of one, or the connection can't read it.
+   */
+  async recognizeLinear(target: string): Promise<{ external: ExternalRef; url: string; title: string }> {
+    const linear = (await this.connections.all()).filter((c) => familyOf(c.provider) === "linear");
+    if (!linear.length) throw new ExternalError("EXTERNAL_NOT_FOUND", "No Linear connection is set up in Flowly.");
+    const match = externalTarget(target, linear);
+    if (!match || !("key" in match) || match.itemType !== "issue")
+      throw new ExternalError("EXTERNAL_INVALID", `"${target.trim()}" is not a Linear issue key or link.`);
+    return this.resolve(match.connectionId, match.key, "issue");
+  }
+
   /** Fetches the item (it must exist and be visible) and returns what an artifact stores. */
   async resolve(connectionId: string, rawKey: string, itemType?: ItemType): Promise<{ external: ExternalRef; url: string; title: string }> {
     await this.loadCache();

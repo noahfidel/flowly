@@ -51,6 +51,10 @@ import {
   startCardResultSchema,
   setPlanInputSchema,
   setPlanResultSchema,
+  setLinearInputSchema,
+  setLinearResultSchema,
+  clearLinearInputSchema,
+  clearLinearResultSchema,
   clearPlanInputSchema,
   clearPlanResultSchema,
   workpadInputSchema,
@@ -230,7 +234,7 @@ export class ToolServer {
       "flowly_create_card",
       {
         description:
-          'Create a card in this Flowly project when the user asked you to create cards (for example "split this into cards" or "make a card for X"), or when you are about to start repo work that has no card yet (every workspace belongs to a card). Other follow-up work the user did not ask for is an idea (flowly_propose_idea in a card session), not a card. The card gets its own new workspace in the project folder (workspace=directory, default) or a new worktree (workspace=worktree) and lands in Backlog (default) or Todo; no session starts until you call flowly_start_card or the user starts it. Its agent cannot see this conversation: write the description with the goal, context, files and acceptance criteria. From a card session the new card follows up your card. If you planned this card (plan mode writes the plan to a file), pass that file as plan so the card keeps it; plan.approved=true only when the user approved it in your chat (PLAN_INVALID: the file is outside the project, nothing is created). Pass a unique idempotencyKey; retrying with the same key returns the same card (replayed=true). At most 20 cards per session per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off; tell them instead.',
+          'Create a card in this Flowly project when the user asked you to create cards (for example "split this into cards" or "make a card for X"), or when you are about to start repo work that has no card yet (every workspace belongs to a card). Other follow-up work the user did not ask for is an idea (flowly_propose_idea in a card session), not a card. The card gets its own new workspace in the project folder (workspace=directory, default) or a new worktree (workspace=worktree) and lands in Backlog (default) or Todo; no session starts until you call flowly_start_card or the user starts it. Its agent cannot see this conversation: write the description with the goal, context, files and acceptance criteria. From a card session the new card follows up your card. If you planned this card (plan mode writes the plan to a file), pass that file as plan so the card keeps it; plan.approved=true only when the user approved it in your chat (PLAN_INVALID: the file is outside the project, nothing is created). Pass linear (a key like ZEN-9132 or a Linear URL) to link its Linear issue before it starts, so flowly_start_card names the branch from it (LINEAR_INVALID: Linear can not see it, nothing is created). Pass a unique idempotencyKey; retrying with the same key returns the same card (replayed=true). At most 20 cards per session per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off; tell them instead.',
         inputSchema: createCardInputSchema,
         outputSchema: createCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -269,6 +273,28 @@ export class ToolServer {
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       },
       (input) => run((c) => this.cards.clearPlan(c, input)),
+    );
+    mcp.registerTool(
+      "flowly_set_linear",
+      {
+        description:
+          "Link this project card's Linear issue (a key like ZEN-9132 or a linear.app URL), read through Flowly's Linear connection (LINEAR_INVALID: it can't see that issue; LINEAR_UNAVAILABLE: try again). Saved as the card's Linear input, shown as linear on flowly_get_card and flowly_list_cards. An issue an agent linked earlier is replaced; one the user linked is kept (LINEAR_ALREADY_SET). A card that already started keeps its branch name. CARD_NOT_FOUND, ARCHIVED, AGENT_CARDS_DISABLED.",
+        inputSchema: setLinearInputSchema,
+        outputSchema: setLinearResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      (input) => run((c) => this.cards.setLinear(c, input)),
+    );
+    mcp.registerTool(
+      "flowly_clear_linear",
+      {
+        description:
+          "Remove the Linear link an agent added to a card. A link the user added stays (cleared=false with a notice). CARD_NOT_FOUND, ARCHIVED, AGENT_CARDS_DISABLED.",
+        inputSchema: clearLinearInputSchema,
+        outputSchema: clearLinearResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      (input) => run((c) => this.cards.clearLinear(c, input)),
     );
     mcp.registerTool(
       "flowly_start_card",

@@ -324,6 +324,8 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.releaseUndo, (input) => switches.releaseUndo(input));
   const tools = new ToolServer(store);
   tools.agents.connectors = connectors;
+  // Board tools check and show a card's Linear issue (LINEAR-LINK-SPEC).
+  tools.cards.connectors = connectors;
   // flowly_start_card (START-CARD-SPEC): Linear branch names, and the global default model the New task form uses; unreadable settings give none.
   tools.starter.connectors = connectors;
   tools.starter.modelDefault = async () => {
