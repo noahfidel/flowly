@@ -1024,6 +1024,7 @@ const catalog: Catalog = {
   "Paseo's session view": "Paseos Sitzungsansicht",
   "Tapping a suggested next step": "Beim Tippen auf einen vorgeschlagenen nächsten Schritt",
   "Start progress rows collapsed": "Fortschrittszeilen eingeklappt starten",
+  "Start replies to agents collapsed": "Antworten an Agenten eingeklappt starten",
   "A card has an item from a connected service as an input. Agents read it every turn and see when it changes. Flowly never changes it there, and its status doesn't move the card.": "Eine Karte hat ein Element aus einem verbundenen Dienst als Eingabe. Agenten lesen es in jedem Zug und sehen, wenn es sich ändert. Flowly ändert es dort nie, und sein Status verschiebt die Karte nicht.",
   "The Artifacts + now adds Confluence pages and GitHub or GitLab issues and pull requests too, besides files, links and Jira tickets. Connect services in Settings → Connections.": "Das + bei Artefakten fügt jetzt neben Dateien, Links und Jira-Tickets auch Confluence-Seiten sowie GitHub- oder GitLab-Issues und Pull Requests hinzu. Verbinde Dienste unter Einstellungen → Verbindungen.",
   "Ticket or issue": "Ticket oder Issue",

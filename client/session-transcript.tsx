@@ -1,5 +1,5 @@
 import { perfStart, perfEnd, usePerfRender } from "./perf";
-import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type Ref } from "react";
+import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type ReactNode, type Ref } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, View, type ListRenderItemInfo } from "react-native";
 import { FlatList, Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { usePaseo } from "@getpaseo/plugin/client";
@@ -12,6 +12,8 @@ import { extractImages } from "../shared/images";
 import { SessionImage } from "./session-image";
 import { sentImages } from "./sent-images";
 import { SessionMarkdown } from "./session-content";
+import { Toggle } from "./content-card";
+import { recapLine } from "./summary-line";
 import { Collapse } from "./disclosure";
 import { Enter, PulseDot, motionDuration, useMotionPresence, useMotionValue, lerp } from "./motion";
 import { useStableCallback } from "./stable";
@@ -471,7 +473,7 @@ function LoadEarlier({ loading, onPress }: { loading: boolean; onPress(): void }
 
 type OutputEntry = ReturnType<typeof recentSessionOutput>[number];
 const sameEntry = (a: OutputEntry, b: OutputEntry) =>
-  a === b || (a.key === b.key && a.text === b.text && a.author === b.author && a.messageId === b.messageId && a.sender === b.sender);
+  a === b || (a.key === b.key && a.text === b.text && a.author === b.author && a.kind === b.kind && a.messageId === b.messageId && a.sender === b.sender);
 
 /** One transcript entry: your message as a bubble, the agent's reply as markdown. Also the welcome tour's sample session. */
 export const TranscriptEntry = memo(function TranscriptEntry({
@@ -494,6 +496,7 @@ export const TranscriptEntry = memo(function TranscriptEntry({
     <SessionImage key={image.src} taskId={taskId} agentId={agentId} image={image} maxWidth={entry.author === "You" ? 200 : 360} />
   ));
   if (entry.kind === "agent-message") return <AgentMessageRow sender={entry.sender ?? ""} text={entry.text} />;
+  if (entry.kind === "agent-reply") return <AgentReplyRow text={text}>{pictures}</AgentReplyRow>;
   if (entry.author === "You" && !text && !pictures.length) return null;
   if (entry.author === "You")
     return (
@@ -554,6 +557,37 @@ const AgentMessageRow = memo(function AgentMessageRow({ sender, text }: { sender
           <Label muted size={font.sm}>{text.trim()}</Label>
         </View>
       )}
+    </View>
+  );
+});
+
+/**
+ * The dispatcher's answer to another agent (DISPATCHER-SPEC §9.3): one line with its first sentence and Show more;
+ * open, the full reply with Show less. The choice lives with the mounted row only, as the Progress row's.
+ */
+const AgentReplyRow = memo(function AgentReplyRow({ text, children }: { text: string; children?: ReactNode }) {
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  const line = recapLine(text);
+  if (open)
+    return (
+      <View accessibilityLabel={t("Agent")} style={{ minWidth: 0, gap: space[2] }}>
+        {!!text && <SessionMarkdown text={text} />}
+        {children}
+        <View style={{ alignSelf: "flex-start" }}>
+          <Toggle open onPress={() => setOpen(false)} />
+        </View>
+      </View>
+    );
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], minWidth: 0 }}>
+      <Icon name="Reply" size={12} color={colors.foregroundMuted} />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Label size={font.sm} lines={1} selectable={false}>{line}</Label>
+      </View>
+      <View style={{ flexShrink: 0, marginLeft: space[1.5], marginVertical: -space[1] }}>
+        <Toggle open={false} onPress={() => setOpen(true)} />
+      </View>
     </View>
   );
 });

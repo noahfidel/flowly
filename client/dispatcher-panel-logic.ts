@@ -8,7 +8,8 @@ import type { TranscriptRow } from "./session-transcript";
 /** Pure parts of the dispatcher chat (DISPATCHER-SPEC §9.3). No React. */
 
 export type Row =
-  | { kind: "entry"; key: string; at: number; entry: TailEntry }
+  /** `reply`: the dispatcher's own message answering another agent's prompt (a From row), not the user (§9.3). */
+  | { kind: "entry"; key: string; at: number; entry: TailEntry; reply?: true }
   /** The dispatcher's first message (the board summary), shown as one line. */
   | { kind: "summary"; key: string; at: number }
   | { kind: "item"; key: string; at: number; item: ChatItem };
@@ -21,18 +22,25 @@ const time = (value: string | undefined) => (value ? Date.parse(value) : NaN);
  * An entry without a timestamp keeps its place right after the entry before it; ties keep the transcript first.
  * The chat is the conversation only (Ruling, Noah 2026-11-09): asks, answers and the change line live in the
  * need-you and updated step-throughs in the card sidebar, so only notes join the transcript here.
+ * The dispatcher's messages after a prompt from another agent (a From row), up to the next user message (a note batch
+ * and the board summary included) or From row, are marked `reply`; its messages to the user never are.
  */
 export function mergeTimeline(transcript: readonly TailEntry[], items: readonly ChatItem[]): Row[] {
   const firstKnown = transcript.map((e) => time(e.timestamp)).find((t) => Number.isFinite(t));
   let carried = firstKnown ?? -Infinity;
+  let answering = false;
   const entries: Row[] = [];
   transcript.forEach((entry, index) => {
     const at = time(entry.timestamp);
     if (Number.isFinite(at)) carried = at;
     const key = `entry-${entry.seqStart ?? index}-${entry.item.type}`;
     const text = entry.item.text ?? "";
-    if (entry.item.type.includes("user") && text.startsWith(noteMessagePrefix)) return;
-    if (entry.item.type.includes("user") && text.startsWith(summaryMessagePrefix)) entries.push({ kind: "summary", key, at: carried });
+    const user = entry.item.type.includes("user");
+    if (user) answering = false;
+    else if (entry.item.from) answering = true;
+    if (user && text.startsWith(noteMessagePrefix)) return;
+    if (user && text.startsWith(summaryMessagePrefix)) entries.push({ kind: "summary", key, at: carried });
+    else if (answering && entry.item.type.includes("assistant")) entries.push({ kind: "entry", key, at: carried, entry, reply: true });
     else entries.push({ kind: "entry", key, at: carried, entry });
   });
   const rows: Row[] = items
@@ -50,16 +58,22 @@ export function mergeTimeline(transcript: readonly TailEntry[], items: readonly 
   return merged;
 }
 
+/** How the chat draws its rows: `collapseReplies` starts the dispatcher's answers to other agents as one line (§9.3). */
+export type ChatRowOptions = { collapseReplies?: boolean };
+type OutputInput = Parameters<typeof recentSessionOutput>[0][number];
+
 /** A dispatcher row on the shared session transcript: the board summary line or one of Flowly's chat items. */
 export type ChatExtra = { kind: "summary" } | { kind: "item"; item: ChatItem };
 
 /**
  * The rows the shared session transcript shows (`TranscriptExtra.rows`): each run of transcript entries between
  * items is grouped as a card's session view groups it (activity blocks); items and the summary are rows of their own.
+ * With `collapseReplies` (the *Start replies to agents collapsed* setting) a `reply` entry becomes an `agent-reply`
+ * entry, drawn as one line with Show more; tool calls, asks and notes are unchanged.
  */
-export function displayRows(rows: readonly Row[]): TranscriptRow[] {
+export function displayRows(rows: readonly Row[], options: ChatRowOptions = {}): TranscriptRow[] {
   const out: TranscriptRow[] = [];
-  let run: TailEntry[] = [];
+  let run: OutputInput[] = [];
   const flush = () => {
     if (!run.length) return;
     out.push(...groupTranscript(recentSessionOutput(run)));
@@ -67,7 +81,7 @@ export function displayRows(rows: readonly Row[]): TranscriptRow[] {
   };
   for (const row of rows) {
     if (row.kind === "entry") {
-      run.push(row.entry);
+      run.push(row.reply && options.collapseReplies ? { ...row.entry, item: { ...row.entry.item, reply: true } } : row.entry);
       continue;
     }
     flush();
@@ -79,8 +93,8 @@ export function displayRows(rows: readonly Row[]): TranscriptRow[] {
 }
 
 /** The dispatcher chat's rows from the loaded transcript and Flowly's chat items (§9.3). */
-export function chatRows(transcript: readonly TailEntry[], items: readonly ChatItem[]): TranscriptRow[] {
-  return displayRows(mergeTimeline(transcript, items));
+export function chatRows(transcript: readonly TailEntry[], items: readonly ChatItem[], options: ChatRowOptions = {}): TranscriptRow[] {
+  return displayRows(mergeTimeline(transcript, items), options);
 }
 
 /** Whether two chat items render the same (the row's memo comparison). */

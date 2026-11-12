@@ -638,6 +638,14 @@ export function AiPage() {
           onChange={(outsideIdeas) => native.save({ outsideIdeas })}
         />
       </SettingsGroup>
+      <SettingsGroup title={t("Dispatcher")}>
+        <SettingSwitch
+          title={t("Start replies to agents collapsed")}
+          value={native.values?.dispatcherRepliesCollapsed ?? true}
+          disabled={native.busy}
+          onChange={(dispatcherRepliesCollapsed) => native.save({ dispatcherRepliesCollapsed })}
+        />
+      </SettingsGroup>
       <SettingsGroup title={t("Artifacts")}>
         <SettingSwitch
           title={t("Agent artifacts")}

@@ -139,3 +139,42 @@ test("a prompt from another agent stays its own entry row beside note items", ()
   expect(shown.map((r) => r.kind)).toEqual(["entry", "entry", "extra", "entry"]);
   expect(shown[1].kind === "entry" && shown[1].entry).toMatchObject({ kind: "agent-message", sender: "Coder" });
 });
+
+test("the dispatcher's answers to another agent collapse, up to the next user message or From row (DISPATCHER-SPEC §9.3)", () => {
+  const from = (seq: number, s: number, id = "a1"): TailEntry => ({ seqStart: seq, seqEnd: seq, timestamp: at(s), item: { type: "tool_call", name: "agent_message", status: "completed", text: "Status?", from: { id, title: "Coder", event: "message" } } });
+  const tool = (seq: number, s: number): TailEntry => ({ seqStart: seq, seqEnd: seq, timestamp: at(s), item: { type: "tool_call", name: "flowly_list_cards", status: "completed" } });
+  const transcript = [
+    entry(1, "assistant_message", "Before any agent wrote.", 1),
+    from(2, 2),
+    entry(3, "assistant_message", "Looking. Two cards are open.", 3),
+    tool(4, 4),
+    entry(5, "assistant_message", "Both run.", 5),
+    entry(6, "user_message", "What now?", 6),
+    entry(7, "assistant_message", "To you: never collapsed.", 7),
+    from(8, 8, "a2"),
+    entry(9, "assistant_message", "Answer to a2.", 9),
+    // A note batch is a user message too: the dispatcher's answer to it is not a reply to the agent.
+    entry(10, "user_message", "Flowly board update (1 card):\n- …", 10),
+    entry(11, "assistant_message", "n2 needs you.", 11),
+  ];
+  const kinds = (rows: ReturnType<typeof displayRows>) =>
+    rows.flatMap((r) => (r.kind === "entry" ? [`${r.entry.kind}:${r.entry.text}`] : r.kind === "activity" ? [`activity:${r.items.length}`] : []));
+  expect(mergeTimeline(transcript, []).flatMap((r) => (r.kind === "entry" && r.reply ? [r.entry.seqStart] : []))).toEqual([3, 5, 9]);
+  expect(kinds(displayRows(mergeTimeline(transcript, []), { collapseReplies: true }))).toEqual([
+    "assistant_message:Before any agent wrote.",
+    "agent-message:Status?",
+    "agent-reply:Looking. Two cards are open.",
+    // Tool calls stay the activity row they always are.
+    "activity:1",
+    "agent-reply:Both run.",
+    "user_message:What now?",
+    "assistant_message:To you: never collapsed.",
+    "agent-message:Status?",
+    "agent-reply:Answer to a2.",
+    "assistant_message:n2 needs you.",
+  ]);
+  // Setting off (and the default): nothing collapses.
+  expect(kinds(displayRows(mergeTimeline(transcript, []))).filter((k) => k.startsWith("agent-reply"))).toEqual([]);
+  expect(kinds(chatRows(transcript, [], { collapseReplies: false })).filter((k) => k.startsWith("agent-reply"))).toEqual([]);
+  expect(kinds(chatRows(transcript, [], { collapseReplies: true })).filter((k) => k.startsWith("agent-reply"))).toHaveLength(3);
+});

@@ -91,6 +91,8 @@ export function recentSessionOutput(
       clientMessageId?: unknown;
       callId?: unknown;
       from?: unknown;
+      /** The dispatcher's answer to another agent, drawn collapsed (DISPATCHER-SPEC §9.3). */
+      reply?: unknown;
     };
   }[],
 ) {
@@ -136,7 +138,7 @@ export function recentSessionOutput(
           key,
           author,
           text,
-          kind: sender !== undefined ? "agent-message" : tool ? "tool" : item.type,
+          kind: sender !== undefined ? "agent-message" : item.reply === true && item.type.includes("assistant") ? "agent-reply" : tool ? "tool" : item.type,
           messageId,
           sender,
         },

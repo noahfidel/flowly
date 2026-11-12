@@ -2,11 +2,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Pressable, View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import type { PaseoAgent } from "@getpaseo/client";
-import { usePaseo, useRpc } from "@getpaseo/plugin/client";
+import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { msg, t } from "../shared/i18n";
 import type { ChatItem } from "../shared/dispatcher";
+import { nativeSessionSettings, nativeSessionSettingsValues } from "../shared/settings";
 import { maxImages } from "../shared/composer";
 import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
 import { Actions, Button, Label, Notice, Theme, font, message, noFocusRing, space, useTheme } from "./ui";
@@ -163,14 +164,17 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
     [onOpenCard, laneOf],
   );
   const chatItems = items.data;
+  // Answers to other agents start as one line unless the user turned that off (§9.3); absent stored value: on.
+  const nativePrefs = useSettings(nativeSessionSettings);
+  const collapseReplies = nativeSessionSettingsValues(nativePrefs.status === "ready" ? nativePrefs.values : {}).dispatcherRepliesCollapsed;
   const cardLinks = useMemo(() => ({ resolve: resolveCard, open: onOpenCard, version: cardsVersion }), [resolveCard, onOpenCard, cardsVersion]);
   const extra = useMemo<TranscriptExtra>(
     () => ({
-      rows: (entries) => chatRows(entries, chatItems ?? []),
+      rows: (entries) => chatRows(entries, chatItems ?? [], { collapseReplies }),
       render: renderExtra,
       focus: null,
     }),
-    [chatItems, renderExtra],
+    [chatItems, renderExtra, collapseReplies],
   );
 
   // Its permission requests, answered here as in a card's session view (never without the user's choice).
