@@ -2,7 +2,7 @@ import { useState } from "react";
 import { View } from "react-native";
 import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc";
-import type { Project, Status } from "../shared/model";
+import type { Group, Project, Status } from "../shared/model";
 import { t } from "../shared/i18n";
 import { quickTitleText } from "../shared/quick-task";
 import type { ConnectorProvider, ExternalSummary } from "../shared/connectors";
@@ -14,6 +14,7 @@ import { launchKanbanSession } from "./session";
 import { ImageAttachments, useImageAttachments } from "./image-attach";
 import { newMessageId, rememberSentImages } from "./sent-images";
 import { useBoardView } from "./board-view";
+import { quickGroupOf, quickGroupProject, quickGroupProjects, quickGroups } from "./board-groups";
 import { quickCard, quickCreateInput, quickMode, quickMoreSeed, quickPrompt, startStatus, type QuickMode, type QuickTaskSeed } from "./quick-task";
 import type { OtherOption } from "./idea-choice";
 import { cardBlockLabel, ideaStepIcon, ideaStepLabel } from "./task-ideas";
@@ -32,6 +33,7 @@ const quickDefaults = (defaults: AgentDefaults): AgentDefaults => (defaults ? { 
  */
 export function QuickTaskForm({
   projects,
+  groups = [],
   initialProjectId,
   defaultStatus = "todo",
   seed,
@@ -42,8 +44,10 @@ export function QuickTaskForm({
   otherOptions,
   onOther,
 }: {
-  /** Live projects the task can go to. */
+  /** Live projects the task can go to; the Project picker lists the selected group's (§1). */
   projects: readonly Project[];
+  /** The board groups, for the Group picker (§1). */
+  groups?: readonly Group[];
   initialProjectId: string;
   defaultStatus?: Status;
   /** Opened from an external item (Linear's Start card): attached, titled by it, and the text is optional. From an idea: prefilled and made from it (§10). */
@@ -65,13 +69,19 @@ export function QuickTaskForm({
     prepare = useRpc(rpc.prepareSession),
     paseo = usePaseo();
   const [projectId, setProjectId] = useState(initialProjectId),
+    [groupId, setGroupId] = useState(() => quickGroupOf(groups, projects, initialProjectId)?.id ?? ""),
     [text, setText] = useState(seed?.text ?? ""),
     [externals, setExternals] = useState<{ item: ExternalSummary; provider: ConnectorProvider }[]>(() => seed?.externals || []),
     [modeChoice, setModeChoice] = useState<QuickMode | null>(null),
-    [open, setOpen] = useState<"project" | "agent" | "other" | "send" | null>(null),
+    [open, setOpen] = useState<"group" | "project" | "agent" | "other" | "send" | null>(null),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
-  const project = projects.find((p) => p.id === projectId) ?? projects[0];
+  // The Group picker (§1): groups with a live project; none from an idea (its project is locked).
+  const offeredGroups = seed?.idea ? [] : quickGroups(groups, projects);
+  // Groups still loading, or the chosen one deleted meanwhile: the project's own group.
+  const group = groups.find((g) => g.id === groupId) ?? quickGroupOf(groups, projects, projectId);
+  const shownProjects = quickGroupProjects(group, projects);
+  const project = shownProjects.find((p) => p.id === projectId) ?? shownProjects[0];
   const mode = project ? quickMode(project, modeChoice ?? view.values?.quickTaskMode ?? "worktree") : "directory";
   const choice = useAgentChoice({ enabled: !!project, cwd: project?.primaryPath, defaults: project ? quickDefaults(agentDefaultsFor(project)) : null, planFirst: true });
   const attachments = useImageAttachments();
@@ -84,6 +94,18 @@ export function QuickTaskForm({
     setProjectId(id);
     // The agent follows the new project's defaults (QUICK-TASK-SPEC §1).
     if (next) choice.reset(quickDefaults(agentDefaultsFor(next)));
+  };
+  const chooseGroup = (id: string) => {
+    setOpen(null);
+    if (id === group?.id) return;
+    const nextGroup = offeredGroups.find((g) => g.id === id);
+    if (!nextGroup) return;
+    setGroupId(id);
+    // The last quick-task project when a member, else the group's first; the agent follows its defaults (§1).
+    const next = quickGroupProject(nextGroup, projects, view.values?.lastQuickProjectId ?? "");
+    if (!next) return;
+    setProjectId(next.id);
+    choice.reset(quickDefaults(agentDefaultsFor(next)));
   };
   const items = externals.map((x) => x.item);
   const firstText = quickPrompt(text, items);
@@ -172,7 +194,12 @@ export function QuickTaskForm({
               />
             ))}
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[2] }}>
-              <Button small icon="Folder" label={`${t("Project")}: ${project?.title || ""}`} disabled={pending || projects.length < 2} onPress={() => setOpen(open === "project" ? null : "project")}>
+              {offeredGroups.length > 1 && (
+                <Button small icon="Layers" label={`${t("Group")}: ${group?.name || ""}`} disabled={pending} onPress={() => setOpen(open === "group" ? null : "group")}>
+                  {group?.name || ""}
+                </Button>
+              )}
+              <Button small icon="Folder" label={`${t("Project")}: ${project?.title || ""}`} disabled={pending || shownProjects.length < 2} onPress={() => setOpen(open === "project" ? null : "project")}>
                 {project?.title || ""}
               </Button>
               <Button small icon="Bot" label={`${t("Agent")}: ${agentText}`} disabled={pending || !project} onPress={() => setOpen(open === "agent" ? null : "agent")}>
@@ -199,6 +226,21 @@ export function QuickTaskForm({
             {(open === "other" || open === "send") && !!project && otherOptions && onOther && (
               <OtherOptions options={otherOptions} sending={open === "send"} disabled={pending} onSend={() => setOpen("send")} onPick={onOther} />
             )}
+            {open === "group" && (
+              <PickerGroup>
+                <PickerRow
+                  first
+                  open
+                  title={t("Group")}
+                  icon="Layers"
+                  value={group?.id || ""}
+                  placeholder={t("Group")}
+                  options={offeredGroups.map((g) => ({ value: g.id, label: g.name }))}
+                  onToggle={() => setOpen(null)}
+                  onChange={chooseGroup}
+                />
+              </PickerGroup>
+            )}
             {open === "project" && (
               <PickerGroup>
                 <PickerRow
@@ -208,7 +250,7 @@ export function QuickTaskForm({
                   icon="Folder"
                   value={project?.id || ""}
                   placeholder={t("Project")}
-                  options={projects.map((p) => ({ value: p.id, label: p.title }))}
+                  options={shownProjects.map((p) => ({ value: p.id, label: p.title }))}
                   onToggle={() => setOpen(null)}
                   onChange={chooseProject}
                 />

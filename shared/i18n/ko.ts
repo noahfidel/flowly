@@ -1620,6 +1620,7 @@ const catalog: Catalog = {
   "Group settings": "그룹 설정",
   "Delete group…": "그룹 삭제…",
   "Groups": "그룹",
+  "Group": "그룹",
   "Add group": "그룹 추가",
   "Delete group {name}?": "{name} 그룹을 삭제할까요?",
   "Its projects move to {default}. Its dispatcher session, if any, is archived.": "프로젝트는 {default}(으)로 이동합니다. 디스패처 세션이 있으면 보관됩니다.",

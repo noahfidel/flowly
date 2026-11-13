@@ -322,9 +322,9 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   Guardrails page left open when the filter is cleared closes. Project settings are reached from the group settings
   page.
 - **New task:** **T**, **Q**, a lane's Add task and the empty-board hint open Quick task with the filtered project,
-  else the last quick-task project when it is a live member, else the group's first member. The Project picker lists
-  the group's projects first, then the others (a card can be created in any project; it then belongs to that
-  project's group).
+  else the last quick-task project when it is a live member, else the group's first member. Quick task's Group picker
+  starts on that project's group and the Project picker lists only the selected group's live projects; a card for
+  another group's project is made by switching the Group picker (QUICK-TASK-SPEC §1, §3).
 - **An empty group** (no live member) opens a board with no columns and "This group has no projects yet." with **New
   project** (preset to the group) and **Group settings**.
 - Everything a card does uses the card's own project (ALL-PROJECTS-SPEC §3), including the session defaults chain
@@ -520,6 +520,6 @@ Upkeep (the plan's last task): welcome-tour copy and tips, a What's new entry (A
 dispatcher go away for existing users), the telemetry decision, and every new string in all i18n catalogs.
 
 Manual (Noah's click-through): group tabs (drag, menu, +), the switcher, a group board with its project filter and
-counts, the entries I/B/M with and without a filter, New task picker order, an empty group, the group settings page
+counts, the entries I/B/M with and without a filter, Quick task's Group and Project pickers, an empty group, the group settings page
 (defaults, a project section, moving a project), deleting a group with a dispatcher, the dock following the selected
 group, an update from an old install (old groups, ungrouped projects, the running dispatcher).

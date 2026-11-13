@@ -128,7 +128,7 @@ import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 // board-groups 3/7: group-only navigation (BOARD-GROUPS-SPEC §3).
 import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, rememberViewedGroupView } from "./project-memory";
-import { boardProject, boardScope, defaultGroup, focusFilter, focusProject, mobileLane, groupMembers, groupNewTask, groupOfProject, groupQuickProject, groupViewId, membersFirst, otherGroupNeeds, overviewScope, pageScope, pickGroupView, restoredFilter, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
+import { boardProject, boardScope, defaultGroup, focusFilter, focusProject, mobileLane, groupMembers, groupNewTask, groupOfProject, groupQuickProject, groupViewId, otherGroupNeeds, overviewScope, pageScope, pickGroupView, restoredFilter, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
 import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { GroupTabs, needLabel } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
@@ -2979,7 +2979,8 @@ function BoardContent(
           <QuickTaskForm
             key={quickTask.seed?.idea?.id || quickTask.seed?.externals[0]?.item.key || "quick"}
             seed={quickTask.seed}
-            projects={quickProjects(group ? membersFirst(projects, liveProjects.map((p) => p.id)) : projects, quickTask.seed)}
+            projects={quickProjects(projects, quickTask.seed)}
+            groups={boardGroups}
             initialProjectId={
               // Every board is a group's: the filtered project, else the last quick-task project when a member, else the first
               // (groupQuickProject falls back to All's rule for an empty group).

@@ -8,7 +8,14 @@ Create task form stays one tap away.
 - One multiline box, "What do you want done?". Enter submits, Shift+Enter is a new line (same keys as the
   full form). On phones the return key is a new line and the button submits.
 - Under the box, a row of small pickers that can be changed in place:
-  - **Project**: the live (not archived) projects. Default per §3.
+  - **Group**: the board groups with at least one live project, in group position order (empty groups and groups
+    whose projects are all archived are left out). Default per §3. Hidden when fewer than two groups are offered,
+    and when Quick task is seeded from an idea (§10, its project is locked). Choosing another group sets the project
+    to the last quick-task project when it is a live member of that group, else the group's first member (chooser
+    order), and resets the agent to that project's defaults as choosing a project does; choosing the same group
+    changes nothing.
+  - **Project**: the selected group's live (not archived) projects only (all live projects when no group is known).
+    Default per §3.
   - **Agent**: provider · model · permission mode (its label, e.g. `claude · Opus 5.5 · Plan`; one line,
     truncated on narrow screens). Pressing it opens the same agent choice as New task (provider, model,
     reasoning, speed, permissions) inline. Defaults are the same as the full form's: the project's default
@@ -52,6 +59,12 @@ Create task form stays one tap away.
   their own project. Only **Q** and Command Center **Flowly: Quick task** open with the last project used for
   a quick task, when it is still live, else the board's project. Either way the first live project is the last
   fallback, and the Project picker can change it.
+- **Group**: the group of the project the dialog opens with. That is the shown board's group, unless the entry
+  point pins a project of another group (a lane's Add task, Linear's Start card) or the board's group is empty and
+  the fallback picks another group's project; then it is that project's group. It applies to every entry point.
+  Ruling (Noah 2026-11-13): the default group is the shown board's group, with no new setting (the last
+  quick-task project stays the only stored quick-task value), and the Project picker lists only the selected group's
+  projects.
 - **All projects board** (ALL-PROJECTS-SPEC §5): there is no board project, so New task, **T**, a lane's Add
   task and the empty-board hint open Quick task (even with *Quick task for New task* off) with the last quick-task
   project, else the first live one.
@@ -123,8 +136,12 @@ shortcuts, welcome) stay valid as screen params and keyboard shortcuts, but have
 - With *AI titles for quick tasks* off, no `tasks.quick-title` call is made.
 - More options… opens the full form prefilled and creates nothing by itself.
 - A linked project gets a directory workspace.
-- Pure logic covered by tests: provisional title, default project and mode resolution, the AI-result
-  merge, output parsing; the daemon apply path with a fake model.
+- The Group picker opens on the shown board's group (or the pinned or fallback project's group), offers only groups
+  with a live project, hides with fewer than two or from an idea, and the Project picker lists only the selected
+  group's live projects; switching group picks the last quick-task project when a member, else the first member.
+- Pure logic covered by tests: provisional title, default project and mode resolution, the default group, the
+  offered groups, the project after a group switch and the narrowed project list (`client/board-groups.test.ts`),
+  the AI-result merge, output parsing; the daemon apply path with a fake model.
 
 ## 9. Seeded from an external item (Linear Start card)
 

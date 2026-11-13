@@ -1620,6 +1620,7 @@ const catalog: Catalog = {
   "Group settings": "Ajustes del grupo",
   "Delete group…": "Eliminar grupo…",
   "Groups": "Grupos",
+  "Group": "Grupo",
   "Add group": "Añadir grupo",
   "Delete group {name}?": "¿Eliminar el grupo {name}?",
   "Its projects move to {default}. Its dispatcher session, if any, is archived.": "Sus proyectos pasan a {default}. Su sesión de dispatcher, si la hay, se archiva.",

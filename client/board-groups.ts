@@ -86,6 +86,33 @@ export function groupQuickProject(members: readonly Project[], projects: readonl
   return quickProject(members, { pinned: filteredId, last: lastQuickProjectId, current: "" });
 }
 
+type GroupMember = Pick<Project, "id" | "archivedAt" | "position" | "createdAt" | "groupId">;
+
+/** The groups Quick task's Group picker offers (QUICK-TASK-SPEC §1): those with a live member, in position order. */
+export function quickGroups<G extends Pick<Group, "id" | "position">>(groups: readonly G[], projects: readonly GroupMember[]): G[] {
+  return [...groups].sort((x, y) => x.position - y.position).filter((g) => groupMembers(g, projects).length > 0);
+}
+
+/**
+ * The group Quick task opens with (QUICK-TASK-SPEC §3; Ruling, Noah 2026-11-13): the group of the project it opens
+ * with, which is the shown board's group unless a caller pinned another group's project or the board's group is empty.
+ * None when there is no such project or no group is known.
+ */
+export function quickGroupOf<G extends Pick<Group, "id" | "isDefault" | "position">>(groups: readonly G[], projects: readonly Pick<Project, "id" | "groupId">[], projectId: string): G | undefined {
+  return projectId && projects.some((p) => p.id === projectId) ? groupOfProject(groups, projects, projectId) : undefined;
+}
+
+/** The projects Quick task's Project picker lists (QUICK-TASK-SPEC §1): the selected group's live members; every given project when no group is known. */
+export function quickGroupProjects<P extends GroupMember>(group: Pick<Group, "id"> | undefined, projects: readonly P[]): P[] {
+  return group ? groupMembers(group, projects) : includedProjects(projects);
+}
+
+/** The project after choosing another group in Quick task (QUICK-TASK-SPEC §1): the last quick-task project when a live member, else the first member. */
+export function quickGroupProject<P extends GroupMember>(group: Pick<Group, "id">, projects: readonly P[], lastQuickProjectId: string): P | undefined {
+  const members = groupMembers(group, projects);
+  return members.find((p) => p.id === lastQuickProjectId) ?? members[0];
+}
+
 /** The board's Project filter: a project of the group shown (§3); it lives with the group it was set in. */
 export type ProjectFilter = { groupId: string; projectId: string } | null;
 
@@ -130,12 +157,6 @@ export function focusProject<G extends Pick<Group, "id" | "isDefault" | "positio
   if (!target) return null;
   if (target.id !== shown.groupId) return { groupId: target.id, filter: focusFilter(shown.filter, shown.groupId, target.id, projectId) };
   return { groupId: target.id, filter: pin && shown.boardProjectId !== projectId ? { groupId: target.id, projectId } : shown.filter };
-}
-
-/** The project picker on a group's board: the group's projects first, then the rest, each in its given order (§5). */
-export function membersFirst<P extends { id: string }>(projects: readonly P[], memberIds: readonly string[]): P[] {
-  const ids = new Set(memberIds);
-  return [...projects.filter((p) => ids.has(p.id)), ...projects.filter((p) => !ids.has(p.id))];
 }
 
 /**

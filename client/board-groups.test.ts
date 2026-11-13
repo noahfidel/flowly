@@ -12,7 +12,10 @@ import {
   groupNewTask,
   groupViewId,
   isGroupView,
-  membersFirst,
+  quickGroupOf,
+  quickGroupProject,
+  quickGroupProjects,
+  quickGroups,
   mobileLane,
   otherGroupNeeds,
   overviewScope,
@@ -24,6 +27,7 @@ import {
   validProjectFilter,
 } from "./board-groups";
 import { allStatuses } from "./all-projects";
+import { quickProject } from "./quick-task";
 import { needsCount, needsQueue, updatedQueue } from "./step-through";
 import type { AttentionItem } from "../shared/attention";
 import type { Group, Project } from "../shared/model";
@@ -248,14 +252,54 @@ describe("new task in a group", () => {
     expect(groupQuickProject(members, projects, "c", "old")?.id).toBe("b");
     expect(groupQuickProject(members, projects, "a", "")?.id).toBe("a");
   });
-  test("the picker keeps members first with a filter set", () => {
-    expect(membersFirst([c, b, a], ["b", "a"]).map((p) => p.id)).toEqual(["b", "a", "c"]);
-  });
   test("an empty group falls back to All's rule", () => {
     expect(groupQuickProject([], projects, "c")?.id).toBe("c");
   });
-  test("the project picker lists the group's projects first, then the others in their order", () => {
-    expect(membersFirst([b, c, a], ["a", "b"]).map((p) => p.id)).toEqual(["b", "a", "c"]);
+});
+
+describe("Quick task's Group picker (QUICK-TASK-SPEC §1, §3; Ruling, Noah 2026-11-13)", () => {
+  const live = projects.filter((p) => !p.archivedAt);
+  // What board.tsx opens Quick task with: the shown group's quick project, or a pinned project.
+  const opensWith = (shown: Group, last: string, pinned = "") =>
+    (pinned ? quickProject(live, { pinned, current: "" }) : groupQuickProject(groupMembers(shown, live), live, last))?.id ?? "";
+
+  test("the default group is the shown board's group", () => {
+    expect(quickGroupOf(groups, live, opensWith(zen, "a"))?.id).toBe("g2");
+    expect(quickGroupOf(groups, live, opensWith(loadout, "c"))?.id).toBe("g1");
+  });
+  test("a pinned project in another group opens that group", () => {
+    expect(quickGroupOf(groups, live, opensWith(loadout, "", "c"))?.id).toBe("g2");
+  });
+  test("an empty board group opens the fallback project's group", () => {
+    expect(quickGroupOf(groups, live, opensWith(empty, "c"))?.id).toBe("g2");
+    expect(quickGroupOf(groups, live, opensWith(empty, ""))?.id).toBe("g1");
+  });
+  test("no group without a known project", () => {
+    expect(quickGroupOf(groups, live, "")).toBeUndefined();
+    expect(quickGroupOf(groups, live, "missing")).toBeUndefined();
+  });
+  test("offers only groups with a live project, in position order", () => {
+    const archivedOnly = group("g4", 3);
+    const gone = project("gone", { groupId: "g4", archivedAt: "2026-11-02T00:00:00.000Z" });
+    const reversed = [archivedOnly, empty, zen, loadout];
+    expect(quickGroups(reversed, [...projects, gone]).map((g) => g.id)).toEqual(["g1", "g2"]);
+    expect(quickGroups([zen], projects)).toHaveLength(1);
+  });
+  test("the project list is narrowed to the selected group's live members, in chooser order", () => {
+    expect(quickGroupProjects(loadout, projects).map((p) => p.id)).toEqual(["b", "a"]);
+    expect(quickGroupProjects(zen, projects).map((p) => p.id)).toEqual(["c"]);
+    expect(quickGroupProjects(empty, projects)).toEqual([]);
+    expect(quickGroupProjects(undefined, projects).map((p) => p.id)).toEqual(["b", "c", "a", "loose"]);
+  });
+  test("an idea's single locked project stays the only one", () => {
+    expect(quickGroupProjects(quickGroupOf(groups, [c], "c"), [c]).map((p) => p.id)).toEqual(["c"]);
+  });
+  test("switching group picks the last quick-task project when a member, else the first member", () => {
+    expect(quickGroupProject(loadout, projects, "a")?.id).toBe("a");
+    expect(quickGroupProject(loadout, projects, "c")?.id).toBe("b");
+    expect(quickGroupProject(loadout, projects, "old")?.id).toBe("b");
+    expect(quickGroupProject(zen, projects, "")?.id).toBe("c");
+    expect(quickGroupProject(empty, projects, "a")).toBeUndefined();
   });
 });
 
