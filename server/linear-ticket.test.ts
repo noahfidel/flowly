@@ -79,3 +79,25 @@ test("a card started from a Linear issue (Start card, LINEAR-BOARD-SPEC §5) nev
   });
   expect(await context()).not.toContain("Linear ticket:");
 });
+
+test("a card can opt out of the project's Linear ticket ask; others keep it (LINEAR-TICKET-SPEC §5)", async () => {
+  const x = await agentFixture();
+  roots.push(x.root);
+  await x.store.updateProject({ id: "p", revision: 1, linearTicket: true });
+  await x.store.mutate((board) => {
+    const first = board.tasks.find((t) => t.id === "t")!;
+    board.tasks.push({ ...structuredClone(first), id: "t2", title: "Second", operationId: "op-t2", workspaceId: "ws-t2" });
+  });
+  const context = async (id: string) => (await new BoardService(x.store).context(id, x.paseo)).context;
+  const revision = async () => (await x.store.read()).tasks.find((t) => t.id === "t")!.revision;
+  const stored = async () => (await x.store.read()).tasks.find((t) => t.id === "t")!;
+
+  await x.store.editTask({ id: "t", revision: await revision(), linearTicket: false, actor: "human" });
+  expect((await stored()).linearTicket).toBe(false);
+  expect(await context("t")).not.toContain("Linear ticket:");
+  expect(await context("t2")).toContain("Linear ticket:");
+
+  await x.store.editTask({ id: "t", revision: await revision(), linearTicket: true, actor: "human" });
+  expect("linearTicket" in (await stored())).toBe(false);
+  expect(await context("t")).toContain("Linear ticket:");
+});

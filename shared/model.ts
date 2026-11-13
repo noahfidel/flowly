@@ -400,6 +400,8 @@ export const taskSchema = z.object({
   prRef: z.string().optional(),
   /** How the card is delivered (DELIVERY-MODE-SPEC §2); a plain string so a value this version does not know still loads. Absent: the host default. */
   deliveryMode: z.string().optional(),
+  /** Opt out of the project's Linear ticket ask (LINEAR-TICKET-SPEC §5); only false is stored, absent inherits. */
+  linearTicket: z.boolean().optional(),
   /** When the card first entered In review, Committed or Integrated; kept when it moves back, so the mode stays fixed (DELIVERY-MODE-SPEC §2). */
   deliveredAt: timestamp.optional(),
   /** The latest automatic review (AUTO-REVIEW-SPEC §6); written without a task revision. */
@@ -880,6 +882,8 @@ export const taskInput = z.strictObject({
   followUpOf: z.string().min(1).optional(),
   /** How the card is delivered (DELIVERY-MODE-SPEC §2); omitted: the host default applies when the context is built. */
   deliveryMode: z.enum(deliveryModes).optional(),
+  /** Opt out of the project's Linear ticket ask (LINEAR-TICKET-SPEC §5); only false is taken. */
+  linearTicket: z.boolean().optional(),
   /** Create from this open workflow-insights suggestion (WORKFLOW-INSIGHTS-SPEC §5.2). */
   insightFindingId: z.string().min(1).max(100).optional(),
   /** External items added as inputs in the same write (EXTERNAL-TRACKER-SPEC §5.4, CONNECTORS-SPEC §8.2). */
@@ -903,6 +907,8 @@ export const taskEdit = z.strictObject({
   archived: z.boolean().optional(),
   /** Refused once the card has been in review, committed or integrated, even after a move back (DELIVERY-MODE-SPEC §2). */
   deliveryMode: z.enum(deliveryModes).optional(),
+  /** false opts the card out of the project's Linear ticket ask; true inherits the project's setting again (LINEAR-TICKET-SPEC §5). */
+  linearTicket: z.boolean().optional(),
   note: z.string().max(10000).optional(),
   actor: z.enum(["human", "agent"]).default("human"),
   agentId: z.string().optional(),

@@ -78,6 +78,7 @@ Input:
 | `tags` | optional, normalized like `flowly_set_tags`, at most 12 on a card |
 | `workspace` | `directory` (default) or `worktree` (START-CARD-SPEC §7; a linked-root project refuses `worktree` with `WORKTREE_UNAVAILABLE`) |
 | `idempotencyKey` | 1–200 characters, chosen by the agent; the same key retries the same create |
+| `linearTicket` | optional boolean: `false` opts the card out of the project's Linear ticket ask, `true` or omitted inherits it (LINEAR-TICKET-SPEC §5) |
 
 Behavior:
 
@@ -91,7 +92,7 @@ Output: `{ card: <card view>, replayed }`. A failure of the New card path is `CA
 
 ### 3.4 `flowly_update_card`
 
-Input: `taskId`, `revision` (the card's revision from list/get), and at least one of: `title`, `description`, `priority`, `type`, `addTags`, `removeTags`, `status` (`backlog` or `todo`).
+Input: `taskId`, `revision` (the card's revision from list/get), and at least one of: `title`, `description`, `priority`, `type`, `addTags`, `removeTags`, `status` (`backlog` or `todo`), `linearTicket` (`false` opts out of the Linear ticket ask, `true` inherits the project's again; LINEAR-TICKET-SPEC §5).
 
 Rules, all checked in one transaction (nothing changes when one fails):
 

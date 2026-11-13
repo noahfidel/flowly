@@ -27,6 +27,13 @@ describe("the Linear ticket block (LINEAR-TICKET-SPEC §3)", () => {
     expect(linearTicketLines(project(), [], link)).toEqual([]);
     expect(linearTicketLines(project({ linearTicket: false, linearTeam: "ENG" }), [], link)).toEqual([]);
   });
+  test("a card that opted out gets nothing; unset inherits; true cannot turn it on where the project is off (§5)", () => {
+    const on = project({ linearTicket: true });
+    expect(linearTicketLines(on, [], { ...link, linearTicket: false })).toEqual([]);
+    expect(linearTicketLines(on, [], { ...link, linearTicket: undefined }).join("\n")).toMatch(/^Linear ticket:/);
+    expect(linearTicketLines(on, [], { ...link, linearTicket: true }).join("\n")).toMatch(/^Linear ticket:/);
+    expect(linearTicketLines(project(), [], { ...link, linearTicket: true })).toEqual([]);
+  });
   test("on with a ticket linked adds nothing", () => {
     expect(linearTicketLines(project({ linearTicket: true }), [artifact({ target: "https://linear.app/chord/issue/ENG-12" })], link)).toEqual([]);
   });

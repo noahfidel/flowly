@@ -744,7 +744,7 @@ export class DispatcherTools {
       "flowly_create_card",
       {
         description:
-          `Create a card in a project: one deliverable, one branch or PR. Use workspace="worktree" for repo work, then start it with flowly_start_card. Write the description for an agent that cannot see this conversation (goal, context, files, acceptance). Lands in Backlog (default) or Todo. Pass a unique idempotencyKey; retrying with the same key returns the same card. Pass ideaId to make it from an open idea of the project, which is then marked taken up (IDEA_NOT_FOUND, IDEA_CLOSED: not open). Pass plan with a plan file for the card (PLAN_INVALID: outside the project, nothing is created); plan.approved=true only when the user approved that plan in this chat. Pass linear (a key like ZEN-9132 or a Linear URL) to link the card's Linear issue before it starts, so flowly_start_card names the branch from it (LINEAR_INVALID: Linear can't see it, nothing is created). At most ${agentCardLimits.dispatcherPerHour} cards or starts per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
+          `Create a card in a project: one deliverable, one branch or PR. Use workspace="worktree" for repo work, then start it with flowly_start_card. Write the description for an agent that cannot see this conversation (goal, context, files, acceptance). Lands in Backlog (default) or Todo. Pass linearTicket=false for a small card (a research audit, a tooling chore) that needs no Linear ticket in a project that asks for one; omitted, it follows the project. Pass a unique idempotencyKey; retrying with the same key returns the same card. Pass ideaId to make it from an open idea of the project, which is then marked taken up (IDEA_NOT_FOUND, IDEA_CLOSED: not open). Pass plan with a plan file for the card (PLAN_INVALID: outside the project, nothing is created); plan.approved=true only when the user approved that plan in this chat. Pass linear (a key like ZEN-9132 or a Linear URL) to link the card's Linear issue before it starts, so flowly_start_card names the branch from it (LINEAR_INVALID: Linear can't see it, nothing is created). At most ${agentCardLimits.dispatcherPerHour} cards or starts per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.createCard,
         outputSchema: createCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -761,7 +761,7 @@ export class DispatcherTools {
       "flowly_update_card",
       {
         description:
-          "Edit a live card of a project: title, description (replaces it), priority, type, tags or its lane between Backlog and Todo. Pass its revision from flowly_get_card; on REVISION_CONFLICT read it again. Work stages, Done and Cancelled are not set here.",
+          "Edit a live card of a project: title, description (replaces it), priority, type, tags, its lane between Backlog and Todo, or linearTicket (false opts the card out of the project's Linear ticket ask, true follows the project again). Pass its revision from flowly_get_card; on REVISION_CONFLICT read it again. Work stages, Done and Cancelled are not set here.",
         inputSchema: dispatcherInputs.updateCard,
         outputSchema: updateCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },

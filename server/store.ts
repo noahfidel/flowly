@@ -414,6 +414,8 @@ export class BoardStore {
       else if (input.type !== undefined) task.type = input.type;
       if (input.status !== undefined) task.status = input.status;
       if (deliveryChange) task.deliveryMode = input.deliveryMode;
+      if (input.linearTicket === false) task.linearTicket = false;
+      else if (input.linearTicket === true) delete task.linearTicket;
       if (input.archived !== undefined)
         task.archivedAt = input.archived ? new Date().toISOString() : null;
       task.revision++;

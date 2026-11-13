@@ -98,7 +98,7 @@ Hourly limit (a runaway brake): the dispatcher's card creations and `flowly_star
 |---|---|
 | `flowly_list_projects` | The group's live member projects: `projectId`, `title`, `rootAvailable`, `openCards` (not archived, not Done/Cancelled). |
 | `flowly_list_cards`, `flowly_get_card` | As the card tools (AGENT-CARDS-SPEC §3), for that project. |
-| `flowly_create_card`, `flowly_update_card` | As the card tools, for that project; the Agents create and edit cards setting applies. `flowly_create_card` also takes an optional `ideaId` (§5.1), and `plan` and `linear` as the card tools do. |
+| `flowly_create_card`, `flowly_update_card` | As the card tools, for that project; the Agents create and edit cards setting applies. `flowly_create_card` also takes an optional `ideaId` (§5.1), and `plan`, `linear` and `linearTicket` as the card tools do; `flowly_update_card` takes `linearTicket` too (`false`: the card's session gets no Linear ticket step, `true`: inherit the project's setting again; LINEAR-TICKET-SPEC §5). |
 | `flowly_set_linear`, `flowly_clear_linear` | A card's Linear issue, as LINEAR-LINK-SPEC §3: `{ projectId, taskId, issue }` → `{ linear }`; `{ projectId, taskId }` → `{ cleared, notice? }`. Writes, so the Agents create and edit cards setting applies. `flowly_list_cards` and `flowly_get_card` show it as `linear` (LINEAR-LINK-SPEC §4). |
 | `flowly_start_card` | As START-CARD-SPEC, for that project's card. |
 | `flowly_propose_idea` | A project-level idea (PROJECT-IDEAS-SPEC); a write, so the Agents create and edit cards setting applies, and `IDEAS_DISABLED` when Ideas are off. |

@@ -525,6 +525,10 @@ export const createCardInputSchema = z.strictObject({
     .enum(["directory", "worktree"])
     .default("directory")
     .describe("directory: a workspace in the project folder (default). worktree: a new worktree branched off the main checkout's current branch (START-CARD-SPEC §7)."),
+  linearTicket: z
+    .boolean()
+    .optional()
+    .describe("false: this card's session gets no Linear ticket step even when the project asks for one; true or omitted: follow the project's setting. A card with a Linear issue linked never gets the step."),
   idempotencyKey: z
     .string()
     .trim()
@@ -597,6 +601,10 @@ export const updateCardInputSchema = z.strictObject({
   addTags: cardTagList.optional(),
   removeTags: cardTagList.optional().describe("Only tags an agent added can be removed."),
   status: z.enum(agentCardStatuses).optional().describe("Move between Backlog and Todo; only for a card that is in one of them."),
+  linearTicket: z
+    .boolean()
+    .optional()
+    .describe("false: this card's session gets no Linear ticket step even when the project asks for one; true: follow the project's setting again. A card with a Linear issue linked never gets the step."),
 });
 const cardSummarySchema = z.object({
   taskId: z.string(),
@@ -635,6 +643,8 @@ export const cardViewSchema = z.object({
   plan: z.object({ title: z.string(), approved: z.boolean() }).nullable(),
   /** The card's Linear issue (LINEAR-LINK-SPEC §4), or null. */
   linear: cardLinearSchema.nullable(),
+  /** Shown only when the card opted out of the project's Linear ticket ask (LINEAR-TICKET-SPEC §5). */
+  linearTicket: z.literal(false).optional(),
 });
 export const listCardsResultSchema = z.object({
   project: z.object({ id: z.string(), title: z.string() }),

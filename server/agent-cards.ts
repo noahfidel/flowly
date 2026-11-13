@@ -292,6 +292,7 @@ export class AgentCards {
           status,
           priority: input.priority,
           ...(input.type ? { type: input.type } : {}),
+          ...(input.linearTicket === false ? { linearTicket: false } : {}),
           ...(tags.length ? { tags } : {}),
           mode: input.workspace,
           baseRef: "",
@@ -468,7 +469,7 @@ export class AgentCards {
     const input = updateCardInputSchema.parse(raw);
     await this.enabled();
     const linear = await this.linearView(await this.store.read(), input.taskId);
-    const fields = ["title", "description", "priority", "type", "status", "addTags", "removeTags"] as const;
+    const fields = ["title", "description", "priority", "type", "status", "addTags", "removeTags", "linearTicket"] as const;
     if (!fields.some((k) => input[k] !== undefined))
       throw new ToolError("INVALID_INPUT", "Give at least one field to change.");
     return this.store.transaction((board) => {
@@ -510,6 +511,8 @@ export class AgentCards {
         if (input[k] !== undefined && input[k] !== task[k]) changed.push(k);
       const tagsChanged = !!tagChange && (tagChange.added.length > 0 || tagChange.removed.length > 0);
       if (tagsChanged) changed.push("tags");
+      const linearChange = input.linearTicket !== undefined && (input.linearTicket === false) !== (task.linearTicket === false);
+      if (linearChange) changed.push("linearTicket");
       if (!changed.length) return { value: { card: cardView(board, project, task, linear), changed }, changed: false };
       const previous = task.status;
       if (input.title !== undefined) task.title = input.title;
@@ -518,6 +521,10 @@ export class AgentCards {
       if (input.type !== undefined) task.type = input.type;
       if (input.status !== undefined) task.status = input.status;
       if (tagsChanged) setTags(task, tagChange!.tags);
+      if (linearChange) {
+        if (input.linearTicket === false) task.linearTicket = false;
+        else delete task.linearTicket;
+      }
       task.revision++;
       task.updatedAt = at;
       const fieldsChanged = changed.filter((k) => k !== "tags" && k !== "status");
@@ -572,6 +579,7 @@ export function cardView(board: Board, project: Project, task: Task, linear: Car
       return plan ? { title: plan.title, approved: planApproved(plan) } : null;
     })(),
     linear,
+    ...(task.linearTicket === false ? { linearTicket: false as const } : {}),
   };
 }
 

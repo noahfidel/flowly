@@ -9,6 +9,7 @@ import { statuses, tagLimits } from "../shared/model";
 import { agentCardLimits } from "../shared/tools";
 import { ExternalError } from "./connectors/http";
 import { putArtifact } from "./artifacts";
+import { BoardService } from "./service";
 import { hasLinearItem } from "../shared/linear-ticket";
 
 const roots: string[] = [];
@@ -446,4 +447,33 @@ test("set_linear and clear_linear: set, replace the agent's own, refuse over the
   x.turn(false);
   expect(await x.failure(x.cards.setLinear(x.card, { taskId: "t", issue: "ZEN-9132" }))).toBe("AGENT_CARDS_DISABLED");
   expect(await x.failure(x.cards.clearLinear(x.card, { taskId: "t" }))).toBe("AGENT_CARDS_DISABLED");
+});
+
+test("a card opts out of the Linear ticket ask at creation and by edit; only false is stored (LINEAR-TICKET-SPEC §5)", async () => {
+  const x = await setup();
+  await x.store.updateProject({ id: "p", revision: 1, linearTicket: true });
+  const taskOf = async (id: string) => (await x.store.read()).tasks.find((t) => t.id === id)!;
+
+  const off = await x.cards.create(x.card, { title: "Audit", idempotencyKey: "no-ticket", linearTicket: false });
+  expect(off.card.linearTicket).toBe(false);
+  expect((await taskOf(off.card.taskId)).linearTicket).toBe(false);
+  const ctx = (await new BoardService(x.store).context(off.card.taskId, x.paseo)).context;
+  expect(ctx).not.toContain("Linear ticket:");
+
+  const plain = await x.cards.create(x.card, { title: "Plain", idempotencyKey: "plain-ticket" });
+  expect("linearTicket" in plain.card).toBe(false);
+  expect("linearTicket" in (await taskOf(plain.card.taskId))).toBe(false);
+  const yes = await x.cards.create(x.card, { title: "Yes", idempotencyKey: "yes-ticket", linearTicket: true });
+  expect("linearTicket" in yes.card).toBe(false);
+  expect("linearTicket" in (await taskOf(yes.card.taskId))).toBe(false);
+
+  const first = await x.cards.update(x.board, { taskId: "t", revision: 1, linearTicket: false });
+  expect(first.changed).toEqual(["linearTicket"]);
+  expect(first.card).toMatchObject({ revision: 2, linearTicket: false });
+  expect((await taskOf("t")).linearTicket).toBe(false);
+  expect((await x.store.read()).events.filter((e) => e.taskId === "t").at(-1)).toMatchObject({ action: "edited", note: "Changed linearTicket" });
+  expect((await x.cards.update(x.board, { taskId: "t", revision: 2, linearTicket: false })).changed).toEqual([]);
+  const back = await x.cards.update(x.board, { taskId: "t", revision: 2, linearTicket: true });
+  expect(back.changed).toEqual(["linearTicket"]);
+  expect("linearTicket" in (await taskOf("t"))).toBe(false);
 });

@@ -27,16 +27,16 @@ export function hasLinearItem(artifacts: readonly Pick<Artifact, "kind" | "targe
 }
 
 /**
- * The block for the card's session context, or [] when the project does not ask for it or a ticket is linked (§2, §3).
+ * The block for the card's session context, or [] when the project does not ask for it the card opted out (§5) or a ticket is linked (§2, §3).
  * `canLink` is false while agent artifacts are turned off: the agent cannot link the ticket, so later sessions find it
  * again by the card's title instead of creating a second one.
  */
 export function linearTicketLines(
   project: Pick<Project, "linearTicket" | "linearTeam">,
   artifacts: readonly Pick<Artifact, "kind" | "target" | "external">[],
-  card: { title: string; canLink: boolean },
+  card: { title: string; canLink: boolean; linearTicket?: boolean },
 ): string[] {
-  if (project.linearTicket !== true || hasLinearItem(artifacts)) return [];
+  if (project.linearTicket !== true || card.linearTicket === false || hasLinearItem(artifacts)) return [];
   const team = linearTeamValue(project.linearTeam ?? "");
   const title = card.title.replace(/\s+/g, " ").trim();
   return [

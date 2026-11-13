@@ -652,6 +652,8 @@ export function TaskForm({
   const deliverySeed = resolveDeliveryMode({ card: task?.deliveryMode, project: project.deliveryMode, group: group?.defaults?.deliveryMode, host: deliveryDefault }).mode;
   const delivery = deliveryChoice ?? deliverySeed;
   const deliveryLocked = !!task && deliveryModeLocked(task);
+  // Opt out of the project's Linear ticket ask (LINEAR-TICKET-SPEC §5); the switch shows only while the project asks.
+  const [linearOff, setLinearOff] = useState(task?.linearTicket === false);
   // From… (EXTERNAL-TRACKER-SPEC §5, CONNECTORS-SPEC §8.2): items added as inputs with the new card.
   const resources = useResourcesQuery({ enabled: ready && !task && mode === "existing" });
   const connections = useConnections(ready && !task);
@@ -734,6 +736,7 @@ export function TaskForm({
             ...(sameList(tags, tagsBase) ? {} : { tags, tagsBase }),
             // Only a mode the user changed here: an untouched one keeps following the defaults chain.
             ...(deliveryChoice !== null && !deliveryLocked && deliveryChoice !== deliverySeed ? { deliveryMode: deliveryChoice } : {}),
+            ...(linearOff !== (task.linearTicket === false) ? { linearTicket: !linearOff } : {}),
           })
         : await create({
             projectId: project.id,
@@ -746,6 +749,7 @@ export function TaskForm({
             ...(tags.length ? { tags } : {}),
             // The shown mode is stored as the card's own (DELIVERY-MODE-SPEC §2).
             deliveryMode: delivery,
+            ...(linearOff ? { linearTicket: false } : {}),
             mode,
             workspaceId: mode === "existing" ? workspaceId : undefined,
             baseRef,
@@ -867,6 +871,9 @@ export function TaskForm({
             options={deliveryModes.map((m) => ({ value: m, label: t(deliveryModeLabels[m]), disabled: deliveryLocked }))}
             onChange={setDeliveryChoice}
           />
+          {project.linearTicket === true && (
+            <Toggle title={t("Make sure there's a Linear ticket")} value={!linearOff} onChange={(on) => setLinearOff(!on)} />
+          )}
           <Choices
             title={t("Type")}
             value={type}

@@ -28,7 +28,8 @@ instructions** (`tools.prepare-existing`) and for `tasks.context`. `flowly_get_t
 so the block reaches the agent at session start. It is added only when all of these hold:
 
 1. the project has `linearTicket: true`;
-2. none of the card's artifacts (inputs or outputs) is a Linear item: an artifact whose `external.provider` is
+2. the card has not opted out (`task.linearTicket` is not `false`, §5);
+3. none of the card's artifacts (inputs or outputs) is a Linear item: an artifact whose `external.provider` is
    `linear`, or whose target is an http(s) URL on `linear.app` (or a subdomain of it).
 
 Otherwise nothing is added. The user's prompt and ordinary follow-ups are never changed (the first message stays
@@ -61,3 +62,32 @@ starts the work:
   a match. Search before create holds in both cases.
 - The project form saves and reloads both fields; an unchanged form sends neither.
 - Flowly's daemon gains no Linear write call.
+- A card with `linearTicket: false` gets no block while the other cards of the same project keep it; a card with
+  the field unset inherits the project's switch.
+
+## 5. Per-card opt-out
+
+A card can opt out of the project's switch (user decision 2026-11-13: opt out only; a card can't turn the ask on
+in a project that has it off).
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `task.linearTicket` | `false`, optional | absent = inherit the project | `false`: this card gets no Linear ticket block |
+
+- Only `false` is stored. Writing `true` removes the field (the card inherits again); a stored `true` (not written
+  by this version) is read as inherit.
+- The field has an effect only while the project's switch is on. It may be stored in any project; it is kept when the
+  project's switch is turned off and on again.
+- A card with a linked Linear item gets no block either way (§2), so the field changes nothing for it.
+- Set at creation: the New card form, `tasks.create` (`taskInput.linearTicket`, only `false` is taken), and
+  `flowly_create_card` (card sessions, sessions outside cards and the dispatcher: `linearTicket: false`; `true` or
+  omitted inherits).
+- Edited afterwards: the card form (`tasks.update`, `taskEdit.linearTicket`: `false` opts out, `true` inherits again)
+  and `flowly_update_card` (same values; a change is listed as `linearTicket` in `changed` and in the `edited` event's
+  note). Editable in any lane the card form and `flowly_update_card` already allow; it only matters for sessions and
+  work instructions started after the change.
+- The card view of the card tools (`flowly_get_card`, `flowly_create_card`, `flowly_update_card`) shows
+  `linearTicket: false` when the card opted out and leaves it out otherwise.
+- Card form: while the project's switch is on, a **Make sure there's a Linear ticket** switch (on = inherit,
+  off = opted out) next to **Delivery**. It is hidden in a project with the switch off. An unchanged switch sends
+  nothing.

@@ -6,7 +6,7 @@ import { ToolServer } from "./tool-server";
 import { groupWriter } from "./group-writes";
 import { agentFixture } from "./agent-fixture";
 import { changeLine } from "./dispatcher-items";
-import { replyOnceNote } from "./dispatcher-tools";
+import { dispatcherInputs, replyOnceNote } from "./dispatcher-tools";
 import { BoardService } from "./service";
 import { projectCreator } from "./project-create";
 import {
@@ -1591,3 +1591,8 @@ test("flowly_reply_to_agent is gated like every dispatcher write, and only the d
   expect(dispatcherToolNames).toContain("flowly_reply_to_agent");
 });
 
+
+test("the dispatcher's card tools accept linearTicket (LINEAR-TICKET-SPEC §5)", () => {
+  expect(dispatcherInputs.createCard.parse({ projectId: "p", title: "Audit", idempotencyKey: "k1", linearTicket: false })).toMatchObject({ linearTicket: false });
+  expect(dispatcherInputs.updateCard.parse({ projectId: "p", taskId: "t", revision: 1, linearTicket: true })).toMatchObject({ linearTicket: true });
+});

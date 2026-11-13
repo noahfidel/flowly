@@ -507,6 +507,12 @@
 - 4 new strings in all catalogs; the agent text stays English. Onboarding: no tour line or tip (an opt-in per-project switch, off by default, with no moment worth a tip). No What's new entry (no release). Telemetry: no field (off in this fork).
 - Checks: `shared/linear-ticket.test.ts` (decision off / on with a ticket / on without, artifacts off, the generated text, its place in the context), `server/linear-ticket.test.ts` (store save, team clear, context follows the setting, artifacts off and a linked issue). Not run: the installed plugin and a real agent session with Linear tools.
 
+## Linear ticket: per-card opt-out — 2026-11-13
+
+- `task.linearTicket?: false` (`shared/model.ts`; only `false` is stored, `true` deletes the field) removes the Linear ticket block from that card's session context while the project's switch stays on (`linearTicketLines` card arg, passed from `server/service.ts`). Set at creation (`taskInput`, `flowly_create_card`) and by edit (`taskEdit` in `server/store.ts`, `flowly_update_card` in `server/agent-cards.ts`, listed as `linearTicket` in `changed` and the edited event note). The card view of the card tools shows `linearTicket: false` only when opted out. The dispatcher's tools share the schemas. [LINEAR-TICKET-SPEC](LINEAR-TICKET-SPEC.md) §5
+- Card form (`client/forms.tsx`): the existing **Make sure there's a Linear ticket** switch next to Delivery, shown only while the project's switch is on; an unchanged switch sends nothing. No new strings. Onboarding, What's new, telemetry: none.
+- Checks: cases in `shared/linear-ticket.test.ts`, `server/linear-ticket.test.ts`, `server/agent-cards.test.ts` (create, edit, end-to-end context) and `server/dispatcher-tools.test.ts` (schemas). Not run: the installed plugin UI.
+
 ## Quick task (branch `feat/quick-task`) — 2026-11-05
 
 - **Quick task** dialog (`client/quick-task-form.tsx`): one box, Enter submits; Project / Agent / Workspace chips and More options…. Creates the card through `tasks.create` and starts the session through `launchKanbanSession`, like the full form, with a provisional title (`shared/quick-task.ts`) and the full text as the first message. [QUICK-TASK-SPEC](QUICK-TASK-SPEC.md)
