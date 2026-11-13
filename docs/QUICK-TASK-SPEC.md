@@ -59,7 +59,8 @@ Create task form stays one tap away.
   their own project. Only **Q** and Command Center **Flowly: Quick task** open with the last project used for
   a quick task, when it is still live, else the board's project. Either way the first live project is the last
   fallback, and the Project picker can change it.
-- **Group**: the group of the project the dialog opens with. That is the shown board's group, unless the entry
+- **Group**: the group of the project the dialog opens with. That is the shown board's group (from the Command
+  Center, the group the board opens on: the one last viewed, BOARD-GROUPS-SPEC §3), unless the entry
   point pins a project of another group (a lane's Add task, Linear's Start card) or the board's group is empty and
   the fallback picks another group's project; then it is that project's group. It applies to every entry point.
   Ruling (Noah 2026-11-13): the default group is the shown board's group, with no new setting (the last
