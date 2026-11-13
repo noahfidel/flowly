@@ -14,7 +14,8 @@ Create task form stays one tap away.
     to the last quick-task project when it is a live member of that group, else the group's first member (chooser
     order), and resets the agent to that project's defaults as choosing a project does; choosing the same group
     changes nothing.
-  - **Project**: the selected group's live (not archived) projects only (all live projects when no group is known).
+  - **Project**: the selected group's live (not archived) projects only (all live projects when no group is known,
+    or when the selected group has no live project left while the dialog is open).
     Default per §3.
   - **Agent**: provider · model · permission mode (its label, e.g. `claude · Opus 5.5 · Plan`; one line,
     truncated on narrow screens). Pressing it opens the same agent choice as New task (provider, model,

@@ -80,7 +80,9 @@ export function QuickTaskForm({
   const offeredGroups = seed?.idea ? [] : quickGroups(groups, projects);
   // Groups still loading, or the chosen one deleted meanwhile: the project's own group.
   const group = groups.find((g) => g.id === groupId) ?? quickGroupOf(groups, projects, projectId);
-  const shownProjects = quickGroupProjects(group, projects);
+  // A group emptied while open (or a project without a stored group): every live project, so the dialog stays usable.
+  const narrowed = quickGroupProjects(group, projects);
+  const shownProjects = narrowed.length ? narrowed : quickGroupProjects(undefined, projects);
   const project = shownProjects.find((p) => p.id === projectId) ?? shownProjects[0];
   const mode = project ? quickMode(project, modeChoice ?? view.values?.quickTaskMode ?? "worktree") : "directory";
   const choice = useAgentChoice({ enabled: !!project, cwd: project?.primaryPath, defaults: project ? quickDefaults(agentDefaultsFor(project)) : null, planFirst: true });
