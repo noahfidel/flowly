@@ -16,6 +16,7 @@ import {
 import type { Board, BoardEvent } from "../shared/model";
 import { isStopEvent } from "./event-bus";
 import { logFailure } from "./error-report";
+import { wrappedUpTaskIds } from "../shared/wrapup-state";
 import type { DispatcherEntry } from "./dispatcher";
 
 /** The dispatcher chat's own items (DISPATCHER-SPEC §9.1) and its "Changed since you looked" line (§9.2). */
@@ -114,7 +115,8 @@ const afterMark = (event: BoardEvent, mark: { revision: number; ids: readonly st
 
 /**
  * "Changed since you looked" (§9.2): cards with an agent's or the system's event after `mark` (event revision =
- * its time in ms; at the mark's own ms, an event whose id was not seen), on live cards of live projects; newest
+ * its time in ms; at the mark's own ms, an event whose id was not seen), on live cards of live projects, leaving
+ * out cards whose wrap-up still applies (`currentWrapup`); newest
  * first. The user's own changes and the actions of every dispatcher session this install has had
  * (`dispatcherAgentIds`) are left out. With `projectIds` (a group's live projects, §0) only their cards count. Null
  * when nothing changed.
@@ -125,7 +127,8 @@ export function changeLine(board: Board, mark: SeenMark | null, dispatcherAgentI
   const dispatchers = new Set(dispatcherAgentIds);
   const only = projectIds ? new Set(projectIds) : null;
   const live = new Set(board.projects.filter((p) => !p.archivedAt && (!only || only.has(p.id))).map((p) => p.id));
-  const tasks = new Map(board.tasks.filter((t) => !t.archivedAt && live.has(t.projectId)).map((t) => [t.id, t]));
+  const wrapped = wrappedUpTaskIds(board.events);
+  const tasks = new Map(board.tasks.filter((t) => !t.archivedAt && !wrapped.has(t.id) && live.has(t.projectId)).map((t) => [t.id, t]));
   const requested = echoes(board.events, dispatchers);
   const changed = new Map<string, { card: ChangedCard; newest: number; ids: string[] }>();
   let newest = -Infinity;

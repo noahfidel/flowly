@@ -1,4 +1,5 @@
 import type { Project, Task, BoardEvent } from "./model";
+import { wrappedUpTaskIds } from "./wrapup-state";
 import { openReport, silentTurn } from "./progress";
 import { parseQuestions, pendingRequests, showsTextInput, type PendingRequest } from "./permission-question";
 import {
@@ -91,13 +92,23 @@ export function attentionItems(board: FullBoard, agents: readonly Agent[], recei
 
 /** Share the state-combination engine; overview facts are never fabricated events. */
 export function attentionItemsWithFacts(
-  board: { projects: Project[]; tasks: Task[]; attentionDismissals?: readonly AttentionDismissal[] },
+  board: {
+    projects: Project[];
+    tasks: Task[];
+    attentionDismissals?: readonly AttentionDismissal[];
+    /** Full board: wrap-ups are read from the events. */
+    events?: readonly BoardEvent[];
+    /** Overview: each card's `wrapped` fact (the same `currentWrapup` answer). */
+    cards?: readonly { taskId: string; wrapped: boolean }[];
+  },
   agents: readonly Agent[],
   receipts: readonly SessionReadReceipt[],
   readUnavailable: boolean,
   factsOf: (task: Task, agentId: string) => SessionFactsLike | undefined,
 ): AttentionItem[] {
   const items: AttentionItem[] = [];
+  // A wrapped-up card leaves "N updated": only its unread turns drop, every need-you signal stays.
+  const wrappedUp = board.events ? wrappedUpTaskIds(board.events) : new Set((board.cards ?? []).filter((c) => c.wrapped).map((c) => c.taskId));
   for (const task of board.tasks) {
     if (task.archivedAt) continue;
     const project = board.projects.find((p) => p.id === task.projectId);
@@ -114,7 +125,7 @@ export function attentionItemsWithFacts(
       }))
       .map(({ agent, facts }) => {
         const state = sessionAttentionFromTurn(agent, task.id, receipts, facts?.latestTurn);
-        const unread = !readUnavailable && !held && state.unread && !state.permission && !state.error;
+        const unread = !readUnavailable && !held && !wrappedUp.has(task.id) && state.unread && !state.permission && !state.error;
         const requests = state.permission ? pendingRequests(agent) : [];
         const parts = sessionSignalParts({
           agent,

@@ -46,6 +46,24 @@ const stored = async (d: Dispatcher) => seenMark((await d.record()).groups.g1 ??
 const event = (taskId: string, at: number, extra: Partial<BoardEvent> = {}): BoardEvent => ({ id: `e-${taskId}-${at}`, taskId, actor: "agent", action: "progress_reported", at: iso(at), ...extra });
 const mark = (revision: number, ids: string[] = []): SeenMark => ({ revision, ids });
 
+test("a wrapped-up card is left out of the change line until its wrap-up stops applying", () => {
+  const wraps: BoardEvent[][] = [
+    [event("t1", T0 + 1_000, { actor: "human", action: "wrapped_up" })],
+    [event("t1", T0 + 1_000, { actor: "system", action: "workspace_auto_archived" })],
+  ];
+  for (const wrap of wraps) {
+    const b = board();
+    b.events.push(...wrap, event("t1", T0 + 2_000), event("t2", T0 + 2_000));
+    const cards = (x: typeof b) => { const l = changeLine(x, mark(T0), []); return l?.kind === "change" ? l.cards.map((c) => c.taskId) : []; };
+    expect(cards(b)).toEqual(["t2"]);
+    for (const back of [event("t1", T0 + 3_000, { actor: "human", action: "status_changed", to: "development" }), event("t1", T0 + 3_000, { actor: "human", action: "workspace_restored" })]) {
+      const c = board();
+      c.events.push(...wrap, event("t1", T0 + 2_000), event("t2", T0 + 2_000), back);
+      expect(cards(c).sort()).toEqual(["t1", "t2"]);
+    }
+  }
+});
+
 test("the change line counts cards changed since the seen revision", () => {
   const b = board();
   b.events.push(

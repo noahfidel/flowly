@@ -76,7 +76,7 @@ Snooze in a list calls `attention.dismiss { taskId, list, signals }` with the ca
 
 ### 3.4 Counts
 
-The "N need you" chip, the dock's Needs you queue, the `N` shortcut, the phone bell and the Paseo sidebar badge (`attention.count`, SIDEBAR-BADGE-SPEC) count only open, un-snoozed need-you signals. "N updated" and its queue count the cards the dispatcher saw change plus the cards with an un-snoozed open unread turn. All of them come from the same `asksFrom` / `attentionItems` rule, so board and sidebar match.
+The "N need you" chip, the dock's Needs you queue, the `N` shortcut, the phone bell and the Paseo sidebar badge (`attention.count`, SIDEBAR-BADGE-SPEC) count only open, un-snoozed need-you signals. "N updated" and its queue count the cards the dispatcher saw change plus the cards with an un-snoozed open unread turn. All of them come from the same `asksFrom` / `attentionItems` rule, so board and sidebar match. "N updated" leaves out wrapped-up cards (wrap-up still applying per `currentWrapup`): neither the change line nor their unread turns count; their need-you signals still do.
 
 ### 3.5 Tip
 

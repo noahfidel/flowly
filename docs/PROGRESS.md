@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Wrapped-up cards leave "N updated" (branch `kanban/remove-a-card-from-the-unread-queue-when-86798b`) — 2026-11-13
+
+- Cause: Wrap up with *keep card* and Auto wrap up archive the sessions and workspace but not the card, so the change line kept listing it (its own `workspace_auto_archived` event counted as news) and its unread turns stayed in the queue.
+- Fix: `wrappedUpTaskIds` (`shared/wrapup-state.ts`, same answer as `currentWrapup` per task, one pass) is left out of `changeLine` and drops only the unread parts in `attentionItemsWithFacts` (full board: from events; overview: from each card's `wrapped` fact). Computed on read, nothing stored; "N need you" unchanged. DISPATCHER-SPEC §9.2 ruling (Noah, 2026-11-13), ATTENTION-DISMISS-SPEC §3.4.
+- Failing-then-passing tests: `shared/wrapup-state.test.ts`, `server/dispatcher-items.test.ts`, `client/attention.test.ts`.
+- Checks: see the commit's report. No UI strings, tip, telemetry field or What's new change.
+
 ## Updated picker: per-card Mark seen, stable walk, change summaries, no echoes of the user's own requests (branch `kanban/fix-the-updated-picker-wrong-mark-seen-u-bffc04`) — 2026-11-12
 
 - DISPATCHER-SPEC §9.2 ruling (2026-11-12). Mark seen: `dispatcher.mark-seen` gains `taskId`; per-card marks in `seenCards` of the group entry; `changeLine` counts an event only after both the group mark and the card's mark; the picker marks the shown card and moves to the next one (`afterMarkSeen`), ending when none is left.

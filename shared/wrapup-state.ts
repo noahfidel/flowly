@@ -16,3 +16,17 @@ export function currentWrapup(events: readonly BoardEvent[], taskId: string): Bo
   }
   return null;
 }
+
+/**
+ * Every task whose latest wrap-up still applies: the same answer as `currentWrapup(events, id) !== null` for each
+ * task, in one forward pass.
+ */
+export function wrappedUpTaskIds(events: readonly BoardEvent[]): Set<string> {
+  const wrapped = new Set<string>();
+  for (const e of events) {
+    if (wrapActions.has(e.action)) wrapped.add(e.taskId);
+    else if (e.action === "workspace_restored") wrapped.delete(e.taskId);
+    else if (e.action === "status_changed" && e.to && e.to !== "done" && e.to !== "cancelled") wrapped.delete(e.taskId);
+  }
+  return wrapped;
+}

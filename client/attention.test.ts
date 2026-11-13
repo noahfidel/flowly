@@ -116,3 +116,17 @@ test("agent questions flag a card even when read; silent unread turns are annota
   expect(items.find((i) => i.task.id === "b")).toMatchObject({ unread: 1, silent: 1 });
   expect(items[0].task.id).toBe("a");
 });
+
+test("a wrapped-up card's unread turn leaves Updates while its asks stay; reopening brings it back", () => {
+  const ev = (id: string, action: string, extra: Record<string, unknown> = {}) => ({ id, taskId: "a", actor: "human", action, at: now, ...extra });
+  const board = (events: ReturnType<typeof ev>[]) => ({ projects: [project("p")], tasks: [task("a", "wa")], events: events as never });
+  const wrap = ev("w", "wrapped_up");
+  const unread = [agent("s1", "wa", finished)];
+  expect(attentionItems(board([wrap]), unread, [], false)).toEqual([]);
+  expect(attentionItems(board([ev("w", "workspace_auto_archived", { actor: "system" })]), unread, [], false)).toEqual([]);
+  const ask = agent("s2", "wa", { pendingPermissions: [{ id: "p", kind: "tool" }] });
+  expect(attentionItems(board([wrap]), [...unread, ask], [], false)[0]).toMatchObject({ permissions: 1, unread: 0 });
+  for (const back of [ev("x", "status_changed", { to: "development" }), ev("x", "workspace_restored")]) {
+    expect(attentionItems(board([wrap, back]), unread, [], false)[0]).toMatchObject({ unread: 1 });
+  }
+});
