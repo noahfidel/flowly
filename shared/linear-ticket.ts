@@ -27,7 +27,7 @@ export function hasLinearItem(artifacts: readonly Pick<Artifact, "kind" | "targe
 }
 
 /**
- * The block for the card's session context, or [] when the project does not ask for it the card opted out (§5) or a ticket is linked (§2, §3).
+ * The block for the card's session context, or [] when the project does not ask for it, the card opted out (§5) or a ticket is linked (§2, §3).
  * `canLink` is false while agent artifacts are turned off: the agent cannot link the ticket, so later sessions find it
  * again by the card's title instead of creating a second one.
  */
