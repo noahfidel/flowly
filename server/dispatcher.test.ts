@@ -26,7 +26,7 @@ import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
 import { agentFixture } from "./agent-fixture";
 import type { DispatcherIdentity } from "./tool-context";
-import { dispatcherBuiltinTools, dispatcherCharter, dispatcherConfirmedToolNames, dispatcherGuardVersion, dispatcherToolNames, dispatcherWithheldTools, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
+import { dispatcherBuiltinTools, dispatcherCharter, dispatcherConfirmedToolNames, dispatcherGuardVersion, dispatcherToolNames, dispatcherWithheldTools, noteReplyRule, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
 import { emptyBoard, type Board, type BoardEvent, type Group } from "../shared/model";
 
 const directories: string[] = [];
@@ -463,6 +463,7 @@ test("notes wait for the turn to end and never steer", async () => {
   expect(sent.text).toContain("Flowly board update (2 cards):");
   expect(sent.text).toContain('- "Card t1" [t1] in project p: status_changed — blocked → in_review');
   expect(sent.text).not.toContain("todo → blocked");
+  expect(sent.text.split("\n").at(-1)).toBe(noteReplyRule);
   expect(sent.text).toContain('- "Card t2" [t2] in project p');
   expect((sent.options as { activeTurnBehavior?: unknown } | undefined)?.activeTurnBehavior).toBeUndefined();
   // Held notes are sent once.
@@ -615,7 +616,7 @@ test("only stops reach the batcher and the dispatcher's own facts never do", asy
   expect(deliver).toHaveBeenCalledTimes(1);
 });
 
-test("a repeated A1r restore notifies once until real work or another transition", async () => {
+test("A1r restores and the user's own moves never wake the dispatcher, a real delivery does", async () => {
   vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
   const x = await setup();
   const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
@@ -639,19 +640,15 @@ test("a repeated A1r restore notifies once until real work or another transition
     fact({ actor: "system", rule: "A1r", from: "development", to: "in_review", note: "No work was reported in that turn; restored" }),
   ];
   bus.publish(chat());
+  bus.publish([fact({ actor: "human", from: "in_review", to: "done" })]);
   await vi.advanceTimersByTimeAsync(11_000);
-  bus.publish(chat());
-  await vi.advanceTimersByTimeAsync(11_000);
-  expect(deliver).toHaveBeenCalledTimes(1);
+  expect(deliver).not.toHaveBeenCalled();
   // A real delivery is not a restore and is delivered.
   bus.publish([fact({ from: "development", to: "in_review", note: "Done, please review" })]);
   await vi.advanceTimersByTimeAsync(11_000);
-  expect(deliver).toHaveBeenCalledTimes(2);
-  expect(delivered[1][0]).toMatchObject({ taskId: "t1", detail: "development → in_review: Done, please review" });
-  // After it, a restore notifies again.
-  bus.publish(chat());
-  await vi.advanceTimersByTimeAsync(11_000);
-  expect(deliver).toHaveBeenCalledTimes(3);
+  expect(deliver).toHaveBeenCalledTimes(1);
+  expect(delivered[0]).toHaveLength(1);
+  expect(delivered[0][0]).toMatchObject({ taskId: "t1", detail: "development → in_review: Done, please review" });
 });
 
 test("NoteBatcher.dispose drops pending notes and its timer", async () => {
@@ -1449,6 +1446,16 @@ test("the charter says to answer an agent once: the tool or final text, never bo
   expect(line).toMatch(/Answer once/);
   expect(line).toMatch(/final turn text/);
   expect(line).toMatch(/never both/);
+});
+
+test("the charter answers board updates in one line per card and lists flowly_create_project once", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  const line = charter.split("\n").find((l) => l.startsWith('- Messages that start with "Flowly board update"'))!;
+  expect(line).toContain("at most one line per card");
+  expect(line).toContain("Never restate the card's report");
+  expect(line).toContain("Never add reminders");
+  expect(charter).toContain("No headings or bullet lists for routine updates.");
+  expect(charter.split("Create a Flowly project with flowly_create_project").length - 1).toBe(1);
 });
 
 test("the charter says plainly that only the user answers a card's asks", () => {

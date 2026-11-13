@@ -17,6 +17,7 @@ import {
   mergeNotes,
   noteBatching,
   noteMessagePrefix,
+  noteReplyRule,
   seenIdLimit,
   summaryMessagePrefix,
   userSendOptions,
@@ -31,7 +32,7 @@ import { effectiveDispatcherModel, type AgentModel } from "../shared/agent-defau
 import type { OutgoingImage } from "../shared/composer";
 import { createDirectoryWorkspace } from "./background-workspace";
 import { logFailure } from "./error-report";
-import { EventBus, NoteBatcher, RestoreRepeats, isStop, type BusFact } from "./event-bus";
+import { EventBus, NoteBatcher, isStop, type BusFact } from "./event-bus";
 import type { DispatcherIdentity } from "./tool-context";
 import { ToolError } from "./tool-error";
 
@@ -330,6 +331,7 @@ export function noteMessage(notes: readonly DispatcherNote[]): string {
       const detail = [n.detail, n.later ? `then ${n.later}` : ""].filter(Boolean).map(oneLine).join("; ");
       return `- "${oneLine(n.title)}" [${n.taskId}] in project ${n.projectId}: ${n.kind}${detail ? ` — ${detail}` : ""}${n.earlier ? ` (+${n.earlier} earlier)` : ""}`;
     }),
+    noteReplyRule,
   ].join("\n");
 }
 
@@ -1261,10 +1263,8 @@ export function wireDispatcher(bus: EventBus, dispatcher: Dispatcher, paseo: () 
         void dispatcher.deliver(groupId, notes, api).catch((e) => logFailure("Flowly dispatcher notes not delivered:", e));
       }),
   );
-  const repeats = new RestoreRepeats();
   const off = bus.subscribe((facts) => {
-    // The filter sees every fact, so real work on a card re-arms its restore notes.
-    const stops = repeats.filter(facts).filter(isStop);
+    const stops = facts.filter(isStop);
     if (stops.length) dispatcher.pushStops(stops);
   });
   return () => {
