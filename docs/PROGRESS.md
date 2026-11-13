@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Dispatcher answers board updates in one line (branch `kanban/make-the-dispatcher-chat-in-flowly-less-03b4e6`) — 2026-11-13
+
+- Cause: every stop note woke the dispatcher, including the user's own moves and A1r restores, and its replies restated the card's report and reminded about other cards.
+- Fix: `isStop` is false for `actor` human and A1r restores, so `RestoreRepeats` is removed; the charter's board-update bullet asks for at most one line per card with no restating or reminders, and drops the duplicated `flowly_create_project` bullet; each note batch ends with `noteReplyRule` (running dispatchers keep their old charter). EVENT-BUS-SPEC §2, §3.1, §4; DISPATCHER-SPEC §6, §7 (ruling, Noah, 2026-11-13).
+- Failing-then-passing tests: `server/event-bus.test.ts` (user moves, A1r), `server/dispatcher.test.ts` (charter wording, one `flowly_create_project` bullet, note message ends with the rule, restores and user moves deliver nothing).
+- Checks: `npm run typecheck` exit 0; `npm test` exit 0 (215 files passed, 1 skipped; 2471 tests passed, 7 skipped). No UI string, tip, telemetry field or What's new change.
+
 ## Wrapped-up cards leave "N updated" (branch `kanban/remove-a-card-from-the-unread-queue-when-86798b`) — 2026-11-13
 
 - Cause: Wrap up with *keep card* and Auto wrap up archive the sessions and workspace but not the card, so the change line kept listing it (its own `workspace_auto_archived` event counted as news) and its unread turns stayed in the queue.

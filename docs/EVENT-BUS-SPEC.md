@@ -27,7 +27,7 @@ A commit publishes its events once, after the write is saved and before storage'
 - `board`: `status_changed` into `blocked`, `in_review`, `committed`, `integrated`, `done` or `cancelled`; any `status_changed` or `progress_reported` event whose `reportKind` is `question`, `blocker` or `result`; `agent.turn_ended` with outcome `failed`.
 - `permission`.
 
-False for: turn starts, status changes into `design`, `development`, `test` (including the automatic ones), `progress` reports, permission resolutions, every other action (edits, tags, ideas, `agent.permission_requested`). A turn that ends `canceled` is not a stop.
+False for: events by the user (`actor` human: their own moves are not news to them), A1r restores (`rule` A1r, "No work was reported in that turn; restored"), turn starts, status changes into `design`, `development`, `test` (including the automatic ones), `progress` reports, permission resolutions, every other action (edits, tags, ideas, `agent.permission_requested`). A turn that ends `canceled` is not a stop.
 
 ## 3. Note batching
 
@@ -41,19 +41,15 @@ False for: turn starts, status changes into `design`, `development`, `test` (inc
 
 `kind`: the report kind (`question`, `blocker`, `result`) when the event has one other than `progress`; `status_changed` for a status move; `turn_failed` for a failed turn; else the event's `action`. `detail`: the status move (`<from> → <to>`) and the event's note, when any. `later` and `earlier` are set only by merging.
 
-### 3.1 Repeated restores
+### 3.1 Restores
 
-Chatting with a card in review moves it to development at turn start (rule A1) and back when the turn reports nothing (rule A1r, "No work was reported in that turn; restored"). `RestoreRepeats.filter(facts)` runs on every fact before the stop filter and drops an A1r `status_changed` whose signature (`from`, `to`, `note`) equals the last one it let through for that card.
-
-- The entry for a card is cleared by real work or a new transition: an event by an agent (except `next_moves_suggested`), an event by a human, a `status_changed` whose rule is not A1 or A1r, and a failed turn. Turn starts, completed or canceled turn ends, permission requests, `next_moves_suggested`, A1 moves and other system events leave it.
-- Facts are handled in order, so a clearing fact and an A1r in the same call both pass. Non-board facts pass untouched.
-- Cards are independent. The memory is in process only and capped (oldest dropped); after a plugin restart one more restore may be let through.
+A1r restores are not stops (§2), so the dispatcher never hears them. The earlier per-card repeat filter (`RestoreRepeats`) was removed.
 
 ## 4. Acceptance
 
 - One commit publishes each of its events once; a deleted card's events are skipped.
 - Stop and non-stop classification as in §2.
 - The dispatcher's own facts produce no note.
-- An A1r restore identical to the card's last one let through is dropped until real work or another transition on the card; a different move, other cards and non-board facts pass (§3.1).
+- The user's own events and A1r restores are not stops; an agent or system move into a stop status, with another rule or none, still is (§2, §3.1).
 - Facts within the window become one batch; a steady stream flushes by `maxWaitMs`.
 - `onCommit` still schedules the folder snapshot.
