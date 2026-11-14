@@ -10,9 +10,9 @@ Status: authorized by the user's 2026-10-14 sidebar redesign request. This repla
 
 2026-10-29 Worktree / Local in the header row (user request, card "badge for worktree vs local"). See [Workspace kind](#workspace-kind).
 
-2026-10-19 sidebar tweaks (card "UI/UX 调整"): see [Section order and Artifacts paging](#section-order-and-artifacts-paging) below. Progress → History rows now start at the section's left edge (the `Disclosure` `flush` option) and an opened version's fields line up with its title.
+2026-10-19 sidebar tweaks (card "UI/UX adjustments"): see [Section order and Artifacts paging](#section-order-and-artifacts-paging) below. Progress → History rows now start at the section's left edge (the `Disclosure` `flush` option) and an opened version's fields line up with its title.
 
-2026-10-24 open card's lane beside the sidebar (user request, card "UI/UX常规修修补补"): on desktop, opening a card narrows the board, which could leave the card's lane under or past the sidebar's edge. When a card is opened (from the board, a link, Ideas, Memory or Insights), moves to another lane, or the board comes back from a page with a card open, the board scrolls (animated, after the sidebar has narrowed it) so that lane is centred in the board's visible part; a lane already fully visible stays put. The overview bar's In review / Blocked chips keep scrolling their lane to the left edge, and a chip pressed while a page closes keeps its lane. A request is not replayed when the board mounts again more than a second later. Phones are unchanged (the card covers the board). Then the card is scrolled (animated) into its lane's list with `cardRevealOffset`, unless already fully visible; the overview chips do not. Code: `laneRevealOffset` in `client/geometry.ts`, the `reveal` prop of `DesktopColumns`.
+2026-10-24 open card's lane beside the sidebar (user request, card "General UI/UX touch-ups"): on desktop, opening a card narrows the board, which could leave the card's lane under or past the sidebar's edge. When a card is opened (from the board, a link, Ideas, Memory or Insights), moves to another lane, or the board comes back from a page with a card open, the board scrolls (animated, after the sidebar has narrowed it) so that lane is centred in the board's visible part; a lane already fully visible stays put. The overview bar's In review / Blocked chips keep scrolling their lane to the left edge, and a chip pressed while a page closes keeps its lane. A request is not replayed when the board mounts again more than a second later. Phones are unchanged (the card covers the board). Then the card is scrolled (animated) into its lane's list with `cardRevealOffset`, unless already fully visible; the overview chips do not. Code: `laneRevealOffset` in `client/geometry.ts`, the `reveal` prop of `DesktopColumns`.
 
 ## Layout and behavior
 
@@ -43,7 +43,7 @@ Actual desktop/compact appearance, dropdown placement, path wrapping and gesture
 
 ## Section order and Artifacts paging
 
-Status: implemented 2026-10-19. Card: UI/UX 调整. Title kept for links; covers the whole sidebar layout.
+Status: implemented 2026-10-19. Card: UI/UX adjustments. Title kept for links; covers the whole sidebar layout.
 
 2026-10-28 Workpad and Auto review (GUARDRAILS-SPEC §7.1): the separate Auto review section and the Memory section are gone. The Workpad section holds four groups, each shown only with content: Acceptance, This card (what the card was sent back for, memory it left), Review (the latest review, failed items first, with Rerun) and Steps (the agent's todo list; titled Plan before 2026-11-10, renamed so it is not confused with the card's plan, CARD-PLAN-SPEC). It opens per the user's sidebar defaults; the old "Workpad collapsed while Auto review is on" rule is removed.
 
@@ -56,7 +56,7 @@ Status: implemented 2026-10-19. Card: UI/UX 调整. Title kept for links; covers
 
 ## Focus from search
 
-Status: implemented 2026-10-27. Card: 搜索功能 (SEARCH-SPEC §5.3).
+Status: implemented 2026-10-27. Card: Search feature (SEARCH-SPEC §5.3).
 
 1. The board passes the drawer a focus request: a fresh key, a section (Progress, Workpad, Artifacts, Ideas or Activity) and an optional item target (`event:<id>`, `workpad:<item id>`, `idea:<id>`, `artifact:<id>`). Each new key is handled once.
 2. The drawer opens that section in its own open state for this opening only (item 3 above); the stored *Starts open* choices are never written.
@@ -68,7 +68,7 @@ Status: implemented 2026-10-27. Card: 搜索功能 (SEARCH-SPEC §5.3).
 
 ## Type scale
 
-Status: implemented 2026-10-19. Card: UI/UX 调整. One scale for every sidebar section (`font` in `client/ui.tsx`):
+Status: implemented 2026-10-19. Card: UI/UX adjustments. One scale for every sidebar section (`font` in `client/ui.tsx`):
 
 | Role | Size | Examples |
 | --- | --- | --- |
@@ -80,7 +80,7 @@ Status: implemented 2026-10-19. Card: UI/UX 调整. One scale for every sidebar 
 
 ## Main and sub sessions
 
-Status: implemented 2026-10-19 (user choice: automatic by parent, option 1). Card: UI/UX 调整.
+Status: implemented 2026-10-19 (user choice: automatic by parent, option 1). Card: UI/UX adjustments.
 
 1. The Sessions list shows **main sessions** (no parent, or a parent that is not one of this card's sessions) newest first. A Paseo child agent (`paseo.parent-agent-id`, SUBAGENTS-SPEC) whose parent is on the card goes under its top-most ancestor on the card; grandchildren are flattened under that main session, oldest first. Parent loops and missing parents fall back to main sessions, so no session is hidden (`sessionTree` in `shared/subagents.ts`).
 2. Under a main session with subagents, one row (`↳`, the Subagents chip's summary such as "2 working, 1 needs input", a chevron) shows or hides them. The rows reveal and hide with the shared measured-height `Collapse` and the chevron turns with the same progress (Motion: Reduce Motion honoured, interruptible). It is folded unless a subagent needs input or failed, or the selected session is one of them; the user's toggle wins until the sidebar closes.

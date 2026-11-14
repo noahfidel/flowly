@@ -1,6 +1,6 @@
 # Flowly built-in tool and skill names
 
-Status: requested 2026-10-19. This supersedes the naming in Phase 2 and the 2026-10-16 rename note. Input: card “内置工具、skills改名” and the user's instruction to remove the old product name from built-in tools and skills.
+Status: requested 2026-10-19. This supersedes the naming in Phase 2 and the 2026-10-16 rename note. Input: card "Rename built-in tools and skills" and the user's instruction to remove the old product name from built-in tools and skills.
 
 ## Observable contract
 

@@ -1,6 +1,6 @@
 # Interface languages (i18n)
 
-Status: implemented on the user's request ("增加常用语言的本地化", 2026-10-16). Task `682321fc`.
+Status: implemented on the user's request ("Add localization for common languages" (translated), 2026-10-16). Task `682321fc`.
 
 ## 1. Scope
 
@@ -13,7 +13,7 @@ Not translated, on purpose:
 - text written by models (task progress summaries, daily digest, Workflow and session insights, agents' next moves and ideas): they follow the separate **AI output language** setting, stated explicitly in every prompt ([AI-LANGUAGE-SPEC](AI-LANGUAGE-SPEC.md)); it defaults to the interface language;
 - user content (titles, descriptions, notes, ideas, lane names a project renamed).
 
-Languages: English (source), 简体中文 `zh-CN`, 繁體中文 `zh-TW`, 日本語 `ja`, 한국어 `ko`, Español `es`, Français `fr`, Deutsch `de`, Português (Brasil) `pt-BR`, Русский `ru`. The list is `locales` in `shared/i18n.ts`.
+Languages: English (source), Simplified Chinese `zh-CN`, Traditional Chinese `zh-TW`, Japanese `ja`, 한국어 `ko`, Español `es`, Français `fr`, Deutsch `de`, Português (Brasil) `pt-BR`, Русский `ru`. The list is `locales` in `shared/i18n.ts`.
 
 The Paseo SDK (0.11.2) exposes no host language, so the plugin follows the device (`Intl.DateTimeFormat().resolvedOptions().locale`, mapped by `resolveLocale`) unless the user picks one.
 

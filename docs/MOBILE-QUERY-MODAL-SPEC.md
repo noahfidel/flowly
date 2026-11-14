@@ -1,8 +1,8 @@
 # Mobile query visibility and first task form — 2026-10-23
 
-2026-10-24 当前决策见 [统一宽度策略](RESPONSIVE-PERFORMANCE-SPEC.md)：所有紧凑布局
-暂停被覆盖根查询，Sidebar一律读取轻量计数，TaskForm一律等转场settled后启动重内容。
-取代本文历史native-only/Web并行分支；fresh校验、稳定输入节点和450ms交接不变。
+2026-10-24 For the current decision see [unified width policy](RESPONSIVE-PERFORMANCE-SPEC.md): every compact layout
+pauses covered root queries, the Sidebar always reads lightweight counts, and TaskForm always waits for the transition to settle before starting heavy content.
+This replaces this file's historical native-only/Web parallel branches; the fresh check, the stable input node and the 450ms handoff are unchanged.
 
 Scope: follow the [phone assessment](verification/mobile-perf-2026-10-23/README.md). Reduce plugin-owned invisible work and first TaskForm work; no host/transport changes, global cache, dependency, or authorization shortcuts.
 
@@ -31,4 +31,4 @@ Unrun device/IME/component-race gaps from the assessment remain explicit unless 
 For ordinary native compact overview, replace the first complete-board dependency with BoardOverview. Explicit detail/forms/pages retain the complete Board path; disable its root observer/interval otherwise. Overview does not enter complete cache or fresh authorization. All child consumers must be absent or disabled through the first-display/idle window; mounted and phone verification are required. Existing query visibility, retained tree, native input and 450ms handoff constraints remain. [Two-stage spec](NATIVE-OVERVIEW-SPEC.md).
 
 
-2026-10-24 CardDetail：抽屉 Progress/Workpad/Tags/Links/Ideas/Artifacts 不再创建 full-board observer；独立 detail/project index 支持各区段，LinkPicker 按需索引，不借 full cache。session preview 暂停详情 interval。连续可反转动画和 MODAL_CLOSE_MS=450 保持；输入 seed/key、焦点和草稿不由后台刷新重置。详见 NATIVE-OVERVIEW-SPEC §7。
+2026-10-24 CardDetail: the drawer's Progress/Workpad/Tags/Links/Ideas/Artifacts no longer create a full-board observer; a separate detail/project index supports each section, LinkPicker indexes on demand and does not borrow the full cache. Session preview pauses the detail interval. Continuous reversible animation and MODAL_CLOSE_MS=450 are kept; the input seed/key, focus and drafts are not reset by background refreshes. See NATIVE-OVERVIEW-SPEC §7.

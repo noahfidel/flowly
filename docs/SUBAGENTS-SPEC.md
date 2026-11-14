@@ -1,6 +1,6 @@
 # Subagents chip in the session view
 
-Card: "side bar session关联subagent" (2026-10-19). Scope chosen by the user: **option C**, Paseo-native child agents only.
+Card: "Link subagents to sessions in the sidebar" (2026-10-19). Scope chosen by the user: **option C**, Paseo-native child agents only.
 
 ## 1. Goal
 

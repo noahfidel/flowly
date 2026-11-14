@@ -1,17 +1,17 @@
 # Mobile task/session switch long frames — 2026-10-23
 
-## 2026-10-24 用户决定：按宽度统一
+## 2026-10-24 User decision: unify by width
 
-用户已明确要求“不用验证了，统一优化，不做特化，只根据屏幕大小做差异”。
-当前 [统一宽度策略](RESPONSIVE-PERFORMANCE-SPEC.md)取代本文旧Android-only gate：
-所有紧凑Drawer均设置removeClippedSubviews，宽屏关闭。不再等待iOS单独验证后启用。
-下文三星测量只保留为历史依据，不证明新统一版本已验证；本轮不运行任何测试或设备操作。
+The user explicitly asked: "No need to verify, optimize uniformly, no special cases, differ only by screen size" (translated).
+The current [unified width policy](RESPONSIVE-PERFORMANCE-SPEC.md) replaces this file's old Android-only gate:
+every compact Drawer sets removeClippedSubviews, and wide screens turn it off. It no longer waits for separate iOS verification before being enabled.
+The Samsung measurements below are kept only as historical basis. They do not prove the new unified version is verified; this round runs no tests or device operations.
 
 ## Scope and attribution gate
 
 Continue MOBILE-QUERY-MODAL-SPEC on the same Samsung SM-S911B. First add finite opt-in segment timers to drawer, session preview/transcript, progress and workpad. Measure pre-return synchronous preparation work separately from render-to-effect spans (the latter include descendants, scheduling, commit and effects, and are not CPU profiles). Existing 10-second aggregate logs contain no task/session/message identifiers. No new dependency, API, cache or background poll.
 
-Capture the same current task 手机端自动化测试 and its root session before/after, using warm navigation in the original connection. Android gfxinfo framestats include a bounded 2-second window without hierarchy polling, then read hierarchy for correctness. Record first-ready observation separately: its upper bound includes UIAutomator overhead. Keep invalid/reconnect windows. Do not label p99 a precise individual stall or imply JS/GPU cause from gfxinfo alone. Finite spans plus Android per-frame durations can narrow attribution; claim only what they support.
+Capture the same current task "Mobile automated testing" and its root session before/after, using warm navigation in the original connection. Android gfxinfo framestats include a bounded 2-second window without hierarchy polling, then read hierarchy for correctness. Record first-ready observation separately: its upper bound includes UIAutomator overhead. Keep invalid/reconnect windows. Do not label p99 a precise individual stall or imply JS/GPU cause from gfxinfo alone. Finite spans plus Android per-frame durations can narrow attribution; claim only what they support.
 
 ## Minimal implementation gate
 

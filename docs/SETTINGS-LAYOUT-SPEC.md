@@ -1,6 +1,6 @@
 # Settings modal: two columns by function
 
-Status: implemented on the user's request (2026-10-16): "ultra kanban设置菜单的UI重新设计下，用左右两列的方式，根据功能进行划分".
+Status: implemented on the user's request (2026-10-16): "Redesign the UI of the ultra kanban settings menu: use two columns, left and right, split by function" (translated).
 
 - Left column: four sections, each with an icon. Right column: the settings of the selected section, in their own scroll area. The window is plugin-owned (a React Native `Modal` with a backdrop, title bar and close button) instead of the host Modal, whose width is fixed at about 520 px: it is up to 900 px wide (window width − 32 on small windows), the body has a fixed height (≤ 470, shrinks on short windows) so switching sections does not resize it. Esc, a click on the backdrop and the close button close it; board shortcuts are paused while it is open.
 - Sections: **General** (Language; Welcome tour and tips), **Models** (default model for new sessions; summary model, see [MODEL-DEFAULTS-SPEC](MODEL-DEFAULTS-SPEC.md)), **Workflow** (Moving cards; Finishing cards: auto wrap up, auto archive on delete), **AI features** (task progress summary and daily digest switches; Ideas).

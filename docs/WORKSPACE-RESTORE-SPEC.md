@@ -1,6 +1,6 @@
 # Restore a wrapped-up card's workspace and sessions when it leaves Done/Cancelled
 
-Status: the user requested this on 2026-10-15 and chose option A, a temporary direct daemon connection. Their words: "按A试一下，并进行测试，如果通过就先这么用，记录着，以后SDK支持了的话再改方案". Upstream: [MULTITASK-SPEC](MULTITASK-SPEC.md) (wrap-up, auto wrap-up).
+Status: the user requested this on 2026-10-15 and chose option A, a temporary direct daemon connection. Their words (translated): "Try option A and test it. If it passes, use it for now, record it, and change the approach once the SDK supports it". Upstream: [MULTITASK-SPEC](MULTITASK-SPEC.md) (wrap-up, auto wrap-up).
 
 ## Behavior
 
@@ -14,7 +14,7 @@ Status: the user requested this on 2026-10-15 and chose option A, a temporary di
   - **Directory still exists**: unarchive in place.
   - **Worktree directory removed**: recreate the worktree at the same path on its kept branch, then unarchive. With no recorded branch, Paseo creates `restored/<id>` from the base. Uncommitted changes lost at archive time are not recovered.
   - **Directory, project or source repository gone**: unavailable. The plugin records the reason.
-- **Sessions** (user follow-up the same day: "把session也复活"): after the workspace is back, the sessions that a wrap-up of this card archived are unarchived too.
+- **Sessions** (user follow-up the same day: "bring the sessions back too" (translated)): after the workspace is back, the sessions that a wrap-up of this card archived are unarchived too.
   - **Which sessions**: archived sessions in the workspace whose `archivedAt` falls within one of the card's `wrapped_up` / `workspace_auto_archived` events. The window runs from 120 s before the event to 5 s after it; the event is recorded right after archiving, and re-archiving a workspace re-stamps its sessions.
   - **Left archived**: sessions the user archived at other times, and summarizer children.
   - **How**: the daemon's agent refresh (`refreshAgent`). It unarchives the session and reloads it from provider persistence. A session that never ran has nothing to reload; refresh reports an error, but the session is unarchived anyway, so it counts as restored.

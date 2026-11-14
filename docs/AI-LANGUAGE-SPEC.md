@@ -1,6 +1,6 @@
 # AI output language
 
-Status: implemented and checked live (2026-10-21), for the card "AI output language setting for all AI features" (2026-10-21). Follow-up of "paseo project settings互通".
+Status: implemented and checked live (2026-10-21), for the card "AI output language setting for all AI features" (2026-10-21). Follow-up of "Paseo project settings interoperability".
 
 ## 1. Why
 

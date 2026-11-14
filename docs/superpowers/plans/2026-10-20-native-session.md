@@ -234,5 +234,5 @@
 
 - [ ] **Step 1:** `npm run typecheck && npm test`. Expected: both pass. Record the counts in the workpad.
 - [ ] **Step 2:** `paseo plugin reload flowly` (the installed `flowly` points at the main checkout; to test this branch, ask the user before re-pointing it with `paseo plugin install "$PWD" --id flowly`). Expected: `paseo plugin logs flowly` shows "Plugin ready" and no errors.
-- [ ] **Step 3:** Run a full-access `codex/gpt-6-luna` test session against the Tinylink fixture (AGENTS.md rules: record IDs first, clean up only what it created). It checks every item in spec §10 "人工 / Luna", plus §5.5 #1/#2 on the real implementation. Evidence goes in `docs/verification/native-session.md`.
+- [ ] **Step 3:** Run a full-access `codex/gpt-6-luna` test session against the Tinylink fixture (AGENTS.md rules: record IDs first, clean up only what it created). It checks every item in spec §10 "Manual / Luna", plus §5.5 #1/#2 on the real implementation. Evidence goes in `docs/verification/native-session.md`.
 - [ ] **Step 4: Commit** the evidence: `git commit -m "Native session: verification evidence"`.
