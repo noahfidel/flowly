@@ -1,193 +1,193 @@
-# Workflow insights：从 agent 的命令里找出可复用的脚本、工具与流程
+# Workflow insights: finding reusable scripts, tools and processes in an agent's commands
 
-> 2026-10-28：本文部分内容被 [GUARDRAILS-SPEC](GUARDRAILS-SPEC.md) 取代（§12）。被取代：无被取代的部分；§3.2 的命令记录多了一个消费者（GUARDRAILS-SPEC §4.5 的每周重识别）。
+> 2026-10-28: parts of this document are superseded by [GUARDRAILS-SPEC](GUARDRAILS-SPEC.md) (§12). Superseded: nothing; the command log in §3.2 gains one more consumer (the weekly re-identification in GUARDRAILS-SPEC §4.5).
 
-状态：**已实现，待用户验收**（2026-10-19，卡片 `3df1723e` “paseo project settings互通”；用户当天确认本 spec 及 §11 的全部决定）。用户确认方向：“这个洞见功能做成开关，也增加模型配置和洞察周期设置，token 充裕可以设置为每天定时，不充足可以拉长周期”。本 spec 是 [PROJECT-INSIGHTS-SPEC](PROJECT-INSIGHTS-SPEC.md) 的扩展，不改变其已有行为。
+Status: **implemented, awaiting user acceptance** (2026-10-19, card `3df1723e` "Paseo project settings interoperability"; the user confirmed this spec and all the decisions in §11 the same day). The user confirmed the direction: "make this insights feature a switch, and also add a model setting and an analysis-period setting; if tokens are plentiful it can be set to run daily, and if not the period can be stretched". This spec extends [PROJECT-INSIGHTS-SPEC](PROJECT-INSIGHTS-SPEC.md) and does not change its existing behavior.
 
-> 2026-10-25：[INSIGHTS-REDESIGN-SPEC](INSIGHTS-REDESIGN-SPEC.md) 第三版取代本文的以下部分：§2 的默认开关（改为默认开启）与设置名称（改为 Skills）、§4.1 的安静期与首次运行时机、§4.2 的素材（新增卡片、用户原话、记忆、已有 skill）、§4.3 中 skill 一类的 prompt、§4.4 的 skill 校验、§5.2 的区块摆放（skill 草稿进 Skills 区块，其余进“其它建议”）、§5.3 的替换（按类别）、§8 的提示和 §11.1。
+> 2026-10-25: the third version, [INSIGHTS-REDESIGN-SPEC](INSIGHTS-REDESIGN-SPEC.md), supersedes the following parts of this document: the default switch in §2 (now on by default) and the setting name (now Skills), the quiet period and the first-run timing in §4.1, the material in §4.2 (new: cards, the user's own words, memory, existing skills), the skill-type prompt in §4.3, the skill validation in §4.4, the section placement in §5.2 (skill drafts go into the Skills section, the rest into "Other suggestions"), the replacement in §5.3 (now per category), the tip in §8 and §11.1.
 
 
-## 1. 目的与依据
+## 1. Purpose and basis
 
-agent 在卡片里反复手敲同样的命令、反复写同一类内联脚本、反复摸索同一套流程。Workflow insights 定期扫描本项目各卡片 session 实际执行过的 shell 命令，找出值得沉淀的东西，用户确认后变成一张卡片去落地，让以后的任务直接复用。
+Agents repeatedly type the same commands by hand in cards, repeatedly write the same kind of inline script, and repeatedly work out the same process. Workflow insights periodically scans the shell commands that the sessions of this project's cards actually ran, finds what is worth keeping, and, once the user confirms, turns it into a card to put in place, so later tasks can reuse it directly.
 
-2026-10-19 在 Flowly 项目上的两次只读探针（记录在卡片进展中，未落盘原始命令）：
+Two read-only probes on the Flowly project on 2026-10-19 (recorded in the card's progress; the raw commands were not saved to disk):
 
-| | 72 h 规则统计 | 7 天 + `claude/claude-sonnet-5` |
+| | 72 h rule-based statistics | 7 days + `claude/claude-sonnet-5` |
 | --- | --- | --- |
-| 规模 | 18 session / 18 卡 / 941 次 shell 调用 | 44 session / 33 卡 / 4778 次调用，1364 段不同内联脚本 |
-| 结论 | 76% 是探索命令；只得出 1–2 条已写在 AGENTS.md 的建议（verify） | 6 条，只有 1 条属于 `paseo.json`：i18n 词条脚本、Playwright 正式依赖 + 共享浏览器模块、看板数据查看脚本、verify/redeploy、文档同步清单、fixture 清理清单 |
-| 代价 | 0 | 一次 267 s、约 $0.80（16.8 万上下文 token、2.2 万输出） |
+| Scale | 18 sessions / 18 cards / 941 shell calls | 44 sessions / 33 cards / 4778 calls, 1364 distinct inline scripts |
+| Conclusion | 76% are exploration commands; only 1–2 suggestions came out, already written in AGENTS.md (verify) | 6 findings, only 1 of which belongs in `paseo.json`: an i18n entry script, Playwright as a formal dependency + a shared browser module, a board data viewing script, verify/redeploy, a doc sync checklist, a fixture cleanup checklist |
+| Cost | 0 | one run of 267 s, about $0.80 (168k context tokens, 22k output) |
 
-由此得到的设计取舍：
+The design trade-offs that follow from this:
 
-- **规则负责采集、计数和筛选，LLM 负责解读**（尤其内联脚本的用途），并且建议目标不限于 `paseo.json`。
-- **LLM 不能每轮或每次打开页面跑**：需要跨多张卡的数据才有意义，单次代价不低。所以做成定时任务，用户按自己的 token 预算选周期。
-- **默认关闭**：要花 token，也会收集命令记录。
+- **Rules collect, count and filter; the LLM interprets** (especially the purpose of inline scripts), and the suggestion target is not limited to `paseo.json`.
+- **The LLM must not run every turn or every time a page is opened**: it only makes sense on data spanning several cards, and a single run is not cheap. So it is a scheduled job, and the user picks the period to match their token budget.
+- **Off by default**: it spends tokens and also collects a command log.
 
-## 2. 设置
+## 2. Settings
 
-### 2.1 全局（host）设置 `workflow-insights`
+### 2.1 Global (host) setting `workflow-insights`
 
-新设置定义（`shared/workflow-insights.ts`），`scope: "host"`，`version: 1`：
+The new setting definition (`shared/workflow-insights.ts`), `scope: "host"`, `version: 1`:
 
-| 字段 | 类型 / 默认 | 含义 |
+| Field | Type / default | Meaning |
 | --- | --- | --- |
-| `enabled` | boolean，`false` | 总开关：采集命令记录并按周期分析 |
-| `model` | string ≤200，`""` | `provider/model`；空为 Auto |
-| `intervalDays` | `1 \| 3 \| 7 \| 14`，`7` | 分析周期：每天 / 每 3 天 / 每周 / 每两周 |
-| `runHour` | 0–23，`9` | 到期当天在本地时间这个整点之后运行 |
-| `timeZone` | string ≤64，`""` | 客户端保存设置时自动写入设备的 IANA 时区；无效或空时用 daemon 本地时区 |
+| `enabled` | boolean, `false` | Master switch: collect the command log and analyze it periodically |
+| `model` | string ≤200, `""` | `provider/model`; empty means Auto |
+| `intervalDays` | `1 \| 3 \| 7 \| 14`, `7` | Analysis period: daily / every 3 days / weekly / every two weeks |
+| `runHour` | 0–23, `9` | On the due day, run after this hour of local time |
+| `timeZone` | string ≤64, `""` | The client writes the device's IANA time zone automatically when it saves the setting; when invalid or empty the daemon's local time zone is used |
 
-- **Auto 模型**：依次取第一个可用的 `claude/claude-sonnet-5-5`、`claude/claude-sonnet-5`，都没有时用 Summary model 的解析结果（TASK-SUMMARY-SPEC §4）。理由：便宜的摘要模型不足以归纳跨卡片的模式，探针用的是 Sonnet 5。
-- 配置的模型不可用时，本次运行记为错误 “Workflow insights model … is not available.”，不改用其它模型。
-- 旧数据缺字段时按默认值读取（同 `summarySettingsValues`）。
+- **Auto model**: take the first available of `claude/claude-sonnet-5-5` and `claude/claude-sonnet-5`, and when neither exists use what the Summary model resolves to (TASK-SUMMARY-SPEC §4). Reason: a cheap summary model is not enough to generalize patterns across cards, and the probe used Sonnet 5.
+- When the configured model is unavailable, this run is recorded as the error "Workflow insights model … is not available." and no other model is substituted.
+- When old data lacks a field it is read with the default (same as `summarySettingsValues`).
 
-### 2.2 项目设置
+### 2.2 Project setting
 
-`Project.workflowInsights?: boolean`，缺省视为包含（同 `Project.workpad`）。在项目设置中显示开关 **Workflow insights**，说明 “Include this project when workflow insights run.”。关闭后：
-- 该项目不再采集、不再定时分析，Insights 页的区块显示已关闭；
-- 已有记录与建议保留；
-- 手动 Run now 仍可用。
+`Project.workflowInsights?: boolean`, absent is treated as included (same as `Project.workpad`). The project settings show a switch **Workflow insights** with the description "Include this project when workflow insights run." When it is turned off:
+- the project is no longer collected and no longer analyzed on schedule, and the Insights page section shows that it is turned off;
+- existing records and suggestions are kept;
+- a manual Run now is still available.
 
-### 2.3 设置界面
+### 2.3 Settings UI
 
-在 Settings → AI 分区新增分组 **Workflow insights**，说明文字：“Every few days, a model reads the shell commands agents ran on this project's cards and suggests scripts, tools and rules worth keeping. Off by default: it spends tokens and keeps a log of commands.”
+Settings → AI gets a new group **Workflow insights**, with the description text: "Every few days, a model reads the shell commands agents ran on this project's cards and suggests scripts, tools and rules worth keeping. Off by default: it spends tokens and keeps a log of commands."
 
-1. 开关 **Workflow insights**。
-2. **Model**：Provider / Model 选择，交互与 Summary model 一致；Auto 显示 “Auto (Sonnet 5.5, then Sonnet 5)”。
-3. **How often**：选项 Daily / Every 3 days / Weekly / Every 2 weeks，副文案 “Daily needs plenty of tokens; longer periods cost less and still catch repeated work.”
-4. **Run after**：整点选择，例如 09:00。
-5. 只读行：
-   - “Looks at the last N days of commands.”（N 见 §4.1）；
-   - 有过运行时显示 “Last run: 168k in · 22k out · $0.80. About $X per month for N projects at this pace.”
-     - “in” 取运行结束时上下文里的 token 数。Claude 的 `inputTokens` 只计未缓存的部分，单看会偏小。
-     - 每月估算 = 一个周期的费用 × 30 / `intervalDays`。一个周期的费用是**每个仍被包含的项目**最近 30 天内最近一次有费用记录的运行之和（`workflow-insights.overview` 的 `cycleCostUsd` 与 `costProjects`）。2026-10-21 起；之前只用一个项目的一次运行，两个项目每天运行时会少算一半。
-     - 没有费用数据时只显示 token。
-6. 按钮 **Delete collected commands…**，确认后清空所有项目的命令记录（§3.4），建议保留。
+1. The switch **Workflow insights**.
+2. **Model**: a Provider / Model picker that behaves like the Summary model; Auto shows "Auto (Sonnet 5.5, then Sonnet 5)".
+3. **How often**: the options Daily / Every 3 days / Weekly / Every 2 weeks, with the secondary text "Daily needs plenty of tokens; longer periods cost less and still catch repeated work."
+4. **Run after**: an hour picker, for example 09:00.
+5. Read-only rows:
+   - "Looks at the last N days of commands." (N is in §4.1);
+   - once there has been a run, "Last run: 168k in · 22k out · $0.80. About $X per month for N projects at this pace."
+     - "in" is the number of tokens in the context at the end of the run. Claude's `inputTokens` counts only the uncached part and would read too small on its own.
+     - Monthly estimate = the cost of one period × 30 / `intervalDays`. The cost of one period is the sum, over **every project that is still included**, of that project's most recent run with a cost record in the last 30 days (`cycleCostUsd` and `costProjects` of `workflow-insights.overview`). From 2026-10-21; before that only one run of one project was used, which undercounted by half when two projects ran daily.
+     - When there is no cost data only tokens are shown.
+6. A button **Delete collected commands…** which, after confirmation, clears the command log of all projects (§3.4); keeping the suggestions is recommended.
 
-开关从关到开时的提示：“Collecting starts now; the last 7 days are read once from the sessions' history.”（§3.3）
+The prompt when the switch goes from off to on: "Collecting starts now; the last 7 days are read once from the sessions' history." (§3.3)
 
-## 3. 命令记录（采集）
+## 3. Command log (collection)
 
-### 3.1 来源
+### 3.1 Source
 
-- `agent.turn_ended` hook 提供本轮 timeline（`index.server.ts` 已把它交给 workpad 与 summary）。取其中 `type: "tool_call"` 且 `detail.type === "shell"` 的条目，采集在 hook 返回后异步进行，不阻塞 hook。
-- 范围：本项目卡片 workspace 中的所有 session（与探针一致）。summarizer session（`flowly=summarizer`（兼容既有旧标签） 标签）不采集：hook 里按需查一次 agent 的标签并缓存。
-- 时间：hook 给出的本轮 timeline 条目没有时间戳，记为本轮结束的时间；回填用条目自带的 timestamp。
-- 粒度：每次 shell 调用一条记录，id 为 `<agentId>:<callId>`，hook 与回填得到的同一次调用只记一次。
-- 列：记录**命令发生时**卡片所在的列，即 hook 执行时的 `task.status`；回填时按流转日志回放取当时的列。
-- 已知限制：Claude 的 shell 条目只有 `command` 和 `output`，**没有 `cwd` 与 `exitCode`**，成功与否只看条目 status（completed/failed）。Codex 的 shell 条目格式尚未在真实数据上核对，代码按通用字段处理，缺失字段记为空。
+- The `agent.turn_ended` hook provides this turn's timeline (`index.server.ts` already hands it to the workpad and the summary). Take the entries with `type: "tool_call"` and `detail.type === "shell"`; collection happens asynchronously after the hook returns and does not block the hook.
+- Scope: all sessions in the workspaces of this project's cards (consistent with the probe). Summarizer sessions (label `flowly=summarizer` (kept for compatibility with the existing old label)) are not collected: the hook looks up the agent's labels once when needed and caches them.
+- Time: the timeline entries the hook gives for this turn have no timestamp, so they are recorded with the time the turn ended; the backfill uses each entry's own timestamp.
+- Granularity: one record per shell call, with id `<agentId>:<callId>`; the same call obtained from the hook and from the backfill is recorded only once.
+- Lane: the record holds the lane the card was in **when the command happened**, that is the `task.status` at the time the hook runs; for the backfill, the lane at that time is taken by replaying the flow log.
+- Known limitation: Claude's shell entries have only `command` and `output`, **no `cwd` and no `exitCode`**, so success is judged only by the entry's status (completed/failed). The format of Codex's shell entries has not yet been checked on real data; the code handles generic fields, and missing fields are recorded as empty.
 
-### 3.2 规范化与脱敏（纯函数，`shared/workflow-insights.ts`）
+### 3.2 Normalization and redaction (pure functions, `shared/workflow-insights.ts`)
 
-每条命令按顶层的 `&&`、`||`、`;`、`|` 和换行拆分，尊重引号、`$( )` 和 heredoc。每段分类：
+Each command is split at top-level `&&`, `||`, `;`, `|` and newlines, respecting quotes, `$( )` and heredocs. Each segment is classified:
 
-- **skip**：`cd`/`pushd`/`popd`；纯环境变量赋值；shell 语法残片，包括 `{ } break continue esac case`、以 `)` 结尾的 case 分支、函数定义、以 `$变量` 开头的命令。探针第一轮出现过 8 种这类假命令，修正后为 0。
-- **explore**：只读或探索类命令（ls、cat、head、tail、sed、grep、rg、find、wc、jq……）以及 `git status/diff/log/show/…`。只计数，另外统计被读得最多的文件。
-- **action**：其余命令，生成规范化 key：
-  - 去掉前置的 `sudo`、`time`、`env`、`nohup`；`git -c`/`-C` 的参数去掉；
-  - npm/pnpm/yarn/bun 规范为 `npm run <script>`、`npm test`、`npm install`；`npx tsc` → `npm run typecheck`，`npx vitest` → `npm test`，仅当 package.json 中有对应脚本时才这样合并；
-  - `node`/`python3` 规范为 `<runtime> <script 相对路径>`，内联代码记为 `<runtime> <inline>`，临时目录下的脚本记为 `<tmp-script>`；
-  - `paseo` 保留前 3 个位置参数，ID 换成 `<id>`；
-  - 其它命令保留命令名和最多 2 个位置参数。
-- **inline 摘录**：`python3 - <<…`、`node -e` 等内联脚本另外保存一段摘录，经脱敏后截断到 560 字符。这是唯一保存的命令正文，因为 LLM 需要读它才能判断用途。
-- **脱敏**（对 key 和摘录都执行，**先脱敏再落盘**）：
-  - 仓库路径换成 `.`，home 目录换成 `~`，临时目录换成 `<tmp>`；
-  - 邮箱换成 `<email>`；URL 中的凭据换成 `<cred>`；
-  - `eyJ…`、`ghp_…`、`sk-…` 以及 ≥40 位的随机串换成 `<secret>`；
-  - `*TOKEN*`、`*KEY*`、`*SECRET*`、`*PASSWORD*`、`*AUTH*` 这类变量的赋值，以及 `Authorization: Bearer` 后面的值，换成 `<v>`。
-- 命令输出（`output`）一律不保存。
+- **skip**: `cd`/`pushd`/`popd`; pure environment variable assignments; shell syntax fragments, including `{ } break continue esac case`, case branches ending in `)`, function definitions, and commands starting with a `$variable`. The first probe round produced 8 kinds of such fake commands; after the fix there were 0.
+- **explore**: read-only or exploration commands (ls, cat, head, tail, sed, grep, rg, find, wc, jq, …) and `git status/diff/log/show/…`. They are only counted, and the most-read files are counted separately.
+- **action**: all other commands, which produce a normalized key:
+  - strip a leading `sudo`, `time`, `env`, `nohup`; drop the arguments of `git -c`/`-C`;
+  - npm/pnpm/yarn/bun are normalized to `npm run <script>`, `npm test`, `npm install`; `npx tsc` → `npm run typecheck`, `npx vitest` → `npm test`, merged this way only when package.json has the corresponding script;
+  - `node`/`python3` are normalized to `<runtime> <script relative path>`, inline code is recorded as `<runtime> <inline>`, and scripts under a temporary directory as `<tmp-script>`;
+  - `paseo` keeps the first 3 positional arguments, with IDs replaced by `<id>`;
+  - other commands keep the command name and at most 2 positional arguments.
+- **inline excerpt**: for inline scripts such as `python3 - <<…` and `node -e`, an excerpt is saved separately, redacted and then truncated to 560 characters. This is the only command body that is saved, because the LLM needs to read it to judge the purpose.
+- **Redaction** (applied to both the key and the excerpt, **redact first, then write to disk**):
+  - the repository path is replaced with `.`, the home directory with `~`, and the temporary directory with `<tmp>`;
+  - email addresses are replaced with `<email>`; credentials in URLs with `<cred>`;
+  - `eyJ…`, `ghp_…`, `sk-…` and random strings of ≥40 characters are replaced with `<secret>`;
+  - the assigned values of variables such as `*TOKEN*`, `*KEY*`, `*SECRET*`, `*PASSWORD*`, `*AUTH*`, and the value after `Authorization: Bearer`, are replaced with `<v>`.
+- Command output (`output`) is never saved.
 
-### 3.3 回填
+### 3.3 Backfill
 
-总开关从关到开，或某项目的开关从关到开时，daemon 用 SDK（`agents.list` + `agents.ref(id).timeline.refetch`，只读）回填该项目最近 7 天的记录：
-- 并发不超过 2；按 id 去重；
-- 失败只记一条警告；
-- Insights 区块在回填期间显示 “Reading recent sessions…”。
+When the master switch goes from off to on, or a project's switch goes from off to on, the daemon uses the SDK (`agents.list` + `agents.ref(id).timeline.refetch`, read-only) to backfill the last 7 days of records for that project:
+- concurrency of at most 2; deduplicated by id;
+- a failure records only one warning;
+- the Insights section shows "Reading recent sessions…" during the backfill.
 
-### 3.4 存储
+### 3.4 Storage
 
-- 文件：`commands/<projectId>.jsonl`（与 `board.json` 同目录），每行一次 shell 调用：`{ id, at, taskId, agentId, lane, provider, status, actions, explore, files?, inline?, failed? }`。
-  - `status`：completed / failed / other。
-  - `actions`：各 action 段的规范化 key，按出现顺序。
-  - `explore`：探索段的个数；`files`：探索段读过的文件，最多 4 个。
-  - `inline`：内联脚本摘录；`failed`：失败调用的脱敏命令，最多 260 字。
-- 写入：按项目串行追加；文件无效的行跳过，不重置文件。
-- 保留：最近 30 天。每天第一次写入时裁剪，裁剪通过写临时文件后原子替换完成。
-- 删除：
-  - 永久删除卡片：重写日志，去掉该卡记录，被去掉的行写入 `removed/task-<id>-commands-<time>.jsonl`（同 TASK-DELETE-SPEC）；
-  - Remove 项目：整个文件移到 `removed/`；
-  - **Delete collected commands…**：删除所有项目的 `commands/*.jsonl`，不留备份，因为这是用户明确要求的隐私操作；
-  - 关闭开关只停止采集，不删除已有记录。
+- File: `commands/<projectId>.jsonl` (in the same directory as `board.json`), one shell call per line: `{ id, at, taskId, agentId, lane, provider, status, actions, explore, files?, inline?, failed? }`.
+  - `status`: completed / failed / other.
+  - `actions`: the normalized keys of each action segment, in order of appearance.
+  - `explore`: the number of exploration segments; `files`: the files read by the exploration segments, at most 4.
+  - `inline`: the inline script excerpt; `failed`: the redacted command of a failed call, at most 260 characters.
+- Writes: appended serially per project; invalid lines in the file are skipped and the file is not reset.
+- Retention: the last 30 days. Trimmed on the first write each day; trimming is done by writing a temporary file and replacing it atomically.
+- Deletion:
+  - permanently deleting a card: rewrite the log without that card's records, and write the removed lines to `removed/task-<id>-commands-<time>.jsonl` (same as TASK-DELETE-SPEC);
+  - Remove project: the whole file moves to `removed/`;
+  - **Delete collected commands…**: delete `commands/*.jsonl` for all projects with no backup, because this is a privacy operation the user explicitly asked for;
+  - turning the switch off only stops collection and does not delete existing records.
 
-## 4. 分析运行
+## 4. Analysis run
 
-### 4.1 调度
+### 4.1 Scheduling
 
-- daemon 每 15 分钟检查一次。项目到期的条件，以下全部满足：
-  1. 总开关打开，项目开关不为 false，项目未归档；
-  2. 当前本地时间已过 `runHour`；
-  3. 距该项目上次运行（成功、跳过或失败都算）的时间 ≥ `intervalDays` 天。比较按本地日期，所以 Daily 每天最多运行一次。
-- daemon 停机期间错过的运行，启动后只补跑一次，不补跑多次。
-- 全部项目一次只运行一个分析，排队顺序按上次运行时间升序。
-- 分析窗口：`windowDays = max(7, intervalDays)`，最多 14 天。
-- **安静期跳过**：以下任一情况不调用模型，本次运行记为 skipped，原因 “Not enough new activity”，同样算一次运行（重新计周期）：
-  - 自上次运行以来新增的 action 少于 50 条；
-  - 窗口内涉及的卡片少于 2 张，且新增 action 少于 200 条。
+- The daemon checks every 15 minutes. A project is due when all of the following hold:
+  1. the master switch is on, the project switch is not false, and the project is not archived;
+  2. the current local time is past `runHour`;
+  3. the time since this project's last run (successful, skipped or failed all count) is ≥ `intervalDays` days. The comparison is by local date, so Daily runs at most once a day.
+- A run missed while the daemon was down is made up once after startup, not several times.
+- Only one analysis runs at a time across all projects, queued by last-run time ascending.
+- Analysis window: `windowDays = max(7, intervalDays)`, at most 14 days.
+- **Quiet-period skip**: in either of the following cases the model is not called, and this run is recorded as skipped with the reason "Not enough new activity", and still counts as a run (the period restarts):
+  - fewer than 50 new actions since the last run;
+  - fewer than 2 cards involved in the window and fewer than 200 new actions.
 
-  2026-10-21 起；之前的门槛是 3 张卡，导致 Agent SMITH（2 张卡、两天 990 条 action）一直没有被分析。
-- **Run now**（Insights 区块）：
-  - 任何时候都可以手动运行，总开关关闭时也可以，也不受安静期规则限制。
-  - 项目还没有命令记录时（比如开关一直没开），先回填最近 7 天再分析；回填后仍然没有命令，记为 skipped（“No commands collected yet.”）。
-  - 项目已有运行进行中时，按钮显示 Analyzing…。
-- 定时检查遇到下面两种情况时直接跳过，不记录本次运行，也就不会把周期用掉：
-  - 项目还没有任何命令记录；
-  - 项目正在回填（开关刚打开时，回填完成前的那次检查）。
+  From 2026-10-21; before that the threshold was 3 cards, which meant Agent SMITH (2 cards, 990 actions in two days) was never analyzed.
+- **Run now** (Insights section):
+  - Can be run manually at any time, including when the master switch is off, and is not subject to the quiet-period rule.
+  - When the project has no command records yet (for example because the switch was never on), the last 7 days are backfilled first and then analyzed; if there are still no commands after the backfill, the run is recorded as skipped ("No commands collected yet.").
+  - When a run is already in progress for the project, the button shows Analyzing….
+- In the following two cases the scheduled check simply skips, does not record a run, and so does not use up the period:
+  - the project has no command records at all;
+  - the project is being backfilled (the check made before the backfill finishes, right after the switch is turned on).
 
-### 4.2 素材（规则产出，纯函数）
+### 4.2 Material (produced by rules, pure functions)
 
-按以下顺序拼接，总长不超过 **150 000 字符**，超出时依次减少 inline 摘录数量和失败命令数量：
+Concatenated in the following order, with a total length of no more than **150 000 characters**; when over, the number of inline excerpts and then the number of failed commands are reduced in turn:
 
-1. 概况：窗口、session 数、卡片数、调用数、explore/action/skip 计数。
-2. 卡片清单：短 ID（前 8 位）、标题、类型、标签、当前列。
-3. 已有配置：项目根 `paseo.json` 的 `scripts`、`worktree` 部分（直接读文件，不需要内部 API）；`package.json` 的 `scripts`；根目录 `AGENTS.md` 或 `CLAUDE.md` 中的 Commands 一节（最多 4000 字）。
-4. action key 表（前 60）：运行次数、卡片数、session 数、失败次数、主要所在列。
-5. 重复序列：同一 session 内连续且不同的 action key 组成 2–4 元组，按出现的不同 session 数计，取 ≥3 的前 25 个。
-6. 被读得最多的文件，前 30。
-7. 失败的命令，最多 60 条，每条 260 字符。
-8. inline 摘录：按开头 240 字符去重后，**按卡片轮流抽样**（避免集中在少数长 session），最多 280 条。
-9. 已关闭的建议：本项目 accepted 的建议，以及 30 天内 dismissed 的建议，每条一行：`状态 · target: 标题 — proposal 前 160 字`，并要求模型不要再提（§5.3）。open 的建议不放进素材，因为本次结果会替换它们。
+1. Overview: the window, the number of sessions, cards and calls, and the explore/action/skip counts.
+2. Card list: short ID (first 8 characters), title, type, labels, current lane.
+3. Existing configuration: the `scripts` and `worktree` parts of `paseo.json` at the project root (read straight from the file, no internal API needed); the `scripts` of `package.json`; the Commands section of `AGENTS.md` or `CLAUDE.md` in the root (at most 4000 characters).
+4. The action key table (top 60): number of runs, cards, sessions, failures, and the main lane.
+5. Repeated sequences: consecutive, distinct action keys within one session form 2–4-tuples, counted by the number of distinct sessions they appear in; take the top 25 with ≥3.
+6. The most-read files, top 30.
+7. Failed commands, at most 60, each 260 characters.
+8. Inline excerpts: deduplicated by their first 240 characters, then **sampled round-robin by card** (to avoid concentration in a few long sessions), at most 280.
+9. Closed suggestions: this project's accepted suggestions, and the dismissed ones within 30 days, one line each: `status · target: title — first 160 characters of the proposal`, and the model is asked not to propose them again (§5.3). Open suggestions are not put into the material, because this run's result replaces them.
 
-### 4.3 模型调用
+### 4.3 Model call
 
-- 与天级总结相同（PROJECT-INSIGHTS-SPEC §7）：
-  - 在项目的「Flowly background」workspace 创建临时 session（用前恢复/复用，用完归档，从不用卡片 workspace；[BACKGROUND-WORKSPACE-SPEC](BACKGROUND-WORKSPACE-SPEC.md)）；
-  - 标签 `flowly=summarizer`（兼容既有旧标签）、`flowly-project=<id>`、`flowly-insight=workflow`；
-  - `waitForFinish(900000)`（15 分钟）；结束后在 `finally` 中**硬删除**该 session（`daemonRemoveAgent`，同 AGENTS.md 2026-10-22 例外，2026-10-23 扩大到本 run；只删本次刚创建的 id，删除失败回退归档并记日志）。
-- prompt（英文，agent-facing）要点：
-  - 可选的五类目标：`paseo_script`、`worktree_setup`、`repo_tool`、`agents_md`、`skill`；
-  - 每条结论都要引用卡片短 ID 和次数；不推荐已存在的东西，除非组合起来能省事；git 写操作和一次性探索不做成脚本；重点解读内联脚本的用途；最多 8 条；如实标注置信度；
-  - 列出的已 accepted 或 dismissed 的建议不要再提，换说法或收窄范围也不行；本次结果会替换之前运行留下的 open 建议，所以要列出所有仍值得做的事，而不只是新发现；
-  `{ findings: [{ target, title, evidence, proposal, benefit, confidence: "high"|"medium"|"low", cards: string[] }], noise, verdict }`。
-  同时以 `outputSchema` 传入，但 **Claude 不强制执行它**：探针返回的是 markdown。
-- 解析：用 `firstObject` 取 JSON，兼容代码块和字符串数组。取不到时在同一 session 追加一条消息 “Reply again with only the JSON object described above.”，重试一次；仍失败则本次运行记为错误 “The workflow insights model returned no JSON.”。
-- 记录 `lastUsage`（输入、缓存、输出 token，以及 provider 给出的费用）。
+- Same as the daily summary (PROJECT-INSIGHTS-SPEC §7):
+  - create a temporary session in the project's "Flowly background" workspace (restored/reused before use, archived after use, never the card's workspace; [BACKGROUND-WORKSPACE-SPEC](BACKGROUND-WORKSPACE-SPEC.md));
+  - labels `flowly=summarizer` (kept for compatibility with the existing old label), `flowly-project=<id>`, `flowly-insight=workflow`;
+  - `waitForFinish(900000)` (15 minutes); afterwards, in a `finally`, **hard-delete** the session (`daemonRemoveAgent`, per the AGENTS.md 2026-10-22 exception, extended on 2026-10-23 to this run; only the id just created is deleted, and when the delete fails it falls back to archiving and logs it).
+- The prompt (English, agent-facing) in outline:
+  - the five target categories to choose from: `paseo_script`, `worktree_setup`, `repo_tool`, `agents_md`, `skill`;
+  - every conclusion must cite short card IDs and counts; do not recommend things that already exist, unless combining them saves effort; git write operations and one-off exploration are not turned into scripts; focus on interpreting the purpose of inline scripts; at most 8 findings; state confidence honestly;
+  - the accepted or dismissed suggestions that are listed must not be proposed again, not even reworded or narrowed; this run's result replaces the open suggestions left by earlier runs, so list everything that is still worth doing, not only new discoveries;
+  `{ findings: [{ target, title, evidence, proposal, benefit, confidence: "high"|"medium"|"low", cards: string[] }], noise, verdict }`.
+  It is also passed in as an `outputSchema`, but **Claude does not enforce it**: the probe returned markdown.
+- Parsing: take the JSON with `firstObject`, compatible with code blocks and string arrays. When none can be found, append a message "Reply again with only the JSON object described above." in the same session and retry once; if it still fails, this run is recorded as the error "The workflow insights model returned no JSON.".
+- Record `lastUsage` (input, cache and output tokens, plus the cost the provider gives).
 
-### 4.4 校验（daemon，不信任模型的计数与 ID）
+### 4.4 Validation (daemon; the model's counts and IDs are not trusted)
 
-- `cards` 中的短 ID 必须能对应到本项目、本窗口内有记录的卡片，对不上的丢弃。有效卡片少于 2 张的建议丢弃；窗口里只有 1 张卡时，引用这 1 张即可。
-- 与 accepted 或 30 天内 dismissed 的建议重复的丢弃：指纹（target + 规范化标题）相同，或标题相似（同一 target 且相似度 ≥ 0.6，或任意 target 且相似度 ≥ 0.7；相似度是标题的 Jaccard 系数，英文按词计，中日韩文字按相邻两字计）。open 建议不参与比较，它们会被替换（§5.3）。
-- 同一次运行内的建议之间也做同样的比较，避免出现两条相同的。
-- 每个字段限长：title 120，evidence 1000，proposal 4000，benefit 500；超长的建议丢弃，不截断。
-- 最多保留 8 条。全部被丢弃时本次运行记为 ok，结果为 “No suggestions this time”，之前的 open 建议保留（§5.3）。
-- 以上在写入 `workflow-insights.json` 的同一次串行写里，按写入那一刻的建议状态计算，所以运行期间用户刚忽略的建议不会被重新加回来。
+- A short ID in `cards` must map to a card of this project that has records in this window; those that do not match are dropped. A suggestion with fewer than 2 valid cards is dropped; when the window has only 1 card, citing that 1 card is enough.
+- A suggestion that duplicates an accepted one or a dismissed one within 30 days is dropped: the fingerprint (target + normalized title) is the same, or the titles are similar (the same target with similarity ≥ 0.6, or any target with similarity ≥ 0.7; similarity is the Jaccard coefficient of the titles, counting English by word and Chinese, Japanese and Korean characters by adjacent pairs). Open suggestions do not take part in the comparison, because they will be replaced (§5.3).
+- Suggestions within the same run are compared the same way, to avoid two identical ones.
+- Each field has a length limit: title 120, evidence 1000, proposal 4000, benefit 500; a suggestion over the limit is dropped, not truncated.
+- At most 8 are kept. When all are dropped, this run is recorded as ok with the result "No suggestions this time", and the earlier open suggestions are kept (§5.3).
+- All of the above is computed within the same serialized write that writes `workflow-insights.json`, against the suggestion states at the moment of writing, so a suggestion the user has just dismissed during the run is not added back.
 
-## 5. 建议与落地
+## 5. Suggestions and putting them in place
 
-### 5.1 数据
+### 5.1 Data
 
-文件 `workflow-insights.json`，串行写，写前备份，原子替换；文件无效时保留原文件并报错。结构：
+The file `workflow-insights.json`, written serially, backed up before writing, replaced atomically; when the file is invalid the original is kept and an error is reported. Structure:
 
 ```
 { version: 1,
@@ -198,227 +198,227 @@ agent 在卡片里反复手敲同样的命令、反复写同一类内联脚本�
   revision }
 ```
 
-- 每个项目保留最近 20 次运行。accepted 和 dismissed 的建议保留 90 天，open 的一直保留。
-- Remove 项目时先备份到 `removed/` 再删除。永久删除卡片时，指向该卡的 `acceptedTaskId` 清空，建议本身保留，状态仍为 accepted。
+- The last 20 runs are kept per project. Accepted and dismissed suggestions are kept for 90 days, and open ones are kept indefinitely.
+- Remove project backs up to `removed/` before deleting. When a card is permanently deleted, the `acceptedTaskId` pointing to it is cleared, and the suggestion itself is kept, still with status accepted.
 
-### 5.2 Insights 页区块
+### 5.2 Insights page section
 
-在 Insights 页 Summary 之后、Token use 之前，新增区块 **Workflow insights**，桌面与紧凑布局都显示：
+After Summary and before Token use on the Insights page, a new section **Workflow insights** is added, shown in both the desktop and the compact layout:
 
-- 页头：“Last run · 日期 · 模型 · 窗口 N days”，附 token 和费用；有运行进行中时显示 “Analyzing…”；回填中显示 “Reading recent sessions…”；还有 **Run now** 和齿轮按钮（打开 Settings → AI）。
-- 关闭状态：显示一行说明和 **Turn on** 按钮，打开设置分组；不显示空列表。
-- 跳过或出错：弱化显示原因一行，例如 “Skipped: not enough new activity”，或错误信息。
-- 建议卡片，按 confidence 再按 createdAt 排序。每张显示：
-  - target chip：paseo.json script / Worktree setup / Repo tool / AGENTS.md / Skill；
-  - 标题、依据（可点击的卡片引用，打开卡片侧栏）、收益；
-  - proposal 默认收起，展开后以等宽字体显示；
-  - AI 星星标记（AI-MARK-SPEC）。
-- 操作：
-  - **Create card**：打开 New task 表单并预填：
-    - 标题；
-    - 描述：proposal、收益、依据、引用卡片的标题，加上落地说明；
-    - 类型 `chore`；
-    - 标签 `agent-workflow`，paseo.json 与 worktree setup 两类再加 `paseo-json`。
+- Header: "Last run · date · model · window N days", with tokens and cost; while a run is in progress it shows "Analyzing…"; during a backfill it shows "Reading recent sessions…"; there are also **Run now** and a gear button (opens Settings → AI).
+- Off state: shows one line of explanation and a **Turn on** button that opens the settings group; no empty list is shown.
+- Skipped or error: the reason is shown de-emphasized on one line, for example "Skipped: not enough new activity", or the error message.
+- Suggestion cards, sorted by confidence and then createdAt. Each shows:
+  - a target chip: paseo.json script / Worktree setup / Repo tool / AGENTS.md / Skill;
+  - the title, the evidence (clickable card references that open the card sidebar), and the benefit;
+  - the proposal is collapsed by default and shown in a monospace font when expanded;
+  - the AI star mark (AI-MARK-SPEC).
+- Actions:
+  - **Create card**: opens the New task form prefilled with:
+    - the title;
+    - the description: the proposal, the benefit, the evidence, and the titles of the cited cards, plus the put-in-place note;
+    - type `chore`;
+    - label `agent-workflow`, and for the paseo.json and worktree setup categories also `paseo-json`.
 
-    `tasks.create` 新增可选的 `insightFindingId`，分两步处理：
-    1. 建 workspace 之前，先检查这条建议仍是 open，否则整笔失败；
-    2. 卡片写入之后，把建议标为 accepted，并记下 `acceptedTaskId`。
+    `tasks.create` gains an optional `insightFindingId`, handled in two steps:
+    1. before the workspace is created, check that the suggestion is still open, otherwise the whole operation fails;
+    2. after the card is written, mark the suggestion accepted and record `acceptedTaskId`.
 
-    建议存在 `workflow-insights.json`，不在 `board.json` 里，所以这两步不在同一次写入中。第二步失败时，卡片照常建好，建议保持 open，并记录日志。同一 operationId 重放时不再检查，只补标 accepted。
-  - **Dismiss** / **Restore**。
-  - 已 accepted 的建议显示 “Card created”，点击打开那张卡片。
-- 落地说明：随 target 自动附在描述末尾，给接手卡片的 agent 看。
-  - `paseo_script` / `worktree_setup`：“Add it to paseo.json at the project root, run it once with `paseo script start <name>` (or create a worktree to test setup), and commit: worktree setup only reads the committed paseo.json.”
-  - `repo_tool`：“Add the tool, mention it in AGENTS.md Commands, and replace one real use to prove it works.”
-  - `agents_md` / `skill`：“Write it, then check it against the cited cards.”
-- 数据读取：只在 Insights 页打开时查询，带 etag。页面关闭后不轮询。运行进行中时每 10 秒查询一次。
+    The suggestion lives in `workflow-insights.json`, not in `board.json`, so these two steps are not in the same write. When the second step fails, the card is still created as usual, the suggestion stays open, and it is logged. When the same operationId is replayed the check is not made again and only the accepted mark is added.
+  - **Dismiss** / **Restore**.
+  - An accepted suggestion shows "Card created", and clicking it opens that card.
+- Put-in-place note: appended automatically to the end of the description according to the target, for the agent that takes over the card.
+  - `paseo_script` / `worktree_setup`: "Add it to paseo.json at the project root, run it once with `paseo script start <name>` (or create a worktree to test setup), and commit: worktree setup only reads the committed paseo.json."
+  - `repo_tool`: "Add the tool, mention it in AGENTS.md Commands, and replace one real use to prove it works."
+  - `agents_md` / `skill`: "Write it, then check it against the cited cards."
+- Data reads: queried only while the Insights page is open, with an etag. No polling after the page closes. While a run is in progress it is queried every 10 seconds.
 
-### 5.3 每次运行替换 open 建议
+### 5.3 Each run replaces the open suggestions
 
-用户决定（2026-10-21）：建议不累积，新一次运行的结果覆盖旧的。
+User decision (2026-10-21): suggestions do not accumulate; the result of the new run overwrites the old.
 
-- **替换**：一次 ok 的运行只要得到至少 1 条有效建议，就删除本项目所有 open 建议，换成这次的结果。`runs[].replaced` 记录删除了多少条。
-- **不清空**：一条有效建议都没有时（模型没给出，或全部被校验丢弃），之前的 open 建议保留，避免一次失败的回复把列表清空。skipped 和 error 的运行不动建议。
-- **保留**：accepted（已建卡，带 `acceptedTaskId`）和 dismissed 的建议不受替换影响。
-- **冷却**：dismissed 的建议 30 天内不会再出现（§4.4），之后可以作为新建议再提；accepted 的不会再出现。二者以“状态 · target: 标题 — proposal”写进素材，让模型不要再提。
-- **代价**：模型每次的结果有波动。某条仍然有用、但这次没被提到的建议会消失，要等它下次再被提出来；想留住它就趁它还在时建卡。周期越长（例如每周），这个波动越少。
-- **为什么**：之前试过让模型标注 `updates`/`merges` 刷新已有建议，以及要求新建议写出与最接近建议的不同（PR #8、#10）。重复确实减少了，但机制复杂，模型仍会把收窄版当新建议。替换的做法简单，而且列表永远只反映最近一次分析。
-- **兼容**：旧数据里的 `seen`、`lastSeenAt`、`refreshed`、`merged` 字段读取时忽略。下一次有结果的运行会替换掉旧的 open 建议，包括之前累积的重复。
+- **Replace**: as long as an ok run yields at least 1 valid suggestion, all open suggestions of this project are deleted and replaced with this run's result. `runs[].replaced` records how many were deleted.
+- **Do not clear**: when there is not a single valid suggestion (the model gave none, or all were dropped by validation), the earlier open suggestions are kept, so that one failed reply does not empty the list. Skipped and error runs leave the suggestions alone.
+- **Keep**: accepted (card created, with `acceptedTaskId`) and dismissed suggestions are not affected by replacement.
+- **Cooldown**: a dismissed suggestion does not reappear for 30 days (§4.4) and after that can be proposed again as a new suggestion; an accepted one does not reappear. Both are written into the material as "status · target: title — proposal" so that the model does not propose them again.
+- **Cost**: the model's result fluctuates from run to run. A suggestion that is still useful but is not mentioned this time disappears, and has to wait to be proposed again; to keep it, create a card while it is still there. The longer the period (for example weekly), the less this fluctuation.
+- **Why**: earlier attempts had the model mark `updates`/`merges` to refresh existing suggestions, and required a new suggestion to state how it differs from the closest one (PR #8, #10). Duplicates did decrease, but the mechanism was complex and the model still treated a narrowed version as a new suggestion. Replacement is simple, and the list always reflects only the latest analysis.
+- **Compatibility**: the `seen`, `lastSeenAt`, `refreshed` and `merged` fields in old data are ignored when read. The next run that has results replaces the old open suggestions, including the duplicates accumulated before.
 
-### 5.4 让 agent 用上已有脚本
+### 5.4 Letting agents use existing scripts
 
-卡片 session 的上下文文件（`tools.sessionContext`）和 `flowly_get_task` 新增字段 `projectScripts`：
-- 内容：项目根 `paseo.json` 中 scripts 的名字和 type，最多 20 个，**不含 command 正文**；
-- skill（两份副本）补一句：“When projectScripts lists a script for what you are about to do, run it with `paseo script start <name>` instead of retyping the commands.”
-- 此项与总开关无关：只要项目有 `paseo.json` 就提供。没有该文件时不出现这个字段。
+The card session's context file (`tools.sessionContext`) and `flowly_get_task` gain a field `projectScripts`:
+- Content: the names and types of the scripts in the project root's `paseo.json`, at most 20, **without the command body**;
+- the skill (both copies) gains one sentence: "When projectScripts lists a script for what you are about to do, run it with `paseo script start <name>` instead of retyping the commands."
+- This is independent of the master switch: it is provided whenever the project has a `paseo.json`. The field does not appear when there is no such file.
 
 ## 6. RPC
 
-| 方法 | 输入 | 输出 |
+| Method | Input | Output |
 | --- | --- | --- |
-| `workflow-insights.get` | `{ projectId, etag? }` | `{ etag, value? }`；value = `{ enabled, projectEnabled, backfilling, running, nextRunAt \| null, windowDays, lastRun \| null, findings[], revision }` |
-| `workflow-insights.run` | `{ projectId }` | `{ queued: true }`，已在运行时返回 `{ queued: false }` |
-| `workflow-insights.set-status` | `{ projectId, findingId, status: "open"\|"dismissed", expectedRevision }` | `{ revision }`；revision 不匹配时报错 `REVISION_CONFLICT: …`；已建卡的建议不能再改 |
-| `workflow-insights.overview` | `{}` | `{ lastRun \| null, collected }`，用于设置页的费用行和已收集的项目数 |
+| `workflow-insights.get` | `{ projectId, etag? }` | `{ etag, value? }`; value = `{ enabled, projectEnabled, backfilling, running, nextRunAt \| null, windowDays, lastRun \| null, findings[], revision }` |
+| `workflow-insights.run` | `{ projectId }` | `{ queued: true }`, or `{ queued: false }` when a run is already in progress |
+| `workflow-insights.set-status` | `{ projectId, findingId, status: "open"\|"dismissed", expectedRevision }` | `{ revision }`; when the revision does not match the error is `REVISION_CONFLICT: …`; a suggestion that already has a card cannot be changed any more |
+| `workflow-insights.overview` | `{}` | `{ lastRun \| null, collected }`, used for the cost row on the settings page and the number of collected projects |
 | `workflow-insights.purge` | `{}` | `{ deletedProjects }` |
-| `tasks.create`（既有） | 新增可选 `insightFindingId` | 不变；建议不存在、不属于本项目或不是 open 状态时整笔写入失败 |
+| `tasks.create` (existing) | gains an optional `insightFindingId` | unchanged; the whole write fails when the suggestion does not exist, does not belong to this project, or is not open |
 
-所有输入用 zod 校验；daemon 错误信息用英文。
+All inputs are validated with zod; daemon error messages are in English.
 
-## 7. 隐私与安全
+## 7. Privacy and security
 
-- 只采集 shell 命令。命令输出和其它工具调用的内容（文件读写、编辑）不采集。
-- 落盘之前先脱敏（§3.2）；日志中不出现 token、凭据或完整命令正文。
-- 发给模型的素材就是这些脱敏后的记录。模型用的是用户自己配置的 provider，与写这些命令的 agent 同属一套账户体系。
-- 没有新增内部 API：读 `paseo.json` 是读普通文件；timeline 的读取与 session 的创建用插件 SDK（`PaseoApi`）。
-- 建议不会自动执行任何东西，也不会自动建卡或修改文件。建卡需要用户点 Create card。
+- Only shell commands are collected. Command output and the content of other tool calls (file reads and writes, edits) are not collected.
+- Redaction happens before anything is written to disk (§3.2); tokens, credentials or full command bodies do not appear in logs.
+- The material sent to the model is exactly these redacted records. The model is the user's own configured provider, in the same account system as the agent that wrote the commands.
+- No new internal API: reading `paseo.json` is reading an ordinary file; reading the timeline and creating sessions use the plugin SDK (`PaseoApi`).
+- A suggestion never executes anything automatically, nor creates a card or modifies a file automatically. Creating a card needs the user to click Create card.
 
-## 8. Onboarding、文案与文档
+## 8. Onboarding, copy and docs
 
-- 欢迎页特色列表在 *Project insights* 之后新增一行 *Workflow insights*：“Optional: on a schedule you choose, a model reads the commands agents ran and suggests scripts, tools and rules worth keeping.”
-- 新提示 `first-workflow-insight`：
-  - 显示条件：功能已打开，当前项目有 open 的建议，且没有打开 Insights 或 Ideas 页。看板只在这条提示还没看过时，为当前项目读一次建议，不轮询；
-  - 文案：“Workflow insights found repeated work worth keeping. Open Insights to turn a suggestion into a card.”；
-  - 优先级排在 `first-idea` 之后、`first-artifact` 之前。
-  - 功能默认关闭，新用户要等打开功能、产生了建议才会看到，这是有意的；功能本身由设置分组和欢迎页那一句介绍。
-- ONBOARDING-SPEC 的提示表、README（两份）的功能亮点、SPEC-OUTLINE、PROGRESS 同步更新。
-- 所有新文案用 `t()` 并加入全部语言目录（约 35 条）。agent 面向的文本（prompt、落地说明、skill）保持英文。
+- The welcome page's feature list gains a row *Workflow insights* after *Project insights*: "Optional: on a schedule you choose, a model reads the commands agents ran and suggests scripts, tools and rules worth keeping."
+- New tip `first-workflow-insight`:
+  - Shown when: the feature is on, the current project has open suggestions, and neither the Insights page nor the Ideas page is open. The board reads the suggestions once for the current project, only while this tip has not been seen yet, and does not poll;
+  - Text: "Workflow insights found repeated work worth keeping. Open Insights to turn a suggestion into a card.";
+  - Priority: after `first-idea` and before `first-artifact`.
+  - The feature is off by default, so a new user sees it only after turning the feature on and getting suggestions, which is intentional; the feature itself is introduced by the settings group and the one line on the welcome page.
+- The tip table in ONBOARDING-SPEC, the feature highlights in the README (both copies), SPEC-OUTLINE and PROGRESS are updated in sync.
+- All new copy uses `t()` and is added to all language catalogs (about 35 entries). Agent-facing text (the prompt, the put-in-place notes, the skill) stays in English.
 
-## 9. 不在范围内
+## 9. Out of scope
 
-- 直接写入 `paseo.json`：需要 `writeProjectConfig` 这个内部 API。由卡片的 agent 修改并提交，验证也一并完成。
-- 自动建卡或自动应用建议；跨项目汇总；按人统计。
-- 卡片上的 setup 状态显示、scripts 面板（本卡第一轮调研中的候选，另行立项）。
-- 非 shell 工具调用的模式分析，比如同一类 Read/Edit 序列、MCP 调用顺序。可以以后再扩展。
+- Writing directly to `paseo.json`: this needs the internal API `writeProjectConfig`. The card's agent makes the change and commits it, and also completes the verification.
+- Automatically creating cards or automatically applying suggestions; cross-project aggregation; per-person statistics.
+- A setup status display on the card and a scripts panel (candidates from this card's first round of research, to be tracked separately).
+- Pattern analysis of non-shell tool calls, such as the same kind of Read/Edit sequence or the order of MCP calls. Can be extended later.
 
-## 10. 验收
+## 10. Acceptance
 
-单元测试：
-- 拆分与分类：用探针中出现过的形态做用例，包括 heredoc、case 分支、函数定义、`git -c`、`$VAR` 命令、引号内的分隔符。
-- 规范化，包括 npx 合并的条件；脱敏的各条规则，用例中要包含真实 token 的形态。
-- 记录的 id 去重、30 天裁剪、删卡重写、项目移除。
-- 调度：intervalDays × runHour × 时区；跨天；停机后只补跑一次；同一时刻只有一个运行。
-- 安静期跳过；素材预算裁剪与按卡片轮流抽样。
-- 解析：纯 JSON、代码块、markdown 中夹带 JSON、无 JSON 时的重试、仍失败的错误。
-- 校验：无效卡片 ID、少于 2 张卡（窗口只有 1 张卡时除外）、超长字段、重复指纹、dismissed 冷却。
-- 替换（2026-10-21）：open 建议不阻止新建议；accepted 与冷却期内 dismissed 的建议不会回来（跨语言改写也拦住，通用词不误判）；同一次运行内去重；`replaceOpen` 只删本项目 open 建议；daemon 测试里第二次运行替换 open、保留 accepted/dismissed，没有有效建议时保留旧列表。
-- 一个周期的费用按项目求和；两张卡的忙碌项目在定时运行中会被分析。
-- 建卡时原子 accept 与错误回滚；设置缺字段时的默认值。
-- 提示规则（`client/onboarding-logic.test.ts`）；i18n 完整性。
+Unit tests:
+- Splitting and classification: cases built from the shapes that appeared in the probe, including heredocs, case branches, function definitions, `git -c`, `$VAR` commands, and separators inside quotes.
+- Normalization, including the conditions for merging npx; each redaction rule, with cases that include the shape of real tokens.
+- Record id deduplication, 30-day trimming, rewrite on card deletion, project removal.
+- Scheduling: intervalDays × runHour × time zone; across days; only one catch-up run after downtime; only one run at a time.
+- Quiet-period skip; material budget trimming and round-robin sampling by card.
+- Parsing: plain JSON, a code block, JSON embedded in markdown, a retry when there is no JSON, the error when it still fails.
+- Validation: invalid card IDs, fewer than 2 cards (except when the window has only 1 card), over-long fields, duplicate fingerprints, the dismissed cooldown.
+- Replacement (2026-10-21): open suggestions do not block new suggestions; accepted suggestions and dismissed ones within the cooldown do not come back (a cross-language rewording is also caught, and generic words are not misjudged); deduplication within the same run; `replaceOpen` deletes only this project's open suggestions; in the daemon test the second run replaces open, keeps accepted/dismissed, and keeps the old list when there are no valid suggestions.
+- The cost of one period is summed per project; a busy project with two cards is analyzed in a scheduled run.
+- Atomic accept and error rollback when a card is created; default values when a setting lacks fields.
+- Tip rules (`client/onboarding-logic.test.ts`); i18n completeness.
 
-检查与实测：
-- typecheck，全量 `npm test`，reload 本插件。
-- 在 Flowly 项目上手动 Run now（`claude/claude-sonnet-5`），与 2026-10-19 探针的 6 条结论对照：至少覆盖 i18n 和 Playwright 两条高置信度建议；确认临时 session 已归档；记录 token 和费用。
-- 用显式 full-access 的 `codex/gpt-6-luna` 测试 session，在 fixture 项目（或 Tinylink，只清理测试自己创建的东西）上检查：
-  - 设置分组的各项与保存；项目开关；
-  - Insights 区块的关闭、跳过、错误、建议列表、Create card、Dismiss/Restore；
-  - 桌面与紧凑布局；
-  - 回填与 Delete collected commands。
-- 证据保存到 `docs/verification/workflow-insights.md`。未实际运行的项一律记为 UNRUN。
+Checks and live runs:
+- typecheck, the full `npm test`, reload this plugin.
+- Run Run now manually on the Flowly project (`claude/claude-sonnet-5`) and compare with the 6 conclusions of the 2026-10-19 probe: at least the two high-confidence suggestions, i18n and Playwright, must be covered; confirm the temporary session was archived; record tokens and cost.
+- With an explicit full-access `codex/gpt-6-luna` test session, check on a fixture project (or Tinylink, cleaning up only what the test itself created):
+  - each item of the settings group and saving; the project switch;
+  - the Insights section's off, skipped, error and suggestion-list states, Create card, Dismiss/Restore;
+  - desktop and compact layouts;
+  - backfill and Delete collected commands.
+- Evidence is saved to `docs/verification/workflow-insights.md`. Anything not actually run is recorded as UNRUN.
 
-## 11. 我做的决定（可以推翻）
+## 11. Decisions I made (can be overturned)
 
-1. **默认关闭**，周期默认 **Weekly**，整点默认 09:00。
-2. **Auto 模型用 Sonnet**（5.5 → 5），而不是摘要用的便宜模型；不可用时才退回 Summary model。
-3. **窗口至少 7 天**，所以 Daily 是“每天看最近 7 天”。每次运行替换 open 建议（§5.3，2026-10-21 用户决定），不会每天累积相同的建议。
-4. **安静期跳过**（新增 action 少于 50 条，或少于 2 张卡且新增 action 少于 200 条；2026-10-21 由“少于 3 张卡”放宽，用户确认），省下没有新信息时的 token。手动 Run now 不受此限制。
-5. **只有开关打开才采集**，打开时回填 7 天；关闭不删数据，另设删除按钮。
-6. 建议放在 **Insights 页**，不进 Ideas 收件箱。Ideas 挂在某张来源卡上，而这里的建议是项目级的。
-7. `projectScripts` 写进 session 上下文，**与开关无关**：建议落地之后，agent 要能知道有这些脚本。
+1. **Off by default**, the period defaults to **Weekly**, and the hour defaults to 09:00.
+2. **The Auto model uses Sonnet** (5.5 → 5), not the cheap model used for summaries; it falls back to the Summary model only when unavailable.
+3. **The window is at least 7 days**, so Daily means "look at the last 7 days every day". Each run replaces the open suggestions (§5.3, user decision 2026-10-21), so identical suggestions do not accumulate every day.
+4. **Quiet-period skip** (fewer than 50 new actions, or fewer than 2 cards and fewer than 200 new actions; relaxed on 2026-10-21 from "fewer than 3 cards", confirmed by the user), saving tokens when there is no new information. A manual Run now is not subject to this.
+5. **Collect only when the switch is on**, with a 7-day backfill when it is turned on; turning it off does not delete data, and there is a separate delete button.
+6. Suggestions go on the **Insights page**, not into the Ideas inbox. An idea hangs off a source card, while the suggestions here are project-level.
+7. `projectScripts` is written into the session context, **independent of the switch**: once a suggestion has been put in place, the agent needs to know these scripts exist.
 
-## 12. Agent habits：next moves 与 ideas 的使用率
+## 12. Agent habits: usage rates of next moves and ideas
 
-状态：**已实现，待用户验收**（2026-10-20，卡片 `5aaa5b01` “Insights: next-move and idea rates per session and model”；用户在评估后确认下面的调整）。
+Status: **implemented, awaiting user acceptance** (2026-10-20, card `5aaa5b01` "Insights: next-move and idea rates per session and model"; the user confirmed the adjustments below after the evaluation).
 
-### 12.1 目的与依据
+### 12.1 Purpose and basis
 
-2026-10-19 在 Flowly 项目的 flow log 里有 57 次 `next_moves_suggested`（落在 56 个 turn；其中 47 个是交付或结果的 turn，这类 turn 共 77 个）和 7 条 `idea_proposed`（74 次交付）。2026-10-20 到 10:50 为止，12 次交付里只有 1 次带 next moves（全天共 5 次调用），ideas 4 条。没有任何界面提示，是用户发现输入框上方的 chip 不见了才注意到。同一块数据还显示规则对不同会话的约束力不同：窗口内交付 ≥10 次的三个 session，一个 0 次 next moves，一个 2 次，一个 6 次。本节把这件事变成每天可见的数字，让改规则（skill 措辞、交付时提醒）有数据可比。
+In the Flowly project's flow log on 2026-10-19 there were 57 `next_moves_suggested` (falling in 56 turns; 47 of them were delivery or result turns, of which there were 77 in total) and 7 `idea_proposed` (74 deliveries). By 10:50 on 2026-10-20, only 1 of 12 deliveries carried next moves (5 calls in the whole day) and there were 4 ideas. There was no UI hint; the user noticed only because the chip above the input box was gone. The same data also shows the rule binds different sessions differently: of the three sessions with ≥10 deliveries in the window, one had 0 next moves, one 2, and one 6. This section turns that into a number visible every day, so that changing the rules (the skill's wording, a reminder at delivery) has data to compare against.
 
-**数据源必须是 flow log，不是 `board.json`**：看板每张卡只保留最近 100 条事件（`BoardStore.event`），所以从 `board.json` 数事件会少数。2026-10-20 评估时用 `board.json` 数出的 “10-19 共 65 次 next moves” 就是这样偏低的：flow log（不裁剪）里 10-19 全部四个项目共 79 次，Flowly 一个项目 57 次。
+**The data source must be the flow log, not `board.json`**: the board keeps only the latest 100 events per card (`BoardStore.event`), so counting events from `board.json` undercounts. The "65 next moves in total on 10-19" counted from `board.json` during the 2026-10-20 evaluation was low in exactly this way: the flow log (not trimmed) shows 79 across all four projects on 10-19, and 57 for the Flowly project alone.
 
-### 12.2 与本文其余部分的关系（偏离卡片原文的两处）
+### 12.2 Relation to the rest of this document (two deviations from the card's original text)
 
-- **不受 Workflow insights 开关控制**。本节只是规则统计：不调用模型、不花 token、不采集新的内容，读取的就是已有的 flow log。要做到“一天内发现”，它必须对所有人默认可见；放进默认关闭的 Workflow insights 区块就看不到。所以代码在新文件 `shared/agent-habits.ts`，不放进 `shared/workflow-insights.ts`（那是另一个尚未验收的功能，混在一起会让两件事无法分开提交）。Insights 页上它是独立的区块，不属于 Workflow insights。
-- **分母不含 question**。skill 规定提问走 `kind=question`，“not next moves”，所以把提问算进 next moves 的分母会把比率结构性压低。question 的 turn 单独列出。2026-10-20 起 agent 优先用自带提问工具提问（SESSION-QUESTION-SPEC §2.2），这种提问不产生 `kind=question` 事件，所以 question turn 数只统计回退方式的提问。
+- **Not controlled by the Workflow insights switch**. This section is only rule-based statistics: it calls no model, spends no tokens, and collects no new content; what it reads is the existing flow log. To be "discovered within a day", it must be visible to everyone by default; inside the Workflow insights section, which is off by default, it would not be seen. So the code is in the new file `shared/agent-habits.ts` and not in `shared/workflow-insights.ts` (that is another feature not yet accepted, and mixing them would make the two impossible to commit separately). On the Insights page it is a section of its own and does not belong to Workflow insights.
+- **The denominator excludes question**. The skill says questions go through `kind=question`, "not next moves", so counting questions in the denominator of next moves would structurally depress the ratio. Question turns are listed separately. Since 2026-10-20 agents prefer to ask through their own question tool (SESSION-QUESTION-SPEC §2.2), and such a question produces no `kind=question` event, so the number of question turns counts only questions asked the fallback way.
 
-### 12.3 口径
+### 12.3 Definitions
 
-数据源是项目的 flow log（`flow/<projectId>.jsonl`，每个看板事件，不裁剪，卡片被删除后用量仍保留）。只看 `actor=agent` 的事件和 `system` 的 turn 边界；时间切天用 Insights 的时区（`dayKey`）。
+The data source is the project's flow log (`flow/<projectId>.jsonl`, every board event, not trimmed, with usage kept after a card is deleted). Only events with `actor=agent` and the `system` turn boundaries are looked at; days are cut with the Insights time zone (`dayKey`).
 
-- **turn**：同一 `agentId` 从 `agent.turn_started` 到下一次 `turn_started` 或它自己的 `agent.turn_ended`。session 的事件归入它最近的一个 turn（进行中或刚结束的）；没有任何 turn 的事件（日志从 turn 中间开始）自成一个以该事件时间为准的 turn。turn 的日期取它最后一个事件的日期。
-- **交付类型**（一个 turn 只算一次，按优先级）：
-  1. `delivery`：agent 把卡片 `status_changed` 到 `in_review`；
-  2. `result`：没有交付，但有 `reportKind=result` 的汇报；
-  3. `question`：以上都没有，但有 `reportKind=question` 的汇报。
-  - **分母 `base` = delivery + result**。
-- **next moves**：turn 内至少一次 `next_moves_suggested`（同一 turn 的后一次覆盖前一次，所以按 turn 计一次，不按事件计）。
-  - 比率 = `base` 中带 next moves 的 turn / `base`（字段 `moves` / `deliveries + results`）；
-  - `movesAny` 是全部带 next moves 的 turn（含 base 之外的），只用于核对事件数，不进比率。
-- **ideas**：`idea_proposed` 事件数；“每次交付的 ideas” = ideas / `deliveries`（只算 in_review 交付）；没有交付时不显示比率。idea 的数量取自 agent 所有 turn，不只交付 turn，因为 skill 说的是“通常在交付时”。
-- **显式“没有下一步”（`none`）**：`next_moves_suggested` 的 `moves` 为空列表（NEXT-MOVES-SPEC §8 的 `nextMoves: []`）。flow log 里记为 `offered: 0`。
-  - turn 里以**最后一次** next-moves 调用为准：最后一次非空算 `moves`，为空算 `none`（先建议后改成 none，或反之，都按最后一次）；
-  - `none` 只统计 base（交付 + 结果）里的 turn，单列，不进 `moves`，也不改分母；
-  - 一个 `none` 的 turn 没有可采纳的建议，不进 picked 的 `offered`；
-  - 它算“用了这个工具”：下面的标记不会因为模型一直声明 none 而报“没有 next moves”。`none` 的汇总数显示在模型行里，让“一直说没有”也看得见。
-- **picked（用户采纳）**：每次 turn 结束时没被覆盖的那一组 next moves 叫一个 *set*（挂在提出它的 turn 上，日期和模型也归那个 turn）。set 被 *回答* 时有结果：
-  - 同一 session 的下一个 turn 开始（用户发了消息）：结果取自那个 turn 的 `agent.turn_ended` 上的 `pick`（§12.4）：`≥0` 是采纳了第几条，`-1` 是回答了但没采纳，缺失是未知（旧数据，或钩子没拿到消息），**未知不进比率**；
-  - 该卡片被人移到 Done，且 set 里有 `moveTo:"done"` 的建议：算采纳。**局限**：点“移至 Done”和手动拖到 Done 走同一条路径、事件完全相同，无法区分，所以这里的“采纳”包含手动拖动（界面文案不写“点按”）；
-  - 没有被回答的 set（会话从此无人回复、卡片被收尾）不进比率。
-  - 比率 = `picked / offered`，`offered` 是有明确结果的 set 数。
-- **分组**：
-  - 日：最近 7 天（到所选日期止，同 Last 7 days）；
-  - 项目合计：窗口内所有 turn；
-  - 模型：turn 上的 `model`（`provider/model`）。没有时按 §12.5 补；仍然未知归入 “Unknown model”；
-  - session：`agentId`，只用于标记（§12.6），用卡片标题和模型显示。
-- **标记**：窗口内一个模型或 session，满足下列任一条就标出来。
-  - `deliveries + results ≥ 10` 且 `moves = 0` 且 `none = 0`：“没有 next moves”（既没建议、也没声明过 none，也就是根本没用这个工具）；
-  - `deliveries ≥ 10` 且 `ideas = 0`：“没有 ideas”。
-  - 阈值 `FLAG_MIN = 10`。ideas 本来就可以为 0（skill：没有值得提的就不提），所以这一条只是提示，不是错误。
+- **turn**: for the same `agentId`, from `agent.turn_started` to the next `turn_started` or its own `agent.turn_ended`. A session's events are assigned to its most recent turn (in progress or just ended); events with no turn at all (the log starts in the middle of a turn) form a turn of their own, timed by that event. A turn's date is the date of its last event.
+- **delivery type** (a turn counts only once, by priority):
+  1. `delivery`: the agent moves the card with `status_changed` to `in_review`;
+  2. `result`: no delivery, but there is a report with `reportKind=result`;
+  3. `question`: none of the above, but there is a report with `reportKind=question`.
+  - **Denominator `base` = delivery + result**.
+- **next moves**: at least one `next_moves_suggested` within the turn (a later one in the same turn overrides an earlier one, so it counts once per turn, not per event).
+  - ratio = turns in `base` that carry next moves / `base` (fields `moves` / `deliveries + results`);
+  - `movesAny` is all turns that carry next moves (including those outside base), used only to check the event count, not in the ratio.
+- **ideas**: the number of `idea_proposed` events; "ideas per delivery" = ideas / `deliveries` (only in_review deliveries count); no ratio is shown when there is no delivery. The idea count is taken from all of the agent's turns, not only delivery turns, because the skill says "usually at delivery".
+- **explicit "no next step" (`none`)**: `next_moves_suggested` whose `moves` is an empty list (the `nextMoves: []` of NEXT-MOVES-SPEC §8). It is recorded as `offered: 0` in the flow log.
+  - Within a turn the **last** next-moves call decides: a last call that is non-empty counts as `moves`, and an empty one counts as `none` (suggesting first and then changing to none, or the reverse, both go by the last call);
+  - `none` counts only turns in base (delivery + result), is listed separately, does not enter `moves`, and does not change the denominator;
+  - a `none` turn has no suggestion that can be adopted, so it does not enter picked's `offered`;
+  - it counts as "used the tool": the flag below does not report "no next moves" just because the model keeps declaring none. The `none` total is shown on the model row so that "always saying there is none" is visible too.
+- **picked (adopted by the user)**: the set of next moves not overridden when a turn ends is called a *set* (attached to the turn that proposed it; its date and model also belong to that turn). A set has an outcome when it is *answered*:
+  - the next turn of the same session starts (the user sent a message): the outcome comes from the `pick` on that turn's `agent.turn_ended` (§12.4): `≥0` is which suggestion was adopted, `-1` is answered but nothing adopted, and missing is unknown (old data, or the hook did not get the message); **unknown does not enter the ratio**;
+  - the card is moved to Done by a person and the set has a suggestion with `moveTo:"done"`: counts as adopted. **Limitation**: clicking "Move to Done" and dragging to Done by hand take the same path and produce identical events, so they cannot be told apart; the "adoption" here therefore includes manual dragging (the UI copy does not say "tapped");
+  - a set that is not answered (nobody replies to the session afterwards, the card is wrapped up) does not enter the ratio.
+  - ratio = `picked / offered`, where `offered` is the number of sets with a definite outcome.
+- **Grouping**:
+  - day: the last 7 days (up to the selected date, same as Last 7 days);
+  - project total: all turns in the window;
+  - model: the `model` on the turn (`provider/model`). When absent it is filled in per §12.5; if still unknown it goes into "Unknown model";
+  - session: `agentId`, used only for the flags (§12.6) and shown with the card title and the model.
+- **Flags**: a model or a session in the window is flagged if it meets any of the following.
+  - `deliveries + results ≥ 10` and `moves = 0` and `none = 0`: "no next moves" (it neither suggested nor ever declared none, that is, it did not use the tool at all);
+  - `deliveries ≥ 10` and `ideas = 0`: "no ideas".
+  - The threshold is `FLAG_MIN = 10`. Ideas can legitimately be 0 (skill: do not propose when there is nothing worth proposing), so this one is only a hint, not an error.
 
-### 12.4 数据变化（都是可选字段，旧数据不用迁移）
+### 12.4 Data changes (all optional fields; old data needs no migration)
 
-- `agent.turn_ended` 事件（`BoardEvent` 与 flow log）新增：
-  - `model`：session 在这个 turn 结束时的 `provider/model`，取自 `paseo.agents.ref(id).refresh()` 的 `runtimeInfo.model`（缺失用 `model`）；拿不到就不写。钩子里 `PluginHookAgent` 只有 `provider`，没有 model；session 中途可以换模型（timeline 有 `model_changed`），所以按 turn 记，而不是按 session 记；
-  - `pick`：整数。**只在这个 turn 开始时该 session 有未过期的 next moves 时写**（`openNextMoves` 取 turn 开始之前的那一组）。取 turn timeline 里的 `user_message` 文本，与这一组每条消息型建议的 `prompt` 比较（`matchPick`）：返回采纳的下标，没有匹配返回 `-1`；没有消息文本时不写。
-- `matchPick`：文本去掉多余空白后比较。消息等于 prompt，或 prompt 不少于 12 个字符且消息包含它（点选后在已有输入后追加，见 NEXT-MOVES-SPEC §4），算采纳；否则取 prompt 的字符三元组被消息覆盖的比例，≥0.8 算采纳（用户改了几个字再发送）；多条同时匹配取覆盖比例最高、再取下标小的。没有 `prompt` 的动作建议不参与。
-- `next_moves_suggested` 在 flow log 里新增 `offered`（建议条数，空列表为 0）与 `offersDone`（含 `moveTo:"done"`）：flow log 不保存 `moves`，也不保存 `note`，所以“显式 none”只能靠 `offered: 0` 区分。旧条目没有这两个字段，服务端读取时用 board 上同 id 事件补上；board 每张卡只保留最近 100 条事件，被裁掉的旧条目补不上，视为有建议、不含 Done 建议（那时还不存在 none）。
-- 写入点：`recordLifecycle` 增加可选的 `model` / `pick`；`index.server.ts` 的 `agent.turn_ended` 钩子在 `store.mutate` 之前取 model（异步），在 mutate 内同步算 `pick`。取不到 model 或消息只是少一个字段，不影响钩子的其他工作。
+- The `agent.turn_ended` event (`BoardEvent` and the flow log) gains:
+  - `model`: the session's `provider/model` at the end of this turn, taken from `runtimeInfo.model` of `paseo.agents.ref(id).refresh()` (falling back to `model` when missing); not written when it cannot be obtained. In the hook, `PluginHookAgent` has only `provider` and no model; a session can switch models midway (the timeline has `model_changed`), so it is recorded per turn and not per session;
+  - `pick`: an integer. **Written only when the session had unexpired next moves at the start of this turn** (`openNextMoves` takes the set from before the turn started). Take the `user_message` text from the turn's timeline and compare it with the `prompt` of each message-type suggestion in that set (`matchPick`): return the index of the adopted one, or `-1` when none matches; not written when there is no message text.
+- `matchPick`: the texts are compared after removing extra whitespace. It counts as adopted when the message equals the prompt, or when the prompt is at least 12 characters long and the message contains it (after a click-to-fill the user appends to existing input, see NEXT-MOVES-SPEC §4); otherwise it takes the proportion of the prompt's character trigrams covered by the message, and ≥0.8 counts as adopted (the user changed a few words and sent it); when several match at once, take the highest coverage and then the smaller index. Action suggestions without a `prompt` do not take part.
+- `next_moves_suggested` in the flow log gains `offered` (the number of suggestions, 0 for an empty list) and `offersDone` (contains `moveTo:"done"`): the flow log saves neither `moves` nor `note`, so an "explicit none" can only be told apart by `offered: 0`. Old entries lack these two fields, and the server fills them in from the event with the same id on the board when reading; the board keeps only the latest 100 events per card, so old entries that have been trimmed cannot be filled in and are treated as having suggestions and containing no Done suggestion (none did not exist then).
+- Write points: `recordLifecycle` gains optional `model` / `pick`; the `agent.turn_ended` hook in `index.server.ts` obtains the model (asynchronously) before `store.mutate`, and computes `pick` synchronously inside the mutate. Failing to obtain the model or the message just means one field is missing and does not affect the hook's other work.
 
-### 12.5 历史 turn 的模型
+### 12.5 Model of historical turns
 
-没有 `model` 字段的 turn（本功能上线前的全部历史）：服务端在窗口内存在这样的 turn 时才调用一次 `agents.list({ includeArchived: true })`，用 session 当前的 `provider/model` 补上；列表里找不到的（已被清理）归入 “Unknown model”。**已知偏差**：中途换过模型的历史 session 会被算到它当前的模型上。上线 7 天后窗口内不再有这样的 turn，这个调用也随之消失。
+For turns without a `model` field (all history before this feature went live): the server calls `agents.list({ includeArchived: true })` once, only when such a turn exists in the window, and fills in the session's current `provider/model`; sessions not found in the list (already cleaned up) go into "Unknown model". **Known bias**: a historical session that changed model midway is counted under its current model. Seven days after launch there are no such turns left in the window, and this call goes away with them.
 
-### 12.6 视图与界面
+### 12.6 View and UI
 
-- `ProjectInsights`（`insights.project`）新增 `habits`，不新增 RPC，沿用现有的 etag 读取：
-  `{ days: [{ day, ...counts }] (7 天), total: counts, models: [{ model, ...counts }] (按 base 降序), flags: [{ kind: "model"|"session", miss: "moves"|"ideas", model, n, agentId?, taskId? }] }`，其中 `counts = { deliveries, results, questions, moves, none, movesAny, ideas, offered, picked }`。
-- Insights 页新增区块 **Agent habits**，放在 Workflow insights 之后、Token use 之前，桌面与紧凑布局都显示：
-  - 标题行右侧是窗口合计：“Next moves 54/69 · Ideas 13”；
-  - 一排 7 天：每天一列，显示星期、next moves 比率（`moves/base`，无交付显示 “–”）和 ideas 数，比率低于该窗口平均的一半用警示色；
-  - 每个模型一行：模型名、`moves/base`、ideas、`picked/offered`；
-  - 标记行：“{model} made no next moves in {n} deliveries (7 days)” / “… no ideas …”，session 用 “{card title} · {model}”，点按打开卡片；
-  - 窗口内没有任何交付或汇报时整块显示一行 “No deliveries in these 7 days.”。
-- 无设置项，无新手引导提示（这是诊断行，不是需要宣传的功能，也不应对所有用户弹一次提示）；README 的 Insights 亮点补半句。新文案加入全部 9 个语言目录。
+- `ProjectInsights` (`insights.project`) gains `habits`, with no new RPC, reusing the existing etag read:
+  `{ days: [{ day, ...counts }] (7 days), total: counts, models: [{ model, ...counts }] (descending by base), flags: [{ kind: "model"|"session", miss: "moves"|"ideas", model, n, agentId?, taskId? }] }`, where `counts = { deliveries, results, questions, moves, none, movesAny, ideas, offered, picked }`.
+- The Insights page gains a section **Agent habits**, placed after Workflow insights and before Token use, shown in both the desktop and the compact layout:
+  - On the right of the title row is the window total: "Next moves 54/69 · Ideas 13";
+  - A row of 7 days: one column per day, showing the weekday, the next-moves ratio (`moves/base`, "–" when there is no delivery) and the ideas count, with a warning color when the ratio is below half of the window average;
+  - One row per model: the model name, `moves/base`, ideas, `picked/offered`;
+  - Flag rows: "{model} made no next moves in {n} deliveries (7 days)" / "… no ideas …", with "{card title} · {model}" for a session, and tapping opens the card;
+  - When there is no delivery or report at all in the window, the whole block shows one line "No deliveries in these 7 days."
+- No setting and no onboarding tip (this is a diagnostic row, not a feature to be advertised, and it should not pop up a tip once for every user); the README's Insights highlight gets half a sentence added. The new copy is added to all 9 language catalogs.
 
-### 12.7 不在范围内
+### 12.7 Out of scope
 
-- 明确的 “none” 声明与它的计数（见 12.3）；
-- 比率下降时的推送或 Attention 项：先看数据和行里的标记；
-- 按人统计；跨项目汇总；
-- 修改 next moves / ideas 的规则本身（卡片 `Sidebar UI/UX 调整` 上的两个相关 idea）。
+- An explicit "none" declaration and its count (see 12.3);
+- A push or an Attention item when the ratio drops: look at the data and the flags in the rows first;
+- Per-person statistics; cross-project aggregation;
+- Changing the rules of next moves / ideas themselves (two related ideas on the card `Sidebar UI/UX adjustments`).
 
-### 12.8 验收
+### 12.8 Acceptance
 
-单元测试（`shared/agent-habits.test.ts`）：
-- turn 边界：turn 内的事件归该 turn；`turn_ended` 之后到下一次 `turn_started` 之前的 agent 事件归刚结束的 turn；没有 `turn_started` 的事件自成一个 turn；同一 turn 两次 next moves 只计一次；一个 turn 同时有交付和 result 只算 delivery；
-- 分母：question 不进 base；单独计数；ideas 每次交付；
-- 日期与时区：turn 跨午夜按最后一个事件；`tz` 影响切天；
-- 分组：按模型、缺失 model 时用回退函数、仍未知的归 Unknown；
-- 显式 none：最后一次调用决定；只算 base；不进 offered；不触发 “没有 next moves” 标记；旧条目没有 `offered` 时按有建议处理；
-- picked：整句、追加在已有输入后、改了几个字、短 prompt 只认全等、多条取最接近、只有动作建议、未知不进比率、Done 采纳、未回答不计、覆盖的 set 不计；`turnPick` 取 turn 开始前的那一组；
-- 标记：恰好 10 次且 0；9 次不标；有 1 次不标；ideas 同理；
-- flow log：`flowEntry` 保留 `model`、`pick`（含 0）、`offered`、`offersDone`。
+Unit tests (`shared/agent-habits.test.ts`):
+- Turn boundaries: events within a turn belong to that turn; agent events after `turn_ended` and before the next `turn_started` belong to the turn that just ended; events without a `turn_started` form a turn of their own; two next moves in the same turn count only once; a turn that has both a delivery and a result counts only as delivery;
+- Denominator: question does not enter base; it is counted separately; ideas per delivery;
+- Dates and time zone: a turn spanning midnight goes by the last event; `tz` affects the day cut;
+- Grouping: by model, using the fallback function when model is missing, and still-unknown ones go to Unknown;
+- Explicit none: the last call decides; only base counts; it does not enter offered; it does not trigger the "no next moves" flag; an old entry without `offered` is treated as having suggestions;
+- picked: the whole sentence, appended after existing input, a few words changed, a short prompt accepted only on exact equality, the closest of several, only action suggestions, unknown does not enter the ratio, Done adoption, unanswered does not count, an overridden set does not count; `turnPick` takes the set from before the turn started;
+- Flags: exactly 10 with 0; 9 is not flagged; 1 is not flagged; likewise for ideas;
+- Flow log: `flowEntry` keeps `model`, `pick` (including 0), `offered` and `offersDone`.
 
-服务端：`recordLifecycle` 写入 `model` / `pick`；`analyze` 带 `habits`；旧 flow 条目用 board 补 `offersDone`。
+Server: `recordLifecycle` writes `model` / `pick`; `analyze` carries `habits`; old flow entries are completed from the board for `offersDone`.
 
-实测：冻结 flow log 与 `board.json` 的一份副本，用独立脚本（`docs/verification/fixtures/agent-habits/handcount.mjs`，不引用 `shared/agent-habits.ts`）按日、按 session 手工计数，与计数器逐项对照（`compare.test.ts`，设 `HABITS_FROZEN_DIR` 才运行）；多组日期与时区都要一致。差异与原因写进 `docs/verification/agent-habits.md`，其中包括卡片里示例数字（10-19 为 65 次 next moves / 11 条 ideas，10-20 为 1 / 0）与当前数据不符的原因：65 是 `board.json` 里还留着的 next moves 事件数（被每卡 100 条的上限裁过），不是当天的实际数；11 条 ideas 与 flow log（全部项目）一致；10-20 的 1 / 0 是当天早些时候的数，之后又有调用。UI 在运行中的 Paseo 上目视检查；没有桌面窗口控制工具时记为 UNRUN。
+Live check: freeze a copy of the flow log and `board.json`, count by hand by day and by session with an independent script (`docs/verification/fixtures/agent-habits/handcount.mjs`, which does not reference `shared/agent-habits.ts`), and compare item by item with the counter (`compare.test.ts`, which runs only when `HABITS_FROZEN_DIR` is set); several date and time zone combinations must all agree. The differences and their reasons go into `docs/verification/agent-habits.md`, including why the example numbers in the card (65 next moves / 11 ideas on 10-19, 1 / 0 on 10-20) do not match the current data: 65 is the number of next-moves events still left in `board.json` (after being trimmed by the cap of 100 per card), not the actual number for that day; the 11 ideas agree with the flow log (all projects); the 1 / 0 on 10-20 is the count from earlier that day, and there were more calls afterwards. The UI is checked visually on a running Paseo; when there is no desktop window control tool it is recorded as UNRUN.
