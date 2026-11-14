@@ -1,65 +1,65 @@
-# 回合清单与遵守率统计校准
+# Turn checklist and compliance-rate statistics calibration
 
-2026-10-22，用户授权：先校准统计口径，再实施最小版建议 1+3，先写 spec，暂不加 hooks。本规范增补 PHASE-02-SPEC、CARD-SETUP-SPEC 与 DELIVERY-CONSTRAINTS-SPEC；不改变单根目录、权限、状态、写入或回执规则。
+2026-10-22, authorized by the user: first calibrate the statistics definitions, then implement the minimal version of recommendations 1+3, write the spec first, and add no hooks for now. This spec supplements PHASE-02-SPEC, CARD-SETUP-SPEC and DELIVERY-CONSTRAINTS-SPEC; it does not change the single-root, permission, status, write or receipt rules.
 
-## 1. 目标与范围
+## 1. Goal and scope
 
-交付后的“提交、开 PR、合入、返工、验证”短回合也属于工作回合。将已有动作义务突出为一个简短清单，使新会话的 skill 与旧会话读卡时看到的最新要求一致。清单仅提示已有规则，不新增审批、不强制经过所有阶段、不强制 idea，不推断回合做过什么。
+Short turns after delivery ("commit, open PR, merge, rework, verify") are also work turns. The existing action obligations are brought out as a short checklist, so that a new session's skill and an old session reading the card see the same latest requirements. The checklist only reminds of existing rules: it adds no approval, does not force passing through all stages, does not force ideas, and does not infer what the turn did.
 
-不增加 Claude hooks、MCP initialize instructions、自动代登记、回合后补登消息、仓库 AGENTS.md 要求或规则版本平台。完全不调用工具的回合仍无法靠 get_task 提醒；ACP 指令实际送达不在本次验收范围。
+No Claude hooks, MCP initialize instructions, automatic registration on the agent's behalf, post-turn registration messages, repository AGENTS.md requirement or rule-version platform are added. A turn that calls no tool at all still cannot be reminded through get_task; whether ACP instructions are actually delivered is outside this acceptance.
 
-## 2. 单一清单与接口
+## 2. Single checklist and interface
 
-由运行环境无关的 `shared/turn-checklist.ts` 导出英文 `turnChecklist: string[]`。六项覆盖：
+The runtime-neutral `shared/turn-checklist.ts` exports an English `turnChecklist: string[]`. Six items cover:
 
-1. 每回合（包括提交/合入/返工/验证短回合）先读 get_task、处理 unread inputs、补 setup.missing。
-2. 按工作目的选择阶段：调研、规划、写规格保持 design；实现变更（含纯文档实现）在编辑前设 development 并定义 workpad 验收/检查；执行任务验证（包括 workpad 或用户要求的检查）前确保 test，普通定位读取不要求 test。阶段随工作变化，不强制阶段流水线。
-3. 跑检查后在 workpad 记录实际结果、准确命令与 commit，未提交修改标 dirty。
-4. 本回合开的每个 PR/MR 都在本回合登记 output，即使上一回合已经交付。
-5. 工作回合（包括本卡调研、任务检查、提交/合入跟进）结束前更新 workpad，并取得成功的交付/结果回执：整卡整体交付或用户要求的 handoff 用 in_review，未提交成果也适用；部分工作或纯验证跟进可用 result。新产物本身不代表整卡完成。两者带 outputs 与 nextMoves，没有则显式 []。纯对话或暂停不新增交付；question/blocked 后不额外补 result，仍遵守各自现有 nextMoves 规则；用户明确 stop/wait 的指令优先。
-6. 首次 WORKPAD_OPEN/SETUP_INCOMPLETE 后查看并尽量解决；解释每个遗留项后才能 acknowledgeOpen 重试。会话结束不代表卡片完成。
+1. Every turn (including short commit/merge/rework/verify turns): first read get_task, handle unread inputs, fill in setup.missing.
+2. Choose the stage by the purpose of the work: research, planning and writing a spec stay in design; implementing a change (including a docs-only implementation) sets development before editing and defines the workpad acceptance/checks; before running task verification (including checks in the workpad or requested by the user) make sure it is test; ordinary locating reads do not require test. The stage changes with the work; no stage pipeline is forced.
+3. After running a check, record the actual result, the exact command and the commit in the workpad; mark uncommitted changes dirty.
+4. Every PR/MR opened in this turn is registered as an output in this turn, even if the previous turn already delivered.
+5. Before a work turn ends (including research on this card, task checks, and commit/merge follow-up), update the workpad and obtain a successful delivery/result receipt: delivering the whole card, or a handoff the user asked for, uses in_review, and this also applies to uncommitted results; partial work or a pure verification follow-up may use result. A new artifact alone does not mean the whole card is complete. Both carry outputs and nextMoves, and an explicit [] when there are none. A pure chat or a pause adds no delivery; after question/blocked no extra result is added, and each one's existing nextMoves rule still applies; the user's explicit stop/wait instruction takes priority.
+6. After the first WORKPAD_OPEN/SETUP_INCOMPLETE, look at it and try to resolve it; explain each remaining item before retrying with acknowledgeOpen. The end of a session does not mean the card is complete.
 
-`server/skill-source.ts` 在 skill 开头按编号渲染此数组；后续保留原详细规则，去掉“before starting a work phase”容易被误读成每回合规则例外的措辞。仓库 `skills/flowly/SKILL.md` 与生成字符串逐字一致。
+`server/skill-source.ts` renders this array by number at the start of the skill; the detailed original rules follow, with the wording "before starting a work phase", which is easily misread as an exception to the every-turn rule, removed. The repository's `skills/flowly/SKILL.md` is verbatim identical to the generated string.
 
-`flowly_get_task`、HTTP/CLI `current` 及写入返回的 current 都由 AgentService.get 构造，增加 `turnChecklist` 数组。总计 6 项，目标不超过 1800 字符，无任务历史、凭据或用户文本；每次读均取运行中插件版本，不依赖 session 创建时的 system prompt。输出 schema 为兼容旧结果允许字段缺省，新服务始终返回；toolVersion 仍为 1，不新增错误码，不写 board、不改变 revision/已读语义。只读权限与原有校验一致。
+`flowly_get_task`, HTTP/CLI `current` and the current returned by writes are all built by AgentService.get, and gain a `turnChecklist` array. Six items in total, with a target of at most 1800 characters, containing no task history, credentials or user text; every read takes the running plugin's version and does not depend on the system prompt at session creation. For compatibility with old results the output schema allows the field to be missing; the new service always returns it; toolVersion stays 1, no new error code is added, nothing is written to the board, and revision/read semantics are unchanged. Read-only permission is consistent with the existing validation.
 
-### 2.1 两项措辞收紧（2026-10-23）
+### 2.1 Two wording tightenings (2026-10-23)
 
-用户授权按 [Fable 整体方案评审及主会话复核](verification/constraint-benchmark-advisor-2026-10-23/review-summary.md) 仅收紧第 2、5 项，再生成 skill；第 1、3、4、6 项逐字保留。候选六项以换行连接共 1583 字符。该增量澄清既有义务，不改变阶段、自动恢复、整体交付/阶段汇报或工具门槛。
+The user authorized tightening only items 2 and 5, following [Fable overall plan review and main-session recheck](verification/constraint-benchmark-advisor-2026-10-23/review-summary.md), and then regenerating the skill; items 1, 3, 4 and 6 are kept verbatim. The six candidate items joined by newlines total 1583 characters. This increment clarifies existing obligations; it does not change stages, automatic restoring, whole-card delivery/stage reporting, or the tool gates.
 
-| 场景 | 既有边界，修订后继续保持 |
+| Scenario | Existing boundary, kept after the revision |
 | --- | --- |
-| 调研、规划、编写规格/研究报告 | Design；不能因为编辑了文件就一律改到 Development。 |
-| 实现代码或纯文档变更 | 编辑前 Development；执行任务验证前 Test，不能跑完后仅为登记结果才切 Test。普通定位读取不触发 Test；已在 Test 时无需重复切换。 |
-| 整体交付/用户要求 handoff，先不要提交 | 可交 In review；不增加 Git 提交要求。文件、报告、PR 的出现本身不强制把阶段贡献升级为整体交付。 |
-| 纯验证或阶段贡献 | 允许 result；纯验证停在 Test 是现行合法结果。 |
-| 纯对话、暂停、提问或阻塞 | 不为了“最终聊天回复”另造 delivery/result；question/blocked 按现有路径处理 nextMoves，明确 stop/wait 优先。不修改 A1/A1r。 |
+| Research, planning, writing a spec/research report | Design; it cannot always be changed to Development just because a file was edited. |
+| Implementing a code or docs-only change | Development before editing; Test before running task verification, and not switching to Test only to register results after running. Ordinary locating reads do not trigger Test; no need to switch again when already in Test. |
+| Whole-card delivery / a user-requested handoff, without committing yet | May go to In review; no Git commit requirement is added. The mere appearance of a file, report or PR does not force upgrading a stage contribution to a whole-card delivery. |
+| Pure verification or a stage contribution | result is allowed; a pure verification staying in Test is a currently valid outcome. |
+| Pure chat, pause, question or blocked | No separate delivery/result is created just for the "final chat reply"; question/blocked handle nextMoves by the existing path, and an explicit stop/wait takes priority. A1/A1r are not modified. |
 
-成功回执义务针对工作回合的收尾，不要求整个回合恰好一次回执，也不禁止合法检查点或拒绝后的重试。规则送达、成功写入提醒与独立 benchmark 仍分层：文字一致不能证明模型遵守；Sonnet 整轮零成功业务写入仍无工具写入提醒入口，新措辞效果未验证。
+The successful-receipt obligation is about the close of a work turn: it does not require exactly one receipt for the whole turn, and does not forbid legitimate checkpoints or retries after a rejection. Rule delivery, the successful-write reminder and the independent benchmark remain separate layers: matching text cannot prove that the model complies; a Sonnet round with zero successful business writes still has no entry point for the tool-write reminder, and the effect of the new wording is unverified.
 
-本轮只更新规范、共享数组第 2/5 项及仓库生成 skill，并记录必要进展/证据。保留原始 benchmark 成绩与独立重评；不运行 B01、模型/审查会话、grader/fixture，不加 hooks，不改接口/服务端行为，不安装或 reload。
+This round only updates the spec, items 2/5 of the shared array and the repository's generated skill, and records the necessary progress/evidence. The original benchmark scores and the independent re-evaluation are kept; B01, model/review sessions and the grader/fixture are not run, no hooks are added, no interface/server behavior is changed, and nothing is installed or reloaded.
 
-本轮增量检查：`npx vitest run server/skill-source.test.ts server/agent-service.test.ts server/tool-server.test.ts`，核对六项/长度、生成 skill 逐字相等及 get_task/MCP 的同源返回；另核对仅第 2/5 项变化、skill 详细规则不变、旧成绩文件哈希保留。§4 的历史实施验收保留，不冒称本轮重跑了全套测试、Luna 或真实模型。
+This round's incremental check: `npx vitest run server/skill-source.test.ts server/agent-service.test.ts server/tool-server.test.ts`, checking the six items/length, that the generated skill is verbatim equal, and that get_task/MCP return from the same source; also check that only items 2/5 changed, that the skill's detailed rules are unchanged, and that the old score file hashes are kept. The historical implementation acceptance of §4 is kept, and this round does not claim to have rerun the full test suite, Luna or a real model.
 
-## 3. 统计校准
+## 3. Statistics calibration
 
-保留原 `audit.mjs` / `audit-codex.mjs` 命令入口，使用共享只读解析与汇总逻辑。原报告及旧输出留存，不覆盖成新结果。
+The original `audit.mjs` / `audit-codex.mjs` command entry points are kept, using shared read-only parsing and summarizing logic. The original report and old outputs are kept, not overwritten into new results.
 
-- `--since` 按真实用户回合起始时间筛选，增加可选 `--until` 上界（半开区间）。先解析会话完整历史确定首次/后续回合，再筛选；旧会话上线后的回合必须保留。按会话创建时间相对 since 标识 old/new，不把窗口内首个回合当成会话首次回合。
-- 两种 provider 使用同一个 `--project` 范围；无当前卡片的旧会话只在完整 flow 历史可确认项目归属时纳入。子 agent 默认排除，测试卡片不因标题猜测为真实或测试；用显式 `--test-session <完整 ID>`（可重复）或 `--test-sessions <JSON ID 数组文件>` 标记，输出按 model、real/test、old/new 分组。未标记样本只称 unclassified，只有显式 `--real-session` 标记才称 real。
-- PR/MR 创建命令与编辑命令仍是 transcript 启发式观察，不冒充业务真相。分开记录创建尝试、结果中确认的完整 PR/MR URL、登记尝试、成功登记与无法确认的数据。仅匹配 PR 编号不够；必须比对完整规范 URL，不把同轮其他 PR 登记算成功。
-- `outputs`、独立 add_artifact、CLI 均只有在成功回执（event ID / artifact ID(s)）与实际 role=output 的产物 target 对应后才计入成功。失败返回不计；重放不重复计。产物可来自工具结果 current.artifacts 或当前 board；历史产物已删除且无法还原时保持 unknown，不用 artifact_added 事件数、说明中的链接或调用源码代替成功。
-- Codex code mode 不执行 transcript 中的代码。只提取实际 AST 调用表达式及可静态读取的参数；动态参数无法还原时标记 unknown。工具返回、CLI stdout、MCP content/structuredContent 中只提取统计所需的 receipt/error/artifact 字段，不导出原始消息、签名请求或凭据。
-- `acknowledgeOpen` 分为未见先前拒绝的提前确认尝试、同一回合收到 WORKPAD_OPEN/SETUP_INCOMPLETE 后的确认重试、拒绝后修复再交付；回合重置。仅记录观测顺序，不能仅据此前拒绝断言服务端接受或 fingerprint 一致。无法静态还原的参数/混合批调用保持 unknown。
-- JSON 输出保留每回合分母、证据、未知、失败与分组；文本摘要明确“命令启发式”和“观测到的回执成功”，无 PR 样本时显示 0/0，不声称 100%。不输出用户消息正文或整个工具结果。对缺失日志给诊断，不静默当作零次调用。
-- 参数错误（缺少值、无效日期/区间等）非零退出。文件读取只读；无网络副作用、不自动补登。通过可指定 home/data 的隔离 fixture 验证，真实样本只读校验；不以不同窗口/样本构成直接声称前后因果。
+- `--since` filters by the real user turn start time, and an optional `--until` upper bound (half-open interval) is added. First parse the session's full history to determine first/later turns, then filter; turns of an old session after it went live must be kept. Mark old/new by the session creation time relative to since, and do not treat the first turn inside the window as the session's first turn.
+- Both providers use the same `--project` scope; an old session with no current card is included only when the full flow history can confirm the project it belongs to. Sub-agents are excluded by default, and test cards are not guessed to be real or test from their titles; mark them with an explicit `--test-session <full ID>` (repeatable) or `--test-sessions <JSON ID array file>`, and the output is grouped by model, real/test, old/new. Unmarked samples are called only unclassified, and only an explicit `--real-session` mark makes one called real.
+- PR/MR creation commands and edit commands are still transcript heuristic observations, not passed off as business truth. Record separately the creation attempts, the full PR/MR URL confirmed in the result, the registration attempts, the successful registrations, and the data that cannot be confirmed. Matching only the PR number is not enough; the full canonical URL must be compared, and another PR's registration in the same turn is not counted as success.
+- `outputs`, the standalone add_artifact and the CLI count as successful only when a successful receipt (event ID / artifact ID(s)) corresponds to an actual role=output artifact target. A failed return does not count; a replay is not counted twice. Artifacts may come from the tool result's current.artifacts or the current board; when a historical artifact was deleted and cannot be restored it stays unknown, and neither the artifact_added event count nor a link in the note stands in for success.
+- Codex code mode does not execute the code in the transcript. Only the actual AST call expressions and statically readable parameters are extracted; dynamic parameters that cannot be restored are marked unknown. From tool returns, CLI stdout and MCP content/structuredContent only the receipt/error/artifact fields needed for statistics are extracted; raw messages, signed requests and credentials are not exported.
+- `acknowledgeOpen` is split into: an early confirmation attempt with no earlier rejection seen, a confirmation retry after receiving WORKPAD_OPEN/SETUP_INCOMPLETE in the same turn, and fix-then-deliver after a rejection; reset per turn. Only the observed order is recorded; it cannot be asserted, from an earlier rejection alone, that the server accepted it or that the fingerprints match. Parameters that cannot be restored statically and mixed-batch calls stay unknown.
+- The JSON output keeps each turn's denominator, evidence, unknowns, failures and grouping; the text summary states "command heuristic" and "observed receipt success" explicitly, shows 0/0 when there is no PR sample, and does not claim 100%. It does not output user message bodies or whole tool results. For missing logs it gives a diagnosis, and does not silently treat them as zero calls.
+- A parameter error (a missing value, an invalid date/interval, etc.) exits non-zero. File reads are read-only; there are no network side effects and no automatic registration. Verify with isolated fixtures where home/data can be specified, and check real samples read-only; do not claim before/after causation directly from different windows/sample compositions.
 
-Fable 审查补充（实现前明确）：两入口默认 since 一致；Claude 的系统来源/后台 task notification、IDE 与命令提示不建立用户回合。登记尝试收到空白或无法提取 receipt/error 的应答也属于无法确认，不能据此声称 missing（board 回执仅保留 7 天）。Codex `shell_command` 字符串和 `shell` 的 bash/sh/zsh `-c`/`-lc` 数组脚本纳入识别，其他无法解析的 argv 标 unknown。skill 不使用易失效的清单步骤编号交叉引用。
+Fable review additions (made explicit before implementation): both entry points have the same default since; for Claude, system-origin/background task notifications, and IDE and command prompts do not create a user turn. A registration attempt that receives a blank response, or one from which no receipt/error can be extracted, also counts as unable to confirm, and missing cannot be claimed from it (board receipts are kept for only 7 days). Codex `shell_command` strings and `shell` bash/sh/zsh `-c`/`-lc` array scripts are recognized; other argv that cannot be parsed are marked unknown. The skill does not use checklist step-number cross-references that go stale easily.
 
-## 4. 验收与验证
+## 4. Acceptance and verification
 
-- 统计：两个 provider 的受控 JSONL 覆盖旧会话跨窗口、真实首次/后续、项目隔离、测试分组、outputs 与 add_artifact/CLI、失败/未知、多个 PR 完整 URL 匹配、重放去重、先拒后确认/修复与新回合重置；命令为 `node --test docs/verification/flow-constraints-audit-2026-10-22/audit.test.mjs`。
-- 清单：服务读卡不改 board；重复读与旧身份均返回最新清单；MCP schema、CLI current、skill 生成一致，旧 schema 结果可解析。命令为 `npx vitest run server/agent-service.test.ts server/tool-server.test.ts server/skill-source.test.ts`。
-- `npm run typecheck` 在 reload 前通过；最终树运行一次 `npm test`，只在新失败或输入变化时追加必要检查。
-- 重载 running 插件（不重启 daemon），在当前卡片 CLI current 只读实测；Luna 6 full-access 独立审查与验证，测试 session ID 和证据留 docs/verification。没有 UI 改动，不把截图或 running 状态算作行为证明。清理本轮新建测试资源，保留旧资源和用户要求留存的 GitHub 仓库。
-- Onboarding：没有新按钮、设置或用户操作流程，更新 tour/tip/What's new 不适用；交付说明此判断。
+- Statistics: controlled JSONL for both providers covers an old session across windows, real first/later, project isolation, test grouping, outputs and add_artifact/CLI, failures/unknown, full-URL matching of several PRs, replay de-duplication, reject-then-confirm/fix and new-turn reset; the command is `node --test docs/verification/flow-constraints-audit-2026-10-22/audit.test.mjs`.
+- Checklist: the service reading a card does not change the board; repeated reads and an old identity both return the latest checklist; the MCP schema, CLI current and skill generation are consistent, and results from the old schema parse. The command is `npx vitest run server/agent-service.test.ts server/tool-server.test.ts server/skill-source.test.ts`.
+- `npm run typecheck` passes before reload; run `npm test` once on the final tree, and add necessary checks only for a new failure or changed inputs.
+- Reload the running plugin (without restarting the daemon), and test read-only with the CLI current on the current card; Luna 6 full-access independent review and verification, with the test session ID and evidence kept in docs/verification. There is no UI change, and screenshots or the running state do not count as proof of behavior. Clean up the test resources created this round, and keep the old resources and the GitHub repository the user asked to keep.
+- Onboarding: there is no new button, setting or user operation flow, so updating the tour/tip/What's new does not apply; the delivery note states this judgment.

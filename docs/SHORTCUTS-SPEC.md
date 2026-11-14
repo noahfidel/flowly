@@ -1,82 +1,82 @@
-# F4 桌面快捷键 — 增量 spec（2026-10-15）
+# F4 Desktop shortcuts — incremental spec (2026-10-15)
 
-## 1. 调研结论（Paseo 0.11.2）
+## 1. Research findings (Paseo 0.11.2)
 
-| 能力 | 结论 |
+| Capability | Finding |
 | --- | --- |
-| 插件 SDK 快捷键注册 | **没有。** `@getpaseo/plugin@0.11.2` 的 `PluginClientContext` 只有 `addCommandCenterItem`、`addSlashCommand`、`addHeaderButton` 等；`PluginCommandCenterItemContribution` 只有 `id/title/icon/keywords/context/onSelect`，没有 key/chord 字段。 |
-| 宿主快捷键系统 | 已安装的宿主 bundle 有完整的快捷键注册表（`resolveShortcutKeysForAction`、`useKeyboardShortcutsStore`、快捷键帮助对话框、用户覆盖），但 action ID 是内置固定集合，插件不能注册或出现在宿主快捷键帮助里。 |
-| 全局监听 | 唯一的全局方式是 `window`/`document` 的 `keydown` 监听 —— AGENTS.md 禁止 DOM API，**不采用**。 |
-| React Native Web | 宿主的 RN-Web `View` 会转发 `onKeyDown/onKeyDownCapture/onKeyUp` 这类 React 合成事件属性（宿主 bundle 的 `keyboardProps` 白名单），`focusable` 映射成可聚焦。这是 RN 原语上的 React 事件属性，不访问 `window/document/element`，不写 HTML/CSS。React Native 类型定义没有声明这些属性，所以只在 `Platform.OS === "web"` 时以带类型的 web-only 属性对象传入。 |
+| Plugin SDK shortcut registration | **None.** `PluginClientContext` in `@getpaseo/plugin@0.11.2` has only `addCommandCenterItem`, `addSlashCommand`, `addHeaderButton` and the like; `PluginCommandCenterItemContribution` has only `id/title/icon/keywords/context/onSelect`, with no key/chord field. |
+| Host shortcut system | The installed host bundle has a full shortcut registry (`resolveShortcutKeysForAction`, `useKeyboardShortcutsStore`, the shortcut help dialog, user overrides), but action IDs are a fixed built-in set; a plugin cannot register one or appear in the host's shortcut help. |
+| Global listening | The only global way is a `keydown` listener on `window`/`document`. AGENTS.md forbids DOM APIs, so this is **not adopted**. |
+| React Native Web | The host's RN-Web `View` forwards React synthetic event props such as `onKeyDown/onKeyDownCapture/onKeyUp` (the `keyboardProps` allowlist in the host bundle), and `focusable` maps to focusable. These are React event props on an RN primitive: they do not access `window/document/element` and do not write HTML/CSS. The React Native type definitions do not declare these props, so they are passed only when `Platform.OS === "web"`, as a typed web-only props object. |
 
-**取舍：** 没有合规的“全局”快捷键。实现两条互补路径：
+**Trade-off:** there is no compliant "global" shortcut. Two complementary paths are implemented:
 
-1. **看板内快捷键（scoped）：** 看板根 `View` 在 web 上可聚焦，并接收冒泡上来的 `onKeyDown`。只有键盘焦点位于看板内部（点击过看板/卡片/按钮之后）才会生效；焦点在宿主侧栏、宿主输入框或其他 pane 时不生效。
-2. **Command Center 条目（global）：** 在宿主 Command Center 里注册全局条目，从任何位置都能用键盘（宿主的 Command Center 快捷键 → 输入 → 回车）到达同样的动作。
+1. **In-board shortcuts (scoped):** the board's root `View` is focusable on web and receives the `onKeyDown` that bubbles up. They work only while keyboard focus is inside the board (after clicking the board/a card/a button); they do not work when focus is in the host sidebar, the host input box or another pane.
+2. **Command Center items (global):** global items are registered in the host's Command Center, so the same actions can be reached by keyboard from anywhere (the host's Command Center shortcut → type → Enter).
 
-## 2. 可观察行为
+## 2. Observable behavior
 
-### 2.1 看板内快捷键（桌面 web、非紧凑布局）
+### 2.1 In-board shortcuts (desktop web, non-compact layout)
 
-| 按键 | 动作 | 前提 |
+| Key | Action | Precondition |
 | --- | --- | --- |
-| `T` | 打开“新建任务”：*Quick task for New task* 开启（默认）时为 Quick task，否则为完整表单（默认 Todo；QUICK-TASK-SPEC §5） | 存在当前项目且未归档 |
-| `Q` | 打开 Quick task，项目默认为上次 Quick task 用的项目，否则当前项目（QUICK-TASK-SPEC §3） | 至少有一个未归档项目 |
-| `P` | 打开项目切换弹层 | — |
-| `/` 或 `F` | 打开筛选/搜索弹层 | 存在当前项目 |
-| `S` | 打开 / 关闭 Search 页（SEARCH-SPEC §5） | 存在当前项目 |
-| `N` | 开始“N need you”逐张处理（与概览栏该按钮相同，`startStep("needs")`；帮助行 “Step through what needs you”） | 存在当前项目或 All projects |
-| `U` | 开始“N updated”逐张阅读（与概览栏该按钮相同，`startStep("updated")` 与 `stepStartTarget` 的重按规则；等待看板和 session 加载；无内容时 toast “Nothing new to read.”；帮助行 “Step through what's new to read”；该按钮显示快捷键提示 “U”）。Ruling (Noah, 2026-11-10) | 存在当前项目或 All projects |
-| `D` | 打开左侧 Dispatcher 聊天停靠栏并聚焦消息框；已打开时只聚焦消息框。`D` 从不关闭停靠栏，只有 `Esc` 关闭（Ruling, Noah 2026-11-09）；焦点在消息框内时输入 “d” | 看板有停靠栏（项目或 All projects） |
-| `?` | 打开快捷键帮助弹层 | — |
-| `Esc` | 作用于用户所在的区域（Ruling, Noah 2026-11-09）：先是打开的弹层；然后若停靠栏是活动区域（消息框获得焦点或在停靠栏内按下，之后未在看板别处按下）：消息框聚焦且有草稿 → 仅失焦（草稿保留，停靠栏仍为活动区域），否则关闭停靠栏并把焦点还给看板；再然后依次：侧栏打开（详情或 session 预览）→ 一次关闭整个侧栏（Ruling, Noah 2026-11-10：不再有“从 session 返回”一步；聊天头部的 ← Back 仍回到卡片详情；关闭卡片即结束逐张处理）；在项目页 → 离开（停靠栏保持打开） | 见左 |
-| `J` / `K` | 当前列下一张 / 上一张卡片（打开其侧栏）；没有选中卡片时选中第一列第一张 | 有可见卡片 |
-| `H` / `L` | 左 / 右侧最近的非空列，同一行号（越界取最后一张） | 有可见卡片 |
-| `←` / `→` | 智能体多问题提问：上一题 / 下一题（不循环；挂在问题表单自身，不走看板快捷键，见 SESSION-QUESTION-SPEC §2） | 焦点在问题表单内且不在输入框 |
+| `T` | Open "New task": Quick task when *Quick task for New task* is on (default), otherwise the full form (default Todo; QUICK-TASK-SPEC §5) | A current project exists and is not archived |
+| `Q` | Open Quick task, the project defaulting to the one last used for Quick task, otherwise the current project (QUICK-TASK-SPEC §3) | At least one unarchived project |
+| `P` | Open the project switcher popover | — |
+| `/` or `F` | Open the filter/search popover | A current project exists |
+| `S` | Open / close the Search page (SEARCH-SPEC §5) | A current project exists |
+| `N` | Start stepping through "N need you" one card at a time (same as that button in the overview bar, `startStep("needs")`; help row "Step through what needs you") | A current project exists or All projects |
+| `U` | Start reading "N updated" one card at a time (same as that button in the overview bar, `startStep("updated")` and the re-press rule of `stepStartTarget`; waits for the board and sessions to load; with nothing to read, toast "Nothing new to read."; help row "Step through what's new to read"; the button shows the shortcut hint "U"). Ruling (Noah, 2026-11-10) | A current project exists or All projects |
+| `D` | Open the left Dispatcher chat dock and focus the message box; if already open, only focus the message box. `D` never closes the dock, only `Esc` closes it (Ruling, Noah 2026-11-09); when focus is in the message box, it types "d" | The board has a dock (project or All projects) |
+| `?` | Open the shortcut help popover | — |
+| `Esc` | Acts on the area the user is in (Ruling, Noah 2026-11-09): first an open popover; then, if the dock is the active area (the message box got focus or was pressed in the dock, and nothing elsewhere on the board was pressed since): message box focused with a draft → only blur (the draft is kept, the dock stays the active area), otherwise close the dock and give focus back to the board; then, in order: sidebar open (detail or session preview) → close the whole sidebar at once (Ruling, Noah 2026-11-10: there is no longer a "back from session" step; the ← Back in the chat header still returns to the card detail; closing the card ends the step-through); on the Projects page → leave it (the dock stays open) | See left |
+| `J` / `K` | Next / previous card in the current column (opens its sidebar); with no card selected, selects the first card of the first column | There are visible cards |
+| `H` / `L` | The nearest non-empty column to the left / right, same row number (past the end, take the last card) | There are visible cards |
+| `←` / `→` | Agent multi-question ask: previous / next question (no wrap; attached to the question form itself, not routed through board shortcuts, see SESSION-QUESTION-SPEC §2) | Focus is inside the question form and not in an input |
 
-- Ruling (Noah, 2026-11-10): `N` 开始“N need you”逐张处理（原为 `A`），`T` 打开“新建任务”（原为 `N`），`A` 不再绑定任何动作（空出，无别名）。所有快捷键提示（需求按钮、New task 按钮、帮助弹层）随之更新。
-- 大写字母（`CapsLock`）与小写等价；带 `Cmd/Ctrl/Alt` 的组合一律不处理，留给宿主快捷键。按住 `Shift` 的字母（如 `Shift+N`）不处理；`?` 这类本身需要 Shift 的字符照常处理。
-- 自动重复（按住）和 IME 组合中（`isComposing`）的事件忽略。
-- 处理了的按键调用 `preventDefault` + `stopPropagation`；未处理的原样冒泡给宿主。
-- 卡片导航按桌面列显示顺序（`position`，再按 `createdAt`）且只在当前筛选结果中移动；导航选中即打开侧栏（与点击卡片一致），不会自动滚动列。
+- Ruling (Noah, 2026-11-10): `N` starts stepping through "N need you" (it was `A`), `T` opens "New task" (it was `N`), and `A` is no longer bound to any action (freed, no alias). All shortcut hints (the need button, the New task button, the help popover) are updated accordingly.
+- Uppercase letters (`CapsLock`) are equivalent to lowercase; any combination with `Cmd/Ctrl/Alt` is never handled and is left to the host shortcuts. Letters with `Shift` held (such as `Shift+N`) are not handled; characters that themselves need Shift, such as `?`, are handled as usual.
+- Auto-repeat (key held) and events during IME composition (`isComposing`) are ignored.
+- A handled key calls `preventDefault` + `stopPropagation`; an unhandled one bubbles to the host unchanged.
+- Card navigation follows the desktop column display order (`position`, then `createdAt`) and moves only within the current filter result; navigating selects and opens the sidebar (same as clicking a card) and does not scroll the column automatically.
 
-### 2.2 屏蔽条件（任一满足即不触发）
+### 2.2 Blocking conditions (any one stops the shortcut from firing)
 
-- 插件内任何文本输入框处于聚焦状态（`Field`、session 跟进输入框）。
-- 插件拥有的任何宿主 `Modal` 处于打开状态（项目/筛选/Attention/状态/卡片操作/表单/新建 session/Wrap up/session 编辑器/快捷键帮助等）。这时 Esc 由宿主 Modal 自己处理。
-- 紧凑布局、原生平台（iOS/Android）、正在执行写操作时的“新建任务”同样不生效。
+- Any text input inside the plugin has focus (`Field`, the session follow-up input).
+- Any host `Modal` owned by the plugin is open (project/filter/Attention/status/card actions/form/new session/Wrap up/session editor/shortcut help, etc.). Then Esc is handled by the host Modal itself.
+- The compact layout, native platforms (iOS/Android), and "New task" while a write operation is running likewise do not take effect.
 
-屏蔽通过插件内的引用计数实现（`client/shortcuts.ts` 的 `useShortcutBlock`）：输入框在 `onFocus/onBlur`、所有插件 Modal 通过 `client/modal.tsx` 的包装在 `open` 时登记，组件卸载时注销。不读取 DOM 的 `activeElement` 或 `event.target`。
+Blocking is implemented by a reference count inside the plugin (`useShortcutBlock` in `client/shortcuts.ts`): inputs register on `onFocus/onBlur`, all plugin Modals register on `open` through the wrapper in `client/modal.tsx`, and they unregister when the component unmounts. The DOM `activeElement` or `event.target` is not read.
 
-已知限制：宿主 Modal 关闭后焦点可能回到页面根，需要再点一下看板才能继续用快捷键；这是不使用全局监听的代价。
+Known limitation: after a host Modal closes, focus may return to the page root, and you need to click the board once more to keep using shortcuts; this is the cost of not using a global listener.
 
-### 2.3 可发现性
+### 2.3 Discoverability
 
-- 桌面头部新增“Keyboard shortcuts”图标按钮（`Keyboard` 图标），点击或按 `?` 打开帮助弹层，列出所有按键和说明，并说明“焦点需在看板内”，以及在 Command Center 搜索 “Flowly” 可到达 §2.4 的条目。
-- 桌面头部 Projects / Attention / Filter / New task / 帮助按钮的无障碍标签附带快捷键（如 `New task (T)`、`Task filters (/)`）。不使用 RN-Web 专有的 `accessibilityKeyShortcuts`，因为 React Native 类型未声明它。
+- The desktop header gets a new "Keyboard shortcuts" icon button (the `Keyboard` icon); clicking it or pressing `?` opens the help popover, which lists all keys and descriptions, says "focus must be inside the board", and says that searching "Flowly" in the Command Center reaches the items of §2.4.
+- The accessibility labels of the desktop header's Projects / Attention / Filter / New task / help buttons carry the shortcut (such as `New task (T)`, `Task filters (/)`). The RN-Web-specific `accessibilityKeyShortcuts` is not used, because React Native types do not declare it.
 
-### 2.4 Command Center 条目（全局）
+### 2.4 Command Center items (global)
 
-| 条目 | 行为 |
+| Item | Behavior |
 | --- | --- |
-| `Flowly: View board` | 打开看板（id `open-board`） |
-| `Flowly: Quick task` | 打开看板并打开 Quick task（intent `quick-task`，QUICK-TASK-SPEC §5） |
+| `Flowly: View board` | Open the board (id `open-board`) |
+| `Flowly: Quick task` | Open the board and open Quick task (intent `quick-task`, QUICK-TASK-SPEC §5) |
 
-Flowly 只注册这两个条目，按此顺序（QUICK-TASK-SPEC §7），不注册工作区上下文的条目。其余 intent（`attention`、`new-task`、`projects`、`filters`、`search`、`shortcuts`、`welcome`）没有 Command Center 条目，但作为 screen params 仍然有效，看板上的按钮和快捷键照旧。
+Flowly registers only these two items, in this order (QUICK-TASK-SPEC §7), and registers no workspace-context items. The other intents (`attention`, `new-task`, `projects`, `filters`, `search`, `shortcuts`, `welcome`) have no Command Center item but are still valid as screen params, and the buttons and shortcuts on the board work as before.
 
-数据契约：`openScreen({ screenId: "board", params: { intent, at } })`。
+Data contract: `openScreen({ screenId: "board", params: { intent, at } })`.
 
-- `intent ∈ {"new-task","quick-task","projects","filters","attention","shortcuts","welcome","search"}`；`at` 为 `Date.now()` 的十进制字符串。
-- 看板对每个 `(intent, at)` 只消费一次；`at` 距当前超过 30 秒（例如刷新页面后 URL 里残留）或格式无效、未知 intent 时忽略，不报错。
-- 与 session chip 链接参数（`taskId/sessionId/workspaceId/requestId`）互不冲突；intent 参数不进入 `parseSessionLink`。
-- `new-task` 在没有项目或项目已归档时不打开表单（与按钮的禁用状态一致）；其余 intent 在数据加载完成后执行。
+- `intent ∈ {"new-task","quick-task","projects","filters","attention","shortcuts","welcome","search"}`; `at` is the decimal string of `Date.now()`.
+- The board consumes each `(intent, at)` only once; when `at` is more than 30 seconds from now (for example left in the URL after a page refresh), or its format is invalid, or the intent is unknown, it is ignored without error.
+- It does not conflict with the session chip link params (`taskId/sessionId/workspaceId/requestId`); the intent param does not enter `parseSessionLink`.
+- `new-task` does not open the form when there is no project or the project is archived (consistent with the button's disabled state); the other intents run after data loading completes.
 
-## 3. 错误
+## 3. Errors
 
-- 快捷键与 Command Center intent 不产生新的错误路径，也不调用 RPC；被屏蔽或前提不满足时静默不响应（与禁用按钮一致）。
+- Shortcuts and Command Center intents create no new error paths and call no RPC; when blocked or a precondition is not met they silently do not respond (consistent with a disabled button).
 
-## 4. 验收
+## 4. Acceptance
 
-1. 纯逻辑单测：按键解析（大小写、修饰键、repeat、IME、屏蔽、紧凑）、卡片网格导航（空板、首次选中、列内上下、跨列/跳过空列/行号截断）、intent 参数解析（新鲜度、未知值、重复消费）。
-2. `npm run typecheck`、`npm test` 通过。
-3. UNRUN（需要真实宿主窗口）：桌面实际按键触发、焦点进入看板的方式、宿主 Command Center 条目显示与跳转、帮助弹层外观。
+1. Pure-logic unit tests: key parsing (case, modifier keys, repeat, IME, blocking, compact), card grid navigation (empty board, first selection, up/down within a column, across columns/skipping empty columns/row number clamping), intent param parsing (freshness, unknown values, repeated consumption).
+2. `npm run typecheck` and `npm test` pass.
+3. UNRUN (needs a real host window): actual key triggering on desktop, how focus enters the board, the host Command Center items showing and navigating, the look of the help popover.
