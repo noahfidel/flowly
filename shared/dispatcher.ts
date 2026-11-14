@@ -172,6 +172,13 @@ export const dispatcherBuiltinTools = ["Read", "Glob", "Grep", "WebSearch", "Too
 export const dispatcherGuardVersion = 2;
 
 /**
+ * The version of `dispatcherCharter`. Raise it whenever the charter text changes in a way a running dispatcher should
+ * get: a live dispatcher recorded with a lower version shows the Replace warning (DISPATCHER-SPEC §3). A record without
+ * one is version 0, the charter before versioning. Version 1 is the charter with `startRule` and the note reply rule.
+ */
+export const dispatcherCharterVersion = 1;
+
+/**
  * Providers the dispatcher starts on: those whose sessions can be started without `dispatcherWithheldTools` (Claude's
  * `disallowedTools`). Others have no per-session way to withhold them (ruling, Noah 2026-11-09; DISPATCHER-SPEC §3).
  */
@@ -308,6 +315,8 @@ export const dispatcherStatusSchema = z.strictObject({
   agentId: z.string().nullable(),
   /** The live dispatcher was saved without a tool this build lists; a new dispatcher gets it (§3). */
   newTools: z.literal(true).optional(),
+  /** The live dispatcher was started with an older charter (`dispatcherCharterVersion`); a new dispatcher gets the current one (§3). */
+  oldCharter: z.literal(true).optional(),
   /** The live dispatcher was started without this build's guard, or on a provider that cannot withhold the routes to a card's asks (§3). */
   unguarded: z.literal(true).optional(),
 });
@@ -336,12 +345,12 @@ export const dispatcherSendInputSchema = z
   .refine((v) => !!v.text.trim() || !!v.images?.length, "Write a message or attach an image.");
 /** The first words of a note batch message and of the board summary, as the chat recognizes them (§9.3). */
 export const noteMessagePrefix = "Flowly board update (";
-/** The last line of every note batch message: running dispatchers keep the charter they were created with. */
+/** The last line of a note batch message, only for a dispatcher whose charter version is 0 (§7); later ones have it in the charter. */
 export const noteReplyRule =
   "Reply in at most one line per card: the card link, its new status, and what the user must do, if anything. Do not restate the card's report.";
 /**
- * How the dispatcher reads "start X" (§6). A charter line, and repeated before noteReplyRule in every note batch so
- * a dispatcher started before it (whose charter is fixed at creation) learns it too.
+ * How the dispatcher reads "start X" (§6). A charter line, and repeated before noteReplyRule in note batches only for
+ * a dispatcher whose charter version is 0 (§7), which was started before it.
  */
 export const startRule =
   'When the user says to "start" something, create its card with flowly_create_card (pass the ideaId when it is a parked idea) and start it with flowly_start_card straight away; never ask what they mean and never do the work yourself.';

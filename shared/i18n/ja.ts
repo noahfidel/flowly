@@ -1500,7 +1500,7 @@ const catalog: Catalog = {
   "The card already has a running session. Send it a message instead.": "このカードには実行中のセッションがあります。代わりにメッセージを送ってください。",
   "Auto summary is off. Turn it on with the settings gear at the top of the board, or press Refresh.": "自動サマリーはオフです。ボード上部の設定の歯車からオンにするか、「更新」を押してください。",
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "あとで設定（ボード上部の歯車）からいつでも変更できます。このツアーもそこから開き直せます。",
-  "This dispatcher started before some Flowly tools existed. Replace dispatcher archives its session and starts a new one with them.": "このディスパッチャーは一部の Flowly ツールより前に開始されました。「ディスパッチャーを置き換える」でセッションをアーカイブし、ツールを備えた新しいディスパッチャーを開始します。",
+  "This dispatcher started before Flowly's current tools or instructions. Replace dispatcher archives its session and starts a new one with them.": "このディスパッチャーは Flowly の現在のツールまたは指示より前に開始されました。「ディスパッチャーを置き換える」でセッションをアーカイブし、それらを備えた新しいディスパッチャーを開始します。",
   "Nothing new to read.": "新しく読むものはありません。",
   "Step through": "順に確認",
   "“N need you” opens each waiting card in turn, with what it asks on top.": "「N 件が対応待ち」は、待っているカードを 1 枚ずつ、質問を上に表示して開きます。",

@@ -140,14 +140,14 @@ export function discussFill(fill: { text: string; key: number } | null | undefin
   return { key: fill.key, next: next === typed ? null : next };
 }
 
-/** The warning for a dispatcher that started before some of this build's tools (§3); translated at render. */
-export const newToolsNotice = msg("This dispatcher started before some Flowly tools existed. Replace dispatcher archives its session and starts a new one with them.");
+/** The warning for a dispatcher that started before this build's tools or charter (§3); translated at render. */
+export const outdatedNotice = msg("This dispatcher started before Flowly's current tools or instructions. Replace dispatcher archives its session and starts a new one with them.");
 
 /**
  * Which warning offers Replace dispatcher (§3; Ruling, Noah 2026-11-09): an unguarded live dispatcher, else a live one
- * that misses tools. Only one button shows when both apply.
+ * that misses tools or has an older charter. Only one button shows when both apply.
  */
-export function replaceOffer(status: { state: string; agentId: string | null; newTools?: boolean; unguarded?: boolean } | undefined): "unguarded" | "new-tools" | null {
+export function replaceOffer(status: { state: string; agentId: string | null; newTools?: boolean; oldCharter?: boolean; unguarded?: boolean } | undefined): "unguarded" | "outdated" | null {
   if (!status?.agentId || (status.state !== "running" && status.state !== "idle")) return null;
-  return status.unguarded ? "unguarded" : status.newTools ? "new-tools" : null;
+  return status.unguarded ? "unguarded" : status.newTools || status.oldCharter ? "outdated" : null;
 }

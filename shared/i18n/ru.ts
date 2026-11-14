@@ -1500,7 +1500,7 @@ const catalog: Catalog = {
   "The card already has a running session. Send it a message instead.": "У карточки уже есть идущая сессия. Отправьте ей сообщение.",
   "Auto summary is off. Turn it on with the settings gear at the top of the board, or press Refresh.": "Автосводка выключена. Включите её шестерёнкой настроек вверху доски или нажмите «Обновить».",
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "Всё это можно изменить позже в настройках — шестерёнка вверху доски. Там же можно снова открыть этот обзор.",
-  "This dispatcher started before some Flowly tools existed. Replace dispatcher archives its session and starts a new one with them.": "Этот диспетчер запущен до появления некоторых инструментов Flowly. «Заменить диспетчер» архивирует его сессию и запускает новый с ними.",
+  "This dispatcher started before Flowly's current tools or instructions. Replace dispatcher archives its session and starts a new one with them.": "Этот диспетчер запущен до текущих инструментов или инструкций Flowly. «Заменить диспетчер» архивирует его сессию и запускает новый с ними.",
   "Nothing new to read.": "Нового для чтения нет.",
   "Step through": "По очереди",
   "“N need you” opens each waiting card in turn, with what it asks on top.": "«Вас ждут N» открывает каждую ожидающую карточку по очереди, с её вопросом сверху.",

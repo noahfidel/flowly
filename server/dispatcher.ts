@@ -7,6 +7,7 @@ import {
   dispatcherCharter,
   dispatcherWithheldTools,
   dispatcherBuiltinTools,
+  dispatcherCharterVersion,
   dispatcherGuardVersion,
   dispatcherProviderReason,
   dispatcherProviderSupported,
@@ -114,6 +115,8 @@ const sessionShape = {
   savedTools: z.union([z.literal(true), z.array(z.string().min(1).max(100)).max(100)]).optional(),
   /** The guard its session was started with (§3): `dispatcherGuardVersion` and the provider part of its model; absent before. */
   guard: z.object({ version: z.number().int().nonnegative(), provider: z.string().min(1).max(100) }).optional(),
+  /** The `dispatcherCharterVersion` its session was started with (§3); absent before, read as 0. */
+  charter: z.number().int().nonnegative().optional(),
 };
 const entrySchema = z.strictObject({
   ...sessionShape,
@@ -163,6 +166,14 @@ export function missesTools(entry: ToolMarks) {
 /** Whether a dispatcher's session was started with this build's guard on a provider that keeps it (§3). */
 export function guarded(entry: ToolMarks) {
   return entry.guard?.version === dispatcherGuardVersion && dispatcherProviderSupported(entry.guard.provider);
+}
+/** The charter version a dispatcher's session was started with; a record without one is version 0. */
+export function charterVersion(entry: Pick<DispatcherEntry, "charter">) {
+  return entry.charter ?? 0;
+}
+/** Whether a dispatcher's session was started with an older charter than this build's (§3). */
+export function oldCharter(entry: Pick<DispatcherEntry, "charter">) {
+  return charterVersion(entry) < dispatcherCharterVersion;
 }
 
 const emptyRecord = (): DispatcherRecord => ({ version: 2, workspaceId: null, groups: {} });
@@ -323,8 +334,15 @@ export function dispatcherSummary(board: Board, groupId: string): string {
     .trim();
 }
 
-/** One message for a batch of notes (§7). */
-export function noteMessage(notes: readonly DispatcherNote[]): string {
+/**
+ * Dispatchers below this charter version get `startRule` and `noteReplyRule` in every batch: the shim for those started
+ * before charter versioning. Later charter bumps add no batch lines; an older dispatcher shows the Replace warning
+ * instead (DISPATCHER-SPEC §7 version policy).
+ */
+const batchRulesBelow = 1;
+
+/** One message for a batch of notes (§7); `charter` is the version of the dispatcher it goes to. */
+export function noteMessage(notes: readonly DispatcherNote[], charter: number): string {
   const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
   return [
     `${noteMessagePrefix}${notes.length} ${notes.length === 1 ? "card" : "cards"}):`,
@@ -332,8 +350,7 @@ export function noteMessage(notes: readonly DispatcherNote[]): string {
       const detail = [n.detail, n.later ? `then ${n.later}` : ""].filter(Boolean).map(oneLine).join("; ");
       return `- "${oneLine(n.title)}" [${n.taskId}] in project ${n.projectId}: ${n.kind}${detail ? ` — ${detail}` : ""}${n.earlier ? ` (+${n.earlier} earlier)` : ""}`;
     }),
-    startRule,
-    noteReplyRule,
+    ...(charter < batchRulesBelow ? [startRule, noteReplyRule] : []),
   ].join("\n");
 }
 
@@ -472,7 +489,7 @@ class GroupDispatcher {
     this.stopChase();
     let sentAt: number;
     try {
-      await paseo.agents.ref(agentId).send(noteMessage(notes));
+      await paseo.agents.ref(agentId).send(noteMessage(notes, charterVersion(entry ?? {})));
       sentAt = this.lastSent = this.hub.now();
     } catch (e) {
       logFailure("Flowly dispatcher notes not sent:", e, `${notes.length} notes`);
@@ -641,10 +658,12 @@ export class Dispatcher {
     const newTools = live && missesTools(entry);
     // Its tools are fixed at create too: one started without this build's guard keeps every route (§3).
     const unguarded = live && !guarded(entry);
+    // Its charter is fixed at create too: say so when this build's is newer (§3).
+    const outdated = live && oldCharter(entry);
     // A read that sees it idle is a chance to deliver what is held (§7).
     const group = this.perGroup.get(groupId);
     if (state === "idle" && group?.held.size && !this.disposed) group.kick(paseo);
-    return { state, agentId, ...(newTools ? { newTools: true as const } : {}), ...(unguarded ? { unguarded: true as const } : {}) };
+    return { state, agentId, ...(newTools ? { newTools: true as const } : {}), ...(outdated ? { oldCharter: true as const } : {}), ...(unguarded ? { unguarded: true as const } : {}) };
   }
 
   /** Starts a group's dispatcher session; one at a time for all groups, refused unless its stored one is dead (§0, §3). */
@@ -661,8 +680,8 @@ export class Dispatcher {
 
   /**
    * Replace dispatcher (§3, ruling Noah 2026-11-09): the user's confirmed click on a group's unguarded dispatcher, or
-   * on one that misses this build's tools. Archives exactly that session (the group's stored one, by the id the user
-   * saw), then starts a new guarded one as Start does. Refused for a guarded dispatcher with every tool, or when the
+   * on one that misses this build's tools or started with an older charter. Archives exactly that session (the group's stored one, by the id the user
+   * saw), then starts a new guarded one as Start does. Refused for a dispatcher current on guard, tools and charter, or when the
    * group's stored one is not the id given. With `deleteGroup`, the only ways Flowly archives a dispatcher.
    */
   replace(paseo: PaseoApi, raw: { groupId: string; agentId: string }): Promise<{ agentId: string }> {
@@ -671,8 +690,8 @@ export class Dispatcher {
       const group = await this.boardGroup(groupId);
       const entry = (await this.resolvedRecord()).groups[groupId];
       if (!entry?.agentId || entry.agentId !== agentId) throw new ToolError("DISPATCHER_CHANGED", "The dispatcher changed meanwhile; nothing was replaced.");
-      // A guarded one is replaced only when it misses this build's tools (Ruling, Noah 2026-11-09).
-      if (guarded(entry) && !missesTools(entry)) throw new ToolError("DISPATCHER_GUARDED", "This dispatcher has the current guard and tools; Flowly does not replace it.");
+      // A guarded one is replaced only when it misses this build's tools or has an older charter (Ruling, Noah 2026-11-09, 2026-11-14).
+      if (guarded(entry) && !missesTools(entry) && !oldCharter(entry)) throw new ToolError("DISPATCHER_GUARDED", "This dispatcher has the current guard, tools and charter; Flowly does not replace it.");
       const model = await this.model(group, {});
       if (!dispatcherProviderSupported(model.provider)) throw new ToolError("DISPATCHER_PROVIDER_UNSUPPORTED", dispatcherProviderReason);
       // Archived inside the start, after every step that can fail but the session create (§3).
@@ -748,6 +767,7 @@ export class Dispatcher {
           startedAt: new Date(now).toISOString(),
           savedTools: [...dispatcherToolNames],
           guard: { version: dispatcherGuardVersion, provider: input.provider.split("/")[0] },
+          charter: dispatcherCharterVersion,
         }),
       );
       for (const [taskId, held] of covered) if (notes.held.get(taskId) === held) notes.held.delete(taskId);
@@ -803,7 +823,7 @@ export class Dispatcher {
   /** Puts the group's earlier entry back (its session, marks and history) after a start that made no session. */
   private restore(groupId: string, workspaceId: string, previous: DispatcherEntry | undefined, previousGlobal: string[] | undefined) {
     return this.save((r) => {
-      const { previousAgentIds: _, savedTools: __, guard: ___, agentId: ____, startedAt: _____, workspaceId: ________, ...marks } = r.groups[groupId] ?? {};
+      const { previousAgentIds: _, savedTools: __, guard: ___, charter: _________, agentId: ____, startedAt: _____, workspaceId: ________, ...marks } = r.groups[groupId] ?? {};
       const back: DispatcherEntry = {
         ...marks,
         agentId: previous?.agentId ?? null,
@@ -811,6 +831,7 @@ export class Dispatcher {
         ...(previous?.workspaceId ? { workspaceId: previous.workspaceId } : {}),
         ...(previous?.savedTools ? { savedTools: previous.savedTools } : {}),
         ...(previous?.guard ? { guard: previous.guard } : {}),
+        ...(previous?.charter !== undefined ? { charter: previous.charter } : {}),
         ...(previous?.previousAgentIds ? { previousAgentIds: previous.previousAgentIds } : {}),
       };
       const { [groupId]: ______, ...others } = r.groups;
@@ -1234,10 +1255,10 @@ export class Dispatcher {
 function withSession(
   record: DispatcherRecord,
   groupId: string,
-  session: Required<Pick<DispatcherEntry, "agentId" | "workspaceId" | "startedAt" | "savedTools" | "guard">>,
+  session: Required<Pick<DispatcherEntry, "agentId" | "workspaceId" | "startedAt" | "savedTools" | "guard" | "charter">>,
 ): DispatcherRecord {
   const prev = record.groups[groupId];
-  const { savedTools: _, guard: __, previousAgentIds: ___, workspaceId: ____, ...marks } = prev ?? { agentId: null, startedAt: null };
+  const { savedTools: _, guard: __, charter: _____, previousAgentIds: ___, workspaceId: ____, ...marks } = prev ?? { agentId: null, startedAt: null };
   const all = prev?.agentId ? [...(prev.previousAgentIds ?? []).filter((id) => id !== prev.agentId), prev.agentId] : (prev?.previousAgentIds ?? []);
   const overflow = all.slice(0, Math.max(0, all.length - previousAgentIdLimit));
   const earlier = all.slice(-previousAgentIdLimit);

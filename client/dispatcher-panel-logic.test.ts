@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { answersWithText, chatRows, discussAvailable, discussDraft, discussFill, discussIdeaText, displayRows, mergeTimeline, newToolsNotice, replaceOffer } from "./dispatcher-panel-logic";
+import { answersWithText, chatRows, discussAvailable, discussDraft, discussFill, discussIdeaText, displayRows, mergeTimeline, outdatedNotice, replaceOffer } from "./dispatcher-panel-logic";
 import type { ChatItem } from "../shared/dispatcher";
 import { lastOutputRow } from "./session-state";
 import type { TailEntry } from "../shared/session-tail";
@@ -119,8 +119,11 @@ test("a Discuss fill is used once and leaves an unchanged box alone (DISPATCHER-
 });
 
 test("Replace dispatcher is offered for an unguarded dispatcher and for one missing tools, and its notice says so (Ruling, Noah 2026-11-09)", () => {
-  expect(replaceOffer({ state: "idle", agentId: "a", newTools: true })).toBe("new-tools");
-  expect(replaceOffer({ state: "running", agentId: "a", newTools: true })).toBe("new-tools");
+  expect(replaceOffer({ state: "idle", agentId: "a", newTools: true })).toBe("outdated");
+  expect(replaceOffer({ state: "running", agentId: "a", newTools: true })).toBe("outdated");
+  expect(replaceOffer({ state: "idle", agentId: "a", oldCharter: true })).toBe("outdated");
+  expect(replaceOffer({ state: "idle", agentId: "a", oldCharter: true, newTools: true })).toBe("outdated");
+  expect(replaceOffer({ state: "idle", agentId: "a", unguarded: true, oldCharter: true })).toBe("unguarded");
   expect(replaceOffer({ state: "idle", agentId: "a", unguarded: true })).toBe("unguarded");
   // Both: one Replace, under the unguarded warning.
   expect(replaceOffer({ state: "idle", agentId: "a", unguarded: true, newTools: true })).toBe("unguarded");
@@ -129,8 +132,9 @@ test("Replace dispatcher is offered for an unguarded dispatcher and for one miss
   expect(replaceOffer({ state: "ended", agentId: "a", newTools: true })).toBeNull();
   expect(replaceOffer({ state: "idle", agentId: null, newTools: true })).toBeNull();
   expect(replaceOffer(undefined)).toBeNull();
-  expect(newToolsNotice).toContain("Replace dispatcher");
-  expect(newToolsNotice).not.toContain("Archive its session in Paseo");
+  expect(outdatedNotice).toContain("Replace dispatcher");
+  expect(outdatedNotice).toContain("current tools or instructions");
+  expect(outdatedNotice).not.toContain("Archive its session in Paseo");
 });
 
 test("a prompt from another agent stays its own entry row beside note items", () => {

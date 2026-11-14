@@ -1500,7 +1500,7 @@ const catalog: Catalog = {
   "The card already has a running session. Send it a message instead.": "이 카드에는 이미 실행 중인 세션이 있습니다. 대신 메시지를 보내세요.",
   "Auto summary is off. Turn it on with the settings gear at the top of the board, or press Refresh.": "자동 요약이 꺼져 있습니다. 보드 위쪽의 설정 톱니바퀴로 켜거나 새로고침을 누르세요.",
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "나중에 설정(보드 위쪽 톱니바퀴)에서 언제든 바꿀 수 있습니다. 이 투어도 그곳에서 다시 열 수 있습니다.",
-  "This dispatcher started before some Flowly tools existed. Replace dispatcher archives its session and starts a new one with them.": "이 디스패처는 일부 Flowly 도구가 생기기 전에 시작되었습니다. 디스패처 교체를 누르면 세션을 보관하고 그 도구를 갖춘 새 디스패처를 시작합니다.",
+  "This dispatcher started before Flowly's current tools or instructions. Replace dispatcher archives its session and starts a new one with them.": "이 디스패처는 Flowly의 현재 도구나 지침보다 먼저 시작되었습니다. 디스패처 교체를 누르면 세션을 보관하고 그것들을 갖춘 새 디스패처를 시작합니다.",
   "Nothing new to read.": "새로 읽을 것이 없습니다.",
   "Step through": "차례로 보기",
   "“N need you” opens each waiting card in turn, with what it asks on top.": "“N개가 기다림”은 기다리는 카드를 하나씩, 묻는 내용을 위에 두고 엽니다.",

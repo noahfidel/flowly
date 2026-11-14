@@ -22,7 +22,7 @@ import { useReducedMotion } from "./motion";
 import { useKeyboardInset } from "./keyboard";
 import { useDispatcherItemsQuery, useLiveAgents } from "./queries";
 import { useStableCallback } from "./stable";
-import { chatRows, discussFill, newToolsNotice, replaceOffer, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
+import { chatRows, discussFill, outdatedNotice, replaceOffer, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
 import { ComposerChips, useSessionConfig, type ChipMenuId } from "./session-settings";
 
 /**
@@ -329,7 +329,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
             <Notice tone="warning">
               {offer === "unguarded"
                 ? t("This dispatcher can still answer cards' questions and permission requests: it started before Flowly took those routes away, or on a provider other than Claude. It gets no board notes until it is replaced.")
-                : t(newToolsNotice)}
+                : t(outdatedNotice)}
             </Notice>
             <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space[2] }}>
               <Button icon="RefreshCw" disabled={starting} onPress={() => setConfirmReplace(true)}>

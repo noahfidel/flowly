@@ -1500,7 +1500,7 @@ const catalog: Catalog = {
   "The card already has a running session. Send it a message instead.": "這張卡片已有執行中的工作階段，請改為傳訊息給它。",
   "Auto summary is off. Turn it on with the settings gear at the top of the board, or press Refresh.": "自動摘要已關閉。請用看板頂端的設定齒輪開啟，或點選“重新整理”。",
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "之後可以在設定（看板頂端的齒輪）裡修改這些。也可以在那裡重新開啟這個導覽。",
-  "This dispatcher started before some Flowly tools existed. Replace dispatcher archives its session and starts a new one with them.": "此調度員啟動時部分 Flowly 工具尚不存在。“取代調度器”會封存其工作階段，並啟動一個帶有這些工具的新調度員。",
+  "This dispatcher started before Flowly's current tools or instructions. Replace dispatcher archives its session and starts a new one with them.": "此調度員啟動時早於 Flowly 目前的工具或指令。“取代調度器”會封存其工作階段，並啟動一個採用它們的新調度員。",
   "Nothing new to read.": "沒有新的內容可讀。",
   "Step through": "逐個處理",
   "“N need you” opens each waiting card in turn, with what it asks on top.": "「N 個需要你」會逐張打開等待中的卡片，它要問的內容置頂。",

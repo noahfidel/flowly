@@ -15,6 +15,7 @@ import {
   dispatcherState,
   isDeadDispatcher,
   legacyNoteGroup,
+  noteMessage,
   wireDispatcher,
 } from "./dispatcher";
 import { dispatcherSessionIds } from "./dispatcher-items";
@@ -26,7 +27,7 @@ import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
 import { agentFixture } from "./agent-fixture";
 import type { DispatcherIdentity } from "./tool-context";
-import { dispatcherBuiltinTools, dispatcherCharter, dispatcherConfirmedToolNames, dispatcherGuardVersion, dispatcherToolNames, dispatcherWithheldTools, noteReplyRule, startRule, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
+import { dispatcherBuiltinTools, dispatcherCharter, dispatcherCharterVersion, dispatcherConfirmedToolNames, dispatcherGuardVersion, dispatcherToolNames, dispatcherWithheldTools, noteReplyRule, startRule, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
 import { emptyBoard, type Board, type BoardEvent, type Group } from "../shared/model";
 
 const directories: string[] = [];
@@ -463,9 +464,10 @@ test("notes wait for the turn to end and never steer", async () => {
   expect(sent.text).toContain("Flowly board update (2 cards):");
   expect(sent.text).toContain('- "Card t1" [t1] in project p: status_changed — blocked → in_review');
   expect(sent.text).not.toContain("todo → blocked");
-  expect(sent.text.split("\n").at(-1)).toBe(noteReplyRule);
-  expect(sent.text.split("\n").at(-2)).toBe(startRule);
-  expect(sent.text).toContain('- "Card t2" [t2] in project p');
+  // A dispatcher with the current charter has the rules in it: the batch ends with the last note.
+  expect(sent.text.split("\n").at(-1)).toContain('- "Card t2" [t2] in project p');
+  expect(sent.text).not.toContain(startRule);
+  expect(sent.text).not.toContain(noteReplyRule);
   expect((sent.options as { activeTurnBehavior?: unknown } | undefined)?.activeTurnBehavior).toBeUndefined();
   // Held notes are sent once.
   await x.dispatcher.turnEnded(agentId, x.paseo);
@@ -1049,7 +1051,7 @@ test("a dispatcher saved with fewer tools than this build lists says a new one g
   const status = async (extra: Record<string, unknown>, agentStatus = "idle") => {
     const x = await setup();
     x.agents.set("old", { id: "old", workspaceId: "dw-0", status: agentStatus, archivedAt: null });
-    await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", guard, ...extra }));
+    await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", guard, charter: dispatcherCharterVersion, ...extra }));
     const read = await x.dispatcher.status(x.paseo);
     expect(x.created).toHaveLength(0);
     return read;
@@ -1076,7 +1078,7 @@ test("a live dispatcher started without this build's routes withheld says to rep
   const status = async (guard: unknown, agentStatus = "idle") => {
     const x = await setup();
     x.agents.set("old", { id: "old", workspaceId: "dw-0", status: agentStatus, archivedAt: null });
-    const record = { version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", savedTools: [...dispatcherToolNames], ...(guard ? { guard } : {}) };
+    const record = { version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", savedTools: [...dispatcherToolNames], charter: dispatcherCharterVersion, ...(guard ? { guard } : {}) };
     await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(record));
     const read = await x.dispatcher.status(x.paseo);
     expect(x.created).toHaveLength(0);
@@ -1093,11 +1095,11 @@ test("a live dispatcher started without this build's routes withheld says to rep
   expect(await status(undefined, "closed")).toEqual({ state: "idle", agentId: "old", unguarded: true });
 });
 
-/** A stored dispatcher "old" in `status`, recorded with `guard` (absent: started before the guard). */
+/** A stored dispatcher "old" in `status`, recorded with `guard` (absent: started before the guard) and the current charter. */
 async function oldDispatcher(guard?: unknown, agentStatus = "idle", ...args: Parameters<typeof setup>) {
   const x = await setup(...args);
   x.agents.set("old", { id: "old", workspaceId: "dw-0", status: agentStatus, archivedAt: null });
-  const record = { version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", savedTools: [...dispatcherToolNames], ...(guard ? { guard } : {}) };
+  const record = { version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", savedTools: [...dispatcherToolNames], charter: dispatcherCharterVersion, ...(guard ? { guard } : {}) };
   await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(record));
   return x;
 }
@@ -1135,7 +1137,7 @@ test("Replace archives exactly the unguarded dispatcher's session and starts a g
     expect(x.archived, agentStatus).toEqual(["agent:old"]);
     expect(agentId).not.toBe("old");
     const record = await x.dispatcher.record();
-    expect(record).toMatchObject({ agentId, guard: { version: dispatcherGuardVersion, provider: "claude" }, savedTools: [...dispatcherToolNames] });
+    expect(record).toMatchObject({ agentId, guard: { version: dispatcherGuardVersion, provider: "claude" }, savedTools: [...dispatcherToolNames], charter: dispatcherCharterVersion });
     expect(record.previousAgentIds).toEqual(["old"]);
     expect(x.agentCreates).toHaveLength(1);
     expect(x.agentCreates[0].options).toMatchObject({ config: { options: { disallowedTools: [...dispatcherWithheldTools] } } });
@@ -1152,13 +1154,65 @@ test("Replace archives exactly the unguarded dispatcher's session and starts a g
 test("Replace also takes a guarded dispatcher that misses this build's tools (Ruling, Noah 2026-11-09)", async () => {
   const x = await setup();
   x.agents.set("old", { id: "old", workspaceId: "dw-0", status: "idle", archivedAt: null });
-  const record = { version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", savedTools: dispatcherToolNames.slice(0, -1), guard: { version: dispatcherGuardVersion, provider: "claude" } };
+  const record = { version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", savedTools: dispatcherToolNames.slice(0, -1), guard: { version: dispatcherGuardVersion, provider: "claude" }, charter: dispatcherCharterVersion };
   await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(record));
   expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "idle", agentId: "old", newTools: true });
   const { agentId } = await x.dispatcher.replace(x.paseo, { agentId: "old" });
   expect(x.archived).toEqual(["agent:old"]);
   expect(await x.dispatcher.record()).toMatchObject({ agentId, savedTools: [...dispatcherToolNames], previousAgentIds: ["old"] });
   expect(await x.dispatcher.status(x.paseo)).not.toHaveProperty("newTools");
+});
+
+/** A guarded dispatcher with every tool and the given charter (absent: started before charter versioning). */
+async function charterDispatcher(charter?: number) {
+  const x = await setup();
+  x.agents.set("old", { id: "old", workspaceId: "dw-0", status: "idle", archivedAt: null });
+  const record = { version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", savedTools: [...dispatcherToolNames], guard: { version: dispatcherGuardVersion, provider: "claude" }, ...(charter === undefined ? {} : { charter }) };
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(record));
+  return x;
+}
+
+test("a guarded dispatcher with every tool but an older charter says a new one gets the current one (§3)", async () => {
+  for (const charter of [undefined, 0]) {
+    const x = await charterDispatcher(charter);
+    expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "idle", agentId: "old", oldCharter: true });
+    expect(x.created).toHaveLength(0);
+    expect(x.archived).toEqual([]);
+  }
+  const y = await charterDispatcher(dispatcherCharterVersion);
+  expect(await y.dispatcher.status(y.paseo)).toEqual({ state: "idle", agentId: "old" });
+});
+
+test("Replace also takes a guarded dispatcher with every tool whose charter is old (Ruling, Noah 2026-11-14)", async () => {
+  const x = await charterDispatcher();
+  const { agentId } = await x.dispatcher.replace(x.paseo, { agentId: "old" });
+  expect(x.archived).toEqual(["agent:old"]);
+  expect(await x.dispatcher.record()).toMatchObject({ agentId, charter: dispatcherCharterVersion, previousAgentIds: ["old"] });
+  expect(await x.dispatcher.status(x.paseo)).not.toHaveProperty("oldCharter");
+  // Now current on guard, tools and charter: refused.
+  await expect(x.dispatcher.replace(x.paseo, { agentId })).rejects.toMatchObject({ code: "DISPATCHER_GUARDED" });
+});
+
+test("note batches carry the start and reply rules only for a dispatcher at charter version 0 (§7)", () => {
+  const notes = [note("t1")];
+  const lines = noteMessage(notes, 0).split("\n");
+  expect(lines.at(-2)).toBe(startRule);
+  expect(lines.at(-1)).toBe(noteReplyRule);
+  const current = noteMessage(notes, dispatcherCharterVersion);
+  expect(current).not.toContain(startRule);
+  expect(current).not.toContain(noteReplyRule);
+  expect(current.split("\n").at(-1)).toContain("[t1]");
+});
+
+test("a batch to a dispatcher without a charter version still ends with the start and reply rules (§7)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-08T10:00:00.000Z") });
+  const x = await charterDispatcher();
+  await x.dispatcher.deliver([note("t1")], x.paseo);
+  expect(x.sends).toHaveLength(1);
+  const lines = x.sends[0].text.split("\n");
+  expect(lines.at(-2)).toBe(startRule);
+  expect(lines.at(-1)).toBe(noteReplyRule);
+  x.dispatcher.dispose();
 });
 
 test("Replace is refused for a guarded dispatcher, another session id or none, and archives nothing (ruling, Noah 2026-11-09)", async () => {
@@ -1333,7 +1387,7 @@ test("Replace and Start share one queue: exactly one dispatcher is made, whichev
 test("a started dispatcher records its guard; a refused create restores the earlier one (§1, §3)", async () => {
   const x = await setup();
   const { agentId } = await x.dispatcher.start(x.paseo, { provider: "claude/claude-sonnet-5-5" });
-  expect(await x.dispatcher.record()).toMatchObject({ agentId, guard: { version: dispatcherGuardVersion, provider: "claude" } });
+  expect(await x.dispatcher.record()).toMatchObject({ agentId, guard: { version: dispatcherGuardVersion, provider: "claude" }, charter: dispatcherCharterVersion });
   expect(await x.dispatcher.status(x.paseo)).not.toHaveProperty("unguarded");
   const y = await setup();
   y.agents.set("old", { id: "old", workspaceId: "dw-0", status: "idle", archivedAt: "2026-11-09T00:00:00.000Z" });
@@ -1341,6 +1395,14 @@ test("a started dispatcher records its guard; a refused create restores the earl
   y.failAgentCreate(new Error("refused"));
   await expect(y.dispatcher.start(y.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "START_FAILED" });
   expect(await y.dispatcher.record()).not.toHaveProperty("guard");
+  expect(await y.dispatcher.record()).not.toHaveProperty("charter");
+  // An earlier charter is put back as it was.
+  const z = await setup();
+  z.agents.set("old", { id: "old", workspaceId: "dw-0", status: "idle", archivedAt: "2026-11-09T00:00:00.000Z" });
+  await writeFile(join(z.directory, "dispatcher.json"), JSON.stringify({ version: 1, workspaceId: "dw-0", agentId: "old", startedAt: "2026-11-01T00:00:00.000Z", charter: 0 }));
+  z.failAgentCreate(new Error("refused"));
+  await expect(z.dispatcher.start(z.paseo, { provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "START_FAILED" });
+  expect(await z.dispatcher.record()).toMatchObject({ charter: 0 });
 });
 
 test("What should I do? marks the changed cards it sent as seen, only once it was sent (ruling 2026-11-09, §9.2)", async () => {
@@ -1509,6 +1571,7 @@ const v1Record = {
   previousAgentIds: ["older"],
   savedTools: [...dispatcherToolNames],
   guard: { version: dispatcherGuardVersion, provider: "claude" },
+  charter: dispatcherCharterVersion,
 };
 const readRaw = async (x: { directory: string }) => JSON.parse(await readFile(join(x.directory, "dispatcher.json"), "utf8")) as DispatcherRecord;
 

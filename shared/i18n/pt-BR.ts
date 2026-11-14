@@ -1500,7 +1500,7 @@ const catalog: Catalog = {
   "The card already has a running session. Send it a message instead.": "O cartão já tem uma sessão em andamento. Envie uma mensagem a ela.",
   "Auto summary is off. Turn it on with the settings gear at the top of the board, or press Refresh.": "O resumo automático está desativado. Ative-o na engrenagem de configurações no topo do quadro ou pressione Atualizar.",
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "Você pode mudar tudo isso depois em Configurações, a engrenagem no topo do quadro. Lá você também reabre este tour.",
-  "This dispatcher started before some Flowly tools existed. Replace dispatcher archives its session and starts a new one with them.": "Este dispatcher começou antes de algumas ferramentas do Flowly existirem. Substituir despachante arquiva a sessão dele e inicia um novo com elas.",
+  "This dispatcher started before Flowly's current tools or instructions. Replace dispatcher archives its session and starts a new one with them.": "Este dispatcher começou antes das ferramentas ou instruções atuais do Flowly. Substituir despachante arquiva a sessão dele e inicia um novo com elas.",
   "Nothing new to read.": "Nada novo para ler.",
   "Step through": "Um por um",
   "“N need you” opens each waiting card in turn, with what it asks on top.": "“N precisam de você” abre cada card em espera, um por vez, com o que ele pergunta no topo.",
