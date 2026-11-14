@@ -38,6 +38,7 @@ import {
   reworkMessage,
   reworkRule,
   shipMessage,
+  shipStopped,
   reworkStage,
 } from "../shared/auto-review";
 import { sizeOf, type CardItem, type GuardrailEntry } from "../shared/guardrails";
@@ -611,6 +612,22 @@ export class AutoReviewService {
     const linked = where && !head ? await linkedRepos(where.directory) : [];
     let repoShas: Record<string, string> | undefined;
     if (linked.length) ({ head, repos: repoShas } = await linkedHead(linked, this.git, this.now()));
+    // A ship that already stopped at this commit is not reviewed or shipped again (DELIVERY-MODE-SPEC §4.1).
+    if (!manual && shipStopped(board.events, task.id, task.review, head) && (await this.deps.deliveryMode?.(task).catch(() => null)) === "ship_main") {
+      await this.store.transaction((b) => {
+        const t = b.tasks.find((x) => x.id === delivery.taskId);
+        if (!t || t.status !== "in_review" || !shipStopped(b.events, t.id, t.review, head)) return { value: undefined, changed: false };
+        this.store.event(b, {
+          taskId: t.id,
+          actor: "system",
+          action: reviewFinishedAction,
+          agentId: delivery.agentId,
+          note: "Auto review skipped: the ship already stopped at this commit. A new commit, a move of the card or Rerun ships it again.",
+        });
+        return { value: undefined, changed: true };
+      });
+      return;
+    }
     const measured = !where
       ? null
       : linked.length
@@ -719,7 +736,15 @@ export class AutoReviewService {
       if (mode !== "ship_main") return;
       const live = await this.deps.sessionLive(outcome.review.trigger.agentId, outcome.task, paseo).catch(() => false);
       if (!live) return;
-      await this.deps.send({ taskId: outcome.task.id, agentId: outcome.review.trigger.agentId, text: shipMessage }, paseo).catch((e) => logFailure("Flowly ship message not sent:", e, outcome.task.id));
+      const sent = await this.deps.send({ taskId: outcome.task.id, agentId: outcome.review.trigger.agentId, text: shipMessage }, paseo).then(
+        () => true,
+        (e) => {
+          logFailure("Flowly ship message not sent:", e, outcome.task.id);
+          return false;
+        },
+      );
+      const sha = outcome.review.fingerprint.sha;
+      if (sent && sha && !outcome.review.fingerprint.dirty) await this.markShipped(delivery.taskId, startedAt, sha);
       return;
     }
     const live = await this.deps.sessionLive(outcome.review.trigger.agentId, outcome.task, paseo).catch(() => false);
@@ -733,6 +758,16 @@ export class AutoReviewService {
         )
       : false;
     if (!sent) await this.markUnavailable(delivery.taskId, startedAt, "The delivering session is no longer available, so the rework message was not sent.");
+  }
+
+  /** Records that this review's pass sent the ship message for `sha` (DELIVERY-MODE-SPEC §4.1); no task revision. */
+  private markShipped(taskId: string, startedAt: string, sha: string) {
+    return this.store.transaction((b) => {
+      const t = b.tasks.find((x) => x.id === taskId);
+      if (!t?.review || t.review.startedAt !== startedAt) return { value: undefined, changed: false };
+      t.review = { ...t.review, shipped: { sha, at: this.now() } };
+      return { value: undefined, changed: true };
+    });
   }
 
   private async current(taskId: string, startedAt: string) {

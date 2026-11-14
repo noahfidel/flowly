@@ -254,6 +254,8 @@ export const reviewSchema = z.preprocess(legacyReview, z.object({
   items: z.array(reviewItemSchema).max(40),
   /** The review session's model, when one ran. */
   model: z.string().max(200).optional(),
+  /** A Ship to main pass sent the ship message for this commit (DELIVERY-MODE-SPEC §4.1). */
+  shipped: z.object({ sha: z.string().max(40), at: timestamp }).optional(),
   startedAt: timestamp,
   finishedAt: timestamp.optional(),
 }));

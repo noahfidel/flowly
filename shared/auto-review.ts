@@ -67,6 +67,18 @@ export function continuesRound(events: readonly BoardEvent[], taskId: string, pr
   return since.filter((e) => e.action === "agent.turn_started").length <= 1;
 }
 
+/**
+ * A Ship to main ship already ran from this commit and stopped (DELIVERY-MODE-SPEC §4.1): the last review passed and
+ * sent the ship message for `head`, the workspace is clean at that same commit, and no person moved the card since.
+ * The agent's next delivery is then neither reviewed nor shipped again; nothing it could do at that commit would
+ * change the outcome. A new commit, a person's move or a Rerun lets it through.
+ */
+export function shipStopped(events: readonly BoardEvent[], taskId: string, review: Review | undefined, head: { sha?: string; dirty?: boolean } | null): boolean {
+  const shipped = review?.state === "passed" ? review.shipped : undefined;
+  if (!shipped || !head?.sha || head.dirty || head.sha !== shipped.sha) return false;
+  return !events.some((e) => e.taskId === taskId && e.at >= shipped.at && e.actor === "human" && e.action === "status_changed");
+}
+
 /** The review the card face and Attention show: only while the card is still where that review left it (§7). */
 export function visibleReview(task: Pick<Task, "status" | "review" | "archivedAt">): Review | null {
   const review = task.review;

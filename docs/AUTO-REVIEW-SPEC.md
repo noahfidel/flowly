@@ -55,6 +55,8 @@
 
 **agent** 调用 `flowly_update_status(in_review)`，通过 L1 并成功提交，项目开启了 Auto review，卡片未归档、不是设置卡片（§6.3），且有对这张卡生效的检查（§4.2）。人拖进 In review 不触发。
 
+例外（Ship to main，DELIVERY-MODE-SPEC §4.1）：上一次评审通过并已为当前提交发出 ship 消息、工作区干净且 HEAD 未变、之后没有人移动卡片时，agent 的再次交付不评审、不再发 ship 消息，只记一条 `review_finished` 事件（无结果）。新提交、人移动卡片或 Rerun 会重新评审。
+
 评审在**交付的那个 session 这一轮结束后**才开始（`agent.turn_ended`）；交付时该 session 已空闲则立即开始。交付之后同一轮里 agent 还可能提交、改 workpad，这些会改变指纹让评审作废。等待中的交付只记在内存里：等待期间插件重启，这次交付不评审，卡片留在 In review，人可以按 Rerun。
 
 ```mermaid

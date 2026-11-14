@@ -223,6 +223,38 @@ test("a pass on a Ship to main card sends the ship message; any other mode sends
   expect(branch.sent).toEqual([]);
 });
 
+test("a ship that stopped is not reviewed or shipped again at the same head; a new commit, a person's move or Rerun ships again (DELIVERY-MODE-SPEC §4.1)", async () => {
+  const x = await setup({ deliveryMode: "ship_main" });
+  await x.deliver("development");
+  expect(x.sent).toEqual([{ agentId: "actor", text: shipMessage }]);
+  const runs = x.runs.length;
+  // The ship stopped on a rebase conflict (rebase aborted, head unchanged) and the session delivers to In review again.
+  let board = await x.deliver("development");
+  expect(x.sent).toHaveLength(1);
+  expect(x.runs.length).toBe(runs);
+  expect(board.tasks[0]).toMatchObject({ status: "in_review", review: { state: "passed", shipped: { sha: "aaaaaaaaaaaa" } } });
+  expect(board.events.some((e) => e.taskId === "t" && e.action === "review_finished" && /ship already stopped at this commit/i.test(e.note || ""))).toBe(true);
+  // A new commit on the branch: reviewed and shipped again.
+  x.repo.head = "bbbbbbbbbbbb";
+  await x.deliver("development");
+  expect(x.sent).toHaveLength(2);
+  // Unchanged again: quiet.
+  await x.deliver("development");
+  expect(x.sent).toHaveLength(2);
+  // A person moves the card (their answer): the next delivery ships again.
+  await x.store.mutate((b) => {
+    x.store.event(b, { taskId: "t", actor: "human", action: "status_changed", from: "in_review", to: "development" });
+  });
+  await x.deliver("development");
+  expect(x.sent).toHaveLength(3);
+  // A person's Rerun always reviews and ships.
+  await x.reviews.rerun("t", {} as never);
+  await x.reviews.idle();
+  expect(x.sent).toHaveLength(4);
+  board = await x.store.read();
+  expect(board.tasks[0]!.review?.state).toBe("passed");
+});
+
 test("a Ship to main card whose review fails gets the rework message, never the ship message (DELIVERY-MODE-SPEC §4)", async () => {
   const x = await setup({ deliveryMode: "ship_main", exits: { "npm test": 1 } });
   const board = await x.deliver("development");

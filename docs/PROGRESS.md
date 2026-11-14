@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Ship to main no longer loops on a stopped ship (branch `kanban/stop-the-auto-review-ship-loop-and-check-85c152`) — 2026-11-14
+
+- Cause: every agent delivery to In review starts an auto review (`AutoReviewService.review`), and every pass on a `ship_main` card sent the ship message, with no memory of an earlier ship at the same commit. A ship that stopped on a rebase conflict re-delivered at the same head, passed again, got the same ship message and hit the same conflict (seen on card 9317e741, 2026-11-14).
+- Fix: the pass records `review.shipped = { sha, at }` once the ship message is sent; `shipStopped` (`shared/auto-review.ts`) skips the review and the message for the next delivery while the head is that same clean commit and no person moved the card since; a `review_finished` event without results notes the skip. New commit, a person's move or Rerun lifts it. DELIVERY-MODE-SPEC §4.1, AUTO-REVIEW-SPEC §3.1.
+- Failing-then-passing test: `server/auto-review.test.ts` ("a ship that stopped is not reviewed or shipped again at the same head…"; before the fix it got a second ship message).
+- Checks: `npm run typecheck` exit 0; `npm test` exit 0 (216 files passed, 1 skipped; 2490 tests passed, 7 skipped). One earlier run hit an `ENOTEMPTY` temp-dir cleanup race in an unrelated `auto-review.test.ts` afterEach; three reruns of the file and the full rerun passed. No UI string, tip, telemetry field or What's new change.
+
 ## Dispatcher answers board updates in one line (branch `kanban/make-the-dispatcher-chat-in-flowly-less-03b4e6`) — 2026-11-13
 
 - Cause: every stop note woke the dispatcher, including the user's own moves and A1r restores, and its replies restated the card's report and reminded about other cards.
