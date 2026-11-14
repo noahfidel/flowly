@@ -1,124 +1,124 @@
-# 卡片开工设置：type / tags / workpad 的提醒与软卡（CARD-SETUP-SPEC）
+# Card setup before work: reminders and a soft gate for type / tags / workpad (CARD-SETUP-SPEC)
 
-> 2026-10-28：本文部分内容被 [GUARDRAILS-SPEC](GUARDRAILS-SPEC.md) 取代（§12）。被取代：“workpad 缺失”改为“acceptance 缺失”；其余仍有效。
+> 2026-10-28: part of this document is superseded by [GUARDRAILS-SPEC](GUARDRAILS-SPEC.md) (§12). Superseded: "workpad missing" becomes "acceptance missing"; the rest is still valid.
 
-2026-10-22：Start of every turn 改为共享六项动作清单，实时 get_task 返回相同的 `turnChecklist`；仍先补 setup.missing，小卡不例外。现有缺项校验、提醒和权限不变。见 [TURN-CHECKLIST-SPEC](TURN-CHECKLIST-SPEC.md)。
+2026-10-22: Start of every turn becomes a shared six-action checklist, and the live get_task returns the same `turnChecklist`; it still fills in setup.missing first, small cards included. The existing missing-item check, reminders and permissions are unchanged. See [TURN-CHECKLIST-SPEC](TURN-CHECKLIST-SPEC.md).
 
-状态：2026-10-21 用户审阅通过并要求实现；已实现，Luna 6 验证通过（[报告](verification/card-setup-2026-10-21.md)：Sonnet 5.5 medium 与 Luna 都在首次改文件前补齐了三项；真实 session 的 `SETUP_INCOMPLETE` 拒绝未触发，仅单测覆盖）。卡片 `ee717828`（“Flowly 流程约束强化”，“发布v1.5.0”的跟进）。
-用户决定（2026-10-21）：
-- 没有 workpad 的卡交付也要软卡（`acknowledgeOpen` 加说明放行）。这**推翻** [WORKPAD-SPEC](WORKPAD-SPEC.md) §5.3 第 2 步“没有 workpad 照常提交”的旧决定，理由见 §2 R4。
-- 一次 Flowly 工具都不调的回合，靠首条任务上下文写明缺项覆盖（§3.2）；卡面给用户显示缺项另提 idea，不在本卡。
-- 卡片第 5 项（daemon 摘要子 session 建议 type/tags）不做。
+Status: reviewed and approved by the user on 2026-10-21, who asked for it to be implemented; implemented, Luna 6 verification passed ([report](verification/card-setup-2026-10-21.md): Sonnet 5.5 medium and Luna both filled in the three items before the first file change; the `SETUP_INCOMPLETE` rejection in a real session was not triggered and is covered by unit tests only). Card `ee717828` ("Strengthen the Flowly process constraints", a follow-up to "Release v1.5.0").
+User decisions (2026-10-21):
+- A card with no workpad also gets the soft gate on delivery (`acknowledgeOpen` with an explanation lets it through). This **overturns** the old decision in step 2 of [WORKPAD-SPEC](WORKPAD-SPEC.md) §5.3, "submit as usual with no workpad"; the reason is in §2 R4.
+- A turn that calls no Flowly tool at all is covered by stating the missing items in the first task context (§3.2); showing the missing items to the user on the card face is a separate idea, not in this card.
+- Card item 5 (the daemon summary child session suggesting type/tags) is not done.
 
-## 1. 现状数据
+## 1. Current data
 
-来源：`~/.paseo/plugin-data/flowly/board.json`（2026-10-21 13:05 快照，只读）与 `paseo agent ls -a -g --json`。统计 2026-10-19 07:00（workpad 上线）之后创建、有 agent 回合的卡。卡片事件按卡只保留最近 100 条，长卡的“首次”时间可能被裁剪，下表只列短卡。
+Source: `~/.paseo/plugin-data/flowly/board.json` (snapshot of 2026-10-21 13:05, read-only) and `paseo agent ls -a -g --json`. It counts cards created after 2026-10-19 07:00 (when the workpad went live) that have agent turns. Card events keep only the latest 100 per card, so the "first" time of a long card may be cut; the table below lists only short cards.
 
-| 卡片 | 描述 | 模型 / 思考 | type | tags | workpad | Flowly 写入 | 现象 |
+| Card | Description | Model / thinking | type | tags | workpad | Flowly writes | Observation |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 表格渲染 | 空 | sonnet-5.5 / auto | 无 | 无 | 无 | 5 | todo→development→in_review 共 91 秒；两次交付都带了 next moves |
-| session内文本链接渲染 | 空 | sonnet-5.5 / medium | 无 | 无 | 无 | 2 | todo 直接 → in_review，带了 next moves |
-| 调整sidebar尽可能不同时移动看板 | 空 | sonnet-5.5 / medium | 人设 | 无 | 无 | **0** | 在独立 worktree 开 PR #7，整卡一次 Flowly 工具都没调 |
-| 发布v1.5.0 | 空 | sonnet-5.5 / medium | 05:01 才设 | 05:01 才设 | dev 之后 | 7 | 用户追问后才补 type/tags |
-| 手机端性能优化 | 空 | sonnet-5.5 / high | 无 | 无 | 交付那一刻才写 | 18 | 6 次交付，type/tags 始终没设 |
-| README调整（10-19 03:51，workpad 上线前） | 空 | sonnet-5.5 / medium | 无 | 无 | — | **0** | 整卡零调用 |
+| Table rendering | empty | sonnet-5.5 / auto | none | none | none | 5 | todo→development→in_review took 91 seconds in total; both deliveries carried next moves |
+| Text link rendering inside the session | empty | sonnet-5.5 / medium | none | none | none | 2 | todo went straight to in_review, with next moves |
+| Make the sidebar move the board as little as possible | empty | sonnet-5.5 / medium | set by a person | none | none | **0** | Opened PR #7 in a separate worktree, with not one Flowly tool call in the whole card |
+| Release v1.5.0 | empty | sonnet-5.5 / medium | set only at 05:01 | set only at 05:01 | after development | 7 | type/tags were added only after the user asked |
+| Phone performance optimization | empty | sonnet-5.5 / high | none | none | written only at the moment of delivery | 18 | 6 deliveries, type/tags never set |
+| README adjustments (10-19 03:51, before the workpad went live) | empty | sonnet-5.5 / medium | none | none | — | **0** | Zero calls in the whole card |
 
-对照：同期 Opus 5.5（auto/high）与 Codex（gpt-6.1-sol、gpt-6-astra）的 13 张卡全部设了 type、tags 并有 workpad；Sonnet 5.5 xhigh 的 4 张、以及描述较长的 Sonnet medium 卡（外部条目，1972 字）也都合规。即**违规集中在“标题式小卡（描述为空）+ Sonnet medium/auto”**。
+For comparison: in the same period, all 13 cards of Opus 5.5 (auto/high) and Codex (gpt-6.1-sol, gpt-6-astra) had type and tags set and a workpad; the 4 cards of Sonnet 5.5 xhigh, and the Sonnet medium card with a longer description (an external item, 1972 characters), were also compliant. That is, **the violations are concentrated in "title-only small cards (empty description) + Sonnet medium/auto"**.
 
-workpad 时机：即使写了，也常在实现之后、甚至交付同一分钟才写（手机端性能优化、设计端到端测试方案、paseo project settings互通、发布v1.5.0），“验收标准先于实现”基本没落实。
+Workpad timing: even when written, it is often written after the implementation, even in the same minute as delivery (Phone performance optimization, Design end-to-end test plan, paseo project settings interop, Release v1.5.0), so "acceptance criteria before implementation" is largely not followed.
 
-## 2. 原因
+## 2. Causes
 
-- **R1 skill 里位置靠后、触发时机含糊。** 22 条职责中 tags、type、workpad 是第 11–13 条，前面是约 9 KB 的提问、ideas、next moves、artifacts、外部条目说明。措辞是“Once you understand the scope”“once you understand the work”，没有可检查的时刻；小卡上 agent 读完标题就“理解了”，直接写代码。
-- **R2 缺项是静默的。** `sessionContext`（`shared/scope.ts`）在没有 type/tags 时**省略** `Task type:`、`Tags:` 两行；`flowly_get_task` 里 type 缺失只是没有这个键，tags 是 `[]`，workpad 是 `null`。没有任何一处写“缺”。
-- **R3 工具反馈只覆盖收尾。** 现有提醒（NEXT-MOVES-SPEC §9）只在 in_review/blocked/question/result 上，只管 next moves 与 ideas。证据很直接：上表违规的 session 在每次交付都带了 next moves（`flowly_update_status` 的 schema 和结果都提到它），却没有一个设 type/tags——**agent 跟随工具 schema 与工具结果，而不是长 skill**。
-- **R4 门槛反向激励。** `WORKPAD_OPEN` 只在“有 workpad 且有未完成项”时拦；不写 workpad 反而永远不会被拦。
-- **R5 零调用回合。** “调整sidebar…”“README调整”整卡没有调用任何 Flowly 工具，结果里的提醒和门槛都碰不到，只有首条指令能影响它们（NEXT-MOVES-SPEC §9.1 已记录这类回合）。
-- 模型与思考档位是放大器，不是根因：同一份 skill，强模型能从长文里捞出要求，弱档位只做 schema 里看得见的事。本规范不按模型分支，也不改默认模型（[MODEL-DEFAULTS-SPEC](MODEL-DEFAULTS-SPEC.md)）。
+- **R1 Its position in the skill is late and the trigger moment is vague.** Of the 22 duties, tags, type and workpad are items 11–13, preceded by about 9 KB of explanations of questions, ideas, next moves, artifacts and external items. The wording is "Once you understand the scope", "once you understand the work", with no checkable moment; on a small card the agent "understands" after reading the title and goes straight to writing code.
+- **R2 A missing item is silent.** `sessionContext` (`shared/scope.ts`) **omits** the `Task type:` and `Tags:` lines when there is no type/tags; in `flowly_get_task` a missing type is just an absent key, tags is `[]`, and workpad is `null`. Nowhere does it say "missing".
+- **R3 Tool feedback covers only the wrap-up.** The existing reminders (NEXT-MOVES-SPEC §9) are only on in_review/blocked/question/result and only cover next moves and ideas. The evidence is direct: the violating sessions in the table above carried next moves on every delivery (the schema and result of `flowly_update_status` mention it), yet not one set type/tags — **the agent follows the tool schema and tool results, not the long skill**.
+- **R4 The gate rewards the wrong thing.** `WORKPAD_OPEN` blocks only when "there is a workpad with unfinished items"; not writing a workpad means never being blocked.
+- **R5 Zero-call turns.** "Make the sidebar..." and "README adjustments" never called any Flowly tool, so neither the reminders in results nor the gate touch them; only the first instruction can affect them (NEXT-MOVES-SPEC §9.1 already records this kind of turn).
+- Model and thinking level are amplifiers, not the root cause: with the same skill, a strong model can dig the requirement out of the long text, while a weaker level does only what is visible in the schema. This spec does not branch by model, and does not change the default model ([MODEL-DEFAULTS-SPEC](MODEL-DEFAULTS-SPEC.md)).
 
-## 3. 设计
+## 3. Design
 
-“开工设置”指三项：**type** 已设、**tags** 至少一个、**workpad** 有内容（至少一条验收标准或一条验证；项目关闭 workpad 时不算此项）。谁设的都算（人设的 type/tags 同样满足）。
+"Card setup" means three items: **type** is set, **tags** has at least one, **workpad** has content (at least one acceptance criterion or one check; when the project has the workpad turned off, this item does not count). It counts whoever set it (a type/tags set by a person also satisfies it).
 
-缺项判断是纯函数 `setupMissing(task, workpad, workpadOn): ("type" | "tags" | "workpad")[]`，顺序固定，放 `shared/card-setup.ts`，服务端与测试共用。空 workpad（三个列表都空）视为缺失。
+The missing-item decision is the pure function `setupMissing(task, workpad, workpadOn): ("type" | "tags" | "workpad")[]`, in a fixed order, in `shared/card-setup.ts`, shared by the server and tests. An empty workpad (all three lists empty) counts as missing.
 
-### 3.1 `flowly_get_task` 的 `setup` 字段
+### 3.1 The `setup` field of `flowly_get_task`
 
-结果在 `identity` 之后、`task` 之前新增（键顺序固定，agent 先看到它）：
+The result adds it after `identity` and before `task` (key order fixed, so the agent sees it first):
 
 ```ts
 setup: {
   typeMissing: boolean,
   tagsMissing: boolean,
-  workpadMissing: boolean,   // workpadEnabled=false 时恒为 false
-  stage: TaskStatus,         // 卡片当前状态，同 task.status
-  missing: ("type" | "tags" | "workpad")[],  // 上面三项为 true 的，顺序固定
+  workpadMissing: boolean,   // always false when workpadEnabled=false
+  stage: TaskStatus,         // the card's current status, same as task.status
+  missing: ("type" | "tags" | "workpad")[],  // those of the three above that are true, in fixed order
 }
 ```
 
-`toolResultSchema` 的 `current` 同步带上（写入结果里的 `current` 也是 get_task 形状）。CLI `current` 原样输出。只读，不写事件。
+The `current` of `toolResultSchema` carries it too (the `current` in a write result is also in the get_task shape). The CLI `current` prints it as is. Read-only, writes no event.
 
-### 3.2 首条任务上下文
+### 3.2 First task context
 
-`sessionContext` 在 `missing` 非空时，于 `Tags`/类型行的位置加一行（英文，agent 面向）：
+When `missing` is non-empty, `sessionContext` adds one line in the place of the `Tags`/type line (English, agent-facing):
 
 `Card setup missing: type, tags, workpad. Before you change anything, set them (flowly_set_type, flowly_set_tags, flowly_update_workpad with acceptance criteria and the checks you will run); see "Start of every turn" in the Flowly skill.`
 
-只列真正缺的项；项目关闭 workpad 时不列 workpad。三项齐全时不出现。它反映建卡/开 session/显式“工作说明”那一刻的状态；之后以 get_task 为准。普通跟进消息仍只发用户原文（AGENTS.md），不加此行。
+It lists only the items that are really missing; when the project has the workpad turned off, workpad is not listed. It does not appear when all three are present. It reflects the state at the moment the card is created / a session is opened / the explicit "work instructions" are sent; after that, get_task is authoritative. An ordinary follow-up message still sends only the user's own text (AGENTS.md) and does not add this line.
 
-### 3.3 写入结果里的设置提醒
+### 3.3 Setup reminder in write results
 
-所有 agent 写工具成功后（含重放），按写入后的看板计算 `missing`，非空时在 `reminders` 里加**一条**合并文字：
+After every successful agent write tool (including replays), compute `missing` from the board after the write, and when non-empty add **one** merged text to `reminders`:
 
-| 工具 | 设置提醒 |
+| Tool | Setup reminder |
 | --- | --- |
-| `flowly_update_status`（任意目标状态） | 是 |
-| `flowly_report_progress`（任意 kind） | 是 |
-| `flowly_update_workpad`、`flowly_suggest_next_moves`、`flowly_add_artifact`、`flowly_remove_artifact`、`flowly_propose_idea`、`flowly_set_tags`、`flowly_set_type` | 是 |
-| `flowly_get_task`、`flowly_read_external`、`flowly_read_ticket`（只读） | 否（get_task 有 `setup`） |
+| `flowly_update_status` (any target status) | yes |
+| `flowly_report_progress` (any kind) | yes |
+| `flowly_update_workpad`, `flowly_suggest_next_moves`, `flowly_add_artifact`, `flowly_remove_artifact`, `flowly_propose_idea`, `flowly_set_tags`, `flowly_set_type` | yes |
+| `flowly_get_task`, `flowly_read_external`, `flowly_read_ticket` (read-only) | no (get_task has `setup`) |
 
-- 计算在写入之后：`flowly_set_type` 自己的结果不再提 type，`flowly_update_workpad` 写入非空内容后不再提 workpad。
-- 卡片已 Done/Cancelled 或已归档时不带（同 §9.5 现有规则）。写入失败不带。
-- 与交付提醒同时出现时，交付提醒（next moves、ideas）在前，设置提醒在后。
-- 文案（英文；`{items}` 按顺序只列缺的项，用“; ”连接）：
+- The computation is after the write: the result of `flowly_set_type` itself no longer mentions type, and after `flowly_update_workpad` writes non-empty content it no longer mentions workpad.
+- It is not carried when the card is already Done/Cancelled or archived (same as the existing §9.5 rule). It is not carried when the write fails.
+- When it appears together with a delivery reminder, the delivery reminder (next moves, ideas) comes first and the setup reminder after.
+- Text (English; `{items}` lists only the missing items in order, joined with "; "):
   `This card's setup is incomplete: {items}. Make these calls now, before more work; they take seconds. This write already succeeded.`
-  - type：`no type (flowly_set_type: feature, bugfix, research, refactor, docs or chore)`
-  - tags：`no tags (flowly_set_tags: 1-4 module or direction tags, reuse projectTags)`
-  - workpad：`no workpad (flowly_update_workpad: the acceptance criteria and the checks you will run, before you implement)`
-- 噪声取舍：只要缺就每次写入都提醒（一行字，补齐即消失）。不做“每轮只提一次”，因为缺项正是要在第一次写入时就补上。
+  - type: `no type (flowly_set_type: feature, bugfix, research, refactor, docs or chore)`
+  - tags: `no tags (flowly_set_tags: 1-4 module or direction tags, reuse projectTags)`
+  - workpad: `no workpad (flowly_update_workpad: the acceptance criteria and the checks you will run, before you implement)`
+- Noise trade-off: as long as something is missing, remind on every write (one line of text, gone once filled in). No "once per turn", because a missing item is exactly what should be filled in at the first write.
 
-### 3.4 交付软卡
+### 3.4 Delivery soft gate
 
-agent 调 `flowly_update_status(status=in_review)` 且状态确实变化时（与现有 `WORKPAD_OPEN` 条件相同；人拖动不检查），一次性计算：
+When the agent calls `flowly_update_status(status=in_review)` and the status really changes (the same condition as the existing `WORKPAD_OPEN`; a person dragging is not checked), compute once:
 
-- `missing`（§3 定义，含“没有 workpad”）；
-- 有 workpad 时的 `openItems`（WORKPAD-SPEC §5.3）。
+- `missing` (defined in §3, including "no workpad");
+- when there is a workpad, the `openItems` (WORKPAD-SPEC §5.3).
 
-任一非空且未在本 session 对当前状态拒绝过，或没有 `acknowledgeOpen: true`：返回错误，不提交、不写回执（同一 request 可带确认后重试）。一个错误列出全部问题，避免 agent 连撞两次：
+If either is non-empty and has not been rejected in this session for the current status, or there is no `acknowledgeOpen: true`: return an error, do not submit, write no receipt (the same request can retry with confirmation). One error lists all the problems, so the agent does not hit it twice in a row:
 
-- 有未完成的 workpad 项：错误码仍为 `WORKPAD_OPEN`（兼容现有 agent 与测试），消息在原清单前加设置缺项一行（若有）。
-- 只有设置缺项：新错误码 `SETUP_INCOMPLETE`，消息：
+- There are unfinished workpad items: the error code is still `WORKPAD_OPEN` (compatible with existing agents and tests), and the message puts one line about the missing setup items (if any) before the original list.
+- Only setup items are missing: the new error code `SETUP_INCOMPLETE`, with the message:
   `Card setup is incomplete: {items}. Set them now and deliver again. Deliver anyway only with acknowledgeOpen=true and a note that explains why each one is missing.`
 
-本 session 已收到当前状态的拒绝后，再带 `acknowledgeOpen: true`：照常提交；`status_changed` 事件新增可选 `setup: { missing }` 快照（与现有 `workpad` 快照并列），供以后的 Insights 统计。卡面“Delivered with {n} open items”的计数**不**含设置缺项（本卡不改 UI）。
+After this session has received the rejection for the current status, a retry with `acknowledgeOpen: true` submits as usual; the `status_changed` event gains an optional `setup: { missing }` snapshot (alongside the existing `workpad` snapshot), for later Insights statistics. The "Delivered with {n} open items" count on the card face does **not** include setup items (this card changes no UI).
 
-2026-10-22 修订：预带 `acknowledgeOpen=true` 不再绕过首次拒绝。状态指纹、过期、回合切换和重载规则见 [DELIVERY-CONSTRAINTS-SPEC](DELIVERY-CONSTRAINTS-SPEC.md) §2。
+2026-10-22 revision: passing `acknowledgeOpen=true` ahead of time no longer bypasses the first rejection. The state fingerprint, expiry, turn-switch and reload rules are in [DELIVERY-CONSTRAINTS-SPEC](DELIVERY-CONSTRAINTS-SPEC.md) §2.
 
-CLI 已有 `--acknowledge-open`，不变。`flowly_update_status` 的 `acknowledgeOpen` 描述改为“…still open workpad items or missing card setup (WORKPAD_OPEN, SETUP_INCOMPLETE)…”。
+The CLI already has `--acknowledge-open`, unchanged. The description of `acknowledgeOpen` in `flowly_update_status` becomes "…still open workpad items or missing card setup (WORKPAD_OPEN, SETUP_INCOMPLETE)…".
 
-对 WORKPAD-SPEC §5.3 的修改：第 2 步“没有 workpad 照常提交”改为“没有 workpad（项目开启时）按 CARD-SETUP-SPEC §3.4 软卡”。
+Change to WORKPAD-SPEC §5.3: step 2, "submit as usual with no workpad", becomes "with no workpad (when the project has it on), soft-gate per CARD-SETUP-SPEC §3.4".
 
-### 3.5 工具描述（`server/tool-server.ts`）
+### 3.5 Tool descriptions (`server/tool-server.ts`)
 
-agent 跟随 schema（R3），所以描述里写明：
+The agent follows the schema (R3), so the descriptions say it explicitly:
 
-- `flowly_get_task`：末尾加 “Then check setup.missing and fix it (set_type, set_tags, update_workpad) before other work.”
-- `flowly_update_status`：加 “Delivering with missing setup (no type, no tags or no workpad) returns SETUP_INCOMPLETE …”；写结果“any write’s result may carry a setup reminder”。
-- `flowly_set_type`、`flowly_set_tags`、`flowly_update_workpad`：首句加时机 “Do this at the start of the work, before you change code.”
+- `flowly_get_task`: append "Then check setup.missing and fix it (set_type, set_tags, update_workpad) before other work."
+- `flowly_update_status`: add "Delivering with missing setup (no type, no tags or no workpad) returns SETUP_INCOMPLETE …"; in the write result "any write’s result may carry a setup reminder".
+- `flowly_set_type`, `flowly_set_tags`, `flowly_update_workpad`: add the timing to the first sentence "Do this at the start of the work, before you change code."
 
-### 3.6 Skill（`server/skill-source.ts` 与 `skills/flowly/SKILL.md` 同步）
+### 3.6 Skill (`server/skill-source.ts` synced with `skills/flowly/SKILL.md`)
 
-在 `# Flowly` 下、现有条目之前加一段，其余职责保持原顺序排在后面：
+Under `# Flowly`, before the existing entries, add a section, and the other duties keep their original order after it:
 
 ```
 ## Start of every turn
@@ -136,43 +136,43 @@ Any write's result may carry reminders about missing setup; make those calls bef
 ## Details
 ```
 
-同步修改原条目：tags 一条的“Once you understand the scope” → “At the start of the work (Start of every turn, step 2)”；type 一条的“once you understand the work” → 同上；reminders 一条补 “…and missing card setup (any write)”；workpad 一条补 “Delivering without a workpad, type or tags returns SETUP_INCOMPLETE; deliver only with acknowledgeOpen=true and a note that explains it.” skill `description` 不变。
+Also change the original entries: in the tags entry "Once you understand the scope" → "At the start of the work (Start of every turn, step 2)"; in the type entry "once you understand the work" → the same; the reminders entry adds "…and missing card setup (any write)"; the workpad entry adds "Delivering without a workpad, type or tags returns SETUP_INCOMPLETE; deliver only with acknowledgeOpen=true and a note that explains it." The skill `description` is unchanged.
 
-### 3.7 不做
+### 3.7 Not done
 
-- 不改写入语义：设置缺项只提醒，唯一的拦截是 §3.4 的交付软卡，且可确认放行。
-- 不在回合结束后由 daemon 替 agent 发消息或代调工具；不自动猜 type/tags（卡片第 5 项）。
-- 不按模型或思考档位区别对待。
-- 卡面/抽屉给用户显示“设置未完成”：另提 idea。
+- No change to write semantics: missing setup items only remind, and the only block is the delivery soft gate in §3.4, which can be let through with confirmation.
+- The daemon does not send messages or call tools on the agent's behalf after a turn ends; no automatic guessing of type/tags (card item 5).
+- No different treatment by model or thinking level.
+- Showing "setup incomplete" to the user on the card face/drawer: a separate idea.
 
-## 4. 新手引导与文档
+## 4. Onboarding and docs
 
-- 用户看得到的变化只有 agent 行为（更早出现 type、tags、workpad；交付说明里解释缺项），没有新界面时刻，因此**不加一次性提示**。
-- 欢迎页特色列表的 Workpad 一条改为：“Agents set the card's type and tags and write a workpad before they start: acceptance criteria, checks marked passed, failed or not run on a named commit, and what confused them. Delivering without them needs a note.” 改动的英文键在 `shared/i18n/` 全部目录更新。
-- README / README.zh-CN Highlights 的 workpad 一句同步上述含义。
-- agent 面向文字与 daemon 错误保持英文，不进 i18n。
-- 实现时在 SPEC-OUTLINE 顶部加一条记录，PROGRESS.md 记录完成/失败/未运行的检查。
+- The only change the user can see is agent behavior (type, tags and workpad appear earlier; the delivery note explains missing items), with no new UI moment, so **no one-time tip is added**.
+- The Workpad entry in the welcome page's feature list becomes: "Agents set the card's type and tags and write a workpad before they start: acceptance criteria, checks marked passed, failed or not run on a named commit, and what confused them. Delivering without them needs a note." The changed English key is updated in all catalogs in `shared/i18n/`.
+- The workpad sentence in the README / README.zh-CN Highlights is synced to the same meaning.
+- Agent-facing text and daemon errors stay English, not in i18n.
+- At implementation, add a record at the top of SPEC-OUTLINE, and PROGRESS.md records the completed / failed / unrun checks.
 
-## 5. 验收
+## 5. Acceptance
 
-聚焦单测：
+Focused unit tests:
 
-- `shared/card-setup.test.ts`：`setupMissing` 三项各自缺/不缺；人设的 type/tags 算已设；空 workpad 算缺；`workpadOn=false` 不列 workpad；顺序固定。
-- `server/agent-service.test.ts`：
-  - get_task 带 `setup`，type/tags/workpad 补齐后各项变 false；
-  - 缺 type 时 `update_status(development)`、`update_workpad`、`report_progress(progress)` 都成功且 `reminders` 含设置提醒；**已设 type 不再提 type**；`set_type` 自身结果不提 type；三项齐全时没有 `reminders` 键；重放也带；Done 卡不带；
-  - 与 next moves 提醒同时出现时顺序为交付提醒在前；
-  - 交付：只缺 tags → `SETUP_INCOMPLETE`，状态未变、无回执；同一 request 带 `acknowledgeOpen` → 提交且事件带 `setup` 快照；无 workpad（项目开启）→ `SETUP_INCOMPLETE`；项目关闭 workpad 且 type/tags 齐全 → 照常提交；workpad 有未完成项且缺 type → `WORKPAD_OPEN`，消息含两者；
-- `shared/scope.test.ts`：`sessionContext` 缺项时有 `Card setup missing:` 行且只列缺的项，齐全时没有。
-- `server/tool-server.test.ts`：`flowly_update_status` 描述含 `SETUP_INCOMPLETE`；skill 文本以 “Start of every turn” 段开头。
-- `npm test`（含 i18n 目录检查）与 `npm run typecheck` 通过。
+- `shared/card-setup.test.ts`: `setupMissing` for each of the three items missing / not missing; a type/tags set by a person counts as set; an empty workpad counts as missing; `workpadOn=false` does not list workpad; fixed order.
+- `server/agent-service.test.ts`:
+  - get_task carries `setup`, and each item becomes false once type/tags/workpad are filled in;
+  - with type missing, `update_status(development)`, `update_workpad` and `report_progress(progress)` all succeed and `reminders` contains the setup reminder; **a type that is already set is no longer mentioned**; the result of `set_type` itself does not mention type; with all three present there is no `reminders` key; a replay carries it too; a Done card does not carry it;
+  - when it appears together with the next moves reminder, the delivery reminder comes first;
+  - delivery: only tags missing → `SETUP_INCOMPLETE`, status unchanged, no receipt; the same request with `acknowledgeOpen` → submitted and the event carries the `setup` snapshot; no workpad (project has it on) → `SETUP_INCOMPLETE`; project has workpad off and type/tags present → submitted as usual; workpad has unfinished items and type missing → `WORKPAD_OPEN`, with the message containing both;
+- `shared/scope.test.ts`: `sessionContext` has a `Card setup missing:` line listing only the missing items when something is missing, and none when all are present.
+- `server/tool-server.test.ts`: the `flowly_update_status` description contains `SETUP_INCOMPLETE`; the skill text starts with the "Start of every turn" section.
+- `npm test` (including the i18n catalog check) and `npm run typecheck` pass.
 
-Luna 6 验证（codex/gpt-6-luna，full-access；用 Tinylink 项目，结束后只清理自己建的卡和 session）：
+Luna 6 verification (codex/gpt-6-luna, full-access; with the Tinylink project, and afterwards clean up only the cards and sessions it created):
 
-- 建一张**只有标题、没有描述**的小卡（复现 §1 的失败人群），在卡上开 `claude/claude-sonnet-5-5`、思考 medium 的 session，发一条普通的改动请求。
-- 期望：首条上下文含 `Card setup missing:`；agent 在第一次 `development` 之前设了 type、tags 并写了 workpad；若它没做，任一写入的结果里出现设置提醒，之后补齐；交付时没有缺项，或撞到 `SETUP_INCOMPLETE` 后补齐/带说明确认。
-- 证据（session ID、事件时间线、写入结果片段）存 `docs/verification/card-setup-<date>.md`。
+- Create a small card with **only a title and no description** (reproducing the failing population of §1), open a `claude/claude-sonnet-5-5` session on it with thinking medium, and send one ordinary change request.
+- Expected: the first context contains `Card setup missing:`; the agent sets type and tags and writes a workpad before the first `development`; if it does not, a setup reminder appears in the result of any write, after which it fills them in; at delivery there are no missing items, or after hitting `SETUP_INCOMPLETE` it fills them in / confirms with an explanation.
+- Evidence (session ID, event timeline, write result excerpts) is saved to `docs/verification/card-setup-<date>.md`.
 
-## 6. 实现落点
+## 6. Where the implementation lands
 
-`shared/card-setup.ts`（新）、`shared/tools.ts`（`setup` schema、`acknowledgeOpen` 描述）、`server/tool-server.ts`（工具描述）、`server/agent-service.ts`（get_task、reminders 计算扩展到全部写工具、交付门槛合并）、`server/reminders.ts`（`setupReminder`）、`shared/scope.ts`（首条上下文）、`server/skill-source.ts` + `skills/flowly/SKILL.md`、`server/cli-source.ts`（`status` 用法文字）、`client/onboarding.tsx`、README、`shared/i18n/*`、WORKPAD-SPEC §5.3、NEXT-MOVES-SPEC §9.2 表格加一行指向本文。
+`shared/card-setup.ts` (new), `shared/tools.ts` (the `setup` schema, the `acknowledgeOpen` description), `server/tool-server.ts` (tool descriptions), `server/agent-service.ts` (get_task, extending the reminders computation to all write tools, the merged delivery gate), `server/reminders.ts` (`setupReminder`), `shared/scope.ts` (first context), `server/skill-source.ts` + `skills/flowly/SKILL.md`, `server/cli-source.ts` (`status` usage text), `client/onboarding.tsx`, README, `shared/i18n/*`, WORKPAD-SPEC §5.3, and a row in the NEXT-MOVES-SPEC §9.2 table pointing to this document.
