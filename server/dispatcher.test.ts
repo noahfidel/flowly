@@ -1066,7 +1066,8 @@ test("a dispatcher saved with fewer tools than this build lists says a new one g
   const firstEight = ["flowly_list_projects", "flowly_list_cards", "flowly_get_card", "flowly_create_card", "flowly_update_card", "flowly_start_card", "flowly_propose_idea", "flowly_link_cards"];
   expect(await status({ savedTools: firstEight })).toEqual({ state: "idle", agentId: "old", newTools: true });
   expect(await status({ savedTools: true })).toEqual({ state: "idle", agentId: "old", newTools: true });
-  expect(dispatcherToolNames).toEqual(expect.arrayContaining([...firstEight, "flowly_list_ideas", "flowly_update_idea"]));
+  // flowly_create_card is one of them but is now confirmed by the user (§5.2), so no longer preapproved.
+  expect(dispatcherToolNames).toEqual(expect.arrayContaining([...firstEight.filter((tool) => tool !== "flowly_create_card"), "flowly_list_ideas", "flowly_update_idea"]));
   // Tools from the open hook are read at each open, always this build's.
   expect(await status({})).toEqual({ state: "idle", agentId: "old" });
   // An ended one says nothing: Start gives a new one anyway.
@@ -1531,6 +1532,18 @@ test("the charter reads \"start X\" as create and start a card, never doing the 
   expect(line).toMatch(/never .*(do|perform) the work yourself/i);
   expect(line).toMatch(/never ask/i);
   expect(charter).toContain(startRule);
+});
+
+test("the charter says each card creation is confirmed in the chat, a cancel stops it, and is versioned 2 (DISPATCHER-SPEC §5.2, §6)", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  const line = charter.split("\n").find((l) => l.includes("CARD_REFUSED"))!;
+  expect(line).toBeDefined();
+  expect(line).toContain("flowly_create_card");
+  expect(line).toMatch(/asks the user to confirm it in this chat/);
+  expect(line).toMatch(/do not announce/i);
+  expect(line).toContain("CONFIRMATION_UNAVAILABLE");
+  // A charter change a running dispatcher should get raises the version (§3).
+  expect(dispatcherCharterVersion).toBe(2);
 });
 
 test("the charter says plainly that only the user answers a card's asks", () => {

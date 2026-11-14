@@ -1683,5 +1683,12 @@ const catalog: Catalog = {
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "Das Standardmodell {model} wird von {provider} nicht angeboten. Wähle unter Einstellungen → Modelle ein anderes.",
   "Running now": "Läuft gerade",
   "Nothing is running": "Nichts läuft",
+  "Create this card?": "Diese Karte erstellen?",
+  "Create": "Erstellen",
+  "Create without Linear ticket": "Ohne Linear-Ticket erstellen",
+  "Create with Linear ticket": "Mit Linear-Ticket erstellen",
+  "Linear ticket": "Linear-Ticket",
+  "No Linear ticket": "Kein Linear-Ticket",
+  "Linear issue linked": "Linear-Issue verknüpft",
 };
 export default catalog;

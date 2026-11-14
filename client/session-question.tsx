@@ -41,6 +41,7 @@ type WebKeyEvent = {
 };
 
 type Respond = (request: PendingRequest, reply: PermissionReply) => void;
+export type RenderRequest = (request: PendingRequest, disabled: boolean, onRespond: Respond) => ReactNode | null;
 
 /**
  * The session's open agent questions and permission requests, answered in
@@ -52,16 +53,21 @@ export const PendingRequests = memo(function PendingRequests({
   disabled,
   onRespond,
   onOpenInPaseo,
+  renderRequest,
 }: {
   requests: readonly PendingRequest[];
   disabled: boolean;
   onRespond: Respond;
   /** Opens the session in Paseo; the approval's link is hidden without it. */
   onOpenInPaseo?: () => void;
+  /** A form of the caller's own for a request it knows (the dispatcher's card confirm), or null for the generic one. */
+  renderRequest?: RenderRequest;
 }) {
   const { colors } = useTheme();
   if (!requests.length) return null;
   const forms = requests.map((request) => {
+    const own = renderRequest?.(request, disabled, onRespond);
+    if (own) return <View key={request.id}>{own}</View>;
     const questions = parseQuestions(request);
     return questions ? (
       <QuestionForm key={request.id} request={request} questions={questions} disabled={disabled} onRespond={onRespond} />

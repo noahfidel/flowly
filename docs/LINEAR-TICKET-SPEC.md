@@ -29,6 +29,8 @@ so the block reaches the agent at session start. It is added only when all of th
 
 1. the project has `linearTicket: true`;
 2. the card has not opted out (`task.linearTicket` is not `false`, §5);
+   (1 and 2 are one shared rule, `linearTicketAsked` in `shared/linear-ticket.ts`, also used for the default of the
+   dispatcher's card confirm, DISPATCHER-SPEC §5.2);
 3. none of the card's artifacts (inputs or outputs) is a Linear item: an artifact whose `external.provider` is
    `linear`, or whose target is an http(s) URL on `linear.app` (or a subdomain of it).
 
@@ -81,7 +83,8 @@ in a project that has it off).
 - A card with a linked Linear item gets no block either way (§2), so the field changes nothing for it.
 - Set at creation: the New card form, `tasks.create` (`taskInput.linearTicket`, only `false` is taken), and
   `flowly_create_card` (card sessions, sessions outside cards and the dispatcher: `linearTicket: false`; `true` or
-  omitted inherits).
+  omitted inherits). The dispatcher's call is confirmed by the user first, whose **Create without Linear ticket** /
+  **Create with Linear ticket** sets or drops `linearTicket: false` (DISPATCHER-SPEC §5.2).
 - Edited afterwards: the card form (`tasks.update`, `taskEdit.linearTicket`: `false` opts out, `true` inherits again)
   and `flowly_update_card` (same values; a change is listed as `linearTicket` in `changed` and in the `edited` event's
   note). Editable in any lane the card form and `flowly_update_card` already allow; it only matters for sessions and

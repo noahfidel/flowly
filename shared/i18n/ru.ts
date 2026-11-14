@@ -1683,5 +1683,12 @@ const catalog: Catalog = {
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "{provider} не предлагает модель по умолчанию {model}. Выберите другую в Настройки → Модели.",
   "Running now": "Выполняется",
   "Nothing is running": "Ничего не выполняется",
+  "Create this card?": "Создать эту карточку?",
+  "Create": "Создать",
+  "Create without Linear ticket": "Создать без тикета Linear",
+  "Create with Linear ticket": "Создать с тикетом Linear",
+  "Linear ticket": "Тикет Linear",
+  "No Linear ticket": "Без тикета Linear",
+  "Linear issue linked": "Задача Linear привязана",
 };
 export default catalog;

@@ -24,6 +24,8 @@ import { useDispatcherItemsQuery, useLiveAgents } from "./queries";
 import { useStableCallback } from "./stable";
 import { chatRows, discussFill, outdatedNotice, replaceOffer, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
 import { ComposerChips, useSessionConfig, type ChipMenuId } from "./session-settings";
+import { CardConfirm, type CardConfirmProject } from "./card-confirm";
+import { isCardConfirm } from "../shared/card-confirm";
 
 /**
  * The dispatcher chat next to the board (DISPATCHER-SPEC §9.3), on the card session view's own parts: the session
@@ -51,6 +53,10 @@ type Props = {
   resolveCard(taskId: string): CardLinkInfo | null;
   /** Changes when the board's cards change, so chips refresh. */
   cardsVersion?: unknown;
+  /** A project's title and Linear ticket switch for the card confirm (§5.2; stable; reads the board). */
+  projectOf?(projectId: string): CardConfirmProject;
+  /** Changes when the board's projects change, so an open card confirm refreshes. */
+  projectsVersion?: unknown;
   /** Discuss on an idea (§9.5): text for the message box, after what is typed; never sent. A new `key` adds it again. */
   fill?: { text: string; key: number } | null;
   /** The fill with this key is in the box: the board drops it, so a remounted panel does not add it again. */
@@ -69,7 +75,7 @@ type Props = {
   onSession?(agentId: string | null): void;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, resolveCard, cardsVersion, fill, onFilled, focusRequest = 0, onEscape, onBoxFocus, groupId, onOpenInPaseo, onSession }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, resolveCard, cardsVersion, projectOf, projectsVersion, fill, onFilled, focusRequest = 0, onEscape, onBoxFocus, groupId, onOpenInPaseo, onSession }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -206,6 +212,15 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
       });
   });
 
+  // Its flowly_create_card waits as a permission request: shown as the card confirm, one settings line and buttons (§5.2).
+  const renderRequest = useCallback(
+    (request: PendingRequest, disabled: boolean, onRespond: (request: PendingRequest, reply: PermissionReply) => void) =>
+      isCardConfirm(request) ? (
+        <CardConfirm request={request} project={projectOf?.(String(request.input?.projectId ?? "")) ?? null} disabled={disabled} onRespond={onRespond} />
+      ) : null,
+    [projectOf, projectsVersion],
+  );
+
   // The message box: the card session view's, with the text kept here. Sends always steer (§9.3).
   const [draft, setDraft] = useState("");
   const draftChange = useStableCallback((_id: string, text: string, expected?: string) =>
@@ -306,6 +321,7 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
         requests={requests}
         requestsDisabled={!canWrite}
         onRespond={respond}
+        renderRequest={renderRequest}
         lift={keyboard.translate}
         inset={keyboard.inset}
         onStreamError={setError}

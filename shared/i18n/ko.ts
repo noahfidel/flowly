@@ -1683,5 +1683,12 @@ const catalog: Catalog = {
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "기본 모델 {model}을(를) {provider}에서 제공하지 않습니다. 설정 → 모델에서 다른 기본 모델을 선택하세요.",
   "Running now": "실행 중",
   "Nothing is running": "실행 중인 항목이 없습니다",
+  "Create this card?": "이 카드를 만들까요?",
+  "Create": "만들기",
+  "Create without Linear ticket": "Linear 티켓 없이 만들기",
+  "Create with Linear ticket": "Linear 티켓과 함께 만들기",
+  "Linear ticket": "Linear 티켓",
+  "No Linear ticket": "Linear 티켓 없음",
+  "Linear issue linked": "Linear 이슈 연결됨",
 };
 export default catalog;

@@ -1377,6 +1377,10 @@ function BoardContent(
     }
     return action;
   });
+  const chatProjectOf = useStableCallback((projectId: string) => {
+    const owner = board?.projects.find((p) => p.id === projectId);
+    return owner ? { title: owner.title, ...(owner.linearTicket ? { linearTicket: true } : {}) } : null;
+  });
   const chatLaneOf = useStableCallback((projectId: string, status: string) =>
     laneName(board?.projects.find((p) => p.id === projectId) ?? null, status as Status),
   );
@@ -1431,7 +1435,7 @@ function BoardContent(
       }
     >
       <LeftDock compact={compact} expanded={chatExpanded} onToggleSize={toggleChatSize} onClose={closeChat} onOpenInPaseo={canOpenAgent && dispatcherSession ? openDispatcherHere : undefined} groupName={dispatcherGroupName}>
-        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} resolveCard={resolveCard} cardsVersion={board?.tasks} groupId={dispatcherGroupId} onOpenInPaseo={canOpenAgent ? openDispatcherSession : undefined} onSession={setDispatcherSession} />
+        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} resolveCard={resolveCard} cardsVersion={board?.tasks} projectOf={chatProjectOf} projectsVersion={board?.projects} groupId={dispatcherGroupId} onOpenInPaseo={canOpenAgent ? openDispatcherSession : undefined} onSession={setDispatcherSession} />
       </LeftDock>
       {chatGrip}
     </Animated.View>

@@ -947,6 +947,45 @@ test("flowly_create_project runs only in a permission mode that asks the user (r
   }
 });
 
+test("a new dispatcher's flowly_create_card is confirmed by the user: not preapproved, and only in a mode that asks (DISPATCHER-SPEC §5.2)", async () => {
+  const x = await setup();
+  expect(dispatcherConfirmedToolNames).toContain("flowly_create_card");
+  expect(dispatcherToolNames).not.toContain("flowly_create_card");
+  x.agents.disp.archivedAt = "2026-11-09T00:00:00.000Z";
+  const { agentId } = await x.server.dispatcher.start(x.paseo, { groupId: x.groupId, provider: "claude/claude-sonnet-5-5" });
+  const policy = x.policies[agentId] as { preapproved: { tool: string }[] };
+  expect(policy.preapproved.map((g) => g.tool)).not.toContain("flowly_create_card");
+  // Saved without it: no new-tools warning for the tool the user now confirms.
+  expect((await x.entry()).savedTools).not.toContain("flowly_create_card");
+  expect(await x.server.dispatcher.status(x.paseo, x.groupId)).not.toHaveProperty("newTools");
+  const server = x.launched[agentId]["flowly-dispatcher"] as { headers: { Authorization: string } };
+  const d = await x.connect(server.headers.Authorization.replace(/^Bearer /, ""));
+  const tasksBefore = (await x.store.read()).tasks.length;
+  for (const mode of ["bypassPermissions", "auto", null]) {
+    x.agents[agentId].currentModeId = mode;
+    const result = await d.call("flowly_create_card", { projectId: "q", title: "Confirmed", idempotencyKey: `k-${mode}` });
+    expect(code(result), String(mode)).toBe("CONFIRMATION_UNAVAILABLE");
+    expect(result.structuredContent.error.message).toContain("a card");
+  }
+  expect((await x.store.read()).tasks.length).toBe(tasksBefore);
+  // A mode that asks: the user's answer already happened (the prompt comes before the call), so the card is made with
+  // the input the answer left, a Linear opt-out included.
+  x.agents[agentId].currentModeId = "default";
+  const made = await d.call("flowly_create_card", { projectId: "q", title: "Confirmed", idempotencyKey: "k-ok", linearTicket: false });
+  expect(code(made)).toBeUndefined();
+  expect(made.structuredContent.card).toMatchObject({ title: "Confirmed", linearTicket: false });
+  // Starting it is not asked again: flowly_start_card stays preapproved.
+  expect(policy.preapproved.map((g) => g.tool)).toContain("flowly_start_card");
+});
+
+test("a dispatcher saved with flowly_create_card preapproved keeps creating without the mode check until it is replaced (DISPATCHER-SPEC §5.2)", async () => {
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  // "disp" is an old record (no savedTools): its session preapproves the tool, so no prompt could show anyway.
+  x.agents.disp.currentModeId = "bypassPermissions";
+  expect(code(await d.call("flowly_create_card", { projectId: "q", title: "Old way", idempotencyKey: "k-old" }))).toBeUndefined();
+});
+
 test("flowly_create_project: at most 5 projects per dispatcher hour, apart from the card bucket (ruling A, DISPATCHER-SPEC §5.2)", async () => {
   const x = await withProjects();
   let now = Date.parse("2026-11-10T10:00:00.000Z");

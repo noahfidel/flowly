@@ -1683,5 +1683,12 @@ const catalog: Catalog = {
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "{provider} 不提供默认模型 {model}。请在设置 → 模型中另选一个。",
   "Running now": "正在运行",
   "Nothing is running": "没有正在运行的任务",
+  "Create this card?": "创建这张卡片?",
+  "Create": "创建",
+  "Create without Linear ticket": "创建且不要 Linear 工单",
+  "Create with Linear ticket": "创建并要求 Linear 工单",
+  "Linear ticket": "Linear 工单",
+  "No Linear ticket": "无 Linear 工单",
+  "Linear issue linked": "已关联 Linear 问题",
 };
 export default catalog;

@@ -53,7 +53,6 @@ export const dispatcherToolNames = [
   "flowly_list_projects",
   "flowly_list_cards",
   "flowly_get_card",
-  "flowly_create_card",
   "flowly_update_card",
   "flowly_start_card",
   "flowly_propose_idea",
@@ -85,8 +84,10 @@ export const dispatcherRepliesPerHour = 20;
  * Tools on the same server that are never preapproved (ruling, Noah 2026-11-10; DISPATCHER-SPEC §3, §5.2): each call
  * shows the provider's permission prompt in the dispatcher chat, so the user confirms it. Not in `savedTools`, so a
  * dispatcher started before them gets no new-tools warning: its server lists them too, and they prompt there as well.
+ * flowly_create_card joined them on 2026-11-14 (the card confirm, §5.2): a dispatcher saved with it preapproved keeps
+ * creating cards without asking until it is replaced (its charter version is older, so it shows the Replace warning).
  */
-export const dispatcherConfirmedToolNames = ["flowly_create_project", "flowly_manage_groups"] as const;
+export const dispatcherConfirmedToolNames = ["flowly_create_card", "flowly_create_project", "flowly_manage_groups"] as const;
 
 /**
  * Tools a Claude dispatcher session is started without (Claude's `disallowedTools`; DISPATCHER-SPEC §3, ruling, Noah
@@ -174,9 +175,10 @@ export const dispatcherGuardVersion = 2;
 /**
  * The version of `dispatcherCharter`. Raise it whenever the charter text changes in a way a running dispatcher should
  * get: a live dispatcher recorded with a lower version shows the Replace warning (DISPATCHER-SPEC §3). A record without
- * one is version 0, the charter before versioning. Version 1 is the charter with `startRule` and the note reply rule.
+ * one is version 0, the charter before versioning. Version 1 is the charter with `startRule` and the note reply rule;
+ * version 2 says each flowly_create_card is confirmed in the chat (§5.2).
  */
-export const dispatcherCharterVersion = 1;
+export const dispatcherCharterVersion = 2;
 
 /**
  * Providers the dispatcher starts on: those whose sessions can be started without `dispatcherWithheldTools` (Claude's
@@ -367,6 +369,7 @@ export const dispatcherCharter = (group: { name: string }) => `You are the Flowl
 - You work on this group's projects only: flowly_list_projects lists them, and a project of another group is refused (PROJECT_OUT_OF_GROUP); tell the user it belongs to another group's dispatcher. Manage board groups with flowly_manage_groups only when the user asks you to; each call asks the user to confirm it in this chat.
 - Every repo task is a card: one card is one deliverable, one branch or one PR. When the user asks for work, create the card with flowly_create_card (workspace "worktree" for repo work) and start its session straight away with flowly_start_card; the card's own agent does the work, not you. Write the card description for an agent that cannot see this conversation: goal, context, files, acceptance criteria.
 - ${startRule}
+- Each flowly_create_card call asks the user to confirm it in this chat, with buttons that may change its settings (such as the Linear ticket ask) before the card is made; the card you get back is what the user chose. Do not announce or repeat the confirm; just make the call and wait. When the user cancels (CARD_REFUSED), do not create or start that card or ask again unless they say so. On CONFIRMATION_UNAVAILABLE ask the user to switch your permission mode to one that asks.
 - Split independent deliverables into separate cards that can run side by side, and tie them with flowly_link_cards (blocks when one must land first, follow_up when one continues another). Never make child cards or extra workspaces for one card.
 - Park asks that should not start now as project ideas with flowly_propose_idea, not as cards. Read a project's ideas with flowly_list_ideas and keep them current with flowly_update_idea (edit, or dismiss one that no longer applies). When the user wants an idea done, pass its ideaId to flowly_create_card so the idea is marked taken up.
 - Create a Flowly project with flowly_create_project only when the user asks for one, from the folder they name; never to make room for a card. It joins this group. Each call asks the user to confirm it in this chat. A refusal (PROJECT_REFUSED) says why: tell the user, and do not retry with another folder unless they say so. On CONFIRMATION_UNAVAILABLE ask the user to switch your permission mode to one that asks; on PROJECT_LIMIT stop and ask the user.

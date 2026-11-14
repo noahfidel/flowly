@@ -17,7 +17,7 @@ import { recapLine } from "./summary-line";
 import { Collapse } from "./disclosure";
 import { Enter, PulseDot, motionDuration, useMotionPresence, useMotionValue, lerp } from "./motion";
 import { useStableCallback } from "./stable";
-import { PendingRequests } from "./session-question";
+import { PendingRequests, type RenderRequest } from "./session-question";
 import type { PendingRequest, PermissionReply } from "../shared/permission-question";
 import { t } from "../shared/i18n";
 
@@ -79,6 +79,8 @@ type TranscriptProps = {
   onRespond(request: PendingRequest, reply: PermissionReply): void;
   /** Opens the session in Paseo from an approval's link; absent when the host cannot. */
   onOpenInPaseo?: () => void;
+  /** Own forms for requests the caller knows (the dispatcher's card confirm, DISPATCHER-SPEC §5.2). Keep it stable. */
+  renderRequest?: RenderRequest;
   /** The composer's keyboard lift (native driver, negative = up); the transcript moves with it. */
   lift: Animated.AnimatedInterpolation<number> | Animated.AnimatedMultiplication<number>;
   /** The settled lift, for reaching the oldest output while the keyboard is up. */
@@ -119,6 +121,7 @@ function SessionTranscriptView({
   requestsDisabled,
   onRespond,
   onOpenInPaseo,
+  renderRequest,
   lift,
   inset,
   onStreamError,
@@ -313,7 +316,7 @@ function SessionTranscriptView({
   const asking =
     showOutput && requests.length ? (
       <View style={{ paddingTop: blocks.length ? space[4] : 0 }}>
-        <PendingRequests requests={requests} disabled={requestsDisabled} onRespond={onRespond} onOpenInPaseo={onOpenInPaseo} />
+        <PendingRequests requests={requests} disabled={requestsDisabled} onRespond={onRespond} onOpenInPaseo={onOpenInPaseo} renderRequest={renderRequest} />
       </View>
     ) : null;
   const bottom =

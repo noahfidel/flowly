@@ -1683,5 +1683,12 @@ const catalog: Catalog = {
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "デフォルトのモデル {model} は {provider} で提供されていません。設定 → モデルで別のモデルを選んでください。",
   "Running now": "実行中",
   "Nothing is running": "実行中のものはありません",
+  "Create this card?": "このカードを作成しますか?",
+  "Create": "作成",
+  "Create without Linear ticket": "Linear チケットなしで作成",
+  "Create with Linear ticket": "Linear チケットありで作成",
+  "Linear ticket": "Linear チケット",
+  "No Linear ticket": "Linear チケットなし",
+  "Linear issue linked": "Linear Issue をリンク済み",
 };
 export default catalog;

@@ -27,6 +27,15 @@ export function hasLinearItem(artifacts: readonly Pick<Artifact, "kind" | "targe
 }
 
 /**
+ * Whether a card is asked to have a Linear ticket by its project and its own setting (LINEAR-TICKET-SPEC §1, §5): the
+ * project's switch is on and the card did not opt out. One rule for the session context and the dispatcher's card
+ * confirm (DISPATCHER-SPEC §5.2); a linked Linear item is checked by the caller.
+ */
+export function linearTicketAsked(project: Pick<Project, "linearTicket"> | null | undefined, card: { linearTicket?: boolean }) {
+  return project?.linearTicket === true && card.linearTicket !== false;
+}
+
+/**
  * The block for the card's session context, or [] when the project does not ask for it, the card opted out (§5) or a ticket is linked (§2, §3).
  * `canLink` is false while agent artifacts are turned off: the agent cannot link the ticket, so later sessions find it
  * again by the card's title instead of creating a second one.
@@ -36,7 +45,7 @@ export function linearTicketLines(
   artifacts: readonly Pick<Artifact, "kind" | "target" | "external">[],
   card: { title: string; canLink: boolean; linearTicket?: boolean },
 ): string[] {
-  if (project.linearTicket !== true || card.linearTicket === false || hasLinearItem(artifacts)) return [];
+  if (!linearTicketAsked(project, card) || hasLinearItem(artifacts)) return [];
   const team = linearTeamValue(project.linearTeam ?? "");
   const title = card.title.replace(/\s+/g, " ").trim();
   return [

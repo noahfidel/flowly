@@ -163,6 +163,15 @@ export function missesTools(entry: ToolMarks) {
   const saved = entry.savedTools === true ? firstSavedTools : entry.savedTools;
   return !!saved && dispatcherToolNames.some((tool) => !saved.includes(tool));
 }
+/**
+ * Whether a dispatcher's flowly_create_card shows the user's confirm (§5.2): its session was saved with a tool list
+ * that leaves the tool out, so it is not preapproved. A session saved before (or with no list) preapproves it, so no
+ * prompt can show and its calls go through unchecked until it is replaced.
+ */
+export function confirmsCards(entry: Pick<DispatcherEntry, "savedTools">) {
+  const saved = entry.savedTools === true ? firstSavedTools : entry.savedTools;
+  return !!saved && !saved.includes("flowly_create_card");
+}
 /** Whether a dispatcher's session was started with this build's guard on a provider that keeps it (§3). */
 export function guarded(entry: ToolMarks) {
   return entry.guard?.version === dispatcherGuardVersion && dispatcherProviderSupported(entry.guard.provider);

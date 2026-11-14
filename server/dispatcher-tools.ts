@@ -49,7 +49,7 @@ import { pendingRequests } from "../shared/permission-question";
 import { openReport } from "../shared/progress";
 import { rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
 import { changeIdea } from "./agent-service";
-import type { Dispatcher } from "./dispatcher";
+import { confirmsCards, type Dispatcher } from "./dispatcher";
 import { addLink, linkNote } from "./links";
 import type { ProjectIdeas } from "./project-ideas";
 import { directory } from "./service";
@@ -213,6 +213,9 @@ function editedTags(current: readonly string[], add: readonly string[], remove: 
   return kept;
 }
 
+/** A dispatcher acting on a project, and whether its flowly_create_card waits on the user's confirm (§5.2). */
+type DispatcherCardCaller = CardCaller & { confirmsCards: boolean };
+
 export class DispatcherTools {
   /**
    * The `projects.create` RPC's own path (the board service's create plus its follow-ups), set by the plugin entry
@@ -246,7 +249,7 @@ export class DispatcherTools {
    * whose record entry holds the session; a token that names a group must name that one. A session no group holds
    * (replaced, or its group deleted) is refused.
    */
-  async caller(identity: DispatcherIdentity): Promise<{ agentId: string; groupId: string }> {
+  async caller(identity: DispatcherIdentity): Promise<{ agentId: string; groupId: string; confirmsCards: boolean }> {
     const own = await this.dispatcher.sessionOf(identity.agentId);
     const replaced = () =>
       new ToolError("DISPATCHER_REPLACED", "This dispatcher session was replaced by a newer one; its Flowly tools no longer work. Tell the user.");
@@ -255,20 +258,20 @@ export class DispatcherTools {
     const found = await this.cards.api().agents.ref(identity.agentId).refresh();
     if (!found?.agent || found.agent.archivedAt || found.agent.workspaceId !== identity.workspaceId)
       throw new ToolError("SESSION_MISMATCH", "The dispatcher session is unavailable, archived, or in another workspace.");
-    return { agentId: identity.agentId, groupId: own.groupId };
+    return { agentId: identity.agentId, groupId: own.groupId, confirmsCards: confirmsCards(own.entry) };
   }
 
   /**
    * The dispatcher acting on one live project of its group (§4); a project of another group is refused. The caller
    * carries the group, so each write checks it again when it is stored (`checkGroup`).
    */
-  async projectCaller(identity: DispatcherIdentity, projectId: string, write = false): Promise<CardCaller> {
-    const { agentId, groupId } = await this.caller(identity);
+  async projectCaller(identity: DispatcherIdentity, projectId: string, write = false): Promise<DispatcherCardCaller> {
+    const { agentId, groupId, confirmsCards } = await this.caller(identity);
     // Read now, so a project that moved to another group since the last call is refused too.
     const project = (await this.store.read()).projects.find((p) => p.id === projectId);
     if (project && project.groupId !== groupId)
       throw new ToolError("PROJECT_OUT_OF_GROUP", "This project belongs to another board group; its own dispatcher handles it. Tell the user.");
-    return { ...(await this.cards.dispatcherCaller(projectId, agentId, write)), groupId };
+    return { ...(await this.cards.dispatcherCaller(projectId, agentId, write)), groupId, confirmsCards };
   }
 
   /** The live projects of the dispatcher's group (§5). */
@@ -702,7 +705,7 @@ export class DispatcherTools {
     const inProject = <T extends { projectId: string }>(
       schema: z.ZodType<T>,
       raw: unknown,
-      operation: (caller: CardCaller, input: Omit<T, "projectId">) => Promise<object>,
+      operation: (caller: DispatcherCardCaller, input: Omit<T, "projectId">) => Promise<object>,
       write = false,
     ) =>
       toolResult(async () => {
@@ -744,7 +747,7 @@ export class DispatcherTools {
       "flowly_create_card",
       {
         description:
-          `Create a card in a project: one deliverable, one branch or PR. Use workspace="worktree" for repo work, then start it with flowly_start_card. Write the description for an agent that cannot see this conversation (goal, context, files, acceptance). Lands in Backlog (default) or Todo. Pass linearTicket=false for a small card (a research audit, a tooling chore) that needs no Linear ticket in a project that asks for one; omitted, it follows the project. Pass a unique idempotencyKey; retrying with the same key returns the same card. Pass ideaId to make it from an open idea of the project, which is then marked taken up (IDEA_NOT_FOUND, IDEA_CLOSED: not open). Pass plan with a plan file for the card (PLAN_INVALID: outside the project, nothing is created); plan.approved=true only when the user approved that plan in this chat. Pass linear (a key like ZEN-9132 or a Linear URL) to link the card's Linear issue before it starts, so flowly_start_card names the branch from it (LINEAR_INVALID: Linear can't see it, nothing is created). At most ${agentCardLimits.dispatcherPerHour} cards or starts per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
+          `Create a card in a project: one deliverable, one branch or PR. Use workspace="worktree" for repo work, then start it with flowly_start_card. Each call asks the user to confirm it in the chat, and their answer may change its settings (such as linearTicket): the card returned is what they chose. A cancel comes back as CARD_REFUSED: do not create or start that card. CONFIRMATION_UNAVAILABLE: your permission mode would not ask the user; tell them to switch it. Write the description for an agent that cannot see this conversation (goal, context, files, acceptance). Lands in Backlog (default) or Todo. Pass linearTicket=false for a small card (a research audit, a tooling chore) that needs no Linear ticket in a project that asks for one; omitted, it follows the project. Pass a unique idempotencyKey; retrying with the same key returns the same card. Pass ideaId to make it from an open idea of the project, which is then marked taken up (IDEA_NOT_FOUND, IDEA_CLOSED: not open). Pass plan with a plan file for the card (PLAN_INVALID: outside the project, nothing is created); plan.approved=true only when the user approved that plan in this chat. Pass linear (a key like ZEN-9132 or a Linear URL) to link the card's Linear issue before it starts, so flowly_start_card names the branch from it (LINEAR_INVALID: Linear can't see it, nothing is created). At most ${agentCardLimits.dispatcherPerHour} cards or starts per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.createCard,
         outputSchema: createCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -753,7 +756,12 @@ export class DispatcherTools {
         inProject(
           dispatcherInputs.createCard,
           raw,
-          (c, { ideaId, ...input }) => this.cards.create(c, input, ideaId ? { ideaId, ideasOn: this.ideasOn } : undefined),
+          async (c, { ideaId, ...input }) => {
+            // Confirmed by the user (§5.2): the prompt came before this call, so refuse in a mode that never shows it.
+            const { confirmsCards: confirms, ...caller } = c;
+            if (confirms) await this.assertPrompting(this.cards.api(), caller.agentId, "a card");
+            return this.cards.create(caller, input, ideaId ? { ideaId, ideasOn: this.ideasOn } : undefined);
+          },
           true,
         ),
     );
