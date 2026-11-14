@@ -520,6 +520,13 @@
 - Card form (`client/forms.tsx`): the existing **Make sure there's a Linear ticket** switch next to Delivery, shown only while the project's switch is on; an unchanged switch sends nothing. No new strings. Onboarding, What's new, telemetry: none.
 - Checks: cases in `shared/linear-ticket.test.ts`, `server/linear-ticket.test.ts`, `server/agent-cards.test.ts` (create, edit, end-to-end context) and `server/dispatcher-tools.test.ts` (schemas). Not run: the installed plugin UI.
 
+## Linear ticket: skip list per card type — 2026-11-14
+
+- `project.linearSkipTypes?: TaskType[]` (absent = `["research"]`, `[]` skips none; stored deduplicated in card-type order, `projectEdit` replaces the whole list) and `task.linearTicket` now tri-state: `false` never, `true` the step even for a skipped type, absent follows the project and the card's type; `null` clears it (`taskEdit`, `flowly_update_card`), `taskInput` and `flowly_create_card` store `true`/`false` and ignore `null`. `linearTicketWanted` / `linearTicketTypeDefault` / `linearSkipTypesOf` in `shared/linear-ticket.ts` are the one decision; `linearTicketLines` uses it. The card view shows `linearTicket` when stored. [LINEAR-TICKET-SPEC](LINEAR-TICKET-SPEC.md) §1, §2, §5, §6
+- Project form: one switch per card type under the Linear team field. Card form: the Linear switch shows the stored value or the default for the chosen type; saving sends a value only when it differs from that default, `null` to drop a stored one that now equals it.
+- 1 new string in all catalogs. Onboarding, What's new, telemetry: none.
+- Checks: every combination in `shared/linear-ticket.test.ts`, store and context in `server/linear-ticket.test.ts`, `server/agent-cards.test.ts`, `server/dispatcher-tools.test.ts`. Not run: the installed plugin UI.
+
 ## Quick task (branch `feat/quick-task`) — 2026-11-05
 
 - **Quick task** dialog (`client/quick-task-form.tsx`): one box, Enter submits; Project / Agent / Workspace chips and More options…. Creates the card through `tasks.create` and starts the session through `launchKanbanSession`, like the full form, with a provisional title (`shared/quick-task.ts`) and the full text as the first message. [QUICK-TASK-SPEC](QUICK-TASK-SPEC.md)

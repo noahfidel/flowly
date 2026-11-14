@@ -1442,6 +1442,7 @@ const catalog: Catalog = {
   "When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.": "카드에 연결된 Linear 이슈가 없으면 에이전트가 먼저 Linear를 검색하고, 맞는 것이 없으면 티켓을 만들어 카드에 연결합니다. 에이전트 자신의 Linear 도구를 사용하며 Flowly는 Linear에 쓰지 않습니다.",
   "Linear team": "Linear 팀",
   "Team name or key (optional)": "팀 이름 또는 키(선택)",
+  "Skip the Linear ticket for these card types": "다음 카드 유형에서는 Linear 티켓 건너뛰기",
   "Make cards for PR review agents": "PR 리뷰 에이전트용 카드 만들기",
   "Archive review cards when the PR closes": "PR이 닫히면 리뷰 카드 보관",
   "{lane} is not a lane in {project}.": "{lane}은(는) {project}의 레인이 아닙니다.",

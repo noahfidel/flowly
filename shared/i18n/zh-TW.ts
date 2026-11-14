@@ -1442,6 +1442,7 @@ const catalog: Catalog = {
   "When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.": "卡片沒有連結 Linear 問題時，它的代理會先在 Linear 中搜尋，沒有合適的就建立一個工單並連結到卡片。代理使用自己的 Linear 工具；Flowly 從不寫入 Linear。",
   "Linear team": "Linear 團隊",
   "Team name or key (optional)": "團隊名稱或鍵（選填）",
+  "Skip the Linear ticket for these card types": "以下卡片類型略過 Linear 工單",
   "Make cards for PR review agents": "為 PR 審查代理建立卡片",
   "Archive review cards when the PR closes": "PR 關閉後封存審查卡片",
   "{lane} is not a lane in {project}.": "{lane} 不是 {project} 中的泳道。",

@@ -1,4 +1,4 @@
-import { linearTeamValue } from "../shared/linear-ticket";
+import { linearSkipTypesOf, linearSkipTypesValue, linearTeamValue, linearTicketTypeDefault } from "../shared/linear-ticket";
 import { defaultSessionStartText, sessionStartMax, sessionStartValue } from "../shared/session-start";
 import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
@@ -76,6 +76,7 @@ export function useProjectSettings(project: Project, withLanes = false) {
     [memory, setMemory] = useState(project.memory !== false),
     [linearTicket, setLinearTicket] = useState(project.linearTicket === true),
     [linearTeam, setLinearTeam] = useState(project.linearTeam ?? ""),
+    [skipTypes, setSkipTypes] = useState<TaskType[]>(() => linearSkipTypesValue(linearSkipTypesOf(project))),
     [review, setReview] = useState<ReviewEdit>({ on: stored.enabled, rounds: String(stored.maxRounds) }),
     [agentModel, setAgentModel] = useState<AgentModel | null>(project.agentModel ?? null),
     [deliveryMode, setDeliveryMode] = useState<DeliveryMode | null>(storedDelivery),
@@ -92,6 +93,7 @@ export function useProjectSettings(project: Project, withLanes = false) {
     ...(memory !== (project.memory !== false) ? { memory } : {}),
     ...(linearTicket !== (project.linearTicket === true) ? { linearTicket } : {}),
     ...(linearTeamValue(linearTeam) !== (project.linearTeam ?? "") ? { linearTeam: linearTeamValue(linearTeam) } : {}),
+    ...(!sameList(linearSkipTypesValue(skipTypes), linearSkipTypesValue(linearSkipTypesOf(project))) ? { linearSkipTypes: linearSkipTypesValue(skipTypes) } : {}),
     ...(review.on !== stored.enabled || Number(review.rounds) !== stored.maxRounds ? { autoReview: autoReviewPatch(review) } : {}),
     // Only while groups are not ready (the project has no group): the per-project lanes path.
     ...(withLanes && JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
@@ -120,7 +122,7 @@ export function useProjectSettings(project: Project, withLanes = false) {
   }
   return {
     title, setTitle, description, setDescription, links, setLinkList, autoStatus, setAutoStatus, workpad, setWorkpad,
-    workflowInsights, setWorkflowInsights, memory, setMemory, linearTicket, setLinearTicket, linearTeam, setLinearTeam,
+    workflowInsights, setWorkflowInsights, memory, setMemory, linearTicket, setLinearTicket, linearTeam, setLinearTeam, skipTypes, setSkipTypes,
     review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode, sessionStart, setSessionStart, lanes, setLanes,
     pending, error, dirty, valid, save, reviewPreset,
   };
@@ -219,6 +221,19 @@ export function ProjectSettingsFields({
         onChange={s.setLinearTicket}
       />
       {s.linearTicket && <Field title={t("Linear team")} value={s.linearTeam} onChange={s.setLinearTeam} placeholder={t("Team name or key (optional)")} />}
+      {s.linearTicket && (
+        <View style={{ gap: space[2] }}>
+          <Label medium>{t("Skip the Linear ticket for these card types")}</Label>
+          {taskTypes.map((type) => (
+            <Toggle
+              key={type}
+              title={taskTypeLabels[type]}
+              value={s.skipTypes.includes(type)}
+              onChange={(on) => s.setSkipTypes((list) => (on ? [...list.filter((x) => x !== type), type] : list.filter((x) => x !== type)))}
+            />
+          ))}
+        </View>
+      )}
       <Toggle title={t("Skills")} value={s.workflowInsights} onChange={s.setWorkflowInsights} />
       <Toggle
         title={t("Guardrails")}
@@ -652,8 +667,10 @@ export function TaskForm({
   const deliverySeed = resolveDeliveryMode({ card: task?.deliveryMode, project: project.deliveryMode, group: group?.defaults?.deliveryMode, host: deliveryDefault }).mode;
   const delivery = deliveryChoice ?? deliverySeed;
   const deliveryLocked = !!task && deliveryModeLocked(task);
-  // Opt out of the project's Linear ticket ask (LINEAR-TICKET-SPEC §5); the switch shows only while the project asks.
-  const [linearOff, setLinearOff] = useState(task?.linearTicket === false);
+  // The card's Linear ticket choice (LINEAR-TICKET-SPEC §5); null until touched. The switch shows only while the project asks.
+  const [linearChoice, setLinearChoice] = useState<boolean | null>(null);
+  const linearDefault = linearTicketTypeDefault(project, type || undefined);
+  const linearShown = linearChoice ?? task?.linearTicket ?? linearDefault;
   // From… (EXTERNAL-TRACKER-SPEC §5, CONNECTORS-SPEC §8.2): items added as inputs with the new card.
   const resources = useResourcesQuery({ enabled: ready && !task && mode === "existing" });
   const connections = useConnections(ready && !task);
@@ -736,7 +753,15 @@ export function TaskForm({
             ...(sameList(tags, tagsBase) ? {} : { tags, tagsBase }),
             // Only a mode the user changed here: an untouched one keeps following the defaults chain.
             ...(deliveryChoice !== null && !deliveryLocked && deliveryChoice !== deliverySeed ? { deliveryMode: deliveryChoice } : {}),
-            ...(linearOff !== (task.linearTicket === false) ? { linearTicket: !linearOff } : {}),
+            ...(linearChoice === null
+              ? {}
+              : linearChoice === linearDefault
+                ? task.linearTicket !== undefined
+                  ? { linearTicket: null }
+                  : {}
+                : linearChoice !== task.linearTicket
+                  ? { linearTicket: linearChoice }
+                  : {}),
           })
         : await create({
             projectId: project.id,
@@ -749,7 +774,7 @@ export function TaskForm({
             ...(tags.length ? { tags } : {}),
             // The shown mode is stored as the card's own (DELIVERY-MODE-SPEC §2).
             deliveryMode: delivery,
-            ...(linearOff ? { linearTicket: false } : {}),
+            ...(linearChoice !== null && linearChoice !== linearDefault ? { linearTicket: linearChoice } : {}),
             mode,
             workspaceId: mode === "existing" ? workspaceId : undefined,
             baseRef,
@@ -872,7 +897,7 @@ export function TaskForm({
             onChange={setDeliveryChoice}
           />
           {project.linearTicket === true && (
-            <Toggle title={t("Make sure there's a Linear ticket")} value={!linearOff} onChange={(on) => setLinearOff(!on)} />
+            <Toggle title={t("Make sure there's a Linear ticket")} value={linearShown} onChange={setLinearChoice} />
           )}
           <Choices
             title={t("Type")}

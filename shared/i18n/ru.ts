@@ -1442,6 +1442,7 @@ const catalog: Catalog = {
   "When a card has no Linear issue linked, its agent searches Linear first, creates a ticket if none fits and links it to the card. It uses the agent's own Linear tools; Flowly never writes to Linear.": "Если к карточке не привязана задача Linear, агент сначала ищет в Linear, создаёт тикет, если подходящего нет, и привязывает его к карточке. Он использует свои инструменты Linear; Flowly никогда не пишет в Linear.",
   "Linear team": "Команда Linear",
   "Team name or key (optional)": "Название или ключ команды (необязательно)",
+  "Skip the Linear ticket for these card types": "Не требовать тикет Linear для этих типов карточек",
   "Make cards for PR review agents": "Создавать карточки для агентов ревью PR",
   "Archive review cards when the PR closes": "Архивировать карточки ревью, когда PR закрыт",
   "{lane} is not a lane in {project}.": "{lane} — не колонка в {project}.",
