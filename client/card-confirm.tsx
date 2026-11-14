@@ -1,14 +1,14 @@
 import { memo } from "react";
 import { View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { cardConfirmChoices, cardConfirmFacts, cardConfirmReply, type CardConfirmChoice, type CardConfirmFacts } from "../shared/card-confirm";
+import { cardConfirmChoices, cardConfirmFacts, cardConfirmReply, type CardConfirmChoice, type CardConfirmFacts, type CardConfirmProject as Project } from "../shared/card-confirm";
 import { priorityLabels, taskTypeLabels, type TaskType } from "../shared/model";
 import type { PendingRequest, PermissionReply } from "../shared/permission-question";
 import { Button, Label, font, space, useTheme } from "./ui";
 import { t } from "../shared/i18n";
 
 /** The project the dispatcher's card goes to, as the board knows it; null when it does not. */
-export type CardConfirmProject = { title: string; linearTicket?: boolean } | null;
+export type CardConfirmProject = Project;
 
 const choiceLabel = (choice: CardConfirmChoice) =>
   choice === "create"
@@ -67,7 +67,7 @@ export const CardConfirm = memo(function CardConfirm({
       </Label>
       <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: space[2], paddingTop: space[1] }}>
         {cardConfirmChoices(facts).map((choice) => (
-          <Button key={choice} small primary={choice === "create"} quiet={choice !== "create"} disabled={disabled} onPress={() => onRespond(request, cardConfirmReply(request, choice))}>
+          <Button key={choice} small primary={choice === "create"} quiet={choice !== "create"} disabled={disabled} onPress={() => onRespond(request, cardConfirmReply(request, choice, project))}>
             {choiceLabel(choice)}
           </Button>
         ))}

@@ -1379,7 +1379,9 @@ function BoardContent(
   });
   const chatProjectOf = useStableCallback((projectId: string) => {
     const owner = board?.projects.find((p) => p.id === projectId);
-    return owner ? { title: owner.title, ...(owner.linearTicket ? { linearTicket: true } : {}) } : null;
+    return owner
+      ? { title: owner.title, ...(owner.linearTicket ? { linearTicket: true } : {}), ...(owner.linearSkipTypes ? { linearSkipTypes: owner.linearSkipTypes } : {}) }
+      : null;
   });
   const chatLaneOf = useStableCallback((projectId: string, status: string) =>
     laneName(board?.projects.find((p) => p.id === projectId) ?? null, status as Status),

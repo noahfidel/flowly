@@ -1,5 +1,6 @@
 import { dispatcherServerName } from "./dispatcher";
-import { linearTicketAsked } from "./linear-ticket";
+import { taskTypes, type TaskType } from "./model";
+import { linearTicketTypeDefault, linearTicketWanted } from "./linear-ticket";
 import type { PendingRequest, PermissionReply } from "./permission-question";
 
 /**
@@ -15,6 +16,10 @@ export const cardRefusedMessage =
 
 const record = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const text = (v: unknown) => (typeof v === "string" ? v : undefined);
+const typeOf = (v: unknown) => taskTypes.find((t) => t === v);
+
+/** The project as the confirm needs it: its title and what decides the Linear default (LINEAR-TICKET-SPEC §1). */
+export type CardConfirmProject = { title: string; linearTicket?: boolean; linearSkipTypes?: TaskType[] } | null;
 
 /** Whether a pending request is the dispatcher's flowly_create_card call. */
 export function isCardConfirm(request: PendingRequest) {
@@ -22,8 +27,8 @@ export function isCardConfirm(request: PendingRequest) {
 }
 
 /**
- * Whether the card's session will be asked for a Linear ticket: `ask` (the project asks and the card follows it),
- * `skip` (the project asks, the card opts out), `linked` (a Linear issue is linked at create, so no ticket step), `off`
+ * Whether the card's session will be asked for a Linear ticket: `ask` (the project asks and the card's type or its
+ * own setting wants it), `skip` (the project asks, the card's type is skipped or the card opts out), `linked` (a Linear issue is linked at create, so no ticket step), `off`
  * (the project does not ask).
  */
 export type CardConfirmLinear = "ask" | "skip" | "linked" | "off";
@@ -41,11 +46,11 @@ export interface CardConfirmFacts {
 /** The settings line, with the tool's defaults for what the call left out (`createCardInputSchema`). */
 export function cardConfirmFacts(
   input: Record<string, unknown>,
-  project: { title: string; linearTicket?: boolean } | null,
+  project: CardConfirmProject,
 ): CardConfirmFacts {
-  const card = { linearTicket: typeof input.linearTicket === "boolean" ? input.linearTicket : undefined, type: text(input.type) };
+  const card = { linearTicket: typeof input.linearTicket === "boolean" ? input.linearTicket : undefined, type: typeOf(input.type) };
   const linear: CardConfirmLinear =
-    project?.linearTicket !== true ? "off" : text(input.linear)?.trim() ? "linked" : linearTicketAsked(project, card) ? "ask" : "skip";
+    !project || project.linearTicket !== true ? "off" : text(input.linear)?.trim() ? "linked" : linearTicketWanted(project, card, []) ? "ask" : "skip";
   const type = text(input.type);
   return {
     title: (text(input.title) ?? "").trim(),
@@ -65,14 +70,16 @@ export function cardConfirmChoices(facts: CardConfirmFacts): CardConfirmChoice[]
   return ["cancel", ...toggle, "create"];
 }
 
-/** A button's answer to the permission request. */
-export function cardConfirmReply(request: PendingRequest, choice: CardConfirmChoice): PermissionReply {
+/**
+ * A button's answer to the permission request. The toggles send only what differs from the card's type default
+ * (LINEAR-TICKET-SPEC §5): a field equal to the default is dropped, so the card follows the project.
+ */
+export function cardConfirmReply(request: PendingRequest, choice: CardConfirmChoice, project: CardConfirmProject): PermissionReply {
   const input = record(request.input) ? request.input : {};
   if (choice === "cancel") return { behavior: "deny", message: cardRefusedMessage };
-  if (choice === "without-linear") return { behavior: "allow", updatedInput: { ...input, linearTicket: false } };
-  if (choice === "with-linear") {
-    const { linearTicket: _, ...rest } = input;
-    return { behavior: "allow", updatedInput: rest };
-  }
-  return { behavior: "allow" };
+  if (choice === "create") return { behavior: "allow" };
+  const { linearTicket: _, ...rest } = input;
+  const typeDefault = project ? linearTicketTypeDefault(project, typeOf(input.type)) : true;
+  const want = choice === "with-linear";
+  return { behavior: "allow", updatedInput: want === typeDefault ? rest : { ...rest, linearTicket: want } };
 }
