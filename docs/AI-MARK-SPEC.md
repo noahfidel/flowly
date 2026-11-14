@@ -1,33 +1,33 @@
-# AI 标记（AI-MARK-SPEC）— 2026-10-19
+# AI mark (AI-MARK-SPEC) — 2026-10-19
 
-卡片请求“所有AI feature增加星星标记”：已有的 AI 功能（进度摘要、每日摘要、Ideas、agent 添加的产物与标签等）和下一步建议一样，用星星图标标明“这是 AI 写的或建议的”。
+The card asked: "add a star mark to all AI features". Existing AI features (progress summary, daily summary, Ideas, artifacts and tags added by agents, etc.) use a star icon, like the next-step suggestion, to show "this was written or suggested by AI".
 
-## 1. 标记
+## 1. The mark
 
-- 共享组件 `AiMark`（`client/ui.tsx`）：`Sparkles` 图标，主题 `accent` 色，默认 13 px，与下一步建议行首的图标相同。
-- 带 `label` 时作为一个无障碍图像，名称 “AI generated”；行内或已在按钮无障碍名称中写明来源时为装饰性（不单独朗读）。
-- `SectionHeader` 新增 `ai` 属性：标题后显示带标签的标记。
-- `Sparkles` 只用于 AI 内容。原来用 `Sparkles` 的卡片类型 `feature` 改为 `Puzzle`（TASK-TYPE-SPEC），避免把功能卡误读为 AI 内容。设置里 “AI features” 分组的图标本来就是 `Sparkles`，保持。
+- Shared component `AiMark` (`client/ui.tsx`): the `Sparkles` icon, theme `accent` color, 13 px by default, the same icon as at the start of the next-step suggestion row.
+- With a `label` it is an accessible image named "AI generated". Inline, or where the source is already stated in a button's accessible name, it is decorative (not read aloud separately).
+- `SectionHeader` gets a new `ai` prop: it shows the labeled mark after the title.
+- `Sparkles` is used only for AI content. The card type `feature`, which used `Sparkles`, now uses `Puzzle` (TASK-TYPE-SPEC), so a feature card is not misread as AI content. The icon of the "AI features" group in settings was already `Sparkles` and stays.
 
-## 2. 标记位置
+## 2. Where the mark goes
 
-| 位置 | AI 内容 | 标记 |
+| Place | AI content | Mark |
 | --- | --- | --- |
-| 会话输入框上方的下一步建议 | agent 建议的下一条消息 | 行首图标（已有，NEXT-MOVES-SPEC） |
-| 卡片正文的进度行 | 摘要模型写的 state | 行首图标替换原来的 `Flag`（12 px） |
-| 侧栏 “Progress” 分组 | 摘要的 state / target / recap / next | 分组标题 |
-| 侧栏 “Ideas” 分组 | agent 提出的 idea | 分组标题 |
-| Ideas 页面标题栏 | 全项目的 idea | “Ideas” 标题后 |
-| Insights “Summary”（每日摘要） | 摘要模型写的当天总结 | 分组标题 |
-| 产物行 | agent 添加的产物 | 来源图标由 `Bot` 改为标记；用户添加的仍为 `User` |
-| 标签胶囊 | agent 打的标签 | 由 `Bot` 改为标记 |
+| Next-step suggestion above the session input | The next message the agent suggests | Icon at the start of the row (already there, NEXT-MOVES-SPEC) |
+| Progress line in the card body | The state written by the summary model | The icon at the start of the row replaces the old `Flag` (12 px) |
+| Sidebar "Progress" group | The summary's state / target / recap / next | Group title |
+| Sidebar "Ideas" group | Ideas proposed by an agent | Group title |
+| Ideas page title bar | Ideas of the whole project | After the "Ideas" title |
+| Insights "Summary" (daily summary) | The day's summary written by the summary model | Group title |
+| Artifact row | Artifacts added by an agent | The source icon changes from `Bot` to the mark; user-added ones stay `User` |
+| Tag capsule | Tags set by an agent | Changes from `Bot` to the mark |
 
-不标记：Insights “Suggestions”（规则计算，不是模型生成）、卡片上的 idea 数（`Lightbulb` 计数，含义已明确）、agent 设的卡片类型（与用户设的类型无从区分，且只是固定值）。
+Not marked: Insights "Suggestions" (computed by rules, not model-generated), the idea count on a card (the `Lightbulb` count, its meaning is already clear), and the card type set by an agent (it cannot be told apart from a type set by the user, and it is only a fixed value).
 
-## 3. 新用户引导
+## 3. New-user onboarding
 
-欢迎页第 3 页（What makes it different）标题下加一句 “Anything marked with the sparkle was written or suggested by AI.”。不加一次性提示：标记不需要操作，带标签的标记有无障碍名称。
+Welcome page 3 (What makes it different) gets one sentence under its title: "Anything marked with the sparkle was written or suggested by AI." No one-time tip is added: the mark needs no action, and the labeled mark has an accessible name.
 
-## 4. 不变
+## 4. Unchanged
 
-无数据、RPC、工具或 skill 变化；无迁移。新增 2 个字符串，已加入全部 9 个语言包。
+No data, RPC, tool or skill changes; no migration. Two new strings, added to all 9 language packs.

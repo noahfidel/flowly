@@ -1,68 +1,68 @@
-# 自动进度 v1：事实 → 规则 → 状态
+# Auto progress v1: facts → rules → status
 
-> 2026-10-29: Committed（[COMMITTED-STAGE-SPEC](COMMITTED-STAGE-SPEC.md) §4）在 A1/A1r 中与 In review 相同：新一轮从 Committed 进 Development，本轮没有任何看板报告时 A1r 恢复到 Committed。
+> 2026-10-29: Committed ([COMMITTED-STAGE-SPEC](COMMITTED-STAGE-SPEC.md) §4) is treated like In review in A1/A1r: a new turn moves the card from Committed into Development, and when the turn has no board report, A1r restores it to Committed.
 >
-> 2026-10-29: Integrated（[INTEGRATED-STAGE-SPEC](INTEGRATED-STAGE-SPEC.md) §4）与 Committed 相同：新一轮从 Integrated 进 Development，本轮没有任何看板报告时 A1r 恢复到 Integrated；没有规则会把卡片移进 Integrated。
+> 2026-10-29: Integrated ([INTEGRATED-STAGE-SPEC](INTEGRATED-STAGE-SPEC.md) §4) is treated like Committed: a new turn moves the card from Integrated into Development, and when the turn has no board report, A1r restores it to Integrated. No rule moves a card into Integrated.
 >
-> 2026-10-15 修订（全局设置）：自动流转同时作为插件设置项提供：Ultra Kanban settings → Moving cards → “Auto-update status from sessions”，host 级设置 `auto-status`（`{ autoStatus: boolean }`），**默认开启**，未保存或无效的存储值按开启处理。关闭时 A1/A1r 都不运行（turn 生命周期事实照常记录，M1/M2 标记不受影响）；开启时项目 `autoStatus=false` 仍可单独关闭该项目（项目表单开关改名 “Auto-update status in this project”）。即规则生效 = 全局开启 且 项目未关闭。设置读取失败时按默认开启。
+> 2026-10-15 revision (global setting): auto-flow is also offered as a plugin setting: Ultra Kanban settings → Moving cards → "Auto-update status from sessions", host-level setting `auto-status` (`{ autoStatus: boolean }`), **on by default**; an unsaved or invalid stored value counts as on. When off, neither A1 nor A1r runs (turn lifecycle facts are still recorded, and the M1/M2 marks are not affected). When on, a project's `autoStatus=false` can still turn it off for that project alone (the project form switch is renamed "Auto-update status in this project"). So a rule is in effect = globally on AND not turned off for the project. If reading the setting fails, the default (on) applies.
 >
-> 2026-10-15 修订：In progress 已拆为 Design / Development / Test（[WORKFLOW-STAGES-SPEC](WORKFLOW-STAGES-SPEC.md)）。A1 不再处理 Backlog/Todo（由 agent 自选开工阶段），从 In review 继续时进 Development，从 Blocked 继续时回到上一个工作阶段；A1r、M2 中的 “In progress” 指任一工作阶段。下表保留原文作为历史。
+> 2026-10-15 revision: In progress is split into Design / Development / Test ([WORKFLOW-STAGES-SPEC](WORKFLOW-STAGES-SPEC.md)). A1 no longer handles Backlog/Todo (the agent chooses the starting stage); continuing from In review goes into Development, continuing from Blocked returns to the previous work stage; "In progress" in A1r and M2 means any work stage. The table below keeps the original text as history.
 
-状态：用户 2026-10-15 授权（“你说了算，你来推进”）。设计依据见 [AGENT-PROGRESS-DESIGN](AGENT-PROGRESS-DESIGN.md)，三个待定项按推荐方案执行：
-1. 系统规则可以改状态，默认开启，可按项目关闭；
-2. 回合结束且没有报告时，只打标记；
-3. 回答问题直接用 session 输入框。
+Status: authorized by the user on 2026-10-15 ("You decide, you drive it" (translated)). Design basis: [AGENT-PROGRESS-DESIGN](AGENT-PROGRESS-DESIGN.md); the three open items follow the recommended options:
+1. System rules may change status; on by default, can be turned off per project;
+2. When a turn ends with no report, only a mark is set;
+3. Answering a question uses the session input box directly.
 
-## 1. 范围
+## 1. Scope
 
-- 只处理**看板管理的 session**：从卡片 Start session 创建，或被显式发送过看板工作指示的 session（见 PHASE-02 修订），且其凭据绑定的 workspace 与卡片一致。
-- 其他 session 一律不记录 turn/授权活动，也不触发规则。此前对卡片 workspace 中所有 session 都记活动，主 workspace 的普通对话因此在一张卡上留下了 84 条无关回合。
-- 已完成（Done/Cancelled）或已归档的卡片、已归档项目永不被规则修改。
+- Only **board-managed sessions** are handled: created from a card's Start session, or explicitly sent board work instructions (see the PHASE-02 revision), and whose credential's bound workspace matches the card.
+- Other sessions never record turn/authorization activity and never trigger rules. Previously activity was recorded for every session in a card's workspace, so ordinary chats in the main workspace left 84 unrelated turns on one card.
+- Cards that are done (Done/Cancelled) or archived, and archived projects, are never changed by rules.
 
-## 2. 规则
+## 2. Rules
 
-| 规则 | 触发 | 条件 | 动作 |
+| Rule | Trigger | Condition | Action |
 | --- | --- | --- | --- |
-| **A1 开工 / 继续** | 看板管理的 session 开始一轮（`agent.turn_started`） | 卡片在 Backlog、Todo、In review、Blocked；项目 `autoStatus` 未关闭 | 状态 → In progress，task revision +1，活动 `status_changed`，actor=system，`rule="A1"`，note 标明哪个 session 开始了工作 |
-| **A1r 恢复** | 看板管理的 session 一轮结束 | 本轮由 A1 从 In review/Blocked 拉回，本轮该 session 没有任何看板报告，回合未失败，且之后没有其他状态变更 | 恢复到原状态（`rule="A1r"`），避免一句“谢谢”让已交付的卡看起来又在进行中 |
-| A2 交付 | agent 调 `flowly_update_status(in_review)` | 已有 | 不变 |
-| **M1 问题** | agent 调 `flowly_report_progress(kind="question")` | — | 不改状态；卡片显示“需要你回答”，直到该 session 开始下一轮（即你已回复）或 agent 再次报告 |
-| **M2 静默结束** | 看板管理的 session 一轮结束 | 卡片 In progress；该轮内该 session 没有任何看板报告 | 不改状态；该 session 的 Attention 项标注 “No report” |
-| M3 出错 / 授权 | 已有 | — | 不变 |
+| **A1 Start / continue** | A board-managed session starts a turn (`agent.turn_started`) | The card is in Backlog, Todo, In review, Blocked; the project's `autoStatus` is not off | Status → In progress, task revision +1, activity `status_changed`, actor=system, `rule="A1"`, the note says which session started work |
+| **A1r Restore** | A board-managed session's turn ends | This turn was pulled back from In review/Blocked by A1, the session made no board report in this turn, the turn did not fail, and no other status change followed | Restore the original status (`rule="A1r"`), so a single "thanks" does not make a delivered card look in progress again |
+| A2 Delivery | The agent calls `flowly_update_status(in_review)` | Already exists | Unchanged |
+| **M1 Question** | The agent calls `flowly_report_progress(kind="question")` | — | Status unchanged; the card shows "needs your answer" until that session starts its next turn (meaning you replied) or the agent reports again |
+| **M2 Silent end** | A board-managed session's turn ends | The card is In progress; the session made no board report in that turn | Status unchanged; that session's Attention item is marked "No report" |
+| M3 Error / authorization | Already exists | — | Unchanged |
 
-说明：
-- 回合只能由提示词触发：你的消息、看板指示，或 Paseo 定时任务。因此“session 开始新一轮”即可代表开工或返工。agent 若随后判断仍受阻，可再次设 Blocked。
-- A1 只基于明确事实，不会把卡片设为 Done，也不因回合结束改状态。
+Notes:
+- A turn can only be triggered by a prompt: your message, a board instruction, or a Paseo scheduled task. So "a session starts a new turn" can stand for starting work or rework. If the agent then judges it is still blocked, it can set Blocked again.
+- A1 is based only on explicit facts. It never sets a card to Done and never changes status just because a turn ended.
 
-M1、M2 由共享纯函数从活动记录推导，客户端和测试共用：
+M1 and M2 are derived from the activity records by shared pure functions, used by the client and the tests:
 
 ```
-openQuestion(agentId) = 该 agent 最近一条 kind=question 的报告晚于它最近一次 turn_started，且之后没有它的其他报告
-silentTurn(agentId)   = 卡片 In progress，该 agent 最近一次 turn_ended 晚于最近一次 turn_started，且两者之间没有它的报告
+openQuestion(agentId) = that agent's latest kind=question report is later than its latest turn_started, and it has no other report after it
+silentTurn(agentId)   = the card is In progress, that agent's latest turn_ended is later than its latest turn_started, and it has no report between the two
 ```
 
-卡片侧栏顶部为每个待回答问题显示提示块（提问 session、问题原文、Reply 按钮直达该 session 预览）。
+The top of the card sidebar shows a prompt block for each unanswered question (the asking session, the question text, a Reply button that goes straight to that session's preview).
 
-## 3. 数据与兼容
+## 3. Data and compatibility
 
-- 存储不升级版本（仍为 v3），只新增可选字段：
-  - `project.autoStatus?: boolean`：缺省视为开启；
-  - `event.rule?: string`；
-  - 报告 kind 增加 `question`。
-- 旧数据原样可读。
-- `projects.update` 接受 `autoStatus`。项目编辑表单增加开关 “Auto-update status from sessions”。
-- skill 增补：有需要用户回答的问题时用 `kind=question` 写清问题并结束本轮；用户回复后会开始新一轮。2026-10-20 起（SESSION-QUESTION-SPEC §2.2）：provider 有自带提问工具（AskUserQuestion 等）时优先用它，`kind=question` 是回退；同一问题只用一种方式问，因为工具里作答不会开始新一轮，同题的 `kind=question` 会一直算作 openQuestion。
+- Storage does not bump its version (still v3); only optional fields are added:
+  - `project.autoStatus?: boolean`: missing counts as on;
+  - `event.rule?: string`;
+  - report kind gets `question`.
+- Old data reads as is.
+- `projects.update` accepts `autoStatus`. The project edit form gets a switch "Auto-update status from sessions".
+- Skill addition: when there is a question the user must answer, use `kind=question` to state the question clearly and end the turn; after the user replies a new turn starts. Since 2026-10-20 (SESSION-QUESTION-SPEC §2.2): when the provider has its own question tool (AskUserQuestion etc.), use that first, and `kind=question` is the fallback; ask a given question in one way only, because answering in the tool does not start a new turn, and a `kind=question` for the same question would keep counting as an openQuestion.
 
 ## 4. UI
 
-- 卡片信号行：有未回答问题时显示 “Needs you”（warning）。
-- Attention：
-  - 新增 “question” 原因，与授权、错误并列排在前面；
-  - 静默结束在原因中标注 “no report”。
-- 活动时间线：规则产生的变更显示 “Auto” 标签和触发说明。
+- Card signal row: shows "Needs you" (warning) when there is an unanswered question.
+- Attention:
+  - A new "question" reason, listed first alongside authorization and error;
+  - A silent end is marked "no report" in the reason.
+- Activity timeline: changes made by rules show an "Auto" label and the trigger note.
 
-## 5. 验收
+## 5. Acceptance
 
-- 规则纯函数测试：A1 各起始状态、已完成/已归档不动、`autoStatus=false` 不动、非看板管理 session 不动；M1/M2 推导。
-- hook 集成测试（fake SDK）：只为看板管理 session 记活动。
-- typecheck、全量测试；只 reload 本插件；用 web 客户端只读渲染检查。
+- Rule pure-function tests: A1 from each starting status, done/archived cards untouched, `autoStatus=false` untouched, non-board-managed sessions untouched; M1/M2 derivation.
+- Hook integration test (fake SDK): activity is recorded only for board-managed sessions.
+- typecheck, full test run; reload only this plugin; read-only render check with the web client.
