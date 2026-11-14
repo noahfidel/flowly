@@ -289,7 +289,7 @@
 - `flowly_start_card` hardening: a refused move (the card changed during the create, or another card is bound to the worktree) archives the unused worktree as the meanwhile case does, unless a card refers to it or it has a session; after the create the worktree is read, and one that is archived or gone (the same key gave back a worktree a refusal archived) refuses with `START_FAILED` and asks for a new key. The worktree request (tracking branch, kept request, root Git check) is made after the hourly limit and the model check, so `CARD_LIMIT` and `MODEL_UNAVAILABLE` create nothing. An unreadable kept request is logged, left on disk and refuses with `START_FAILED`. Starts queue per project root instead of one global queue; root lookups run in call order so two starts of one card keep their order. START-CARD-SPEC §3, §4.1, §4.2 (the session re-check → board write window stated), §9; AGENTS.md start-card exception.
   - Checks: the new and changed cases in `server/start-card.test.ts` failed first (4 failed: no archive on a refused move, branch made before `MODEL_UNAVAILABLE`, a corrupt kept request gave `INVALID_INPUT`, another project's start waited); then `npm run typecheck` exit 0 and `npm test` exit 0 (counts in the final-fix report). A first per-root queue that looked the root up with an unordered board read let two concurrent starts of one card swap order (flaky `two starts of one card at once`, 2 of 5 runs); serializing the lookups fixed it (8 of 8 runs passed).
   - Onboarding and telemetry: no change (failure handling only).
-- Carried small items: (1) artifact extra folders are kept apart as `resolved` roots, resolved once at the settings read and compared as they are (a folder swapped for a link afterwards does not widen them); `resolveExtraRoots` does no realpath when no folder is set; `missingArtifacts` resolves the card's roots once per list. CARD-ARTIFACTS-SPEC (2026-11-08 增量). (2) Export: a note of only unbalanced parentheses (such as `(`) now counts as no note, so a title ending in an added-style parenthetical keeps it on re-import; a balanced `()` is kept as `added <date>, ()`. IDEAS-IMPORT-EXPORT-SPEC §7. (3) Start again's `NEEDS_WORKTREE` text names both causes ("…already had sessions, or Flowly didn't create it for the card…"), in all 9 catalogs; DISPATCHER-SPEC §9.4.
+- Carried small items: (1) artifact extra folders are kept apart as `resolved` roots, resolved once at the settings read and compared as they are (a folder swapped for a link afterwards does not widen them); `resolveExtraRoots` does no realpath when no folder is set; `missingArtifacts` resolves the card's roots once per list. CARD-ARTIFACTS-SPEC (2026-11-08 increment). (2) Export: a note of only unbalanced parentheses (such as `(`) now counts as no note, so a title ending in an added-style parenthetical keeps it on re-import; a balanced `()` is kept as `added <date>, ()`. IDEAS-IMPORT-EXPORT-SPEC §7. (3) Start again's `NEEDS_WORKTREE` text names both causes ("…already had sessions, or Flowly didn't create it for the card…"), in all 9 catalogs; DISPATCHER-SPEC §9.4.
   - Checks: the new cases in `server/artifacts.test.ts`, `shared/board-export.test.ts` and `client/answered-asks.test.ts` failed first (1 each); then `npm run typecheck` exit 0 and `npm test` exit 0 (counts in the final-fix report). Unrun: the `^CODE:` parse of a refusal from a live host.
   - Onboarding and telemetry: no change.
 - Live script hardening (`docs/verification/single-pane-live.mjs`): sessions it starts carry `single-pane-live-run=<runId>` and only those (or a marked card's, or its own dispatcher) are archived; a dispatcher created before the run's `startedAt` is never archived; only the fixture projects' temp directories are removed; the signal notice mentions `--yes-archive-dispatcher`; the `context_full` state is gone from the script, its test and `docs/verification/single-pane.md`. `scripts/single-pane-live.test.ts` extended (4 new cases failed first). Unrun: the script against a live daemon.
@@ -457,7 +457,7 @@
 
 ## Extra artifact folders (branch `feat/single-pane`, Task 3b) — 2026-11-08
 
-- New host setting `artifacts` (`artifactSettings`, `extraFolders`: at most 20 strings) edited under Settings > AI features > Artifacts (a field per folder, add and remove). `artifactRoots(task, project, workspaceDirectory?, extra)` appends `extraFolderRoots(extra)` (`~` expanded, normalized, deduplicated; empty, relative, `/` and the home directory dropped, so even a raw `""` or `/` handed to `artifactRoots` never becomes a root). `withinRoots` and `normalizeTarget` are unchanged. `ArtifactService` takes the getter in its constructor; `AgentService.extraArtifactFolders` is set by `index.server.ts`; both read the setting at each use, and `artifacts.status` caches on the folders too. Spec: CARD-ARTIFACTS-SPEC (2026-11-08 增量).
+- New host setting `artifacts` (`artifactSettings`, `extraFolders`: at most 20 strings) edited under Settings > AI features > Artifacts (a field per folder, add and remove). `artifactRoots(task, project, workspaceDirectory?, extra)` appends `extraFolderRoots(extra)` (`~` expanded, normalized, deduplicated; empty, relative, `/` and the home directory dropped, so even a raw `""` or `/` handed to `artifactRoots` never becomes a root). `withinRoots` and `normalizeTarget` are unchanged. `ArtifactService` takes the getter in its constructor; `AgentService.extraArtifactFolders` is set by `index.server.ts`; both read the setting at each use, and `artifacts.status` caches on the folders too. Spec: CARD-ARTIFACTS-SPEC (2026-11-08 increment).
 - Beyond the brief: the home directory and its ancestors are refused as roots (an agent could otherwise attach `~/.ssh` or `~/.aws` files); say so if it should be allowed. Fix round 1: the refusal is decided on real paths (`resolveExtraRoots`: realpath each folder, drop `/`, home and ancestors, unresolvable ones), so a link to `/` or home, a case variant of home and `/Users` no longer pass; the Settings row shows "Not used: …" for entries the server ignores by text (`extraFolderIgnored`, 1 more string).
 - Strings: 4 new ("Folder" already existed), in all 9 catalogs. Onboarding: no tour row or tip (a setting for an existing feature). Telemetry: no heartbeat field.
 - Checks: see the Task 3 report. The Settings group was not exercised in the installed plugin (not installed per the plan's constraints), only typechecked.
@@ -629,7 +629,7 @@
 - `POSTHOG_KEY` is empty, so the heartbeat and `$exception` reports send nothing and no `telemetry.json` is created, whatever the setting or environment says. `TelemetryService.builtOff()` reports it, and `telemetry.status` now returns `builtOff`. Settings → General and the tour's last page show *Send anonymous usage data* off and locked with *Turned off in this build.* (new string in all catalogs). [TELEMETRY-SPEC §5, §6](TELEMETRY-SPEC.md)
 - Guard: a test in `server/telemetry.test.ts` fails when the key is not empty, for example after an upstream merge.
 - README, OVERVIEW and What's new 1.7.0 are unchanged (user's choice). Onboarding: no new tip; the tour's switch shows the locked state on its own.
-## Telemetry error fixes (card "近期error排查") — 2026-11-10
+## Telemetry error fixes (card "Recent error investigation") — 2026-11-10
 
 - 30 days of `$exception` reports grouped by source, type, frames and version: [verification/telemetry-errors-2026-11-10.md](verification/telemetry-errors-2026-11-10.md). Every report still arriving from 1.8.0 comes from the local daemon connection.
 - `server/local-daemon.ts`: `paseo.pid` is read again (10 × 50 ms, like Paseo's `readPidLock`) while Paseo rewrites it in place; a missing or still unreadable file and a connection the daemon does not complete are `LocalDaemonUnavailable` (logged, not reported). A rejected local credential (`DaemonAuthenticationError`, found by the independent Haiku check) and a Paseo without the needed methods stay reported. [WORKSPACE-RESTORE-SPEC](WORKSPACE-RESTORE-SPEC.md) step 1, [TELEMETRY-SPEC §11.2](TELEMETRY-SPEC.md).
@@ -682,7 +682,7 @@ Three findings of [the live verification](verification/guardrails-live-2026-10-2
 
 - The change shape counted the wrong commits (GUARDRAILS-SPEC §6.2): `git diff HEAD` plus `git log -5` on a worktree card is the base branch's history, so every Tinylink card measured `m`. A worktree card now stores `task.baseRef` at creation (the ref `resolveWorktreeBaseRef` already resolved; `Task` had no such field, so cards created earlier fall back), and `reviewShape` / `reviewDiff` take its change from `git merge-base <baseRef> HEAD` (`git diff <base> --numstat`, round 1 diff `git diff <base>`). Directory, linked and older cards, or a failed merge-base, keep the old method; round ≥ 2 keeps `git diff <previous sha>`.
 - Untracked files were invisible (§6.2, §6.3): a 450-line new fixture measured `m` and the reviewer never saw it. Shape and diff now add `git ls-files --others --exclude-standard -z` in every mode: one file each, text lines counted (a NUL in the first 8 KiB is binary, 0 lines), and the diff appends `git diff --no-index -- /dev/null <file>` under `# New files (untracked)` before the 64 KiB cut. The index is never touched.
-- Corrections were judged too strictly (§4.2): "Adding a new requirement is not a correction" made the model classify `新接口也要写进 README` / `新文案也要进所有语言` as none. The rule now says a message that the delivered change should also / still / should have done something that could have been part of it is a correction even when short; only unrelated work (another feature, another page) is a new requirement.
+- Corrections were judged too strictly (§4.2): "Adding a new requirement is not a correction" made the model classify `The new interface must also go into the README` / `The new copy must also go into all languages` (Chinese messages in the original) as none. The rule now says a message that the delivered change should also / still / should have done something that could have been part of it is a correction even when short; only unrelated work (another feature, another page) is a new requirement.
 - Follow-up (same day): untracked files over 1 MiB count as one file with 0 lines and are only named in the review diff; PR #75 review threads: a failed Auto review write after Create project toasts and still closes the form (no duplicate project), the start-up migration's rejection is logged, and a failed migration now refuses guardrails writes (reads stay empty) so the next start migrates again instead of finding a `guardrails.json` that the first write had created; hook writers log that refusal with `logFailure`.
 
 ## Guardrails phase B: the delivery review and the agent surface (card 2458cff4) — 2026-10-28
@@ -749,7 +749,7 @@ Three findings of [the live verification](verification/guardrails-live-2026-10-2
 - Running review: a strip opens under the card (dot sweep, `Collapse` expand/fold) instead of the "Reviewing" signal (user request 2026-10-28).
 - Not in P1: L3 LLM review and its model setting (P2). Spec updated where the implementation differs (storage on the task, round reset rule, first-failure stop, settings parsing).
 
-## Launch-time Flowly MCP on Paseo 0.14 (card "paseo tools接入") — 2026-11-06
+## Launch-time Flowly MCP on Paseo 0.14 (card "Paseo tools integration") — 2026-11-06
 
 - [PASEO-SESSION-TOOLS-SPEC](PASEO-SESSION-TOOLS-SPEC.md): research of the 0.14 plugin tools (`defineAgentTool`, launch-only `mcpServers`); user chose route B and Paseo `>=0.14.0` (D1, D2).
 - SDK/protocol/client pinned to 0.14.0, manifest `requirements.paseo >=0.14.0`, README/OVERVIEW requirement updated.
@@ -768,7 +768,7 @@ Three findings of [the live verification](verification/guardrails-live-2026-10-2
 - UNRUN: phone preview (SM-S911B not connected via adb this session) and a pixel capture of the expanded state — the web board's lane pager made card targeting nondeterministic for automation; the expand uses the shared `Collapse`/`Chevron` components. Superseded same day: the user confirmed the notice on the phone with the merged build ([verification/ui-fence-notice-2026-11-05/phone-preview-user-confirmed.jpg](verification/ui-fence-notice-2026-11-05/phone-preview-user-confirmed.jpg)).
 - Onboarding: no tour, tip or What's new change — the notice explains itself in context. Telemetry: no new switch or core action, so no heartbeat field.
 
-## Search (card "搜索功能") — 2026-10-27
+## Search (card "Search feature") — 2026-10-27
 
 - Focus from search: a hit row opens the card at its section and item (Progress, Activity, Workpad, Ideas, Artifacts), widening Activity's last-12 window, Workpad/Artifacts pages and Ideas → Closed to reach it, then a short accent ring; the stored section choices are untouched ([DRAWER-SPEC](DRAWER-SPEC.md#focus-from-search), `client/drawer-focus.tsx`).
 - [SEARCH-SPEC](SEARCH-SPEC.md): `search.query` scans the cached board, the latest summary per card and active project memory in the daemon (`server/search.ts`); summaries/memory are re-read only when their file changes and the text index is rebuilt per board revision.
@@ -777,12 +777,12 @@ Three findings of [the live verification](verification/guardrails-live-2026-10-2
 - Onboarding: tip `search`, tour More features entry, What's new 1.8.0, README highlight; 19 new strings in all catalogs.
 - Self-test results: see the card's workpad; UI verification on Tinylink and the independent haiku run are recorded separately.
 
-## v1.7.1 release (card "遥测错误分析") — 2026-10-27
+## v1.7.1 release (card "Telemetry error analysis") — 2026-10-27
 
 - Version 1.7.1 (`make bump`). Release notes: [release-notes/v1.7.1.md](release-notes/v1.7.1.md), covering v1.7.0..main (#69, db1d734, 4476b43).
 - No What's new entry and no tour or tip change: the release fixes existing behavior; the tabbed questions are found where questions already appear.
 
-## Telemetry error fixes (card "遥测错误分析") — 2026-10-27
+## Telemetry error fixes (card "Telemetry error analysis") — 2026-10-27
 
 - First two days of `$exception` reports (34 events, 35 installs) grouped and mapped to source with `scripts/map-bundle-lines.mjs`: [verification/telemetry-errors-2026-10-27.md](verification/telemetry-errors-2026-10-27.md).
 - Local daemon connection (`server/local-daemon.ts`, 13 events): `paseo.pid` addresses are resolved like the `paseo` CLI, including Unix sockets and Windows named pipes (through the bundled `ws`, now a pinned dependency; typed by `server/ws.d.ts` because `@types/ws` breaks the daemon's timer types). An empty address (Paseo restarting the daemon) is `LocalDaemonUnavailable`. Fixes read-state sync, workspace restore, background-workspace reuse, attention clearing, summarizer delete and `paseo_version` on those installs. [WORKSPACE-RESTORE-SPEC](WORKSPACE-RESTORE-SPEC.md)
@@ -791,7 +791,7 @@ Three findings of [the live verification](verification/guardrails-live-2026-10-2
 - Not verified on Linux or Windows hardware; see the report.
 - Onboarding: no tour, tip or What's new change; these are fixes to existing behavior.
 
-## v1.7.0 release preparation (card "v1.7.0发布") — 2026-10-26
+## v1.7.0 release preparation (card "v1.7.0 release") — 2026-10-26
 
 - Version 1.7.0 (`make bump` now also sets `shared/version.ts`, which `server/telemetry.test.ts` keeps equal to package.json). Release notes: [release-notes/v1.7.0.md](release-notes/v1.7.0.md), covering v1.6.0..main (#57–#67 and the Insights redesign).
 - What's new 1.7.0: six items (Insights redesign, skill drafts, faster loading, phone settings and the running sweep switch, SQLite with backups, usage data); the old Insights one-liner is replaced in all catalogs. [WHATS-NEW-SPEC](WHATS-NEW-SPEC.md) §6.
@@ -828,9 +828,9 @@ Three findings of [the live verification](verification/guardrails-live-2026-10-2
 - Switched the maintainer's data after the merge (user's go-ahead): 365 ms for 107 cards / 4552 events, the backup taken at the move equals the original board.json field for field, reads and writes work, Settings → Storage checked on desktop (compact only partly capturable with shot-lib). See `docs/verification/sqlite-min-2026-10-26/switch.md`.
 - Onboarding: tour More features gets Backups; What's new 1.7.0 gets one item with Open settings → Storage. No tip: nothing to point at during normal use.
 - Independent milestone verification (claude/claude-haiku-5-5) and the real-data copy rehearsal: see `docs/verification/sqlite-min-2026-10-26/`.
-## Insights third version: activity and Skills (card "Insights重设计") — 2026-10-25
+## Insights third version: activity and Skills (card "Insights redesign") — 2026-10-25
 
-Spec: [INSIGHTS-REDESIGN-SPEC](INSIGHTS-REDESIGN-SPEC.md) (third version, accepted 2026-10-25; plan in §11). The user found the second version "一般": attention per card, the time table and Agent habits were not useful to ordinary users and the daily record never produced a summary. They asked for a GitHub-style activity heatmap and for Insights to turn repeated work into reusable skills.
+Spec: [INSIGHTS-REDESIGN-SPEC](INSIGHTS-REDESIGN-SPEC.md) (third version, accepted 2026-10-25; plan in §11). The user found the second version "mediocre": attention per card, the time table and Agent habits were not useful to ordinary users and the daily record never produced a summary. They asked for a GitHub-style activity heatmap and for Insights to turn repeated work into reusable skills.
 
 - [x] `shared/activity.ts`: 53-week heatmap data from the flow log (turns, active cards, cards done), quartile levels; `insights.project` returns `{ today, activity, workflow, habits? }` without git or running-session reads.
 - [x] Digest: one generation per project with the last picked day waiting; `DIGEST_DAYS` 400; a past day is summarized when selected (fixes the empty daily record).
@@ -846,7 +846,7 @@ Spec: [INSIGHTS-REDESIGN-SPEC](INSIGHTS-REDESIGN-SPEC.md) (third version, accept
 - 2026-10-26 day summary card (user): the day panel and the Last 7 days list became one card that pages to the previous/next day with activity (or a heatmap pick): the day's numbers (turns, cards, done, agent time, tokens), its AI summary and its cards, the busiest first, each with a bar for its share of the busiest card's agent time (heatmap opacity scale). New `insights.day` RPC; pure `shared/day-detail.ts` (+4 tests): agent time is session run time clipped to the day, tokens are the day's 15-minute buckets of the cards' sessions, read in a second call so the card never waits on logs. Spec §2.2, §7, §10.9.
 
 
-## Insights redesign (card "Insights重设计") — 2026-10-22
+## Insights redesign (card "Insights redesign") — 2026-10-22
 
 Spec: [INSIGHTS-REDESIGN-SPEC](INSIGHTS-REDESIGN-SPEC.md) (second version). The user rejected an output-statistics page ("it should not make people anxious or push them to grind") in favour of evaluating the workflow itself.
 
@@ -875,7 +875,7 @@ Spec: [INSIGHTS-REDESIGN-SPEC](INSIGHTS-REDESIGN-SPEC.md) (second version). The 
 - Onboarding: bug fix to existing Auto behavior, no new UI, setting, entry point, tour, tip or What's new item.
 - Evidence: [summary fallback](verification/summary-fallback-2026-10-22.md). Uncommitted; no commit/push requested. Adjacent digest, outside-session insights and memory review fallback is recorded as a follow-up idea.
 
-## Agent idea management (card "扩展idea工具") — 2026-10-22
+## Agent idea management (card "Extend idea tools") — 2026-10-22
 
 Spec: [IDEAS-SPEC §3.1](IDEAS-SPEC.md). User request: agents manage their card's ideas themselves (dismiss, edit, delete), e.g. close an idea the user rejected.
 
@@ -907,7 +907,7 @@ Spec first: [TURN-CHECKLIST-SPEC](TURN-CHECKLIST-SPEC.md). User authorized the m
 - [x] Onboarding not changed: no new UI, setting or user action; these are agent instruction/API and offline audit changes.
 
 
-## What's new after an update (card "插件更新后弹出“新功能”提示") — 2026-10-22
+## What's new after an update (card "Pop up a 'What's new' notice after a plugin update") — 2026-10-22
 
 Spec: [WHATS-NEW-SPEC](WHATS-NEW-SPEC.md) (design confirmed by the user: reopen from Settings; 2026-10-24 the window opens on the newest release and pages back to 1.5.0).
 
@@ -918,7 +918,7 @@ Spec: [WHATS-NEW-SPEC](WHATS-NEW-SPEC.md) (design confirmed by the user: reopen 
 - [x] 2026-10-24 (W4): releases list newest first back to 1.5.0; the window opens on the newest and pages to older ones; 1.6.0 (7 items) and 1.5.0 (5 items) entries, 9 more strings in all catalogs; typecheck, `npm test` 1034 PASS, reload + headless paging and Take the tour PASS. Release notes draft: [v1.6.0](release-notes/v1.6.0.md).
 - [ ] Narrow/phone layout and the real first-run path: not run.
 
-## Welcome tour redesign: explain and set the basics (card "重设计onboarding流程") — 2026-10-22
+## Welcome tour redesign: explain and set the basics (card "Redesign the onboarding flow") — 2026-10-22
 
 Spec: [ONBOARDING-SETUP-SPEC](ONBOARDING-SETUP-SPEC.md) (design confirmed by the user before implementation). The tour now also sets the interface and AI output language, the progress model, outside-session progress / next steps / ideas, and Project memory / Insights.
 
@@ -932,12 +932,12 @@ Spec: [ONBOARDING-SETUP-SPEC](ONBOARDING-SETUP-SPEC.md) (design confirmed by the
 - [x] Onboarding: this is the tour; new tip `settings-entry`; README (both) quick start; ONBOARDING-SPEC §2/§5.
 
 
-## Registry listing art (card "发布v1.5.0") — 2026-10-21
+## Registry listing art (card "Release v1.5.0") — 2026-10-21
 
 - [x] Researched the Paseo registry (getpaseo/plugins README, PROTOCOL, REVIEW, publishing guide): icon and screenshots come from `icon`/`media` in `paseo-plugin.json` (package-relative PNG icon; PNG/JPG/WebP/GIF/MP4/WebM media; first image is the thumbnail; SVG rejected), or from `listing.*` overrides a reviewer adds. The two screenshots in the previous listing were reviewer-added overrides.
 - [x] `assets/icon.png` (light 512 app icon) and six screenshots (board, Needs you, summary, ideas, insights, next moves, resized from `docs/promo/screenshots`) declared in the manifest and added to `files`; `ci:package` fails when a declared asset is not in the tarball.
 - [ ] UNRUN: the Insights screenshot predates Workflow insights and the welcome tour pages; retake with `docs/promo/shots.mjs` for a later release. Onboarding: no tour or tip change (packaging only).
-## Project memory (card "项目记忆：可审阅的跨卡共享记忆 + 完成卡复盘") — 2026-10-22
+## Project memory (card "Project memory: reviewable cross-card shared memory + review of completed cards") — 2026-10-22
 
 Spec: [PROJECT-MEMORY-SPEC](PROJECT-MEMORY-SPEC.md). Every card started from zero; what was decided on one card only reached the next one if someone wrote it into AGENTS.md or a spec.
 
@@ -967,7 +967,7 @@ Spec: [AI-LANGUAGE-SPEC](AI-LANGUAGE-SPEC.md). A Workflow insights Run now wrote
 - [x] `shared/ai-language.test.ts` (resolution, settings, one test per prompt builder), `server/agent-service.test.ts` (outputLanguage), `client/onboarding-logic.test.ts` (tip).
 - [x] Live: Workflow insights Run now on Flowly in English and in Simplified Chinese, both as configured; device-language report seen from the real window ([verification/ai-language.md](verification/ai-language.md)). Settings page screenshot not taken.
 
-## Card setup reminders and soft gate (card "Flowly 流程约束强化") — 2026-10-21
+## Card setup reminders and soft gate (card "Strengthen Flowly process constraints") — 2026-10-21
 
 Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the misses concentrated on title-only cards run by Sonnet 5.5 at medium/auto thinking; the causes were the skill's late, vague wording, silent gaps, feedback only at wrap-up, and a workpad gate that only fired when a workpad existed.
 
@@ -982,7 +982,7 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 - [ ] UNRUN live: a `SETUP_INCOMPLETE` refusal from a real session (no subject delivered with setup missing; unit tests only). UI and phone not checked (no UI change).
 - Observed: Sonnet went Todo → In review without a Development stage (setup itself was done first).
 
-## Flowly logo and brand assets (card "plugin logo设计") — 2026-10-21
+## Flowly logo and brand assets (card "Plugin logo design") — 2026-10-21
 
 - [x] Design, with the user choosing at each step: line-art drafts (`docs/brand/logo-drafts/v1-filled`, `v2-line`), direction H "status path", refined from the original (`v4-h-refined`, R1; an obvious f shape `v3-h-as-f` was rejected), check one step lighter (`v10-check`, K2: 3 units, 12% larger); wordmark "Flowly" in Inter Medium (SIL OFL 1.1) outlined to paths with l and y cut at 52° and a dot in the o (`v5-wordmark`, `v6-wordmark-details`, `v8-y-slant`, `v9-y-angle`); monochrome only, ink `#1E2120` on light and paper `#F3F1EC` on dark (`v7-colors`).
 - [x] Assets in `docs/brand/logo/` (mark, small mark, wordmark, lockup, app icons, 26 PNGs, favicon, overview, usage notes), all from `docs/brand/export-logo.mjs`; wordmark outline in `docs/brand/wordmark.json` from `docs/brand/outline-wordmark.py`.
@@ -992,7 +992,7 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 - [ ] UNRUN: the desktop app window and the phone apps (no desktop-control tool in the session).
 - [x] Small mark redrawn after the user found it blurred into a clump with uneven lines: a 20 grid at stroke 1.5, only the two ends (a solid start dot drawn 13% smaller so it looks as large as the open end ring) joined by one S curve; rounds in `docs/brand/logo-drafts/v11-small/` and `v12-two-ends/` (T5 chosen), compared at true pixel sizes by `docs/brand/render-small.mjs`. Used for the 16–48 px app icons, the favicon and the welcome tour title.
 
-## Session pane: history, keyboard, scroll performance (card "sidebar session 优化") — 2026-10-20
+## Session pane: history, keyboard, scroll performance (card "Sidebar session optimization") — 2026-10-20
 
 - [x] Design and feasibility: [SESSION-PANE-SPEC](SESSION-PANE-SPEC.md). Read-only SDK spike on the local daemon: `before`/`after` cursors page cleanly (tail 15 + before 15 = tail 30), whole turns of 1000 entries are ~69 KB slim.
 - [x] Decisions (user): open on the current turn (≤ 300), Load earlier row, FlatList directly (phones: inverted, as Paseo's own view; web: plain scroll view).
@@ -1025,7 +1025,7 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 
 ## Native session pane: Summary, Next moves, Ideas (P1) — 2026-10-20
 
-- [x] Card request "summary、next move、ideas上原生session": the same features in Paseo's own session view for Flowly-managed sessions; user decisions: Summary through the native timeline, P1 only, timeline rows best effort; later (after the prompt-suggestions reference) Next moves as a timeline card instead of a chip, tapping fills Paseo's message box by default (setting: or copy), Ideas stays a chip. [Spec](NATIVE-SESSION-SPEC.md), [plan](superpowers/plans/2026-10-20-native-session.md).
+- [x] Card request "summary, next move and ideas on native sessions": the same features in Paseo's own session view for Flowly-managed sessions; user decisions: Summary through the native timeline, P1 only, timeline rows best effort; later (after the prompt-suggestions reference) Next moves as a timeline card instead of a chip, tapping fills Paseo's message box by default (setting: or copy), Ideas stays a chip. [Spec](NATIVE-SESSION-SPEC.md), [plan](superpowers/plans/2026-10-20-native-session.md).
 - [x] Risk probe (temporary `flowly-probe` plugin, Claude Haiku + Codex Luna sessions in Tinylink, all cleaned up): appended rows never reach the agent, raise no attention, are visible to the plugin's SDK refetch, are accepted by both providers, and are lost on session reload. Spec §5.5.
 - [x] Daemon: a new summary version appends a `flowly-summary` row to the session whose turn produced it; skipped after a newer turn of that session or for an archived session; failures only logged (`server/summaries.ts`, `shared/native-session.ts`).
 - [x] Client: `SummaryRow` for Paseo's timeline renderer (`client/summary-row.tsx`; per the user, not shown in Flowly's own session view, which has the sidebar's Progress); Next moves card (`server/next-move-rows.ts` writes `flowly-next-moves` rows at turn end and dismisses them at the next turn start; `client/next-move-card.tsx` renders it while `chipMoves` says the set is current; `client/web-composer.ts` fills the session's message box on web/desktop under the new AGENTS.md exception, else copies; setting `native-session.nextMoveTap`); Ideas pill on managed sessions in the existing chip refresh (`client/session-link.ts`, `client/native-chips.ts`); Ideas popover and revalidating actions (`client/native-popovers.tsx`, `client/native-actions.ts`); hidden suggestion sets for the card (`client/hidden-moves.ts`); board opens the prefilled new-card form from an idea link (`parseIdeaLink`); RPC `sessions.native-chips`.
@@ -1035,7 +1035,7 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 - [x] Luna 6 full-access verification, session `e63b5616-a0db-47cd-9b11-4c3691dcde10`, Tinylink fixtures cleaned up ([evidence](verification/native-session.md)): round 1 (chip version, superseded) data 3 PASS, UI 10 PASS / 2 FAIL (chip refresh lag, fixed) / 3 UNRUN; round 2 (timeline card) 8 PASS / 1 FAIL (D7, fixed); round 3 (D7) 3 PASS. Covered: Progress row desktop + compact, Next moves card fill / copy / dismissed rewrite / × / no Next chip, Ideas chip immediate refresh, Move to Done with Not now / Wrap up / Auto wrap up, unmanaged sessions get nothing, Flowly's own board/drawer/session view unchanged.
 - [ ] UNRUN: the iOS/Android apps (filling falls back to copying there; not checked on a device); "Open card" on the Progress row and the welcome-tour check from round 1 were not re-run.
 
-## Connectors: Confluence, GitHub, GitLab (card "更多connector接入") — 2026-10-20
+## Connectors: Confluence, GitHub, GitLab (card "More connector integrations") — 2026-10-20
 
 - [x] Request: bring in more external connectors (Confluence, GitHub, GitLab …), gather them under the Artifacts +, then wire up each one. [Spec](CONNECTORS-SPEC.md).
 - [x] Decisions (2026-10-20, §11): generic names instead of the ticket ones (the design recommended keeping them; the user chose renaming after hearing the alias/migration cost): artifact `ticket` → `external` (board v5), `flowly_read_ticket` → `flowly_read_external` (old name kept as an alias), CLI `ticket` → `external`, RPC `tickets.*` → `connectors.*`; PR/MR give file names, not diffs; New task From Jira becomes one From <service> button per connected service; order Confluence → GitLab → GitHub.
@@ -1058,7 +1058,7 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 - [x] PASS (live, desktop): after `paseo plugin reload flowly`, two `codex/gpt-6-luna` full-access sessions on a temporary card in the Tinylink fixture (one with the MCP server, one CLI only). `update_status in_review` with `nextMoves` wrote the status change and the suggestion in the same millisecond and showed the chips (3 over MCP, 2 over the CLI); `report_progress` with `[]` and `note --no-moves` wrote `moves: []`, removed the chips and added the "suggested no next moves" Activity row (2 rows); the Done guard refused `moveTo: done` on a non-delivery call with `INVALID_INPUT` and wrote nothing. The card, its 2 sessions and its workspace were deleted and archived afterwards; Tinylink's own cards, workspaces and sessions are unchanged. Evidence: [verification/next-moves-delivery.md](verification/next-moves-delivery.md).
 - [ ] UNRUN: the chip row and the Activity row on a phone / compact layout; the standalone `flowly_suggest_next_moves` with `[]` live (unit tests only); coverage recompute after rollout (baseline 56 of 101 delivery, question and result turns, about 55%; target 90% or more).
 
-## Card sidebar tweaks (card "UI/UX 调整") — 2026-10-19
+## Card sidebar tweaks (card "UI/UX adjustments") — 2026-10-19
 
 - [x] Request: History alignment, Artifacts paging (+5 per press, no collapse, reset on reopen), Artifacts collapsible as a whole, user-ordered sidebar sections. [Spec](DRAWER-SPEC.md#section-order-and-artifacts-paging); CARD-ARTIFACTS-SPEC §5.2 and CARD-DISPLAY-SPEC §3 updated. No inputs or tickets on the card.
 - [x] `client/disclosure.tsx`: shared `Collapse` (measured height, stays in layout until measured when mounted open) and `Chevron`; `Disclosure` gains `flush`. Progress → History uses it; an opened version's fields line up with its title.
@@ -1068,7 +1068,7 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 - [x] PASS on `7a4562d` + dirty: `npm run typecheck`; `npm test` 583 passed / 63 skipped; `paseo plugin reload flowly` running.
 - [x] PASS (headless web, real card with 37 artifacts): paging, whole-section collapse, reset on reopen, History alignment, drag reorder + drawer order + reset. [Verification](verification/sidebar-tweaks.md).
 - [x] Follow-up: Workpad collapses as a whole like Artifacts (title + chevron, resets on reopen); collapsed header shows `Acceptance n/m · Checks n/m` (existing strings, no new catalog entries).
-- [x] Follow-up "整体调整 UI": every sidebar section is a shared `Section` (title + trailing chevron, actions, collapsed summary, empty sections without chevron); Details/Usage/Activity converted from `Disclosure`. Settings → Cards → Card sidebar: order plus a *Starts open* switch per section (`drawerOpen`), pinned bottom three, *Reset sidebar layout*. Workpad lists page by 5, checks sorted by what needs a look, commands one line. Phones: title/properties/tags scroll with the content. 7 strings added and 4 removed in all 9 catalogs; tip text updated.
+- [x] Follow-up "overall UI adjustment": every sidebar section is a shared `Section` (title + trailing chevron, actions, collapsed summary, empty sections without chevron); Details/Usage/Activity converted from `Disclosure`. Settings → Cards → Card sidebar: order plus a *Starts open* switch per section (`drawerOpen`), pinned bottom three, *Reset sidebar layout*. Workpad lists page by 5, checks sorted by what needs a look, commands one line. Phones: title/properties/tags scroll with the content. 7 strings added and 4 removed in all 9 catalogs; tip text updated.
 - [x] PASS on `7a4562d` + dirty: typecheck; `npm test` 587 passed / 63 skipped; plugin reload. Headless web (desktop 1700×1100 and phone 430×900): before/after screenshots, defaults round trip (Workpad off/Activity on → drawer opens that way → toggle → Reset), paging/collapse regression. [Verification](verification/sidebar-tweaks.md).
 - [x] Follow-up: default layout set to the user's current one: order Progress, Sessions, Workpad, Artifacts, Ideas, Links; Links (and the bottom three) start closed, Artifacts open.
 - [x] Follow-up: Progress → History times are compact (today `21:57`, this year `Oct 19, 21:57`, older `Dec 31, 2025`) via `shared/compact-time.ts` (+ test).
@@ -1111,7 +1111,7 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 
 ## Workflow insights — 2026-10-19
 
-- [x] Card request "paseo project settings互通". Researched the SDK first: plugin `PaseoApi` has no project-settings or setup API; the internal `DaemonClient` has `readProjectConfig`/`writeProjectConfig`, setup status/run and workspace scripts. The daemon already runs `worktree.setup` for worktree cards and teardown on archive.
+- [x] Card request "Paseo project settings interoperability". Researched the SDK first: plugin `PaseoApi` has no project-settings or setup API; the internal `DaemonClient` has `readProjectConfig`/`writeProjectConfig`, setup status/run and workspace scripts. The daemon already runs `worktree.setup` for worktree cards and teardown on archive.
 - [x] Read-only probes over the Flowly card sessions; no raw commands were persisted, and the temporary scripts and session were deleted. Rules over 72 h found only verify-type suggestions that AGENTS.md already has. Over 7 days, `claude/claude-sonnet-5` found 6 suggestions, 5 of them outside paseo.json (i18n tool, Playwright dependency, board inspector, doc-sync and fixture-cleanup checklists). One run took 267 s and cost about $0.80, and `outputSchema` was not honored.
 - [x] User decision: an opt-in feature with a switch, model choice and cadence (daily when tokens allow, longer otherwise). [Spec](WORKFLOW-INSIGHTS-SPEC.md) written.
 - [x] User approved the spec with all §11 decisions kept. Implemented:
@@ -1139,7 +1139,7 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 
 ## Card display: calmer layout and user-chosen fields — 2026-10-19
 
-- [x] Card request "任务卡片布局调整": cards had too many kinds of information. [Spec](CARD-DISPLAY-SPEC.md).
+- [x] Card request "Task card layout adjustment": cards had too many kinds of information. [Spec](CARD-DISPLAY-SPEC.md).
 - [x] Layout (`client/card.tsx`): meta row above the title (priority Urgent/High/Low, type, ticket key, first two tags as plain `#tag`), no pills or chips; one activity line by default (progress summary, else latest output, now with its time); status row ordered asks-first (Needs you, waiting, approvals, errors, workspace, sessions, workpad, ideas, Archived, Legacy). The output tail is not fetched when the activity line cannot show it.
 - [x] Options: host-scoped `cardActivity` (auto/progress/output/both/none) and `cardHidden` (priority, type, ticket, tags, sessions, workpad, ideas) in `board-view`; each falls back on its own (`.catch`) so a bad value never resets other board preferences, unknown hidden ids are kept. Pure helpers `shared/card-display.ts`. Settings → Cards (`client/card-settings.tsx`) with a live preview drawn by the real `TaskCard` and Reset to defaults; Sort menu → *Card display…* opens it.
 - [x] Onboarding: tip `card-display` (≥6 active cards, after `first-card`, before `project-menu`), ONBOARDING-SPEC table, README (both) "Also included". Tour unchanged: a view preference, not a new concept. 33 strings in all 9 catalogs.
@@ -1150,19 +1150,19 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 
 ## Card workpad and soft delivery gate — 2026-10-19
 
-- [x] Card request "卡片 Workpad：结构化计划/验收/验证清单 + 交付门槛" (from the Symphony research). Evaluated first; the user chose the slim version and settled the three open points (no gate without a workpad, hide summary Target when acceptance exists, people may mark a check pass). [Spec](WORKPAD-SPEC.md).
+- [x] Card request "Card Workpad: structured plan / acceptance / verification checklist + delivery gate" (from the Symphony research). Evaluated first; the user chose the slim version and settled the three open points (no gate without a workpad, hide summary Target when acceptance exists, people may mark a check pass). [Spec](WORKPAD-SPEC.md).
 - [x] Implemented: `workpads`/`plans` on the board (`shared/model.ts`), pure logic `shared/workpad.ts` (merge with ids, by/at and sha rules, freshness, open items, card signal, plan from timeline), `server/workpad.ts` (git HEAD/commit reads, human check/resolve/refresh, plan + HEAD at turn end), `flowly_update_workpad` + `acknowledgeOpen`/`WORKPAD_OPEN` gate in `server/agent-service.ts`, CLI `workpad` and `--acknowledge-open`, tool body limit 256 KiB, skill (both copies); card signal, drawer Workpad section (`client/task-workpad.tsx`), Activity hides workpad events, Progress hides Target; workpads/plans follow card delete, project remove/restore and project-folder snapshots.
 - [x] Onboarding: tour feature row *Workpad*, tip `first-workpad` (after `next-move`, before `first-idea`), ONBOARDING-SPEC tip table, README (both) highlight + tool list; 26 strings in all 9 catalogs.
 - [x] PASS: typecheck; full `npm test` 519 passed / 63 skipped; live MCP/CLI and headless desktop/compact UI checks — details in [verification/workpad.md](verification/workpad.md).
 - [ ] UNRUN: Plan from a real session's todo list; cycling check state / resolving confusions / out-of-date display in the real UI; Luna 6 test session.
-- [x] User follow-up "workpad作为一个可选功能，允许在project设置中开关": `Project.workpad` (absent = on), *Card workpad* switch in project settings. Off: `WORKPAD_DISABLED`, no delivery gate, `get_task` `workpadEnabled:false` with no workpad/plan, no Plan or HEAD recording, people's edits refused, card signal / drawer section / tip hidden, summary Target shown again; stored data kept. Skill (both copies), spec §9, ONBOARDING tip row, README; 2 strings × 9 catalogs; tests in `server/agent-service.test.ts` and `server/workpad.test.ts`.
+- [x] User follow-up "Make the workpad an optional feature that can be switched on and off in the project settings": `Project.workpad` (absent = on), *Card workpad* switch in project settings. Off: `WORKPAD_DISABLED`, no delivery gate, `get_task` `workpadEnabled:false` with no workpad/plan, no Plan or HEAD recording, people's edits refused, card signal / drawer section / tip hidden, summary Target shown again; stored data kept. Skill (both copies), spec §9, ONBOARDING tip row, README; 2 strings × 9 catalogs; tests in `server/agent-service.test.ts` and `server/workpad.test.ts`.
 
 ## Project tab context menu — 2026-10-19
 
-- [x] Card request "project tab增加contextual menu、进行编辑、设置等": right-click (long-press on touch) a desktop project tab for Project settings, New task, Insights, Ideas, Move left/right, Restore (archived) and Remove…. Reuses the board's `ContextMenuProvider`; `ProjectTabs` takes `menuFor`, entries built in `client/board.tsx` (`projectTabMenu`). [Spec](PROJECT-TABS-SPEC.md) updated.
+- [x] Card request "Add a contextual menu to the project tab for editing, settings, etc.": right-click (long-press on touch) a desktop project tab for Project settings, New task, Insights, Ideas, Move left/right, Restore (archived) and Remove…. Reuses the board's `ContextMenuProvider`; `ProjectTabs` takes `menuFor`, entries built in `client/board.tsx` (`projectTabMenu`). [Spec](PROJECT-TABS-SPEC.md) updated.
 - [x] Onboarding: tip `project-menu` (desktop tabs with ≥2 projects, after `first-card`), ONBOARDING-SPEC tip table; no tour change (project/card/session mapping unchanged). 3 strings in all 9 catalogs.
 - [x] PASS: typecheck; full `npm test` (new tip-order test in `client/onboarding-logic.test.ts`).
-- [x] User follow-up "增加project tab drag n drop调整顺序": tabs reorder by mouse drag. `SortableList` gains `horizontal` (row layout, x axis, `translateX`) and `onItemLayout` (tabs keep auto-reveal offsets); chooser and tabs share `dropProject` in `client/board.tsx`. Tip text now mentions dragging (all 9 catalogs).
+- [x] User follow-up "Add drag and drop to project tabs to change their order": tabs reorder by mouse drag. `SortableList` gains `horizontal` (row layout, x axis, `translateX`) and `onItemLayout` (tabs keep auto-reveal offsets); chooser and tabs share `dropProject` in `client/board.tsx`. Tip text now mentions dragging (all 9 catalogs).
 - [x] PASS: typecheck; `npm test` 495 passed / 63 skipped; plugin reloaded.
 - [x] PASS (headless app.paseo.sh web client on the local daemon, own profile, 1440×900; the user's windows untouched): right-click on the 2nd tab lists Project settings, New task, Insights, Ideas, Move left, Move right, Remove… without switching project; outside click closes it. Dragging `Flowly` past `Search System` → order `Search System, Flowly, Tinylink`, Flowly still active; dragged back → original order restored (user's real project order, verified restored). No page errors.
 - [ ] UNRUN: picking each menu item in the UI; Electron desktop app; touch long-press; Luna 6 test session.
@@ -1170,14 +1170,14 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 
 ## Recent activity sorts by turn ends — 2026-10-19
 
-- [x] Card request "recent activity排序优化": the Recent activity sort used every session update (each streamed message) and the card's own `updatedAt`, so cards jumped while sessions ran. It now uses only finished turns: `latestTurnEnds`/`turnEndActivity` in `shared/sort.ts` (recorded `agent.turn_ended` events; for sessions that record none, the time they last went idle, remembered client-side while they run); a card without a turn end counts from its creation. Menu detail now "Latest finished session turn first" (all catalogs). [Spec](UI-REFRESH-SPEC.md) Sort bullet updated.
+- [x] Card request "Recent activity sort optimization": the Recent activity sort used every session update (each streamed message) and the card's own `updatedAt`, so cards jumped while sessions ran. It now uses only finished turns: `latestTurnEnds`/`turnEndActivity` in `shared/sort.ts` (recorded `agent.turn_ended` events; for sessions that record none, the time they last went idle, remembered client-side while they run); a card without a turn end counts from its creation. Menu detail now "Latest finished session turn first" (all catalogs). [Spec](UI-REFRESH-SPEC.md) Sort bullet updated.
 - [x] PASS: typecheck; full `npm test` 494 passed / 63 skipped (`shared/sort.test.ts`: turn-start and task edits do not move a card, settled non-Kanban sessions count).
 - [ ] UNRUN: watching the live board reorder during a running turn; Luna 6 test session.
 - Onboarding: no tour or tip change, the sort option and its place are unchanged; only its ordering rule.
 
 ## Jira tickets as card inputs — 2026-10-19
 
-- [x] Card request "jira工单接入": research and design how to bring Jira/Linear tickets into Flowly, and whether to isolate or merge statuses. First draft (milestone push to Jira) replaced by the user's decision: tickets are **read-only inputs and references**; Flowly status never affects the tracker. User's flow: New task → From Jira (my recent tickets, search by name or number, title prefilled only when empty), link on existing cards, agents perceive the ticket every turn like artifacts. Decisions: self-hosted and Cloud Jira both in P1; recent list = 10 unresolved; card face shows the key only. [Spec](EXTERNAL-TRACKER-SPEC.md).
+- [x] Card request "Jira ticket integration": research and design how to bring Jira/Linear tickets into Flowly, and whether to isolate or merge statuses. First draft (milestone push to Jira) replaced by the user's decision: tickets are **read-only inputs and references**; Flowly status never affects the tracker. User's flow: New task → From Jira (my recent tickets, search by name or number, title prefilled only when empty), link on existing cards, agents perceive the ticket every turn like artifacts. Decisions: self-hosted and Cloud Jira both in P1; recent list = 10 unresolved; card face shows the key only. [Spec](EXTERNAL-TRACKER-SPEC.md).
 - [x] Implemented P1 (spec §8.1): `shared/tickets.ts`, `server/tickets.ts` (0600 connections, GET-only allowlisted client, cache, backoff, fingerprints), ticket artifacts and `tasks.create` `tickets` in one commit, `get_task.artifacts[].ticket` + unread on content change, `flowly_read_ticket` / CLI `ticket --id`, skill (both copies); Settings → Connections, From Jira picker with title prefill, Link Jira ticket + ticket preview in the drawer, key line on cards; tips `first-ticket` / `jira-connect`, tour line, README, ONBOARDING-SPEC tip table, 49 strings in all 9 catalogs.
 - [x] PASS: typecheck; full `npm test` 490 passed / 63 skipped (new `shared/tickets.test.ts` 10, `server/tickets.test.ts` 18: private credentials, GET-only allowlist, Cloud/DC auth and search endpoints, 401/429/login page/offline cache, fingerprint ignores status, Markdown + truncation, card + tickets in one write, link by URL/key, agent unread and read scope).
 - [x] PASS (live, installed plugin reloaded): this card's session saw `flowly_read_ticket` over MCP; reading a non-ticket artifact returns `TICKET_NOT_FOUND`.
@@ -1189,62 +1189,62 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 
 ## AI mark — 2026-10-19
 
-- [x] Card request "所有AI feature增加星星标记": mark existing AI features with the star like next moves. [Spec](AI-MARK-SPEC.md).
+- [x] Card request "Add a star mark to all AI features": mark existing AI features with the star like next moves. [Spec](AI-MARK-SPEC.md).
 - [x] Implemented: `AiMark` + `SectionHeader ai` in `client/ui.tsx`; card progress line (Flag → mark), drawer Progress and Ideas headers, Ideas page title, Insights daily Summary, agent-added artifacts and tags (Bot → mark). Card type `feature` icon Sparkles → Puzzle so Sparkles only means AI. Tour page 3 line; 2 strings in all 9 catalogs. No tip (nothing to do).
 - [ ] UNRUN: desktop/phone UI check in the installed plugin, Luna 6 test session.
 
 ## Suggested next moves — 2026-10-19
 
-- [x] Card request "建议next move": agents end turns with "要不要……或者……"; give them a tool to suggest the next move, show this turn's hints above the composer, tap pre-fills (never sends). [Spec](NEXT-MOVES-SPEC.md).
+- [x] Card request "Suggest the next move": agents end turns with "Do you want ... or ...?" (in Chinese); give them a tool to suggest the next move, show this turn's hints above the composer, tap pre-fills (never sends). [Spec](NEXT-MOVES-SPEC.md).
 - [x] Implemented: `flowly_suggest_next_moves` (+ CLI `next-moves --moves <JSON>`, HTTP action `next_moves`, receipts/replay, `TASK_FINISHED` on Done/Cancelled) records `next_moves_suggested` with `moves` on the event, no task revision change. `shared/next-moves.ts` (`openNextMoves`: latest set until the session's next turn starts; `nextMoveDraft`: fill or append). Session view `client/next-moves.tsx` chips above the composer, hidden while running, while a question/approval is pending, after a newer user message, or after ×; native input remounts with the text and focus (no IME breakage), web focuses the controlled input. Hidden from the activity timeline; A1r ignores it. Skill text (both copies), tool description, tip `next-move`, tour feature line, README, 6 strings in all 9 catalogs.
 - [x] PASS: typecheck; full `npm test` 73 files / 461 tests (new `shared/next-moves.test.ts`; agent-service write/replay/limits/finished; CLI flow + bad `--moves`; A1r with only next moves; tool list; tip order).
 - [ ] UNRUN: desktop/phone UI check of the chips in the installed plugin, Luna 6 test session.
 
 ## Answer agent questions in the session — 2026-10-18
 
-- [x] Card request "提问能力接入": an agent's ask-user-question lit up the card but the question was only visible in the native Paseo session. [Spec](SESSION-QUESTION-SPEC.md).
-- [x] Card request "提问方式优化" (2026-10-20): the skill and `flowly_report_progress` description now tell agents to ask through their own question tool (AskUserQuestion etc.) and use `kind=question` only as the fallback, never both for one question. Text-only change. [Spec](SESSION-QUESTION-SPEC.md) §2.2.
+- [x] Card request "Question capability integration": an agent's ask-user-question lit up the card but the question was only visible in the native Paseo session. [Spec](SESSION-QUESTION-SPEC.md).
+- [x] Card request "Question style optimization" (2026-10-20): the skill and `flowly_report_progress` description now tell agents to ask through their own question tool (AskUserQuestion etc.) and use `kind=question` only as the fallback, never both for one question. Text-only change. [Spec](SESSION-QUESTION-SPEC.md) §2.2.
 - [x] Capability check: the public SDK already carries `pendingPermissions` on agent snapshots and `agent.respondToPermission`; the answer encoding was read from the installed Paseo 0.11.2 app (answers keyed by header, `", "` joins, dismiss = deny "Dismissed by user") and the Claude provider (maps headers back to question text).
 - [x] Implemented: `shared/permission-question.ts` (pure form logic), `client/session-question.tsx` (question form; Allow/Deny or provider actions for other requests) above the session composer; respond re-checks membership and that the request is still pending. "Waiting for your answer" session label; agent questions count as Needs you / questions, not approvals. Tip `agent-question`, tour feature line, 19 strings in all 9 catalogs.
 - [x] PASS: typecheck; full `npm test` (a `server/tool-server.test.ts` failure seen mid-way came from a parallel session's in-progress edit and passed once it settled). The session-attention verification fixture now expects the new `questions` count.
-- [x] PASS (live, user, desktop): single select, multi select + Other, Other-only text, Dismiss, tool approval (always-ask mode, file create/delete). User feedback "输入框回车不能直接提交" fixed: web Enter submits the form, Shift+Enter new line.
+- [x] PASS (live, user, desktop): single select, multi select + Other, Other-only text, Dismiss, tool approval (always-ask mode, file create/delete). User feedback "Enter in the input box cannot submit directly" fixed: web Enter submits the form, Shift+Enter new line.
 - [ ] UNRUN: phone layout, plan approval, Luna 6 test session.
 
 ## Project folder copy — 2026-10-17
 
-- [x] Card request "Flowly project保存在原始project目录". User chose A: each project's board is also saved in `<root>/.flowly/project.json`, restorable after the project is removed from Flowly, git-ignored by default. [Spec](PROJECT-FOLDER-SPEC.md).
+- [x] Card request "Save the Flowly project in the original project directory". User chose A: each project's board is also saved in `<root>/.flowly/project.json`, restorable after the project is removed from Flowly, git-ignored by default. [Spec](PROJECT-FOLDER-SPEC.md).
 - [x] Daemon: `server/project-folder.ts` (snapshot writer debounced after each board commit, only changed projects; `.flowly/.gitignore` = `*` created with the folder only; foreign/invalid file kept as a dated copy; failures logged and never fail the board). `projects.restore-check`, `projects.restore` (native project found/created, same IDs, revisions + 1, `restored` event, bound workspaces cleared, summaries merged, flow log re-enabled), `projects.folder-state`. Snapshot includes card artifacts.
 - [x] Client: restore notice with Restore it / Start empty in Create project; *Saved in project folder* row in project settings; line in the Remove dialog; restore toast; tour feature line. Strings in all 9 catalogs.
 - [x] PASS: typecheck; `server/project-folder.test.ts` 7 tests (scope of records, gitignore, change detection, write failure isolation, remove → restore round trip, conflicts write nothing, unbound workspace, invalid/foreign file kept).
-- [x] User follow-up "老项目升级插件后自动迁移": explicit upgrade migration on each start (spec §1.1): every project (archived included) gets its folder copy, already-current copies untouched, failures retried; result in `folder-migration.json`. PASS: 2 more tests (9 total): pre-version board → all written, second start all current with no rewrite, board unchanged; unwritable folder failed then written on the next start.
+- [x] User follow-up "Automatically migrate old projects after the plugin upgrade": explicit upgrade migration on each start (spec §1.1): every project (archived included) gets its folder copy, already-current copies untouched, failures retried; result in `folder-migration.json`. PASS: 2 more tests (9 total): pre-version board → all written, second start all current with no rewrite, board unchanged; unwritable folder failed then written on the next start.
 - [x] PASS: full `npm test` 417 passed / 63 skipped (after the parallel card-artifacts work settled).
-- [x] Installed the local checkout as `flowly` (user request "安装 我来测试"): the published plugins.paseo.sh install had to be removed first (`plugin install` refuses a configured ID); plugin data and settings were backed up to `~/.paseo/flowly-backup-20261018-001006/` beforehand. On start the migration logged `1 written, 0 current, 0 failed`; `/Users/claw/Dev/flowly/.flowly/project.json` holds the Flowly project (4 cards, 39 events); `git check-ignore` confirms `.flowly/.gitignore` ignores it. User checked the installed plugin: the project works normally.
+- [x] Installed the local checkout as `flowly` (user request "Install it, I'll test it"): the published plugins.paseo.sh install had to be removed first (`plugin install` refuses a configured ID); plugin data and settings were backed up to `~/.paseo/flowly-backup-20261018-001006/` beforehand. On start the migration logged `1 written, 0 current, 0 failed`; `/Users/claw/Dev/flowly/.flowly/project.json` holds the Flowly project (4 cards, 39 events); `git check-ignore` confirms `.flowly/.gitignore` ignores it. User checked the installed plugin: the project works normally.
 - [ ] UNRUN: Luna UI acceptance and the remove → restore flow on a fixture project through the UI. Luna session `1c921648-071b-4634-9efc-7f3d52ad3c31` (codex/gpt-6-luna, full-access) could not run commands: its shell tool failed twice, even on `pwd` ("timed out negotiating with the code-mode host"); no fixtures created, nothing changed.
 
 ## Card artifacts — 2026-10-17
 
-- [x] Card request "设计一下任务卡片增加assets或者artifacts，用于记录和收集这个任务输入输出的文档、交付物等。由agent根据理解自行添加也可以由人手工添加". Drafted the [card artifacts spec](CARD-ARTIFACTS-SPEC.md): references (file in card scope / http(s) link) with role input/output/reference in `board.artifacts`; human RPCs; `flowly_add_artifact` / `flowly_remove_artifact` tools; drawer section, preview, cascade on delete.
+- [x] Card request "Design adding assets or artifacts to task cards, to record and collect the documents, deliverables, etc. that are this task's inputs and outputs. The agent may add them on its own understanding, and people may add them by hand". Drafted the [card artifacts spec](CARD-ARTIFACTS-SPEC.md): references (file in card scope / http(s) link) with role input/output/reference in `board.artifacts`; human RPCs; `flowly_add_artifact` / `flowly_remove_artifact` tools; drawer section, preview, cascade on delete.
 - [x] User decisions: references only; agents cannot remove human-added artifacts; nothing on the card face; each row shows input/output and human/agent; follow-up inheritance deferred. Roles reduced to input/output.
-- [x] Implemented (user: "开始"): `board.artifacts` + `shared/artifacts.ts`; `server/artifacts.ts` (scope check with realpath so symlinks can't escape, `./` workspace-relative storage, dedupe by target, `updatedAt` edit conflict, board revision only, `artifact_added`/`artifact_removed` events, batched missing check, preview re-checked on read: image ≤8 MB, text ≤256 KB, folder ≤200 entries). RPCs `artifacts.create/update/delete/status/preview`. Tools `flowly_add_artifact` / `flowly_remove_artifact` (+ CLI `artifact` / `artifact-remove`, receipts, `ARTIFACT_INVALID` / `ARTIFACT_FORBIDDEN` / `ARTIFACTS_DISABLED`), `get_task.artifacts`, inputs/outputs in session context, skill text. Drawer section with add/edit form and preview; setting Agent artifacts; tip `first-artifact`, tour feature, README; 9 catalogs. Card delete / project remove back up and drop artifacts. Dropped from v1 (spec §10): collect from session, file browse, Copy path, Undo.
+- [x] Implemented (user: "Start"): `board.artifacts` + `shared/artifacts.ts`; `server/artifacts.ts` (scope check with realpath so symlinks can't escape, `./` workspace-relative storage, dedupe by target, `updatedAt` edit conflict, board revision only, `artifact_added`/`artifact_removed` events, batched missing check, preview re-checked on read: image ≤8 MB, text ≤256 KB, folder ≤200 entries). RPCs `artifacts.create/update/delete/status/preview`. Tools `flowly_add_artifact` / `flowly_remove_artifact` (+ CLI `artifact` / `artifact-remove`, receipts, `ARTIFACT_INVALID` / `ARTIFACT_FORBIDDEN` / `ARTIFACTS_DISABLED`), `get_task.artifacts`, inputs/outputs in session context, skill text. Drawer section with add/edit form and preview; setting Agent artifacts; tip `first-artifact`, tour feature, README; 9 catalogs. Card delete / project remove back up and drop artifacts. Dropped from v1 (spec §10): collect from session, file browse, Copy path, Undo.
 - [x] PASS: typecheck; `npm test` 66 files / 415 tests (new `server/artifacts.test.ts`, tip order, tool list, i18n).
 - [x] PASS (installed local build, this card's own session over MCP): `flowly_add_artifact` registered `docs/CARD-ARTIFACTS-SPEC.md` as output → stored `./docs/CARD-ARTIFACTS-SPEC.md`, `createdBy: agent`, `missing: false`, `artifact_added` event, task revision unchanged; `/etc/hosts` refused with `ARTIFACT_INVALID`.
 - [x] User report: the artifact preview did not scroll on phones. Cause: a nested ScrollView (maxHeight 520) inside the host modal's scrollable body took the pan. Fix: the text/markdown preview renders directly in the modal body, which scrolls. Typecheck and tests pass; plugin reloaded.
 - [ ] UNRUN: phone re-check of the fix; drawer UI (desktop/compact), human edit/remove, and the Luna 6 test session.
-- [x] User question "用户自己添加的 artifacts，Agent 如何有效使用"; chose A+B. A: session context lists the user's inputs first with `[user]/[agent]` and the note; skill makes user inputs required reading (notes are instructions, say so when one can't be read, name the inputs used), `flowly_get_task` description asks for a read each turn. B: `get_task.artifacts[].unread` (added/edited since this session's last explicit get_task, never its own), per-session read times in `artifact-reads.json`, not the board.
+- [x] User question "How can the agent make effective use of the artifacts the user adds"; chose A+B. A: session context lists the user's inputs first with `[user]/[agent]` and the note; skill makes user inputs required reading (notes are instructions, say so when one can't be read, name the inputs used), `flowly_get_task` description asks for a read each turn. B: `get_task.artifacts[].unread` (added/edited since this session's last explicit get_task, never its own), per-session read times in `artifact-reads.json`, not the board.
 - [x] PASS: typecheck; `server/artifacts.test.ts` 6 tests (unread first read / own additions / write context does not mark / other session / edit re-flags / survives a new service). Full `npm test`: 445 passed; 2 failed outside this change (`tool-server` CLI flow timed out at 5 s under load, passes alone in ~4 s, same as HEAD; `session-attention` fixture fails on another session's uncommitted `shared/session-attention.ts`).
 - [x] PASS (reloaded local plugin, this session over MCP): `get_task` returns `unread: false` on this session's own artifact; `artifact-reads.json` written with this session's read time (mode 600).
-- [x] PASS (live): the user added an input link in the drawer; this session's next `get_task` showed it `createdBy: human, unread: true`, the following read `unread: false`; the agent opened the link as the skill asks. The context lines built from the live board put it first as `- [user] 我的个人博客: https://bofan.wang — <note>`.
+- [x] PASS (live): the user added an input link in the drawer; this session's next `get_task` showed it `createdBy: human, unread: true`, the following read `unread: false`; the agent opened the link as the skill asks. The context lines built from the live board put it first as `- [user] My personal blog: https://bofan.wang — <note>`.
 - [ ] UNRUN: a newly created session actually receiving those context lines.
 
 ## Composer focus during a running session — 2026-10-16
 
-- [x] Card report "PC 上 session 运行中打字会被打断，内容更新时出现，打断后完全无法输入". Cause: the transcript ScrollView had `keyboardDismissMode="on-drag"` on web; RN Web's `_handleScroll` then blurs the focused input on every scroll event, and follow-tail scrolls on each output update. Web now uses `none` ([spec](SESSION-INPUT-SPEC.md)).
+- [x] Card report "On PC, typing in a running session gets interrupted, it happens when content updates, and after the interruption typing is impossible". Cause: the transcript ScrollView had `keyboardDismissMode="on-drag"` on web; RN Web's `_handleScroll` then blurs the focused input on every scroll event, and follow-tail scrolls on each output update. Web now uses `none` ([spec](SESSION-INPUT-SPEC.md)).
 - [x] PASS: typecheck; headless app.paseo.sh against the local daemon, typing into this card's running session with forced transcript scrolls: with the fix the textarea kept focus (0 blurs); control run with the old value lost focus to `<body>`, blur stack `_handleScroll → blurTextInput`.
 - [ ] UNRUN: the Electron desktop window.
 
 ## Card links — 2026-10-16
 
-- [x] Card request "设计任务卡片关联关系…父子任务可能有点麻烦，在其他agent kanban项目里怎么设计的". Researched Vibe Kanban (attempt-scoped subtasks, independent status), Multica, Linear/Jira/Plane, agent-tasks MCP. User chose option A: Follow-up of (derived) + Related + Blocks (hint only), no parent/child; approved the [card links spec](CARD-LINKS-SPEC.md), then "OK 做吧".
+- [x] Card request "Design relations between task cards... parent/child tasks may be a bit troublesome, how do other agent kanban projects design this". Researched Vibe Kanban (attempt-scoped subtasks, independent status), Multica, Linear/Jira/Plane, agent-tasks MCP. User chose option A: Follow-up of (derived) + Related + Blocks (hint only), no parent/child; approved the [card links spec](CARD-LINKS-SPEC.md), then "OK, go ahead".
 - [x] Data: `board.links` (`derived`/`related`/`blocks`, same project, board stays v4); files without `links` derive them once from `Task.origin`. `shared/links.ts` (relations, resolution, cycle detection, context lines). `links.create` / `links.delete` (CAS-free, board revision only; events on both cards; Related replaced by a more specific link; cycle, duplicate, cross-project, archived and 50-per-card checks). `tasks.create` with `followUpOf` (checked before the workspace and in the write) and with `ideaId` writes a derived link. Card delete / project remove back up and drop links; the other card records `unlinked`.
 - [x] Agents: `flowly_get_task.links` (relation, title, lane, archived, resolved), session context lists links instead of `Derived from card`, skill rule (read-only; unresolved blocked_by is a hint).
 - [x] Client: "Waiting on N" card signal; drawer Links section below Ideas (groups, open, optimistic remove, `+` menu); "From idea on / Follow-up of" line; Link to a card… picker; New follow-up task form; card menu and phone action sheet entries.
@@ -1254,65 +1254,65 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 
 ## Project insights — 2026-10-16
 
-- [x] Card request "项目整体天级统计、变更总结" / "为项目增加一个project级别的统计、总结、insight的功能". User chose purpose A (daily review and planning the day) and approved an untrimmed flow log; then "先这么实现看看". Wrote [insights spec](PROJECT-INSIGHTS-SPEC.md).
+- [x] Card request "Daily statistics and change summary for the whole project" / "Add a project-level statistics, summary and insight feature to the project". User chose purpose A (daily review and planning the day) and approved an untrimmed flow log; then "Implement it this way first and see". Wrote [insights spec](PROJECT-INSIGHTS-SPEC.md).
 - [x] Daemon: `flow/<projectId>.jsonl` appended after each board commit (notes not stored), reconciled from the board at startup and before each read (first run backfilled 533 events); card delete rewrites it with a `removed/` backup, project remove moves it to `removed/`. Rule A1 resumes undone by A1r are ignored (not rework, no new review wait).
 - [x] `insights.project` (etag): day stats in the client's time zone, 7-day averages and trend, lane dwell medians, In review / Blocked waits, rules R1–R7, git commits (root + first-level child repos, `git log --all --numstat`). `insights.digest` / `insights.digest-refresh`: LLM daily digest in `digests.json` (60 days per project), auto for past days when *Daily digest* is on, run in the project root's workspace (else the latest card workspace) and archived in `finally`.
 - [x] Client: *Insights* chip in the overview bar and shortcut I; page with day navigation, number tiles, Waiting on you, Suggestions, Summary, Last 7 days; Esc / ‹ Board returns. *Daily digest* toggle in settings.
 - [x] PASS: typecheck; `npm test` 308 passed / 63 skipped (new insights, flow-log, git-stats, digest and service tests); plugin reloaded; analysis checked against this board's real data.
 - [x] Luna UI acceptance (session `bceb36e5`, worker `03d2ee59`) in a headless app.paseo.sh client, 1440×900 and 390×844 light/dark: 9 PASS, 1 FAIL (Commits tile hid its average behind the line delta), fixed afterwards (hint and average share the line). Digest generated with Haiku 5.5 and its sessions archived; fixtures cleaned. [Verification](verification/project-insights.md).
 - [ ] UNRUN: digest model-error paths; Electron window and a physical phone; re-screenshot after the tile fix.
-- [x] Idea "Insights：按天统计 token 用量" (continued in this card): log parsers keep 15-minute token slots (Claude per deduped message, Codex count differences with reset handling); `insights.tokens` sums them into the client's days for all sessions of the project's cards; Tokens tile, Token use section (types, cache rate, top 5 cards) and Tokens per day bars. Spec §11.
+- [x] Idea "Insights: per-day token usage statistics" (continued in this card): log parsers keep 15-minute token slots (Claude per deduped message, Codex count differences with reset handling); `insights.tokens` sums them into the client's days for all sessions of the project's cards; Tokens tile, Token use section (types, cache rate, top 5 cards) and Tokens per day bars. Spec §11.
 - [x] PASS: typecheck; `npm test` 320 passed / 63 skipped (bucket and day-sum tests); real logs: plugin per-day sums equal an independent script (Claude 23,843,196 on 2026-10-16; Codex 5,683,345 on 2026-10-14).
 
 ## Ideas cards — 2026-10-15
 
-- [x] Card request "agent执行过程中根据现状提供下一步计划，在任务中提议下一步可以做的任务，用户觉得好可以点击idea卡片创建新的任务卡片并把上下文带进去". User chose: ideas come from the working agent via a tool (A), show on the source card's drawer plus a card badge (A), and Create task opens the prefilled new-task form (A); then "直接实现，不审阅方案". Wrote [ideas spec](IDEAS-SPEC.md). Baseline commit of the prior working tree first (the repository already existed, so no re-init).
+- [x] Card request "While the agent works, offer a next-step plan based on the current state and propose follow-up tasks inside the task; if the user likes one, they can click the idea card to create a new task card and bring the context along". User chose: ideas come from the working agent via a tool (A), show on the source card's drawer plus a card badge (A), and Create task opens the prefilled new-task form (A); then "Just implement it, no review of the plan". Wrote [ideas spec](IDEAS-SPEC.md). Baseline commit of the prior working tree first (the repository already existed, so no re-init).
 - [x] Data: `board.ideas` (absent reads as `[]`, board stays v4), optional `task.origin`, receipt action `idea`. Agent tool `flowly_propose_idea` (signed request, replay, `IDEA_DUPLICATE`, `IDEA_LIMIT` 10 open, 50 kept per card), `flowly_get_task` lists the card's ideas, CLI `idea` subcommand, skill rule. `ideas.update` (dismiss/restore). `tasks.create` with `ideaId` checks before the workspace and again in the write, linking both ways atomically. Card delete / project remove back up and drop ideas.
 - [x] Client: lightbulb count on cards, drawer Ideas section (open cards with Create task / Dismiss, closed group with links and Restore), "From idea on …" line, new-task form prefilled from the idea and source progress ("Create task from idea"); session context line `Derived from card: …`.
 - [x] PASS: typecheck; `npm test` 279 passed / 63 skipped (new `server/ideas.test.ts`, tool-server MCP/CLI idea checks). Plugin reloaded.
 - [x] Luna (`codex/gpt-6-luna`, full access) live acceptance, test session `c8e2e1b0`: MCP and CLI proposals, duplicate refusal, dismiss/restore, create-from-idea links and `Derived from card` context, reuse refused without a new workspace, delete backup; fixtures cleaned to the baseline counts. [Verification](verification/ideas.md).
-- [x] Follow-up "ideas放到sessions下面": the drawer's Ideas section sits below Sessions.
-- [x] Follow-up "优化idea卡片的设计、交互、motion。接受按钮改成good idea": cards show title, a meta line (type, non-Normal priority, age) and the rationale; details (What to do, Context) expand with animated height and a rotating chevron; actions are **Not now** and **Good idea**. Not now is optimistic and collapses the card in place (rolled back with a toast on failure); accepted ideas collapse out too; ideas arriving while the drawer is open rise in. Slot-keeping merge in `client/idea-rows.ts` (3 tests). PASS: typecheck; `npm test` 282 passed / 63 skipped; reloaded.
-- [x] Follow-up "按钮左对齐还更好看点": idea actions left-aligned with the title, primary Good idea first, then Not now.
-- [x] Follow-up "按钮有点太大了 移动端看有点不协调": shared `Button` gains `small` (32 pt on touch / 28 px desktop, 12 pt label, 13 pt icon, hitSlop keeps the 44 pt target); idea actions and Restore use it. Low priority shows as text without its single-bar glyph (read as a stray comma). Checked read-only on this card at 390×844 in a separate headless app.paseo.sh client; the phone lane picker was put back to Design.
-- [x] Follow-up "good idea有些是当前任务的延伸…两种路径都要支持。重新设计这个链路": ideas carry the agent's `scope` (here / new; tool, CLI `--scope`, skill rule). Good idea opens a menu: **Do it in this task** (`ideas.adopt`: marks the idea for the proposing or newest live session, then queues the instruction through the composer; reverted if the hand-off fails) or **Start a new task** (prefilled form). The suggested path comes first; the meta line shows it; Closed shows "→ Sent to <session>". PASS: typecheck; `npm test` 311 passed / 63 skipped (new adopt tests).
+- [x] Follow-up "Put ideas below sessions": the drawer's Ideas section sits below Sessions.
+- [x] Follow-up "Optimize the idea card's design, interaction and motion. Rename the accept button to Good idea": cards show title, a meta line (type, non-Normal priority, age) and the rationale; details (What to do, Context) expand with animated height and a rotating chevron; actions are **Not now** and **Good idea**. Not now is optimistic and collapses the card in place (rolled back with a toast on failure); accepted ideas collapse out too; ideas arriving while the drawer is open rise in. Slot-keeping merge in `client/idea-rows.ts` (3 tests). PASS: typecheck; `npm test` 282 passed / 63 skipped; reloaded.
+- [x] Follow-up "Left-aligned buttons would look better": idea actions left-aligned with the title, primary Good idea first, then Not now.
+- [x] Follow-up "The buttons are a bit too big, they look out of place on mobile": shared `Button` gains `small` (32 pt on touch / 28 px desktop, 12 pt label, 13 pt icon, hitSlop keeps the 44 pt target); idea actions and Restore use it. Low priority shows as text without its single-bar glyph (read as a stray comma). Checked read-only on this card at 390×844 in a separate headless app.paseo.sh client; the phone lane picker was put back to Design.
+- [x] Follow-up "Some good ideas are extensions of the current task... both paths must be supported. Redesign this flow": ideas carry the agent's `scope` (here / new; tool, CLI `--scope`, skill rule). Good idea opens a menu: **Do it in this task** (`ideas.adopt`: marks the idea for the proposing or newest live session, then queues the instruction through the composer; reverted if the hand-off fails) or **Start a new task** (prefilled form). The suggested path comes first; the meta line shows it; Closed shows "→ Sent to <session>". PASS: typecheck; `npm test` 311 passed / 63 skipped (new adopt tests).
 - [x] Idea adopted in this card via "Do it in this task" (first live end-to-end use of the path): Restore refuses a dismissed idea whose title matches an open idea on the card (`ideaTitleKey` moved to `shared/ideas.ts`; new store test). PASS: typecheck; `npm test` 312 passed / 63 skipped; reloaded.
-- [x] Follow-up "多个session会在哪个继续？能不能再加一个使用新session做的选项" (user: 可以): Good idea menu now offers Continue in <proposer or newest session>, Send to another session… (2+ live sessions; second menu), Do it in a new session (Start session prefilled with the idea; recorded with `ideas.adopt send:false` once created), and Start a new task. PASS: typecheck; `npm test` 313 passed / 63 skipped.
+- [x] Follow-up "With multiple sessions, which one continues? Can we add an option to do it in a new session" (user: "OK"): Good idea menu now offers Continue in <proposer or newest session>, Send to another session… (2+ live sessions; second menu), Do it in a new session (Start session prefilled with the idea; recorded with `ideas.adopt send:false` once created), and Start a new task. PASS: typecheck; `npm test` 313 passed / 63 skipped.
 - [x] Luna UI acceptance (test session `59dbe335`, worker `515d644c`) in a separate headless app.paseo.sh client at 1440×900 and 390×844, light and dark: badge, drawer order, card layout, expand/collapse, Not now → Closed → Restore, Good idea prefilled form, two-way links; no console errors; fixtures cleaned. [Verification](verification/ideas-ui.md).
 - [ ] UNRUN: frame-by-frame motion and Reduce Motion; the Electron window and a physical phone.
 
 ## App performance — 2026-10-15
 
-- [x] Card request "app端存在一些性能问题，例如动画卡顿、session卡片加载慢等，输入框不跟手、丢字、自动关闭输入法等情况". Audit, then [performance spec](PERFORMANCE-SPEC.md) before code. Cause: the phone's JS thread was busy decoding large polls (relay E2EE in JS) and re-rendering the whole tree on every poll.
+- [x] Card request "The app has some performance problems, such as laggy animations, slow loading of session cards, an input box that does not follow the finger, dropped characters and the keyboard closing by itself". Audit, then [performance spec](PERFORMANCE-SPEC.md) before code. Cause: the phone's JS thread was busy decoding large polls (relay E2EE in JS) and re-rendering the whole tree on every poll.
 - [x] Daemon: `board.read-changed`, `summaries.read-changed`, `resources.read-changed` (etag; unchanged = 38 B), `sessions.tail` (slim projected tail, card-scoped).
 - [x] Client: shared queries (`client/queries.ts`), streamed live agent list, drawer sessions from the stream, preview loads agent/transcript in parallel from cache, tools/access only while shown, memoized cards/drawer/transcript with stable callbacks and a stable theme/menu context, phone board hidden instead of unmounted, native-looped pulse, no card mount fade, native composer self-sizing, keyboard padding after the animation, send clears at once (restores on failure), late draft restore never remounts a focused input.
 - [x] PASS: typecheck; `npm test` 266 passed / 63 skipped; plugin reloaded; live RPC sizes and agent stream checked. [Verification](verification/performance.md).
-- [x] Follow-up "session card右边的最后活跃时间垂直居中": the time moved out of the title row, beside the chevron, centered on the row.
-- [x] Follow-up "打开任务卡内容、打开session，动画都很卡": heavy sections and reads wait for the open transition (`useSettled`); archived sessions from the daemon (`sessions.archived`) instead of paging every agent on each open; phone card is an overlay above the still laid-out board. PASS: typecheck; `npm test` 267 passed / 63 skipped; reloaded; live RPC check.
-- [x] Follow-up "上下滚动的时候会出现这种水平漂移问题": cached interpolation nodes (`lerp`), final-value sync after native transitions, no reveal on first mount. PASS: app typecheck; tests (one failure from the concurrent Ideas work); reloaded.
+- [x] Follow-up "Vertically center the last-active time on the right of the session card": the time moved out of the title row, beside the chevron, centered on the row.
+- [x] Follow-up "Opening the task card content and opening a session both animate very laggily": heavy sections and reads wait for the open transition (`useSettled`); archived sessions from the daemon (`sessions.archived`) instead of paging every agent on each open; phone card is an overlay above the still laid-out board. PASS: typecheck; `npm test` 267 passed / 63 skipped; reloaded; live RPC check.
+- [x] Follow-up "This horizontal drift shows up when scrolling up and down": cached interpolation nodes (`lerp`), final-value sync after native transitions, no reveal on first mount. PASS: app typecheck; tests (one failure from the concurrent Ideas work); reloaded.
 - [ ] UNRUN: real-device smoothness/IME on iOS/Android over LAN and relay; Luna UI acceptance; stale renderer fixtures (pre-existing).
 
 ## Automatic status as a setting — 2026-10-15
 
-- [x] Card request "自动流转作为设置项提供，默认打开". New host setting `auto-status.autoStatus` (default on; unset/invalid stored values read as on), shown in Ultra Kanban settings → *Moving cards* → *Auto-update status from sessions*. Off: the daemon still records turn facts but skips rules A1/A1r. The per-project switch stays as an opt-out, renamed *Auto-update status in this project*. [AUTO-STATUS-SPEC](AUTO-STATUS-SPEC.md) amended.
+- [x] Card request "Provide automatic status flow as a setting, on by default". New host setting `auto-status.autoStatus` (default on; unset/invalid stored values read as on), shown in Ultra Kanban settings → *Moving cards* → *Auto-update status from sessions*. Off: the daemon still records turn facts but skips rules A1/A1r. The per-project switch stays as an opt-out, renamed *Auto-update status in this project*. [AUTO-STATUS-SPEC](AUTO-STATUS-SPEC.md) amended.
 - [x] PASS: typecheck; `npm test` 254 passed / 63 skipped (new: setting defaults). Plugin reloaded.
 - [ ] UNRUN: Luna UI acceptance of the settings toggle; a live turn with the setting off.
 
 ## Delete a card permanently — 2026-10-15
 
-- [x] Card request "增加彻底删除卡片的能力，并把现在当前project下无法unarchive的那些老的卡片删了". Wrote [task delete spec](TASK-DELETE-SPEC.md): archived cards get *Delete permanently…* in the board card menu and drawer task menu, with a confirm dialog; `tasks.delete` (CAS, archived only) drops the card, its events, receipts and summaries after a `removed/` backup; Paseo resources untouched. AGENTS.md exception added.
+- [x] Card request "Add the ability to delete cards permanently, and delete the old cards in the current project that can no longer be unarchived". Wrote [task delete spec](TASK-DELETE-SPEC.md): archived cards get *Delete permanently…* in the board card menu and drawer task menu, with a confirm dialog; `tasks.delete` (CAS, archived only) drops the card, its events, receipts and summaries after a `removed/` backup; Paseo resources untouched. AGENTS.md exception added.
 - [x] PASS: typecheck; `npm test` 251 passed / 63 skipped (2 new store tests). Plugin reloaded.
-- [x] Deleted the 11 archived Ultra Kanban cards whose worktrees the old wrap-up removed, through the plugin RPC; kept the restorable “竞品调研”. [Verification](verification/task-delete.md).
-- [x] Follow-up "手机端lane列表的选中标记导致数字不在一列": `Row` puts the selected check before the trailing value (user preferred this over a reserved empty slot), so the phone lane picker counts stay flush right in one column. PASS: typecheck; `npm test` 251 passed / 63 skipped. Plugin reloaded.
-- [x] Follow-up "菜单没有删除任务的选项，允许任何lane里删除，删除时询问是否同时archive，增加选项自动archive": *Delete permanently…* on every card; the dialog runs `tasks.delete-check` (wrap-up preflight without the lane rule) and asks Keep / Archive for its sessions and own workspace (running sessions disable Archive, warnings shown); new setting *Auto archive on delete* (`wrap-up.archiveOnDelete`) skips the question when the preflight is clean. `tasks.delete` archives first (wrap-up run, keepCard) and deletes only if that succeeds. PASS: typecheck; `npm test` 253 passed / 63 skipped (new: live-card delete, delete preflight/run). Plugin reloaded; live `tasks.delete-check` on 竞品调研 (clean) and this card (running session → blocker).
+- [x] Deleted the 11 archived Ultra Kanban cards whose worktrees the old wrap-up removed, through the plugin RPC; kept the restorable "Competitor research". [Verification](verification/task-delete.md).
+- [x] Follow-up "On the phone, the selected mark in the lane list keeps the numbers from lining up in one column": `Row` puts the selected check before the trailing value (user preferred this over a reserved empty slot), so the phone lane picker counts stay flush right in one column. PASS: typecheck; `npm test` 251 passed / 63 skipped. Plugin reloaded.
+- [x] Follow-up "The menu has no option to delete a task; allow deleting in any lane, ask whether to archive at the same time when deleting, and add an option to archive automatically": *Delete permanently…* on every card; the dialog runs `tasks.delete-check` (wrap-up preflight without the lane rule) and asks Keep / Archive for its sessions and own workspace (running sessions disable Archive, warnings shown); new setting *Auto archive on delete* (`wrap-up.archiveOnDelete`) skips the question when the preflight is clean. `tasks.delete` archives first (wrap-up run, keepCard) and deletes only if that succeeds. PASS: typecheck; `npm test` 253 passed / 63 skipped (new: live-card delete, delete preflight/run). Plugin reloaded; live `tasks.delete-check` on Competitor research (clean) and this card (running session → blocker).
 - [ ] UNRUN: Luna UI acceptance of the menu entries, dialog and setting; a live delete with Archive on a fixture card; phone lane picker alignment on a real phone.
 
 ## Task type — 2026-10-15
 
-- [x] Card request "任务卡片增加任务类型，比如research、bugfix、feature等". Wrote [task type spec](TASK-TYPE-SPEC.md): optional `task.type` (Feature / Bug fix / Research / Refactor / Docs / Chore); absent on existing cards, so no board migration.
+- [x] Card request "Add a task type to task cards, such as research, bugfix, feature, etc.". Wrote [task type spec](TASK-TYPE-SPEC.md): optional `task.type` (Feature / Bug fix / Research / Refactor / Docs / Chore); absent on existing cards, so no board migration.
 - [x] Create/edit form Type choice (default None), card meta chip, drawer Type property, Details row, board Type filter (`filterType`, remembered, reset and cleared by session links); session context line `Task type: …` when set.
 - [x] PASS: typecheck; `npm test` 248 passed / 63 skipped (new: store set/clear/keep, context line, settings default).
-- [x] Follow-up "side bar里改状态和tag直接在按钮旁边出下拉菜单": drawer Status / Type / Priority open a dropdown anchored below the button (context menu gained `leading` icons; the button measures itself), values save directly with CAS + toast; the drawer Status modal is gone. PASS: typecheck; `npm test` 249 passed / 63 skipped. Plugin reloaded.
+- [x] Follow-up "In the side bar, changing status and tags should open a dropdown menu right beside the button": drawer Status / Type / Priority open a dropdown anchored below the button (context menu gained `leading` icons; the button measures itself), values save directly with CAS + toast; the drawer Status modal is gone. PASS: typecheck; `npm test` 249 passed / 63 skipped. Plugin reloaded.
 - [ ] UNRUN: Luna (`codex/gpt-6-luna`) UI acceptance on desktop/compact, including dropdown placement near the right edge.
 
 ## Restore the workspace and sessions when a wrapped-up card leaves Done/Cancelled — 2026-10-15
@@ -1320,13 +1320,13 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 - [x] User chose option A: a temporary direct daemon connection, because the plugin SDK has no workspace restore. Wrote [workspace restore spec](WORKSPACE-RESTORE-SPEC.md), which records the SDK migration path (`COMPAT(sdk-workspace-restore)` in `server/workspace-restore.ts`).
 - [x] Moving a card out of Done/Cancelled restores its workspace in the background, under the same workspace ID: unarchive in place, or recreate a removed worktree on its kept branch. This applies only when the plugin's wrap-up archived it or the card owns it. Records `workspace_restored` / `workspace_restore_skipped`. Sessions stay archived until messaged.
 - [x] PASS: typecheck; `npm test` 243 passed / 63 skipped (5 new). Reloaded the plugin. End-to-end through the real plugin RPC, worktree and directory cards: [verification](verification/workspace-restore.md); fixtures cleaned up.
-- [x] User follow-up "把session也复活": the sessions the wrap-up archived are revived too, by daemon agent refresh on the same connection. Selection: `archivedAt` within a wrap-up event, so user-archived sessions and summarizers are excluded. An already-active workspace still gets its sessions back (`sessions_restored`). PASS: `npm test` 246 passed / 63 skipped; e2e with sessions that ran a turn, both restored.
+- [x] User follow-up "Revive the sessions too": the sessions the wrap-up archived are revived too, by daemon agent refresh on the same connection. Selection: `archivedAt` within a wrap-up event, so user-archived sessions and summarizers are excluded. An already-active workspace still gets its sessions back (`sessions_restored`). PASS: `npm test` 246 passed / 63 skipped; e2e with sessions that ran a turn, both restored.
 - [ ] UNRUN: Luna UI acceptance; end-to-end with Auto wrap up off; real unavailable-path cases (covered by focused tests).
 - [ ] Follow-up: switch to the SDK once `PaseoApi.workspaces` exposes restore.
 
 ## Workflow stages: In progress → Design / Development / Test — 2026-10-15
 
-- [x] User decisions: split In progress into Design → Development → Test for every project (option B); the agent decides whether to start with Design or Development. Wrote [workflow stages spec](WORKFLOW-STAGES-SPEC.md) and the user approved it ("可以 试试看吧，不行再改回去").
+- [x] User decisions: split In progress into Design → Development → Test for every project (option B); the agent decides whether to start with Design or Development. Wrote [workflow stages spec](WORKFLOW-STAGES-SPEC.md) and the user approved it ("OK, let's try it, and change it back if it doesn't work").
 - [x] Board v4 (`server/migrate.ts`): In progress cards → Development; a configured In progress lane expands in place (on/off kept, custom name → Development); events/receipts keep the retired status (`historyStatusSchema`), shown as "In progress"; one-time `board.pre-v4.json` copy.
 - [x] Rules: A1 no longer moves Backlog/Todo; resuming from In review/Blocked returns to the latest enabled work stage (else the first enabled one, else no move). A1r and the silent-turn marker cover all three stages.
 - [x] Agents: `allowedStatuses` uses design/development/test/blocked/in_review; `in_progress` is accepted as a deprecated alias (keeps the current stage, else Development) so sessions with the old tool schema still work. Skill, tool description, CLI usage and UI copy updated; status icons CircleEllipsis / CircleDot / CircleGauge (same Circle family as the other statuses; Pencil/ShieldCheck looked a different size).
@@ -1350,8 +1350,8 @@ Spec: [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md). Analysis of the board showed the mi
 - [x] UI: one-line state on cards; drawer Progress section (State/Recap/Next, Refresh, History); Settings → Ultra Kanban (Auto summary, Summary model). Summarizer sessions are hidden from board session views by label.
 - [x] PASS: typecheck; `npm test` 220 passed / 63 skipped (20 new). Luna live acceptance `dddf746d` plus a follow-up live re-check: [verification](verification/task-summary.md).
 - [x] Fixed from live testing: summarizer directory registered a native project (moved to the card workspace as a child session, user choice B; leftover project deleted); Haiku's array-valued recap failed the schema (lenient parsing).
-- [x] User feedback: host settings page never appeared → floating settings button at the board's bottom-left opens a plugin-drawn modal (Auto summary; Provider → Model). Progress collapsed by default (state, 3 recap lines, 1 next line; Show more). Output tightened (state ≤15 words/30 汉字, recap ≤4 short lines, next one sentence; hard caps 80/400/160). Live refresh after the change: 15 s, state 33 chars, 4 recap lines.
-- [x] Added `target` (goal + up to 4 feature points; kept stable unless scope changes; old versions read as ""). Progress shows it between State and Recap (1 line collapsed). Live refresh on card `8c22cc02`: 12 s, target "Goal: 为每个任务提供快速确认进度的摘要" + 4 feature lines. Tests 235 passed.
+- [x] User feedback: host settings page never appeared → floating settings button at the board's bottom-left opens a plugin-drawn modal (Auto summary; Provider → Model). Progress collapsed by default (state, 3 recap lines, 1 next line; Show more). Output tightened (state ≤15 words/30 Chinese characters, recap ≤4 short lines, next one sentence; hard caps 80/400/160). Live refresh after the change: 15 s, state 33 chars, 4 recap lines.
+- [x] Added `target` (goal + up to 4 feature points; kept stable unless scope changes; old versions read as ""). Progress shows it between State and Recap (1 line collapsed). Live refresh on card `8c22cc02`: 12 s, target "Goal: give every task a summary for quickly checking progress" + 4 feature lines. Tests 235 passed.
 - [x] Usage: cache hit rate = cache read ÷ all input (header, totals, per session).
 - [ ] UNRUN: real-app rendering of the card line, Progress section, settings button and modal; finished-notification behavior for child summarizers.
 
@@ -1500,26 +1500,26 @@ This supersedes the handle-only presentation below. Verification session `2fdbb0
 
 Testing session: `c8bfb6b3-40c8-40ec-8a0c-82a1909abe04`, `codex/gpt-6-luna`, created with `modeId=full-access` in the existing development workspace. Deleted after verification; exact native inspection now returns `AGENT_NOT_FOUND`. No fixture native project/workspace/card created. Renderer and current-run migration temporary directories removed; migration test now cleans each run automatically. Plugin remains running. [Verification and limits](verification/ui-ux.md). Implementation is delivered for user review; actual desktop/mobile gestures and live UI CAS rejection remain UNRUN.
 
-2026-10-14 清理：此前验收留下的 11 个测试看板 project、22 张卡片、7 个托管 worktree、4 个验收 session 和隔离临时目录均已移除；对应原生 fixture project 在清理开始前已不在 Paseo 列表。插件恢复 running/ready，当前看板为空。今后的测试必须在结束时清理自身 fixture。[清理记录](verification/cleanup-20261014.md)。
+2026-10-14 Cleanup: the 11 test-board projects, 22 cards, 7 managed worktrees, 4 acceptance sessions and isolated temporary directories left over from earlier acceptance runs have all been removed; the corresponding native fixture projects were already gone from the Paseo list before the cleanup began. The plugin is back to running/ready and the board is now empty. Future tests must clean up their own fixtures when they finish. [Cleanup record](verification/cleanup-20261014.md).
 
-## 2026-10-15 合并、自动进度 v1 与体验迭代
+## 2026-10-15 Merge, auto progress v1 and experience iteration
 
-- [x] F1–F4 由 4 个只读 code-reviewer 审查，结论均为 MERGE WITH FIXES，已合入 main 并修复：F1 运行中 session 输出刷新节流（15s 窗口）与无障碍文案截断；F2 侧边栏复用看板查询缓存（15s）、attention token 模块级去重、单复数与热区；F3 菜单上/下移统一走 placeTask 单一排序路径；F4 intent 模块级去重且有效期 5s、picker 搜索框阻止快捷键
-- [x] F1–F4 卡片经 Wrap up 真实收尾：worktree 已由 Paseo 移除，分支保留后已合并删除；收尾检查改为只报告“仅存在于该分支”的提交
-- [x] 自动进度 v1（[AUTO-STATUS-SPEC](AUTO-STATUS-SPEC.md)）：只为看板管理 session 记录生命周期；规则 A1；question/静默标记；活动 Auto 标签；项目开关
-- [x] 记住上次项目（host settings）、状态变化高亮、活动时间线降噪
-- [x] Typecheck；`npm test` 142 passed / 63 skipped；只 reload 本插件；web 客户端：桌面/深色/420pt 手机渲染、收尾流程、项目记忆
-- [ ] UNRUN：A1/question 在真实 agent 回合中的端到端触发；状态变化高亮的实际观感；原生 iOS/Android；Luna 验收
-- [ ] 已知：绑定到仓库主 workspace 的卡片，其输出摘要会显示该 workspace 中普通对话的内容（摘要尚未区分看板管理 session）
+- [x] F1–F4 were reviewed by 4 read-only code-reviewers, all concluding MERGE WITH FIXES; merged into main and fixed: F1 output refresh throttling for running sessions (15s window) and accessibility label truncation; F2 sidebar reuses the board query cache (15s), module-level dedupe of the attention token, singular/plural and hit areas; F3 menu move up/down all go through the single `placeTask` ordering path; F4 module-level dedupe of the intent with a 5s validity, and the picker search box blocks shortcuts
+- [x] The F1–F4 cards were really wrapped up through Wrap up: the worktree was removed by Paseo, and the branch was kept, then merged and deleted; the wrap-up check now reports only the commits that "exist only on that branch"
+- [x] Auto progress v1 ([AUTO-STATUS-SPEC](AUTO-STATUS-SPEC.md)): records the lifecycle only for board-managed sessions; rule A1; question/silent markers; Auto label in activity; project switch
+- [x] Remember the last project (host settings), highlight status changes, quieter activity timeline
+- [x] Typecheck; `npm test` 142 passed / 63 skipped; reloaded only this plugin; web client: desktop / dark / 420pt phone rendering, wrap-up flow, project memory
+- [ ] UNRUN: end-to-end triggering of A1/question in a real agent turn; the actual look and feel of the status-change highlight; native iOS/Android; Luna acceptance
+- [ ] Known: for a card bound to the repository's main workspace, its output summary shows the content of ordinary conversations in that workspace (the summary does not yet distinguish board-managed sessions)
 
-## M2.5 多任务人工管理 — 2026-10-14
+## M2.5 Manual multi-task management — 2026-10-14
 
-- [x] Spec: [MULTITASK-SPEC.md](MULTITASK-SPEC.md)（A 需要关注总览、B 一键开 session、D 手动收尾；C/E 不做）
-- [x] AGENTS.md 增补显式 Wrap up 例外
-- [x] 实现：`client/attention.ts`、`client/wrapup.tsx`、`server/wrapup.ts`、board/drawer/session-create 接入
-- [x] Typecheck；`npm test` 96 passed / 56 skipped（新增 attention 3 项、wrapup 6 项，含真实 git 临时仓库）；只 reload 本插件
-- [x] Web 客户端只读渲染：桌面与 420pt 手机的工具栏 Attention、空状态弹窗、卡片菜单 Start session、预填创建框（取消，未创建）
-- [ ] UNRUN：Attention 有内容时的跳转（当前无待处理 session）；Wrap up 弹窗与真实归档（当前无 Done 卡片，未对用户资源执行）；原生 iOS/Android；Luna 验收（用户暂缓）
+- [x] Spec: [MULTITASK-SPEC.md](MULTITASK-SPEC.md) (A needs-attention overview, B one-click session start, D manual wrap-up; C/E not done)
+- [x] AGENTS.md gains an explicit Wrap up exception
+- [x] Implementation: `client/attention.ts`, `client/wrapup.tsx`, `server/wrapup.ts`, wired into board/drawer/session-create
+- [x] Typecheck; `npm test` 96 passed / 56 skipped (3 new attention tests, 6 new wrapup tests, including real temporary git repositories); reloaded only this plugin
+- [x] Web client read-only rendering: the toolbar Attention button, the empty-state dialog, the card menu Start session and the prefilled create box (cancelled, nothing created) on desktop and on a 420pt phone
+- [ ] UNRUN: Attention navigation when it has content (no pending session at the moment); the Wrap up dialog and real archiving (no Done card at the moment, not run against user resources); native iOS/Android; Luna acceptance (postponed by the user)
 
 ## UI refresh — 2026-10-14
 
@@ -1617,7 +1617,7 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - Duplicate directory workspaces observed after stale CUA element actions are not yet attributed to product provisioning; preserve evidence and test controlled same-operation retries separately.
 - Project-local npm registry is public npm; SDK 0.11.2 was missing from the mirror used by the first install attempt.
 
-## 2026-10-19 Needs-you inline answers (card "提问框接入need you")
+## 2026-10-19 Needs-you inline answers (card "Question box integration in Needs you")
 
 - Done: the card drawer's Needs-you area renders each live session's pending agent questions/approvals with the session view's form (`CardRequests`, SESSION-QUESTION-SPEC §2.1). Tour feature copy and README updated; the `agent-question` tip kept as is (user's choice). Board Attention menu and the board card itself stay unchanged (user's choice).
 - PASS: typecheck, `npm test` (493 passed), plugin reloaded.
@@ -1625,7 +1625,7 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - PASS (live, user, 2026-10-19): tool approvals answered from the card drawer's Needs-you area with the session in Always Ask mode: Allow (create `/tmp/flowly-approval-test.txt`, ran) and Deny (delete it, agent received "Denied by user"); session switched back to bypassPermissions.
 - UNRUN: phone layout, plan approval from the drawer, Luna 6 test session.
 
-## 2026-10-19 Ideas card UI (card "ideas UI优化")
+## 2026-10-19 Ideas card UI (card "Ideas UI optimization")
 
 - Done: Ideas card actions are right-aligned at the standard button size (Not now, then Good idea at the far right). The card body is clamped with the same fade as Progress via the shared `client/clamped.tsx`: Show more / Show less in the bottom-left, the timestamp on the right. Progress swapped its toggle and timestamp to match. The tap-to-expand chevron is gone; three strings only it used were removed from all catalogs. Specs updated (IDEAS-SPEC §5.2, TASK-SUMMARY-SPEC §7). Onboarding: layout change only, no new tour copy or tip.
 - PASS: typecheck, `npm test` (494 passed).
@@ -1636,7 +1636,7 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - Follow-up (2026-10-19): Not now renamed Dismiss (button, accessible name `Dismiss {title}`, first-idea tip, tour line, README, specs; 3 strings re-keyed in all 9 catalogs). Desktop dismiss swipes the card out to the right with a fade (180 ms), then closes its slot (160 ms); phones keep the in-place collapse; Reduce Motion removes at once; restore mid-exit cancels it. PASS: typecheck, `npm test` (494), plugin reload. UNRUN: visual check of the swipe.
 - Follow-up (2026-10-19): insert animation for Restore and newly arriving ideas: the slot opens (160 ms), then the card comes in (220 ms); on desktop a restored card slides in from the right, mirroring Dismiss; restored ideas animate even if they were listed at first render. PASS: typecheck, `npm test` (495), plugin reload. UNRUN: visual check.
 
-## 2026-10-19 Subagents chip (card "side bar session关联subagent")
+## 2026-10-19 Subagents chip (card "Link subagents to sessions in the sidebar")
 
 - Research: Paseo-native child agents (label `paseo.parent-agent-id`) are in the plugin SDK's agent list and open with `navigation.openAgent`. Provider subagents (Claude Task / Codex) are daemon-only (`listProviderSubagents`, not in `PaseoApi` 0.11.2/0.11.4) and plugins have no navigation target for them. The user chose native child agents only (option C).
 - Done: a Subagents chip above the session view's message box (`client/subagents.tsx`, logic in `shared/subagents.ts`), styled like Paseo's composer pill: per-bucket segments (working / need input / failed / ready to review, else N subagents), an upward list, rows open the child in a Paseo agent pane. Reads the shared live agent list only. New one-time tip `subagents`; tour unchanged (not a headline capability). Spec: [SUBAGENTS-SPEC.md](SUBAGENTS-SPEC.md).
@@ -1645,7 +1645,7 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - PASS (live, user, 2026-10-19): the user checked the Subagents chip in the side bar; the test child `6b58d4ff-…` was archived afterwards.
 - UNRUN: compact (phone) layout; Luna 6 session.
 
-## 2026-10-19 Phone performance (card "手机端性能优化")
+## 2026-10-19 Phone performance (card "Phone performance optimization")
 
 - Done: board reads send only the events the phone does not hold yet (`board.read-changed` `since`/`delta`; 877 KB → 216 KB on this board's data); running agents' clock/usage ticks no longer replace the shared agent list (the board re-rendered ~2×/s whenever any agent on the host ran); per-card derived props are cached across board renders; the transcript's scroll callback is throttled to 100 ms. Details: [PERFORMANCE-SPEC](PERFORMANCE-SPEC.md) "Follow-up: phone sluggish again". Onboarding: no user-visible feature, so no tour copy or tip.
 - PASS: typecheck, `npm test` (591 passed, 63 skipped), `paseo plugin reload flowly` (running, store ready).
@@ -1685,7 +1685,7 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
   version or actual publish is part of this setup's verification.
 - Onboarding: contributor tooling only; no welcome-tour or one-time tip change.
 
-## 2026-10-21 External items can be registered as outputs (card "外部条目（PR/MR 等）也能登记为 output")
+## 2026-10-21 External items can be registered as outputs (card "External items (PR/MR etc.) can also be registered as outputs")
 
 - An agent's own pull/merge request can now be registered with `role=output`
   ([CONNECTORS-SPEC](CONNECTORS-SPEC.md) §3.1, [CARD-ARTIFACTS-SPEC](CARD-ARTIFACTS-SPEC.md) §2): the server no longer
@@ -1699,7 +1699,7 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - Existing artifacts forced to input before this change are not migrated.
 - Onboarding: bug fix of an agent-facing rule; no welcome-tour or one-time tip change.
 
-## 2026-10-22 Memory / Ideas page motion (card "memory、ideas汇总区微调")
+## 2026-10-22 Memory / Ideas page motion (card "Memory and Ideas summary area fine-tuning")
 - Memory page and the drawer's Memory section: cards now collapse away when confirmed, dismissed, archived, restored or deleted and rise in where they arrive (same `useExitList` + `IdeaRow` as Ideas). The "Archived & dismissed" section and the Add memory editor open/close with `Collapse` (chevron turns); the edit form and the card fade in when swapped.
 - Ideas page: Accepted / Dismissed rows collapse out on Restore; search and filter changes rebuild the closed list instead of animating each row.
 - Checked: `npm run typecheck`, `npm test`. Not run: on-screen check in Paseo (desktop/compact, Reduce Motion), because this change reuses existing motion primitives and has no new logic to unit test.
@@ -1708,51 +1708,51 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - Scan (same day): Links and Artifacts lists already shared `IdeaRow`, so they follow the new exit automatically. The Needs attention sheet (dismiss / restore a card) had no motion; its rows now use the same fade-and-collapse (`AttentionRows` in `client/board.tsx`). The Dismissed chevron in that sheet now turns like the other disclosures (`Chevron`), and the drawer's Closed ideas rows collapse out on Restore (and rise in when an idea is closed).
 - Second scan (same day): disclosures that still opened and closed instantly now use `Collapse` and a turning chevron (`TurnChevron` in `client/ui.tsx`): the Progress card's earlier versions, the workpad check "Show output", the idea detail in the native chip popover, the agent activity block in the session transcript, and the chevron in `SectionHeader`. Not changed on purpose: the subagents chip (its tray already has its own presence) and the Show more / Show less toggle on content cards (its height already animates).
 
-## 2026-10-22 Delivery constraints (card “流程约束不足”)
+## 2026-10-22 Delivery constraints (card "Insufficient process constraints")
 
 - Implemented [DELIVERY-CONSTRAINTS-SPEC](DELIVERY-CONSTRAINTS-SPEC.md): `outputs` on In review/result atomically registers artifacts with the delivery, moves and receipt; omitted outputs remind, `[]` explicitly declares none. Persisted receipt IDs survive exact replay without revalidating missing files or private metadata. MCP, CLI and both skill copies agree.
 - `acknowledgeOpen` now requires a prior refusal for the same session/card/workpad/HEAD. The first pre-acknowledged attempt still refuses; new turns clear the bounded ephemeral record through the lifecycle hook, independently of truncated board history.
 - A real Sonnet run exposed private GitHub metadata lookup blocking an otherwise valid output URL. Fixed: ExternalError on an explicit valid http(s) output saves a plain URL with a notice; bare keys and programmer errors still refuse. No connection credentials or settings changed.
 - PASS: focused checks (3 files / 59 tests), `npm run typecheck`, `npm test` (109 files / 932 tests), plugin reload. Verification directories are excluded from product TS/Vitest discovery so third-party research fixtures are preserved without entering product checks.
-- Live PASS after the fix: fresh Sonnet and GPT sessions received only “创建 PR 并合入”, merged PR #3/#4, atomically registered the PR via outputs and delivered again. First-round private-metadata failures are retained. Evidence: [verification/delivery-constraints-2026-10-22.md](verification/delivery-constraints-2026-10-22.md). Four cards/worktrees and five test sessions are cleaned; remote fixture branches removed. UNRUN: deleting four local Tinylink test refs requires filesystem access outside the task root; sandbox refused and escalation did not complete. The user asked to retain the private GitHub repository and PR history for reuse.
+- Live PASS after the fix: fresh Sonnet and GPT sessions received only "Create a PR and merge it" (the instruction was given in Chinese), merged PR #3/#4, atomically registered the PR via outputs and delivered again. First-round private-metadata failures are retained. Evidence: [verification/delivery-constraints-2026-10-22.md](verification/delivery-constraints-2026-10-22.md). Four cards/worktrees and five test sessions are cleaned; remote fixture branches removed. UNRUN: deleting four local Tinylink test refs requires filesystem access outside the task root; sandbox refused and escalation did not complete. The user asked to retain the private GitHub repository and PR history for reuse.
 - Onboarding: no new UI, setting or entry point; existing Inputs and outputs and Workpad guidance covers the behavior. No tour, tip or What's new change.
 
-## 2026-10-22 Constraint benchmark（卡片“流程约束不足”）
+## 2026-10-22 Constraint benchmark (card "Insufficient process constraints")
 
-- 实现 `benchmarks/constraints/` 的独立 grader 与 B01 quick `run / grade / cleanup`；补清只读 receipt 来源、nextMoves 主动/最终归属，保留 test 阶段与事实前置条件，不加 hooks。来源缺失/冲突不猜；独立 FAIL 不被 UNKNOWN 覆盖。
-- 最终聚焦检查 PASS：54 主项 + 3 Luna 风险项 = 57。独立 Luna 验证了前一版本 56/56；GPT Astra 按用户指定完成实现审查并关闭阻塞。类型检查 PASS。工具/文档变更，无产品 reload/UI/onboarding 变更。
-- 真实 quick：GPT 三回合、fixture PR #5 合入与 output 登记已观测；Sonnet weekly quota INVALID，双模型最终 UNKNOWN/exit 2，不能称全部通过。原始失败、补采及版本化重评保留；不重跑模型改成绩。
-- 两次 quick 的专属资源与一次无模型 dirty-worktree 清理 smoke 均收尾通过，原有 Tinylink/旧 refs/私有仓库历史保留；审查/验证会话已归档。详见 [实现与验证报告](verification/constraint-benchmark-2026-10-22/implementation-report.md)。
+- Implemented the independent grader in `benchmarks/constraints/` and the B01 quick `run / grade / cleanup`; made the read-only receipt sources and the proactive/final attribution of nextMoves explicit, kept the test stage and the factual preconditions, and added no hooks. A missing or conflicting source is not guessed; an independent FAIL is not overridden by UNKNOWN.
+- Final focused check PASS: 54 main items + 3 Luna risk items = 57. Independent Luna verified the previous version 56/56; GPT Astra finished the implementation review as the user specified and closed the blockers. Typecheck PASS. Tooling/doc change, no product reload/UI/onboarding change.
+- Real quick run: GPT's three turns, the merge of fixture PR #5 and the output registration were observed; Sonnet's weekly quota made it INVALID, so the final result for the two models is UNKNOWN/exit 2 and cannot be called all-passing. The original failures, the supplementary collection and the versioned re-evaluation are kept; models are not rerun to change the result.
+- The dedicated resources of both quick runs and one model-free dirty-worktree cleanup smoke were wrapped up and passed; the existing Tinylink, old refs and private repository history are kept; the review/verification sessions are archived. See the [implementation and verification report](verification/constraint-benchmark-2026-10-22/implementation-report.md).
 
-## 2026-10-23 Benchmark scope 历史同步修正
+## 2026-10-23 Benchmark scope history sync fix
 
-- grader 1.0.1：每case启动会话前冻结fixture main，评分和清理共用scope图/路径/tree审计。已批准历史的原样导入可通过，额外新提交、dirty、模式变化、改后还原和merge resolution仍拒绝；缺证据UNKNOWN，不按任意最终父提交放行。
-- 保存证据离线回归：77/77 PASS。独立重评只将GPT T3的scope误FAIL改为PASS，其他五回合成绩不变，整体仍FAIL/exit1。旧run 56个文件hash保持，未跑模型、未创建原生fixture、未改旧成绩；临时Git测试目录已清理。
-- 未重跑新Luna/模型会话，遵循本次“不重跑模型”；复用保存的Luna风险用例。无产品API/UI改动，无需reload或onboarding更新。证据见 [scope修正报告](verification/constraint-benchmark-scope-2026-10-23/report.md)。
+- grader 1.0.1: freezes the fixture main before each case starts its session, and scoring and cleanup share the scope graph / path / tree audit. An as-is import of approved history can pass, while extra new commits, dirty state, mode changes, restore-after-change and merge resolution are still rejected; missing evidence is UNKNOWN, and nothing is let through on an arbitrary final parent commit.
+- Offline regression on the saved evidence: 77/77 PASS. The independent re-evaluation only changed GPT T3's scope false FAIL to PASS; the other five turns keep their results, and the overall result is still FAIL/exit 1. The hashes of the old run's 56 files are unchanged, no model was run, no native fixture was created, no old result was changed; the temporary Git test directories are cleaned.
+- No new Luna/model sessions were rerun, following this round's "do not rerun models"; the saved Luna risk cases are reused. No product API/UI change, so no reload or onboarding update is needed. Evidence: [scope fix report](verification/constraint-benchmark-scope-2026-10-23/report.md).
 
 
-## 2026-10-23 Shared checklist wording — Fable整体复核后
+## 2026-10-23 Shared checklist wording — after Fable's overall review
 
-- Spec先行：TURN-CHECKLIST-SPEC §2/§2.1明确现行阶段和整体交付/阶段汇报边界；只收紧shared/turn-checklist.ts第2/5项，并由既有skill-source生成仓库SKILL.md。另四项与详细规则逐字不变，6项/1583字符。
-- PASS：离线3 files / 62 tests（skill-source、agent-service、tool-server）；规范/生成一致性与旧证据hash核对。保留旧benchmark原始/独立重评，不改评分。
-- 未运行：B01、被测模型/审查会话、fixture/grader、全量测试、安装/reload、Git发布；未加hooks/改服务端行为/API/UI。仓库skill已生成，不宣称运行中的服务已加载新规则或模型遵守改善。无onboarding/tip/What's new改动。
-- [本轮归属、检查与保留证据](verification/turn-checklist-wording-2026-10-23/report.md)。
+- Spec first: TURN-CHECKLIST-SPEC §2/§2.1 make the current stage and the boundary between overall delivery and stage reports explicit; only items 2 and 5 of shared/turn-checklist.ts are tightened, and the repository SKILL.md is generated by the existing skill-source. The other four items and the detailed rules are unchanged word for word, 6 items / 1583 characters.
+- PASS: offline 3 files / 62 tests (skill-source, agent-service, tool-server); spec/generation consistency and old-evidence hash check. The old benchmark's original and independent re-evaluations are kept, and scoring is not changed.
+- Not run: B01, the models under test / review sessions, fixture/grader, the full test suite, install/reload, Git release; no hooks added and no server behavior/API/UI changed. The repository skill is generated, but it is not claimed that a running service has loaded the new rules or that model compliance improved. No onboarding/tip/What's new change.
+- [Ownership, checks and retained evidence of this round](verification/turn-checklist-wording-2026-10-23/report.md).
 
-2026-10-24：统一紧凑布局性能路径，保留独立Overview/CardDetail、fresh授权、连续动画与450ms交接；按可用宽度760分界，移除性能门控的平台特化，清理旧CardBoardContext/Proxy。见[统一规范](RESPONSIVE-PERFORMANCE-SPEC.md)、[两阶段读模型](NATIVE-OVERVIEW-SPEC.md)和[瘦身规范](CARD-QUERY-SLIM-SPEC.md)。验证结果见[交付记录](verification/responsive-ship-2026-10-24/README.md)。
+2026-10-24: unified the compact-layout performance path, keeping the separate Overview/CardDetail, fresh authorization, continuous animation and the 450ms handoff; the split is at an available width of 760, the platform specialization of the performance gate is removed, and the old CardBoardContext/Proxy is cleaned up. See the [unified spec](RESPONSIVE-PERFORMANCE-SPEC.md), the [two-stage read model](NATIVE-OVERVIEW-SPEC.md) and the [slimming spec](CARD-QUERY-SLIM-SPEC.md). For the verification results see the [delivery record](verification/responsive-ship-2026-10-24/README.md).
 
-## 2026-10-24 动画流畅度有限优化
+## 2026-10-24 Limited animation smoothness optimization
 
-先写[MOBILE-SMOOTHNESS-SPEC](MOBILE-SMOOTHNESS-SPEC.md)，同三星冻结源码对照点阵静止、共享lease候选及反向baseline。只让新点阵时钟复用高度lease，保留网格；独立mounted又复现反转中一次额外启停，v2仅用microtask复查既有guard消除，无新timer/状态/框架。连续220/160ms、fresh、450ms及宽度统一保持。最终收起26.13/28.21ms（原39.28/39.62），展开仍59.07/25.15ms，区段40–48ms、Idea125ms起终态未证实均保留，非整体FPS收益。41窗37有效/4排除，旧140capture/37窗Luna独立审计PASS，最终161capture/41窗父复算PASS；新增4窗独立审计UNRUN。此前共享dirty树V2 typecheck、Luna mounted8/root focused22/full125文件1024项PASS，374源hash稳定。正常插件重载与三星ready、owned入口/runtime/工具/会话清理PASS，17MiB压缩证据保留，其他会话工作/共享缓存保留；用户后续授权发运仅限本修复及规范，隔离树另行验收。详见[本轮记录](MOBILE-SMOOTHNESS-SPEC.md#6-执行结果与边界)。
+Wrote the [MOBILE-SMOOTHNESS-SPEC](MOBILE-SMOOTHNESS-SPEC.md) first, comparing the dot-matrix at rest, the shared-lease candidate and a reverse baseline against the frozen source on the Samsung. Only the new dot-matrix clock reuses the height lease, and the grid is kept; an independent mounted run reproduced one extra stop/start during reversal, which v2 removes with only a microtask re-check of the existing guard, with no new timer, state or framework. Continuous 220/160ms, fresh, 450ms and the unified width are kept. Final collapse is 26.13/28.21ms (was 39.28/39.62), expand is still 59.07/25.15ms, and the 40–48ms segment and the unconfirmed end state from Idea 125ms on are both kept; this is not an overall FPS gain. Of 41 windows, 37 are valid and 4 excluded; the old 140 captures / 37 windows passed the independent Luna audit (PASS), and the final 161 captures / 41 windows passed the parent recomputation (PASS); the independent audit of the 4 new windows is UNRUN. Earlier, on the shared dirty tree, V2 typecheck, Luna mounted 8 / root focused 22 / full 125 files with 1024 tests PASS, and the hashes of 374 sources were stable. A normal plugin reload and the Samsung being ready, and cleanup of owned entries/runtime/tools/sessions PASS; 17 MiB of compressed evidence is kept, and other sessions' work and the shared cache are kept; the user's later authorization to ship covers only this fix and the spec, and the isolated tree is accepted separately. See the [record of this round](MOBILE-SMOOTHNESS-SPEC.md#6-execution-results-and-boundaries).
 
-## 2026-10-24 宽屏点阵连续性修正
+## 2026-10-24 Wide-screen dot-matrix continuity fix
 
-连续开卡反复重放是全局高度让路后phase0恢复的可见代价。按MOBILE-SMOOTHNESS-SPEC §7仅在宿主窗口<760让装饰时钟让路；宽屏保留同一loop/phase，lease和resize通知不重启。只改motion.tsx，无新增缓存、timer、框架或RPC；fresh归属、连续220/160ms与450ms交接保持。既有三星局部收起约39→26–28ms，展开不稳定，无桌面/FPS收益结论。已有typecheck、Luna mounted11/11、focused5文件37项通过，首次旧文档断言失败留存；本地Flowly重载running，真实UI/FPS未运行。用户要求停止后续测试直接合入，未再跑候选全量或设备矩阵；仅选择本修复和规范按PR流程发运。无需tour/tip/What's new。证据保留于verification/marquee-width-2026-10-24。
+The repeated replay when cards are opened in succession is the visible cost of phase 0 being restored after the global height yield. Per MOBILE-SMOOTHNESS-SPEC §7, the decorative clock yields only when the host window is <760; on wide screens the same loop/phase is kept, and lease and resize notifications do not restart it. Only motion.tsx changes, with no new cache, timer, framework or RPC; fresh ownership, continuous 220/160ms and the 450ms handoff are kept. The existing partial collapse on the Samsung goes from about 39 to 26–28ms, expand is unstable, and there is no desktop/FPS gain conclusion. Typecheck, Luna mounted 11/11 and focused 5 files / 37 tests already pass, and the first old-document assertion failure is retained; the local Flowly reload is running, and real UI/FPS was not run. The user asked to stop further testing and merge directly, so the full candidate run and the device matrix were not run again; only this fix and the spec were selected to ship through the PR flow. No tour/tip/What's new needed. Evidence is kept in verification/marquee-width-2026-10-24.
 
-## 2026-10-27 summary 不再生成：Paseo 0.13 的 turn_ended 不带 timeline
+## 2026-10-27 Summary no longer generated: Paseo 0.13's turn_ended carries no timeline
 
-- 现象：Agent SMITH 的多张卡片没有 progress。数据：daemon 0.13.0 于 10-26 02:04Z 启动，之后全项目已完成回合里只有手动 Refresh 的 summary 写入（Flowly 10-26 为 1/77，10-27 为 0/18；SMITH 10-27 为 2/27）。
-- 根因：Paseo 0.13 的 `publishAgentStream` 对 turn_completed/failed/canceled 一律发 `timeline: []`（SDK 类型仍声明该字段，所以编译无报错）。`SummaryService.enqueue` 对空文本直接返回，无错误记录。同一个空数组还影响 `byUser`/`pick`（Agent habits）、记忆线索、workpad 计划、外部会话 insights。
-- 修复：`server/turn-timeline.ts` 在空时读 timeline 最新一页的最后一轮，`agent.turn_ended` 入口统一使用；`agent.turn_ended` 的 `byUser` 在 10-26 起的事件里被记成 false，未回填。
+- Symptom: several Agent SMITH cards have no progress. Data: daemon 0.13.0 started on 10-26 at 02:04Z, and since then, among completed turns in all projects, only manual Refresh wrote a summary (Flowly 1/77 on 10-26, 0/18 on 10-27; SMITH 2/27 on 10-27).
+- Root cause: Paseo 0.13's `publishAgentStream` always sends `timeline: []` for turn_completed/failed/canceled (the SDK type still declares the field, so the build shows no error). `SummaryService.enqueue` returns straight away on empty text, with no error record. The same empty array also affects `byUser`/`pick` (Agent habits), memory clues, the workpad plan and external-session insights.
+- Fix: `server/turn-timeline.ts` reads the last turn of the newest timeline page when the timeline is empty, and the `agent.turn_ended` entry point uses it uniformly; the `byUser` of `agent.turn_ended` was recorded as false in events from 10-26 on and has not been backfilled.
 
 
 
@@ -1796,36 +1796,36 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - This replaces the same day's first rail commit (6678aca: a rail with bell and robot, overview without the unread chip); kept from it: the rail's collapsed-column look, the running chip only while something runs, the divider rule.
 - Pure rules and tests: `railShown`, `toolbarDockButtons` (`client/dock-logic.ts`); `needsQueue`, `needsCount`, `updatedQueue`, `changeItem`, `stepAt`, `stepPosition`, `cardAsks` (`client/step-through.ts`); `overviewRow` (`client/overview.ts`). What's new 1.8.0: two lines (the chip and step-through; the dock as the chat with its rail). Tour: the Attention demo shows the chip and step-through; The bell legend became Step through.
 - UNRUN: live look and behaviour of the rail, the step-through bar over the card sidebar (desktop and phone), answering each ask kind from it, live drop-out and Next, Esc ending it, the notification link at launch, the overview chips and the tour demo.
-## 2026-11-01 Android 返回键逐级回退
+## 2026-11-01 Android Back key steps back level by level
 
-- 用户反馈：Android 返回键在任何位置都直接关闭 Flowly。按 [UI-UX-SPEC §5](UI-UX-SPEC.md#5-phone-and-narrow-layouts) 2026-11-01 Android Back 条：返回键与 Esc 走同一条 `runIntent("escape")`，session 视图 → 卡片 → 页面/看板，看板根部才交给 Paseo。
-- `client/android-back.ts`：仅 Android 订阅 `BackHandler`；每次按下先通过 React fiber 找到 Flowly 所在屏幕的 react-navigation 导航对象并调用 `isFocused()`，Paseo 推入的 agent/workspace 屏幕在上面时不接管。找不到或出错时返回 false，保持宿主行为。fiber 遍历抽到 `client/host-fiber.ts`，与 `host-horizontal-scroll.ts` 共用。AGENTS.md 已加例外。
-- 未处理（未加代码）：宿主侧边栏盖在 Flowly 上时按返回会关掉其后的卡片；宿主弹窗呈现动画期间（约 300 ms）按返回由 Flowly 处理。
-- 引导：标准平台行为，不加提示、不改导览。What's new：补丁版本不加。遥测：不加字段。无新字符串。
-- 测试：`client/android-back.test.ts`（最近的屏幕导航对象、忽略相似对象、抛错的树）。
+- User feedback: the Android Back key closes Flowly directly from any position. Per the 2026-11-01 Android Back item of [UI-UX-SPEC §5](UI-UX-SPEC.md#5-phone-and-narrow-layouts): Back and Esc go through the same `runIntent("escape")`, session view → card → page/board, and only at the board root is it handed to Paseo.
+- `client/android-back.ts`: subscribes to `BackHandler` on Android only; on each press it first finds, through the React fiber, the react-navigation navigation object of the screen Flowly is on and calls `isFocused()`, and does not take over when an agent/workspace screen pushed by Paseo is on top. When it cannot find it or errors, it returns false and leaves the host behavior alone. The fiber walk is extracted to `client/host-fiber.ts`, shared with `host-horizontal-scroll.ts`. AGENTS.md has gained an exception.
+- Not handled (no code added): when the host sidebar covers Flowly, pressing Back closes the card behind it; during the host dialog's presentation animation (about 300 ms), Back is handled by Flowly.
+- Onboarding: standard platform behavior, so no tip and no tour change. What's new: not added for a patch release. Telemetry: no field added. No new strings.
+- Tests: `client/android-back.test.ts` (nearest screen navigation object, ignoring look-alike objects, a tree that throws).
 
-## 2026-10-31 手机看板左右滑动切换 lane
+## 2026-10-31 Swipe left and right to switch lanes on the phone board
 
-- 用户要求：手机看板左右滑动切换 lane，不能和 Paseo 滑动打开侧边栏冲突；参照 better-paseo，只有在最左的 lane 才触发侧边栏。按 [UI-UX-SPEC §5](UI-UX-SPEC.md#5-phone-and-narrow-layouts) 2026-10-31 lane swipe 条（替换原“不做横向分页”的规则）。
-- `client/lane-pager.tsx`：iOS/Android 上 lane 是原生横向分页 `ScrollView` 的页，顺序与状态菜单一致，跟手滑动，松手停在最近的 lane 并更新 `mobileStatus`。只挂载当前 lane，闲置 400 ms 后再挂载左右各一个，其余页是空占位。从状态菜单选择直接跳过去，保留原来的淡入（`lanePick`）。Web 不变。
-- 侧边栏：离开第一个 lane 时，`client/host-horizontal-scroll.ts` 通过 React fiber 找到 Paseo 的 `HorizontalScrollContext`，登记横向偏移 100，宿主的右滑打开侧边栏手势随即失败，右滑由分页处理。回到第一个 lane、卡片盖住看板、或卸载时注销。找不到注册表时什么都不做，也不报错。AGENTS.md 已加这条依赖 Paseo 内部实现的例外。
-- 引导：新增一次性提示 `lane-swipe`（"Swipe left or right to switch lanes."，9 个目录），排在 first-card 之后、card-display 之前；滑到别的 lane 也算看过。导览不变。What's new：补丁版本不加。遥测：不加字段（纯手势，不是开关或核心动作）。
-- 测试：`client/host-horizontal-scroll.test.ts`（找到注册表、忽略相似对象、环形树和抛错的树）、`lane-rows.test.ts` 的 `settledPage`、`onboarding-logic.test.ts` 的提示顺序。
+- User request: swipe left and right on the phone board to switch lanes, without conflicting with Paseo's swipe that opens the sidebar; following better-paseo, only the leftmost lane triggers the sidebar. Per the 2026-10-31 lane swipe item of [UI-UX-SPEC §5](UI-UX-SPEC.md#5-phone-and-narrow-layouts) (it replaces the earlier rule of "no horizontal paging").
+- `client/lane-pager.tsx`: on iOS/Android each lane is a page of a native horizontally paged `ScrollView`, in the same order as the status menu, following the finger, and on release it settles on the nearest lane and updates `mobileStatus`. Only the current lane is mounted; after 400 ms idle, one lane on each side is mounted, and the other pages are empty placeholders. Choosing from the status menu jumps straight there, keeping the original fade-in (`lanePick`). Web is unchanged.
+- Sidebar: when leaving the first lane, `client/host-horizontal-scroll.ts` finds Paseo's `HorizontalScrollContext` through the React fiber and registers a horizontal offset of 100, so the host's swipe-right gesture that opens the sidebar fails and the right swipe is handled by the pager. It unregisters when returning to the first lane, when a card covers the board, or on unmount. When it cannot find the registry it does nothing and reports no error. AGENTS.md has gained this exception for relying on Paseo's internals.
+- Onboarding: a new one-time tip `lane-swipe` ("Swipe left or right to switch lanes.", 9 catalogs), placed after first-card and before card-display; swiping to another lane also counts as seen. The tour is unchanged. What's new: not added for a patch release. Telemetry: no field added (a pure gesture, not a switch or core action).
+- Tests: `client/host-horizontal-scroll.test.ts` (finding the registry, ignoring look-alike objects, a circular tree and a tree that throws), `settledPage` in `lane-rows.test.ts`, and the tip order in `onboarding-logic.test.ts`.
 
-## 2026-10-31 手机看板顶栏精简
+## 2026-10-31 Slimmer phone board top bar
 
-- 用户反馈：手机顶栏右侧按钮太多，项目名显示不全。按 [UI-UX-SPEC §5](UI-UX-SPEC.md#5-phone-and-narrow-layouts) 2026-10-31 条：紧凑顶栏只留项目选择、Attention、搜索、筛选；New task 改为右下角悬浮按钮（`client/new-task-fab.tsx`，仅在看板列表可见），排序和 Card display… 移入筛选面板，项目设置走项目选择面板的 Edit。桌面端不变；无 RPC/存储改动。
-- 已运行：typecheck、npm test（148 files / 1291 passed / 1 skipped）、make check；web 紧凑宽度截图。未运行：Android 真机（未连接）。[验证记录](verification/mobile-header-2026-10-31/report.md)。
-- 引导：不改导览。`card-display` 提示在紧凑布局改为指向 “Filters → Card display”（桌面仍是 Sort 菜单），新字符串已加入 9 个目录，ONBOARDING-SPEC 提示表同步。What's new / 遥测：无。
-- 润色（同日）：Low/Normal 优先级图标改为 `ArrowDown`/`Minus`（原信号格图标几乎看不见）；分组标题折叠摘要贴行尾右对齐（`SectionHeader`、`Disclosure`）；Ideas/Memory 来源行的状态不再折行。typecheck、npm test（1291 passed, 1 skipped）、make check 均 exit 0；impeccable detect 无发现。真机未验证。证据：`docs/verification/mobile-header-2026-10-31/report.md`。
+- User feedback: the phone top bar has too many buttons on the right and the project name is cut off. Per the 2026-10-31 item of [UI-UX-SPEC §5](UI-UX-SPEC.md#5-phone-and-narrow-layouts): the compact top bar keeps only project selection, Attention, search and filter; New task becomes a floating button at the bottom right (`client/new-task-fab.tsx`, visible only in the board list), sorting and Card display… move into the filter panel, and project settings go through Edit in the project selection panel. Desktop is unchanged; no RPC/storage change.
+- Run: typecheck, npm test (148 files / 1291 passed / 1 skipped), make check; web compact-width screenshots. Not run: a real Android device (not connected). [Verification record](verification/mobile-header-2026-10-31/report.md).
+- Onboarding: the tour is unchanged. In the compact layout the `card-display` tip now points to "Filters → Card display" (on desktop it is still the Sort menu), the new strings are added to the 9 catalogs, and the ONBOARDING-SPEC tip table is kept in sync. What's new / telemetry: none.
+- Polish (same day): the Low/Normal priority icons change to `ArrowDown`/`Minus` (the old signal-bars icon was nearly invisible); the collapsed summary of group titles is right-aligned at the end of the row (`SectionHeader`, `Disclosure`); the status in the Ideas/Memory source rows no longer wraps. typecheck, npm test (1291 passed, 1 skipped) and make check all exit 0; impeccable detect found nothing. Not verified on a real device. Evidence:`docs/verification/mobile-header-2026-10-31/report.md`.
 
-## 2026-11-05 看板卡片可访问名称与稳定 testID（自动化定位）
+## 2026-11-05 Accessible names and stable testIDs for board cards (for automation targeting)
 
-- 来源卡：看板卡片补齐可访问名称，让 UI 自动化验证可定位。此前卡片可访问名称不含泳道、无 testID，Playwright `getByText` 只命中宿主侧栏同名会话条目，pager/横向滚动落点不定时点卡片经常点空；按 [UI-UX-SPEC §2](UI-UX-SPEC.md#2-board-toolbar-and-secondary-controls) 2026-11-04 automation names 条（本次新增）落契约。
-- `client/card-label.ts`（新，纯模块）：`taskCardLabel` 拼卡片可访问名称——"Open task {title}. {lane}."开头（lane 即业务状态，覆盖“泳道+状态”），后接原有全部事实段；`workpadText` 一并移入。`client/card.tsx` 渲染处加 `testID="card-{taskId}"`；`client/board.tsx` 传入 `lane={nameOf(status)}`，状态菜单行加 `lane-tab-{status}`、紧凑状态行加 `lane-chooser`；`client/lane-pager.tsx` 页加 `lane-page-{status}`；`Row`（`client/ui.tsx`）支持 `testID`。`priorityLabels` 移到 `shared/model.ts`（与 statusLabels/taskTypeLabels 同处），`client/status.tsx` 原位 re-export，调用方不变。
-- `docs/promo/shot-lib.mjs`：`open()` 的 Flowly 入口与项目 tab 改为按横向带（侧栏 / 插件 tab 行）精确文本定点点击，找不到即抛错，不再静默停在错误项目；看板就绪等待改为 testID/aria-label（不依赖语言）。新增 `openCard(s, title)`（仅凭标题：`getByRole("button", { name: /^Open task {title}\./ })` 点击并等待 `task-drawer-motion` 显示该标题）与 `closeCard(s)`（Esc + 等 pointer-events 失效）。
-- 测试：`client/card-label.test.ts`（标题+泳道开头、无泳道省略、信号段顺序、优先级/类型段）。验证脚本 `docs/verification/board-card-open-2026-11-05/run.mjs`：真机 web 上仅凭标题连续 5 次打开并关闭指定卡片侧栏（真实 flowly 项目——本机 daemon 未建过 Tinylink fixture），详见该目录 report。
-- 引导：无 UI/入口变化，不加导览、提示或 What's new。遥测：不加字段。无新用户可见字符串（lane 名为已有本地化数据）。性能：仅多一个字符串段与既有 testID 属性，卡片 memo 比较含 lane 字符串。
+- Source card: board cards get complete accessible names so that UI automation checks can locate them. Before, a card's accessible name did not include the lane and it had no testID, so Playwright `getByText` only matched the host sidebar's same-named session entry, and clicks on cards often missed when the pager/horizontal scroll landing point was not settled; the contract is set by the 2026-11-04 automation names item of [UI-UX-SPEC §2](UI-UX-SPEC.md#2-board-toolbar-and-secondary-controls) (added in this change).
+- `client/card-label.ts` (new, pure module): `taskCardLabel` builds the card's accessible name, starting with "Open task {title}. {lane}." (the lane is the business status, covering "lane + status"), followed by all the existing fact segments; `workpadText` moves in with it. `client/card.tsx` adds `testID="card-{taskId}"` where it renders; `client/board.tsx` passes `lane={nameOf(status)}`, adds `lane-tab-{status}` to the status menu rows and `lane-chooser` to the compact status row; `client/lane-pager.tsx` adds `lane-page-{status}` to its pages; `Row` (`client/ui.tsx`) supports `testID`. `priorityLabels` moves to `shared/model.ts` (alongside statusLabels/taskTypeLabels), and `client/status.tsx` re-exports it in place, so callers are unchanged.
+- `docs/promo/shot-lib.mjs`: the Flowly entry and project tab in `open()` now click by exact text within a horizontal band (the sidebar / plugin tab row) and throw when nothing is found, instead of silently staying on the wrong project; the board-ready wait now uses testID/aria-label (language-independent). New `openCard(s, title)` (by title alone: it clicks `getByRole("button", { name: /^Open task {title}\./ })` and waits for `task-drawer-motion` to show that title) and `closeCard(s)` (Esc + waiting for pointer-events to lapse).
+- Tests: `client/card-label.test.ts` (title + lane prefix, lane omitted when absent, signal segment order, priority/type segments). Verification script `docs/verification/board-card-open-2026-11-05/run.mjs`: on a real web client, opening and closing a given card's sidebar 5 times in a row by title alone (the real flowly project, since this machine's daemon has never had the Tinylink fixture created); see the report in that directory.
+- Onboarding: no UI/entry-point change, so no tour, tip or What's new. Telemetry: no field added. No new user-visible strings (lane names are existing localized data). Performance: only one more string segment and the existing testID property; the card memo comparison includes the lane string.
 
 ## Group lanes review follow-ups (branch `group-needs-you`) — 2026-11-10
 
@@ -1836,13 +1836,13 @@ Phase 2 spec: [PHASE-02-SPEC.md](PHASE-02-SPEC.md). Three current-card tools; au
 - Discard and the lane draft: Discard in the group settings page's unsaved-changes question now resets the lane editor (remount) and drops its dirty key (`withoutLaneDraft`, `lanesDirtyKey` in `client/group-settings-logic.ts`). Spec §0 ruling, §5. Test: `client/group-settings-logic.test.ts`. No new strings.
 - Review fixes: per-project lanes are taken only while groups are not ready AND the board has no stored groups (else `GROUPS_UNAVAILABLE`, so a migration can't silently overwrite the edit); `groupLanesFrom` never returns every lane off (falls back to all on, built-in names); `projectEdit.lanes` comment in `shared/model.ts` corrected. Spec §0, §2, §5, §7. Tests: `server/store-group-lanes.test.ts`, `shared/group-lanes.test.ts`.
 
-## 2026-11-10 交付模式 Ship to main（`ship_main`）
-- 第四种交付模式 `ship_main`（Noah 裁定 2026-11-10，`docs/DELIVERY-MODE-SPEC.md` §4 与 Ruling）：`shared/delivery-mode.ts` 加入 `deliveryModes`，标签 "Ship to main"（九个目录翻译），`deliveryLine` 写明检查、变基、`flowly_integrate`、`git push origin main`、停止条件。卡片、Edit、New task、主机默认与分组默认（Tooling 组）都经 `deliveryModes` 取得该值；组默认走既有 `resolveDeliveryMode` 链。
-- 交付后的 ship 步骤由 Auto review 通过触发：`server/auto-review.ts` 新增可选依赖 `deliveryMode`，通过且有效模式为 `ship_main` 时发送 `shared/auto-review.ts` 的 `shipMessage`（带 `[Flowly auto review` 标记，不计入对话）；其他情况不发消息。`index.server.ts` 按卡 → 项目 → 分组 → 主机解析模式。
-- 停止规则（agent 执行）：变基冲突、变基后检查失败、`flowly_integrate` 拒绝、主检出落后 origin、未决发现，卡停在 In review 并报告 blocker；推送被拒则设 integrated 并报告。只推 main，从不 force。
-- 工具与技能文本：`flowly_integrate` 描述、`done` 说明、技能 "Delivery mode" 行（`server/skill-source.ts` 与 `skills/flowly/SKILL.md` 同步）。AGENTS.md 的 `flowly_integrate` 例外已更新。
-- 测试：`shared/delivery-mode.test.ts`（模式、标签、行内容、分组解析与 taskInput/taskEdit 接受）；`server/auto-review.test.ts`（ship_main 通过发消息，branch 不发）。`npm run typecheck`、`npm test`（198 files passed, 1 skipped；2136 tests passed）、`make check` 均通过。
-- 引导与 What's new：不改（第四个值，随 Board groups 第 7/7 卡统一交代）。遥测：不加字段（交付模式无心跳字段）。
+## 2026-11-10 Delivery mode Ship to main (`ship_main`)
+- Fourth delivery mode `ship_main` (ruling by Noah 2026-11-10, `docs/DELIVERY-MODE-SPEC.md` §4 and Ruling): `shared/delivery-mode.ts` adds it to `deliveryModes`, with the label "Ship to main" (translated in the nine catalogs), and `deliveryLine` spells out the checks, the rebase, `flowly_integrate`, `git push origin main` and the stop conditions. Cards, Edit, New task, the host default and the group default (Tooling group) all take the value from `deliveryModes`; the group default goes through the existing `resolveDeliveryMode` chain.
+- The ship step after delivery is triggered by Auto review passing: `server/auto-review.ts` gains an optional dependency `deliveryMode`, and when the review passes and the effective mode is `ship_main` it sends the `shipMessage` of `shared/auto-review.ts` (carrying the `[Flowly auto review` marker, not counted as conversation); in every other case no message is sent. `index.server.ts` resolves the mode by card → project → group → host.
+- Stop rules (agent execution): a rebase conflict, a failed check after the rebase, a `flowly_integrate` refusal, the main checkout being behind origin, or an open finding leaves the card at In review and reports a blocker; if the push is rejected, it sets integrated and reports. It pushes only main, never forced.
+- Tool and skill text: the `flowly_integrate` description, the `done` note and the skill's "Delivery mode" line (`server/skill-source.ts` and `skills/flowly/SKILL.md` kept in sync). The `flowly_integrate` exception in AGENTS.md is updated.
+- Tests: `shared/delivery-mode.test.ts` (modes, labels, line content, group resolution and acceptance by taskInput/taskEdit); `server/auto-review.test.ts` (ship_main sends the message on a pass, branch does not). `npm run typecheck`, `npm test` (198 files passed, 1 skipped; 2136 tests passed) and `make check` all pass.
+- Onboarding and What's new: not changed (a fourth value, covered together with card 7/7 of Board groups). Telemetry: no field added (delivery mode has no heartbeat field).
 
 ## 2026-11-10 New sessions never inherit an earlier session's settings
 - Cause: with no project, group or global default, new sessions (New task / New session / Quick task pickers, `flowly_start_card`, so dispatcher starts too) took provider, model, reasoning, mode and speed from the project's latest session, which counted Flowly's own Haiku summarizer sessions; card sessions started on Haiku 5.5 without anyone choosing it. Separately, unset reasoning was suggested as Extra High.
