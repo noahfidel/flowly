@@ -1,91 +1,91 @@
-# 卡片产物（Artifacts）
+# Card artifacts (Artifacts)
 
-状态：2026-10-17 用户审阅并要求实现（“开始”）：只存引用；agent 不能删除人添加的产物；卡面不显示；每条标明输入/输出与人/agent 添加；follow-up 继承暂不做（§11）。卡片任务 `82814710`。
+Status: reviewed by the user on 2026-10-17, who asked for it to be implemented (their word, translated: "Start"): store references only; an agent cannot delete artifacts a person added; not shown on the card face; each entry says input/output and added by person/agent; follow-up inheritance is not done for now (§11). Card task `82814710`.
 
-## 1. 目的
+## 1. Purpose
 
-一张卡现在能记录描述、活动、progress note、ideas 和关联，但没有地方集中放“这个任务用到和产出了哪些东西”：需求文档、设计稿、参考链接、生成的报告、截图、PR 链接、验证证据等。它们散落在 session 对话和 workspace 目录里，用户和后来接手的 session 都得翻对话去找。
+A card can now record a description, activity, progress notes, ideas and links, but has no place to gather "what this task used and produced": requirement docs, design drafts, reference links, generated reports, screenshots, PR links, verification evidence and so on. They are scattered across session conversations and workspace directories, and both the user and a session that takes over later have to dig through conversations to find them.
 
-本功能给卡片加一个 **Artifacts** 列表，每条是对一个文件或链接的**引用**，标明角色（输入 / 输出）和来源（人 / agent），带标题和简短说明。agent 根据自己的理解通过工具添加，用户也可以手工添加、编辑和移除。
+This feature gives the card an **Artifacts** list, where each entry is a **reference** to a file or link, marked with a role (input / output) and a source (person / agent), with a title and a short note. An agent adds them through a tool by its own understanding, and the user can also add, edit and remove them by hand.
 
-命名：界面与工具统一用 **Artifacts**（agent 生态里的通用词，Claude/Codex 都这样称呼产出物）；中文目录译为“产物”。“Assets” 偏向静态资源，不采用。
+Naming: the UI and the tools use **Artifacts** throughout (a common word in the agent ecosystem; Claude/Codex both call outputs this); the Chinese catalog translates it with a word meaning "products". "Assets" leans toward static resources and is not adopted.
 
-原则：
+Principles:
 
-- **只存引用，不复制文件**（v1）。文件仍在 workspace/项目目录里，由 git 管理；插件不成为第二个文件存储。
-- 产物只用于**展示和提供上下文**：不改业务状态、不改 task revision、不触发自动动作。
-- 不扫描目录、不自动从对话里抽取。agent 有明确意图时才登记，避免噪音。
+- **Store references only, do not copy files** (v1). The file stays in the workspace/project directory, managed by git; the plugin does not become a second file store.
+- Artifacts are used only to **display and provide context**: they change no business status, no task revision and trigger no automatic action.
+- No directory scanning and no automatic extraction from conversations. The agent registers one only with a clear intent, to avoid noise.
 
-## 2. 数据
+## 2. Data
 
 ### 2.1 Artifact
 
-存在 `board.json` 新增的 `artifacts` 数组（同 `links`，CARD-LINKS-SPEC §2.1），随现有 etag 看板读取到达客户端，不新增轮询。
+Stored in the new `artifacts` array of `board.json` (like `links`, CARD-LINKS-SPEC §2.1), reaching the client with the existing etag board read, with no new polling.
 
 ```
 { id, taskId, projectId,
   role: "input" | "output",
   kind: "file" | "url",
-  target: string,          // file: 规范化路径（§2.2）；url: http(s) URL
-  title: string,           // 1–120，默认取文件名或 URL 主机+路径
-  note: string,            // 0–1000，用途/说明
+  target: string,          // file: the normalized path (§2.2); url: an http(s) URL
+  title: string,           // 1–120, defaults to the file name or the URL host + path
+  note: string,            // 0–1000, purpose/description
   createdBy: "human" | "agent",
-  agentId?: string,        // createdBy=agent 时
+  agentId?: string,        // when createdBy=agent
   createdAt, updatedAt }
 ```
 
-`shared/model.ts` 新增 `artifactSchema`、`artifactRoles`、`artifactLimits = { title: 120, note: 1000, target: 2000, perTask: 100 }`；`boardSchema` 加 `artifacts: z.array(artifactSchema).optional()`，缺失读作空数组。看板版本不变。
+`shared/model.ts` adds `artifactSchema`, `artifactRoles`, `artifactLimits = { title: 120, note: 1000, target: 2000, perTask: 100 }`; `boardSchema` adds `artifacts: z.array(artifactSchema).optional()`, and a missing value reads as an empty array. The board version is unchanged.
 
-角色含义：
+Meaning of the roles:
 
-| role | 含义 | 例子 |
+| role | Meaning | Examples |
 | --- | --- | --- |
-| `input` | 完成任务所依据或参考的材料 | 需求文档、设计稿、issue 链接、日志、相关资料 |
-| `output` | 本任务的交付物 | 新写的 spec、报告、导出文件、PR、验证证据 |
+| `input` | Material the task is based on or refers to | Requirement docs, design drafts, issue links, logs, related material |
+| `output` | This task's deliverable | A newly written spec, report, exported file, PR, verification evidence |
 
-外部条目（Jira、Confluence、GitHub/GitLab，CONNECTORS-SPEC §3.1）与其他条目一样可取任一角色：人粘贴或从选择器添加默认 input，agent 自己开的 PR/MR 登记为 output。role 不再因为是外部条目而被强制为 input。
+External items (Jira, Confluence, GitHub/GitLab, CONNECTORS-SPEC §3.1) can take either role like any other entry: a person pasting or adding from the picker defaults to input, and a PR/MR the agent opens itself is registered as output. The role is no longer forced to input just because it is an external item.
 
-### 2.2 文件路径
+### 2.2 File paths
 
-- 添加时服务端把路径解析为绝对路径（相对路径以卡片 workspace 目录为基准），`realpath` 后必须位于该卡的 scope 目录之内（`shared/scope.ts` 的有效目录：workspace 目录、项目根、legacy scope 目录；linked root 的符号链接按目标解析后也算在内）。目录外的路径拒绝：“Files outside this card's directories can't be added.”（设置里的额外目录也算在内，见文末 2026-11-08 增量。）
-- 存储时，位于 workspace 目录内的保存为相对 workspace 的路径（前缀 `./`），其余保存绝对路径。这样 worktree 被收尾后重建（WORKSPACE-RESTORE-SPEC）路径仍然有效。
-- 文件在添加时必须存在（文件或目录均可）；之后被删除、移动或 worktree 被移除时，记录保留，界面显示 “Missing”。
-- URL 只接受 `http:`/`https:`，最长 2000。
-- 同一卡片内 `(kind, target)` 唯一；重复添加返回已有那条，若提供了新的 role/title/note 则按 §3 更新规则处理。agent 重复添加人添加的条目时不改它；role 与已有的不同时，工具结果带 `notice`（见 §4.1）。
+- On adding, the server resolves the path to an absolute path (a relative path is based on the card's workspace directory), and after `realpath` it must lie inside the card's scope directories (the effective directories of `shared/scope.ts`: the workspace directory, the project root, the legacy scope directories; a symlink of a linked root counts as inside once resolved to its target). A path outside the directories is rejected: "Files outside this card's directories can't be added." (The extra directories in Settings count too, see the 2026-11-08 addition at the end.)
+- When stored, a path inside the workspace directory is saved as a path relative to the workspace (prefix `./`), and the others are saved as absolute paths. This way the path stays valid after a worktree is wrapped up and rebuilt (WORKSPACE-RESTORE-SPEC).
+- The file must exist at the time of adding (a file or a directory both work); if it is later deleted, moved or its worktree is removed, the record is kept and the UI shows "Missing".
+- A URL accepts only `http:`/`https:`, at most 2000.
+- `(kind, target)` is unique within one card; adding a duplicate returns the existing entry, and if a new role/title/note is given it is handled by the update rule in §3. When an agent adds again an entry a person added, it does not change it; when the role differs from the existing one, the tool result carries a `notice` (see §4.1).
 
-### 2.3 事件
+### 2.3 Events
 
-产物变化只增加看板 revision，不改 task revision。卡片活动记一条事件：`artifact_added` / `artifact_removed`，note 为 `<Role>: <title>`；编辑（改 title/note/role）不记事件。agent 添加的事件 actor 为 agent，带 agentId。
+An artifact change increases only the board revision, not the task revision. The card activity records one event: `artifact_added` / `artifact_removed`, with the note `<Role>: <title>`; an edit (changing title/note/role) records no event. The event for an agent add has the actor agent, with agentId.
 
-## 3. 人工 RPC
+## 3. Human RPC
 
-| 方法 | 输入 | 行为 |
+| Method | Input | Behavior |
 | --- | --- | --- |
-| `artifacts.create` | `{ taskId, role, kind, target, title?, note? }` | 按 §2.2 校验并写入，返回新产物；重复 `(kind, target)` 返回已有那条并应用给出的字段 |
-| `artifacts.update` | `{ id, updatedAt, role?, title?, note? }` | `updatedAt` 不符时报 “This artifact changed. Reload and try again.”（防覆盖）；target 不可改，换目标即删了再加 |
-| `artifacts.delete` | `{ id }` | 删除；不存在报 “This artifact no longer exists.” |
-| `artifacts.preview` | `{ id }` | 见 §6.1；只读，不写看板 |
+| `artifacts.create` | `{ taskId, role, kind, target, title?, note? }` | Validate per §2.2 and write, returning the new artifact; a duplicate `(kind, target)` returns the existing entry and applies the given fields |
+| `artifacts.update` | `{ id, updatedAt, role?, title?, note? }` | A mismatching `updatedAt` reports "This artifact changed. Reload and try again." (overwrite protection); target cannot change, to change the target delete and add again |
+| `artifacts.delete` | `{ id }` | Delete; one that does not exist reports "This artifact no longer exists." |
+| `artifacts.preview` | `{ id }` | See §6.1; read-only, does not write the board |
 
-人可以编辑和删除任何产物（包括 agent 添加的）。卡片或项目已归档时写操作拒绝：“Archived cards can't be changed.”
+A person can edit and delete any artifact (including agent-added ones). When the card or project is archived a write is rejected: "Archived cards can't be changed."
 
-## 4. Agent 侧
+## 4. Agent side
 
-### 4.1 工具
+### 4.1 Tools
 
-新增两个 MCP 工具（CLI 同步提供 `artifact` / `artifact-remove` 子命令），都遵循现有签名 request + expectedRevision 协议，幂等，不改 task revision：
+Add two MCP tools (the CLI provides matching `artifact` / `artifact-remove` subcommands), both following the existing signature request + expectedRevision protocol, idempotent, without changing the task revision:
 
-- `flowly_add_artifact`：`{ expectedRevision, request, role, target, title?, note? }`。`kind` 由 target 推断（`http(s)://` 为 url，`file://` 与其余为 file）。重复 target 时更新该条的 role/title/note（仅当该条由 agent 添加，任一 session；人添加的保持不变，返回已有那条，回执 `eventId` 为空；此时若请求的 role 与已有的不同，结果带 `notice`：“Already added by the user as <role>; role not changed. …”，回执同样保存它，重放时原样返回）。结果带 `artifactId`。路径错误返回 `ARTIFACT_INVALID`。
-- `flowly_remove_artifact`：`{ expectedRevision, request, id }`。只能移除 agent 添加的产物（任一 session 均可，因为同卡的 session 共享工作）；人添加的拒绝：`ARTIFACT_FORBIDDEN` “Only the user can remove artifacts they added.”
+- `flowly_add_artifact`: `{ expectedRevision, request, role, target, title?, note? }`. `kind` is inferred from target (`http(s)://` is url, `file://` and the rest are file). With a duplicate target it updates that entry's role/title/note (only when that entry was added by an agent, any session; one added by a person stays unchanged, the existing entry is returned, and the receipt `eventId` is empty; in that case if the requested role differs from the existing one, the result carries a `notice`: "Already added by the user as <role>; role not changed. …", the receipt saves it too, and a replay returns it as is). The result carries `artifactId`. A path error returns `ARTIFACT_INVALID`.
+- `flowly_remove_artifact`: `{ expectedRevision, request, id }`. It can remove only agent-added artifacts (any session can, because sessions on the same card share work); one a person added is rejected: `ARTIFACT_FORBIDDEN` "Only the user can remove artifacts they added."
 
-工具描述要点（写进 description 与 skill）：
+Key points of the tool description (written into the description and the skill):
 
 > Register a file or link that is an input this card worked from, or an output it delivered, so the user and later sessions can find it. Add deliverables when you produce them (specs, reports, exported files, PRs, verification evidence), not every file you touched; source code changes are already visible through the workspace diff. Use a short title and a one-line note on what it is for. Check artifacts in get_task first.
 
-### 4.2 读取
+### 4.2 Reading
 
-- `flowly_get_task` 新增 `artifacts: [{ id, role, kind, target, absolutePath?, title, note, createdBy, missing, unread }]`，最多返回 100 条。`absolutePath` 仅 file，按当前 workspace 目录解析。
-- `unread`（2026-10-18 用户选 A+B）：该产物在本 session 上次调用 `flowly_get_task` 之后被添加或编辑（按 `updatedAt`），本 session 自己添加的永不算。本 session 从未读过时全部为 true。只有显式的 `flowly_get_task`（MCP 或 CLI `current`/`get`）会把读取时间推进到本次读取开始的时刻；写工具结果里附带的 `current` 只显示标记、不推进。读取时间按 session 存在插件数据目录的 `artifact-reads.json`（不写 board.json，不改看板 revision；原子替换；最多 2000 个 session，超出丢最旧的），重启后保留。
-- 建 session 时注入的任务上下文（`sessionContext`）在描述后加一段，每种角色最多 10 条、超出写 `…and N more`，只列 input 与 output；用户添加的排在前面，每条带来源与说明（说明压成一行，最长 200 字）：
+- `flowly_get_task` adds `artifacts: [{ id, role, kind, target, absolutePath?, title, note, createdBy, missing, unread }]`, returning at most 100. `absolutePath` is for file only, resolved against the current workspace directory.
+- `unread` (2026-10-18, the user chose A+B): the artifact was added or edited (by `updatedAt`) after this session's last call to `flowly_get_task`; one this session added itself never counts. When this session has never read, all are true. Only an explicit `flowly_get_task` (MCP or CLI `current`/`get`) advances the read time to the moment this read started; the `current` attached to a write tool result only shows the marks and does not advance. The read time is stored per session in `artifact-reads.json` in the plugin data directory (not written to board.json, no board revision change; atomic replacement; at most 2000 sessions, dropping the oldest beyond that), and is kept across restarts.
+- The task context injected when a session is created (`sessionContext`) adds a paragraph after the description, with at most 10 entries per role, writing `…and N more` beyond that, listing only input and output; user-added ones come first, each with its source and note (the note squeezed into one line, at most 200 characters):
 
   ```
   Inputs:
@@ -95,122 +95,122 @@
   - [agent] <title>: <target> — <note>
   ```
 
-- Skill 新增一条：用户添加的 inputs 属于任务本身，开工前全部读完（文件用 `absolutePath`，链接在有联网工具时打开），其说明视为如何使用它的指令；每轮开始先读 `flowly_get_task`，优先处理 `unread` 的 inputs；读不了（Missing、链接打不开或需登录、没有联网工具）时在回复里说明，不要猜内容；交付时写明用了哪些 inputs，并把交付物登记为 output；不要把每个改动的源文件都登记。`flowly_get_task` 的工具描述同样提示每轮开始读取与 `unread`。
-- 不在用户发出的消息前自动附加“新增 input”提示（AGENTS.md：普通追问只发送用户原文）。
+- The skill adds one item: the inputs a user added belong to the task itself and are all read before starting work (for files use `absolutePath`, open links when a network tool is available), and their note counts as instructions on how to use them; at the start of each turn read `flowly_get_task` first, and handle `unread` inputs first; when one cannot be read (Missing, the link cannot be opened or needs login, no network tool) say so in the reply and do not guess the content; at delivery state which inputs were used and register the deliverables as output; do not register every source file changed. The tool description of `flowly_get_task` likewise hints at reading at the start of each turn and at `unread`.
+- No automatic "new input" hint is attached before a message the user sends (AGENTS.md: an ordinary follow-up sends only the user's own text).
 
-### 4.3 设置
+### 4.3 Settings
 
-设置 › AI features 新增 **Artifacts › Agent artifacts**（默认开；存于现有 `ideas` host 设置的 `artifacts` 字段）。关闭后两个写工具返回 `ARTIFACTS_DISABLED`（同 `IDEAS_DISABLED`），skill 要求 agent 改在回复里列出交付物且不重试；`get_task` 照常返回。
+Settings › AI features gains **Artifacts › Agent artifacts** (on by default; stored in the `artifacts` field of the existing `ideas` host setting). When switched off, the two write tools return `ARTIFACTS_DISABLED` (same as `IDEAS_DISABLED`), the skill requires the agent to list deliverables in its reply instead and not retry; `get_task` returns as usual.
 
 ## 5. UI
 
-### 5.1 看板卡片
+### 5.1 Board card
 
-卡面不显示产物（用户决定）。
+The card face does not show artifacts (user decision).
 
-### 5.2 侧栏 Artifacts 区块
+### 5.2 Sidebar Artifacts block
 
-位置：描述与运行摘要之后、Sessions 之前（产物是任务内容的一部分，比 Ideas/Links 更靠前）。实现：`client/task-artifacts.tsx`。
+Position: after the description and the run summary, before Sessions (artifacts are part of the task content, so placed ahead of Ideas/Links). Implementation: `client/task-artifacts.tsx`.
 
-- 标题 `Artifacts`，计数为总数；右侧 `+` 打开 §5.3 表单。没有产物时只显示标题行和 `+`。
-- 按角色分组，顺序 `Outputs`、`Inputs`，组内按 `createdAt` 倒序；空组不显示。每组先显示 5 条，其下 “Show N more” 每次再追加 5 条（同一列表、与已显示行左对齐，不缩进），没有收起；关闭侧栏再打开或换一张卡片才回到 5 条。有产物时标题可点击（计数后带箭头）整体收起/展开，是否默认展开与区块位置都在 设置 → Cards → Card sidebar 调整（[DRAWER-SPEC](DRAWER-SPEC.md#section-order-and-artifacts-paging)）。
-- 每行：类型图标（`FileText` / 目录 `Folder` / 链接 `Link`）、标题（单行截断）、第二行弱化显示 note（单行截断，没有则显示短路径或主机名）；每行都标明来源：标题右侧显示 `User` 或 AI 标记（`Sparkles`，AI-MARK-SPEC）小图标（无障碍 “Added by you” / “Added by an agent”）；角色由分组标题标明，无障碍名称以 “Input:” / “Output:” 开头；文件不存在时标题弱化，第二行以 “Missing” 开头。
-- 点击行：url 用 `Linking.openURL`；file 打开 §6.1 预览。行尾两个图标按钮：**Edit**（铅笔，打开 §5.3，可改角色、标题、说明）与 **Remove**（`X`，无确认，乐观移除 160 ms 收起，失败恢复并弹 error toast，成功弹 toast “Artifact removed. The file was not changed.”）。host toast 不支持操作按钮，所以不做 Undo；插件也没有剪贴板 API，不做 Copy path。
-- 卡片或项目已归档时 `+`、编辑与移除禁用，列表照常显示与打开。
-- 增删动效用 `client/motion.tsx` 原语，遵循 Reduce Motion，可打断；抽屉打开时已有行不播放进场。
+- The title `Artifacts`, with the count being the total; the `+` on the right opens the §5.3 form. With no artifacts only the title row and `+` are shown.
+- Grouped by role, in the order `Outputs`, `Inputs`, within a group by `createdAt` descending; an empty group is not shown. Each group first shows 5 entries, below which "Show N more" appends another 5 each time (the same list, left-aligned with the rows already shown, not indented), with no collapse; it returns to 5 only after closing and reopening the sidebar or switching card. When there are artifacts the title is clickable (an arrow after the count) to collapse/expand the whole block, and whether it is expanded by default and the block position are both adjusted in Settings → Cards → Card sidebar ([DRAWER-SPEC](DRAWER-SPEC.md#section-order-and-artifacts-paging)).
+- Each row: a type icon (`FileText` / directory `Folder` / link `Link`), the title (truncated to one line), and a second row dimly showing the note (truncated to one line; when there is none, the short path or host name); each row states its source: to the right of the title a small `User` or AI mark (`Sparkles`, AI-MARK-SPEC) icon is shown (accessibility "Added by you" / "Added by an agent"); the role is stated by the group title, and the accessibility name starts with "Input:" / "Output:"; when the file does not exist the title is dimmed and the second row starts with "Missing".
+- Clicking a row: url uses `Linking.openURL`; file opens the §6.1 preview. Two icon buttons at the end of the row: **Edit** (pencil, opens §5.3, where the role, title and note can be changed) and **Remove** (`X`, no confirmation, optimistic removal collapsing over 160 ms, on failure it restores and shows an error toast, on success it shows the toast "Artifact removed. The file was not changed."). The host toast does not support action buttons, so there is no Undo; the plugin also has no clipboard API, so there is no Copy path.
+- When the card or project is archived `+`, edit and remove are disabled, and the list is shown and opened as usual.
+- The add/remove motion uses the `client/motion.tsx` primitives, follows Reduce Motion and is interruptible; rows that already exist do not play an enter animation when the drawer opens.
 
-### 5.3 添加/编辑表单
+### 5.3 Add/edit form
 
-插件 Modal（手机为底部弹层），字段全部用 `TextBox`/`Field`：
+A plugin Modal (a bottom sheet on phones), with all fields using `TextBox`/`Field`:
 
-1. 角色分段选择：**Input**（默认）/ **Output**。
-2. **Path or link**：输入框（相对路径以卡片 workspace 为基准），编辑时只读。v1 不提供文件浏览按钮（现有目录选择器只选目录）。
-3. **Title**：可空，留空按 §2.1 默认。
-4. **Note**：可空，多行。
+1. A role segmented choice: **Input** (default) / **Output**.
+2. **Path or link**: an input (a relative path is based on the card's workspace), read-only when editing. v1 provides no file-browse button (the existing directory picker picks only directories).
+3. **Title**: may be empty, and when left empty the default of §2.1 applies.
+4. **Note**: may be empty, multi-line.
 
-提交失败时表单保留并在顶部显示错误。
+When submit fails the form is kept and the error is shown at the top.
 
-## 6. 打开与预览
+## 6. Opening and preview
 
-### 6.1 预览 RPC
+### 6.1 Preview RPC
 
-`artifacts.preview({ id })` 只读该产物登记的路径（不接受任意路径），在服务端重新解析并校验仍在 scope 内（防止登记后被换成指向外部的符号链接）：
+`artifacts.preview({ id })` reads only the path registered for that artifact (it does not accept an arbitrary path), re-resolves on the server and checks that it is still within scope (to prevent it from being swapped after registration for a symlink pointing outside):
 
-| 文件类型 | 返回 |
+| File type | Returns |
 | --- | --- |
-| 图片（png/jpg/gif/webp，≤8 MB） | `dataUri`，客户端复用 session 图片查看器 |
-| 文本（md/txt/json/yaml/log/源码等，按扩展名与无 NUL 字节判断，≤256 KB） | `text`；markdown 用现有会话 markdown 渲染，其余等宽显示 |
-| 目录 | 前 200 个条目名（不递归） |
-| 其他或超限 | `{ unsupported: true, size }`，界面显示大小与 **Copy path** |
-| 不存在 | “This file no longer exists.” |
+| Image (png/jpg/gif/webp, ≤8 MB) | `dataUri`, and the client reuses the session image viewer |
+| Text (md/txt/json/yaml/log/source code and so on, judged by extension and no NUL bytes, ≤256 KB) | `text`; markdown uses the existing conversation markdown rendering, the rest is shown monospaced |
+| Directory | the first 200 entry names (not recursive) |
+| Other or over the limit | `{ unsupported: true, size }`, and the UI shows the size and **Copy path** |
+| Does not exist | "This file no longer exists." |
 
-预览只在打开时请求一次，不轮询；关闭即丢弃内容。预览内容直接放在 host 弹层的可滚动正文里，不再嵌套 ScrollView（手机上嵌套的滚动区会抢走手势）。
+The preview is requested only once when opened, with no polling; the content is discarded on close. The preview content is placed directly in the scrollable body of the host popup, with no nested ScrollView (a nested scroll area on a phone steals the gesture).
 
-## 7. 删除、归档与收尾
+## 7. Deletion, archive and wrap-up
 
-- 永久删除卡片：一并删除其产物，写入现有 `removed/task-…json` 备份（新增 `artifacts` 字段）。只删记录，不碰文件。
-- 移除项目：一并删除并备份该项目的产物。
-- 归档、收尾、恢复：记录保留。收尾移除 worktree 后 workspace 内的文件产物显示 Missing；恢复（重建 worktree）后自动恢复为可用。收尾预检不因产物增加提示（现有的未提交/仅本地提交警告已覆盖 worktree 里的文件）。
+- Permanently deleting a card: its artifacts are deleted with it, and written to the existing `removed/task-…json` backup (new `artifacts` field). Only the records are deleted, and files are not touched.
+- Removing a project: the project's artifacts are deleted and backed up with it.
+- Archive, wrap-up, restore: the records are kept. After wrap-up removes the worktree, file artifacts inside the workspace show Missing; after restore (rebuilding the worktree) they automatically become usable again. The wrap-up preflight adds no prompt because of artifacts (the existing warnings about uncommitted / local-only commits already cover the files in the worktree).
 
-## 8. 错误文案
+## 8. Error copy
 
-| 情况 | 文案 |
+| Case | Copy |
 | --- | --- |
-| 路径在 scope 外 | “Files outside this card's directories can't be added.” |
-| 文件不存在 | “This file doesn't exist.” |
-| URL 协议不支持 | “Only http and https links can be added.” |
-| 上限 | “A card can have at most 100 artifacts.” |
-| 已归档 | “Archived cards can't be changed.” |
-| 并发编辑 | “This artifact changed. Reload and try again.” |
-| 不存在 | “This artifact no longer exists.” |
-| agent 删人添加的 | “Only the user can remove artifacts they added.” |
-| 设置关闭 | `ARTIFACTS_DISABLED` |
+| Path outside scope | "Files outside this card's directories can't be added." |
+| File does not exist | "This file doesn't exist." |
+| URL scheme not supported | "Only http and https links can be added." |
+| Limit | "A card can have at most 100 artifacts." |
+| Archived | "Archived cards can't be changed." |
+| Concurrent edit | "This artifact changed. Reload and try again." |
+| Does not exist | "This artifact no longer exists." |
+| Agent deleting one a person added | "Only the user can remove artifacts they added." |
+| Setting off | `ARTIFACTS_DISABLED` |
 
-## 9. 性能
+## 9. Performance
 
-- 产物随看板一次读取；单卡 ≤100 条，按 `taskId` 过滤。
-- `missing` 不在看板读取时逐个 `stat`：只在 `get_task` 和抽屉打开时请求的 `artifacts.status({ taskId })`（一次批量 realpath，同一组目标缓存 15 s；客户端 30 s 内不重取）中计算。
-- 预览按需加载，大小受限。
+- Artifacts are read once with the board; at most 100 per card, filtered by `taskId`.
+- `missing` is not computed with a `stat` per item during the board read: it is computed only in `get_task` and in the `artifacts.status({ taskId })` requested when the drawer opens (one batched realpath, with the same set of targets cached for 15 s; the client does not refetch within 30 s).
+- The preview loads on demand and its size is limited.
 
-## 10. 不做（v1）
+## 10. Not done (v1)
 
-- 上传/复制文件到插件数据目录（附件存储）；文件版本、diff、哈希校验。
-- 自动扫描 workspace 或从对话自动抽取产物。
-- 跨卡共享产物、项目级产物库；新建 follow-up 时继承来源卡的 outputs 作为 inputs（用户暂不做）。
-- 卡面显示产物数量或图标。
-- 产物排序拖动、标签/分类以外的自定义字段。
-- 在插件内编辑文件内容。
-- 从 session 对话里一键收集链接/图片为产物、文件浏览选择、Reveal in workspace / Copy path、删除后 Undo（v1 实现时去掉：host 无剪贴板与 toast 操作 API，后续可加）。
+- Uploading/copying files into the plugin data directory (attachment storage); file versions, diff, hash verification.
+- Automatically scanning the workspace or automatically extracting artifacts from conversations.
+- Cross-card shared artifacts, a project-level artifact library; inheriting the source card's outputs as inputs when creating a follow-up (the user does not want it for now).
+- Showing the artifact count or icon on the card face.
+- Drag sorting of artifacts, custom fields beyond tags/categories.
+- Editing file content inside the plugin.
+- One-click collecting links/images from a session conversation as artifacts, file-browse picking, Reveal in workspace / Copy path, Undo after deletion (removed when v1 was implemented: the host has no clipboard or toast action API, can be added later).
 
-## 11. 已定问题（2026-10-17 用户）
+## 11. Decided questions (2026-10-17, the user)
 
-1. 只存引用，不上传副本。
-2. agent 不能删除人添加的产物（可删 agent 添加的）。人能删任何产物。
-3. 卡面不显示；侧栏每条标明输入/输出和人/agent 添加。角色只保留 input/output（原 reference 并入 input）。
-4. follow-up 继承暂不做。
+1. Store references only, do not upload copies.
+2. An agent cannot delete artifacts a person added (it can delete agent-added ones). A person can delete any artifact.
+3. Not shown on the card face; in the sidebar each entry says input/output and added by person/agent. Roles are kept only as input/output (the original reference merged into input).
+4. Follow-up inheritance is not done for now.
 
-## 12. 验收
+## 12. Acceptance
 
-- 单元（`shared/artifacts.test.ts`、`server/artifacts.test.ts`、`server/store.test.ts`、`server/tool-server.test.ts`）：路径解析与 scope 校验（相对路径、`..`、符号链接逃逸、linked root）、相对 workspace 存储与 worktree 重建后解析；URL 校验；去重与更新规则；上限；归档拒绝；`updatedAt` 冲突；只增看板 revision；事件；agent 删除权限；`ARTIFACTS_DISABLED`；预览各类型与大小限制、登记后符号链接替换被拒；删卡/移除项目级联与备份；`sessionContext` 段落与截断；`get_task` 字段。
-- 客户端：分组顺序与折叠、来源标记、表单默认值。
-- i18n 所有新文案进全部 catalog；onboarding：新增 tip `artifacts`（首次打开有产物的卡片抽屉时提示 “Artifacts collect a card's inputs and deliverables. Agents add them as they work; you can add files or links too.”），README 与欢迎页功能列表加一行。
-- typecheck、全量测试；安装并 reload；用 Luna 6（`codex/gpt-6-luna`，`full-access`）测试 session 在 fixture 项目上走通：人工添加 file/url/目录、scope 外拒绝、编辑与冲突、移除、agent 通过 MCP 与 CLI 添加/更新/移除、删人添加的被拒、设置关闭后的错误、预览图片/markdown/大文件、Missing 显示、删卡级联；桌面与紧凑布局按 AGENTS.md 绑定非全屏窗口，无法绑定时标 UNRUN。结束后清理 fixture，证据存 `docs/verification/card-artifacts.md`。
+- Unit (`shared/artifacts.test.ts`, `server/artifacts.test.ts`, `server/store.test.ts`, `server/tool-server.test.ts`): path resolution and scope checks (relative path, `..`, symlink escape, linked root), storage relative to the workspace and resolution after a worktree rebuild; URL validation; de-duplication and update rules; the limit; archived rejection; `updatedAt` conflict; only the board revision increases; events; agent delete permission; `ARTIFACTS_DISABLED`; preview of each type and size limit, a symlink swap after registration rejected; cascade and backup on card deletion / project removal; the `sessionContext` paragraph and truncation; the `get_task` fields.
+- Client: group order and collapse, source marks, form defaults.
+- i18n: all new copy goes into all catalogs; onboarding: a new tip `artifacts` (shown the first time a card drawer with artifacts is opened, "Artifacts collect a card's inputs and deliverables. Agents add them as they work; you can add files or links too."), and one line added to the README and the welcome page feature list.
+- typecheck, full tests; install and reload; with a Luna 6 (`codex/gpt-6-luna`, `full-access`) test session on a fixture project, walk through: a person adding file/url/directory, rejection outside scope, edit and conflict, removal, the agent adding/updating/removing through MCP and CLI, deleting one a person added being rejected, the error after the setting is switched off, preview of image/markdown/large file, Missing display, card deletion cascade; desktop and compact layouts bind the non-fullscreen window per AGENTS.md, marked UNRUN when it cannot be bound. After finishing clean up the fixture, and save the evidence in `docs/verification/card-artifacts.md`.
 
-## 2026-10-22 增量：交付时原子登记产物
+## 2026-10-22 addition: register artifacts atomically at delivery
 
-`flowly_update_status(in_review)` 与 `flowly_report_progress(result)` 的 `outputs?: {target,title?,note?}[]` 在同一事务登记 output；`[]` 表示本次无产物，省略则成功后提醒。复用本规范的路径边界、目标去重和用户条目保护。回执 `artifactIds` 持久化，精确重放不会再校验已消失文件或重新访问 connector。完整契约、开关行为和 CLI 参数见 [DELIVERY-CONSTRAINTS-SPEC](DELIVERY-CONSTRAINTS-SPEC.md) §1。
+The `outputs?: {target,title?,note?}[]` of `flowly_update_status(in_review)` and `flowly_report_progress(result)` registers outputs in the same transaction; `[]` means no artifacts this time, and omitting it makes a reminder after success. It reuses this spec's path boundary, target de-duplication and user-entry protection. The receipt's `artifactIds` is persisted, and an exact replay neither re-validates files that have since vanished nor visits the connector again. The full contract, the switch behavior and the CLI parameters are in [DELIVERY-CONSTRAINTS-SPEC](DELIVERY-CONSTRAINTS-SPEC.md) §1.
 
-## 2026-11-08 增量：额外产物目录
+## 2026-11-08 addition: extra artifact folders
 
-用户要求（经 Loadout）：harness 会附加 `~/.claude/plans/<plan>/`、`~/.claude/reviews/`、`~/.claude/handoffs/` 下的文件，它们在卡片目录之外，会被 §2.2 拒绝。
+User request (via Loadout): the harness attaches files under `~/.claude/plans/<plan>/`, `~/.claude/reviews/` and `~/.claude/handoffs/`, which are outside the card directories and would be rejected by §2.2.
 
-- 设置：设置 > AI features > Artifacts 下的 “Extra artifact folders”（host 范围的 `artifacts` 设置，`extraFolders`，最多 20 条、每条最多 1000 字符），一组文件夹文本框，可增删；说明只写后果：agent 可以把这些文件夹下的任何文件附加到任何卡片。
-- 读取：绝对路径或 `~/…`；`~` 展开为主目录，路径规范化（去掉末尾斜杠、`.`/`..`），重复项去掉。空字符串、相对路径（含 `~user`）、文件系统根 `/`、主目录本身及其任何上级目录一律忽略（太宽，不会成为根）；格式不对的整体设置按空列表处理。文本层面的判断（`extraFolderIgnored`，`~`/`/` 路径按 `.`/`..` 归一后落在根、主目录或其上级）客户端与服务端共用：设置里被忽略的行下面显示一句 “Not used: …”。
-- 真实路径：`withinRoots` 比较的是 realpath，所以额外目录也按真实路径决定（`resolveExtraRoots`，异步）：每个目录先 realpath（解析不了的丢弃），真实路径为 `/`、等于主目录的真实路径或是其上级的丢弃——指向 `/` 或主目录的符号链接、macOS 上主目录的大小写变体、`/Users`、`~/..` 都不能成为根。`ArtifactService.where`/`status` 与 agent 的三处 `artifactRoots` 调用都传 `resolveExtraRoots` 的结果。没有设置额外目录时不做任何 realpath。
-- 作用：这些目录作为每张卡的 `resolved` 根（`artifactRoots(task, project, workspaceDirectory?, extra)`，与卡片自己的 `roots` 分开）；它们在读取设置时已解析为真实路径，检查时按原样比较、不再 realpath，所以读取设置后某个目录被换成指向别处的符号链接也不会扩大范围。卡片自己的 `roots` 每次检查时 realpath（`missingArtifacts` 对整批只解析一次）。`withinRoots`（目标 `realpath`、按分隔符的前缀比较）和 `normalizeTarget` 的规则不变，所以 `plans-old` 不算在 `plans` 内，目录内指向目录外的符号链接被拒绝。目录外的文件仍按绝对路径存储（§2.2）。
-- 设置每次使用时读取：从设置里移除某个目录后，其中文件的产物在下一次状态检查（缓存键含这些目录）显示 “Missing”，记录保留；人工 RPC 和 agent 工具（`flowly_artifact`、交付时的 `outputs`、`flowly_get_task` 的 `missing`）都用同一份根。
-- 验收（`server/artifacts.test.ts`）：额外目录内的文件被接受并存绝对路径；名字以其为前缀的同级目录被拒；目录内指向外部的符号链接被拒；`missingArtifacts` 在目录被移出设置后标记缺失；相对路径、空串、`/` 被忽略（含直接传给 `artifactRoots` 的情况）；指向 `/` 或主目录的符号链接、主目录的大小写变体、主目录及其上级被丢弃，主目录下的子目录保留；设置里的提示与服务端的文本判断一致。
+- Setting: "Extra artifact folders" under Settings > AI features > Artifacts (the host-scoped `artifacts` setting, `extraFolders`, at most 20 entries, each at most 1000 characters), a set of folder text boxes that can be added and removed; the description states only the consequence: an agent can attach any file under these folders to any card.
+- Reading: an absolute path or `~/…`; `~` expands to the home directory, and the path is normalized (trailing slash, `.`/`..` removed), with duplicates dropped. An empty string, a relative path (including `~user`), the file system root `/`, the home directory itself and any of its ancestor directories are all ignored (too broad, and never become a root); a malformed whole setting is treated as an empty list. The text-level decision (`extraFolderIgnored`, a `~`/`/` path that after `.`/`..` normalization lands on the root, the home directory or an ancestor) is shared by the client and the server: a row ignored in Settings shows a line "Not used: …" below it.
+- Real path: `withinRoots` compares realpaths, so the extra directories are also decided by real path (`resolveExtraRoots`, async): each directory is first realpath'ed (ones that cannot be resolved are dropped), and one whose real path is `/`, equals the home directory's real path or is its ancestor is dropped — a symlink pointing to `/` or the home directory, a case variant of the home directory on macOS, `/Users`, `~/..` can never become a root. `ArtifactService.where`/`status` and the agent's three `artifactRoots` calls all pass the result of `resolveExtraRoots`. When no extra directory is set, no realpath is done.
+- Effect: these directories act as the `resolved` roots of every card (`artifactRoots(task, project, workspaceDirectory?, extra)`, separate from the card's own `roots`); they were already resolved to real paths when the setting was read, and the check compares them as they are without another realpath, so even if a directory is swapped after the setting was read for a symlink pointing elsewhere, the scope does not widen. The card's own `roots` are realpath'ed at each check (`missingArtifacts` resolves them once for the whole batch). The rules of `withinRoots` (target `realpath`, prefix comparison by separator) and `normalizeTarget` are unchanged, so `plans-old` does not count as inside `plans`, and a symlink inside a directory pointing outside it is rejected. A file outside the directories is still stored as an absolute path (§2.2).
+- The setting is read at each use: after a directory is removed from the settings, the artifacts of files in it show "Missing" at the next status check (the cache key includes these directories), with the record kept; the human RPC and the agent tools (`flowly_artifact`, `outputs` at delivery, the `missing` of `flowly_get_task`) all use the same roots.
+- Acceptance (`server/artifacts.test.ts`): a file inside an extra directory is accepted and stored with an absolute path; a sibling directory whose name has it as a prefix is rejected; a symlink inside the directory pointing outside is rejected; `missingArtifacts` marks missing after the directory is removed from the settings; a relative path, an empty string and `/` are ignored (including when passed directly to `artifactRoots`); a symlink to `/` or the home directory, a case variant of the home directory, the home directory and its ancestors are dropped, while a subdirectory under the home directory is kept; the hint in Settings is consistent with the server's text-level decision.
 
-## 2026-11-10 增量：卡片的计划
+## 2026-11-10 addition: the card's plan
 
 A card's plan is an artifact with the optional `plan` field (approval, source, `setAt`); at most one per card. It is shown in its own Plan row and left out of the Inputs/Outputs lists and of `get_task.artifacts` (returned as `get_task.plan`); the add/edit form's role choice gains **Plan**. An agent can't remove the plan artifact with `flowly_remove_artifact` (`ARTIFACT_FORBIDDEN`); deleting it as a person empties the slot. Each card's plan-copy folder (`<plugin data>/plans/<taskId>`) is one of its artifact roots. See [CARD-PLAN-SPEC](CARD-PLAN-SPEC.md).

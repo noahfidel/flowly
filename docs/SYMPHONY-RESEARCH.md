@@ -1,160 +1,160 @@
-# 调研：openai/symphony 对 Flowly 的启发
+# Research: what openai/symphony suggests for Flowly
 
-2026-10-19 · 卡片“调研symphony提取灵感” · 来源：https://github.com/openai/symphony（`main` 浅克隆：README、`SPEC.md` 2312 行、`elixir/WORKFLOW.md`、`.codex/skills/*`、Elixir 参考实现结构）
+2026-10-19 · card "Research Symphony for inspiration" · source: https://github.com/openai/symphony (shallow clone of `main`: README, `SPEC.md` of 2312 lines, `elixir/WORKFLOW.md`, `.codex/skills/*`, the structure of the Elixir reference implementation)
 
-## 1. Symphony 是什么
+## 1. What Symphony is
 
-一句话：**“管理工作，而不是监督 agent”**。一个常驻 daemon 轮询 issue tracker（Linear / Jira / GitHub / GitLab / Asana），为每个处于 active 状态的 issue 建一个独立 workspace，在里面无人值守地跑 Codex（app-server 协议），agent 自己改 tracker 状态、开 PR、处理 review、最后合并。人只在 tracker 上拖卡片：`Todo` 开工、`Human Review` 审、`Merging` 让它去合并、`Rework` 打回。
+In one sentence: **"manage the work, not supervise the agent"**. A resident daemon polls an issue tracker (Linear / Jira / GitHub / GitLab / Asana), creates a separate workspace for every issue in an active state, and runs Codex unattended inside it (app-server protocol); the agent changes the tracker status itself, opens the PR, handles review and finally merges. A person only drags cards on the tracker: `Todo` starts the work, `Human Review` reviews, `Merging` tells it to go merge, `Rework` sends it back.
 
-形态上它首先是一份**语言无关的规格**（README 的“Option 1”就是“让你的 coding agent 按 SPEC.md 实现一个”），Elixir 只是参考实现。明确的非目标：富 Web UI、多租户、通用工作流引擎。
+In form, it is first a **language-independent specification** (the README's "Option 1" is "have your coding agent implement one according to SPEC.md"), and Elixir is only the reference implementation. Explicit non-goals: a rich Web UI, multi-tenancy, a general workflow engine.
 
-| 维度 | Symphony | Flowly |
+| Dimension | Symphony | Flowly |
 | --- | --- | --- |
-| 定位 | 无人值守调度器 + tracker 读取器 | 人机协作看板，人分派、决策、审 |
-| 卡片来源 | 外部 tracker（Linear 等） | 插件自有看板 |
-| 谁开工 | orchestrator 轮询自动派发，有并发上限 | 人点 Start session |
-| 状态驱动 | **人改 lane = 给 agent 下指令**；agent 按当前状态路由行为 | agent 汇报阶段，lane 是进度展示；Done 由人决定 |
-| agent 卡住/提问 | 默认当失败处理（不许问人），只有“缺权限”逃生口 | 一等公民：question → Needs you → Reply |
-| 进度记录 | 单个就地更新的 **Workpad 评论**（计划/验收/验证清单） | 追加式 progress note + Haiku 自动摘要 |
-| 工作流策略 | 仓库内 `WORKFLOW.md`（YAML + Liquid 模板），热加载 | skill 文本写死在插件里；项目级无策略文件 |
-| 可靠性 | 并发槽、重试退避、stall 检测、对账、续跑 turn | 依赖 Paseo session 状态和 attention |
-| 观测 | token/速率限制/TPS、JSON API、终端仪表盘 | Insights、按卡 token、Attention 下拉 |
-| 收尾 | 终态自动清理 workspace（before_remove hook） | 用户确认的 Wrap up，带 preflight |
+| Positioning | Unattended scheduler + tracker reader | A human-agent collaboration board, where the person assigns, decides and reviews |
+| Card source | External tracker (Linear and others) | The plugin's own board |
+| Who starts work | The orchestrator polls and dispatches automatically, with a concurrency cap | A person clicks Start session |
+| State-driven | **A person changing the lane = giving the agent an instruction**; the agent routes behavior by the current status | The agent reports the stage, the lane is a progress display; Done is decided by a person |
+| Agent stuck / asking | Treated as a failure by default (no asking a person), with only a "missing permission" escape hatch | First-class: question → Needs you → Reply |
+| Progress record | A single in-place-updated **Workpad comment** (plan / acceptance / validation checklist) | Append-only progress notes + Haiku auto summary |
+| Workflow policy | `WORKFLOW.md` in the repo (YAML + Liquid template), hot-reloaded | The skill text is hard-coded in the plugin; no project-level policy file |
+| Reliability | Concurrency slots, retry backoff, stall detection, reconciliation, continuation turns | Relies on Paseo session status and attention |
+| Observability | token / rate limit / TPS, JSON API, terminal dashboard | Insights, per-card tokens, the Attention dropdown |
+| Wrap-up | Automatic workspace cleanup in the terminal state (before_remove hook) | A user-confirmed Wrap up, with preflight |
 
-结论先行：Symphony 的**自动派发、无人值守**与 Flowly 的产品定位（人管多任务、自动派发在 v1 之外）相反，不该照搬；但它在“**让 agent 的工作可检查、可续跑、可策略化**”上的几个设计，正好补 Flowly 的短板，而且大多已在 `ROADMAP-V2.md` M4/M5 里有雏形。
+Conclusion first: Symphony's **automatic dispatch and unattended operation** are the opposite of Flowly's product positioning (a person manages multiple tasks, automatic dispatch is outside v1) and should not be copied; but several of its designs for "**making the agent's work checkable, resumable and policy-driven**" fit exactly where Flowly is weak, and most already have a first form in `ROADMAP-V2.md` M4/M5.
 
-## 2. Symphony 的特色（值得注意的设计）
+## 2. Symphony's distinctive points (designs worth noting)
 
-### 2.1 WORKFLOW.md：仓库里的工作流策略
-- YAML front matter（tracker、轮询、workspace 根、hooks、并发、Codex 参数）+ Markdown 正文作为**每张卡的 prompt 模板**，Liquid 语法，变量 `issue.*` 和 `attempt`。
-- 严格渲染：未知变量/过滤器直接失败，而不是静默留空。
-- **必须热加载**；新配置无效时保持 last-known-good 并给出可见错误，不崩。进行中的 session 不受影响，只作用于以后的派发。
-- 好处：策略和代码一起版本化、走 review；团队可以按仓库定制。
+### 2.1 WORKFLOW.md: the workflow policy in the repo
+- YAML front matter (tracker, polling, workspace root, hooks, concurrency, Codex parameters) + a Markdown body as the **prompt template for every card**, Liquid syntax, with the variables `issue.*` and `attempt`.
+- Strict rendering: an unknown variable/filter fails outright instead of silently being left empty.
+- **Must hot-reload**; when the new config is invalid, keep the last-known-good and show a visible error, without crashing. In-progress sessions are unaffected, and it applies only to later dispatches.
+- Benefit: the policy is versioned with the code and goes through review; a team can customize per repo.
 
-### 2.2 “状态即指令”：按 lane 路由 agent 行为
-参考 WORKFLOW.md 的 Status map：每个状态对 agent 有明确含义——`Todo` 立即转 `In Progress` 再开工；`Human Review` 不改代码只轮询反馈；`Merging` 执行 `land` skill 直到合并；`Rework` 是**整套方案重来**（关旧 PR、删旧 workpad、从 `origin/main` 新开分支）而不是小修；`Backlog` 不碰；终态就退出。人的唯一操作界面就是拖卡。
+### 2.2 "Status as instruction": routing agent behavior by lane
+Referring to the Status map of WORKFLOW.md: each status has a clear meaning for the agent: `Todo` immediately moves to `In Progress` and then starts work; `Human Review` changes no code and only polls for feedback; `Merging` runs the `land` skill until merged; `Rework` is **redoing the whole approach** (close the old PR, delete the old workpad, open a new branch from `origin/main`) rather than a small fix; `Backlog` is left alone; a terminal state just exits. The person's only operating surface is dragging cards.
 
-### 2.3 Workpad：单一、就地更新的进度载体
-每个 issue 只有一条 `## Codex Workpad` 评论，agent 反复编辑它而不是不断追加：
-- 顶部环境戳 `<host>:<abs-path>@<short-sha>`；
-- `Plan`（层级 checkbox）、`Acceptance Criteria`、`Validation`（具体命令）、`Notes`（带时间）、`Confusions`（执行中觉得含糊的地方，给人改进需求描述用）。
-- 规则：开工先对齐 workpad；每个里程碑后更新；卡片描述里的 `Validation/Test Plan` 必须原样搬进清单且不可降级；“禁止留未勾的已完成项”。
+### 2.3 Workpad: a single, in-place-updated progress carrier
+Each issue has only one `## Codex Workpad` comment, which the agent edits repeatedly instead of appending endlessly:
+- an environment stamp at the top `<host>:<abs-path>@<short-sha>`;
+- `Plan` (hierarchical checkboxes), `Acceptance Criteria`, `Validation` (concrete commands), `Notes` (with times), `Confusions` (places that felt vague during execution, for a person to improve the requirement text).
+- Rules: align the workpad first when starting; update it after every milestone; a `Validation/Test Plan` in the card description must be moved verbatim into the checklist and must not be downgraded; "no completed items left unchecked".
 
-### 2.4 完成门槛（Completion bar）
-进入 `Human Review` 前必须：清单全勾、验证对最新 commit 全绿、PR 反馈全部处理（改了或给出有理由的 pushback）、CI 绿、PR 已挂到 issue。实际是把 DoD 写成 agent 的硬约束。
+### 2.4 Completion bar
+Before entering `Human Review` it must: have the checklist all checked, validation all green against the latest commit, all PR feedback handled (changed or given a reasoned pushback), CI green, and the PR attached to the issue. In effect it writes the DoD as a hard constraint on the agent.
 
-### 2.5 编排可靠性
-- **Claim + 并发槽**：全局 `max_concurrent_agents` 和按状态的上限；按优先级 → 创建时间 → 标识排序。
-- **续跑（continuation）**：turn 正常结束后若 issue 仍在 active 状态，同一线程继续下一 turn（上限 `max_turns`），续跑只发“继续”指引，不重发完整 prompt；worker 退出后 1 秒再检查一次。
-- **重试退避**：失败按 `min(10s·2^(n-1), 5min)` 重试；prompt 里通过 `attempt` 告诉 agent“这是第 n 次，从当前 workspace 状态继续，别重复已完成的调查”。
-- **Stall 检测**：距最后一个 agent 事件超过 `stall_timeout_ms`（5 分钟）就杀掉重来。
-- **对账（reconciliation）**：每个 tick 刷新运行中 issue 的状态，人把卡移出 active → 停 agent；移到终态 → 停并清理 workspace。
-- **无数据库重启恢复**：tracker + 文件系统就是状态，重启后重新轮询即可。
+### 2.5 Orchestration reliability
+- **Claim + concurrency slots**: a global `max_concurrent_agents` and per-status caps; sorted by priority → creation time → identifier.
+- **Continuation**: after a turn ends normally, if the issue is still in an active state, the same thread continues with the next turn (capped by `max_turns`), and a continuation sends only a "continue" guidance, not the full prompt again; after a worker exits, check again after 1 second.
+- **Retry backoff**: a failure retries at `min(10s·2^(n-1), 5min)`; the prompt tells the agent through `attempt` "this is attempt n, continue from the current workspace state, do not repeat investigation already done".
+- **Stall detection**: when more than `stall_timeout_ms` (5 minutes) has passed since the last agent event, kill it and start over.
+- **Reconciliation**: every tick refreshes the status of running issues; when a person moves a card out of active → stop the agent; moves it to a terminal state → stop and clean up the workspace.
+- **Restart recovery with no database**: the tracker + file system are the state, and after a restart it just polls again.
 
-### 2.6 Workspace 生命周期 hooks
-`after_create`（如 clone + 装依赖，失败则创建失败）、`before_run`（失败则本次失败）、`after_run`、`before_remove`（失败只记日志），统一超时。agent 只能在该 issue 的 workspace 里跑，路径必须在根目录下且名称经过清洗。
+### 2.6 Workspace lifecycle hooks
+`after_create` (such as clone + install dependencies, creation fails if it fails), `before_run` (this run fails if it fails), `after_run`, `before_remove` (a failure is only logged), with a unified timeout. The agent can run only inside that issue's workspace, the path must be under the root and the name sanitized.
 
-### 2.7 Tracker 写操作走宿主侧工具，凭据不进子进程
-agent 通过 `linear_graphql` 等 provider 原生工具改 tracker，工具在 Symphony 进程里用宿主凭据执行，子进程环境里删除相关环境变量。工具规格和 session 快照绑定，热加载不会让进行中的 session 切换 provider。Flowly 的签名请求 + 作用域 MCP 已经是同一思路，而且更严格（CAS revision、幂等回执）。
+### 2.7 Tracker writes go through host-side tools, and credentials do not enter the child process
+The agent changes the tracker through provider-native tools such as `linear_graphql`; the tool runs inside the Symphony process with the host credentials, and the related environment variables are removed from the child process environment. The tool spec is bound to the session snapshot, so a hot reload does not make an in-progress session switch provider. Flowly's signed request + scoped MCP is already the same idea, and stricter (CAS revision, idempotent receipts).
 
 ### 2.8 Proof of work
-demo 中 agent 交付时附带 CI 状态、PR review 反馈、复杂度分析和**操作录屏**；`land` skill 循环处理冲突、等 CI、修失败、逐条回复 review（accept / clarify / push back，先回复再改代码）。
+In the demo the agent attaches CI status, PR review feedback, complexity analysis and a **screen recording of operations** at delivery; the `land` skill loops through resolving conflicts, waiting for CI, fixing failures, and replying to review comments one by one (accept / clarify / push back, reply first and then change code).
 
-### 2.9 其他
-- 超出范围的发现由 agent **直接建 Backlog issue**，带验收标准和 `related`/`blockedBy` 链接（Flowly 的 Ideas 收件箱由人把关，更稳，保持不变）。
-- token 计数细节：只用绝对累计值（`total_token_usage`）做差，忽略增量事件防重复计数；记录速率限制快照。
-- `dispatchable` + `required_labels`：只有带某标签的卡才会被派发（安全过滤）。
-- 可选 SSH worker 池（跨主机）。
+### 2.9 Others
+- Out-of-scope findings are **created directly as a Backlog issue by the agent**, with acceptance criteria and `related`/`blockedBy` links (Flowly's Ideas inbox is gated by a person, which is safer, and stays unchanged).
+- Token counting details: use only the absolute cumulative value (`total_token_usage`) and take differences, ignore incremental events to prevent double counting; record rate-limit snapshots.
+- `dispatchable` + `required_labels`: only a card carrying a given label is dispatched (a safety filter).
+- An optional SSH worker pool (across hosts).
 
-## 3. 值得吸取的点（按对 Flowly 的价值排序）
+## 3. Points worth taking (ranked by value to Flowly)
 
-### P1 卡片 Workpad：结构化、就地更新的计划/验收/验证清单
-**现状缺口**：progress note 是追加流水，Haiku 摘要是事后总结；人审卡时看不到“计划了什么、验收标准是什么、哪些验证跑了没跑”。PROGRESS.md 里 “UNRUN” 这类记录现在全靠 agent 自觉写在文本里。
+### P1 Card Workpad: a structured, in-place-updated plan / acceptance / validation checklist
+**Current gap**: a progress note is an appended stream, and a Haiku summary is an after-the-fact recap; when a person reviews a card they cannot see "what was planned, what the acceptance criteria are, which validations ran and which did not". Records such as "UNRUN" in PROGRESS.md currently rely entirely on the agent writing them into text voluntarily.
 
-**做法**：卡片新增 agent 可写的 `workpad`（Plan / Acceptance / Validation / Notes / Confusions，checkbox 有状态），一个 `flowly_update_workpad` 工具整体替换（CAS 保护），卡片显示 `验证 3/5`，抽屉里可读可勾。卡片描述里若有 “Validation/Test plan” 段，skill 要求原样搬入。环境戳 `host:path@sha` 让人一眼知道在哪个 commit 上验证。`Confusions` 很有意思：它是对需求写法的反馈，可以汇总进 Insights。
+**Approach**: the card gains an agent-writable `workpad` (Plan / Acceptance / Validation / Notes / Confusions, with stateful checkboxes), a `flowly_update_workpad` tool that replaces it as a whole (CAS protected), the card shows `Validation 3/5`, and it can be read and ticked in the drawer. If the card description has a "Validation/Test plan" section, the skill requires moving it in verbatim. The environment stamp `host:path@sha` lets a person see at a glance on which commit it was validated. `Confusions` is interesting: it is feedback on how the requirement is written, and can be rolled up into Insights.
 
-### P2 交付门槛（soft completion bar）
-在 P1 基础上，`flowly_update_status(in_review)` 时若还有未勾的验收/验证项，不拒绝，但要求 note 说明，并在卡片上标“交付时 2 项未完成”。与 AGENTS.md “completed / failed / unrun 分开记录”的项目规矩一致，变成产品能力。
+### P2 Delivery gate (soft completion bar)
+On top of P1, when `flowly_update_status(in_review)` still has unchecked acceptance/validation items, do not reject, but require a note to explain, and mark the card "2 items open at delivery". This is consistent with the AGENTS.md rule "record completed / failed / unrun separately", turned into a product capability.
 
-### P3 项目 Playbook（WORKFLOW.md 式策略文件）
-**现状**：skill 文本对所有项目一样；项目特有的规矩（比如本仓库 AGENTS.md 里的 onboarding upkeep、Luna 测试要求）只能靠仓库自己的 AGENTS.md。
-**做法**（对应 ROADMAP M4 “项目 playbook”）：可选的 `.flowly/WORKFLOW.md`（或项目设置里），包含：
-- Start session 的初始 prompt 模板，变量 `card.title/description/type/tags/artifacts/links`；
-- **按 lane 的说明**（进入 Test 时做什么、In review 的交付格式、DoD、验证命令）——由 `flowly_get_task` 返回当前 lane 的那段，而不是每条消息前缀（守住“普通 follow-up 只发用户原文”的约束）；
-- 默认 provider/model/mode。
-- 严格模板 + 热加载 + last-known-good + 可见错误，照搬 Symphony 的语义。
+### P3 Project Playbook (a WORKFLOW.md-style policy file)
+**Current state**: the skill text is the same for all projects; project-specific rules (for example the onboarding upkeep and Luna test requirements in this repo's AGENTS.md) can only rely on the repo's own AGENTS.md.
+**Approach** (matching ROADMAP M4 "project playbook"): an optional `.flowly/WORKFLOW.md` (or in project settings), containing:
+- The initial prompt template for Start session, with the variables `card.title/description/type/tags/artifacts/links`;
+- **Per-lane instructions** (what to do on entering Test, the delivery format of In review, the DoD, the validation commands), where `flowly_get_task` returns the section for the current lane, instead of a prefix on every message (keeping the constraint "an ordinary follow-up sends only the user's own text");
+- The default provider/model/mode.
+- Strict templates + hot reload + last-known-good + visible errors, copying Symphony's semantics.
 
-### P4 Stall / 静默结束检测
-（对应 ROADMAP M5 watchdog、M3 “静默结束”）
-- 运行中 session 超过 N 分钟无任何事件 → Attention 里出现“可能卡住”；
-- turn 结束时卡片仍在 Development/Test、本轮既没提问也没交付 → 标“静默结束”，给一个 **Nudge** 按钮（一键发送可配置的续跑指引：“从当前 workspace 状态继续，不要重复已完成的工作”）。
-- 是否自动续跑（Symphony 的 continuation，上限 `max_turns`）作为项目级开关，默认关闭——因为它是插件发起的消息，需要用户明确授权。
+### P4 Stall / silent-end detection
+(Matching ROADMAP M5 watchdog, M3 "silent end")
+- A running session with no event for more than N minutes → "may be stuck" appears in Attention;
+- When a turn ends with the card still in Development/Test and this turn neither asked a question nor delivered → mark "silent end", with a **Nudge** button (one click sends a configurable continuation guidance: "continue from the current workspace state, do not repeat work already done").
+- Whether to continue automatically (Symphony's continuation, capped by `max_turns`) is a project-level switch, off by default, because it is a message initiated by the plugin and needs the user's explicit authorization.
 
-### P5 Rework 两种语义
-Symphony 把打回明确为“整套方案重来”。Flowly 现在 In review → 用户回复 → 自动回到 Development，相当于“增量修改”。可以在 In review 卡上多一个 **Rework from scratch**：新开 session，带上原始卡片上下文 + 用户的打回理由 + 上一轮 workpad 的 Confusions，旧 session 保留。
+### P5 Two meanings of Rework
+Symphony makes sending back explicitly "redo the whole approach". In Flowly, In review → the user replies → automatically back to Development, which is like an "incremental change". A **Rework from scratch** button could be added on an In review card: open a new session, carrying the original card context + the user's reason for sending it back + the Confusions of the last round's workpad, and keep the old session.
 
-### P6 交付证据（Proof of work）
-Artifacts 已有输入/输出。可以增加 `evidence` 子类（截图、录屏、测试输出、CI 链接），在 In review 卡上直接展示缩略图；配合 M4 的 Git 交付信息（分支、diff stat、PR 链接、CI 状态）。
+### P6 Delivery evidence (Proof of work)
+Artifacts already has input/output. An `evidence` subtype (screenshots, screen recordings, test output, CI links) could be added, with thumbnails shown directly on In review cards; together with M4's Git delivery info (branch, diff stat, PR link, CI status).
 
 ### P7 Workspace hooks
-Flowly 建 worktree 后，新 worktree 常需要 `npm install` 等准备。若 Paseo 的 workspace scripts 已覆盖，则只需在 playbook 里引用；否则可在 playbook 加 `after_create` / `before_remove`（参数数组子进程、超时、失败语义同 Symphony）。
+After Flowly creates a worktree, the new worktree often needs preparation such as `npm install`. If Paseo's workspace scripts already cover it, only a reference in the playbook is needed; otherwise `after_create` / `before_remove` can be added to the playbook (argument-array subprocess, timeout, failure semantics the same as Symphony).
 
-### 远期 / 不建议现在做
-- **自动派发队列**（Todo 按优先级自动开工，全局/按 lane 并发上限，`required_labels` 过滤）：Symphony 的核心，但 AGENTS.md 明确“自动分派在 v1 之外”，ROADMAP M5 已记录。若将来做，可直接借用它的 claim / 排序 / 退避 / 对账算法（SPEC §8、§16）。
-- **人改 lane 自动停 session**（对账）：在 Flowly 里人可能只是整理看板，自动停会误伤；最多做成“移到 Cancelled 时提示是否停止运行中的 session”。
-- agent 自建卡片：保持 Ideas 由人把关。
-- SSH worker 池、外部 tracker 同步：属于 M6。
+### Long term / not recommended now
+- **An automatic dispatch queue** (Todo starts automatically by priority, global / per-lane concurrency caps, `required_labels` filtering): Symphony's core, but AGENTS.md explicitly says "automatic assignment is outside v1", and ROADMAP M5 has recorded it. If done in the future, its claim / ordering / backoff / reconciliation algorithms can be borrowed directly (SPEC §8, §16).
+- **A person changing the lane automatically stops the session** (reconciliation): in Flowly a person may just be tidying the board, and an automatic stop would hurt; at most, "when moved to Cancelled, ask whether to stop the running session".
+- An agent creating cards itself: keep Ideas gated by a person.
+- An SSH worker pool, external tracker sync: these belong to M6.
 
-## 3.1 追问：“人改状态 → agent 自动干下一步”（Merging → 合入 → Done）
+## 3.1 Follow-up: "a person changes status → the agent automatically does the next step" (Merging → merge → Done)
 
-### Symphony 是怎么做到的
-拆开看是四件事叠在一起，没有专门的“触发器”：
-1. **轮询 + 对账**：orchestrator 每 5 秒看一次卡片状态；`Merging` 在 `active_states` 里，所以被拖到 Merging 的卡会被派发（或正在跑的 worker 下一轮看到新状态）。
-2. **状态路由写在 prompt 里**：WORKFLOW.md 的 Status map 规定 “Merging → 打开并执行 `land` skill”。agent 每轮第一步就是读当前状态再选流程，状态本身就是指令。
-3. **流程写成 skill**：`land` = 本地全量检查 → 解决冲突 → 等 CI → 修 CI → 逐条回复 review → squash merge；“合并前不 yield”。
-4. **agent 有权改终态**：合并成功后 agent 自己把卡改成 Done；Done 是 terminal state，orchestrator 随之停 worker 并清理 workspace。
+### How Symphony does it
+Taken apart it is four things stacked together, with no dedicated "trigger":
+1. **Polling + reconciliation**: the orchestrator looks at card status every 5 seconds; `Merging` is in `active_states`, so a card dragged to Merging is dispatched (or the running worker sees the new status on its next round).
+2. **State routing written in the prompt**: the Status map of WORKFLOW.md says "Merging → open and run the `land` skill". The agent's first step each round is to read the current status and then pick the flow, so the status itself is the instruction.
+3. **The flow written as a skill**: `land` = full local checks → resolve conflicts → wait for CI → fix CI → reply to review comments one by one → squash merge; "do not yield before merging".
+4. **The agent has the right to change a terminal state**: after a successful merge the agent itself changes the card to Done; Done is a terminal state, and the orchestrator then stops the worker and cleans up the workspace.
 
-人的拖动 = 一次授权（“我审过了，去合吧”）；后续全部是 agent 的事，结果用 Done 回报。
+The person's drag = one authorization ("I have reviewed it, go merge"); everything after is the agent's job, with the result reported back by Done.
 
-### Flowly 现状
-- 已有先例：**人把卡移到 Done/Cancelled 会触发收尾**（询问或自动 Wrap up，带 preflight）。“移动卡片 = 触发动作”的机制和用户心智已经存在，只是动作由 daemon 做，不是 agent 做。
-- 泳道是固定的内置状态（可改名/开关/排序），没有 Merging。
-- 约束：普通 follow-up 只发用户原文；Done/Cancelled 由人决定；PR 自动化在 v1 之外。
+### Flowly's current state
+- There is already a precedent: **a person moving a card to Done/Cancelled triggers wrap-up** (asking or automatic Wrap up, with preflight). The mechanism and user mental model "moving a card = triggering an action" already exist, only the action is done by the daemon, not the agent.
+- Lanes are fixed built-in statuses (renamable / switchable / reorderable), with no Merging.
+- Constraints: an ordinary follow-up sends only the user's own text; Done/Cancelled is decided by a person; PR automation is outside v1.
 
-### 可以借鉴的设计：泳道动作（Lane actions）
-**核心**：项目可为某些泳道配置“进入动作”。人把卡移入该泳道时，daemon 给卡片的 session 发送该泳道的说明，agent 按说明干完后把卡移到约定的下一列。拖动本身就是人的显式指令，和 “Send Kanban work instructions” 同属显式动作，不是普通 follow-up。
+### A design to borrow: Lane actions
+**Core**: a project can configure "entry actions" for some lanes. When a person moves a card into that lane, the daemon sends that lane's instructions to the card's session, and after the agent does it as instructed it moves the card to the agreed next column. The drag itself is the person's explicit instruction, in the same class as "Send Kanban work instructions", an explicit action and not an ordinary follow-up.
 
-最有价值的一条链：**In review →（人拖）Merging → agent 合入 → Done → 自动 Wrap up**。Flowly 的卡大多是 worktree，Merging 不一定要 PR：
-- 本地模式（不涉及 PR 自动化，最适合先做）：把 worktree 分支 rebase/merge 到主分支，跑项目验证命令（如 `npm run typecheck && npm test`），快进主分支，记录 commit SHA 为 output artifact，然后设 Done。Done 再触发已有的 Auto wrap up 归档 worktree——整条链首尾都是现成的。
-- 远程模式（需解除“PR 自动化在 v1 之外”）：push + `gh`/`glab` 开或合 PR，等 CI，处理 review，类似 `land` skill。
+The most valuable chain: **In review → (person drags) Merging → the agent merges → Done → automatic Wrap up**. Most Flowly cards are worktrees, and Merging does not have to be a PR:
+- Local mode (does not involve PR automation, the best one to do first): rebase/merge the worktree branch into the main branch, run the project's validation command (such as `npm run typecheck && npm test`), fast-forward the main branch, record the commit SHA as an output artifact, and then set Done. Done then triggers the existing Auto wrap up to archive the worktree, so both ends of the whole chain are ready-made.
+- Remote mode (needs lifting "PR automation is outside v1"): push + `gh`/`glab` to open or merge the PR, wait for CI, handle review, similar to the `land` skill.
 
-其他可配的泳道动作（都是可选，默认关）：
-| 人的移动 | agent 收到的说明 | 完成后 agent 移到 |
+Other configurable lane actions (all optional, off by default):
+| The person's move | The instructions the agent receives | After completing, the agent moves to |
 | --- | --- | --- |
-| In review → **Merging**（新内置泳道，默认关） | 按项目合入流程合入，验证不过就修，修不了就提问 | Done（需要授权，见下） |
-| In review → Development（打回） | 读用户最新反馈/卡片评论，返工 | In review |
-| Development → **Test** | 按 playbook 的验证清单跑全量验证、补测试 | In review |
-| Todo → Design/Development（卡片没有 session 时） | 用默认 provider/model 新建 session 并带卡片上下文开工 | 按正常阶段流转 |
-| 任意 → Cancelled（有运行中的 session） | 不发给 agent；提示是否停止运行中的 turn | — |
+| In review → **Merging** (a new built-in lane, off by default) | Merge by the project's merge flow, fix it if validation fails, ask a question if it cannot be fixed | Done (needs authorization, see below) |
+| In review → Development (sent back) | Read the user's latest feedback / card comments, and rework | In review |
+| Development → **Test** | Run the full validation by the playbook's validation checklist, add tests | In review |
+| Todo → Design/Development (when the card has no session) | Create a new session with the default provider/model and start work with the card context | Flows by the normal stages |
+| Any → Cancelled (with a running session) | Not sent to the agent; ask whether to stop the running turn | — |
 
-### 要从 Symphony 照搬的细节
-- **说明放在“lane 说明”里，触发消息很短**：触发消息只写“用户把卡移到了 Merging，请按该泳道的说明执行”；详细流程由 `flowly_get_task` 返回当前泳道的说明（来自项目 Playbook），或写成 skill（如 `land`）。这样改流程不用改代码，旧 session 也能读到最新版本。
-- **每次进入只触发一次**：以状态变更事件 ID 做幂等键，daemon 重启、重复渲染、来回拖都不会重复发送；移出再移入算新的一次。
-- **session 忙时排队**：session 正在跑一轮时，等它结束再发；或者提示用户“当前 session 正忙，结束后发送 / 现在发送 / 取消”。
-- **多个 session 时选目标**：默认发给最近活跃的 session，没有 session 时按默认设置新建一个；目标在 toast 里写明，并带一个短暂的“撤销”。
-- **对账**：动作执行期间人把卡移出该泳道 → 提示是否停止运行中的 turn（Symphony 是直接停，Flowly 应该问）。
-- **不 yield 直到完成**：说明里要求 agent 循环“合入 → 验证 → 修复”直到成功；真正卡住才用 question 进入 Needs you，而不是静默结束。
+### Details to copy from Symphony
+- **Put the instructions in the "lane instructions", and keep the trigger message short**: the trigger message says only "the user moved the card to Merging, please execute per that lane's instructions"; the detailed flow is returned by `flowly_get_task` as the current lane's instructions (from the project Playbook), or written as a skill (such as `land`). This way changing the flow needs no code change, and old sessions can read the latest version too.
+- **Trigger only once per entry**: use the status-change event ID as the idempotency key, so a daemon restart, repeated rendering or dragging back and forth never sends twice; moving out and in again counts as a new one.
+- **Queue when the session is busy**: when the session is running a turn, wait until it ends before sending; or tell the user "the current session is busy: send after it ends / send now / cancel".
+- **Pick the target when there are several sessions**: send to the most recently active session by default, and when there is no session create one by the default settings; state the target in the toast, with a brief "undo".
+- **Reconciliation**: when a person moves the card out of that lane while the action is running → ask whether to stop the running turn (Symphony just stops, Flowly should ask).
+- **Do not yield until done**: the instructions require the agent to loop "merge → validate → fix" until it succeeds; only when truly stuck should it use a question to enter Needs you, instead of ending silently.
 
-### 需要用户决定的边界（与现有约束冲突处）
-1. **agent 能否把卡移到 Done**：现在 Done 只能由人决定。建议做成**受限授权**：只有当卡是被人拖入 Merging（带“完成后可设 Done”的泳道动作）时，agent 才能设 Done，且必须附带证据（合入 commit SHA 或已合并 PR 链接的 output artifact）；活动里标注“依据 Merging 授权”。否则 agent 只能回到 In review 并说明。
-2. **是否新增内置 Merging 泳道**（默认关闭，开启后出现在 In review 与 Done 之间），还是允许把某个已有泳道改名后挂动作。
-3. **本地合入 vs PR**：先做本地合入（不碰 v1 的 PR 自动化边界），PR 模式另立卡。
-4. AGENTS.md 需要新增一条 “Exception, user-requested: lane actions” 说明这种插件发起的消息。
+### Boundaries the user needs to decide (where this conflicts with existing constraints)
+1. **Can the agent move a card to Done**: now Done can be decided only by a person. The suggestion is to make it a **restricted authorization**: only when the card was dragged into Merging by a person (a lane action that carries "may set Done when finished") may the agent set Done, and it must attach evidence (an output artifact of the merged commit SHA or the merged PR link); the activity notes "based on the Merging authorization". Otherwise the agent can only go back to In review and explain.
+2. **Whether to add a built-in Merging lane** (off by default, appearing between In review and Done once turned on), or to allow renaming an existing lane and attaching the action to it.
+3. **Local merge vs PR**: do the local merge first (not touching v1's PR automation boundary), and PR mode gets a separate card.
+4. AGENTS.md needs a new "Exception, user-requested: lane actions" to describe this kind of plugin-initiated message.
 
-## 4. 不需要学的（Flowly 已经更好）
-- 人在回路：Symphony 把 “user input required” 当失败；Flowly 的 question → Needs you → Reply 是更适合个人多任务的设计。
-- 写入安全：Flowly 的 CAS revision、签名 request、幂等回执、作用域限制比 Symphony 的 “agent 拿 GraphQL 全量权限” 更严谨。
-- 多端 UI、i18n、Insights：Symphony 明确不做富 UI。
+## 4. What does not need learning (Flowly is already better)
+- Human in the loop: Symphony treats "user input required" as a failure; Flowly's question → Needs you → Reply is a design better suited to personal multitasking.
+- Write safety: Flowly's CAS revision, signed request, idempotent receipts and scope limits are more rigorous than Symphony's "the agent gets full GraphQL permission".
+- Multi-platform UI, i18n, Insights: Symphony explicitly does not do a rich UI.
 
-## 5. 一句话总结
-Symphony 把“agent 应该怎么干活”写成了**可版本化的策略（WORKFLOW.md）+ 可检查的工作单（Workpad）+ 可兜底的运行时（续跑/stall/重试）**。Flowly 已经有更好的人机交互面，下一步最值得补的是这三样中的前两样：**Workpad + 交付门槛** 和 **项目 Playbook**，其次是 **stall/静默结束检测**。
+## 5. One-sentence summary
+Symphony writes "how an agent should work" as a **versionable policy (WORKFLOW.md) + a checkable work sheet (Workpad) + a runtime with a safety net (continuation / stall / retry)**. Flowly already has a better human-agent interaction surface, and the next things most worth adding are the first two of these three: **Workpad + delivery gate** and **project Playbook**, followed by **stall / silent-end detection**.
