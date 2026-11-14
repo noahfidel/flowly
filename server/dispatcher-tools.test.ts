@@ -978,12 +978,26 @@ test("a new dispatcher's flowly_create_card is confirmed by the user: not preapp
   expect(policy.preapproved.map((g) => g.tool)).toContain("flowly_start_card");
 });
 
-test("a dispatcher saved with flowly_create_card preapproved keeps creating without the mode check until it is replaced (DISPATCHER-SPEC §5.2)", async () => {
-  const x = await setup();
-  const d = await x.connect(x.dispatcherToken);
-  // "disp" is an old record (no savedTools): its session preapproves the tool, so no prompt could show anyway.
-  x.agents.disp.currentModeId = "bypassPermissions";
-  expect(code(await d.call("flowly_create_card", { projectId: "q", title: "Old way", idempotencyKey: "k-old" }))).toBeUndefined();
+test("which dispatchers' flowly_create_card waits on the confirm, so its mode is checked (DISPATCHER-SPEC §5.2)", async () => {
+  const firstEight = ["flowly_list_projects", "flowly_list_cards", "flowly_get_card", "flowly_create_card", "flowly_update_card", "flowly_start_card", "flowly_propose_idea", "flowly_link_cards"];
+  const cases: [string, unknown, string | undefined][] = [
+    // Saved with the tool preapproved: no prompt can show, so it creates as before until it is replaced.
+    ["a list naming it", [...firstEight, "flowly_list_ideas"], undefined],
+    ["the first eight, marked true", true, undefined],
+    // Saved without it (this build), or served by the open hook with nothing preapproved: the prompt shows.
+    ["this build's list", [...dispatcherToolNames], "CONFIRMATION_UNAVAILABLE"],
+    ["no list (open hook)", undefined, "CONFIRMATION_UNAVAILABLE"],
+  ];
+  for (const [label, savedTools, expected] of cases) {
+    const x = await setup();
+    await writeFile(
+      join(x.store.directory, "dispatcher.json"),
+      JSON.stringify({ version: 1, workspaceId: "dw", agentId: "disp", startedAt: stamp, ...(savedTools === undefined ? {} : { savedTools }) }),
+    );
+    const d = await x.connect(x.dispatcherToken);
+    x.agents.disp.currentModeId = "bypassPermissions";
+    expect(code(await d.call("flowly_create_card", { projectId: "q", title: "Gate", idempotencyKey: "k-gate" })), label).toBe(expected);
+  }
 });
 
 test("flowly_create_project: at most 5 projects per dispatcher hour, apart from the card bucket (ruling A, DISPATCHER-SPEC §5.2)", async () => {
