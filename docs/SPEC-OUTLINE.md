@@ -1,12 +1,12 @@
-# Paseo Kanban Plugin：Spec 大纲与路线图
+# Paseo Kanban Plugin: Spec Outline and Roadmap
 
-2026-10-28 项目护栏闭环（已设计，用户批准，实现中，分支 feat/guardrails）：把项目记忆、Workpad、交付自动验收和 Insights 的建议部分改成一条线。你退卡时说的话由卡片总结顺便归纳成卡片专属项，第二张卡再出现就自动升为项目准则（范围等于来源卡的类型与大小之并，只扩不缩）；agent 交付时 daemon 跑项目命令、评审 session 判内置检查、范围内准则和本卡专属项，不过退回返工；抓到、漏掉、误判三个计数由退卡、不退、移到 Done 自动算出，误判 2 次暂停、20 次没抓到归档，准则 20 条、命令 10 条、备忘 100 条满了挤出；记忆写入即生效，没有收件箱；命令每周重识别加观察期；workpad 只剩验收清单，自报验证与软门槛去掉；Insights 顶部换成 14 天交付数、首次通过率、误判率；Memory 页改为 Guardrails 页；新项目 Auto review 默认开。[GUARDRAILS-SPEC](GUARDRAILS-SPEC.md)。
+2026-10-28 Project guardrails loop (designed, approved by the user, in implementation, branch feat/guardrails): turns project memory, Workpad, automatic delivery review and the suggestion part of Insights into one line. What you say when you send a card back is summarized by the card summary into card-specific items; when the second card shows the same thing, it is automatically promoted to a project guideline (its scope equals the union of the source cards' types and sizes, only widening, never narrowing); when an agent delivers, the daemon runs the project commands, and the review session judges the built-in check, the in-scope guidelines and this card's own items, sending the card back for rework if it does not pass; three counters, caught, missed and misjudged, are computed automatically from sending a card back, not sending it back, and moving it to Done; 2 misjudgments pause a guideline, 20 times without catching anything archive it; at 20 guidelines, 10 commands and 100 notes, the full list pushes the oldest out; a memory write takes effect at once, with no inbox; commands are re-detected weekly with an observation period; the workpad keeps only the acceptance checklist, and the self-reported validation and soft gates are removed; the top of Insights is replaced by 14-day deliveries, first-pass rate and misjudgment rate; the Memory page becomes the Guardrails page; Auto review is on by default for new projects. [GUARDRAILS-SPEC](GUARDRAILS-SPEC.md).
 
-2026-10-28 交付自动验收（P1、P2 已实现未提交，P3 已设计）：项目开启后，agent 交付时 workpad 有失败或过期验证项当场拒绝；交付后 daemon 跑项目的检查命令，再由独立评审 session 判定内置检查“做到了用户要求的事”（对照卡片和用户在会话里的原话）与项目的 LLM 检查；不通过退回交付前的工作阶段并给原 session 发返工消息，达到上限移到 Blocked；通过才进入 Attention。打开开关时从仓库识别检查命令；老用户从 What's new、新用户在交付后返工多时从 Insights，用过往卡片生成门禁总结和预选检查；Insights 定期推荐增量检查；Adjust with AI 设置卡片为次要入口。[AUTO-REVIEW-SPEC](AUTO-REVIEW-SPEC.md)。
+2026-10-28 Automatic delivery review (P1 and P2 implemented but not committed, P3 designed): when a project turns it on, an agent delivery is rejected on the spot if the workpad has a failing or stale validation item; after delivery the daemon runs the project's check commands, and then an independent review session judges the built-in check "did what the user asked for" (against the card and the user's own words in the conversation) and the project's LLM checks; if it does not pass, the card goes back to the work stage it was in before delivery and the original session gets a rework message, and when the limit is reached it moves to Blocked; only a pass enters Attention. When the switch is turned on, check commands are detected from the repository; existing users start from What's new, and new users from Insights when there is much rework after delivery, using past cards to generate a gate summary and preselected checks; Insights periodically recommends incremental checks; the Adjust with AI setup card is a secondary entry. [AUTO-REVIEW-SPEC](AUTO-REVIEW-SPEC.md).
 
-2026-11-12 New session 起始文本（已实现）：卡片的 New session 输入框打开时预填可编辑文本，来自项目设置 “New session starting text”，未设置时为内置默认 “Read the card and pick up where it left off.”；清空后提交发送卡片标题与描述；来自 Ideas 的 session 保留其自身文本。同时修正默认模型不再被提供时静默换成 provider 默认模型的问题：picker 下方提示该默认模型不可用。[spec](SESSION-START-TEXT-SPEC.md)、[MODEL-DEFAULTS-SPEC §2](MODEL-DEFAULTS-SPEC.md)。
+2026-11-12 New session starting text (implemented): the card's New session input is prefilled with editable text when it opens, from the project setting "New session starting text", or the built-in default "Read the card and pick up where it left off." when not set; after clearing it, submitting sends the card title and description; sessions coming from Ideas keep their own text. Also fixes the problem where, when the default model is no longer offered, it was silently replaced with the provider's default model: the picker now shows a hint below that the default model is unavailable. [spec](SESSION-START-TEXT-SPEC.md), [MODEL-DEFAULTS-SPEC §2](MODEL-DEFAULTS-SPEC.md).
 
-2026-11-06 Paseo 0.14 插件工具接入（已实现）：最低 Paseo 升到 0.14.0。`agent.session_open` hook 在每次启动时给 Flowly 管理的 session 注入 `flowly` MCP server（只在启动时生效，不写进 agent 配置），新建 session 不再把 MCP URL 和凭据存进 agent 配置；“Send Kanban work instructions” 加入的空闲 session 重开后也有 MCP。保存配置里已带 `flowly` 的旧 session、不支持 MCP 的 provider 不注入。不接 `defineAgentTool`（并入 Paseo 自己的 MCP，Paseo tools 关闭时会静默消失）。[PASEO-SESSION-TOOLS-SPEC](PASEO-SESSION-TOOLS-SPEC.md)。
+2026-11-06 Paseo 0.14 plugin tool integration (implemented): the minimum Paseo is raised to 0.14.0. The `agent.session_open` hook injects the `flowly` MCP server into Flowly-managed sessions on every start (effective only at start, not written into the agent config), and new sessions no longer store the MCP URL and credentials in the agent config; idle sessions added through "Send Kanban work instructions" also have MCP after reopening. Old sessions whose saved config already carries `flowly`, and providers that do not support MCP, are not injected. `defineAgentTool` is not connected (it merges into Paseo's own MCP and would silently disappear when Paseo tools are turned off). [PASEO-SESSION-TOOLS-SPEC](PASEO-SESSION-TOOLS-SPEC.md).
 
 2026-11-08 Dispatcher agent (implemented; chat panel and asks added): one Flowly-owned session for all projects in a never-archived `background: true` workspace on `<Paseo home>/flowly-dispatcher/dispatcher`, outside the plugin data folder, started by `dispatcher.start` with a charter and a board summary; a sealed `dispatcher` credential gives it only cross-project card tools (list projects, list/get/create/update/start cards, project ideas, link cards), refusing archived projects and unavailable roots; card stops reach it as batched notes held until its turn ends and dropped while it is down. A chat panel docked on the left of the board (full-screen page on phones, toolbar Dispatcher button) shows its transcript with the notes it received as card rows, a collapsed "cards changed since you looked" line with Mark seen and What should I do?, Start dispatcher, and a composer that steers a running turn. Asks (§9.4) come from the same source as the bell (`asksFrom`): agent questions, permissions (including delivery mode's `git push` / `gh pr create`), question and blocker reports, errors and unread turns, each answered (`asks.answer`, after re-checking the request is still pending in that card's session; never auto-allowed), dismissed one at a time (`asks.dismiss`) or, when the session ended, started again (`tasks.start-again`); a bell row jumps to its ask in the open chat. [spec](DISPATCHER-SPEC.md).
 2026-11-08 Event bus and dispatcher notes (implemented, no user-visible change yet): board commits and agent permission requests become typed facts on a daemon-side bus; `isStop` marks the moments a dispatcher should hear about, and `NoteBatcher` batches them into one note per card (10 s window, 60 s cap, the dispatcher's own events dropped). [spec](EVENT-BUS-SPEC.md).
@@ -16,7 +16,7 @@
 
 2026-11-12 A card's Linear link on the card tools (specified, implemented): `linear` on `flowly_create_card`, `flowly_set_linear` / `flowly_clear_linear`, and `linear` on get/list, over the existing Linear input artifact (`docs/LINEAR-LINK-SPEC.md`).
 2026-11-10 A card's plan (specified): one Plan slot per card, stored as an artifact with a `plan` field (approval, source); set automatically when a plan-mode request in the card's session is approved (the request's file, or a copy of its text under the plugin data's `plans/<taskId>/`), by hand (artifact form role *Plan*), or by agents (`flowly_set_plan`, `flowly_clear_plan`, `flowly_create_card` `plan`). Shown as a Plan row at the top of card details; `flowly_get_task` returns it; a card with an approved plan does not start in plan mode, and `flowly_start_card` gains `mode`. [spec](CARD-PLAN-SPEC.md).
-2026-11-08 Extra artifact folders (implemented): Settings > AI features > Artifacts lists folders outside a card's directories whose files agents and people may attach; they join each card's allowed roots, the realpath guard is unchanged, and `/`, the home directory, empty and relative entries are ignored. [spec](CARD-ARTIFACTS-SPEC.md) (2026-11-08 增量).
+2026-11-08 Extra artifact folders (implemented): Settings > AI features > Artifacts lists folders outside a card's directories whose files agents and people may attach; they join each card's allowed roots, the realpath guard is unchanged, and `/`, the home directory, empty and relative entries are ignored. [spec](CARD-ARTIFACTS-SPEC.md) (2026-11-08 increment).
 2026-11-08 Markdown export (implemented): Settings > Storage > Export as Markdown copies the live projects' open cards, open ideas (re-importable through the backlog parser) and active memory to the clipboard; RPC `board.export-markdown`. [spec](IDEAS-IMPORT-EXPORT-SPEC.md) §7.
 2026-11-08 Ideas import (implemented): paste a markdown backlog on the Ideas page, review the rows (`[x]` and already-open ones start unchecked), import the checked ones as project ideas with the `(added …)` note kept as `source`; titles cut at 120 characters on a word with the full line in the detail; RPCs `ideas.import-preview` and `ideas.import` (replay by `operationId`). The overview's Ideas count now includes project ideas (`projectIdeas`). Export is written with Task 3. [spec](IDEAS-IMPORT-EXPORT-SPEC.md).
 2026-11-08 Project-level ideas (implemented): an idea can belong to a project instead of a card (no `taskId`): agents in sessions outside cards propose them with `flowly_propose_idea` on the board credential, the user with the `ideas.create-project` RPC; no open cap, unique open title per project (`DUPLICATE_IDEA`), no board event; New card accepts one with `origin { ideaId }` and no derived link; the Ideas page shows a Project group and no Continue in card. Amends IDEAS-SPEC §1. [spec](PROJECT-IDEAS-SPEC.md).
@@ -35,312 +35,312 @@
 
 2026-10-29 Switch local and worktree (implemented): a local card moves to its own worktree with every uncommitted change of the main checkout copied in and a handoff (handover list, old transcripts); its session trims the worktree, *Release from main* removes exactly that diff from the main checkout (checked, backup, undo), and `flowly_integrate` lands the branch into the still-dirty main checkout before the agent sets Integrated. *Switch to local* goes back. New agent tools `flowly_handover`, `flowly_integrate`. [spec](WORKSPACE-SWITCH-SPEC.md).
 
-2026-10-29 Workspace 类型标记（已实现）：看板卡片元信息行最前面显示卡片工作位置——Paseo worktree 显示 `GitBranch` + Worktree，其余类型（local_checkout、checkout、directory）显示 `Folder` + Local；来源是 Paseo 实时 workspace 列表（`resources.list` 新增 `kind`），workspace 不可用时不显示。设置 → Cards 新增可隐藏的 Workspace 字段，默认显示。卡片侧栏的状态/优先级/类型一行最前面也显示同一标记（只读，不受该开关影响）。[spec §8](CARD-DISPLAY-SPEC.md#8-workspace-kind)、[DRAWER-SPEC](DRAWER-SPEC.md#workspace-kind)。
+2026-10-29 Workspace kind marker (implemented): the first thing in the board card's metadata row shows where the card works: a Paseo worktree shows `GitBranch` + Worktree, and the other kinds (local_checkout, checkout, directory) show `Folder` + Local; the source is Paseo's live workspace list (`resources.list` gains `kind`), and nothing is shown when the workspace is unavailable. Settings → Cards gains a hideable Workspace field, shown by default. The status/priority/type row of the card sidebar also shows the same marker first (read-only, not affected by that switch). [spec §8](CARD-DISPLAY-SPEC.md#8-workspace-kind), [DRAWER-SPEC](DRAWER-SPEC.md#workspace-kind).
 
 2026-10-29 Agent card tools (implemented): `flowly_list_cards`, `flowly_get_card`, `flowly_create_card`, `flowly_update_card`. Agents create or edit cards only when the user asks; a new card gets its own directory workspace in Backlog/Todo and no session, from a card session it follows up that card. Edits cover any live card of the project (title, description, priority, type, tags, Backlog↔Todo) under the card's revision. Card sessions get them on their MCP server and CLI; other sessions in a Flowly project's workspaces get a `flowly-board` MCP server from `agent.session_open` on hosts that accept `mcpServers` (Paseo 0.14). Settings → AI features → Cards switch, on by default. Amends IDEAS-SPEC §1. [spec](AGENT-CARDS-SPEC.md).
 
 2026-10-29 Committed stage (implemented): new built-in status `committed` right after In review, meaning all of the card's changes are committed (pushed or not is in the note). People move cards there like any lane; agents set it with `flowly_update_status(committed)` / CLI `status committed` after committing on the user's request. It is a delivery like In review (outputs, Move to Done, soft workpad/setup gate, reminders). A new message resumes the card in Development; A1r restores Committed. Stored 9-lane configurations get it after In review, enabled, when read; no board version bump. [spec](COMMITTED-STAGE-SPEC.md).
 
-2026-10-29 打开 workspace（已实现）：看板卡片右上角 `…` 下方新增 ↗ 按钮（与 `…` 同尺寸、同显示规则），用宿主 `navigation.openWorkspace` 打开该卡在 Paseo 中的 workspace；仅在宿主支持且 workspace 可用时显示，卡片右键菜单与 `…` 操作表同样新增 Open workspace。卡片侧栏标题栏铅笔（Edit）左侧同样新增该按钮（用户 2026-10-29 决定，取代 2026-10-14 的“侧栏不提供 Open workspace”）；[DRAWER-SPEC](DRAWER-SPEC.md#open-workspace)。[spec §7](CARD-DISPLAY-SPEC.md#7-open-workspace-button)。
+2026-10-29 Open workspace (implemented): a new ↗ button below the `…` at the top right of a board card (the same size and display rules as `…`) opens the card's workspace in Paseo with the host's `navigation.openWorkspace`; it is shown only when the host supports it and the workspace is available, and the card's right-click menu and the `…` action sheet also gain Open workspace. The card sidebar title bar also gains this button to the left of the pencil (Edit) (user decision 2026-10-29, replacing the 2026-10-14 "the sidebar does not offer Open workspace"); [DRAWER-SPEC](DRAWER-SPEC.md#open-workspace). [spec §7](CARD-DISPLAY-SPEC.md#7-open-workspace-button).
 
 2026-10-29 Integrated stage (implemented): new built-in status `integrated` right after Committed. The agent sets it once all of the card's commits are in the local main branch of the main checkout (no remote push required, no daemon git check). It is a delivery status like Committed; stored lanes get it through `completeLanes`; A1/A1r treat it like Committed. [spec](INTEGRATED-STAGE-SPEC.md).
 
-2026-10-29 Agent 速度（已实现）：New session 与 New task → Start an agent now 的 agent 选择新增 Speed 行，仅在所选模型提供速度时显示（Paseo provider feature：Codex `service_tier` 选择、Claude `fast_mode` 开关），创建时以 `featureValues` 传入；默认正常速度不传值；沿用同 provider 最近会话的速度。[spec](AGENT-SPEED-SPEC.md)。
+2026-10-29 Agent speed (implemented): the agent picker of New session and New task → Start an agent now gains a Speed row, shown only when the chosen model offers speed (Paseo provider feature: Codex `service_tier` choice, Claude `fast_mode` toggle), passed as `featureValues` at creation; the default normal speed passes no value; it follows the speed of the most recent session of the same provider. [spec](AGENT-SPEED-SPEC.md).
 
-2026-10-27 搜索（已实现）：daemon 内存扫描卡片、最新摘要、agent 笔记、workpad、ideas、交付物和项目记忆；`search.query` RPC + 看板 Search 页（默认当前项目，可切全部）；agent 工具 `flowly_search`（本项目、不含自己的卡和记忆）。FTS5 留第二期。[SEARCH-SPEC](SEARCH-SPEC.md)。
+2026-10-27 Search (implemented): the daemon scans cards, latest summaries, agent notes, workpads, ideas, deliverables and project memory in memory; the `search.query` RPC + the board's Search page (current project by default, switchable to all); agent tool `flowly_search` (this project, excluding its own card and memory). FTS5 is left for phase two. [SEARCH-SPEC](SEARCH-SPEC.md).
 
-2026-10-26 匿名使用数据（已实现，待随 1.7.0 发布）：daemon 每天最多向 PostHog Cloud US 发一条 `flowly_heartbeat`（不用 SDK），字段按白名单：版本、平台、界面实际语言（`ui_locale`，替代 GeoIP）、功能开关、窗口内计数、模型计数表；数量分桶，不发任何内容、路径或 ID。默认开启，Settings → General 与导览最后一页可关闭；`DO_NOT_TRACK` / `FLOWLY_TELEMETRY=0` 强制关闭；告知前也发送，关闭后不再发送。[spec](TELEMETRY-SPEC.md)。
+2026-10-26 Anonymous usage data (implemented, to ship with 1.7.0): the daemon sends at most one `flowly_heartbeat` a day to PostHog Cloud US (without the SDK), with fields on an allowlist: version, platform, the actual UI language (`ui_locale`, replacing GeoIP), feature switches, in-window counts, a model count table; quantities are bucketed, and no content, path or ID is sent. On by default, and it can be turned off in Settings → General and on the last page of the tour; `DO_NOT_TRACK` / `FLOWLY_TELEMETRY=0` force it off; it is also sent before the notice is shown, and no longer sent once turned off. [spec](TELEMETRY-SPEC.md).
 
-2026-10-26 加载优化 R2（已实现，PR #67）：所有布局都读总览加单卡详情，客户端不再读完整看板；表单、连接编辑器、Next moves 和 Ideas 的动作只读自己的卡或项目；不留切回开关。[LOADING-R2-SPEC](LOADING-R2-SPEC.md)。
+2026-10-26 Loading optimization R2 (implemented, PR #67): all layouts read the overview plus single-card details, and the client no longer reads the full board; forms, the connection editor, Next moves and the Ideas actions read only their own card or project; no switch back is kept. [LOADING-R2-SPEC](LOADING-R2-SPEC.md).
 
-2026-10-26 看板数据迁入 SQLite（最小方案）：board.json 首次启动自动迁入 `flowly.sqlite`（源快照、逐值核对、单次 rename、退休标记），失败继续用 JSON；BoardStore 业务逻辑不变，按行增量单事务写入；每日备份 7 份、从备份恢复（revision 偏移）、导出回 v5 JSON 后可装回旧版；Settings → Storage。附属文件与读取行为不变，加载优化另做。取代 10-25 的完整设计与 D1–D4。[spec](SQLITE-STORAGE-SPEC.md)。
+2026-10-26 Board data moves into SQLite (minimal plan): board.json is migrated automatically into `flowly.sqlite` on first start (source snapshot, value-by-value check, a single rename, a retirement marker), and a failure keeps using JSON; BoardStore business logic is unchanged, with incremental per-row writes in a single transaction; 7 daily backups, restore from a backup (revision offset), and after exporting back to v5 JSON the old version can be installed again; Settings → Storage. Attached files and read behavior are unchanged, and loading optimization is done separately. Replaces the full design and D1–D4 of 10-25. [spec](SQLITE-STORAGE-SPEC.md).
 
-2026-10-25 Insights 第三版（已实现，待验收）：页面改为 GitHub 式的一年活跃度热力图（每天的 agent 轮次，主题绿色深浅，不显示总数和连续天数），点某一天看当天的轮次、完成的卡和 AI 总结（过去的日子选中时生成，每个项目同时一份，保留 400 天）。Skills 成为主要能力：和 Workflow insights 合成一次运行（默认开启，首次定时运行等满一个周期），从卡片总结、workpad、项目记忆的线索、确认的记忆、命令记录和已有 skill 中提炼完整的 SKILL.md 草稿，点“加入项目”写入 `.agents/skills/<name>/` 并在 `.claude/skills/` 建软链接，不提交；Flowly 加入的 skill 可收到更新（diff）。其它建议与最近 7 天工作流数字默认收起；介入次数、时间去向、按周表格去掉；Agent habits 移到开发者设置。先于 SQLite R1 合入，R1 需补上 §7.1 的字段与写方法。[spec](INSIGHTS-REDESIGN-SPEC.md)。
-2026-10-22 Insights 重设计第二版（已被第三版取代，未合入）：Insights 不再统计产量，改为评估工作流本身，按周看、只和自己的过去比：每张完成卡需要的介入（消息、权限请求、移卡）、审阅来回轮数与一次通过率、时间去向（agent 在做 / 等待审阅或回复 / 空闲）、每卡 token 与 agent 时长、按模型对比、8 周趋势表（标注 Workflow insights 建议落地的周）。风险规则只保留 R2/R3/R6。新记录 `turn_ended.byUser` 与 `permission_requested.tool`。单列、主题色、不用图表。第一版（产量统计与柱图）已撤回。[spec](INSIGHTS-REDESIGN-SPEC.md)。
-2026-10-23 后台 workspace：memory review、Insights digest、workflow insights 改在每个项目专用的「Flowly background」workspace 里运行，用前恢复已归档的那个复用、没有才新建，用完归档；修复 single-root 下按目录匹配“项目根 workspace”会选中某张卡的 workspace、review tab 留在卡片里的问题。[spec](BACKGROUND-WORKSPACE-SPEC.md)。
+2026-10-25 Insights third version (implemented, awaiting acceptance): the page becomes a GitHub-style one-year activity heatmap (agent turns per day, in shades of the theme green, with no total or streak shown), and clicking a day shows that day's turns, completed cards and the AI summary (generated when a past day is selected, one per project at a time, kept for 400 days). Skills become the main capability: merged with Workflow insights into one run (on by default, the first scheduled run waits for a full period), distilling complete SKILL.md drafts from card summaries, workpads, project memory clues, confirmed memories, command records and existing skills; clicking "Add to project" writes to `.agents/skills/<name>/` and creates a symlink in `.claude/skills/`, without committing; skills Flowly added can receive updates (diff). Other suggestions and the last 7 days of workflow numbers are collapsed by default; intervention counts, time allocation and the per-week table are removed; Agent habits moves to developer settings. Merged before SQLite R1, and R1 needs to add the fields and write methods of §7.1. [spec](INSIGHTS-REDESIGN-SPEC.md).
+2026-10-22 Insights redesign second version (superseded by the third version, not merged): Insights no longer counts output but evaluates the workflow itself, viewed by week and compared only with one's own past: the interventions each completed card needed (messages, permission requests, card moves), review round trips and first-pass rate, where the time went (the agent working / waiting for review or reply / idle), tokens and agent duration per card, a comparison by model, an 8-week trend table (marking the week a Workflow insights suggestion landed). The risk rules keep only R2/R3/R6. New records `turn_ended.byUser` and `permission_requested.tool`. A single column, theme colors, no charts. The first version (output statistics and bar charts) was withdrawn. [spec](INSIGHTS-REDESIGN-SPEC.md).
+2026-10-23 Background workspace: the memory review, Insights digest and workflow insights now run in a "Flowly background" workspace dedicated to each project, restoring and reusing an archived one before use and creating a new one only when none exists, archiving it after use; fixes the problem that under single-root, matching the "project root workspace" by directory selects some card's workspace and leaves the review tab in a card. [spec](BACKGROUND-WORKSPACE-SPEC.md).
 
-2026-10-23 Summary 模型列表：用户可添加多个模型、上移/下移设置回退优先级、移除或恢复默认 Haiku→Luna；兼容旧 Auto/单模型设置，同步所有使用 summary 设置的入口。[spec](SUMMARY-MODELS-SPEC.md)。
+2026-10-23 Summary model list: users can add several models, move them up/down to set the fallback priority, remove them or restore the default Haiku→Luna; it is compatible with the old Auto/single-model setting, and syncs every entry that uses the summary setting. [spec](SUMMARY-MODELS-SPEC.md).
 
-2026-10-22 约束 benchmark（grader + B01 quick 实现）：按 Fable 审查与主会话复核收敛为独立 grader + B01 quick（三回合文件/验证/PR，两模型）。明确主动/最终评分、预期拒绝与同输入机械 stale、事实前置条件、服务端回执/产物/nextMoves 证据、共享 Git 管理区的归属与清理；保留现行 test 阶段要求。B02–B04、compare 和自动续跑后置，不加 hooks。[spec](CONSTRAINT-BENCHMARK-SPEC.md)。
+2026-10-22 Constraint benchmark (grader + B01 quick implementation): after Fable review and the main session's recheck it converged on a standalone grader + B01 quick (three turns of file/validation/PR, two models). It makes explicit active/final scoring, expected rejections and mechanical stale on the same input, factual preconditions, server-side receipt/artifact/nextMoves evidence, and ownership and cleanup of the shared Git-managed area; the current test stage requirements are kept. B02–B04, compare and automatic continuation are deferred, with no hooks added. [spec](CONSTRAINT-BENCHMARK-SPEC.md).
 
-2026-10-22 回合清单与统计校准：最小版建议 1+3，共用六项动作清单生成 skill 和 get_task.turnChecklist；旧会话读卡即可取得最新规则。审计脚本改为回合时间窗口、成功回执与实际 output 匹配、确认重试分类和显式样本分组；不加 hooks。[spec](TURN-CHECKLIST-SPEC.md)。
+2026-10-22 Turn checklist and statistics calibration: the minimal version suggests 1+3, with a shared six-action checklist generating the skill and get_task.turnChecklist; an old session gets the latest rules just by reading the card. The audit script changes to turn time windows, matching successful receipts with actual outputs, confirmed-retry classification and explicit sample grouping; no hooks added. [spec](TURN-CHECKLIST-SPEC.md).
 
-2026-10-22 交付约束（已实现，Sonnet/GPT 真实验证通过；4 个本地测试分支待权限清理）：交付与结果调用支持 `outputs`（文件/PR/MR）原子登记，省略提醒、`[]` 显式无产物；`acknowledgeOpen` 先拒后放，绑定 session 与当前 card/workpad/HEAD，回合切换和服务重载后重新拒绝。MCP、CLI、skill 同步。[spec](DELIVERY-CONSTRAINTS-SPEC.md)。
+2026-10-22 Delivery constraints (implemented, verified for real with Sonnet/GPT; 4 local test branches await permission cleanup): delivery and result calls support atomic registration of `outputs` (file/PR/MR), with omission reminding and `[]` meaning explicitly no artifacts; `acknowledgeOpen` rejects first and then allows, bound to the session and the current card/workpad/HEAD, and is rejected again after a turn switch and a service reload. MCP, CLI and skill are synced. [spec](DELIVERY-CONSTRAINTS-SPEC.md).
 
-2026-10-22 项目记忆（已实现，待验收）：人确认后生效的跨卡记忆（决策、约定、坑、联系人），存在 daemon 的 `memory.json`。来源有两个：agent 用 `flowly_remember` 提候选，卡片 Done 时复盘提炼（默认开）。新 session 的初始指令里按相关度注入（8 条 / 2400 字），`flowly_recall` 按需查询。与 AGENTS.md 分工：每个任务都要遵守的规则放 AGENTS.md，只和部分任务有关或不适合进仓库的知识放记忆；常用条目可以晋升为 pinned 或转进 AGENTS.md，active 条目从不自动淘汰。[PROJECT-MEMORY-SPEC](PROJECT-MEMORY-SPEC.md)。
-2026-10-21 卡片开工设置（已实现）：近期违规集中在无描述小卡 + Sonnet medium/auto，原因是 skill 里 type/tags/workpad 靠后且时机含糊、缺项静默、反馈只在收尾、无 workpad 反而不被拦。现在 `flowly_get_task` 带 `setup`，首条任务上下文写明缺项，所有写入结果带设置提醒，交付缺项返回 `SETUP_INCOMPLETE`（含无 workpad，推翻 WORKPAD-SPEC §5.3 旧决定，`acknowledgeOpen` 放行），skill 以“Start of every turn”清单开头。[CARD-SETUP-SPEC](CARD-SETUP-SPEC.md)。
-2026-10-20 侧栏 session 区优化（已实现，待手机验证；用户决定 1、2 按推荐，3 直接上 FlatList）：① 历史只显示 35 条 tail 中的最后 18 条，长 turn 被工具调用挤满——改为打开即加载当前 turn（上限 300 条，daemon 用 SDK 的 `before` 游标一次分页完成）并提供 Load earlier；② 手机键盘弹起时 transcript 只在动画结束后加 padding、且只有贴底时才滚动——改为在键盘开始事件时按位移量原生滚动（底部锚定）；③ 手机滚动卡顿——增量刷新（`after` 游标）、transcript 独立组件、手机改用与 Paseo 原生一致的倒置虚拟化 FlatList（web 仍为普通滚动）；倒置列表与输入框用同一个原生驱动位移，键盘弹起时内容同步上移。[设计 spec](SESSION-PANE-SPEC.md)。
+2026-10-22 Project memory (implemented, awaiting acceptance): cross-card memory (decisions, conventions, pitfalls, contacts) that takes effect after a person confirms, stored in the daemon's `memory.json`. There are two sources: the agent proposes candidates with `flowly_remember`, and a review distills them when a card is Done (on by default). It is injected into the initial instructions of a new session by relevance (8 items / 2400 characters), and `flowly_recall` queries on demand. Division of labor with AGENTS.md: rules every task must follow go in AGENTS.md, and knowledge relevant to only some tasks or unsuitable for the repository goes in memory; frequently used items can be promoted to pinned or moved into AGENTS.md, and active items are never eliminated automatically. [PROJECT-MEMORY-SPEC](PROJECT-MEMORY-SPEC.md).
+2026-10-21 Card start-up setup (implemented): recent violations concentrated in small cards without a description + Sonnet medium/auto, because in the skill type/tags/workpad came late and their timing was vague, missing items were silent, feedback came only at wrap-up, and having no workpad was not blocked. Now `flowly_get_task` carries `setup`, the first task context states the missing items, all write results carry a setup reminder, delivery with missing items returns `SETUP_INCOMPLETE` (including no workpad, overturning the old decision of WORKPAD-SPEC §5.3, with `acknowledgeOpen` letting it through), and the skill begins with the "Start of every turn" checklist. [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md).
+2026-10-20 Sidebar session area optimization (implemented, awaiting phone verification; user decisions 1 and 2 as recommended, 3 goes straight to FlatList): ① history showed only the last 18 of the 35 tail entries, and long turns were crowded out by tool calls — it now loads the current turn on open (up to 300 entries, one pagination by the daemon with the SDK's `before` cursor) and offers Load earlier; ② when the phone keyboard rose the transcript added padding only after the animation ended and scrolled only when at the bottom — it now scrolls natively by the displacement at the keyboard's start event (bottom anchored); ③ phone scrolling jank — incremental refresh (`after` cursor), the transcript as a standalone component, and the phone now uses an inverted virtualized FlatList consistent with Paseo native (web still uses ordinary scrolling); the inverted list and the input box use the same native-driven displacement, so content rises in sync when the keyboard comes up. [design spec](SESSION-PANE-SPEC.md).
 
-2026-10-21 AI 输出语言（已实现，Run now 已验证）：设置 → AI 功能 → **AI output language**（host 级，默认“与界面语言相同”，可单独指定十种语言之一）。daemon 解析出一种语言，并在每个 AI prompt 里写同一句“Write every title and text in X, whatever language the material is in”，替换原先各 prompt 里“按卡片/对话语言”的猜测：卡片摘要、每日摘要、session insights、Workflow insights；agent 写的 next moves 与 ideas 通过 `flowly_get_task.outputLanguage` 和 skill 指定语言。界面语言为 `auto` 时由客户端把设备语言写入 host 设置 `device-language`（最后打开的设备为准），daemon 无法得知时退回宿主机语言，再退回英文；不按卡片标题多数语言猜（正是出错的做法）。新增一次性提示 `ai-language`。[spec](AI-LANGUAGE-SPEC.md)。
-2026-10-21 原生 session pane P2–P4（已实现，待 Luna 验证）：不受 Flowly 管理的 session（卡片 workspace 里未加入的、项目里无卡的、Flowly 之外的）也能获得 Progress 行、Next moves 卡片与 Ideas chip，不纳入任何 project。每完成一轮用一个随即归档的子 session 生成（同卡片 summary 机制），按 session 存在 `session-insights.json`；Ideas 可在当前 session 继续、开新 session 或从当前仓库 branch-off 新 worktree workspace，不进入任何项目 Ideas 页。默认关闭，设置 → AI features → Paseo's session view 有总开关与 Progress / Next steps / Ideas 三个开关。[spec §12](NATIVE-SESSION-SPEC.md)。
-2026-10-20 原生 session pane（P1，已实现，待验证）：Flowly 管理的 session 在 Paseo 原生 session 视图里也能用三项特色功能。Summary 新版本由 daemon 追加为原生 timeline 的 `flowly-summary` 插件行（尽力显示：daemon 重启或 session 重载后消失），只在原生 timeline 显示（用户决定 Flowly 内 session 下不加 Progress 卡片）；Next moves 参考 prompt-suggestions 改为 agent 最后一条回复下的 timeline 卡片（回合结束写入、下一轮开始原位撤下；点建议默认填入该 session 的 Paseo 输入框（web/桌面，DOM 例外），可在设置改为复制；Move to Done 后询问收尾），输入框旁只保留 **Ideas** chip（Continue here / Start a new task / Dismiss），复用现有 5 s etag 轮询。非管理 session 没有卡片与 chip。本功能不改 Flowly 内部的行为与样式（无 Flowly 内提示、欢迎页不变）。P2–P4（未加入卡片的 session、无卡 session、Flowly 之外的 session）仅作评估。[spec](NATIVE-SESSION-SPEC.md)。
-2026-10-20 更多 connector（已实现，Luna 验收通过，待真实令牌联调）：在 Jira 只读输入的基础上做成通用 connector 框架，接入 Confluence 页面（自建/Cloud）、GitHub issue/PR（含 Enterprise）、GitLab issue/MR（含自建）。卡片 Artifacts 只有一个 **+**，菜单收拢“文件或链接”和每个已连接的服务；New task 的 From Jira 变为每个服务一个 From 按钮；GitHub/GitLab 搜索默认限定项目自己的仓库（git remote）。仍然单向只读，PR/MR 只给文件名不给 diff。按用户决定改用通用名：artifact `external`（看板 v5）、`flowly_read_external`（`flowly_read_ticket` 为别名）、RPC `connectors.*`。[设计 spec](CONNECTORS-SPEC.md)。
-2026-10-20 下一步建议随交付调用提交（已实现，桌面真实会话已验证）：`flowly_update_status` / `flowly_report_progress` 增加可选 `nextMoves`（与 `flowly_suggest_next_moves` 同一组 0–3 条；没传不记录，`[]` 为显式“本轮没有要用户做的事”并在活动里显示一行），与状态变更或汇报在同一事务里写成第二条 `next_moves_suggested`，一份回执；`moveTo:"done"` 只随交付到 In review 被接受；CLI `status` / `note` 增加 `--moves` / `--no-moves`；独立工具保留给一轮中途的更新。交付时提醒（遗漏时在工具结果里提示）是另一张卡，见 §9。[spec](NEXT-MOVES-SPEC.md) §8。
-2026-10-20 Agent 使用习惯（已实现，待验收）：Insights 页新增 **Agent habits** 区块，按天（最近 7 天）、按模型统计 agent 的交付（in_review 交付 + result，question 单列）里带 next moves 的比例、每次交付的 ideas、显式“没有下一步”（`nextMoves: []`）的次数，以及用户采纳建议的比例；某模型或 session 在 ≥10 次交付里 0 次 next moves（或 0 个 ideas）时标出。纯规则统计，读 flow log，不调用模型、不受 Workflow insights 开关控制；`agent.turn_ended` 事件新增 `model` 与 `pick`，在钩子里写入。[设计 spec §12](WORKFLOW-INSIGHTS-SPEC.md)。
+2026-10-21 AI output language (implemented, Run now verified): Settings → AI features → **AI output language** (host level, default "same as interface language", can be set separately to one of ten languages). The daemon resolves one language and writes the same sentence "Write every title and text in X, whatever language the material is in" into every AI prompt, replacing the earlier guessing of "by the card/conversation language" in each prompt: card summaries, daily digest, session insights, Workflow insights; the next moves and ideas written by agents get their language through `flowly_get_task.outputLanguage` and the skill. When the interface language is `auto`, the client writes the device language into the host setting `device-language` (the last device opened wins), and when the daemon cannot know it falls back to the host machine's language and then to English; it does not guess by the majority language of card titles (which was exactly the mistaken approach). Adds a one-time tip `ai-language`. [spec](AI-LANGUAGE-SPEC.md).
+2026-10-21 Native session pane P2–P4 (implemented, awaiting Luna verification): sessions not managed by Flowly (those in a card workspace that were not added, those in a project without a card, and those outside Flowly) also get the Progress row, the Next moves card and the Ideas chip, without being counted into any project. After each completed turn one child session that is archived right away generates it (the same mechanism as the card summary), stored per session in `session-insights.json`; Ideas can continue in the current session, open a new session or branch off a new worktree workspace from the current repository, and do not enter any project's Ideas page. Off by default; Settings → AI features → Paseo's session view has a master switch and three switches for Progress / Next steps / Ideas. [spec §12](NATIVE-SESSION-SPEC.md).
+2026-10-20 Native session pane (P1, implemented, awaiting verification): Flowly-managed sessions can also use the three signature features in Paseo's native session view. A new Summary version is appended by the daemon as a `flowly-summary` plugin row of the native timeline (best effort: it disappears after a daemon restart or a session reload), shown only in the native timeline (user decision: no Progress card under Flowly's own session); Next moves, following prompt-suggestions, becomes a timeline card under the agent's last reply (written when the turn ends, withdrawn in place when the next turn starts; clicking a suggestion fills it into that session's Paseo input box by default (web/desktop, DOM exception), which can be changed to copy in settings; after Move to Done it asks about wrap-up), with only an **Ideas** chip left next to the input box (Continue here / Start a new task / Dismiss), reusing the existing 5 s etag polling. Unmanaged sessions have no card and no chip. This feature does not change Flowly's internal behavior and styling (no in-Flowly hints, the welcome page unchanged). P2–P4 (sessions not added to a card, sessions without a card, sessions outside Flowly) were evaluated only. [spec](NATIVE-SESSION-SPEC.md).
+2026-10-20 More connectors (implemented, Luna acceptance passed, awaiting live integration with real tokens): on top of Jira read-only inputs, it becomes a generic connector framework, connecting Confluence pages (self-hosted/Cloud), GitHub issues/PRs (including Enterprise) and GitLab issues/MRs (including self-hosted). A card's Artifacts has only one **+**, whose menu gathers "File or link" and each connected service; New task's From Jira becomes one From button per service; GitHub/GitLab search is by default limited to the project's own repositories (git remote). It is still one-way read-only, and a PR/MR gives only file names, not the diff. Following the user's decision to use generic names: artifact `external` (board v5), `flowly_read_external` (`flowly_read_ticket` is an alias), RPC `connectors.*`. [design spec](CONNECTORS-SPEC.md).
+2026-10-20 Next-move suggestions submitted with the delivery call (implemented, verified in a real desktop session): `flowly_update_status` / `flowly_report_progress` gain an optional `nextMoves` (the same group of 0–3 as `flowly_suggest_next_moves`; not passing it records nothing, and `[]` is an explicit "nothing for the user to do this turn" and shows one line in the activity), written as a second `next_moves_suggested` in the same transaction as the status change or report, with one receipt; `moveTo:"done"` is accepted only together with a delivery to In review; CLI `status` / `note` gain `--moves` / `--no-moves`; the standalone tool is kept for mid-turn updates. The reminder at delivery (a hint in the tool result when omitted) is another card, see §9. [spec](NEXT-MOVES-SPEC.md) §8.
+2026-10-20 Agent habits (implemented, awaiting acceptance): the Insights page gains an **Agent habits** section, counting by day (last 7 days) and by model the agent's deliveries (in_review deliveries + result, with question listed separately): the share carrying next moves, ideas per delivery, the number of explicit "no next step" (`nextMoves: []`), and the share of suggestions the user adopted; when a model or session has 0 next moves (or 0 ideas) in ≥10 deliveries it is flagged. Pure rule statistics, reading the flow log, calling no model and not controlled by the Workflow insights switch; the `agent.turn_ended` event gains `model` and `pick`, written in the hook. [design spec §12](WORKFLOW-INSIGHTS-SPEC.md).
 2026-11-10 Attention Snooze (implemented, verification pending): Snooze hides asks from the counts until something new happens, per list (Needs you and Updates are snoozed separately), and a new signal key brings its list back; stored in `board.json` `attentionDismissals` (legacy records read as snoozed in both lists). It is not Mark as read and answers nothing. [spec](ATTENTION-DISMISS-SPEC.md).
-2026-10-19 内置工具与 skill 命名：MCP 服务/config key 为 `flowly`，11 个工具统一 `flowly_*`，skill 为 `skills/flowly`，CLI 为 `flowly.mjs`，新环境变量统一 `FLOWLY_*`；仅保留历史数据与既有会话所需的私有兼容入口。[spec](FLOWLY-NAMING-SPEC.md)。
-2026-10-19 Workflow insights（已实现，待验收）：Insights 的可选扩展，默认关闭。开关打开后，daemon 在每轮结束时记录 shell 命令（先规范化、脱敏，再写入 `commands/<projectId>.jsonl`，保留 30 天），并按用户设置的周期（每天 / 3 天 / 每周 / 两周、整点、模型，Auto 为 Sonnet）调用 LLM 分析最近 ≥7 天的命令。结论可以是 paseo.json 脚本、worktree setup、仓库工具、AGENTS.md 条目或 skill，显示在 Insights 页，点 Create card 落地；新增活动太少时跳过，不消耗 token；session 上下文列出项目已有的 paseo.json scripts。[设计 spec](WORKFLOW-INSIGHTS-SPEC.md)。
-2026-10-19 卡片显示（已实现）：卡片改为四层——标题上方一行淡色元信息（优先级/类型/工单/标签，去掉 pill 和标签框）、标题、单行活动（默认“摘要，否则输出”）、状态信号行；新增 设置 → Cards 页（host 级 `cardActivity` / `cardHidden`，带实时预览与恢复默认），Sort 菜单末尾“Card display…”直达；需要用户处理的信号始终显示。新提示 `card-display`。[spec](CARD-DISPLAY-SPEC.md)。
-2026-10-19 卡片 Workpad（已实现）：agent 用 `flowly_update_workpad`（CLI `workpad`）整体替换卡片的验收标准、验证项（pass/fail/unrun + 运行时 commit）和困惑点，workpad 有独立 revision（人勾选不改 task revision）；Plan 取自 agent 原生 todo；daemon 用 git 记录环境戳并判断验证是否过期；agent 交付 In review 时有未完成项返回 `WORKPAD_OPEN`，需 `acknowledgeOpen` 确认，卡片标“Delivered with N open items”。卡面 Checks n/m，抽屉 Workpad 段可勾选。新提示 `first-workpad`。[spec](WORKPAD-SPEC.md)。
-2026-10-19 AI 标记（已实现）：AI 写的或建议的内容统一用 `Sparkles` 星星标记（共享 `AiMark`）：卡片进度行、侧栏 Progress 与 Ideas、Ideas 页、Insights 每日摘要、agent 添加的产物和标签，与下一步建议一致；卡片类型 feature 改用 `Puzzle`。[spec](AI-MARK-SPEC.md)。
-2026-10-19 下一步建议（已实现）：agent 在一轮结束时用 `flowly_suggest_next_moves`（CLI `next-moves`）给出 1–3 条候选下一条消息（label + 完整 prompt），记为本会话事件 `next_moves_suggested`，不改 revision；Flowly 会话输入框上方显示本轮建议，点按只预填（已有文字则追加），不发送；用户下一条消息开始新一轮后失效，可 × 隐藏。活动时间线不显示，A1r 不把它当作工作汇报。新提示 `next-move` 与欢迎页特色条目。[spec](NEXT-MOVES-SPEC.md)。
-2026-10-19 外部工单接入（Jira / Linear，已确认，P1 实现中）：用户决定工单系统**只作为输入和引用**，Flowly 从不写工单系统，工单状态也不驱动卡片。工单链接或 key 作为卡片的 input artifact，由 daemon 识别并读取（凭据只在 daemon）；agent 用新工具 `flowly_read_ticket` 读正文和评论，内容变化时标为 unread。New task → From Jira 列出我的最近工单，也可以按工单号或文字搜索，标题为空时预填；已有卡片可用 Link Jira ticket 关联。按需刷新，没有后台轮询。[设计 spec](EXTERNAL-TRACKER-SPEC.md)。
-2026-10-18 卡片类型由 agent 补全（已实现）：`flowly_set_type` / CLI `set-type` 仅在卡片没有 type 时写入（+task revision，事件 `type_set`），已有 type 一律保留（`TYPE_ALREADY_SET`）。[spec](CARD-TYPE-SPEC.md)。
-2026-10-18 卡片自定义标签（已实现）：与固定的 type 不同，标签是自由文本、按项目词表复用，标记功能模块与优化方向；agent 用 `flowly_set_tags` 给本卡打标签（只增看板 revision，不能删人打的标签），表单/卡片/侧栏显示，筛选与搜索支持 `#tag`，字段按将来的搜索设计。[增量 spec](CARD-TAGS-SPEC.md)和[验证](verification/card-tags.md)。
-2026-10-16 新用户 onboarding（设计待评审，未实现）：首次打开时的四页欢迎引导（project / 卡片 / session 与 Paseo 的对应关系、基本流程、特色功能、开始使用），空状态增强，可重看入口，以及可选的一次性情境提示；仅新增 host 级 `onboarding` 设置，不改看板数据、RPC 或 agent 工具。[设计 spec](ONBOARDING-SPEC.md)。
+2026-10-19 Built-in tool and skill naming: the MCP service/config key is `flowly`, the 11 tools are unified as `flowly_*`, the skill is `skills/flowly`, the CLI is `flowly.mjs`, and new environment variables are unified as `FLOWLY_*`; only the private compatibility entries needed for historical data and existing sessions are kept. [spec](FLOWLY-NAMING-SPEC.md).
+2026-10-19 Workflow insights (implemented, awaiting acceptance): an optional extension of Insights, off by default. When the switch is on, at the end of each turn the daemon records shell commands (normalized and redacted first, then written to `commands/<projectId>.jsonl`, kept for 30 days), and at the period the user set (daily / 3 days / weekly / two weeks, on the hour, model, Auto being Sonnet) calls an LLM to analyze commands of the last ≥7 days. A conclusion can be a paseo.json script, a worktree setup, a repository tool, an AGENTS.md entry or a skill, shown on the Insights page, and landed by clicking Create card; when there is too little new activity it is skipped and consumes no tokens; the session context lists the project's existing paseo.json scripts. [design spec](WORKFLOW-INSIGHTS-SPEC.md).
+2026-10-19 Card display (implemented): the card becomes four layers — a pale metadata line above the title (priority/type/ticket/tags, with the pill and tag box removed), the title, a single-line activity (default "summary, otherwise output"), and a state signal row; a new Settings → Cards page (host-level `cardActivity` / `cardHidden`, with a live preview and restore defaults), reached directly by "Card display…" at the end of the Sort menu; signals that need the user's action are always shown. New tip `card-display`. [spec](CARD-DISPLAY-SPEC.md).
+2026-10-19 Card Workpad (implemented): the agent replaces a card's acceptance criteria, validation items (pass/fail/unrun + the commit at run time) and points of confusion as a whole with `flowly_update_workpad` (CLI `workpad`), and the workpad has its own revision (a person ticking does not change the task revision); Plan is taken from the agent's native todo; the daemon records an environment stamp with git and judges whether validation is stale; when an agent delivers to In review with unfinished items it returns `WORKPAD_OPEN`, which needs `acknowledgeOpen` to confirm, and the card is marked "Delivered with N open items". The card face shows Checks n/m, and the drawer's Workpad section can be ticked. New tip `first-workpad`. [spec](WORKPAD-SPEC.md).
+2026-10-19 AI mark (implemented): content written or suggested by AI is uniformly marked with the `Sparkles` star (shared `AiMark`): the card progress row, the sidebar Progress and Ideas, the Ideas page, the Insights daily digest, and artifacts and tags the agent added, consistent with next-step suggestions; the card type feature switches to `Puzzle`. [spec](AI-MARK-SPEC.md).
+2026-10-19 Next-step suggestions (implemented): at the end of a turn the agent gives 1–3 candidate next messages (label + full prompt) with `flowly_suggest_next_moves` (CLI `next-moves`), recorded as the session event `next_moves_suggested`, without changing the revision; Flowly shows this turn's suggestions above the session input box, and tapping only prefills (appending if there is already text) without sending; they expire when the user's next message starts a new turn, and can be hidden with ×. The activity timeline does not show them, and A1r does not treat them as a work report. New tip `next-move` and a welcome page feature item. [spec](NEXT-MOVES-SPEC.md).
+2026-10-19 External ticket integration (Jira / Linear, confirmed, P1 in implementation): the user decided the ticket system is **only for input and reference**; Flowly never writes to the ticket system, and ticket status does not drive the card. A ticket link or key becomes the card's input artifact, recognized and read by the daemon (credentials only in the daemon); the agent reads the body and comments with the new tool `flowly_read_ticket`, and marks it unread when the content changes. New task → From Jira lists my recent tickets and can also search by ticket number or text, prefilling the title when it is empty; an existing card can be linked with Link Jira ticket. Refreshed on demand, with no background polling. [design spec](EXTERNAL-TRACKER-SPEC.md).
+2026-10-18 Card type completed by the agent (implemented): `flowly_set_type` / CLI `set-type` writes only when the card has no type (+task revision, event `type_set`), and an existing type is always kept (`TYPE_ALREADY_SET`). [spec](CARD-TYPE-SPEC.md).
+2026-10-18 Card custom tags (implemented): unlike the fixed type, tags are free text, reused from a per-project vocabulary, marking feature modules and optimization directions; the agent tags this card with `flowly_set_tags` (it only increments the board revision and cannot delete tags a person added), shown in the form/card/sidebar, with filtering and search supporting `#tag`, and the fields designed for the future search. [incremental spec](CARD-TAGS-SPEC.md) and [verification](verification/card-tags.md).
+2026-10-16 New-user onboarding (design awaiting review, not implemented): a four-page welcome guide on first open (how project / card / session map to Paseo, the basic flow, signature features, getting started), an enhanced empty state, a re-view entry, and optional one-time contextual tips; it only adds a host-level `onboarding` setting and changes no board data, RPC or agent tool. [design spec](ONBOARDING-SPEC.md).
 
-2026-10-22 欢迎导览重设计：5 页，导览内完成语言、进展模型、外部 session 的进展/下一步/想法（首次导览关闭时写入，默认开）、项目记忆与 Insights 总开关（新 host 设置 `features`）；关闭后提示设置入口。[设计 spec](ONBOARDING-SETUP-SPEC.md)。
-2026-10-22 更新后的 What's new：老用户每个有条目的版本弹一次（默认最新版本，可往回翻到 1.5.0，设置里可再次打开），新用户随首次导览记为已看。[设计 spec](WHATS-NEW-SPEC.md)。
-2026-10-16 改名：展示名由 Ultra Kanban 改为 **Flowly**（不设中文名；定位为 agent 原生工作流，看板是界面）。插件 ID 同日改为 `flowly`（数据目录与设置由 `migrateLegacyPluginData` 复制迁移）；工具与 skill 命名由 2026-10-19 的 [Flowly 命名修订](FLOWLY-NAMING-SPEC.md)继续统一；历史验证证据中的旧名保持原样。
+2026-10-22 Welcome tour redesign: 5 pages, completing in the tour the language, progress model, progress/next steps/ideas for outside sessions (written when the first tour is closed, on by default), and the master switches for project memory and Insights (new host setting `features`); after closing, it hints at the settings entry. [design spec](ONBOARDING-SETUP-SPEC.md).
+2026-10-22 Updated What's new: existing users get a pop-up once for each version that has items (the latest version by default, with paging back to 1.5.0, and it can be opened again in settings), and new users are marked as seen with the first tour. [design spec](WHATS-NEW-SPEC.md).
+2026-10-16 Rename: the display name changes from Ultra Kanban to **Flowly** (no Chinese name; positioned as an agent-native workflow, with the board as the interface). The plugin ID also changed to `flowly` the same day (the data directory and settings are migrated by copy through `migrateLegacyPluginData`); tool and skill naming is further unified by the 2026-10-19 [Flowly naming revision](FLOWLY-NAMING-SPEC.md); the old name in historical verification evidence is kept as it was.
 
-2026-10-16 默认模型：设置新增 Models 页（新会话默认模型、摘要模型），项目设置可单独指定默认模型并优先于全局；都未设置时沿用最近一个会话。设置界面同时重做为卡片式分组。[增量 spec](MODEL-DEFAULTS-SPEC.md)和[验证](verification/model-defaults.md)。
+2026-10-16 Default models: settings gain a Models page (new-session default model, summary model), and project settings can specify a default model separately that takes priority over the global one; when neither is set, the most recent session is followed. The settings UI was also redone as card-style groups. [incremental spec](MODEL-DEFAULTS-SPEC.md) and [verification](verification/model-defaults.md).
 
-2026-10-16 设置菜单改为左右两列：左列按功能分为 General / Workflow / AI summaries / Ideas，右列显示所选分区的设置；窄屏改为顶部分区条。[增量 spec](SETTINGS-LAYOUT-SPEC.md)和[验证](verification/settings-layout.md)。
+2026-10-16 The settings menu becomes two columns, left and right: the left column groups by function into General / Workflow / AI summaries / Ideas, and the right column shows the settings of the selected section; on narrow screens it becomes a section bar at the top. [incremental spec](SETTINGS-LAYOUT-SPEC.md) and [verification](verification/settings-layout.md).
 
-2026-10-16 界面多语言：UI 文案按设备语言（或设置中手选）显示，首批 zh-CN / zh-TW / ja / ko / es / fr / de / pt-BR / ru；英文原文即 key，缺译回退英文；agent 面向文本、daemon 错误与模型写的摘要不翻译。[增量 spec](I18N-SPEC.md)和[验证](verification/i18n.md)。
+2026-10-16 UI multilingual: UI copy is shown by device language (or hand-picked in settings), with the first batch zh-CN / zh-TW / ja / ko / es / fr / de / pt-BR / ru; the English original is the key, and a missing translation falls back to English; agent-facing text, daemon errors and model-written summaries are not translated. [incremental spec](I18N-SPEC.md) and [verification](verification/i18n.md).
 
-2026-10-15 Ideas 卡片：agent 用 `flowly_propose_idea` 把本卡范围外的后续工作作为 idea 挂到来源卡（理由、上下文、类型/优先级），看板卡片显示灯泡计数，侧栏 Ideas 区块可 Create task（打开预填 idea 内容与来源卡进展的新建表单，建卡时原子标记 accepted 并记录 `origin`，两卡互链）或 Dismiss/Restore；数据存 `board.json` 的 `ideas`，无需迁移。[增量 spec](IDEAS-SPEC.md)。
+2026-10-15 Ideas card: the agent uses `flowly_propose_idea` to attach follow-up work outside this card's scope as an idea on the source card (reason, context, type/priority), the board card shows a lightbulb count, and the sidebar Ideas section can Create task (opening a new-card form prefilled with the idea content and the source card's progress, atomically marking it accepted when the card is created and recording `origin`, with the two cards linked to each other) or Dismiss/Restore; data is stored in `ideas` of `board.json`, with no migration needed. [incremental spec](IDEAS-SPEC.md).
 
-2026-10-16 项目 Ideas 页：总览栏 “Ideas N” chip（快捷键 B）打开与 Insights 对齐的整页，收拢本项目所有卡片的 ideas（Open/Accepted/Dismissed、搜索、排序、按卡分组、筛选）；idea 不随卡片 Done/收尾/归档改变，删卡或移除项目时删除；finished/归档卡上的 idea 只能新建卡片或忽略。[增量 spec](IDEAS-INBOX-SPEC.md)。
-2026-10-15 app 性能优化：主因是手机 JS 线程被大体量轮询（relay 下 JS 解密）和无 memo 的整树重渲染占满。看板/summary/resources 改为 etag 读取（未变时 147 KB → 38 B），session 输出改用 daemon 精简 tail（68 KB → 9 KB），agent 列表改为 Paseo 订阅流（替代 5 s 全量轮询与侧栏每 3 s 扫描全部含归档 agent），卡片/侧栏/对话 memo 化，手机打开卡片不再卸载看板，运行脉冲改为原生循环；输入框原生自增高、发送即清空（失败恢复）、晚到的草稿恢复不再重挂载输入框。[增量 spec](PERFORMANCE-SPEC.md)和[验证](verification/performance.md)。
-2026-10-15 彻底删除卡片：任意 lane 的卡片在看板菜单与详情菜单中可“Delete permanently…”，确认后从看板删除卡片及其活动、回执和进展 summary（先备份到 `removed/`）；删除时可选择同时归档其 session 与自有 workspace，设置“Auto archive on delete”在预检干净时不再询问；并清理了 Ultra Kanban 下 worktree 已被旧收尾删除、无法恢复的 11 张归档卡。[增量 spec](TASK-DELETE-SPEC.md)。
-2026-10-15 任务类型：卡片可选 Feature / Bug fix / Research / Refactor / Docs / Chore 类型（可留空，旧卡无类型、无需迁移），在新建/编辑表单、卡片、侧栏、详情和筛选中显示；agent 会话上下文带上类型。[增量 spec](TASK-TYPE-SPEC.md)。
-2026-10-15 移出 Done 时恢复 workspace 与 session：已收尾的卡片移出 Done/Cancelled 时，后台恢复收尾时归档的本卡 workspace（同一 ID，被删除的 worktree 在原分支上重建），并恢复该次收尾归档的 session。插件 SDK 暂无 restore，临时用本机凭据直连 daemon，SDK 支持后替换。[增量 spec](WORKSPACE-RESTORE-SPEC.md)和[验证](verification/workspace-restore.md)。
-2026-10-15 工作流阶段拆分：In progress 拆为 Design → Development → Test，所有项目生效；看板数据升到 v4，进行中的卡片迁到 Development，泳道原位展开，历史保持原样并留 `board.pre-v4.json`；开工阶段由 agent 自行决定，从 In review 继续时进 Development、从 Blocked 继续时回到上一阶段；旧的 `in_progress` 工具调用作为别名兼容。[增量 spec](WORKFLOW-STAGES-SPEC.md)。
-2026-10-15 卡片 token 用量：读取本机 Claude Code / Codex 会话日志，按输入、缓存读写、输出（含推理）统计卡片各 session 用量，summarizer 单独小计，不计金额；侧栏 Usage 与 Activity 默认收起。[增量 spec](USAGE-STATS-SPEC.md)。
-2026-10-15 任务进展 summary：看板管理的 session 每轮完成后，daemon 用便宜模型（默认 Haiku 5.5，不可用时 GPT-6-Luna，可在设置中更改）开一个临时 session 更新卡片的 state / recap / next，保留每卡 50 个历史版本供 Done 后回查；不改卡片状态或 revision。[增量 spec](TASK-SUMMARY-SPEC.md)和[验证](verification/task-summary.md)。
-2026-10-15 移除 project：统一的 Remove 入口（取代 Archive），确认时选择仅从看板移除，或同时从 Paseo 移除原生 project（Paseo 无 project 归档；其移除不删除磁盘上的目录、worktree 与分支，有运行中 session 时不可选）；看板记录先备份。[增量 spec](PROJECT-REMOVE-SPEC.md)和[验证](verification/project-remove.md)。
-2026-10-15 桌面 project tab：看板顶栏以 tab 一键切换 project；回到 Ultra Kanban 时打开本次运行中最后查看的 project，冷启动打开第一个。[增量 spec](PROJECT-TABS-SPEC.md)和[验证](verification/project-tabs.md)。
-2026-10-15 project 目录选择与多 repo：新建 project 时可在应用内浏览目录或打开 Paseo 所在电脑的 Finder/Explorer 选择；新增“Multiple repositories”来源，插件在固定目录下新建空目录，以软链接加入所选 repo/目录，并以该目录注册原生 Paseo project。[增量 spec](PROJECT-PICKER-SPEC.md)和[验证](verification/project-picker.md)。
-2026-10-15 侧边栏入口待处理数：Ultra Kanban 侧边栏行显示与看板 Attention 同口径的数量角标（0 不显示），点角标直接打开 Needs attention；10 秒轮询。2026-10-22 起侧栏和 header 的 Attention 数字标记都使用 Paseo 当前主题强调色。[增量 spec](SIDEBAR-BADGE-SPEC.md)。
-2026-10-15 卡片最近 agent 输出：卡片标题下单行显示所在 workspace 最近活跃 session 的最新 assistant 文本摘要与相对时间；仅可见卡片按 session updatedAt 限量 tail 拉取，并发 ≤3，异常时安静。[增量 spec](CARD-OUTPUT-SPEC.md)和[验证](verification/card-output.md)。
-2026-10-15 F3 列内拖拽排序：桌面拖拽显示插入线，同列重排或跨列定点放置，经 `tasks.place` 单次 CAS 写入；手机仍用菜单。[增量 spec](DRAG-REORDER-SPEC.md)。
-2026-10-15 手机/平板内联输入框：去掉点击后弹窗输入，原生端与 web 同样在 session 底部内联输入，按键盘实际遮挡高度上推；运行中显示发送方式选择。[增量 spec](SESSION-UX-SPEC.md#10-inline-native-composer--2026-10-15)。
+2026-10-16 Project Ideas page: the overview bar's "Ideas N" chip (shortcut B) opens a full page aligned with Insights, gathering the ideas of all this project's cards (Open/Accepted/Dismissed, search, sort, grouping by card, filtering); an idea does not change with a card being Done/wrapped up/archived, and it is deleted when the card is deleted or the project removed; an idea on a finished/archived card can only create a new card or be ignored. [incremental spec](IDEAS-INBOX-SPEC.md).
+2026-10-15 App performance optimization: the main cause was the phone JS thread being filled by heavy polling (JS decryption under relay) and un-memoized whole-tree re-renders. The board/summary/resources move to etag reads (147 KB → 38 B when unchanged), session output uses the daemon's slimmed tail (68 KB → 9 KB), the agent list becomes Paseo's subscription stream (replacing the 5 s full polling and the sidebar's 3 s scan of all agents including archived ones), the card/sidebar/conversation are memoized, opening a card on the phone no longer unmounts the board, and the running pulse becomes a native loop; the input box auto-grows natively and clears on send (restored on failure), and a late draft restore no longer remounts the input box. [incremental spec](PERFORMANCE-SPEC.md) and [verification](verification/performance.md).
+2026-10-15 Permanently delete a card: a card in any lane can be "Delete permanently…" from the board menu and the detail menu, and after confirmation the card, its activity, receipts and progress summaries are deleted from the board (backed up to `removed/` first); on deletion you can choose to also archive its sessions and its own workspace, and the setting "Auto archive on delete" no longer asks when the preflight is clean; also cleaned up 11 archived cards under Ultra Kanban whose worktrees had been deleted by the old wrap-up and could not be restored. [incremental spec](TASK-DELETE-SPEC.md).
+2026-10-15 Task type: a card can have an optional type of Feature / Bug fix / Research / Refactor / Docs / Chore (may be left empty, old cards have no type and no migration is needed), shown in the create/edit form, the card, the sidebar, the detail and the filter; the agent session context carries the type. [incremental spec](TASK-TYPE-SPEC.md).
+2026-10-15 Restore workspace and sessions when moving out of Done: when a wrapped-up card moves out of Done/Cancelled, the card's own workspace archived at wrap-up is restored in the background (the same ID, with a deleted worktree rebuilt on its original branch), and the sessions archived by that wrap-up are restored. The plugin SDK has no restore for now, so it temporarily connects to the daemon directly with the local credential, to be replaced once the SDK supports it. [incremental spec](WORKSPACE-RESTORE-SPEC.md) and [verification](verification/workspace-restore.md).
+2026-10-15 Workflow stage split: In progress splits into Design → Development → Test, in effect for all projects; the board data moves to v4, in-progress cards move to Development, the lanes expand in place, history stays as it was with a `board.pre-v4.json` kept; the starting stage is decided by the agent itself, continuing from In review goes into Development, and continuing from Blocked returns to the previous stage; old `in_progress` tool calls are kept compatible as an alias. [incremental spec](WORKFLOW-STAGES-SPEC.md).
+2026-10-15 Card token usage: reads the local Claude Code / Codex session logs and counts each session's usage on the card by input, cache read/write and output (including reasoning), with the summarizer subtotaled separately, no money amounts; the sidebar Usage and Activity are collapsed by default. [incremental spec](USAGE-STATS-SPEC.md).
+2026-10-15 Task progress summary: after each turn of a board-managed session completes, the daemon uses a cheap model (default Haiku 5.5, GPT-6-Luna when unavailable, changeable in settings) to open a temporary session that updates the card's state / recap / next, keeping 50 history versions per card for lookup after Done; it does not change card status or revision. [incremental spec](TASK-SUMMARY-SPEC.md) and [verification](verification/task-summary.md).
+2026-10-15 Remove project: a unified Remove entry (replacing Archive), where the confirmation chooses to remove only from the board, or also remove the native project from Paseo (Paseo has no project archive; its removal does not delete the directories, worktrees and branches on disk, and cannot be chosen when a session is running); the board record is backed up first. [incremental spec](PROJECT-REMOVE-SPEC.md) and [verification](verification/project-remove.md).
+2026-10-15 Desktop project tabs: the board's top bar switches project in one click with tabs; returning to Ultra Kanban opens the project last viewed in this run, and a cold start opens the first. [incremental spec](PROJECT-TABS-SPEC.md) and [verification](verification/project-tabs.md).
+2026-10-15 Project directory selection and multi-repo: when creating a project, a directory can be browsed in the app or chosen by opening Finder/Explorer on the computer where Paseo runs; a new "Multiple repositories" source is added, where the plugin creates an empty directory under a fixed directory, adds the chosen repositories/directories by symlink, and registers that directory as the native Paseo project. [incremental spec](PROJECT-PICKER-SPEC.md) and [verification](verification/project-picker.md).
+2026-10-15 Sidebar entry pending count: the Ultra Kanban sidebar row shows a count badge with the same definition as the board's Attention (0 is not shown), and clicking the badge opens Needs attention directly; polled every 10 seconds. From 2026-10-22 the Attention number badges in the sidebar and header both use Paseo's current theme accent color. [incremental spec](SIDEBAR-BADGE-SPEC.md).
+2026-10-15 Card's latest agent output: below the card title, one line shows the latest assistant text summary and relative time of the most recently active session in its workspace; only visible cards are pulled in limited tail fetches by session updatedAt, with concurrency ≤3, quiet on errors. [incremental spec](CARD-OUTPUT-SPEC.md) and [verification](verification/card-output.md).
+2026-10-15 F3 in-column drag reorder: desktop dragging shows an insertion line, reordering in the same column or dropping at a point across columns, written through `tasks.place` in a single CAS; phones still use the menu. [incremental spec](DRAG-REORDER-SPEC.md).
+2026-10-15 Phone/tablet inline input box: the pop-up input after tapping is removed, and native and web alike have an inline input at the bottom of the session, pushed up by the actual height the keyboard covers; while running, a choice of send mode is shown. [incremental spec](SESSION-UX-SPEC.md#10-inline-native-composer--2026-10-15).
 
-2026-10-15 平板桌面布局：原生端（iOS/Android）不再一律使用紧凑布局；宿主未标记 compact 且看板宽度 ≥ 760 时使用桌面多列看板和侧栏，宽度未测得前保持紧凑以免手机闪烁。平板上的上下文菜单改为长按位置锚定的浮层；卡片 Actions 按钮和列折叠按钮在触控端常显（无 hover）；侧栏调宽把手触控端加宽到 16pt。卡片拖拽仍仅限鼠标（触控滑动保留给滚动），触控端通过长按菜单移动卡片；键盘快捷键仍仅 web。验收：geometry 单测、typecheck、全量测试；真机 iPad/Android 平板外观与手势未运行（UNRUN）。
+2026-10-15 Tablet desktop layout: native (iOS/Android) no longer always uses the compact layout; when the host does not mark compact and the board width is ≥ 760, it uses the desktop multi-column board and sidebar, and while the width has not been measured it stays compact to avoid flicker on phones. The context menu on tablets becomes a floating layer anchored at the long-press position; the card Actions button and the column collapse button are always shown on touch (no hover); the sidebar resize handle is widened to 16pt on touch. Card dragging is still mouse-only (touch swipes are kept for scrolling), and on touch cards are moved through the long-press menu; keyboard shortcuts are still web only. Acceptance: geometry unit tests, typecheck, full tests; real iPad/Android tablet appearance and gestures were not run (UNRUN).
 
-2026-10-15 F4 桌面快捷键：插件 SDK 没有快捷键注册能力，也不能使用全局 DOM 监听，因此采用看板内快捷键（RN-Web `View` 的 `onKeyDown`，焦点在看板内时生效）和全局 Command Center 条目两条路径。[增量 spec](SHORTCUTS-SPEC.md)和[验证](verification/shortcuts.md)。
+2026-10-15 F4 desktop shortcuts: the plugin SDK has no shortcut registration ability and cannot use a global DOM listener, so two paths are used: in-board shortcuts (`onKeyDown` of the RN-Web `View`, effective when focus is in the board) and a global Command Center entry. [incremental spec](SHORTCUTS-SPEC.md) and [verification](verification/shortcuts.md).
 
-2026-10-14 v2 路线图（规划草案，未实施）：对标 Multica 的人机协作工作流——agent 自行切换阶段、需要人时在卡片提醒并进入 Review、人确认后自动收尾。[ROADMAP-V2](ROADMAP-V2.md)。
+2026-10-14 v2 roadmap (planning draft, not implemented): benchmarking Multica's human-machine collaboration workflow — the agent switches stages itself, reminds on the card and enters Review when a person is needed, and wraps up automatically once a person confirms. [ROADMAP-V2](ROADMAP-V2.md).
 
-2026-10-14 手机卡片 Status 文案截断：紧凑布局改为完整状态按钮和按需打开的状态弹层，沿用 CAS/Toast；宽布局扩大原生 selector 的可用宽度。[增量 spec](DRAWER-SPEC.md)和[代码验收](verification/status-label.md)。
+2026-10-14 Phone card Status copy truncation: the compact layout changes to a full status button and an on-demand status popover, keeping CAS/Toast; the wide layout enlarges the available width of the native selector. [incremental spec](DRAWER-SPEC.md) and [code acceptance](verification/status-label.md).
 
-2026-10-14 手机 session 输入区压缩：输入与发送同排，运行模式一行展示，长文本有界展开，保留底部固定和发送保护。[完整增量约定](SESSION-UX-SPEC.md#9-compact-phone-composer--2026-10-14)。
+2026-10-14 Phone session input area compression: input and send on the same row, the run mode shown on one line, bounded expansion of long text, with the fixed bottom and send protection kept. [full incremental convention](SESSION-UX-SPEC.md#9-compact-phone-composer--2026-10-14).
 
 2026-10-14 Android project chooser crash: host Modal content must carry the plugin theme provider at the modal-body boundary. The correction covers all seven plugin-owned modal bodies; scope and acceptance limits are in [UI/UX spec](UI-UX-SPEC.md) and [verification](verification/android-modal-theme.md).
 
-2026-10-14 session 指示输入：桌面 Enter 发送、Shift+Enter 换行，IME/重复/过期输入事件保护；Kanban tools 补充用途说明。[完整 spec](SESSION-INPUT-SPEC.md)。
+2026-10-14 Session instruction input: on desktop Enter sends and Shift+Enter inserts a newline, with protection against IME/repeated/stale input events; Kanban tools gain usage notes. [full spec](SESSION-INPUT-SPEC.md).
 
-2026-10-14 侧栏重排：状态下拉与 Edit/Archive 同组，移除调宽按钮；metadata/workspace 合并为默认收起的详情区，移除 workspace 跳转。[完整 spec](DRAWER-SPEC.md)。
+2026-10-14 Sidebar rearrangement: the status dropdown is in the same group as Edit/Archive, the resize button is removed; metadata/workspace merge into a details section collapsed by default, and the workspace jump is removed. [full spec](DRAWER-SPEC.md).
 
-2026-10-14 看板反馈和动画：状态流转使用原生 toast、lane 文字禁止选中，侧栏/session/拖放采用统一可打断动画并支持减少动态效果。[完整 spec](MOTION-SPEC.md)。
+2026-10-14 Board feedback and animation: status transitions use native toasts, lane text cannot be selected, and the sidebar/session/drag-and-drop use unified interruptible animation and support reduced motion. [full spec](MOTION-SPEC.md).
 
-2026-10-14 session 原生 chip：从 session 页跳回关联看板卡片，打开侧栏的同一 session 预览；Back 仍回卡片详情。[完整 spec](SESSION-CHIP-SPEC.md)。
+2026-10-14 Session native chip: jump from the session page back to the linked board card, opening the same session preview in the sidebar; Back still returns to the card details. [full spec](SESSION-CHIP-SPEC.md).
 
-2026-10-18 会话内回答提问：agent 的 AskUserQuestion 等提问与其它权限请求显示在 Flowly session 输入框上方，可直接作答/允许/拒绝，编码与 Paseo 原生一致。2026-10-20 skill 改为优先用自带提问工具提问，`kind=question` 作回退，同题不双问（§2.2）。[完整 spec](SESSION-QUESTION-SPEC.md)。
+2026-10-18 Answering questions in a session: the agent's AskUserQuestion and other questions are shown with other permission requests above the Flowly session input box, and can be answered/allowed/denied directly, with encoding consistent with Paseo native. On 2026-10-20 the skill changed to prefer its own question tool for asking, with `kind=question` as a fallback, and the same question is not asked twice (§2.2). [full spec](SESSION-QUESTION-SPEC.md).
 
-2026-10-14 卡片 session 状态：展示运行、回合结束、未读和待关注数量；原生已读状态优先，插件逐 session 标记当前轮已阅，业务状态保持独立。[完整 spec](SESSION-ATTENTION-SPEC.md)。
+2026-10-14 Card session status: shows the running, turn-ended, unread and pending-attention counts; native read state takes priority, the plugin marks the current turn as read per session, and business status stays independent. [full spec](SESSION-ATTENTION-SPEC.md).
 
-2026-10-14 session UI：原生 Agent pane 嵌入能力验证不支持；采用创建弹层、侧栏 session 卡片与独立预览，提供返回和原生跳转。后续修订补充消息格式适配、底部固定输入区与运行中的 follow tail。[完整 spec](SESSION-UX-SPEC.md)。
+2026-10-14 Session UI: embedding the native Agent pane was verified as unsupported; it uses a creation popover, sidebar session cards and a standalone preview, with back and native jump provided. Later revisions added message format adaptation, a fixed bottom input area and follow tail while running. [full spec](SESSION-UX-SPEC.md).
 
-2026-10-14 UI/UX 改版：压缩项目管理区、桌面整卡鼠标拖拽状态与卡片文本禁止选中、可调侧栏、手机纵向列表与状态切换。完整增量约定见 [UI/UX spec](UI-UX-SPEC.md)。
+2026-10-14 UI/UX redesign: a compressed project management area, whole-card mouse-drag status on desktop with card text not selectable, an adjustable sidebar, and a vertical list and status switching on phones. See the [UI/UX spec](UI-UX-SPEC.md) for the full incremental convention.
 
-2026-10-13 后续决策：新的看板 project 只使用一个原生 Paseo project root；多 repo 由用户放到共同父目录，通过原生 project 管理。下文早期多 repo/卡片 repo 选择方案已由 [single-root amendment](SINGLE-ROOT-SPEC.md) 取代，仅作历史规划记录。
+2026-10-13 Later decision: new board projects use only one native Paseo project root; multiple repositories are placed by the user in a common parent directory and managed through the native project. The early multi-repo/card-repo selection plan below has been replaced by the [single-root amendment](SINGLE-ROOT-SPEC.md) and is kept only as a historical planning record.
 
-状态：初版计划已确认；本文作为后续具体设计的范围基线。  
-2026-10-13 修订：任务卡片默认不指定 repo，工作范围为项目全部 repo；可显式选择一个或多个 repo。workspace 启动/来源 repo 与任务范围分别管理。可关联项目 repo 中的已有 Paseo workspace，包括归属其他原生 project 的 workspace，保留原归属。第一阶段实现和 Luna 验证完成后暂停，交由用户验收再决定第二阶段。
-调研日期：2026-10-13。  
-本文记录初版约定、可行性依据、spec 章节大纲与实施路线图。后续扩展单独评估。
+Status: the initial plan is confirmed; this document is the scope baseline for later concrete designs.  
+2026-10-13 revision: task cards do not specify a repo by default, and the work scope is all of the project's repos; one or more repos can be chosen explicitly. The workspace's start/source repo and the task scope are managed separately. An existing Paseo workspace in a project repo can be linked, including one belonging to another native project, keeping its original ownership. After phase one was implemented and verified with Luna, work pauses for the user's acceptance before deciding on phase two.
+Research date: 2026-10-13.  
+This document records the initial conventions, the feasibility basis, the spec chapter outline and the implementation roadmap. Later extensions are evaluated separately.
 
-## 1. 初步结论
+## 1. Initial conclusion
 
-**Paseo 的现有 plugin API 足以支撑核心目标：在 Paseo 内显示看板，将任务关联到 workspace 和 agent session，并在 daemon 上运行自动流转逻辑。** 看板任务、执行记录、依赖和流转规则需要由插件维护。这个结论来自官方文档及源码对照，实际运行验证放在后续原型阶段。
+**Paseo's existing plugin API is enough to support the core goal: show a kanban inside Paseo, associate tasks with workspaces and agent sessions, and run the automatic flow logic on the daemon.** The kanban tasks, execution records, dependencies and flow rules have to be maintained by the plugin. This conclusion comes from comparing the official documentation and the source; actual run verification is left to the later prototype phase.
 
-本机 CLI 与正在运行的 daemon 均为 `0.11.2`；已对照该版本的 release 源码确认页面、面板、导航、SDK 和生命周期 hook。具体设计时再确定插件的最低兼容版本及客户端兼容范围。依据：[Plugin reference](https://paseo.sh/docs/plugins/reference)、[0.11.2 plugin 合约](https://github.com/getpaseo/paseo/tree/75953250959979b8f088bbca8dbd6ee61d0151b1/packages/plugin/src)。
+The local CLI and the running daemon are both `0.11.2`; the pages, panels, navigation, SDK and lifecycle hooks have been confirmed against the release source of that version. The plugin's minimum compatible version and client compatibility range are decided during concrete design. Basis: [Plugin reference](https://paseo.sh/docs/plugins/reference), [0.11.2 plugin contract](https://github.com/getpaseo/paseo/tree/75953250959979b8f088bbca8dbd6ee61d0151b1/packages/plugin/src).
 
-首版聚焦：**项目内管理一个或多个 repo + 一卡一 workspace + workspace 内多个 agent session + agent 看板 tool 与 skill + 卡片右侧栏查看状态和发送后续指示**。自动领取任务、跨阶段交接和自动拆解项目列入后续候选范围。
+The first version focuses on: **managing one or more repos within a project + one card per workspace + several agent sessions within a workspace + agent kanban tools and skill + a card right sidebar to view status and send follow-up instructions**. Automatic task pickup, cross-stage handoff and automatic project decomposition are listed as later candidates.
 
-### 用户指定的首版范围
+### First-version scope specified by the user
 
-| 能力 | 首版要求与边界 |
+| Capability | First-version requirement and boundary |
 | --- | --- |
-| 项目与 repo | 一个看板 project 对应一个 Paseo project；看板项目管理一个或多个 repo/dir；插件可创建或关联对应的 Paseo project |
-| 卡片与 workspace | 一个卡片对应一个 workspace；可关联项目 repo 内已有 workspace 并保留原归属，也可新建到对应 Paseo project；任务范围默认所有 repo，也可指定一个或多个，与 workspace 启动目录分别管理 |
-| 卡片内多个 session | 卡片展示其 workspace 下的多个 agent session，用户可创建或选择 session 工作；首版由用户分别指示各 session |
-| 看板 tool + skill | tool 提供真实的任务查询和状态更新，skill 指导 agent 何时及如何调用；需要覆盖插件新建及用户关联的已有 session |
-| 卡片右侧栏 | 展示该卡片唯一 workspace 及其各个 session 的状态，允许选择目标 session 并直接发送后续指示；侧栏由插件绘制 |
+| Project and repo | One kanban project corresponds to one Paseo project; a kanban project manages one or more repos/dirs; the plugin can create or link the corresponding Paseo project |
+| Card and workspace | One card corresponds to one workspace; an existing workspace within a project repo can be linked and its original ownership kept, or a new one can be created under the matching Paseo project; the task scope is all repos by default, or one or more can be specified, managed separately from the workspace start directory |
+| Several sessions in a card | The card shows the several agent sessions under its workspace, and the user can create or choose a session to work; in the first version the user instructs each session separately |
+| Kanban tool + skill | The tool provides real task queries and status updates, and the skill guides the agent on when and how to call it; it needs to cover sessions the plugin created and existing sessions the user linked |
+| Card right sidebar | Shows the card's single workspace and the status of its sessions, lets the user pick a target session and send follow-up instructions directly; the sidebar is drawn by the plugin |
 
-项目、卡片与执行资源的对应关系约定为：
+The correspondence among project, card and execution resources is agreed as:
 
-| 关系 | 初版约定 |
+| Relationship | Initial convention |
 | --- | --- |
-| 看板 project ↔ Paseo project | 一对一 |
-| 看板 project → repo/dir | 一个或多个，目录列表由插件维护 |
-| 看板 project → 卡片 | 多张卡片 |
-| 卡片 ↔ workspace | 一对一 |
-| workspace → agent session | 零个或多个；多个 session 均在该 workspace 中工作 |
+| Kanban project ↔ Paseo project | One to one |
+| Kanban project → repo/dir | One or more, with the directory list maintained by the plugin |
+| Kanban project → cards | Many cards |
+| Card ↔ workspace | One to one |
+| Workspace → agent session | Zero or more; several sessions all work in that workspace |
 
-Paseo 原生 project 保留一个 `rootPath`，插件保存项目的多个 repo/dir。创建 workspace 时显式指定同一个 Paseo project ID 和选中的目录；新建 workspace 因而归属该项目；关联 repo 内已有 workspace 时保留其原生 project 归属。源码支持目录 workspace 挂载到指定 project。创建 worktree 时也需要明确源 repo，单独传 project ID 会使用其主目录。依据：[0.11.2 workspace 归属逻辑](https://github.com/getpaseo/paseo/blob/75953250959979b8f088bbca8dbd6ee61d0151b1/packages/server/src/server/session/workspace-provisioning/workspace-provisioning-service.ts#L218)、[源目录解析](https://github.com/getpaseo/paseo/blob/75953250959979b8f088bbca8dbd6ee61d0151b1/packages/server/src/server/workspace-source.ts)。
+The native Paseo project keeps one `rootPath`, and the plugin stores the project's several repos/dirs. When creating a workspace, the same Paseo project ID and the chosen directory are specified explicitly; a newly created workspace therefore belongs to that project; when linking an existing workspace within a repo, its native project ownership is kept. The source supports mounting a directory workspace under a specified project. When creating a worktree the source repo also needs to be explicit, and passing only the project ID would use its main directory. Basis: [0.11.2 workspace ownership logic](https://github.com/getpaseo/paseo/blob/75953250959979b8f088bbca8dbd6ee61d0151b1/packages/server/src/server/session/workspace-provisioning/workspace-provisioning-service.ts#L218), [source directory resolution](https://github.com/getpaseo/paseo/blob/75953250959979b8f088bbca8dbd6ee61d0151b1/packages/server/src/server/workspace-source.ts).
 
-一个 workspace 有自己的执行目录。项目包含多个 repo，并不自动让每张卡片的 workspace 同时包含所有 repo 的 checkout；单卡涉及跨 repo 工作时的目录访问方式在具体设计中说明，并保持一卡一 workspace 的约定。
+A workspace has its own execution directory. A project containing several repos does not automatically make each card's workspace contain the checkouts of all repos at once; how a single card that involves cross-repo work accesses directories is explained in the concrete design, keeping the one-card-one-workspace convention.
 
-初版支持多个 session 在同一卡片内工作；多 agent 自动交接、角色编排、评审/返工链和自动派工列入后续范围。卡片业务状态通过看板 tool 更新，各 session 的执行状态分别显示。
+The first version supports several sessions working in the same card; automatic multi-agent handoff, role orchestration, review/rework chains and automatic dispatch are listed as later scope. The card's business status is updated through the kanban tool, and the execution status of each session is shown separately.
 
-tool 接入需区分：新建 session 可通过创建配置注入 MCP；已有运行中的 session 不能假定支持 MCP 热插入，首版可提供 CLI 工具入口供已有 shell 工具调用。skill 的分发与发现方式在具体设计中确定。依据：[MCP 注入与 before hook 边界](https://paseo.sh/docs/plugins/reference#before-hooks)。
+Tool integration needs a distinction: a new session can have MCP injected through the creation config; an existing running session cannot be assumed to support MCP hot insertion, and the first version can provide a CLI tool entry for existing shell tools to call. How the skill is distributed and discovered is decided in the concrete design. Basis: [MCP injection and before hook boundaries](https://paseo.sh/docs/plugins/reference#before-hooks).
 
-右侧栏的状态读取和后续消息由 SDK 支撑；当前公开 plugin UI 合约未提供可直接嵌入的完整原生聊天组件。首版包含自绘状态、必要的执行输出和指示输入；完整聊天历史、附件等体验另行取舍。运行中发送遵循 Paseo/provider 的插话或中断能力。依据：[Agent SDK](https://paseo.sh/docs/sdk/agents)、[0.11.2 plugin UI 合约](https://github.com/getpaseo/paseo/tree/75953250959979b8f088bbca8dbd6ee61d0151b1/packages/plugin/src/client)。
+Status reading and follow-up messages in the right sidebar are supported by the SDK; the currently public plugin UI contract does not provide a complete native chat component that can be embedded directly. The first version includes a self-drawn status, the necessary execution output and instruction input; the complete chat history, attachments and similar experiences are traded off separately. Sending while running follows Paseo/provider's interject or interrupt ability. Basis: [Agent SDK](https://paseo.sh/docs/sdk/agents), [0.11.2 plugin UI contract](https://github.com/getpaseo/paseo/tree/75953250959979b8f088bbca8dbd6ee61d0151b1/packages/plugin/src/client).
 
-## 2. Paseo 能力与边界
+## 2. Paseo capabilities and boundaries
 
-| 需求 | 已有能力 | 插件承担的部分 |
+| Need | Existing capability | What the plugin takes on |
 | --- | --- | --- |
-| 看板入口 | 独立 screen、侧栏入口、workspace/agent panel | 卡片、任务详情、筛选、排序、列与交互 |
-| 创建和选择项目 | CLI 可注册原生 project，SDK 可列出 project、workspace、agent 并订阅更新 | 看板 project 与原生 project 的一对一关系、repo/dir 列表与卡片关联 |
-| 打开关联资源 | `navigation.openWorkspace`、`openAgent` | 从卡片跳转及资源不可用时的展示 |
-| 创建执行环境 | 创建普通 workspace 或 git worktree workspace | 复用还是新建、任务与环境如何对应 |
-| 启动或继续执行 | 在 workspace 中创建 agent，向已有 agent 发送后续 prompt | 卡片内 session 列表、任务上下文、目标 session 选择和执行记录 |
-| 跟踪执行状态 | turn 开始/结束、权限请求/响应、agent/workspace 归档等 hook | 解释事件如何影响任务，处理暂停、失败和恢复 |
-| 后台状态观察 | 服务端 plugin 随 daemon 运行；客户端关闭时 hook 仍运行 | 观察各 session 状态、保存卡片流转记录及恢复后核对 |
-| 数据持久化 | host 级 settings；服务端可使用 Node、文件与依赖 | 任务及运行历史的持久化与迁移，形式待设计 |
-| agent 更新任务 | 创建配置可注入 prompt、MCP；session 打开时可注入环境变量 | 看板 tool + skill，供各 session 读取卡片、更新业务状态和汇报结果 |
+| Board entry | Standalone screen, sidebar entry, workspace/agent panel | Cards, task details, filtering, sorting, columns and interaction |
+| Create and choose a project | The CLI can register a native project, and the SDK can list projects, workspaces and agents and subscribe to updates | The one-to-one relationship between a kanban project and a native project, the repo/dir list and card association |
+| Open linked resources | `navigation.openWorkspace`, `openAgent` | Jumping from the card and display when a resource is unavailable |
+| Create an execution environment | Create an ordinary workspace or a git worktree workspace | Reuse or create new, and how tasks correspond to environments |
+| Start or continue execution | Create an agent in a workspace, send a follow-up prompt to an existing agent | The in-card session list, task context, target session selection and execution records |
+| Track execution status | Hooks for turn start/end, permission request/response, agent/workspace archiving | Interpreting how events affect the task, and handling pause, failure and recovery |
+| Background state observation | Server-side plugins run with the daemon; hooks still run when the client is closed | Observing each session's status, saving the card's flow records and reconciling after recovery |
+| Data persistence | Host-level settings; the server side can use Node, files and dependencies | Persistence and migration of tasks and run history, form to be designed |
+| Agent updates tasks | The creation config can inject prompts and MCP; environment variables can be injected when a session opens | The kanban tool + skill, for each session to read the card, update business status and report results |
 
-SDK 操作依据：[SDK reference](https://paseo.sh/docs/sdk/reference)、[Agents](https://paseo.sh/docs/sdk/agents)、[Workspaces](https://paseo.sh/docs/sdk/workspaces)。
-原生 project 注册依据：[Paseo CLI projects](https://paseo.sh/docs/cli#projects)。
+SDK operation basis: [SDK reference](https://paseo.sh/docs/sdk/reference), [Agents](https://paseo.sh/docs/sdk/agents), [Workspaces](https://paseo.sh/docs/sdk/workspaces).
+Native project registration basis: [Paseo CLI projects](https://paseo.sh/docs/cli#projects).
 
-需要进入后续 spec 的边界：
+Boundaries that need to go into later specs:
 
-- 生命周期 hook 为实时、尽力交付：没有事件重放、持久化或自动重试，不同事件可能并发。因此可靠自动流转需要持久化执行记录，并在插件恢复时核对 Paseo 当前状态；无法核实的结果需要保留待确认状态。
-- 一次 turn 正常结束只证明该次执行结束。多个 session 的运行状态分别展示；任务完成、验收通过和项目完成需要各自定义判据。
-- plugin UI 使用 React Native；桌面拖拽、窄屏和手机交互需要分别确认，Multica 的网页拖拽组件不能直接当作 Paseo 的通用组件使用。
-- 插件安装和 settings 按 daemon 隔离。跨 host 展示已有 SDK 能力；客户端跨 host 调用与 daemon 后台跨 host 调度需要分别设计。
+- Lifecycle hooks are real-time, best-effort delivery: there is no event replay, persistence or automatic retry, and different events may be concurrent. Reliable automatic flow therefore needs persistent execution records, and reconciling against Paseo's current state when the plugin recovers; results that cannot be verified need to keep a pending-confirmation state.
+- A turn ending normally only proves that this execution ended. The running state of several sessions is shown separately; task completion, acceptance passing and project completion each need their own criteria.
+- The plugin UI uses React Native; desktop drag, narrow screen and phone interaction need to be confirmed separately, and Multica's web drag-and-drop component cannot be used directly as a general Paseo component.
+- Plugin installation and settings are isolated per daemon. Cross-host display is an existing SDK ability; client cross-host calls and daemon background cross-host scheduling need separate design.
 
-hook 交付边界依据：[0.11.2 生命周期文档](https://github.com/getpaseo/paseo/blob/75953250959979b8f088bbca8dbd6ee61d0151b1/public-docs/plugins/reference.md#context-and-cleanup)。
+Hook delivery boundary basis: [0.11.2 lifecycle documentation](https://github.com/getpaseo/paseo/blob/75953250959979b8f088bbca8dbd6ee61d0151b1/public-docs/plugins/reference.md#context-and-cleanup).
 
-## 3. Multica 如何工作，哪些值得参考
+## 3. How Multica works and what is worth referencing
 
-本次查看的是官方仓库 `multica-ai/multica`，源码快照为 `b115ec80f1748d8d2766481706b0ecb830389286`（2026-10-12）。
+This review looked at the official repository `multica-ai/multica`, with the source snapshot `b115ec80f1748d8d2766481706b0ecb830389286` (2026-10-12).
 
-| 环节 | Multica 的实现 | 对本插件的启发 |
+| Aspect | Multica's implementation | Inspiration for this plugin |
 | --- | --- | --- |
-| 工作记录 | Issue 长期保存目标、讨论、负责人和任务状态；一次执行有独立 Run 记录 | 任务可以跨 session 存续，每次执行保留历史 |
-| 工作入口 | 分配 agent、评论提及、聊天、自动化等入口生成 Run；Backlog 可暂存工作 | 任务入板、关联 session、开始执行应是可区分的操作 |
-| 执行 | 服务端入队，runtime 领取并调用 agent CLI；记录 session、目录、分支与结果 | 使用 Paseo 的 workspace/session 执行能力，插件保存卡片关联与执行记录 |
-| 进度更新 | agent 通过 CLI 明确更新 Issue 状态；Run 的开始/完成接口不直接修改 Issue 状态 | 需要明确的进度/交付信号，保留执行状态与任务状态的区别 |
-| 阶段推进 | 子任务阶段关闭后唤醒父任务负责人，由其判断依赖、取消项及下一阶段 | 作为后续扩展的参考，初版支持用户分别指示多个 session |
-| 项目管理 | 项目提供目标和资源，聚合任务进度；项目状态与任务状态独立 | 需要单独选择项目完成判据及自动完成范围 |
+| Work record | An Issue keeps the goal, discussion, assignee and task status for a long time; one execution has its own Run record | A task can persist across sessions, and each execution keeps its history |
+| Work entry | Entries such as assigning an agent, comment mentions, chat and automation generate a Run; Backlog can hold work in reserve | Putting a task on the board, linking a session and starting execution should be distinguishable operations |
+| Execution | The server enqueues, the runtime claims and calls the agent CLI; it records the session, directory, branch and result | Use Paseo's workspace/session execution ability, with the plugin saving card associations and execution records |
+| Progress update | The agent explicitly updates the Issue status through the CLI; the Run's start/complete interfaces do not change the Issue status directly | An explicit progress/delivery signal is needed, keeping the distinction between execution status and task status |
+| Stage advance | After a subtask stage closes, the parent task's assignee is woken, and judges dependencies, cancelled items and the next stage | A reference for later extension; the first version supports the user instructing several sessions separately |
+| Project management | A project provides goals and resources and aggregates task progress; project status and task status are independent | The project completion criteria and the scope of automatic completion need to be chosen separately |
 
-执行源码依据：[任务触发判定](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/server/internal/service/issue_trigger.go)、[Run 开始与完成](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/server/internal/service/task.go#L4204)、[agent 状态汇报指令](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/server/internal/daemon/execenv/runtime_config_sections.go#L770)。
+Execution source basis: [task trigger decision](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/server/internal/service/issue_trigger.go), [Run start and completion](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/server/internal/service/task.go#L4204), [agent status report instructions](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/server/internal/daemon/execenv/runtime_config_sections.go#L770).
 
-阶段与项目依据：[阶段完成唤醒](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/server/internal/service/issue_wakeup_system.go)、[项目文档](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/apps/docs/content/docs/projects.mdx)。
+Stage and project basis: [stage completion wake-up](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/server/internal/service/issue_wakeup_system.go), [project documentation](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/apps/docs/content/docs/projects.mdx).
 
-Multica 的 Board 是 Issue 的一种视图，支持按状态等属性分组与拖拽更新。可参考其“看板卡片 → 任务详情 → 执行历史”的组织方式。依据：[Board 实现](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/packages/views/issues/components/board-view.tsx)。
+Multica's Board is one view of Issues, supporting grouping by attributes such as status and drag-to-update. Its organization of "board card → task details → execution history" can be referenced. Basis: [Board implementation](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/packages/views/issues/components/board-view.tsx).
 
-### 概念对应，供范围讨论
+### Concept mapping, for scope discussion
 
-| 概念 | 在本插件中的含义 |
+| Concept | Meaning in this plugin |
 | --- | --- |
-| 看板项目 | 管理目标、卡片及一个或多个 repo/dir，与一个 Paseo project 一对一对应 |
-| Paseo project | 看板项目对应的原生项目，新建卡片 workspace 归属于它；关联已有 workspace 保留原归属，多个 repo/dir 列表由插件保存 |
-| Paseo workspace | 与一张卡片一对一对应的执行环境，包含该卡片的多个 agent session、终端等 |
-| 看板任务/卡片 | 用户想完成的一项工作，对应一个 workspace，可以经历多轮执行 |
-| Paseo agent session | 卡片 workspace 内的具体会话，使用 Paseo agent ID 识别和打开；用户可分别向多个 session 发指示 |
-| 执行记录 | 插件记录的一次任务执行或阶段尝试，关联其 workspace 和 session |
-| 多 agent 交接 | 后续可选扩展；初版允许多个 session 工作，交接与角色编排留待后续 |
+| Kanban project | Manages goals, cards and one or more repos/dirs, in one-to-one correspondence with a Paseo project |
+| Paseo project | The native project the kanban project corresponds to; a newly created card workspace belongs to it; linking an existing workspace keeps its original ownership, and the list of repos/dirs is saved by the plugin |
+| Paseo workspace | The execution environment in one-to-one correspondence with a card, containing the card's several agent sessions, terminals and so on |
+| Kanban task/card | A piece of work the user wants done, corresponding to one workspace, which can go through several rounds of execution |
+| Paseo agent session | A specific conversation inside the card's workspace, identified and opened by Paseo agent ID; the user can send instructions to several sessions separately |
+| Execution record | One task execution or stage attempt recorded by the plugin, linked to its workspace and session |
+| Multi-agent handoff | A later optional extension; the first version allows several sessions to work, with handoff and role orchestration left for later |
 
-Multica 的 workspace 是团队与数据隔离边界，与 Paseo 的执行 workspace 含义不同。依据：[Multica workspaces](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/apps/docs/content/docs/workspaces.mdx)。
+Multica's workspace is the team and data isolation boundary, and differs in meaning from Paseo's execution workspace. Basis: [Multica workspaces](https://github.com/multica-ai/multica/blob/b115ec80f1748d8d2766481706b0ecb830389286/apps/docs/content/docs/workspaces.mdx).
 
-## 4. 初版功能范围与后续候选
+## 4. First-version feature scope and later candidates
 
-首版模块按已确认的约定实施；后续候选的优先级另行评估。
+First-version modules are implemented according to the confirmed conventions; the priority of later candidates is evaluated separately.
 
-| 编号 | 模块 | 范围概要 | 计划 |
+| ID | Module | Scope summary | Plan |
 | --- | --- | --- | --- |
-| F01 | 基础看板 | 创建/编辑/归档任务、状态列、排序、筛选、任务详情 | 首版 |
-| F02 | 项目组织 | 创建/关联一个原生 Paseo project，管理一个或多个 repo/dir，按项目组织卡片 | 首版 |
-| F03 | 卡片与 workspace 关联 | 一卡一 workspace；关联已有 workspace，展示其多个 agent session | 首版 |
-| F04 | 多 session 与执行记录 | 在同一卡片 workspace 中创建/选择多个 session，保留基本执行记录和状态 | 首版 |
-| F05 | 从卡片创建 workspace | 选择项目内的目标 repo/dir，创建普通或 worktree workspace，归属项目对应的 Paseo project | 首版 |
-| F06 | 状态流转与执行观察 | 展示各 session 的运行/等待/失败状态；通过看板 tool 明确更新卡片业务状态 | 首版 |
-| F07 | 自动领取任务 | 就绪任务排队，空闲执行容量自动启动下一项，可暂停和恢复 | 后续候选 |
-| F08 | 项目阶段与依赖 | 子任务、依赖、阶段完成条件及自动推进下一阶段 | 后续 |
-| F09 | 多 agent 交接与角色编排 | 自动分配、规划 → 开发 → 评审 → 返工、跨 session 交接 | 后续候选 |
-| F10 | 自动拆解项目 | 协调 agent 根据项目目标生成、调整和分配任务 | 暂缓 |
-| F11 | Git 交付联动 | 分支、PR/MR、CI、合并状态与任务关联及流转 | 后续，独立选择 |
-| F12 | 跨 host / 外部集成 | 多 daemon 调度、外部 issue 同步、通知 | 暂缓，拆项选择 |
-| F13 | 看板 tool + skill | 让新建及已有 agent session 查询任务、更新状态和汇报结果 | 首版 |
-| F14 | 卡片右侧栏 | 查看卡片唯一 workspace、各 session 状态和执行输出，选择目标 session 并发送后续指示 | 首版 |
+| F01 | Basic board | Create/edit/archive tasks, status columns, sorting, filtering, task details | First version |
+| F02 | Project organization | Create/link one native Paseo project, manage one or more repos/dirs, organize cards by project | First version |
+| F03 | Card and workspace association | One card one workspace; link an existing workspace and show its several agent sessions | First version |
+| F04 | Several sessions and execution records | Create/choose several sessions in the same card workspace, keeping basic execution records and status | First version |
+| F05 | Create a workspace from a card | Choose the target repo/dir in the project, create an ordinary or worktree workspace, belonging to the Paseo project the project corresponds to | First version |
+| F06 | Status flow and execution observation | Show each session's running/waiting/failed status; explicitly update the card's business status through the kanban tool | First version |
+| F07 | Automatic task pickup | Ready tasks queue, idle execution capacity starts the next one automatically, can pause and resume | Later candidate |
+| F08 | Project stages and dependencies | Subtasks, dependencies, stage completion conditions and automatic advance to the next stage | Later |
+| F09 | Multi-agent handoff and role orchestration | Automatic assignment, plan → develop → review → rework, cross-session handoff | Later candidate |
+| F10 | Automatic project decomposition | A coordinating agent generates, adjusts and assigns tasks from the project goal | Deferred |
+| F11 | Git delivery linkage | Branch, PR/MR, CI, merge status associated with tasks and flowing | Later, chosen independently |
+| F12 | Cross-host / external integration | Multi-daemon scheduling, external issue sync, notifications | Deferred, chosen item by item |
+| F13 | Kanban tool + skill | Let new and existing agent sessions query tasks, update status and report results | First version |
+| F14 | Card right sidebar | View the card's single workspace, each session's status and execution output, pick a target session and send follow-up instructions | First version |
 
-跨轮次关联与可靠自动流转需要同步考虑：持久化、重复启动防护、重启恢复、手动接管，以及 workspace/session 被归档后的关联展示。这些内容进入所选模块的设计与验收。
+Cross-round association and reliable automatic flow need to consider together: persistence, protection against duplicate starts, restart recovery, manual takeover, and the display of associations after a workspace/session is archived. These go into the design and acceptance of the chosen modules.
 
-## 5. “自动流转”的四种范围
+## 5. The four scopes of "automatic flow"
 
-| 编号 | 自动化范围 | 典型效果 | 建议 |
+| ID | Automation scope | Typical effect | Recommendation |
 | --- | --- | --- | --- |
-| A1 | 卡片状态流转与执行观察 | agent 通过 tool + skill 更新卡片状态，各 session 执行状态自动展示；完成判据在具体设计中细化 | 首版 |
-| A2 | 自动调度 | 项目启用后，按优先级和容量领取就绪任务，完成当前工作后继续下一项 | 后续候选 |
-| A3 | 阶段编排 | 依赖满足后启动下一阶段，交接给评审，评审退回后启动返工 | 后续 |
-| A4 | 项目自主推进 | 协调 agent 拆解目标、分配工作、调整计划并汇总项目结果 | 暂缓 |
+| A1 | Card status flow and execution observation | The agent updates the card status through the tool + skill, and each session's execution status is shown automatically; the completion criteria are detailed in the concrete design | First version |
+| A2 | Automatic scheduling | After the project enables it, ready tasks are picked up by priority and capacity, continuing with the next after finishing the current work | Later candidate |
+| A3 | Stage orchestration | Start the next stage once dependencies are met, hand off to review, and start rework after review sends it back | Later |
+| A4 | Autonomous project advance | A coordinating agent decomposes goals, assigns work, adjusts the plan and summarizes project results | Deferred |
 
-首版通过 tool + skill 支持 agent 推进任务卡状态（A1），并允许用户在同一卡片内指示多个 session。最初提出的项目自主流转保留在后续路线图中，A2–A4 的范围另行评估。
+The first version supports the agent advancing the task card status through the tool + skill (A1), and allows the user to instruct several sessions within the same card. The originally proposed autonomous project flow stays in the later roadmap, and the scope of A2–A4 is evaluated separately.
 
-## 6. 总体 Spec 文档大纲
+## 6. Overall spec document outline
 
-后续具体设计以本初版计划为基线，按下面章节展开。
+Later concrete designs take this initial plan as the baseline and expand along the chapters below.
 
-| 章节 | 要回答的问题 |
+| Chapter | Question to answer |
 | --- | --- |
-| 1. 产品目标与使用场景 | 谁使用、管理哪类工作、首版完整工作路径是什么？ |
-| 2. 范围与术语 | 一对一的 project/workspace 关系、多个 repo 与多个 session 分别表示什么，首版包含哪些模块？ |
-| 3. 项目与任务管理 | 如何创建/关联对应的 Paseo project、维护 repo/dir 列表，以及表达卡片、看板列和项目进度？ |
-| 4. 资源关联 | 如何保证一卡一 workspace、原生 project 归属正确，创建时如何选择 repo/dir，以及处理更换或归档？ |
-| 5. 执行入口与上下文 | 如何在卡片 workspace 中创建/选择多个 session、继续会话并传递卡片上下文？ |
-| 6. 状态与完成判据 | 各 session 执行状态与卡片业务状态如何分别展示，多个 session 更新同一卡片及人工修改如何处理？ |
-| 7. 多 session 工作边界 | 用户如何分别指示多个 session，共享目录工作的行为如何说明，以及后续自动交接的范围边界是什么？ |
-| 8. 人工接管与异常处理 | 等待输入、取消、失败、重试、重新分配及恢复时应发生什么？ |
-| 9. Paseo 扩展点及 agent 工具 | 哪些页面、SDK 操作及 hook 支撑流程，tool + skill 如何接入新建和已有 session？ |
-| 10. 数据与恢复 | 如何保存关联和执行历史，多客户端如何同步，重启后怎样核实和续接？ |
-| 11. 交互与可观察性 | 右侧栏如何展示卡片的唯一 workspace 及多个 session，如何选择会话并发送指示，如何解释状态流转？ |
-| 12. 验收与交付 | 各阶段的完整场景、异常场景、桌面/窄屏覆盖及发布方式是什么？ |
+| 1. Product goals and usage scenarios | Who uses it, what kind of work is managed, what is the first version's complete work path? |
+| 2. Scope and terminology | What do the one-to-one project/workspace relationship, several repos and several sessions each mean, and which modules does the first version include? |
+| 3. Project and task management | How to create/link the corresponding Paseo project, maintain the repo/dir list, and express cards, board columns and project progress? |
+| 4. Resource association | How to guarantee one card one workspace and correct native project ownership, how to choose the repo/dir at creation, and how to handle replacement or archiving? |
+| 5. Execution entry and context | How to create/choose several sessions in the card workspace, continue a conversation and pass the card context? |
+| 6. Status and completion criteria | How are each session's execution status and the card's business status shown separately, and how are several sessions updating the same card and manual edits handled? |
+| 7. Multi-session work boundaries | How does the user instruct several sessions separately, how is the behavior of work in a shared directory explained, and what is the scope boundary of later automatic handoff? |
+| 8. Manual takeover and exception handling | What should happen on waiting for input, cancel, failure, retry, reassignment and recovery? |
+| 9. Paseo extension points and agent tools | Which pages, SDK operations and hooks support the flow, and how does the tool + skill connect to new and existing sessions? |
+| 10. Data and recovery | How to save associations and execution history, how multiple clients sync, and how to verify and resume after a restart? |
+| 11. Interaction and observability | How does the right sidebar show the card's single workspace and several sessions, how to choose a conversation and send instructions, and how to explain status flow? |
+| 12. Acceptance and delivery | What are the complete scenarios, exception scenarios, desktop/narrow-screen coverage and release method of each phase? |
 
-## 7. 大致路线图
+## 7. Rough roadmap
 
-| 阶段 | 目标 | 主要产出 | 完成标志 |
+| Phase | Goal | Main output | Completion marker |
 | --- | --- | --- | --- |
-| R0：具体设计 | 按已确认的初版计划展开 | 首版 spec：项目目录组织、一卡一 workspace、多 session 操作、tool + skill 与右侧栏 | 设计可支持已确认关系和完整使用路径 |
-| R1：看板与资源关联 | F01–F04 | 看板 project 与一个 Paseo project 对应，项目 repo/dir 列表，卡片与 workspace 一对一，workspace 内多个 session | 一卡一 workspace 的约束成立，新建 workspace 使用对应 project，已有 workspace 原归属保留，任务可覆盖所有或多个 repo，重启后关联仍可用 |
-| R2：workspace 创建与右侧栏 | F05、F14 | 卡片内选 repo 创建 workspace；右侧栏展示各 session，可创建/选择 session 并发送指示 | 新建 workspace 的 repo 来源与 project 归属正确；能分别跟进卡片内多个 session |
-| R3：agent 工具与首版闭环 | F06、F13、A1 | 看板 tool、skill、新建及已有 session 接入、卡片状态流转、各 session 状态观察和恢复 | 多个 session 可在同一卡片工作并汇报状态，用户可从侧栏跟进，首版完整可用 |
-| R4：可选自动化扩展 | 按选择加入 F07–F12、A2–A4 | 自动领取、阶段交接、自动规划、Git 联动、跨 host 或外部平台集成 | 每项扩展各自满足完整场景和恢复要求 |
+| R0: concrete design | Expand per the confirmed initial plan | First-version spec: project directory organization, one card one workspace, multi-session operation, tool + skill and the right sidebar | The design can support the confirmed relationships and the complete usage path |
+| R1: board and resource association | F01–F04 | A kanban project corresponds to one Paseo project, the project repo/dir list, card to workspace one-to-one, several sessions in a workspace | The one-card-one-workspace constraint holds, a new workspace uses the matching project, an existing workspace keeps its original ownership, a task can cover all or several repos, and associations still work after a restart |
+| R2: workspace creation and right sidebar | F05, F14 | Create a workspace in a card by choosing a repo; the right sidebar shows each session, and can create/choose a session and send instructions | The repo source and project ownership of a new workspace are correct; several sessions in a card can be followed up separately |
+| R3: agent tools and first-version loop | F06, F13, A1 | Kanban tool, skill, connecting new and existing sessions, card status flow, each session's status observation and recovery | Several sessions can work in the same card and report status, the user can follow up from the sidebar, and the first version is fully usable |
+| R4: optional automation extensions | Add F07–F12, A2–A4 by choice | Automatic pickup, stage handoff, automatic planning, Git linkage, cross-host or external platform integration | Each extension meets its own complete scenario and recovery requirements |
 
-R2、R3 均建立在 R1 的关联及持久化能力上；R4 按模块分别评估。工作量和时间估算在具体设计时补充。
+R2 and R3 both build on R1's association and persistence abilities; R4 is evaluated module by module. Workload and time estimates are added in the concrete design.
 
-## 8. 已确认约定与后续细化项
+## 8. Confirmed conventions and later refinements
 
-| 项目 | 初版基线 | 具体设计时细化 |
+| Item | Initial baseline | Refined in the concrete design |
 | --- | --- | --- |
-| 功能范围 | 首版 F01–F06、F13–F14 | 每项模块的交互、异常行为和验收场景 |
-| 自动化深度 | A1：tool + skill 流转卡片状态，自动观察各 session 状态 | 状态更新规则、冲突处理和恢复；A2–A4 留到后续 |
-| 项目关系 | 一个看板 project 对应一个 Paseo project，包含一个或多个 repo/dir | 主目录、repo/dir 管理与 workspace 创建时的目录选择 |
-| 卡片关系 | 一个卡片对应一个 workspace | 关联已有 workspace、更换、归档及资源失效的行为 |
-| session 关系 | 一卡的 workspace 中可有多个 agent session | 创建、选择、状态展示及后续指示；自动交接与角色编排留到后续 |
-| 完成判据 | 卡片业务状态与 session 执行状态分别管理 | agent 交付与人工验收规则 |
-| 平台范围 | 以单 daemon、桌面看板及窄屏基本操作为初版设计基线 | 桌面右侧栏与窄屏呈现方式 |
-| 规则灵活性 | 先定义默认卡片流程和必要配置 | 列与状态的具体范围；复杂规则编辑留到后续评估 |
+| Feature scope | First version F01–F06, F13–F14 | Each module's interaction, exception behavior and acceptance scenarios |
+| Automation depth | A1: tool + skill flow the card status, automatically observing each session's status | Status update rules, conflict handling and recovery; A2–A4 left for later |
+| Project relationship | One kanban project corresponds to one Paseo project, containing one or more repos/dirs | The main directory, repo/dir management and directory choice when creating a workspace |
+| Card relationship | One card corresponds to one workspace | Behavior for linking an existing workspace, replacement, archiving and resource invalidation |
+| Session relationship | A card's workspace can have several agent sessions | Creation, choice, status display and follow-up instructions; automatic handoff and role orchestration left for later |
+| Completion criteria | The card's business status and the session execution status are managed separately | Agent delivery and manual acceptance rules |
+| Platform scope | A single daemon, desktop board and basic narrow-screen operation as the initial design baseline | How the desktop right sidebar and narrow screen are presented |
+| Rule flexibility | Define the default card flow and necessary configuration first | The specific scope of columns and statuses; complex rule editing left for later evaluation |
 
-后续具体设计沿用本文件的已确认约定。本文保持计划和大纲层级，具体数据结构、接口和交互细节在下一阶段展开。
+Later concrete designs follow this file's confirmed conventions. This document stays at the plan and outline level, and the concrete data structures, interfaces and interaction details are expanded in the next phase.
 
 2026-10-21 GitHub CI/CD: PR/main CI, installed-package smoke and OIDC npm/GitHub
 releases from validated version tags. [Spec](CI-CD-SPEC.md),
 [operations](CI-CD.md). No product UI or task automation change.
 
-2026-10-24：统一紧凑布局性能路径，保留独立Overview/CardDetail、fresh授权、连续动画与450ms交接；按可用宽度760分界，移除性能门控的平台特化，清理旧CardBoardContext/Proxy。见[统一规范](RESPONSIVE-PERFORMANCE-SPEC.md)、[两阶段读模型](NATIVE-OVERVIEW-SPEC.md)和[瘦身规范](CARD-QUERY-SLIM-SPEC.md)。验证结果见[交付记录](verification/responsive-ship-2026-10-24/README.md)。
+2026-10-24: unified the compact-layout performance path, keeping the standalone Overview/CardDetail, fresh authorization, continuous animation and the 450ms handoff; split at an available width of 760, removing performance-gated platform specialization and cleaning up the old CardBoardContext/Proxy. See the [unified spec](RESPONSIVE-PERFORMANCE-SPEC.md), the [two-stage read model](NATIVE-OVERVIEW-SPEC.md) and the [slimming spec](CARD-QUERY-SLIM-SPEC.md). For verification results see the [delivery record](verification/responsive-ship-2026-10-24/README.md).
 
 - [Motion smoothness](MOBILE-SMOOTHNESS-SPEC.md): fixed Samsung baseline/static-dot/candidate/reverse windows; shared sweep clock yields to existing height lease, no visual geometry/fresh/modal rewrite. Scoped frame observations and remaining long frames are reported separately.
 
-2026-10-29 Shortcut connector：第七个只读 provider 族，覆盖 story 与 epic，`sc-<id>` key，
-评论内联返回，epic 的 Markdown 带它的 story 列表。见 [spec](CONNECTORS-SPEC.md) §15。connector
-框架本身不变。
+2026-10-29 Shortcut connector: the seventh read-only provider family, covering stories and epics, with `sc-<id>` keys,
+comments returned inline, and an epic's Markdown carrying its story list. See [spec](CONNECTORS-SPEC.md) §15. The connector
+framework itself is unchanged.
 
-2026-11-03 Linear connector：第六个只读 provider 族，issue 用 `ENG-123` key，GraphQL 只发 query；连接不填地址，workspace 地址由账户校验得到。见 [spec](CONNECTORS-SPEC.md) §14。
+2026-11-03 Linear connector: the sixth read-only provider family, issues use the `ENG-123` key, GraphQL sends only queries; the connection takes no address, and the workspace address comes from account verification. See [spec](CONNECTORS-SPEC.md) §14.
 
-2026-11-04 Linear board：主栏 Linear 入口，按状态类型分列的 issue 看板与列表，Start card 打开 Quick task 并附上该 issue。见 [spec](LINEAR-BOARD-SPEC.md)。
+2026-11-04 Linear board: a Linear entry in the main column, an issue board and list split by status type, and Start card opens Quick task with that issue attached. See [spec](LINEAR-BOARD-SPEC.md).
