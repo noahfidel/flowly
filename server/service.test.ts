@@ -166,6 +166,16 @@ test("existing workspace inside a child repo is eligible through common project 
     (await x.service.context(card.id, x.paseo)).workspaceRepoPaths,
   ).toEqual([x.a]);
 });
+test("tasks.create stores linearTicket true and false and nothing for null (LINEAR-TICKET-SPEC §5)", async () => {
+  const stored = async (linearTicket: boolean | null) => {
+    const x = await setup();
+    const card = await x.service.createTask({ ...x.input, linearTicket }, x.paseo);
+    return (await x.store.read()).tasks.find((t) => t.id === card.id)!;
+  };
+  expect((await stored(true)).linearTicket).toBe(true);
+  expect((await stored(false)).linearTicket).toBe(false);
+  expect("linearTicket" in (await stored(null))).toBe(false);
+});
 test("worktree originates from native root and default base resolves its named branch", async () => {
   const x = await setup();
   await git("git", ["-C", x.a, "init", "-b", "root-main"]);

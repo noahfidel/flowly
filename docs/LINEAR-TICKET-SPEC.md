@@ -113,7 +113,8 @@ a card of a skipped type can be forced on). A card can never turn the ask on in 
 - Card form: while the project's switch is on, a **Make sure there's a Linear ticket** switch next to **Delivery**.
   It shows what the card gets: the stored value when there is one, otherwise the default for the type chosen in
   the form (off for a skipped type, on for the others; it follows the Type choice while the card stores nothing).
-  On save, a switch equal to that type default sends nothing for a new card and `null` for a card that stored a
+  On save the form uses `linearTicketPatch` (`shared/linear-ticket.ts`): a switch that ends at the card's stored value
+  sends nothing; a switch equal to the type default sends nothing for a new card and `null` for a card that stored a
   value; a switch that differs sends its value. An unchanged card sends nothing. Hidden in a project with the switch
   off.
 

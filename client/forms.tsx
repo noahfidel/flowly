@@ -1,4 +1,4 @@
-import { linearSkipTypesOf, linearSkipTypesValue, linearTeamValue, linearTicketTypeDefault } from "../shared/linear-ticket";
+import { linearSkipTypesOf, linearSkipTypesValue, linearTeamValue, linearTicketPatch, linearTicketTypeDefault } from "../shared/linear-ticket";
 import { defaultSessionStartText, sessionStartMax, sessionStartValue } from "../shared/session-start";
 import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
@@ -753,15 +753,7 @@ export function TaskForm({
             ...(sameList(tags, tagsBase) ? {} : { tags, tagsBase }),
             // Only a mode the user changed here: an untouched one keeps following the defaults chain.
             ...(deliveryChoice !== null && !deliveryLocked && deliveryChoice !== deliverySeed ? { deliveryMode: deliveryChoice } : {}),
-            ...(linearChoice === null
-              ? {}
-              : linearChoice === linearDefault
-                ? task.linearTicket !== undefined
-                  ? { linearTicket: null }
-                  : {}
-                : linearChoice !== task.linearTicket
-                  ? { linearTicket: linearChoice }
-                  : {}),
+            ...linearTicketPatch(project, { type: type || undefined, stored: task.linearTicket, choice: linearChoice, isNew: false }),
           })
         : await create({
             projectId: project.id,
@@ -774,7 +766,7 @@ export function TaskForm({
             ...(tags.length ? { tags } : {}),
             // The shown mode is stored as the card's own (DELIVERY-MODE-SPEC §2).
             deliveryMode: delivery,
-            ...(linearChoice !== null && linearChoice !== linearDefault ? { linearTicket: linearChoice } : {}),
+            ...linearTicketPatch(project, { type: type || undefined, choice: linearChoice, isNew: true }),
             mode,
             workspaceId: mode === "existing" ? workspaceId : undefined,
             baseRef,

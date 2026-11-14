@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { hasLinearItem, linearSkipTypesValue, linearSkipTypesOf, linearTeamValue, linearTicketLines, linearTicketTypeDefault, linearTicketWanted } from "./linear-ticket";
+import { hasLinearItem, linearSkipTypesValue, linearSkipTypesOf, linearTeamValue, linearTicketLines, linearTicketPatch, linearTicketTypeDefault, linearTicketWanted } from "./linear-ticket";
 import { taskTypes } from "./model";
 import { sessionContext } from "./scope";
 import type { Artifact, Project, Task } from "./model";
@@ -127,5 +127,30 @@ describe("which cards get the Linear step (LINEAR-TICKET-SPEC §1, §2, §6)", (
     expect(linearTicketLines(on, [], { ...card, type: "research" })).toEqual([]);
     expect(linearTicketLines(on, [], { ...card, type: "feature" }).join("\n")).toMatch(/^Linear ticket:/);
     expect(linearTicketLines(on, [], { ...card, type: "research", linearTicket: true }).join("\n")).toMatch(/^Linear ticket:/);
+  });
+});
+
+describe("what the card form sends (LINEAR-TICKET-SPEC §5)", () => {
+  const on = project({ linearTicket: true });
+  test("untouched sends nothing", () => {
+    expect(linearTicketPatch(on, { type: "feature", stored: false, choice: null, isNew: false })).toEqual({});
+    expect(linearTicketPatch(on, { type: "feature", choice: null, isNew: true })).toEqual({});
+  });
+  test("a switch ending at the stored value sends nothing", () => {
+    expect(linearTicketPatch(on, { type: "feature", stored: true, choice: true, isNew: false })).toEqual({});
+    expect(linearTicketPatch(on, { type: "feature", stored: false, choice: false, isNew: false })).toEqual({});
+  });
+  test("an existing card: back to the type default drops a stored value, otherwise the value is sent", () => {
+    expect(linearTicketPatch(on, { type: "feature", stored: false, choice: true, isNew: false })).toEqual({ linearTicket: null });
+    expect(linearTicketPatch(on, { type: "feature", choice: true, isNew: false })).toEqual({});
+    expect(linearTicketPatch(on, { type: "feature", choice: false, isNew: false })).toEqual({ linearTicket: false });
+    expect(linearTicketPatch(on, { type: "research", stored: false, choice: true, isNew: false })).toEqual({ linearTicket: true });
+  });
+  test("a new card sends a value only when it differs from the type default", () => {
+    expect(linearTicketPatch(on, { type: "feature", choice: true, isNew: true })).toEqual({});
+    expect(linearTicketPatch(on, { type: "feature", choice: false, isNew: true })).toEqual({ linearTicket: false });
+    expect(linearTicketPatch(on, { type: "research", choice: true, isNew: true })).toEqual({ linearTicket: true });
+    expect(linearTicketPatch(on, { type: "research", choice: false, isNew: true })).toEqual({});
+    expect(linearTicketPatch(on, { type: undefined, choice: false, isNew: true })).toEqual({ linearTicket: false });
   });
 });

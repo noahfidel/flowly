@@ -36,6 +36,21 @@ export function linearTicketWanted(
   return card.linearTicket === true || linearTicketTypeDefault(project, card.type);
 }
 
+/**
+ * The `linearTicket` field the card form sends on save (§5): nothing for an untouched switch or one that ends where
+ * the card already is; a new card sends a value only when it differs from its type's default; an existing card drops
+ * a stored value that now equals the default (null) and otherwise sends the value.
+ */
+export function linearTicketPatch(
+  project: Pick<Project, "linearTicket" | "linearSkipTypes">,
+  opts: { type: TaskType | null | undefined; stored?: boolean; choice: boolean | null; isNew: boolean },
+): { linearTicket?: boolean | null } {
+  const { choice, stored } = opts;
+  if (choice === null || choice === stored) return {};
+  if (choice === linearTicketTypeDefault(project, opts.type)) return !opts.isNew && stored !== undefined ? { linearTicket: null } : {};
+  return { linearTicket: choice };
+}
+
 function onLinearApp(target: string) {
   try {
     const url = new URL(target.trim());
