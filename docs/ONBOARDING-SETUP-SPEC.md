@@ -1,184 +1,184 @@
-# 欢迎导览重设计：介绍 + 基础设置
+# Welcome tour redesign: introduction + basic setup
 
-Status: **已实现，用户 2026-10-22 确认设计**（卡片“重设计onboarding流程”）。ONBOARDING-SPEC §2/§5、NATIVE-SESSION-SPEC §12.6、PROJECT-MEMORY-SPEC §9、INSIGHTS-REDESIGN-SPEC §9.1、README 已同步。验证见 §11。
+Status: **implemented, design confirmed by the user on 2026-10-22** (card "Redesign the onboarding flow"). ONBOARDING-SPEC §2/§5, NATIVE-SESSION-SPEC §12.6, PROJECT-MEMORY-SPEC §9, INSIGHTS-REDESIGN-SPEC §9.1 and the README are synced. For verification see §11.
 
-## 1. 目的
+## 1. Purpose
 
-现有导览（ONBOARDING-SPEC）只介绍概念和功能，所有开关都要事后去 Settings 里找。用户希望新用户第一次进来时，在同一个流程里：
+The existing tour (ONBOARDING-SPEC) only introduces concepts and features, and every switch has to be looked for afterwards in Settings. The user wants a new user, the first time they come in, to do the following in one flow:
 
-1. 看懂 Flowly 是什么（保留现有概念页）；
-2. 选好界面语言和 AI 输出语言；
-3. 知道基础 AI 能力（Progress、Next moves、Ideas）在做什么，并做子项设置；
-4. 逐个了解高级功能（Project memory、Insights），决定开不开；
-5. 关掉导览后知道以后去哪改。
+1. Understand what Flowly is (keep the existing concept page);
+2. Pick the interface language and the AI output language;
+3. Learn what the basic AI capabilities (Progress, Next moves, Ideas) do, and set their sub-options;
+4. Learn about the advanced features one by one (Project memory, Insights) and decide whether to turn them on;
+5. After closing the tour, know where to change things later.
 
-反目标：打断老用户；导览变成必须填完的表单（随时可 Skip，Skip 即默认配置）；为讲解而加大启动包（图用代码画）。
+Non-goals: interrupting existing users; turning the tour into a form that must be filled in (Skip is always available, and Skip means the default configuration); enlarging the startup bundle for the sake of explanation (diagrams are drawn in code).
 
-## 2. 用户决定（2026-10-22）
+## 2. User decisions (2026-10-22)
 
-| # | 决定 |
+| # | Decision |
 | --- | --- |
-| D1 | Progress、Next moves、Ideas 是基础能力：导览里**不提供关闭**，只能做子项设置（Progress 模型、是否也对非 Flowly session 生效）。 |
-| D2 | “也对非 Flowly session 生效”**默认开**，导览里写明成本（每个外部 session 每完成一轮跑一次 Summary 模型，读最近对话并发给该模型的提供方）。这推翻 NATIVE-SESSION-SPEC §12 当时“默认关”的决定；用户已知成本。 |
-| D3 | **没完成导览的已安装用户，外部 session 功能全部不生效**：不改它们现有的存储值（默认关）。只有完成或 Skip 首次导览时才写入“开”。 |
-| D4 | Memory、Insights 是高级功能，各占一页，**代码画的示意图 + 文字**（不用截图），默认开，可在导览里关闭并做子项设置。 |
-| D5 | 仍可 Skip；Skip 按默认配置开启功能。 |
-| D6 | 导览关闭后，高亮设置入口，提示可以在设置里开关功能、改配置。 |
-| D7 | **老用户维持现有逻辑**：只对空看板的新用户自动弹出；老用户不弹（ONBOARDING-SPEC §1 不变）。“更新后弹新功能提示”另提 idea，不在本卡做（已实现：[WHATS-NEW-SPEC](WHATS-NEW-SPEC.md)）。 |
-| D8 | Settings 里现有的 Ideas 总开关和 Auto summary 开关**保留**；“不允许关闭”只针对导览。 |
+| D1 | Progress, Next moves and Ideas are basic capabilities: the tour **offers no way to turn them off**, only sub-option settings (the Progress model, and whether they also apply to non-Flowly sessions). |
+| D2 | "Also apply to non-Flowly sessions" is **on by default**, and the tour states the cost (for each outside session, the Summary model runs once per completed turn, reading the recent conversation and sending it to that model's provider). This overturns the decision of NATIVE-SESSION-SPEC §12 at the time that it was "off by default"; the user knows the cost. |
+| D3 | **For installed users who have not completed the tour, all outside-session features have no effect**: their existing stored values are not changed (default off). "On" is written only when the first tour is completed or skipped. |
+| D4 | Memory and Insights are advanced features, each on its own page, with a **code-drawn diagram + text** (no screenshots), on by default, and can be turned off in the tour with their sub-options set. |
+| D5 | Skip is still available; Skip turns the features on with the default configuration. |
+| D6 | After the tour is closed, highlight the settings entry, hinting that features can be switched and configuration changed in the settings. |
+| D7 | **Existing users keep the current logic**: it pops up automatically only for new users with an empty board; it does not pop up for existing users (ONBOARDING-SPEC §1 unchanged). "Pop up new-feature hints after an update" is raised as a separate idea and is not done in this card (implemented: [WHATS-NEW-SPEC](WHATS-NEW-SPEC.md)). |
+| D8 | The existing Ideas master switch and Auto summary switch in Settings are **kept**; "not allowed to turn off" applies only to the tour. |
 
-## 3. 页面结构（5 页）
+## 3. Page structure (5 pages)
 
-同一个 `Modal`、同一套页脚（步骤点、Skip、Back、Next/最终按钮）和翻页动效，桌面与手机同一组件，内容超高时滚动。页数从 3 变 5。
+The same `Modal`, the same footer (step dots, Skip, Back, Next/final button) and page-turn animation, one component for desktop and phone, with scrolling when the content is too tall. The page count goes from 3 to 5.
 
-### 第 1 页：How Flowly works
+### Page 1: How Flowly works
 
-- 顶部一行 **Interface language** 下拉（默认“Device (…)”）：选完立刻存（`language` 设置），导览当场换语言。放在最上面，是为了用户先能读懂后面的内容。
-- Project / Card / Session 三张等宽卡片（图标、名称、一句话、对应的 Paseo 对象），中间是固定宽度的箭头。
-- **Attention**（2026-10-22 用户反馈：第一页不讲 loop，改讲 Attention 机制；再次反馈：模拟通知入口和多条需要人决策的信息）：放在和第 2、3 页同样的框里（2026-10-22 统一版式）：上方提示 “Try it: open or snooze a card.” 和 **Start over**；框内左上 “Board”、右上是看板真实的 **Attention 按钮**（`client/attention-button.tsx`，从 `board.tsx` 拆出共用）和它下面的 **Needs attention** 下拉（同 Popover 的标题行与行样式），列出四种要人决定的情况：提问（Add rate limiting · Design · 1 question）、授权（Migrate users table · Development · 1 approval）、出错（Fix flaky CI · Test · 1 error）、做完待审（Update README · In review · 1 unread）。可以操作：点一行（打开处理）或它的铃铛按钮（Snooze），这一行淡出收起、计数随之减少；点铃铛开合下拉；全部处理完显示真实的空状态。框下三列：Needs you “When an agent asks, waits for approval or fails, its card says so.”、The bell “Counts every card that needs you.”、Open or snooze “Open a card to answer it, or snooze it until something new happens.” 原来的泳道条与 You/Agent 三步说明删除。
+- At the top, one **Interface language** dropdown (default "Device (…)"): saved as soon as it is chosen (the `language` setting), and the tour changes language on the spot. It is placed at the top so the user can first read what follows.
+- Three equal-width cards for Project / Card / Session (icon, name, one sentence, the corresponding Paseo object), with fixed-width arrows between them.
+- **Attention** (2026-10-22 user feedback: the first page does not explain the loop but explains the Attention mechanism; feedback again: simulate the notification entry and several pieces of information that need a human decision): placed in the same frame as pages 2 and 3 (unified layout 2026-10-22): above it the hint "Try it: open or snooze a card." and **Start over**; inside the frame, "Board" at the top left, and at the top right the board's real **Attention button** (`client/attention-button.tsx`, split out of `board.tsx` and shared) with the **Needs attention** dropdown below it (the same Popover title row and row style), listing four situations that need a human decision: a question (Add rate limiting · Design · 1 question), an approval (Migrate users table · Development · 1 approval), an error (Fix flaky CI · Test · 1 error), and finished and awaiting review (Update README · In review · 1 unread). It can be operated: click a row (open and handle) or its bell button (Snooze), and the row fades out and collapses, and the count drops accordingly; clicking the bell opens and closes the dropdown; when all are handled the real empty state is shown. Under the frame are three columns: Needs you "When an agent asks, waits for approval or fails, its card says so.", The bell "Counts every card that needs you.", Open or snooze "Open a card to answer it, or snooze it until something new happens." The former lane strip and the You/Agent three-step explanation are deleted.
 - Ruling (Noah, 2026-11-09), Attention demo: the demo follows the need-you step-through (DISPATCHER-SPEC §9.4). Top left "Board", top right the overview's **"N need you"** chip (N = the cards left). Pressing it opens a mock card sidebar on the first card: "Needs you · i of N", ‹ Previous card / Next card ›, and that card's row (open it, or its bell to snooze). Either one marks it handled: the card stays, labelled "Answered", with **Next card** as the primary button; on the last one "All caught up" and **Done**. With none left the chip disappears and the real empty state shows. **Start over** restores all four. The three legends become Needs you, **Step through** ("“N need you” opens each waiting card in turn, with what it asks on top.") and Open or snooze; the toolbar Attention button, the dropdown and The bell legend no longer apply.
 
-> 我的理解：用户说的“progress、next move、ideas 在第一页”指**功能设置部分的第一页**，概念页仍放最前（用户确认 spec 时接受）。
+> My understanding: when the user says "progress, next move, ideas are on the first page" it means **the first page of the feature-settings part**, and the concept page still goes first (accepted when the user confirmed the spec).
 
-### 3.1 统一的版式与真实组件（2026-10-22 用户反馈：对齐、大小、字体不一致；demo 要用 Flowly 里真实元素的样式，少用说明文字和二级标题）
+### 3.1 Unified layout and real components (2026-10-22 user feedback: alignment, size and fonts are inconsistent; the demos should use the styles of real elements in Flowly, with fewer explanatory texts and secondary headings)
 
-- 导览是自己的窗口（React Native `Modal`，宽 `min(780, 窗口宽 − 32)`，高 `min(760, 窗口高 − 48)`），和 Settings 一样不用宿主 Modal（宿主 Modal 宽度固定约 520，放不下真实组件）。结构：标题栏（Flowly 标志、标题、关闭）、可滚动内容、固定页脚（步骤点、Skip、Back、主按钮）。点遮罩或 Esc 关闭，等同 Skip。打开时屏蔽看板快捷键（`useShortcutBlock`）。
-- 第 1、2、3 页是可交互的演示（`client/tour-demos.tsx`，2026-10-22 用户反馈“最好做成动态展示或可交互体验”）：用 Flowly 的真实组件，只改本地状态，不读写看板、会话或设置；计时器在翻页或关闭导览时全部清掉。第 2、3 页共用同一套框（`DemoFrame` / `DemoSide`）和控制行（`DemoControls`：提示、Pause / Play、Start over）。第 4 页仍是不可点的示例（`pointerEvents="none"`，对读屏隐藏）。Insights 的指标行在别的卡未提交的改版里才是独立组件，这里按其样式（`StatRow`）照画，提交那张卡后可换成引用。
-- 文字只有：页标题 lg 粗体 · 一行导语 md 弱化色 · 列名 base 粗体 · 列下一句 sm 弱化色。去掉了小节标题和大段说明；导览里的设置行用 `brief`，不显示详细说明（Workflow insights 的花费说明保留）。
-- 每页同一个版式（2026-10-22 用户反馈“确保全部几页的样式一致性”）：页标题与一行导语 → 设置组（第 1、3、4 页在最上面；第 2 页按用户要求放在演示下面）→ 演示：上方一行提示（左）和按钮（右，Pause / Play、Start over，按需）+ 同一种框（`DemoControls` / `DemoFrame`，框内小标题用 `SideTitle`）→ 框下一行三列名称 + 一句话（`Legend`）。第 1 页的 Attention 演示和第 4 页的 Insights 示例也放进同样的框；第 4 页的三列解释三项指标。
-- 页面在折叠线下还有内容时，内容区底部浮出一个 “More below ⌄” 胶囊（第 2 页写 “Settings below”），按下滚到底；滚到接近底部就淡出（`MoreBelow`）。
-- 并排内容用 `Columns`：每列严格等宽，分隔箭头是固定宽度的独立元素；窗口宽度 < 600 时上下堆叠。
+- The tour is its own window (a React Native `Modal`, width `min(780, window width − 32)`, height `min(760, window height − 48)`), and like Settings it does not use the host Modal (the host Modal has a fixed width of about 520 and cannot hold the real components). Structure: a title bar (Flowly mark, title, close), scrollable content, and a fixed footer (step dots, Skip, Back, primary button). Clicking the backdrop or Esc closes it, equivalent to Skip. While open it blocks board shortcuts (`useShortcutBlock`).
+- Pages 1, 2 and 3 are interactive demos (`client/tour-demos.tsx`, 2026-10-22 user feedback "best to make it a dynamic display or an interactive experience"): they use Flowly's real components, change only local state, and read or write no board, session or settings; all timers are cleared when the page turns or the tour closes. Pages 2 and 3 share the same frame (`DemoFrame` / `DemoSide`) and control row (`DemoControls`: hint, Pause / Play, Start over). Page 4 is still a non-clickable example (`pointerEvents="none"`, hidden from screen readers). The metric row of Insights is a separate component only in another card's uncommitted redesign, so here it is drawn in its style (`StatRow`), and it can be replaced with a reference after that card is committed.
+- The text is only: page title lg bold · one intro line md muted color · column name base bold · the sentence under a column sm muted color. Section headings and long explanations are removed; setting rows in the tour use `brief` and do not show a detailed description (the cost note of Workflow insights is kept).
+- Every page has the same layout (2026-10-22 user feedback "make sure the style of all pages is consistent"): page title and one intro line → settings group (at the very top on pages 1, 3 and 4; on page 2, below the demo as the user asked) → demo: one hint line above (left) and buttons (right, Pause / Play, Start over, as needed) + the same kind of frame (`DemoControls` / `DemoFrame`, with the small title inside the frame using `SideTitle`) → one row below the frame with three columns of name + one sentence (`Legend`). The Attention demo of page 1 and the Insights example of page 4 are also put into the same frame; the three columns on page 4 explain three metrics.
+- When the page has more content below the fold, a "More below ⌄" pill floats at the bottom of the content area (page 2 says "Settings below"), and pressing it scrolls to the bottom; it fades out when scrolled near the bottom (`MoreBelow`).
+- Side-by-side content uses `Columns`: each column is strictly equal in width, the separating arrow is a separate element of fixed width; when the window width is < 600 they stack vertically.
 
-### 3.2 键盘
+### 3.2 Keyboard
 
-- 回车：下一页；最后一页等同主按钮（Create project 或 Done）。只在焦点在导览本身时生效，焦点在开关或按钮上时回车保持它们自己的作用。
-- → / ←：下一页 / 上一页（到头不动），焦点在导览内任何位置都可用。
-- 带修饰键、按住重复、输入法组字时不响应；Esc 由窗口自己关闭。
-- 打开时和每次翻页后，焦点回到导览，所以一打开就能按回车。主按钮在桌面端带回车图标作为提示。
-- 纯逻辑 `tourKey`（`client/onboarding-logic.ts`），有单测。
+- Enter: next page; on the last page it equals the primary button (Create project or Done). It works only when focus is on the tour itself; when focus is on a switch or a button, Enter keeps their own action.
+- → / ←: next page / previous page (no move at the ends), usable with focus anywhere inside the tour.
+- It does not respond with modifier keys, key repeat or while an input method is composing; Esc is handled by the window itself to close.
+- On opening and after every page turn, focus returns to the tour, so Enter can be pressed right after it opens. On desktop the primary button carries an Enter icon as a hint.
+- The pure logic is `tourKey` (`client/onboarding-logic.ts`), with unit tests.
 
-### 3.3 AI 功能的成本预估（2026-10-22 用户反馈：给用户作为参考）
+### 3.3 Cost estimates for AI features (2026-10-22 user feedback: give the user a reference)
 
-每个会花 token 的开关旁写一行预估，导览和 Settings 用同一组件，所以两处一致：Progress model（每轮 agent）、Sessions outside Flowly（每轮）、Find memories in finished cards（每张完成的卡片）、Daily digest（每份）、Workflow insights（每次运行）。
+Next to every switch that spends tokens there is one line of estimate, and the tour and Settings use the same component, so the two places agree: Progress model (every agent turn), Sessions outside Flowly (every turn), Find memories in finished cards (every finished card), Daily digest (every digest), Workflow insights (every run).
 
-- 数字是实测：每次运行是一个短的 Claude Code 子 session，大部分 token 是它的系统提示写入缓存。取本机日志里 2026-10 的中位数（`shared/ai-cost.ts`）：Progress 约 55K token（419 次，Haiku 5.5）、完成卡复盘约 61K（30 次）、日报约 48K（4 次）、Workflow insights 约 125K（11 次，Sonnet 5.5）。外部 session 的运行和 Progress 同形，用同一组数字。
-- 价格是 Anthropic API 标价（缓存写入 1.25×、读取 0.1× 输入价），按当前选的模型算（Auto 按其第一个模型：Summary 为 Haiku 5.5，Workflow 为 Sonnet 5.5）。例：Progress 每轮约 $0.006，100 轮约 $0.56；Workflow insights 每次约 $0.32。没有标价的模型（如 Codex）只写 token 数。
-- 文案：“About {tokens} tokens per agent turn: {cost} with {model} at API prices, {hundred} for 100 turns.” 等，写明是“API 价”，订阅用户据此理解为用量参考。原来 “Uses a few tokens per card.” 换成实际数字。
-- 顺带：`modelLabel` 把 `claude-<family>-<a>-<b>` 一律显示成 “Sonnet 5.5” 这样的名字（原来只认识 Haiku 5.5）。
+- The numbers are measured: each run is a short Claude Code child session, and most tokens are its system prompt written to the cache. Taking the medians in the local logs for 2026-10 (`shared/ai-cost.ts`): Progress about 55K tokens (419 runs, Haiku 5.5), finished-card review about 61K (30 runs), daily digest about 48K (4 runs), Workflow insights about 125K (11 runs, Sonnet 5.5). A run for an outside session has the same shape as Progress and uses the same numbers.
+- Prices are Anthropic API list prices (cache write 1.25×, read 0.1× the input price), computed for the currently chosen model (Auto uses its first model: Haiku 5.5 for Summary, Sonnet 5.5 for Workflow). Example: Progress about $0.006 per turn, about $0.56 for 100 turns; Workflow insights about $0.32 per run. A model without a list price (such as Codex) is given only as a token count.
+- Text: "About {tokens} tokens per agent turn: {cost} with {model} at API prices, {hundred} for 100 turns." and so on, stating that it is the "API price", so that subscription users understand it as a usage reference. The former "Uses a few tokens per card." is replaced with the actual numbers.
+- Also: `modelLabel` always shows `claude-<family>-<a>-<b>` as a name like "Sonnet 5.5" (before, only Haiku 5.5 was recognized).
 
-### 第 2 页：Built in（基础能力，始终开启）
+### Page 2: Built in (basic capabilities, always on)
 
-标题 “Built in”，说明 “These run on every card. You can tune them here, not turn them off.”
+Title "Built in", description "These run on every card. You can tune them here, not turn them off."
 
-（2026-10-22 用户反馈后改版：先是三列各自的演示，后改为**一个完整案例**串起三个功能，见下。）
+(Revised after user feedback on 2026-10-22: first three columns each with their own demo, then changed to **one complete case** that strings the three features together, see below.)
 
-- 标题旁一个 “Always on” 胶囊（三项都始终开启，只标一次）。
-- **一个完整案例**（`LoopDemo`，`client/tour-demos.tsx`）：一个框，左边 **Session**，右边 **Card**（真实 Progress 卡片，之后是 Ideas）。窄窗口上下堆叠。上方一行提示和 **Start over**（重置整个案例）。
-  - Session 是一段看起来真实的对话（2026-10-22 用户反馈），用 Flowly 会话视图自己的 `TranscriptEntry`（你的消息为气泡，agent 回复按 markdown 渲染）和 `ActivityBlock`（“Thought · n tool calls”，可展开；运行中显示 Working 和最新一步）。数据按 Paseo 时间线条目的形状构造，经 `recentSessionOutput` / `groupTranscript` 分组。开场：你的请求 “After signing in, people land on /home instead of the page they came from. Fix it.”、一段思考与 3 次工具调用、agent 回复。下面是真实建议条 `NextMoves` 和消息框。对话区可滚动，新内容和建议条出现时滚到底。
-  1. 开始时上一轮已结束：回复 “Fixed the login redirect: the sign-in callback now keeps `next` …”，Progress 为 State “Login redirect fixed; not tested yet.”、Target “People return to the page they came from after signing in.”、Recap “The sign-in callback dropped the next parameter; it now keeps it.”、Next “Run the tests.”，脚注 “Updated 2m ago · Haiku 5.5”，建议 **Run tests**。提示 “Try it: pick the suggested step, then send it.”
-  2. 点 Run tests 只把内容填进消息框；点发送后出现你的消息，活动行显示 Working 并逐步加入思考和工具调用（每步约 0.35 秒），之后回复 “Ran `npm test`: **all 132 tests pass**. … so I proposed an idea.”；Progress 标题旁显示 Updating…，约 0.9 秒后变成 “Tests pass; ready to commit.” / “Commit and push the fix.”，同时出现新建议 **Push**、**Open a PR** 和真实想法卡片 “Retry failed uploads”。提示变为 “Try it: Good idea turns the idea into a task.”
-  3. **Good idea**：想法变成落在 Todo 的新任务（真实 `TaskCard`）；**Dismiss** 收成一行可 Restore。再发 Push 或 Open a PR 会进入第三轮（“Committed and pushed to `fix/login-redirect`.”，Progress “Ready for review.”）。
-- **自动演示**（2026-10-22 用户反馈：保留人工交互的形式，默认自动点击展示整个流程）：打开这一页就自动播放，按真人操作的顺序按下同样的控件，每次先在要按的那个控件上画一圈强调色描边约 0.7 秒再按（具体到 Run tests 这一个建议、发送按钮、Good idea 按钮；`NextMoves` 的 `cue` 与 `IdeaCard` 的 `cueGood` 可选属性，共用 `CueRing`，别处不传则无变化）：约 1.5 秒后选 Run tests → 约 0.8 秒后点发送 → 想法出现约 1.5 秒后点 Good idea → 任务出现 4 秒后重新开始，循环。提示行为 “Playing it for you. Press anything to try it yourself.”，旁边 **Pause / Play** 切换。你自己按任何一个控件（建议、发送、关闭建议、Good idea、Dismiss、Restore）就停止自动播放、接着手动；Start over 保留当前的播放状态。系统开了 Reduce Motion 时默认暂停。下一步的判断是纯函数 `loopAutoStep`（`client/onboarding-logic.ts`，有单测）。
-- 演示框高 360（原 520，2026-10-22 用户反馈“稍微减少 demo 高度，让下面的内容能被看到，引导用户滚动并进行设置”）：桌面窗口里第一屏就能看到下方设置的第一行，加上 “Settings below” 胶囊。
-- 框下面一行三列说明（名称 + 一句话）：Progress “Rewritten after every agent turn.”、Next steps “Your likely next message, one tap away.”、Ideas “Follow-ups the agent found, yours to decide.”
-- 三列下面一句 **Auto review**（不加开关，GUARDRAILS-SPEC §10、B3）：“Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; turn it off per project.”
-- 三列下面是设置：
-  - 一个设置组（不带说明）：**Progress model**（Summary model：Provider，默认 Auto；选了 Provider 后出现 Model；与 Settings → Models 同一设置、同一组件）和 **AI output language**（`ai-language`，默认 “Same as interface language”）；
-  - Progress model 一行的说明是成本预估（§3.3）。
-  - 分组 **Also in sessions outside Flowly**，组说明即成本（D2）：“For sessions Flowly doesn't manage, the summary model runs once after each of their turns and reads the recent conversation (sent to that model's provider).”，后接成本预估（§3.3），三行开关 Progress / Next steps / Ideas（默认开），对应 `outsideProgress` / `outsideNextMoves` / `outsideIdeas`。
+- Next to the title an "Always on" pill (all three are always on, marked only once).
+- **One complete case** (`LoopDemo`, `client/tour-demos.tsx`): one frame, with **Session** on the left and **Card** on the right (the real Progress card, followed by Ideas). On narrow windows they stack vertically. Above it one hint line and **Start over** (resets the whole case).
+  - The Session is a realistic-looking conversation (2026-10-22 user feedback), using Flowly's session view's own `TranscriptEntry` (your message as a bubble, the agent reply rendered as markdown) and `ActivityBlock` ("Thought · n tool calls", expandable; while running it shows Working and the latest step). The data is built in the shape of Paseo timeline entries and grouped through `recentSessionOutput` / `groupTranscript`. Opening: your request "After signing in, people land on /home instead of the page they came from. Fix it.", a thought and 3 tool calls, the agent reply. Below are the real suggestion bar `NextMoves` and the message box. The conversation area is scrollable, and scrolls to the bottom when new content and the suggestion bar appear.
+  1. At the start the previous turn has ended: the reply "Fixed the login redirect: the sign-in callback now keeps `next` …", Progress shows State "Login redirect fixed; not tested yet.", Target "People return to the page they came from after signing in.", Recap "The sign-in callback dropped the next parameter; it now keeps it.", Next "Run the tests.", the footnote "Updated 2m ago · Haiku 5.5", and the suggestion **Run tests**. Hint "Try it: pick the suggested step, then send it."
+  2. Clicking Run tests only fills the content into the message box; after clicking send your message appears, the activity row shows Working and adds thoughts and tool calls step by step (about 0.35 seconds per step), then the reply "Ran `npm test`: **all 132 tests pass**. … so I proposed an idea."; Progress shows Updating… next to the title, and after about 0.9 seconds becomes "Tests pass; ready to commit." / "Commit and push the fix.", while new suggestions **Push**, **Open a PR** and the real idea card "Retry failed uploads" appear. The hint becomes "Try it: Good idea turns the idea into a task."
+  3. **Good idea**: the idea becomes a new task landing in Todo (the real `TaskCard`); **Dismiss** collapses into one row that can be Restored. Sending Push or Open a PR again enters the third round ("Committed and pushed to `fix/login-redirect`.", Progress "Ready for review.").
+- **Auto demo** (2026-10-22 user feedback: keep the manual interactive form, and by default automatically click through the whole flow): it plays automatically when this page is opened, pressing the same controls in the order a real person would, and each time first draws an accent-color outline around the control to be pressed for about 0.7 seconds before pressing it (specifically the Run tests suggestion, the send button and the Good idea button; the optional properties `cue` of `NextMoves` and `cueGood` of `IdeaCard`, sharing `CueRing`, with no change elsewhere when not passed): after about 1.5 seconds select Run tests → about 0.8 seconds later click send → about 1.5 seconds after the idea appears click Good idea → 4 seconds after the task appears restart, in a loop. The hint line is "Playing it for you. Press anything to try it yourself.", with **Pause / Play** beside it. Pressing any control yourself (suggestion, send, close suggestion, Good idea, Dismiss, Restore) stops the auto play and continues manually; Start over keeps the current play state. With system Reduce Motion on it is paused by default. The decision of the next step is the pure function `loopAutoStep` (`client/onboarding-logic.ts`, with unit tests).
+- The demo frame is 360 high (formerly 520, 2026-10-22 user feedback "reduce the demo height a bit so the content below can be seen, guiding the user to scroll and do the settings"): in a desktop window the first row of the settings below is visible on the first screen, plus the "Settings below" pill.
+- Under the frame a row of three columns of explanation (name + one sentence): Progress "Rewritten after every agent turn.", Next steps "Your likely next message, one tap away.", Ideas "Follow-ups the agent found, yours to decide."
+- Under the three columns, one sentence on **Auto review** (no switch added, GUARDRAILS-SPEC §10, B3): "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; turn it off per project."
+- Under the three columns are the settings:
+  - One settings group (without a description): **Progress model** (Summary model: Provider, default Auto; after a Provider is chosen Model appears; the same setting and the same component as Settings → Models) and **AI output language** (`ai-language`, default "Same as interface language");
+  - The description of the Progress model row is the cost estimate (§3.3).
+  - The group **Also in sessions outside Flowly**, whose group description is the cost (D2): "For sessions Flowly doesn't manage, the summary model runs once after each of their turns and reads the recent conversation (sent to that model's provider).", followed by the cost estimate (§3.3), and three switch rows Progress / Next steps / Ideas (default on), corresponding to `outsideProgress` / `outsideNextMoves` / `outsideIdeas`.
 
-### 第 3 页：Guardrails（高级）
+### Page 3: Guardrails (advanced)
 
-（GUARDRAILS-SPEC §10，2026-10-28 取代原来的 Project memory 页与 `MemoryDemo` 自动演示。）
+(GUARDRAILS-SPEC §10, 2026-10-28 replaces the former Project memory page and the `MemoryDemo` auto demo.)
 
-- 导语 “What you send a card back for is checked on the next ones.”
-- 开关组放在导语下面：开关 **Guardrails**（`features.memory`，默认开），说明 “Flowly remembers what you send cards back for and checks the next cards for it. Learning uses a few tokens per card.”；子项 **Find memory in finished cards**（2026-10-29 由 Find notes 改名，GUARDRAILS-SPEC D10）（`retroEnabled`，默认开；Guardrails 关时禁用），说明是成本预估（§3.3）。
-- 示例是静态的两行（`GuardrailsExample`，不再有自动演示）：**You send card A back** + 原话 “New text needs every language too.”；**Card B is sent back before it reaches you** + “✗ 原话 zh-TW has no entry for “Rerun”.”。
-- 框下面一行三列说明：You send it back “Say what is wrong, as you would anyway.”、Flowly learns “The second card with the same problem makes it a project guideline.”、Later cards are checked “Checked does not mean right: Done is still yours.”
+- Intro "What you send a card back for is checked on the next ones."
+- The switch group is placed under the intro: the switch **Guardrails** (`features.memory`, default on), with the description "Flowly remembers what you send cards back for and checks the next cards for it. Learning uses a few tokens per card."; the sub-item **Find memory in finished cards** (renamed from Find notes on 2026-10-29, GUARDRAILS-SPEC D10) (`retroEnabled`, default on; disabled when Guardrails is off), whose description is the cost estimate (§3.3).
+- The example is a static two rows (`GuardrailsExample`, no auto demo any more): **You send card A back** + the quoted words "New text needs every language too."; **Card B is sent back before it reaches you** + "✗ Original words: zh-TW has no entry for “Rerun”.".
+- Under the frame a row of three columns of explanation: You send it back "Say what is wrong, as you would anyway.", Flowly learns "The second card with the same problem makes it a project guideline.", Later cards are checked "Checked does not mean right: Done is still yours."
 
-### 第 4 页：Insights（高级）
+### Page 4: Insights (advanced)
 
-- 导语 “See where your attention and time go.”
-- 开关组放在导语下面（2026-10-22 用户反馈）。开关 **Insights**（默认开）。子项：
-  - **Daily digest**（`digestEnabled`，默认开；Insights 关时禁用）；
-  - **Workflow insights**（默认**关**，保持 WORKFLOW-INSIGHTS-SPEC 的决定：花 token 且记录命令日志）；打开后模型和频率仍在 Settings 里调，这里只给开关和一句说明。
-- 下面是同样的框：提示 “Sample numbers from a project's Insights page.”，框内 “Attention per card” 三行指标（Interventions、Review rounds、Questions from the agent，带示例数字和备注）；框下三列逐项解释这三个指标。
+- Intro "See where your attention and time go."
+- The switch group is placed under the intro (2026-10-22 user feedback). The switch **Insights** (default on). Sub-items:
+  - **Daily digest** (`digestEnabled`, default on; disabled when Insights is off);
+  - **Workflow insights** (default **off**, keeping the decision of WORKFLOW-INSIGHTS-SPEC: it spends tokens and records a command log); after it is turned on the model and frequency are still adjusted in Settings, and here only the switch and one sentence of description are given.
+- Below is the same frame: the hint "Sample numbers from a project's Insights page.", and inside the frame three metric rows of "Attention per card" (Interventions, Review rounds, Questions from the agent, with sample numbers and notes); the three columns under the frame explain these three metrics one by one.
 
-### 第 5 页：Ready when you are
+### Page 5: Ready when you are
 
-保留现有清单和 **Create project** / **Not now**（或 **Done**）。原第 2 页 “What makes it different” 的内容拆开：Needs you 在第 1 页讲；Run summaries、Next steps 移到第 2 页；其余（Workpad、Inputs and outputs、Tickets…、Tags、Saved with your project）放进本页的 **More features**（2026-10-22 用户反馈：不折叠，直接列出）。More features 的 Workpad 一句是验收清单：“Agents set the card's type and tags and write an acceptance list before they start; the card shows how many items are met, next to the latest review.”；Auto review 一句不提建议检查（GUARDRAILS-SPEC §10）。底部提示改为 “Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.”（Ruling (Noah, 2026-11-09)：设置按钮移到看板顶部工具栏铃铛旁边）
+Keep the existing checklist and **Create project** / **Not now** (or **Done**). The content of the former page 2 "What makes it different" is split up: Needs you is explained on page 1; Run summaries and Next steps move to page 2; the rest (Workpad, Inputs and outputs, Tickets…, Tags, Saved with your project) goes into this page's **More features** (2026-10-22 user feedback: not collapsed, listed directly). The Workpad sentence of More features is the acceptance checklist: "Agents set the card's type and tags and write an acceptance list before they start; the card shows how many items are met, next to the latest review."; the Auto review sentence does not mention suggestion checks (GUARDRAILS-SPEC §10). The bottom hint becomes "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there." (Ruling (Noah, 2026-11-09): the settings button moved to the board's top toolbar next to the bell)
 
-## 4. 设置何时写入
+## 4. When settings are written
 
-- **语言、Summary model、Memory、Insights 及其子项**：在导览里改了就立刻存（与 Settings 页相同的读写方式），首次和手动打开都一样。它们的默认值本来就是“开”，所以没碰过就等于默认。
-- **外部 session 三个子开关**（D3）：
-  - 首次导览（自动弹出的那次）：显示为本地草稿，初始全开；导览**以任何方式关闭**（Skip、Esc、点遮罩、Done、Create project）时，与 `welcomeSeen=true` 一起写入：`outsideProgress/NextMoves/Ideas = 草稿`，`outside = 三者任一为开`。关闭前任何时刻都未写入，所以中途退出 app 不会生效，下次空看板时导览会再弹。
-  - 手动打开（Settings、帮助图标、空看板链接）：显示存储值（`outside && outsideX`），改了立刻存，`outside` 同样取三者之一。手动打开的 Skip 不写任何东西。
-- Skip 只是关闭；用户在 Skip 前改过的项保留其选择（D5 的“默认配置”指没改过的项）。
+- **Language, Summary model, Memory, Insights and their sub-items**: changes made in the tour are saved at once (the same way of reading and writing as the Settings page), the same for the first and a manual opening. Their defaults are "on" anyway, so untouched means default.
+- **The three outside-session sub-switches** (D3):
+  - The first tour (the one that pops up automatically): shown as a local draft, initially all on; when the tour is **closed in any way** (Skip, Esc, clicking the backdrop, Done, Create project), it is written together with `welcomeSeen=true`: `outsideProgress/NextMoves/Ideas = draft`, `outside = any of the three on`. Nothing is written at any time before closing, so quitting the app midway has no effect, and the tour pops up again next time with an empty board.
+  - Manual opening (Settings, the help icon, the empty-board link): shows the stored value (`outside && outsideX`), saves at once when changed, and `outside` likewise takes any of the three. Skip on a manual opening writes nothing.
+- Skip is only closing; items the user changed before Skip keep their choice (the "default configuration" of D5 refers to items that were not changed).
 
-## 5. 设置入口高亮（D6）
+## 5. Settings entry highlight (D6)
 
-- 新的一次性提示 id `settings-entry`。导览关闭后（首次或手动），若未看过，看板顶部工具栏里铃铛旁的设置齿轮加主题强调色描边，并在它下方（右对齐）显示一个小气泡（Ruling (Noah, 2026-11-09)：原左下角浮动按钮 `SettingsFab` 已移除，停靠栏会盖住那个角落）：“Turn features on or off and change settings here.” + **Got it**。
-- 点 Got it 或点设置按钮都记为看过，高亮消失。不和其他 tip 横幅同时出现（它优先），不挡输入，Reduce Motion 下无动画；开启时一次轻微的放大提示，不循环。
-- 位置固定在 FAB 旁（FAB 是插件自己画的、位置固定），不测量宿主 UI，因此不是 ONBOARDING-SPEC “Not in scope” 里排除的那种脆弱的 coach mark。
-- 气泡打开设置时遵守“两个 Modal 不同帧切换”：导览关闭后等约 450 ms 再显示气泡（它不是 Modal，但避免与关闭动画重叠）。
+- A new one-time tip id `settings-entry`. After the tour is closed (first or manual), if not yet seen, the settings gear next to the bell in the board's top toolbar gets a theme accent outline, and below it (right-aligned) a small bubble is shown (Ruling (Noah, 2026-11-09): the former floating bottom-left button `SettingsFab` was removed, because the dock would cover that corner): "Turn features on or off and change settings here." + **Got it**.
+- Clicking Got it or clicking the settings button both count as seen, and the highlight disappears. It does not appear at the same time as other tip banners (it takes priority), does not block input, has no animation under Reduce Motion; when it starts there is one slight scale-up hint, not looping.
+- The position is fixed next to the FAB (the FAB is drawn by the plugin itself at a fixed position), and no host UI is measured, so it is not the fragile kind of coach mark excluded in "Not in scope" of ONBOARDING-SPEC.
+- When the bubble opens the settings it follows "two Modals do not switch in the same frame": after the tour closes it waits about 450 ms before showing the bubble (it is not a Modal, but this avoids overlapping the closing animation).
 
-## 6. 数据与行为契约
+## 6. Data and behavior contract
 
-- 新 host 设置 `features`（`shared/settings.ts`）：`{ memory: boolean = true, insights: boolean = true }`，经 `featureSettingsValues()` 读取。
-  - **memory=false**：所有项目视同 `Project.memory === false`（PROJECT-MEMORY-SPEC §9）：不注入、`flowly_remember` 返回 `MEMORY_DISABLED`、不复盘、Memory 页只读；项目自己的开关保留。daemon 的 `memoryOn(project)` 增加 host 条件。
-  - **insights=false**：隐藏 Insights 入口（项目菜单、概览栏），不生成 daily digest，不跑 Workflow insights，相关 tip（`insights-redesign`、`first-workflow-insight`）不出。flow 事件照常记录（便宜，且重新打开时历史还在）。
-- `native-session` 设置结构不变；默认值仍是 `outside=false`（D3：未完成导览的人保持关），由首次导览写入开。
-- `onboarding` 设置结构不变；`settings-entry` 进 `tipIds`。
-- Settings → AI features：新增 **Project memory** 开关组（把 “Find memories in finished cards” 移到其下）和 **Insights** 开关组（把 “Daily digest” 和 Workflow insights 组移到其下）。其余开关不动（D8）。
-- 纯逻辑放 `client/onboarding-logic.ts`：页数、`outsidePatch(draft)`（草稿 → native-session 补丁）、`settingsHint` 判定；`client/onboarding-logic.test.ts` 补测试。daemon 侧 `memoryOn`、digest 门控补单测。
+- A new host setting `features` (`shared/settings.ts`): `{ memory: boolean = true, insights: boolean = true }`, read through `featureSettingsValues()`.
+  - **memory=false**: all projects are treated as `Project.memory === false` (PROJECT-MEMORY-SPEC §9): no injection, `flowly_remember` returns `MEMORY_DISABLED`, no review, the Memory page is read-only; the project's own switch is kept. The daemon's `memoryOn(project)` adds the host condition.
+  - **insights=false**: hides the Insights entry (project menu, overview bar), generates no daily digest, runs no Workflow insights, and the related tips (`insights-redesign`, `first-workflow-insight`) do not appear. Flow events are still recorded (cheap, and the history is still there when it is turned on again).
+- The `native-session` settings structure is unchanged; the default is still `outside=false` (D3: people who have not completed the tour stay off), and the first tour writes it on.
+- The `onboarding` settings structure is unchanged; `settings-entry` goes into `tipIds`.
+- Settings → AI features: a new **Project memory** switch group (moving "Find memories in finished cards" under it) and an **Insights** switch group (moving "Daily digest" and the Workflow insights group under it). The other switches are not touched (D8).
+- The pure logic goes in `client/onboarding-logic.ts`: the page count, `outsidePatch(draft)` (draft → native-session patch), the `settingsHint` judgment; `client/onboarding-logic.test.ts` gets added tests. On the daemon side `memoryOn` and the digest gating get added unit tests.
 
-## 7. 约束
+## 7. Constraints
 
-- 只用 RN 组件、主题色、`Icon`；示意图是普通 View，不引入图片、不加大启动包。
-- 所有新文案 `t()`，模块级表用 `msg()`，加进全部 9 个语言目录。
-- 下拉复用 `SettingSelect` / `SettingSwitch`（`client/settings-ui.tsx`）和 Summary model 组件，不写裸 `TextInput`。
-- 导览只在要显示时挂载；Summary model 的 provider/model 列表只在第 2 页显示时查询。
-- AGENTS.md “Onboarding upkeep” 中对导览结构的描述（concept map, loop, feature list）同步为新页面结构。
+- Use only RN components, theme colors and `Icon`; the diagrams are ordinary Views, with no images introduced and no larger startup bundle.
+- All new texts go through `t()`, module-level tables use `msg()`, and they are added to all 9 language catalogs.
+- Dropdowns reuse `SettingSelect` / `SettingSwitch` (`client/settings-ui.tsx`) and the Summary model component, with no bare `TextInput`.
+- The tour is mounted only when it is to be shown; the provider/model list of the Summary model is queried only when page 2 is shown.
+- The description of the tour structure in AGENTS.md "Onboarding upkeep" (concept map, loop, feature list) is synced to the new page structure.
 
-## 8. 文档同步
+## 8. Doc sync
 
-ONBOARDING-SPEC §2/§4/§5（页面、入口、tip 表）、NATIVE-SESSION-SPEC §12.6（默认由导览写入）、PROJECT-MEMORY-SPEC §9 与 INSIGHTS-REDESIGN-SPEC（全局开关）、README / README.zh-CN highlights、AGENTS.md Onboarding upkeep、PROGRESS.md。
+ONBOARDING-SPEC §2/§4/§5 (pages, entry points, tip table), NATIVE-SESSION-SPEC §12.6 (the default is written by the tour), PROJECT-MEMORY-SPEC §9 and INSIGHTS-REDESIGN-SPEC (global switches), README / README.zh-CN highlights, AGENTS.md Onboarding upkeep, PROGRESS.md.
 
-## 9. 验收
+## 9. Acceptance
 
-- 单元：`outsidePatch`（全开、全关、部分）、首次关闭才写入、手动打开 Skip 不写；`settings-entry` 只出一次且优先；`memoryOn` 受 host 开关；digest 在 insights 关时不生成；i18n 完整。
-- `npm run typecheck`、`npm test` 通过。
-- 真实界面（重载插件，非全屏窗口，`docs/promo/shot-lib.mjs` 截图，桌面 + 窄屏，深浅色）：清空 onboarding 设置后，空看板弹出 5 页导览；切换界面语言当场生效；Skip 后外部 session 三项为开；改动 Memory/Insights 开关后 Settings 里同步；关闭后设置按钮高亮、Got it 后消失；有项目的老用户不弹。测试结束恢复原设置。证据存 `docs/verification/`。
+- Unit: `outsidePatch` (all on, all off, partial), written only on the first closing, a manual-opening Skip writes nothing; `settings-entry` appears only once and takes priority; `memoryOn` is bound by the host switch; the digest is not generated when insights is off; i18n is complete.
+- `npm run typecheck` and `npm test` pass.
+- Real UI (reload the plugin, non-fullscreen window, `docs/promo/shot-lib.mjs` screenshots, desktop + narrow screen, light and dark): after clearing the onboarding settings, the empty board pops up the 5-page tour; switching the interface language takes effect on the spot; after Skip the three outside-session items are on; after changing the Memory/Insights switches they are in sync in Settings; after closing, the settings button is highlighted and disappears after Got it; an existing user with projects does not get the popup. Restore the original settings after the test. Evidence goes in `docs/verification/`.
 
-## 10. 我做的决定（可推翻）
+## 10. Decisions I made (can be overturned)
 
-1. 概念页仍在最前，基础能力在第 2 页（见 §3 第 1 页说明）。
-2. Memory 用新的全局开关实现（导览时还没有项目），项目开关保留。
-3. Insights 关闭 = 隐藏入口 + 不跑 digest / Workflow insights，但继续记录 flow 事件。
-4. Workflow insights 在导览里仍默认关。
-5. 外部 session 用三个子开关（每个基础能力一个），而不是一个总开关。
-6. 原 “What makes it different” 页取消，内容分到第 1、2、5 页。
+1. The concept page is still first, and the basic capabilities are on page 2 (see the page 1 note in §3).
+2. Memory is implemented with a new global switch (there is no project yet during the tour), and the project switch is kept.
+3. Insights off = hide the entry + do not run digest / Workflow insights, but keep recording flow events.
+4. Workflow insights is still off by default in the tour.
+5. Outside sessions use three sub-switches (one per basic capability), not one master switch.
+6. The former "What makes it different" page is removed, and its content is spread over pages 1, 2 and 5.
 
-## 11. 实现与验证（2026-10-22）
+## 11. Implementation and verification (2026-10-22)
 
-- 代码：`shared/settings.ts`（`features`）、`server/memory.ts`（`setMemoryEverywhere`）、`index.server.ts`（设置订阅、digest 与 Workflow insights 门控）、`client/onboarding.tsx`（5 页、草稿与关闭时写入）、`client/onboarding-logic.ts`（`outsidePatch` / `outsideShown` / `settingsHintDue`）、`client/onboarding-state.ts`（原 `useOnboarding`，拆出以免与设置页循环引用）、`client/stored-settings.ts`（原 `useStored`，加 `saveSure`）、`client/settings-pages.tsx`（共享行与 Memory / Insights 组）、`client/summary-settings.tsx`（设置按钮的提示气泡）、`client/board.tsx`、`client/overview-bar.tsx`，9 个语言目录（新增 26 条，删去 15 条旧导览文案）。
-- 通过：`npm run typecheck`；`npm test`（含 `client/onboarding-logic.test.ts` 新增 9 条、`server/memory.test.ts` 新增 1 条、i18n 完整性）。
-- 真实界面（`docs/promo/shot-lib.mjs`，无头 Chromium 连本机 daemon，Tinylink 项目，未操作用户窗口）：手动打开导览的 5 页，浅色与深色；关闭后设置按钮描边与气泡（修正了 “Got it” 被截断）。截图在 `docs/verification/onboarding-setup-2026-10-22/`。只看不改：没有拨动任何开关、没有点 Got it，用户设置未变。
-- 顺手修正：最后一页 **Create project** 原来在导览关闭的同一帧打开项目表单（另一个 Modal，项目记忆里记录过的卡死模式），现在延迟约 450 ms 再打开，设置提示气泡与表单同一次更新、等表单关掉后才出现。
-- 2026-10-22 13:09：按用户要求把当前工作树（HEAD 4a332b7 + 未提交改动，typecheck 与 932 个测试通过）装到 Coder 主机 `coder.Bofan.main`（Paseo 0.12.0，`/root/flowly-test/flowly`，`paseo plugin install … --id flowly`，运行中）。该主机此前没有 Flowly 设置和看板，是真正的首次状态，由用户手动做首次导览测试。
-- 2026-10-22 15:14：用户在 coder.Bofan.main 上做完第一次首次导览后，那台主机的设置是：`native-session` = `{outside: true, outsideProgress: true, outsideNextMoves: true, outsideIdeas: true}`，`onboarding` = `{welcomeSeen: true, tipsSeen: ["settings-entry"]}`，即首次导览关闭时按默认把外部 session 三项写成开、设置入口提示已看过，符合 §4/§5。随后按用户要求备份并清空：设置与插件数据移到 `/root/flowly-test/backup-20261022-151401/`（`plugin-settings-flowly`、`plugin-data-flowly`、旧源码 `source-flowly`），装入当前工作树（版式统一与 Attention 改版后的版本），插件运行中，主机回到首次状态。
-- 2026-10-22 15:40：按用户反馈换成真实组件、精简文字、加键盘导航（§3.1、§3.2）。typecheck 与 936 个测试通过（`tourKey` 新增 4 条单测）；本机重载后用 shot-lib 以回车逐页翻完 5 页，浅色、深色、中文三套截图在 `docs/verification/onboarding-setup-2026-10-22/`；← / → 实测可来回翻页。
-- 2026-10-22 15:43：第二轮首次导览测试后那台主机的设置同样是 `native-session` 三项与 `outside` 全开、`onboarding.welcomeSeen=true`、`tipsSeen=["settings-entry"]`。备份到 `/root/flowly-test/backup-20261022-154339/` 后清空，装入真实组件 + 键盘导航版（工作树 HEAD fa9dede，含另一张卡未完成的 What's new 改动），插件运行中，主机回到首次状态。
-- 2026-10-22 16:05：按用户反馈把 Attention 改成可操作的通知入口 + 下拉，Progress 改用 Progress 卡片，三个核心能力改成可交互演示（§3 第 1、2 页、§3.1）。typecheck 与 944 个测试通过（新增 19 条文案进 9 个目录，删 3 条旧文案）。本机重载后用 shot-lib 实际点击：Attention 打开/忽略两行后计数 4→2、全部处理后空状态与 Start over 复原；End turn 后 “Updating…” 再换成第二版进展；点 Run tests 填入消息框、发送后进入下一轮（All 132 tests pass，新建议 Push / Open a PR）；Good idea 后出现 Todo 里的跟进卡片。浅色、深色、中文截图（`light-p1/p2`、`dark-p1/p2`、`zh-p1/p2` 已替换，交互过程为 `live-light-p1-*`、`live-light-p2-step*`），无页面错误。
-- 2026-10-22 16:10：第三轮首次导览测试后那台主机的设置：`native-session` 的 `outside` 与三项仍全开；`onboarding` 为 `welcomeSeen=true`、`tipsSeen=["settings-entry"]`、`whatsNewSeen="1.5.0"`（What's new 卡给新用户直接记为已看，符合 WHATS-NEW-SPEC）。备份到 `/root/flowly-test/backup-20261022-160949/` 后清空，装入可交互演示版（工作树 HEAD fa9dede + 未提交改动，typecheck 通过），插件运行中、日志无错误，主机回到首次状态。
-- 2026-10-22 16:25：按用户反馈把第 2 页三列演示合成一个完整案例（上文）。typecheck 与 946 个测试通过（新增 7 条文案、删 7 条）。本机重载后用 shot-lib 实际走完：Run tests 填入 → 发送 → 回复与 Updating… → 新进展、新建议和想法 → Good idea 生成 Todo 任务 → Start over 回到开始；浅色、深色、中文无页面错误。截图 `light/dark/zh-p2.png` 与 `loop-light-*`、`loop-zh-*`。
-- 2026-10-22 16:50：第四轮首次导览测试后那台主机的设置：`native-session` 的 `outside` 与三项仍全开；`onboarding` 为 `welcomeSeen=true`、`whatsNewSeen="1.5.0"`，`tipsSeen=[]`（这次设置按钮提示没有被记为已看：只有点 Got it 或点设置按钮才会记，用户这轮可能没点）。备份到 `/root/flowly-test/backup-20261022-165006/` 后清空，装入完整案例版（HEAD 05de169 + 未提交改动，typecheck 通过），插件运行中，主机回到首次状态。
-- 2026-10-22 17:08：按用户反馈把 Session 一侧做成真实的会话对话（上文）：`client/session-transcript.tsx` 导出 `TranscriptEntry`、`ActivityBlock` 供导览使用（行为不变）。typecheck 与 946 个测试通过（新增 6 条文案、删 3 条）；本机重载后用 shot-lib 走完整个案例，浅色、深色、中文无页面错误，截图已更新（`*-p2.png`、`loop-*`）。
-- 2026-10-22 17:22：加自动演示（上文）。typecheck 与 949 个测试通过（`loopAutoStep` 新增 3 条单测，新增 3 条文案）。本机重载后用 shot-lib 不操作、按时间截图：选 Run tests 的描边 → 填入 → 发送的描边 → Working → 想法 → Good idea 的描边 → Todo 任务 → 约 13.5 秒时已重新开始；之后自己点 Run tests，2.5 秒后仍停在已填入状态、按钮变为 Play；模拟 Reduce Motion 打开该页 3.5 秒仍未自动操作。截图 `auto-*`。
-- 2026-10-22 19:45：第 5 页 More features 改为直接展开；第 3 页记忆示例去掉正文、左栏加宽到 400、框高 290，左栏可滚动（Edit 打开编辑器时能滚到 Save and confirm），按 Edit 停止自动演示；修正手动 Save and confirm 后编辑器不关闭（包装函数丢了 confirm 的返回值）。954 个测试通过；shot-lib 重跑第 3 页编辑与保存、记忆页三语言、翻页，均无页面错误。
-- 2026-10-22 18:25：统一 5 页版式（§3.1）：第 2 页演示高 520 → 360 并加 “Settings below” 胶囊；第 3、4 页开关组移到最上面；第 1 页 Attention、第 4 页 Insights 示例放进和第 2、3 页同样的框，下面各有三列说明；记忆演示框高 300。typecheck 与 954 个测试通过（新增 11 条文案、删 1 条）。重载后 shot-lib：5 页顶部与滚到底各一张（`layout-*`），第 2 页自动演示 / 接管 / Reduce Motion、记忆页三种语言与手动路径、回车与 ←/→ 翻页，均无页面错误。
-- 2026-10-22 17:58：按用户反馈重设计第 3 页（Project memory 的完整案例与自动演示，见上）并给 AI 功能加成本预估（§3.3）。typecheck 与 954 个测试通过（`ai-cost` 3 条、`memoryAutoStep` 1 条、`modelLabel` 1 条新单测；新增 26 条文案、删 2 条）。本机重载后 shot-lib：浅色、深色、中文自动演示（Confirm 描边 → 已确认 → 后来的卡片会话 → “Used 1m ago · 1 card”），手动 Dismiss 与手动 Confirm，均无页面错误；第 2 页 Progress model 与外部 session、第 3 页复盘开关、第 4 页日报与 Workflow insights 都显示预估。截图 `memory-*`。
-- 2026-10-22 17:33：按用户反馈让 Progress 卡片和真实一致：补上 Target（整张卡不变的目标）和每版的 Recap，脚注带模型名（“Updated … · Haiku 5.5”，同 `task-progress.tsx`）。真实卡片超过约 5 行会收起，导览里用 `ContentCard` 新的可选 `defaultOpen` 一开始就展开（别处不传，行为不变）；Card 一栏加宽到 340 并可滚动，想法出现时滚到底，Good idea 不被挤出视野。typecheck 与 949 个测试通过（新增 4 条文案）；重跑自动演示与中文手动截图，无页面错误。
-- 2026-10-22 17:29：按用户反馈把描边从整条建议、整张想法卡片收窄到具体的 Run tests 建议和 Good idea 按钮。typecheck 与 949 个测试通过；本机重载后重跑自动演示截图（`auto-b-cue-move`、`auto-g2-cue-idea`），接管与 Reduce Motion 行为不变。
-- **未运行**：首次导览（空看板新用户）的真实界面路径与 Skip 后的写入——需要清空设置和看板的 fixture 宿主，本机看板有项目会被静默标记为老用户；由单元测试覆盖写入逻辑。窄屏截图被宿主 Modal 跨侧栏居中裁切，未作为证据。手机未测。Luna 测试 session 未运行。
+- Code: `shared/settings.ts` (`features`), `server/memory.ts` (`setMemoryEverywhere`), `index.server.ts` (settings subscription, digest and Workflow insights gating), `client/onboarding.tsx` (5 pages, draft and write on close), `client/onboarding-logic.ts` (`outsidePatch` / `outsideShown` / `settingsHintDue`), `client/onboarding-state.ts` (formerly `useOnboarding`, split out to avoid a circular reference with the settings page), `client/stored-settings.ts` (formerly `useStored`, with `saveSure` added), `client/settings-pages.tsx` (shared rows and the Memory / Insights groups), `client/summary-settings.tsx` (the hint bubble of the settings button), `client/board.tsx`, `client/overview-bar.tsx`, the 9 language catalogs (26 added, 15 old tour texts removed).
+- Passed: `npm run typecheck`; `npm test` (including 9 new in `client/onboarding-logic.test.ts`, 1 new in `server/memory.test.ts`, i18n completeness).
+- Real UI (`docs/promo/shot-lib.mjs`, headless Chromium connected to the local daemon, Tinylink project, the user's window not operated): the 5 pages of the manually opened tour, light and dark; after closing, the settings button outline and bubble (fixed "Got it" being cut off). Screenshots are in `docs/verification/onboarding-setup-2026-10-22/`. Look only, no change: no switch was toggled, Got it was not clicked, and the user settings are unchanged.
+- Fixed along the way: the last page's **Create project** used to open the project form (another Modal, the freeze pattern recorded in the project memory) in the same frame as the tour closing; now it opens after about 450 ms, and the settings hint bubble comes in the same update as the form and appears only after the form is closed.
+- 2026-10-22 13:09: at the user's request the current working tree (HEAD 4a332b7 + uncommitted changes, typecheck and 932 tests passing) was installed on the Coder host `coder.Bofan.main` (Paseo 0.12.0, `/root/flowly-test/flowly`, `paseo plugin install … --id flowly`, running). That host had no Flowly settings and no board before, so it is a true first-time state, and the user does the first-tour test by hand.
+- 2026-10-22 15:14: after the user finished the first first-tour run on coder.Bofan.main, that host's settings were: `native-session` = `{outside: true, outsideProgress: true, outsideNextMoves: true, outsideIdeas: true}`, `onboarding` = `{welcomeSeen: true, tipsSeen: ["settings-entry"]}`, that is, when the first tour was closed the three outside-session items were written on by default and the settings-entry hint was marked seen, consistent with §4/§5. Then at the user's request it was backed up and cleared: the settings and plugin data were moved to `/root/flowly-test/backup-20261022-151401/` (`plugin-settings-flowly`, `plugin-data-flowly`, the old source `source-flowly`), the current working tree (the version after the unified layout and the Attention redesign) was installed, the plugin is running, and the host is back to the first-time state.
+- 2026-10-22 15:40: per user feedback, switched to real components, trimmed the text, and added keyboard navigation (§3.1, §3.2). Typecheck and 936 tests pass (4 new unit tests for `tourKey`); after reloading locally the 5 pages were paged through with Enter using shot-lib, with light, dark and Chinese screenshot sets in `docs/verification/onboarding-setup-2026-10-22/`; ← / → paging back and forth was measured to work.
+- 2026-10-22 15:43: after the second first-tour test round, that host's settings were again `native-session` with the three items and `outside` all on, `onboarding.welcomeSeen=true`, `tipsSeen=["settings-entry"]`. After backing up to `/root/flowly-test/backup-20261022-154339/` it was cleared and the real-component + keyboard-navigation version was installed (working tree HEAD fa9dede, containing another card's unfinished What's new changes), the plugin is running, and the host is back to the first-time state.
+- 2026-10-22 16:05: per user feedback, changed Attention into an operable notification entry + dropdown, made Progress use the Progress card, and turned the three core capabilities into interactive demos (§3 pages 1 and 2, §3.1). Typecheck and 944 tests pass (19 new texts in the 9 catalogs, 3 old texts removed). After reloading locally, real clicks with shot-lib: after opening/ignoring two rows of Attention the count went 4→2, after all were handled the empty state and the Start over restore; after End turn "Updating…" and then replaced by the second version of the progress; clicking Run tests filled the message box and sending entered the next round (All 132 tests pass, new suggestions Push / Open a PR); after Good idea a follow-up card appeared in Todo. Light, dark and Chinese screenshots (`light-p1/p2`, `dark-p1/p2`, `zh-p1/p2` replaced, interaction process as `live-light-p1-*`, `live-light-p2-step*`), with no page errors.
+- 2026-10-22 16:10: that host's settings after the third first-tour test round: `outside` and the three items of `native-session` are still all on; `onboarding` is `welcomeSeen=true`, `tipsSeen=["settings-entry"]`, `whatsNewSeen="1.5.0"` (the What's new card is marked directly as seen for new users, consistent with WHATS-NEW-SPEC). After backing up to `/root/flowly-test/backup-20261022-160949/` it was cleared and the interactive demo version was installed (working tree HEAD fa9dede + uncommitted changes, typecheck passing), the plugin is running with no errors in the log, and the host is back to the first-time state.
+- 2026-10-22 16:25: per user feedback, merged the three-column demos of page 2 into one complete case (above). Typecheck and 946 tests pass (7 new texts, 7 removed). After reloading locally it was run through with shot-lib: Run tests filled in → send → reply and Updating… → new progress, new suggestions and idea → Good idea generated a Todo task → Start over returned to the start; light, dark and Chinese with no page errors. Screenshots `light/dark/zh-p2.png` and `loop-light-*`, `loop-zh-*`.
+- 2026-10-22 16:50: that host's settings after the fourth first-tour test round: `outside` and the three items of `native-session` are still all on; `onboarding` is `welcomeSeen=true`, `whatsNewSeen="1.5.0"`, `tipsSeen=[]` (this time the settings-button hint was not marked seen: it is recorded only when Got it or the settings button is clicked, and the user may not have clicked in this round). After backing up to `/root/flowly-test/backup-20261022-165006/` it was cleared and the complete-case version was installed (HEAD 05de169 + uncommitted changes, typecheck passing), the plugin is running, and the host is back to the first-time state.
+- 2026-10-22 17:08: per user feedback, made the Session side a real conversation (above): `client/session-transcript.tsx` exports `TranscriptEntry` and `ActivityBlock` for the tour to use (behavior unchanged). Typecheck and 946 tests pass (6 new texts, 3 removed); after reloading locally the whole case was run through with shot-lib, light, dark and Chinese with no page errors, and the screenshots were updated (`*-p2.png`, `loop-*`).
+- 2026-10-22 17:22: added the auto demo (above). Typecheck and 949 tests pass (3 new unit tests for `loopAutoStep`, 3 new texts). After reloading locally, screenshots by time with no operation using shot-lib: the outline for choosing Run tests → filled in → the outline of send → Working → idea → the outline of Good idea → Todo task → at about 13.5 seconds it had restarted; after that, clicking Run tests myself, 2.5 seconds later it still stayed in the filled state and the button became Play; opening that page with Reduce Motion simulated, it still did not operate automatically after 3.5 seconds. Screenshots `auto-*`.
+- 2026-10-22 19:45: page 5 More features is now expanded directly; the memory example on page 3 drops the body text, the left column is widened to 400, the frame height is 290, and the left column is scrollable (so Save and confirm can be scrolled to when Edit opens the editor), and pressing Edit stops the auto demo; fixed the editor not closing after a manual Save and confirm (the wrapper function dropped the return value of confirm). 954 tests pass; shot-lib reran the page 3 edit and save, the memory page in three languages and page turning, with no page errors.
+- 2026-10-22 18:25: unified the 5-page layout (§3.1): the page 2 demo height 520 → 360 with the "Settings below" pill added; the switch groups of pages 3 and 4 moved to the top; the Attention of page 1 and the Insights example of page 4 put into the same frame as pages 2 and 3, each with three columns of explanation below; the memory demo frame height 300. Typecheck and 954 tests pass (11 new texts, 1 removed). After reloading, shot-lib: one shot each of the top and scrolled to the bottom of the 5 pages (`layout-*`), the page 2 auto demo / takeover / Reduce Motion, the memory page in three languages and the manual path, paging with Enter and ←/→, with no page errors.
+- 2026-10-22 17:58: per user feedback, redesigned page 3 (the complete case and auto demo of Project memory, see above) and added cost estimates to the AI features (§3.3). Typecheck and 954 tests pass (new unit tests: 3 for `ai-cost`, 1 for `memoryAutoStep`, 1 for `modelLabel`; 26 new texts, 2 removed). After reloading locally, shot-lib: the light, dark and Chinese auto demo (Confirm outline → confirmed → a later card's session → "Used 1m ago · 1 card"), manual Dismiss and manual Confirm, with no page errors; the Progress model and outside sessions of page 2, the review switch of page 3, the daily digest and Workflow insights of page 4 all show the estimate. Screenshots `memory-*`.
+- 2026-10-22 17:33: per user feedback, made the Progress card consistent with the real one: added the Target (the goal that does not change across the card) and each version's Recap, with the model name in the footnote ("Updated … · Haiku 5.5", same as `task-progress.tsx`). The real card collapses beyond about 5 lines, and in the tour `ContentCard`'s new optional `defaultOpen` expands it from the start (not passed elsewhere, behavior unchanged); the Card column was widened to 340 and made scrollable, scrolling to the bottom when the idea appears, so Good idea is not pushed out of view. Typecheck and 949 tests pass (4 new texts); reran the auto demo and the Chinese manual screenshots with no page errors.
+- 2026-10-22 17:29: per user feedback, narrowed the outline from the whole suggestion and the whole idea card to the specific Run tests suggestion and the Good idea button. Typecheck and 949 tests pass; after reloading locally reran the auto demo screenshots (`auto-b-cue-move`, `auto-g2-cue-idea`), with takeover and Reduce Motion behavior unchanged.
+- **Not run**: the real UI path of the first tour (a new user with an empty board) and the write after Skip — this needs a fixture host with cleared settings and board, and this machine's board has projects and would be silently marked as an existing user; the write logic is covered by unit tests. The narrow-screen screenshots were cropped by the host Modal centered across the sidebar and were not used as evidence. The phone was not tested. The Luna test session was not run.
