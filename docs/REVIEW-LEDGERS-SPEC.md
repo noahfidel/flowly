@@ -56,7 +56,7 @@ The newest round is the `## Round N:` heading with the highest N; its section ru
 | *Attach review ledgers* (`attach`) | on | Off: nothing is added, updated or removed; existing records stay. |
 | *Review ledger folder* (`folder`) | `~/.claude/reviews` | `~` expands to the home folder; empty reads as the default. |
 
-The folder must exist and lie inside one of the extra artifact folders (CARD-ARTIFACTS-SPEC, 2026-11-08 增量), compared on real paths. Otherwise nothing attaches and Settings → AI features → Review ledgers says why under the folder field ("this folder doesn't exist" / "add this folder, or one that holds it, to Extra artifact folders"), from the `review-ledgers.check` RPC (`{ attach, usable, reason? }`).
+The folder must exist and lie inside one of the extra artifact folders (CARD-ARTIFACTS-SPEC, 2026-11-08 addition), compared on real paths. Otherwise nothing attaches and Settings → AI features → Review ledgers says why under the folder field ("this folder doesn't exist" / "add this folder, or one that holds it, to Extra artifact folders"), from the `review-ledgers.check` RPC (`{ attach, usable, reason? }`).
 
 ## 6. Acceptance
 

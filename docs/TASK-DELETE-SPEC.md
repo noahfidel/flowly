@@ -1,10 +1,10 @@
 # Delete a card permanently
 
-Status: requested by the user on 2026-10-15 (card “增加彻底删除卡片”): permanently delete cards, and delete the old archived cards in the Ultra Kanban project that can no longer be meaningfully restored.
+Status: requested by the user on 2026-10-15 (card "Add permanent card deletion"): permanently delete cards, and delete the old archived cards in the Ultra Kanban project that can no longer be meaningfully restored.
 
 ## Entry point
 
-Any card in any lane (follow-up 2026-10-15: "允许任何lane里删除"): the board card menu and the drawer's task menu show **Delete permanently…** (danger, last item). Disabled while the project is archived (and, on the board, while a change is pending).
+Any card in any lane (follow-up 2026-10-15: "allow deleting in any lane" (translated)): the board card menu and the drawer's task menu show **Delete permanently…** (danger, last item). Disabled while the project is archived (and, on the board, while a change is pending).
 
 Ruling (Noah, 2026-11-10): the board card menu is one menu for the card's ⋯ button, right-click and long-press, and keeps only Open details, Start session, Move to ▸ (lanes), Archive card / Restore card and Delete permanently… (danger, last) (UI-UX-SPEC §2). It always fits on screen (opens upward or scrolls), so Delete is reachable from the board for a card at any position.
 
@@ -33,4 +33,4 @@ Output `{ id, backup, archived?: { sessions, workspace } }`. Without `archive`, 
 
 - Store tests: deletion scope (only that card's events/receipts), backup content, live and archived cards, CAS/not-found with nothing written, workspace binding reusable.
 - Wrap-up tests: delete preflight ignores lane, still blocks on running sessions; run with purpose delete archives without touching the card; blocked run archives nothing.
-- Live: the 11 archived cards of the Ultra Kanban project whose worktree workspaces were removed by the old wrap-up (F1–F4 and seven E2E fixtures) deleted through `tasks.delete`; the still-restorable archived card “竞品调研” kept. `tasks.delete-check` on real cards (clean / running session).
+- Live: the 11 archived cards of the Ultra Kanban project whose worktree workspaces were removed by the old wrap-up (F1–F4 and seven E2E fixtures) deleted through `tasks.delete`; the still-restorable archived card "Competitor research" kept. `tasks.delete-check` on real cards (clean / running session).

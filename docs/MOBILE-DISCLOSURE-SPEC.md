@@ -1,8 +1,8 @@
 # Mobile drawer disclosure motion — 2026-10-23
 
-2026-10-24 当前决策见 [统一宽度策略](RESPONSIVE-PERFORMANCE-SPEC.md)：连续高度动画
-期间的装饰暂停仅作用于宿主窗口<760，宽屏点阵/呼吸点连续播放；同宽所有平台一致，见[MOBILE-SMOOTHNESS-SPEC §7](MOBILE-SMOOTHNESS-SPEC.md#7-用户反馈修正宽屏保留共享动画连续性)。连续220/160ms、反转、Reduce Motion
-及450ms交接保持。动画驱动仍使用各运行环境支持的API。
+2026-10-24 the current decision is in [unified width policy](RESPONSIVE-PERFORMANCE-SPEC.md): during continuous height animation
+the decorative pause applies only to a host window <760; on wide screens the dot matrix / breathing dot plays continuously; all platforms behave the same at the same width, see [MOBILE-SMOOTHNESS-SPEC §7](MOBILE-SMOOTHNESS-SPEC.md#7-user-feedback-fix-wide-screens-keep-shared-animation-continuity). The continuous 220/160ms, reversal, Reduce Motion
+and the 450ms handoff stay. The animation driver still uses the APIs each runtime supports.
 
 ## Problem and bounded scope
 
@@ -37,7 +37,7 @@ Checks: npm run typecheck before reload; independent full-access codex/gpt-6-lun
 
 ## Continuous-height performance follow-up
 
-2026-10-24: the new running dot-matrix sweep now shares the existing height-motion priority lease with PulseDot. Pause only its clock, keep the mesh and content mounted, and resume a fresh 2.4s lap after all overlapping height tweens release. Continuous 220/160ms geometry, fresh authorization and450ms handoff stay unchanged. No width/platform performance fork or extra scheduler is introduced. [Scope, checks and bounded results](MOBILE-SMOOTHNESS-SPEC.md#6-执行结果与边界).
+2026-10-24: the new running dot-matrix sweep now shares the existing height-motion priority lease with PulseDot. Pause only its clock, keep the mesh and content mounted, and resume a fresh 2.4s lap after all overlapping height tweens release. Continuous 220/160ms geometry, fresh authorization and450ms handoff stay unchanged. No width/platform performance fork or extra scheduler is introduced. [Scope, checks and bounded results](MOBILE-SMOOTHNESS-SPEC.md#6-execution-results-and-bounds).
 
 User requires visible height motion and less stutter, not a return to instant geometry. First collect a bounded same-Samsung Android system trace of content/section transitions (gfx/view/RN atrace plus scheduler, no network bodies/messages), and early0.7s gfx windows. Separate JS scheduling/commit from native layout/draw. Evaluate one local counter-control at a time, initially whether ContentCard's in-flow long text is remeasured under every animated height constraint (Collapse already measures an absolute stable-width body). Only retain a minimal change supported by the trace or same-device reverse control.
 

@@ -1,6 +1,6 @@
 # Project directory picker and linked multi-repo projects
 
-Status: requested by the user on 2026-10-15 (card “优化project系统”). Amends [SINGLE-ROOT-SPEC](SINGLE-ROOT-SPEC.md) for project creation only; the one-project-one-root contract is unchanged.
+Status: requested by the user on 2026-10-15 (card "Optimize the project system"). Amends [SINGLE-ROOT-SPEC](SINGLE-ROOT-SPEC.md) for project creation only; the one-project-one-root contract is unchanged.
 
 ## 1. Choosing a directory
 
