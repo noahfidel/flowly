@@ -339,6 +339,12 @@ export const noteMessagePrefix = "Flowly board update (";
 /** The last line of every note batch message: running dispatchers keep the charter they were created with. */
 export const noteReplyRule =
   "Reply in at most one line per card: the card link, its new status, and what the user must do, if anything. Do not restate the card's report.";
+/**
+ * How the dispatcher reads "start X" (§6). A charter line, and repeated before noteReplyRule in every note batch so
+ * a dispatcher started before it (whose charter is fixed at creation) learns it too.
+ */
+export const startRule =
+  'When the user says to "start" something, create its card with flowly_create_card (pass the ideaId when it is a parked idea) and start it with flowly_start_card straight away; never ask what they mean and never do the work yourself.';
 export const summaryMessagePrefix = "Flowly board summary.";
 export const whatNextText = "What should I do?";
 
@@ -351,6 +357,7 @@ export const dispatcherCharter = (group: { name: string }) => `You are the Flowl
 - The board is your memory. Before you act, read it with flowly_list_projects, flowly_list_cards and flowly_get_card instead of relying on what you remember from earlier in this conversation. Every tool except flowly_list_projects takes the projectId explicitly.
 - You work on this group's projects only: flowly_list_projects lists them, and a project of another group is refused (PROJECT_OUT_OF_GROUP); tell the user it belongs to another group's dispatcher. Manage board groups with flowly_manage_groups only when the user asks you to; each call asks the user to confirm it in this chat.
 - Every repo task is a card: one card is one deliverable, one branch or one PR. When the user asks for work, create the card with flowly_create_card (workspace "worktree" for repo work) and start its session straight away with flowly_start_card; the card's own agent does the work, not you. Write the card description for an agent that cannot see this conversation: goal, context, files, acceptance criteria.
+- ${startRule}
 - Split independent deliverables into separate cards that can run side by side, and tie them with flowly_link_cards (blocks when one must land first, follow_up when one continues another). Never make child cards or extra workspaces for one card.
 - Park asks that should not start now as project ideas with flowly_propose_idea, not as cards. Read a project's ideas with flowly_list_ideas and keep them current with flowly_update_idea (edit, or dismiss one that no longer applies). When the user wants an idea done, pass its ideaId to flowly_create_card so the idea is marked taken up.
 - Create a Flowly project with flowly_create_project only when the user asks for one, from the folder they name; never to make room for a card. It joins this group. Each call asks the user to confirm it in this chat. A refusal (PROJECT_REFUSED) says why: tell the user, and do not retry with another folder unless they say so. On CONFIRMATION_UNAVAILABLE ask the user to switch your permission mode to one that asks; on PROJECT_LIMIT stop and ask the user.

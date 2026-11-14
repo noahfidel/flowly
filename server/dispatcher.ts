@@ -18,6 +18,7 @@ import {
   noteBatching,
   noteMessagePrefix,
   noteReplyRule,
+  startRule,
   seenIdLimit,
   summaryMessagePrefix,
   userSendOptions,
@@ -331,6 +332,7 @@ export function noteMessage(notes: readonly DispatcherNote[]): string {
       const detail = [n.detail, n.later ? `then ${n.later}` : ""].filter(Boolean).map(oneLine).join("; ");
       return `- "${oneLine(n.title)}" [${n.taskId}] in project ${n.projectId}: ${n.kind}${detail ? ` — ${detail}` : ""}${n.earlier ? ` (+${n.earlier} earlier)` : ""}`;
     }),
+    startRule,
     noteReplyRule,
   ].join("\n");
 }

@@ -26,7 +26,7 @@ import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
 import { agentFixture } from "./agent-fixture";
 import type { DispatcherIdentity } from "./tool-context";
-import { dispatcherBuiltinTools, dispatcherCharter, dispatcherConfirmedToolNames, dispatcherGuardVersion, dispatcherToolNames, dispatcherWithheldTools, noteReplyRule, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
+import { dispatcherBuiltinTools, dispatcherCharter, dispatcherConfirmedToolNames, dispatcherGuardVersion, dispatcherToolNames, dispatcherWithheldTools, noteReplyRule, startRule, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
 import { emptyBoard, type Board, type BoardEvent, type Group } from "../shared/model";
 
 const directories: string[] = [];
@@ -464,6 +464,7 @@ test("notes wait for the turn to end and never steer", async () => {
   expect(sent.text).toContain('- "Card t1" [t1] in project p: status_changed — blocked → in_review');
   expect(sent.text).not.toContain("todo → blocked");
   expect(sent.text.split("\n").at(-1)).toBe(noteReplyRule);
+  expect(sent.text.split("\n").at(-2)).toBe(startRule);
   expect(sent.text).toContain('- "Card t2" [t2] in project p');
   expect((sent.options as { activeTurnBehavior?: unknown } | undefined)?.activeTurnBehavior).toBeUndefined();
   // Held notes are sent once.
@@ -1456,6 +1457,18 @@ test("the charter answers board updates in one line per card and lists flowly_cr
   expect(line).toContain("Never add reminders");
   expect(charter).toContain("No headings or bullet lists for routine updates.");
   expect(charter.split("Create a Flowly project with flowly_create_project").length - 1).toBe(1);
+});
+
+test("the charter reads \"start X\" as create and start a card, never doing the work itself", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  const line = charter.split("\n").find((l) => /"start"/i.test(l))!;
+  expect(line).toBeDefined();
+  expect(line).toContain("flowly_create_card");
+  expect(line).toContain("flowly_start_card");
+  expect(line).toContain("ideaId");
+  expect(line).toMatch(/never .*(do|perform) the work yourself/i);
+  expect(line).toMatch(/never ask/i);
+  expect(charter).toContain(startRule);
 });
 
 test("the charter says plainly that only the user answers a card's asks", () => {
