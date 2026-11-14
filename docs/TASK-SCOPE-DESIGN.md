@@ -1,6 +1,6 @@
 # Card write scope and subdirectory tasks — research and design (draft)
 
-Status: research/design only, 2026-10-15 (card “优化project系统”). **Deferred by the user (2026-10-15): no write restrictions for now; revisit after real use.** Not implemented.
+Status: research/design only, 2026-10-15 (card “Optimize the project system”). **Deferred by the user (2026-10-15): no write restrictions for now; revisit after real use.** Not implemented.
 
 Coverage gap: only Codex and Claude were researched. Other enabled providers (Hermes, Aside, Codex/Claude-compatible custom providers that reuse those adapters, and ACP-based providers such as Copilot/OpenCode/Pi when enabled) have unknown sandbox options and permission semantics; any future enforcement must inspect each provider or fall back to the provider-independent layers (read-only linked root, instructions, turn audit).
 

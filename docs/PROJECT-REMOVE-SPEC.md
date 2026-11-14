@@ -1,6 +1,6 @@
 # Remove a project (board, optionally Paseo)
 
-Status: requested by the user on 2026-10-15 (card “优化project系统”): remove a project from Ultra Kanban while keeping the Paseo project; then a single removal entry where the user chooses board-only or also the Paseo project.
+Status: requested by the user on 2026-10-15 (card “Optimize the project system”): remove a project from Ultra Kanban while keeping the Paseo project; then a single removal entry where the user chooses board-only or also the Paseo project.
 
 ## Entry point
 

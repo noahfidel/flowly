@@ -1,10 +1,10 @@
 # Board polish: Attention dropdown, empty lanes, folded finished cards
 
-Status: implemented on the user's request (card `5b2c9cd2`, "UI/UX细节优化", 2026-10-16):
+Status: implemented on the user's request (card `5b2c9cd2`, "UI/UX detail polish", 2026-10-16):
 
-1. PC上attention以drop down pop up展开: on desktop, Attention opens as a dropdown.
-2. lane为空增加placeholder文本: an empty lane shows placeholder text.
-3. 增加隐藏x天前done/cancelled的任务的功能，但仍然可以在done/cancelled中底部显示过去的done任务: hide Done/Cancelled cards older than X days, with the older ones still available at the bottom of those lanes.
+1. On PC, Attention opens as a dropdown pop-up: on desktop, Attention opens as a dropdown.
+2. Add placeholder text for an empty lane: an empty lane shows placeholder text.
+3. Add a feature to hide Done/Cancelled tasks older than X days, while past Done tasks can still be shown at the bottom of Done/Cancelled: hide Done/Cancelled cards older than X days, with the older ones still available at the bottom of those lanes.
 
 This is presentation only. No board data, RPC, revision or native resource changes.
 

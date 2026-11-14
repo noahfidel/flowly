@@ -1,11 +1,11 @@
 # App performance: smooth animation, fast session cards, typing that keeps up
 
-2026-10-24 用户决策更新：[按可用宽度统一性能策略](RESPONSIVE-PERFORMANCE-SPEC.md)
-取代下文历史优化中的平台门控。紧凑/宽屏只按可用宽度判断；裁剪、轻量读模型、
-隐藏查询暂停、渐进列表与转场门控不再按Android/iOS/Web选择。底层API适配保持。
-本轮按用户要求不运行验证，旧测量仅代表其当时的快照。
+2026-10-24 user decision update: [one performance policy by available width](RESPONSIVE-PERFORMANCE-SPEC.md)
+Supersedes the platform gating in the historical optimizations below. Compact vs. wide is decided only by available width; clipping, lightweight read models,
+hidden-query pausing, progressive lists and transition gating no longer choose by Android/iOS/Web. The underlying API adaptation stays.
+By the user's request this round ran no verification; the old measurements only represent the snapshot at that time.
 
-Status: card “性能优化” (2026-10-15). User report: in the app, animations stutter, session cards load slowly, and the input lags, drops characters and sometimes closes the keyboard. Goal: close to native smoothness. This amends the motion, session UX and session input specs; business contracts (single root, card/workspace/session ownership, CAS writes, exact follow-up text) are unchanged.
+Status: card “Performance optimization” (2026-10-15). User report: in the app, animations stutter, session cards load slowly, and the input lags, drops characters and sometimes closes the keyboard. Goal: close to native smoothness. This amends the motion, session UX and session input specs; business contracts (single root, card/workspace/session ownership, CAS writes, exact follow-up text) are unchanged.
 
 ## 1. Diagnosis
 
@@ -135,7 +135,7 @@ The phone evaluation ([report](verification/performance-phone-2026-10-21.md)) sa
 
 Findings:
 
-- **Root cause: the per-card event cap.** `store.event()` keeps at most 100 events per card; appending one to a card at the cap removes that card's oldest event from the middle of the global list. The list keeps its length (2840 here) but the caller's last event is no longer at its old position, so `diffBoard` returned null and `boardIfChanged`'s `since` check failed: the whole board (all events, about 2.4–3.0 s on the phone) was sent to every client that polled with an older etag. 8 of this board's cards are at the cap (`harness2研究` is in review); one event on any of them triggered it. Logged: `reason=events-discontinuous held=2840 heldLastAt=2837`.
+- **Root cause: the per-card event cap.** `store.event()` keeps at most 100 events per card; appending one to a card at the cap removes that card's oldest event from the middle of the global list. The list keeps its length (2840 here) but the caller's last event is no longer at its old position, so `diffBoard` returned null and `boardIfChanged`'s `since` check failed: the whole board (all events, about 2.4–3.0 s on the phone) was sent to every client that polled with an older etag. 8 of this board's cards are at the cap (`harness2 research` is in review); one event on any of them triggered it. Logged: `reason=events-discontinuous held=2840 heldLastAt=2837`.
 - **Fix: events are matched by id.** The fingerprint remembers the event ids; `diffBoard` sends the events that are new (they are always at the end; if not, no patch) and `removeEvents`, the ids that left; `applyBoardPatch` drops those, then appends. A real-board round trip (a capped card's oldest event dropped, one appended) gives a patch of a few hundred bytes against 880 KB, and the patched board equals the new board. Tests: `server/board-delta.test.ts`, `client/queries.test.ts`.
 - **Bug fixed on the way: eviction order.** `BoardDeltas.read` remembered the new board (evicting the oldest, 32 kept) before looking up the caller's etag, so a caller whose etag was the oldest got a full board although it held a valid one. It now looks up first.
 - After a plugin reload every client's first read is `no-etag` (the daemon forgot its boards): expected. The first read of an app launch is still a full board (2840 events, about 2.5 s to decode on the phone). Trimming what the first read carries (older events per card) would change what the drawer's Activity shows, so it is a decision, not done here.
@@ -210,7 +210,7 @@ Validation: exact frozen source manifests before/after baseline/control/candidat
 
 Project page row-budget boundary: ignore queued callbacks from another key or prior dataset total; check again inside the updater. Within one key, revealed budget never decreases when data shrinks or a stale callback runs. Visible length is still capped by current total; growing data restores the retained prefix.
 
-Memory 编辑过且仍在当前筛选结果的行额外保留挂载，避免后台新候选挤出前缀后卸载原生输入；计数按实际窗口，初始两条预算不变。
+Memory rows that were edited and are still in the current filter result are kept mounted in addition, so a new background candidate pushing them out of the prefix does not unmount a native input; counts follow the actual window, and the initial budget of two stays unchanged.
 
 ## Native first-board query priority — 2026-10-23
 
@@ -233,9 +233,9 @@ The default product entry remains unchanged. [CLIENT-PAYLOAD-POC-SPEC](CLIENT-PA
 Actual instrumented daemon catalog code was 1,262,031B versus 17,168B loader; executable minified payload 636,177B and its JSON response 650,879B. Every new JS process adds one payload RPC; same-context reconnects observed cache.hit and zero extra payload requests. Two fixed-source Samsung pairs showed earlier contribute (control-to-entry medians 8.112s→4.648s), but later actual Sidebar implementation commit (8.345s→12.218s). Warm network-restore-command to actual Sidebar medians 14.293s→10.268s are combined host/reconnect intervals, not isolated transfer/native paint. Payload RPC began 4.705–6.294s after entry despite a 2.5s earliest deadline; existing markers do not separate timer delivery, loading-state render and microtask queueing, so do not assign the delay to a function without profiling. The PoC is not promoted. First explicit card still used the old full path (candidate RPC→effect 7.086–8.297s); CardDetail stage2 was not implemented in that PoC sample; the independent stage-2 delivery is recorded below. [Results, tests, raw boundaries and restoration](verification/client-payload-poc-2026-10-24/README.md).
 
 
-原生详情第二阶段（2026-10-24）：普通开卡/chip 直达不再启动完整 board；CardDetail 与 projects.card-index 使用独立类型/key/etag。抽屉子区段通过显式 context 读取，唯一可见 detail interval 为 3 秒；session preview/关闭时暂停。项目 Ideas 使用独立 project query，Memory/Insights 不再以 full board 为前置。完整单卡正文、fresh 写/导航校验、连续动画和 450ms 交接不变。具体边界见 NATIVE-OVERVIEW-SPEC §5/§7。
+Native detail, phase 2 (2026-10-24): opening a card normally or straight from a chip no longer starts the full board; CardDetail and projects.card-index use their own type/key/etag. Drawer sub-sections read through an explicit context, and the only visible detail interval is 3 seconds; it pauses while the session preview is open or closed. Project Ideas use their own project query, and Memory/Insights no longer require the full board first. The full single-card body, fresh write/navigation checks, continuous animation and the 450ms handoff are unchanged. For the exact boundaries see NATIVE-OVERVIEW-SPEC §5/§7.
 
-阶段2固定源三星对照见 [CardDetail报告](verification/card-detail-2026-10-24/README.md)：RPC→schema前区段中位数约5.660s→0.789s，schema约389ms→27ms，但schema→effect仍约1.8s；这些是有限壁钟分段，尚不能区分传输/解密/JSON或函数级挂载成本。原生入口/宿主bundle加载没有在本阶段优化。
+The phase 2 fixed-source Samsung comparison is in the [CardDetail report](verification/card-detail-2026-10-24/README.md): the median of the RPC→pre-schema segment went from about 5.660s to 0.789s, schema from about 389ms to 27ms, but schema→effect is still about 1.8s; these are limited wall-clock segments and cannot yet tell transport, decryption, JSON or function-level mount cost apart. The native entry and host bundle load were not optimized in this phase.
 
 ## CardDetail interval owner notifications — 2026-10-24
 

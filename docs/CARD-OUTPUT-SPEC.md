@@ -1,6 +1,6 @@
 # Latest agent output on task cards
 
-Status: implementation authorized by Kanban card **F1 卡片显示最近 agent 输出摘要**. Client-only increment; no RPC, board data, read-store or native resource contract changes. Single-root, session-attention and business-status contracts remain in force.
+Status: implementation authorized by Kanban card **F1 Show a summary of the latest agent output on the card**. Client-only increment; no RPC, board data, read-store or native resource contract changes. Single-root, session-attention and business-status contracts remain in force.
 
 ## 1. Observable behavior
 

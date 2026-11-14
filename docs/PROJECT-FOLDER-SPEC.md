@@ -1,6 +1,6 @@
 # Project data in the project folder
 
-Status: 2026-10-17, card “Flowly project保存在原始project目录”. User chose option A: each project's board data is also saved in its own root under `.flowly/`; after the project is removed from Flowly it can be restored from that folder; not tracked by git by default.
+Status: 2026-10-17, card “Flowly project saved in the original project directory”. User chose option A: each project's board data is also saved in its own root under `.flowly/`; after the project is removed from Flowly it can be restored from that folder; not tracked by git by default.
 
 ## 1. Model
 
@@ -8,7 +8,7 @@ Status: 2026-10-17, card “Flowly project保存在原始project目录”. User 
 - After every board commit that changed a project's data, the daemon writes a **snapshot** of that project to `<primaryPath>/.flowly/project.json`. It is a copy for carrying the board with the folder and for restore; it is never read while the project is on the board.
 - Restore reads a snapshot back into the board when the folder's project is not on the board.
 
-## 1.1 Upgrade migration (user decision 2026-10-18: “老项目升级插件后自动迁移”)
+## 1.1 Upgrade migration (user decision 2026-10-18: “migrate old projects automatically after the plugin upgrade”)
 
 On every daemon start (`ProjectFolders.migrate`, before any debounced write), every project on the board, archived included, gets its folder copy:
 

@@ -1,10 +1,10 @@
 # Background workspace for project-level temporary sessions
 
-Status: user-requested 2026-10-23 (card "memory review session修复"). Their words: "用专用后台workspace，并在使用完成后自动archive，使用前检查有没有archived workspace，有就复用，没有新建". Supersedes the run location in PROJECT-INSIGHTS-SPEC §7, PROJECT-MEMORY-SPEC §4.2 and WORKFLOW-INSIGHTS-SPEC.
+Status: user-requested 2026-10-23 (card "Fix the memory review session"). Their words (translated): "Use a dedicated background workspace, archive it automatically after use, check before use whether there is an archived workspace, reuse it if there is, create a new one if not". Supersedes the run location in PROJECT-INSIGHTS-SPEC §7, PROJECT-MEMORY-SPEC §4.2 and WORKFLOW-INSIGHTS-SPEC.
 
 ## Problem
 
-The memory review, the Insights digest and workflow insights each create a temporary Paseo session that belongs to no card. They used to pick "the project root's workspace": the first workspace with the project's `projectId` and `workspaceDirectory === primaryPath`. Under single-root (SINGLE-ROOT-SPEC) every card's local workspace has that same directory, so the rule matched whichever card workspace Paseo listed first. Every review then opened in that card's workspace (seen: "Insights重设计"). Paseo auto-opens a tab for a session without a parent, so the review showed up as a tab in that card, and the tab stayed after the session was hard-deleted.
+The memory review, the Insights digest and workflow insights each create a temporary Paseo session that belongs to no card. They used to pick "the project root's workspace": the first workspace with the project's `projectId` and `workspaceDirectory === primaryPath`. Under single-root (SINGLE-ROOT-SPEC) every card's local workspace has that same directory, so the rule matched whichever card workspace Paseo listed first. Every review then opened in that card's workspace (seen: "Insights redesign"). Paseo auto-opens a tab for a session without a parent, so the review showed up as a tab in that card, and the tab stayed after the session was hard-deleted.
 
 ## Behavior
 

@@ -1,6 +1,6 @@
 # Session pane: history, keyboard, scroll performance (design)
 
-Status: **implemented (2026-10-20), phone verification pending**. Card: "sidebar session 优化" (`004da2f8`).
+Status: **implemented (2026-10-20), phone verification pending**. Card: "sidebar session optimization" (`004da2f8`).
 Supersedes the "35 timeline entries / 18 displayed entries" limit in `SESSION-UX-SPEC.md` §95, and on phones the "padding when the keyboard animation finishes" rule in `PERFORMANCE-SPEC.md` §3 (Client rendering).
 
 **Decisions (user, 2026-10-20):** §5.1 and §5.2 as recommended (open on the current turn capped at 300 entries; an explicit Load earlier row). §5.3: go straight to `FlatList` virtualization instead of a render window first. Implementation follows Paseo's own session view (found in its bundle): phones use an **inverted** virtualized `FlatList` with `maintainVisibleContentPosition`; web keeps a plain scroll view (Paseo's web session view is not virtualized either, and `maintainVisibleContentPosition` does not exist on react-native-web). The inverted list also changes the keyboard design: see §2.2 (as built).

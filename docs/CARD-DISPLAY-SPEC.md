@@ -1,6 +1,6 @@
 # Card display: calmer layout and user-chosen fields
 
-Status: implemented 2026-10-19. Card: 任务卡片布局调整.
+Status: implemented 2026-10-19. Card: Adjust the task card layout.
 
 ## 1. Problem
 
