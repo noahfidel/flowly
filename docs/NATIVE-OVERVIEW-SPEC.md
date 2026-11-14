@@ -1,134 +1,134 @@
-# Native overview 与独立详情：两阶段实施规范
+# Native overview and standalone detail: two-phase implementation spec
 
-2026-10-24 后续用户决定：[统一宽度策略](RESPONSIVE-PERFORMANCE-SPEC.md)将本文
-native compact 路径推广为所有平台的compact路径，含窄窗口Web；宽屏沿用完整看板。
-本文旧“web/tablet保持”表述及既有真机验证是历史范围，当前布局由宽度决定。
-Overview/CardDetail/完整Board的类型、key、etag和fresh授权边界继续保持。
+2026-10-24 follow-up user decision: the [unified width policy](RESPONSIVE-PERFORMANCE-SPEC.md) extends this file's
+native compact path to the compact path on all platforms, including narrow-window Web; wide screens keep the full board.
+This file's old "web/tablet unchanged" wording and the existing real-device verification are historical scope, and the current layout is decided by width.
+The types, keys, etags and fresh authorization boundaries of Overview/CardDetail/the full Board stay unchanged.
 
-状态：2026-10-23 用户授权完整规范及阶段 1 实现、同三星固定源码对照；2026-10-24 用户授权阶段 2 实现与同三星固定源码复测。依据 [Fable/Astra 共识](verification/frontend-loading-advisors-2026-10-23/README.md)。本规范对 native compact 总览的条款优先于 PERFORMANCE/NATIVE-SESSION/MOBILE-QUERY-MODAL 中“进入看板先读完整 board”的历史条款，web/tablet 保持原行为。
+Status: 2026-10-23 the user authorized the full spec and the phase 1 implementation, with a comparison against the same fixed Samsung source; 2026-10-24 the user authorized the phase 2 implementation and a retest against the same fixed Samsung source. Basis: [Fable/Astra consensus](verification/frontend-loading-advisors-2026-10-23/README.md). This spec's clauses on the native compact overview take priority over the historical clauses in PERFORMANCE/NATIVE-SESSION/MOBILE-QUERY-MODAL that say "entering the board first reads the full board", and web/tablet keep their original behavior.
 
-## 1. 目标、范围与代价
+## 1. Goal, scope and cost
 
-- 阶段 1：手机总览使用明确的 BoardOverview，初显及空闲不读完整 board；保留描述/标签搜索、筛选、排序、列与项目计数、卡面信号、实时 Attention、提示与导航。
-- 阶段 1 基线：用户显式打开卡片、Task/Project 表单、LinkPicker、删除/移除/wrap-up、项目 Ideas/Insights/Memory 或 idea/workspace 直达时，可沿用旧完整 Board。详情组件保持现有数据与生命周期，不卡住当前 scoped-card 导航。
-- 阶段 1 基线代价：**首次显式开卡可能新增数秒等待**：成本从进入看板移到首次打开卡片，旧全量路径仍约 2.3 MB。必须单列首次开卡的 RPC/首显/详情可用；不得只交付更好看的总览数字。
-- 阶段 2：独立 CardDetail 和项目索引消除详情隐式整板依赖；按 §5/§7 实施。
-- 不迁移/删改存储、不改变每卡最多 100 条含正文事件、不新增 Activity 分页、不改变业务写路径、session 所有权、input key、连续可反转动画和 450ms Modal 交接。缓存只展示。
+- Phase 1: the phone overview uses an explicit BoardOverview, and does not read the full board at first display or while idle; keeps description/tag search, filters, sorting, lane and project counts, card face signals, live Attention, prompts and navigation.
+- Phase 1 baseline: when the user explicitly opens a card, a Task/Project form, LinkPicker, delete/remove/wrap-up, project Ideas/Insights/Memory, or an idea/workspace direct link, the old full Board may be used. The detail components keep their existing data and lifecycle, and do not block the current scoped-card navigation.
+- Phase 1 baseline cost: **the first explicit card open may add several seconds of waiting**: the cost moves from entering the board to the first card open, and the old full path is still about 2.3 MB. The RPC/first display/detail availability of the first card open must be listed separately; it must not deliver only a nicer overview number.
+- Phase 2: a standalone CardDetail and a project index remove the implicit whole-board dependency of detail; implemented per §5/§7.
+- No storage migration/deletion/modification, no change to the at-most-100 events with body per card, no new Activity paging, no change to business write paths, session ownership, input keys, continuous reversible animation and the 450ms Modal handoff. The cache is for display only.
 
-## 2. 数据依赖清单
+## 2. Data dependency list
 
-“总览”包含项目 chooser、status/filter/sort/Attention sheet 和卡片 action sheet；只打开这些菜单不应加载整板。Settings/Welcome 保持原模块，未打开时不能因内部 observer 偷读 board。
+"Overview" includes the project chooser, the status/filter/sort/Attention sheets and the card action sheet; merely opening these menus should not load the whole board. Settings/Welcome keep their original modules, and when not open must not secretly read the board through an internal observer.
 
-| 当前 reader / 派生 | 输入 | 阶段 1 总览来源 | 进入完整路径的边界 / 阶段 2 |
+| Current reader / derivation | Input | Phase 1 overview source | Boundary into the full path / phase 2 |
 |---|---|---|---|
-| project chooser/tabs、pickProject、lane config | projects、position、archived | overview.projects 完整项目记录 | ProjectForm 显式打开仍旧路径 |
-| tasks / search / type / priority / tag / counts | Task，含 description、tags、position、status | overview.tasks 完整 Task（当前约 111KB） | 不引入服务端搜索/分页 |
-| projectTagStats / tagPrefixes | 项目全部未归档 Task tags | overview.tasks，沿用原规则 | 详情标签建议用显式项目 context |
-| statusChanges / flash / laneRows / sorts | Task 身份/status、最后 turn end | Task + card facts；原动画和行 key | 不重挂载总览树 |
-| Recent activity | 每卡 max turn end + 哪些 agent 曾结束；无事件 session idle 时间 | card.turnEndedAt / session.hadTurnEnd + 现有 live agents / settledAgents | 不由 updatedAt 替代原 turn 规则 |
-| olderFinished | 当前 finished lane 最近进入时间，否则 updatedAt | card.finishedAt（原规则结果） | Date.now、days、keep 仍在 UI 决定 |
-| card wrapped | currentWrapup | card.wrapped boolean | 详情仍全部 stored events |
-| card questions | cardQuestions | card.questions 数量 | 不传问题正文到总览 |
-| card workpad | workpadSignal | card.workpad 的 kind/done/total/count | 详情保留全部 workpad |
-| card ideas / project Ideas count | open ideas | card.openIdeas，按 Task project 聚合 | 显式 IdeasPage 读旧完整 Board |
-| card external key/family | artifacts 顺序 + faceKey/familyOf | card.external（旧首个 key +n 规则） | 全部 artifacts 只供详情 |
-| Waiting on | waitingOn(tasks, links) | overview.links + 原规则（Task title 可达） | 不只传目标卡 links 冒充项目 |
-| Attention / session summary | event-derived facts + live agent + receipts | session latestTurn/action/at、questionEventId、silent，结合原 stream/receipt 引擎 | 不生成假 events；instant permission/error/unread 保持 |
-| tips / welcome / whats-new boardLoaded | counts，artifact/external/workpad/next moves 是否存在 | card.hasArtifacts/hasExternal/hasWorkpad/hasNextMoves + tasks/projects | 文案/优先级不变，不新增 tip |
-| workspace availability / outputSession | resources、managed sessions、live agents | 现有独立查询，overview 到达后启用 | 只对可见卡片启动 output/tail |
-| Progress summaries | summaries.latest | 现有 summaries query | 不为 summary 回读完整 board |
-| sidebar/chip | attention.count / chip projection / agent list | 保持既有独立来源和 etag | 不合并到 overview，不新建全局 store |
-| drawerTarget、TaskDrawer 及 Progress/Workpad/Tags/Links/Ideas/Artifacts | 完整目标数据 | 只在显式打开后启用旧 full Board；卡头可先用 Task 元数据 | 阶段 2 全部改 CardDetail，不能只删预取 |
-| TaskForm / ProjectForm / LinkPicker / delete / wrapup | 完整规则输入与候选 | 组件只在显式打开时挂载；需要时读 full Board | 阶段 2 用项目索引/候选 |
-| project Ideas / Insights / Memory | full ideas / tasks / revision 等 | page 显式打开才启用旧 full Board；防止用空 ideas 假称空页 | 阶段 2 对应独立 query |
-| chip direct-card | fresh scoped board + exact session refresh | 现有路径不改，后台 full 仍保留，非总览零请求范围 | 阶段 2 删除后台 full |
-| refresh / mutation invalidation | 对应可见数据源 | 只 refetch 当前展示源；invalidate overview 不 refetch disabled full observer | 详情写入后也 invalidate overview |
+| project chooser/tabs, pickProject, lane config | projects, position, archived | overview.projects, full project records | Explicitly opening ProjectForm still uses the old path |
+| tasks / search / type / priority / tag / counts | Task, including description, tags, position, status | overview.tasks, full Task (currently about 111KB) | No server-side search/paging introduced |
+| projectTagStats / tagPrefixes | Tags of all unarchived Tasks of the project | overview.tasks, with the original rules | Detail tag suggestions use an explicit project context |
+| statusChanges / flash / laneRows / sorts | Task identity/status, last turn end | Task + card facts; the original animation and row keys | The overview tree is not remounted |
+| Recent activity | Each card's max turn end + which agents have ended; idle time of a session with no events | card.turnEndedAt / session.hadTurnEnd + the existing live agents / settledAgents | updatedAt does not replace the original turn rule |
+| olderFinished | The time the current finished lane was most recently entered, otherwise updatedAt | card.finishedAt (the result of the original rule) | Date.now, days, keep are still decided in the UI |
+| card wrapped | currentWrapup | card.wrapped boolean | Detail still has all stored events |
+| card questions | cardQuestions | card.questions count | Question text is not passed to the overview |
+| card workpad | workpadSignal | card.workpad's kind/done/total/count | Detail keeps the whole workpad |
+| card ideas / project Ideas count | open ideas | card.openIdeas, aggregated by the Task's project | An explicit IdeasPage reads the old full Board |
+| card external key/family | artifacts order + faceKey/familyOf | card.external (the old first key +n rule) | All artifacts are only for detail |
+| Waiting on | waitingOn(tasks, links) | overview.links + the original rule (Task title reachable) | Do not pass only the target card's links and pass them off as the project's |
+| Attention / session summary | event-derived facts + live agent + receipts | session latestTurn/action/at, questionEventId, silent, combined with the original stream/receipt engine | No fake events are generated; instant permission/error/unread stay |
+| tips / welcome / whats-new boardLoaded | counts, whether artifacts/external/workpad/next moves exist | card.hasArtifacts/hasExternal/hasWorkpad/hasNextMoves + tasks/projects | Copy/priority unchanged, no new tip |
+| workspace availability / outputSession | resources, managed sessions, live agents | The existing independent queries, enabled after the overview arrives | Output/tail starts only for visible cards |
+| Progress summaries | summaries.latest | The existing summaries query | The full board is not read back for a summary |
+| sidebar/chip | attention.count / chip projection / agent list | The existing independent sources and etags stay | Not merged into the overview, no new global store |
+| drawerTarget, TaskDrawer and Progress/Workpad/Tags/Links/Ideas/Artifacts | Full target data | The old full Board is enabled only after an explicit open; the card header may first use Task metadata | Phase 2 moves all to CardDetail, not just removing prefetch |
+| TaskForm / ProjectForm / LinkPicker / delete / wrapup | Full rule inputs and candidates | Components mount only when explicitly opened; read the full Board when needed | Phase 2 uses the project index/candidates |
+| project Ideas / Insights / Memory | full ideas / tasks / revision etc. | The old full Board is enabled only when the page is explicitly opened; prevents passing off an empty page with empty ideas | Phase 2 uses matching standalone queries |
+| chip direct-card | fresh scoped board + exact session refresh | The existing path unchanged, background full is kept, zero requests outside the overview | Phase 2 removes the background full |
+| refresh / mutation invalidation | The matching visible data source | Refetch only the currently shown source; invalidating the overview does not refetch the disabled full observer | After a detail write, the overview is also invalidated |
 
-所有当前完整 board 属性读取必须归入表内分支；union 的公共 metadata 不意味着 events/ideas/workpads 存在。完整 reader 的挂载检测是验收，源码搜索不是充分证明。
+Every current full-board property read must belong to a branch in the table; the common metadata of the union does not mean events/ideas/workpads exist. Mount detection of the full readers is acceptance; a source search is not sufficient proof.
 
-## 3. 阶段 1 RPC 与 DTO
+## 3. Phase 1 RPC and DTO
 
-新增 schema-validated `board.overview-changed`，输入 strict `{etag?: string}`，最大 200 字符。不带 since。当前 scope 为此 daemon 的全部项目/卡片，保留 archive 记录用于既有 filter；未来 project scope 须升契约/key，不在此阶段增加。
+A new schema-validated `board.overview-changed`, with strict input `{etag?: string}`, at most 200 characters. No since. The current scope is all of this daemon's projects/cards, keeping archive records for the existing filter; a future project scope must bump the contract/key, and is not added in this phase.
 
-`BoardOverview = {version:1, revision:number, projects:Project[], tasks:Task[], links:Link[], attentionDismissals:AttentionDismissal[], cards:CardFacts[], projectIdeas:{projectId, open}[]}`（`projectIdeas`：每个项目一条，`open` 为该项目自身（无卡片）的未处理 idea 数，见 PROJECT-IDEAS-SPEC §5；键为 projectId，与其他集合一样走 patch）。
-不含 events、ideas、artifacts、workpads、plans 集合，任何完整 Board schema 均不能接受该值。
+`BoardOverview = {version:1, revision:number, projects:Project[], tasks:Task[], links:Link[], attentionDismissals:AttentionDismissal[], cards:CardFacts[], projectIdeas:{projectId, open}[]}` (`projectIdeas`: one entry per project, `open` is the count of that project's own (cardless) unhandled ideas, see PROJECT-IDEAS-SPEC §5; keyed by projectId, and like the other collections it goes through patch).
+It does not contain the events, ideas, artifacts, workpads or plans collections, and no full Board schema can accept this value.
 
-`CardFacts = {taskId, wrapped:boolean, questions:number, openIdeas:number, external?:{text,family}, workpad:WorkpadSignal|null, finishedAt:string, turnEndedAt?:string, hasArtifacts:boolean, hasExternal:boolean, hasWorkpad:boolean, hasNextMoves:boolean, sessions:SessionFacts[]}`。
+`CardFacts = {taskId, wrapped:boolean, questions:number, openIdeas:number, external?:{text,family}, workpad:WorkpadSignal|null, finishedAt:string, turnEndedAt?:string, hasArtifacts:boolean, hasExternal:boolean, hasWorkpad:boolean, hasNextMoves:boolean, sessions:SessionFacts[]}`.
 
-`SessionFacts = {agentId, latestTurn?:{action:'agent.turn_started'|'agent.turn_ended',at:string}, questionEventId:string|null, silent:boolean, hadTurnEnd:boolean}`。只含事件派生事实，列出此卡事件中出现的 agent；未出现的 live session 使用无事件默认事实。turn 取原数组最后一次，不改为时间排序；max turn-end / finishedAt 分别沿用现有 sort/olderFinished 规则。
+`SessionFacts = {agentId, latestTurn?:{action:'agent.turn_started'|'agent.turn_ended',at:string}, questionEventId:string|null, silent:boolean, hadTurnEnd:boolean}`. It contains only event-derived facts, and lists the agents that appear in this card's events; a live session that does not appear uses the default no-event facts. The turn takes the last one of the original array, and is not changed to time ordering; the max turn-end / finishedAt follow the existing sort/olderFinished rules respectively.
 
-CardFacts 由 daemon 对同一 store.view 快照复用 shared/progress、wrapup-state、workpad、next-moves 等现有规则计算，不能维护另一个近似算法。Attention 将“扫描事件”与“组合 agent/receipt 状态”分开复用同一引擎；不传假 BoardEvent 来适配旧 API。
+CardFacts are computed by the daemon on the same store.view snapshot, reusing the existing rules in shared/progress, wrapup-state, workpad, next-moves and so on, and another approximate algorithm must not be kept. Attention separates "scanning events" from "combining agent/receipt state" and reuses the same engine; no fake BoardEvent is passed to adapt the old API.
 
-响应三选一：`{etag,value:BoardOverview}`、`{etag}`、`{etag,patch:{baseEtag,revision,projects?,tasks?,links?,attentionDismissals?,cards?}}`。每项 collection patch 为 `{set:Item[],remove:string[],order?:string[]}`；前三个以 id、后两种以 taskId 关联。set 更新/追加，remove 删除，order 在必要时明确所有保留 id 的顺序。cards 与 tasks 一同反映删除/重绑。
+The response is one of three: `{etag,value:BoardOverview}`, `{etag}`, `{etag,patch:{baseEtag,revision,projects?,tasks?,links?,attentionDismissals?,cards?}}`. Each collection patch is `{set:Item[],remove:string[],order?:string[]}`; the first three are keyed by id and the last two by taskId. set updates/appends, remove deletes, and order explicitly gives the order of all kept ids when necessary. cards and tasks together reflect deletion/rebinding.
 
-server 独立 OverviewDeltas 缓存最近 32 个 etag 的 collection 指纹，lookup 先于 eviction。etag 带 overview-v1 域，与 full/chip 不混用。未知/遗失 etag 返回当前完整 overview，绝不回退到完整 Board。patch 没有 events-tail 假设；revision-only patch 合法。patch 更新保持未变 item 引用。
+The server has a separate OverviewDeltas cache holding the collection fingerprints of the latest 32 etags, with lookup before eviction. The etag carries the overview-v1 domain, not mixed with full/chip. An unknown/lost etag returns the current full overview, and never falls back to the full Board. A patch has no events-tail assumption; a revision-only patch is legal. A patch update keeps the references of unchanged items.
 
-## 4. 客户端缓存、可见性与交接
+## 4. Client cache, visibility and handoff
 
-- key `['flowly','overview',hostId,1]`；与 `boardKey`、native chip、scoped cardLink 分离。createChangedReader 只在自己持有的 cache update count 仍匹配时发送 etag。
-- patch 校验 baseEtag 与请求基线；本地无基线/缓存被替换/无法应用时最多重读一次当前 overview。无 value 的 full 响应报错；不递归重试完整 Board。
-- native compact 总览可见时 overview 每 3 秒轮询；被详情/page/form 覆盖时停止 overview 自有 interval。没有取消其他消费者共享请求。
-- 完整 board observer 在普通总览始终 disabled、无 interval。显式功能打开时才 enabled；可见 drawer 仍接手既有 poll，避免 root/drawer 双 interval。项目 page 或 form 的既有完整输入仍可刷新。
-- metadata 展示可比较两种已取得数据的 revision：只有共同 projects/tasks/links 字段可使用较新版本；完整详情只能取完整来源，overview 永不进入 preferFullBoard、CardBoardContext 或完整 cache。较新完整删除不能被旧 overview 复活。
-- Overview 刷新/错误/空值不卸载根树。详情开关沿用同一 motion presence；Back 恢复 overview，保留项目/lane/filter/scroll。
-- Link/workspace/idea 路由是显式完整功能入口，不属于普通总览零 full 请求窗口。route/requestId guard、fresh scoped task + exact session refresh、动作 fresh 校验一律不改。
-- 用户手动 Refresh 和动作结束刷新当前展示源，并使另一源失效但不强制拉取不可见数据。不可因 refetch() 绕过 enabled 在总览触发 full Board。
-- 初读 overview 错误显示原错误/Retry，不回退自动 full read；刷新失败保留旧展示并显示错误。agents 未就绪/失败仍 Loading sessions / Session state unavailable，read state 失败只按既有规则抑制 unread，不误报无 Attention。
-- 不新增可见设置/入口/文案；不需 onboarding 或 whats-new 通知，原行为与指导不变。
+- Key `['flowly','overview',hostId,1]`; separate from `boardKey`, the native chip and the scoped cardLink. createChangedReader sends an etag only when the cache update count it holds still matches.
+- A patch validates baseEtag against the request baseline; when there is no local baseline/the cache was replaced/it cannot be applied, re-read the current overview at most once. A full response without a value is an error; the full Board is not retried recursively.
+- While the native compact overview is visible the overview polls every 3 seconds; when covered by detail/page/form, the overview's own interval stops. Shared requests of other consumers are not cancelled.
+- The full board observer is always disabled in the ordinary overview, with no interval. It is enabled only when an explicit feature opens; a visible drawer still takes over the existing poll, to avoid a root/drawer double interval. The existing full inputs of a project page or form can still refresh.
+- Metadata display can compare the revisions of the two data already obtained: only the common projects/tasks/links fields may use the newer version; full detail can only take the full source, and the overview never enters preferFullBoard, CardBoardContext or the full cache. A newer full deletion cannot be resurrected by an older overview.
+- An overview refresh/error/empty value does not unmount the root tree. The detail toggle keeps the same motion presence; Back restores the overview, keeping project/lane/filter/scroll.
+- Link/workspace/idea routes are explicit full-feature entry points, and do not belong to the ordinary overview zero-full-request window. The route/requestId guard, fresh scoped task + exact session refresh, and action fresh validation are all unchanged.
+- The user's manual Refresh and the refresh when an action ends refresh the currently shown source and invalidate the other source, without forcing a fetch of invisible data. A refetch() must not bypass enabled to trigger a full Board in the overview.
+- An error on the first overview read shows the original error/Retry, with no automatic fallback to a full read; a refresh failure keeps the old display and shows the error. When agents are not ready/failed it is still Loading sessions / Session state unavailable, and a read state failure only suppresses unread by the existing rules, without falsely reporting no Attention.
+- No new visible setting/entry point/copy; no onboarding or whats-new notice is needed, and the original behavior and guidance are unchanged.
 
-## 5. 阶段 2 完整规范（2026-10-24 已授权实施）
+## 5. Phase 2 full spec (authorized for implementation 2026-10-24)
 
-独立 `cards.detail-changed {taskId,workspaceId,etag?}`：每次 server.view 核对 task/workspace/project，不匹配/删除返回 unavailable 错误，绝不取缓存授权。响应 `{etag,value?:CardDetail}`，第一版仅 ifChanged，不带分页/patch；etag 带 detail-v1/task/workspace 域，覆盖全部详情输入而非仅 task revision。
+A standalone `cards.detail-changed {taskId,workspaceId,etag?}`: each call checks task/workspace/project against server.view, returns an unavailable error on a mismatch/deletion, and never takes authorization from the cache. The response is `{etag,value?:CardDetail}`; the first version is ifChanged only, with no paging/patch; the etag carries the detail-v1/task/workspace domain and covers all detail inputs, not just the task revision.
 
-`CardDetail = {version:1,revision,task:Task,project:Project,events:BoardEvent[],ideas:Idea[],artifacts:Artifact[],workpad:Workpad|null,plans:PlanSnapshot[],links:Link[],relatedTasks:CardReference[],attentionDismissal:AttentionDismissal|null}`。events 为该卡全部现存最多 100 条含正文；relatedTasks 只含 links/idea references 所需 id/projectId/title/status/archivedAt。没有全项目 Task 或其他卡正文。
+`CardDetail = {version:1,revision,task:Task,project:Project,events:BoardEvent[],ideas:Idea[],artifacts:Artifact[],workpad:Workpad|null,plans:PlanSnapshot[],links:Link[],relatedTasks:CardReference[],attentionDismissal:AttentionDismissal|null}`. events is all of the card's currently stored events, at most 100, with body; relatedTasks contains only the id/projectId/title/status/archivedAt needed by links/idea references. There are no project-wide Tasks or other cards' bodies.
 
-项目上下文独立 `projects.card-index-changed {projectId,etag?}` → `{etag,value?:{version:1,projectId,revision,cards:CardReference[],tags:TagStat[]}}`；CardReference 还包含 position/type/priority/workspaceId，以完整当前项目未删除卡（含 archived）满足候选规则。LinkPicker 沿原关系/归档/搜索/排序规则应用（title 搜索），tags 用原 projectTagStats 结果，Ideas 引用标题覆盖 linked/source/accepted targets；缺少跨项目引用时详情带必要 relatedTasks，不假称完整候选。
+The project context is a standalone `projects.card-index-changed {projectId,etag?}` → `{etag,value?:{version:1,projectId,revision,cards:CardReference[],tags:TagStat[]}}`; CardReference also contains position/type/priority/workspaceId, and satisfies the candidate rules with the project's full current undeleted cards (including archived). LinkPicker applies the original relation/archive/search/sort rules (title search), tags use the original projectTagStats result, and Ideas reference titles cover linked/source/accepted targets; when a cross-project reference is missing, the detail carries the necessary relatedTasks, and does not falsely claim complete candidates.
 
-- key 详情含 host/1/taskId/workspaceId，项目索引含 host/1/projectId；独立 changed readers，Back 后晚到结果可入该 scope cache但不得导航。
-- 所有 drawer section 显式 CardDetailContext/query；不创建 full observer 再 proxy 返回。冷 link 仍 fresh CardDetail + exact session refresh；普通开卡用展示 cache先显，动作独立 fresh 校验。
-- 可见详情每 3 秒 etag，session preview 时暂停不必要详情轮询；状态 stream仍独立。原完整 board轮询、direct-card后台 full删掉。
-- 详情写操作刷新详情并 invalidate overview/project index；服务端写路径仍校验当前 task/project revision、真实 workspace/session，不能通过旧详情授权。
-- 删除/重绑刷新失败为不可用，不能回退旧数据“复活”；刷新网络错误可保留过期展示，动作必须拒绝fresh失败。input key/focus/草稿/scroll不由响应替换而重置。
-- Back 只恢复 overview，冷 cache显示既有加载/错误；旧 route结果不切卡、不重开 modal、不重置输入。
-- Activity 第一版不拆请求、不分页，完整语义不以“仅显示12条”裁减。
-- 项目 Ideas/Memory/Insights 不隐含订阅完整 Board；各用显式页面 query。web 仍旧契约，保留旧RPC便于兼容/回退。
-- 验收：直达详情及停留 full请求0；全部section mounted检查；标签候选/相关标题/旧回调/删除/fresh拒绝；不丢正文或输入。128KiB仅当前90KB测试卡参考，异常大内容单列不裁。
+- The detail key contains host/1/taskId/workspaceId and the project index host/1/projectId; separate changed readers, and after Back a late result can enter that scope's cache but must not navigate.
+- Every drawer section uses an explicit CardDetailContext/query; a full observer is not created and then proxied back. A cold link is still fresh CardDetail + exact session refresh; an ordinary card open shows the display cache first, and actions are validated fresh independently.
+- Visible detail uses etag every 3 seconds, and unnecessary detail polling pauses during session preview; the status stream remains independent. The original full board polling and the direct-card background full are removed.
+- Detail write operations refresh the detail and invalidate the overview/project index; the server write path still validates the current task/project revision and the real workspace/session, and cannot authorize through old detail.
+- A deletion/rebinding refresh that fails is unavailable, and cannot fall back to old data and "resurrect"; a refresh network error may keep a stale display, and actions must reject a fresh failure. The input key/focus/draft/scroll are not reset by a response replacing them.
+- Back only restores the overview, and a cold cache shows the existing loading/error; an old route result does not switch cards, reopen a modal or reset input.
+- Activity does not split the request or paginate in the first version, and the full semantics are not trimmed to "show only 12".
+- Project Ideas/Memory/Insights do not implicitly subscribe to the full Board; each uses an explicit page query. Web keeps the old contract, and the old RPCs are kept for compatibility/rollback.
+- Acceptance: direct detail and staying there have 0 full requests; a check that all sections are mounted; tag candidates/related titles/old callbacks/deletion/fresh rejection; no loss of body or input. 128KiB is only a reference for the current 90KB test card, and unusually large content is listed separately and not trimmed.
 
-## 6. 阶段 1 验证计划与通过门槛（历史基线；阶段 2 见 §7）
+## 6. Phase 1 verification plan and pass thresholds (historical baseline; see §7 for phase 2)
 
-1. before-code 保存源 manifest/dirty HEAD 和 baseline冻结副本；candidate 同配置冻结，手机两组均使用相同诊断粒度、实际 bundle hash确认、server/read版本一致。
-2. shared/server focused：规则结果逐项等价；多session、乱序时间、空建议、失败turn、事件淘汰、wrap恢复、workpad交付/失效、无事件agent、archived、未知/遗失etag、eviction、add/remove/reorder、revision-only、base mismatch、cache replacement。
-3. client mounted：冷 QueryClient 的 native总览首显/idle、Filter/Sort/Status/Attention等轻菜单不发 full；显式卡片/page/form才允许；Back停full interval并恢复overview；web仍旧查询，fresh导航从不加入overview in-flight。保留组件key、连续动效与MODAL_CLOSE_MS=450，测试不替代真机IME/Reduce Motion。
-4. 命令：`npm run typecheck`；`npx vitest run shared/overview.test.ts server/board-overview.test.ts client/overview-query.test.ts client/session-link-query.test.ts client/attention.test.ts`；Luna full-access mounted runner；最终固定树一次 `npm test`。不为无变化输入重复全量。
-5. 同一三星 RFCW214ZCFA / SM-S911B、原连接、Powered stay awake；三组预定交错 A/B。记录实际源码和bundle hash、数据规模、parent/session恢复与background负载；真实数据变化则标描述性，不能假称固定数据。
-6. 区分 app入口、总览RPC/schema/apply/effect、原生首帧、首显后idle/滚动/Attention、首次卡头和完整详情；UIA selector约7秒不能算触摸延迟，入口失败INVALID。单列每个样本、中位数/最大，不用6样本估计P95/FPS。
-7. 数量门槛：stage1总览首显+5s空闲，完整Board请求0。当前规模overview目标≤300KiB，首屏RPC→effect中位数目标≤1.5s，非预先承诺；报告全部可归属Flowly RPC总字节/次数和宿主native请求的覆盖限制，不能只展示小overview而隐藏等量辅助负载。
-8. 单列首次显式开卡，报告仍沿旧全量路径的耗时及body bytes；不称全导航已快。fresh/删除/错误、搜索计数、输入或连续动画任一回归拒绝候选。
-9. 产品测试/Luna/phone证据独立；PASS/FAIL/INVALID/UNRUN分列。恢复正式入口与日志、停止owned进程、精确删除本轮owned测试session/native+plugin核验，清理ownedruntime/tools；保留证据归档与共享缓存。UI只操作三星，本轮不碰桌面用户窗口。
-10. 若小overview后仍等待数秒，继续依区段做宿主receive/dispatch/decrypt/JSON/恢复/parse观测；不按线性ms/KB推断，不要求“至少两倍”，不无证据改crypto/协议/存储。
+1. Before the code, save the source manifest/dirty HEAD and a frozen baseline copy; the candidate is frozen with the same config, and both phone groups use the same diagnostic granularity, confirmation of the actual bundle hash, and consistent server/read versions.
+2. shared/server focused: rule results equivalent item by item; multiple sessions, out-of-order times, empty suggestions, failed turns, event eviction, wrap recovery, workpad delivery/invalidation, agents with no events, archived, unknown/lost etag, eviction, add/remove/reorder, revision-only, base mismatch, cache replacement.
+3. client mounted: a cold QueryClient's native overview first display/idle, and light menus such as Filter/Sort/Status/Attention do not send full; only an explicit card/page/form is allowed; Back stops the full interval and restores the overview; web still uses the old query, and fresh navigation is never added to the overview in-flight. Keep the component keys, continuous motion and MODAL_CLOSE_MS=450; tests do not replace real-device IME/Reduce Motion.
+4. Commands: `npm run typecheck`; `npx vitest run shared/overview.test.ts server/board-overview.test.ts client/overview-query.test.ts client/session-link-query.test.ts client/attention.test.ts`; the Luna full-access mounted runner; one `npm test` on the final fixed tree. No full rerun for unchanged inputs.
+5. The same Samsung RFCW214ZCFA / SM-S911B, the original connection, Powered stay awake; three groups of scheduled interleaved A/B. Record the actual source and bundle hash, data scale, parent/session recovery and background load; if real data changes, mark it descriptive, and do not falsely claim fixed data.
+6. Distinguish the app entry, the overview RPC/schema/apply/effect, the native first frame, idle/scrolling/Attention after first display, the first card header and full detail; the UIA selector of about 7 seconds cannot count as touch latency, and an entry failure is INVALID. List each sample, the median/max separately, and do not estimate P95/FPS from 6 samples.
+7. Quantity thresholds: stage1 overview first display + 5s idle, with 0 full Board requests. At the current scale the overview target is ≤300KiB, the median first-screen RPC→effect target is ≤1.5s, not a promise made in advance; report the total bytes/counts of all attributable Flowly RPCs and the coverage limits of the host's native requests, and do not show only a small overview while hiding an equal amount of auxiliary load.
+8. List the first explicit card open separately, reporting the time and body bytes that still go through the old full path; do not claim all navigation is fast. Any regression in fresh/deletion/errors, search counts, input or continuous animation rejects the candidate.
+9. Product tests/Luna/phone evidence are independent; PASS/FAIL/INVALID/UNRUN are listed separately. Restore the official entry and logs, stop owned processes, precisely delete this round's owned test sessions/verify native+plugin, clean up the owned runtime/tools; keep the evidence archive and the shared cache. The UI is operated only on the Samsung, and this round does not touch the user's desktop window.
+10. If a wait of several seconds remains after the small overview, continue to observe by segment the host receive/dispatch/decrypt/JSON/recovery/parse; do not infer from linear ms/KB, do not require "at least two times", and do not change crypto/protocol/storage without evidence.
 
 
-## 7. 阶段 2 实施与验收清单（2026-10-24）
+## 7. Phase 2 implementation and acceptance checklist (2026-10-24)
 
-阶段 1 的旧 full 路径说明保留为 baseline，不是阶段 2 的许可。普通手机开卡、chip 直达、详情停留、LinkPicker、返回及项目页面不再触发 full。显式 Task/Project 编辑表单、删除/移除/wrap-up 与旧 idea/workspace 入口仍可按需读 full；独立 native popover 动作的旧 fresh read 不在本次展示路径去耦范围。web/tablet 维持完整 Board 查询，给 drawer 生成明确的 CardDetail 适配值，不将任何局部值放入 boardKey。
+The old full-path description of phase 1 is kept as a baseline and is not a permission for phase 2. An ordinary phone card open, chip direct link, staying in detail, LinkPicker, return and project pages no longer trigger full. Explicit Task/Project edit forms, delete/remove/wrap-up and the old idea/workspace entry points can still read full on demand; the old fresh read of a standalone native popover action is outside the scope of decoupling the display path this time. Web/tablet keep the full Board query, generating an explicit CardDetail adapter value for the drawer, and no partial value is put into boardKey.
 
-| 消费者 | 明确数据源 | 加载、错误与刷新 |
+| Consumer | Explicit data source | Loading, errors and refresh |
 |---|---|---|
-| 卡头/Activity/会话上下文 | CardDetail.task/project/events，保留全部已存正文 | 普通开卡先展示 overview 卡头；详情到达后原位更新；冷 chip 先 fresh detail 与精确 session refresh，禁止后台 full |
-| Progress | detail.project/workpad；独立 summaries | 不订阅 board；summary 刷新不拉详情以外的数据 |
-| Workpad/plans | detail.workpad/plans | 写后使 detail/overview/index 失效；不改变输入 key |
-| Tags | detail.task；projectIndex.tags | index 未到不可假装没有建议；编辑/保存保留原 native input 状态 |
-| Links/Origin | detail.links + relatedTasks | 相关卡缺失显示原已删除语义；不假装完整项目 |
-| LinkPicker | projectIndex.cards + 当前 detail.links | 按项目、归档、标题、lane/position 保留规则；加载/失败不显示成功空候选，重试重新读该 scope |
-| Ideas/Artifacts | detail.ideas/artifacts；relatedTasks 提供 accepted/source 标题 | 乐观状态与 editor 不因 refetch 重挂载；所有更新失效对应 scopes |
-| 项目 Ideas | 独立 projects.ideas-changed + overview.tasks | 完整项目 ideas，不限 open；加载/失败显式区分，不能空数组冒充空页 |
-| Memory/Insights | 原独立页面 query + overview metadata | 移除根 full 门控；无需完整 Board |
-| root refresh/Back | 当前 detail 或 overview | Back 恢复 overview；详情 interval 在 session preview/关闭时暂停；已发请求可只写其独立 cache |
+| Card header/Activity/session context | CardDetail.task/project/events, keeping all stored bodies | An ordinary card open shows the overview card header first; after the detail arrives it updates in place; a cold chip first does fresh detail and an exact session refresh, with background full forbidden |
+| Progress | detail.project/workpad; standalone summaries | Does not subscribe to the board; a summary refresh does not pull data other than detail |
+| Workpad/plans | detail.workpad/plans | After a write, invalidate detail/overview/index; the input key does not change |
+| Tags | detail.task; projectIndex.tags | Until the index arrives it cannot pretend there are no suggestions; edit/save keeps the original native input state |
+| Links/Origin | detail.links + relatedTasks | A missing related card shows the original deleted semantics; does not pretend to be the full project |
+| LinkPicker | projectIndex.cards + the current detail.links | Keeps the rules by project, archive, title, lane/position; loading/failure does not show as a successful empty candidate list, and retry re-reads that scope |
+| Ideas/Artifacts | detail.ideas/artifacts; relatedTasks provides accepted/source titles | Optimistic state and the editor are not remounted by a refetch; all updates invalidate the matching scopes |
+| Project Ideas | standalone projects.ideas-changed + overview.tasks | The project's full ideas, not limited to open; loading/failure are distinguished explicitly, and an empty array cannot pass for an empty page |
+| Memory/Insights | The original standalone page query + overview metadata | Remove the root full gate; no full Board needed |
+| root refresh/Back | The current detail or overview | Back restores the overview; the detail interval pauses during session preview/when closed; a request already sent may only write its own standalone cache |
 
-project index 的 cards 为 taskSchema.pick 后的 CardReference（id/projectId/title/status/archivedAt/position/type/priority/workspaceId）；tags 复用 projectTagStats 的建议上限与排序。CardDetail.relatedTasks 含本卡、链接两端、origin 与已接受 idea 目标中仍存在的卡。project ideas 契约 strict `{projectId,etag?}`，输出 `{etag,value?:{version:1,projectId,revision,ideas}}`，独立 host/version/project key 和 etag 域。三个新 read 都在 store.view 当前快照上校验实体，未知 scope 拒绝；详情错误不能退回缓存授权。etag 对完整 DTO 内容哈希，分别带 detail/index/project-ideas 域，不只看 task revision；无基线 same 最多重读一次，无值报错，不退回 board。
+The project index's cards are the CardReference after taskSchema.pick (id/projectId/title/status/archivedAt/position/type/priority/workspaceId); tags reuse the suggestion limit and ordering of projectTagStats. CardDetail.relatedTasks contains this card, both ends of the links, the origin, and the still-existing cards among accepted idea targets. The project ideas contract is strict `{projectId,etag?}`, with output `{etag,value?:{version:1,projectId,revision,ideas}}`, an independent host/version/project key and etag domain. All three new reads validate the entity on the current store.view snapshot, and an unknown scope is rejected; a detail error cannot fall back to cache authorization. The etag is a content hash of the whole DTO, carrying the detail/index/project-ideas domain respectively, and does not look only at the task revision; a same with no baseline re-reads at most once, no value is an error, and it does not fall back to the board.
 
-CardDetailContext 是显式详情及项目上下文；子区段不调用 useBoardQuery，不能先建立 full observer 再替换 data。根详情 observer 只负责数据，唯一 interval observer 由可见 drawer 管理；关闭或 session preview 停 interval，不取消其他读者共享请求。项目 index 同样只在消费界面启用。写后统一 invalidate 展示 scopes；fresh send/context 与所有服务端 revision/workspace/session 检查保持原路径。
+CardDetailContext is the explicit detail and project context; sub-sections do not call useBoardQuery, and cannot first create a full observer and then replace the data. The root detail observer is responsible only for data, and the only interval observer is managed by the visible drawer; closing or session preview stops the interval, without cancelling other readers' shared requests. The project index is likewise enabled only by the consuming UI. After a write, the displayed scopes are invalidated uniformly; fresh send/context and all server revision/workspace/session checks stay on the original path.
 
-验证：focused `npx vitest run shared/card-detail.test.ts server/card-detail.test.ts client/card-detail-query.test.ts client/session-link-query.test.ts`；父方 `npm run typecheck`；Luna full-access mounted 覆盖普通/直达/各区段/LinkPicker/页面、冷 cache 同 etag、删除/重绑/晚 route/输入 identity、详情与 full in-flight 隔离；最终稳定树一次 `npm test`。同三星预定 2 对交错 baseline/candidate，记录冷首次开卡、至少 6 秒详情停留、session preview 及 Back + 5 秒空闲；请求计数/响应 JSON bytes/内部 RPC→schema→effect 与 UI ready 分开。baseline 首卡旧 full 成本单列，candidate 额外 detail/index 请求总量也单列；128KiB 是参考，不裁内容。固定源 hash 前后校验，真实业务数据变化单列，不承诺纯净固定数据或 FPS。连续 motion、fresh 与 450ms 任一回归拒绝候选。截图/IME/Reduce Motion 无真实操作时标 UNRUN。
+Verification: focused `npx vitest run shared/card-detail.test.ts server/card-detail.test.ts client/card-detail-query.test.ts client/session-link-query.test.ts`; the parent `npm run typecheck`; Luna full-access mounted covering ordinary/direct/each section/LinkPicker/pages, the same etag with a cold cache, deletion/rebinding/late route/input identity, detail vs full in-flight isolation; one `npm test` on the final stable tree. The same Samsung with 2 scheduled interleaved baseline/candidate pairs, recording the cold first card open, at least 6 seconds of staying in detail, session preview and Back + 5 seconds idle; request counts/response JSON bytes/the internal RPC→schema→effect are separate from UI ready. The baseline's first-card old full cost is listed separately, and the candidate's extra detail/index request total is also listed separately; 128KiB is a reference and content is not trimmed. The fixed source hash is checked before and after, real business data changes are listed separately, and no pure fixed data or FPS is promised. Any regression in continuous motion, fresh or 450ms rejects the candidate. Screenshots/IME/Reduce Motion are marked UNRUN when there is no real operation.
 
-阶段 2 交付（2026-10-24）：367 文件固定快照，Luna最终 full 1014/1014、focused13/13、父 mounted7/7（v5仅补web focus样式）及typecheck通过。同三星有效2+2样本，RPC→data effect中位数7.839s→2.634s；candidate开卡/停留/session preview/Back/idle及另一次native chip路由均0 full。数据与UNVERIFIED/INVALID边界见 [阶段2报告](verification/card-detail-2026-10-24/README.md)。不据此宣称触摸首帧/FPS或整条cold entry改善。
+Phase 2 delivery (2026-10-24): a fixed snapshot of 367 files, Luna final full 1014/1014, focused 13/13, parent mounted 7/7 (v5 only adds web focus styling) and typecheck passed. The same Samsung had 2+2 valid samples, RPC→data effect median 7.839s→2.634s; the candidate card open/staying/session preview/Back/idle and another native chip route all had 0 full. The data and the UNVERIFIED/INVALID boundaries are in the [phase 2 report](verification/card-detail-2026-10-24/README.md). It does not claim touch first-frame/FPS or an improvement of the whole cold entry.
