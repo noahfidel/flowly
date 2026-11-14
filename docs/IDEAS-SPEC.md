@@ -1,175 +1,175 @@
-# Ideas 卡片：agent 提议下一步任务
+# Ideas card: an agent proposes next tasks
 
-状态：用户 2026-10-15 确认设计（来源 A：agent 工具；显示 A：来源卡侧栏 + 角标；建卡 A：预填新建表单），并要求直接实现、不再审阅 spec。卡片任务 `fa62fb3d`。
+Status: design confirmed by the user on 2026-10-15 (source A: agent tool; display A: source card sidebar + badge; card creation A: pre-filled new-card form), who asked to implement it directly with no further spec review. Card task `fa62fb3d`.
 
-## 1. 目的
+## 1. Purpose
 
-agent 工作时常发现本卡范围之外、值得做的后续工作（顺带发现的 bug、重构机会、下一阶段功能）。现在这些只留在对话里，用户要自己记、自己重新描述上下文。
+While working, an agent often finds worthwhile follow-up work outside this card's scope (a bug found in passing, a refactor opportunity, a next-phase feature). Today these stay only in the conversation, and the user has to remember them and re-describe the context.
 
-Ideas 让 agent 把它们作为结构化建议挂到来源卡上。用户觉得好时有两条路（2026-10-16 用户要求“两种路径都要支持”）：
+Ideas let the agent attach them to the source card as structured suggestions. When the user likes one there are two paths (2026-10-16, the user asked, their words translated: "Both paths must be supported"):
 
-- **在本卡继续**：idea 是当前任务的延伸，作为一条指令发回本卡的 session，在原上下文中接着做；
-- **新建卡片**：idea 是发散性的工作，打开预填好的新建表单，带着上下文建出新卡。
+- **Continue in this card**: the idea is an extension of the current task, sent as an instruction back to this card's session, to continue in the original context;
+- **Create a new card**: the idea is divergent work, which opens a pre-filled new-card form, creating a new card with the context.
 
-不好就忽略。
+If it is not good, ignore it.
 
-idea 不是任务卡：不进泳道、不占 workspace、不改来源卡状态或 task revision。只有用户点 **Good idea** 并选择一条路才会发生动作；agent 永远不自行建卡或派活（v1 不做自动分配）。
+An idea is not a task card: it does not enter a lane, does not take a workspace, and does not change the source card's status or task revision. Action happens only when the user clicks **Good idea** and picks a path; the agent never creates a card or assigns work on its own (v1 has no automatic assignment).
 
 Amended 2026-10-29 (user decision, [AGENT-CARDS-SPEC](AGENT-CARDS-SPEC.md) D1): an agent may create or edit cards with `flowly_create_card` / `flowly_update_card` when the user asks it to in the session. Follow-up work the user did not ask for is still an idea, and an idea still becomes a card only through the user. No session is started on an agent-created card.
 
-## 2. 数据
+## 2. Data
 
 ### 2.1 Idea
 
-存在 `board.json` 的 `ideas` 数组（与卡片、事件、回执同一个文件），使提出 idea 与回执、从 idea 建卡与标记 accepted 都在同一次原子事务中完成，客户端也随现有 etag 看板读取拿到 ideas，不新增轮询。旧文件没有该字段时读作 `[]`；看板版本仍为 v4，不迁移。
+Stored in the `ideas` array of `board.json` (the same file as cards, events and receipts), so that proposing an idea together with its receipt, and creating a card from an idea together with marking it accepted, both complete in one atomic transaction, and the client also gets ideas with the existing etag board read, with no new polling. An old file without the field reads as `[]`; the board version stays v4, with no migration.
 
 ```
-{ id, taskId（来源卡）, projectId, agentId, eventId（提出时的 Activity 事件）,
-  title    ≤120 字符，非空
-  detail   ≤4000：要做什么、验收标准
-  rationale ≤1000：为什么值得做、由什么触发
-  context  ≤4000：新任务需要的文件、分支、发现（新卡的 agent 看不到来源卡对话）
+{ id, taskId (source card), projectId, agentId, eventId (the Activity event when proposed),
+  title    ≤120 characters, non-empty
+  detail   ≤4000: what to do, acceptance criteria
+  rationale ≤1000: why it is worth doing, what triggered it
+  context  ≤4000: the files, branch and findings the new task needs (the agent of a new card cannot see the source card's conversation)
   type?: TaskType, priority?: Priority,
-  scope?: "here" | "new",      // agent 的建议：在本卡继续 / 新建卡片；缺省读作 "new"
+  scope?: "here" | "new",      // the agent's suggestion: continue in this card / create a new card; a default reads as "new"
   status: "open" | "accepted" | "dismissed",
-  acceptedTaskId?: string,     // 选择“新建卡片”后建出的卡
-  acceptedAgentId?: string,    // 选择“在本卡继续”时发往的 session
+  acceptedTaskId?: string,     // the card created after choosing "create a new card"
+  acceptedAgentId?: string,    // the session it was sent to when choosing "continue in this card"
   createdAt, updatedAt }
 ```
 
-- 每张卡最多 10 个 `open` idea；每张卡最多保存 50 个 idea，超出时删除最早的非 open idea。
-- `accepted` 是终态，不能再改。
+- At most 10 `open` ideas per card; at most 50 ideas saved per card, and beyond that the earliest non-open idea is deleted.
+- `accepted` is a final state and cannot be changed again.
 
 ### 2.2 Task.origin
 
-卡片新增可选字段 `origin: { taskId, ideaId }`，表示由哪张卡的哪个 idea 建出。旧卡没有该字段，不迁移。来源卡或 idea 后来被删除时字段保留，界面显示为已删除。
+A card gains an optional field `origin: { taskId, ideaId }`, meaning which idea of which card it was created from. Old cards do not have the field and are not migrated. When the source card or idea is later deleted, the field is kept, and the UI shows it as deleted.
 
-2026-10-16 起由 [CARD-LINKS-SPEC](CARD-LINKS-SPEC.md) 取代展示：建卡时同时写一条 `derived` 关联，界面与工具只读关联；`origin` 仅作历史记录保留。
+Since 2026-10-16 the display is replaced by [CARD-LINKS-SPEC](CARD-LINKS-SPEC.md): creating the card also writes a `derived` link, the UI and tools read only links; `origin` is kept only as a historical record.
 
-### 2.3 回执与事件
+### 2.3 Receipts and events
 
-- 回执 `action` 新增 `"idea"`；`status` 记录提出时卡片的状态。
-- Activity 事件：
-  - `idea_proposed`（agent，来源卡，note=标题）
-  - `idea_accepted`（human，来源卡，note=`标题 → 新卡标题`）
-  - `idea_adopted`（human，来源卡，agentId=目标 session，note=标题）
-  - `idea_dismissed`、`idea_restored`（human，来源卡，note=标题）
-  - `idea_edited`、`idea_dismissed`、`idea_removed`（agent，来源卡，agentId=调用的 session，note=标题；§3.1）
-- 回执 `action` 另有 `"idea_update"`、`"idea_remove"`（§3.1）。
-- 2026-10-22 Astra 审查修复：新 idea 提出、更新和删除回执同时持久化可选 `ideaId`，重放优先返回回执保存的 ID；idea 被删除或自动裁剪后仍返回原 ID，不复活实体、不重复事件。旧回执无该字段时，更新/删除从请求 ID 兼容读取，提出仍从保留的 idea 反查；已删除的旧实体无法事后恢复 ID，不做数据迁移。
-- 新增 `idea_edited`、`idea_removed` Activity 动作使用 `msg()` 标记的本地化映射（英文键 `Edited the idea`、`Removed the idea`）和全部语言目录，随界面语言切换。
+- The receipt `action` gains `"idea"`; `status` records the card's status when proposed.
+- Activity events:
+  - `idea_proposed` (agent, source card, note=title)
+  - `idea_accepted` (human, source card, note=`title → new card title`)
+  - `idea_adopted` (human, source card, agentId=target session, note=title)
+  - `idea_dismissed`, `idea_restored` (human, source card, note=title)
+  - `idea_edited`, `idea_dismissed`, `idea_removed` (agent, source card, agentId=the calling session, note=title; §3.1)
+- The receipt `action` also has `"idea_update"`, `"idea_remove"` (§3.1).
+- 2026-10-22 Astra review fix: the receipts of a new idea proposal, update and delete also persist an optional `ideaId`, and a replay returns the ID saved in the receipt first; when an idea has been deleted or auto-pruned the original ID is still returned, with no revival of the entity and no duplicate event. An old receipt without the field is read compatibly from the request ID for update/delete, and a proposal is still looked up from the retained idea; the ID of an old deleted entity cannot be restored afterwards, and no data migration is done.
+- The new `idea_edited`, `idea_removed` Activity actions use a localized mapping marked with `msg()` (English keys `Edited the idea`, `Removed the idea`) and all language catalogs, and switch with the UI language.
 
-## 3. Agent 工具 `flowly_propose_idea`
+## 3. Agent tool `flowly_propose_idea`
 
-输入（strict）：
+Input (strict):
 
 ```
-{ expectedRevision, request,             // 同其他写工具，来自 flowly_get_task
+{ expectedRevision, request,             // same as the other write tools, from flowly_get_task
   title, detail, rationale,
   context?: string = "",
   type?: "feature"|"bugfix"|"research"|"refactor"|"docs"|"chore",
   priority?: "low"|"normal"|"high"|"urgent",
-  scope?: "here"|"new" = "new" }   // here：本卡目标的延伸，本卡 session 带着现有上下文就能接着做；new：发散性工作
+  scope?: "here"|"new" = "new" }   // here: an extension of this card's goal, which this card's session can continue with the existing context; new: divergent work
 ```
 
-- 与 `flowly_report_progress` 相同的身份、签名、过期、revision、归档和已完成检查；不改卡片状态或 revision。
-- 重放：同一 request 同一参数返回原回执与原 `ideaId`（`replayed: true`）；参数不同报 `REQUEST_REUSED`。
-- 错误：
-  - `IDEA_DUPLICATE`：本卡已有同标题的 open idea（去首尾空白、忽略大小写），消息中带已有 idea ID。
-  - `IDEA_LIMIT`：本卡已有 10 个 open idea。
-- 输出：`toolResultSchema`，多一个 `ideaId`。
-- `flowly_get_task` 的上下文新增 `ideas: [{ id, title, status, scope?, acceptedTaskId?, acceptedAgentId? }]`（本卡全部 idea），供 agent 避免重复。
-- CLI 新增 `idea` 子命令：`idea --request-file <snapshot> --title … --detail … --rationale … [--context …] [--type …] [--priority …] [--scope here|new]`（不需要 `--note`）。HTTP `/api` 的 `action` 新增 `"idea"`。
+- The same identity, signature, expiry, revision, archived and finished checks as `flowly_report_progress`; it does not change the card status or revision.
+- Replay: the same request with the same parameters returns the original receipt and the original `ideaId` (`replayed: true`); different parameters report `REQUEST_REUSED`.
+- Errors:
+  - `IDEA_DUPLICATE`: this card already has an open idea with the same title (trimmed, case-insensitive), and the message carries the existing idea ID.
+  - `IDEA_LIMIT`: this card already has 10 open ideas.
+- Output: `toolResultSchema`, with one extra `ideaId`.
+- The context of `flowly_get_task` adds `ideas: [{ id, title, status, scope?, acceptedTaskId?, acceptedAgentId? }]` (all of this card's ideas), so the agent avoids duplicates.
+- The CLI adds an `idea` subcommand: `idea --request-file <snapshot> --title … --detail … --rationale … [--context …] [--type …] [--priority …] [--scope here|new]` (no `--note` needed). The `action` of the HTTP `/api` adds `"idea"`.
 
-### 3.1 Agent 管理本卡的 idea（2026-10-22 卡片“扩展idea工具”）
+### 3.1 Agent manages this card's ideas (2026-10-22, card "Extend the idea tools")
 
-用户要求 agent 能自行管理 ideas（关闭、修改、删除），例如用户在对话里驳回了某个提议，agent 直接把它关掉，而不是一直挂在卡上。
+The user asked that an agent can manage ideas itself (close, edit, delete); for example when the user rejects a proposal in the conversation, the agent closes it directly instead of leaving it hanging on the card.
 
-- `flowly_update_idea { expectedRevision, request, id, title?, detail?, rationale?, context?, type?, priority?, scope?, tags?, status?: "dismissed" }`：只传要改的字段（`tags` 整体替换建议标签，`[]` 清空）。`status: "dismissed"` 关闭 idea，与用户点 Dismiss 结果相同（进入 Closed 分组，用户可 Restore）。改字段与关闭可在同一次调用里完成，各记一条事件（先 `idea_edited`，后 `idea_dismissed`）。
-- `flowly_remove_idea { expectedRevision, request, id }`：删除 idea，用于提错或重复的。用户驳回的推荐用 dismiss（保留可见、可恢复），删除只留下 `idea_removed` 事件。
-- 范围与约束：
-  - 只能操作本卡（连接所绑定的卡）上的 idea，本卡任何 session 提出的都可以；其他卡的 id 报 `IDEA_NOT_FOUND`。
-  - `accepted` 是终态：改、关、删都报 `IDEA_CLOSED`。
-  - 只有 `open` 的 idea 能改字段；`dismissed` 的只能删除，恢复（Restore）仍只有用户能做，agent 不推翻用户的忽略。再次 dismiss 已忽略的 idea 不改数据、不记事件。
-  - 改标题时与本卡其他 open idea 做同样的重名检查（`IDEA_DUPLICATE`）。没给任何字段也没给 `status` 报 `INVALID_INPUT`；给的值与现值相同则不改数据、不记事件（回执 `eventId` 为空）。
-  - 其余与 `flowly_propose_idea` 相同：身份、签名、过期、revision、归档与已完成卡拒绝（`ARCHIVED` / `TASK_FINISHED`）、Ideas 关闭报 `IDEAS_DISABLED`、重放返回原回执、参数不同报 `REQUEST_REUSED`；不改卡片状态或 task revision。结果的 `ideaId` 为所操作的 idea。
-- CLI：`idea-update --request-file … --id <idea id> [--title --detail --rationale --context --type --priority --scope --tags a,b] [--dismiss]`，`idea-remove --request-file … --id <idea id>`；HTTP `/api` 的 `action` 新增 `"idea_update"`、`"idea_remove"`。
-- 界面不变：侧栏与 Ideas 页照常经 etag 读取刷新，agent 关闭的 idea 出现在 Closed 分组。
+- `flowly_update_idea { expectedRevision, request, id, title?, detail?, rationale?, context?, type?, priority?, scope?, tags?, status?: "dismissed" }`: pass only the fields to change (`tags` replaces the suggested tags as a whole, `[]` clears them). `status: "dismissed"` closes the idea, with the same result as the user clicking Dismiss (it goes into the Closed group, and the user can Restore). Changing fields and closing can be done in one call, each recording one event (first `idea_edited`, then `idea_dismissed`).
+- `flowly_remove_idea { expectedRevision, request, id }`: delete an idea, for ones proposed by mistake or duplicated. For one the user rejected, dismiss is recommended (kept visible and restorable); deleting leaves only an `idea_removed` event.
+- Scope and constraints:
+  - Only ideas on this card (the card the connection is bound to) can be handled, including ones proposed by any session on this card; an id of another card reports `IDEA_NOT_FOUND`.
+  - `accepted` is a final state: edit, close and delete all report `IDEA_CLOSED`.
+  - Only an `open` idea can have fields changed; a `dismissed` one can only be deleted, and Restore can still be done only by the user; an agent does not overturn the user's dismissal. Dismissing an already dismissed idea again changes no data and records no event.
+  - When changing the title, the same duplicate-title check against this card's other open ideas applies (`IDEA_DUPLICATE`). Giving no field and no `status` reports `INVALID_INPUT`; a value equal to the current one changes no data and records no event (the receipt `eventId` is empty).
+  - The rest is the same as `flowly_propose_idea`: identity, signature, expiry, revision, archived and finished card rejected (`ARCHIVED` / `TASK_FINISHED`), Ideas off reports `IDEAS_DISABLED`, a replay returns the original receipt, different parameters report `REQUEST_REUSED`; it does not change the card status or task revision. The `ideaId` of the result is the idea operated on.
+- CLI: `idea-update --request-file … --id <idea id> [--title --detail --rationale --context --type --priority --scope --tags a,b] [--dismiss]`, `idea-remove --request-file … --id <idea id>`; the `action` of the HTTP `/api` adds `"idea_update"`, `"idea_remove"`.
+- The UI is unchanged: the sidebar and the Ideas page refresh as usual through the etag read, and an idea closed by an agent appears in the Closed group.
 
-## 4. Skill 规则（新增一条）
+## 4. Skill rules (one added)
 
-- 每次交付（`in_review`）时回顾本回合注意到的、用户没要求但值得做的东西（顺带发现的 bug、重构机会、后续功能），最多提 3 个，用 `flowly_propose_idea`；确实没有值得提的可以是 0 个，但要有意识地决定，不是忘了（§4.1 在没提过时提醒）。本卡目标的延伸用 `scope=here`（用户可能把它发回本 session 继续）；发散性工作（顺带发现的 bug、重构、独立功能）用 `scope=new`。本卡本来就要求的工作不是 idea，直接做。
-- 每次交付最多 3 个；先看 `ideas` 避免重复。
-- `context` 写清新任务需要的文件、分支和结论，因为新卡的 agent 看不到本对话。
-- idea 只是建议：不要自行开始、不要建卡。
-- 保持本卡 open idea 是最新的（§3.1）：用户在对话里驳回、或本卡已经做了/使它失去意义时用 `flowly_update_idea status=dismissed` 关闭；内容错误或过时用 `flowly_update_idea` 修改；提错（重复）的用 `flowly_remove_idea` 删除。已采纳的是终态，已忽略的只有用户能恢复。
+- At each delivery (`in_review`), review what was noticed this turn that the user did not ask for but is worth doing (a bug found in passing, a refactor opportunity, a follow-up feature), propose at most 3, using `flowly_propose_idea`; if there is truly nothing worth proposing it can be 0, but it should be a conscious decision, not forgetting (§4.1 reminds when none has been proposed). An extension of this card's goal uses `scope=here` (the user may send it back to this session to continue); divergent work (a bug found in passing, a refactor, an independent feature) uses `scope=new`. Work this card was already asked to do is not an idea, just do it.
+- At most 3 per delivery; look at `ideas` first to avoid duplicates.
+- `context` states clearly the files, branch and conclusions the new task needs, because the agent of a new card cannot see this conversation.
+- An idea is only a suggestion: do not start it and do not create a card.
+- Keep this card's open ideas up to date (§3.1): when the user rejects one in the conversation, or this card has already done it / it has lost meaning, close it with `flowly_update_idea status=dismissed`; for wrong or outdated content change it with `flowly_update_idea`; for ones proposed by mistake (duplicates) delete them with `flowly_remove_idea`. An accepted one is final, and a dismissed one can be restored only by the user.
 
-### 4.1 交付时提醒（已实现，2026-10-20）
+### 4.1 Delivery-time reminder (implemented, 2026-10-20)
 
-2026-10-20 卡片“Delivery-time reminders for missing next moves and ideas”。skill 里“通常在交付时”是可选的第二次调用，agent 做完活后不再想起：2026-10-19 当天 145 个回合里 7 个提了 idea，2026-10-20 截至设计时 26 个回合 0 个提了 idea。机制与 next moves 提醒相同，细节（触发、结果形状 `reminders: string[]`、键顺序、重放、与 next moves 的关系）见 [NEXT-MOVES-SPEC](NEXT-MOVES-SPEC.md) §9；这里只写 ideas 的部分。
+2026-10-20 card "Delivery-time reminders for missing next moves and ideas". In the skill, "usually at delivery" is an optional second call, and the agent no longer thinks of it after finishing the work: of 145 turns on 2026-10-19, 7 proposed an idea, and on 2026-10-20, as of design time, 0 of 26 turns proposed an idea. The mechanism is the same as the next moves reminder; the details (trigger, result shape `reminders: string[]`, key order, replay, relationship with next moves) are in [NEXT-MOVES-SPEC](NEXT-MOVES-SPEC.md) §9; only the ideas part is written here.
 
-- 触发：`flowly_update_status` → `in_review` 成功后。其它调用（`blocked`、`question`、`result`、切换工作阶段）不提醒 ideas。
-- 条件（三者同时满足）：Ideas 设置为开；写入成功；该会话（`agentId`）在本卡**从未**提出过 idea。后者读 `board.ideas`（`taskId` + `agentId`，含已忽略/已采纳的），不读 `idea_proposed` 事件，因为事件按卡片只保留最近 100 条，忙碌的卡上旧事件会被修剪而误报。
-- 这是“卡片级”而非“本轮级”：会话在本卡提过一次后，之后的交付不再提醒（skill 仍写“每次交付”）。理由：没有“我决定提 0 个”的回执，本轮级提醒会让有意识选 0 的卡每次交付都被重复提醒。想改成本轮级，把来源换成 `idea_proposed` 事件并以最近的 `agent.turn_started` 为界即可。
-- Ideas 关闭时静默：不提醒，也不读取 ideas。`IDEAS_DISABLED` 的行为不变。
-- 文案（英文）：`You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose.`
-- 只是文字：写入照常成功，不拦截（不同于 `WORKPAD_OPEN`），不新增错误码，不写入看板，不改 `idea` 的任何校验与上限。
+- Trigger: after `flowly_update_status` → `in_review` succeeds. Other calls (`blocked`, `question`, `result`, switching the work stage) do not remind about ideas.
+- Condition (all three at once): the Ideas setting is on; the write succeeded; this session (`agentId`) has **never** proposed an idea on this card. The last reads `board.ideas` (`taskId` + `agentId`, including dismissed/accepted ones) and not the `idea_proposed` events, because events keep only the latest 100 per card, and on a busy card old events get pruned and cause a false reminder.
+- This is "card-level" and not "turn-level": once the session has proposed one on this card, later deliveries no longer remind (the skill still says "at each delivery"). Reason: there is no receipt for "I decided to propose 0", so a turn-level reminder would repeat the reminder at every delivery for a card where 0 was a conscious choice. To change it to turn-level, switch the source to the `idea_proposed` event and bound it by the most recent `agent.turn_started`.
+- Silent when Ideas is off: no reminder, and ideas are not read. The behavior of `IDEAS_DISABLED` is unchanged.
+- Text (English): `You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose.`
+- It is only text: the write succeeds as usual, with no blocking (unlike `WORKPAD_OPEN`), no new error code, nothing written to the board, and no change to any `idea` validation or limit.
 
 ## 5. UI
 
-### 5.1 看板卡片
+### 5.1 Board card
 
-有 open idea 时，在卡片底部信号行显示灯泡图标（`Lightbulb`）加数量；为 0 时不显示。无障碍文本包含 “N ideas”。
+When there is an open idea, the signal row at the bottom of the card shows a light bulb icon (`Lightbulb`) plus the count; at 0 it is not shown. The accessibility text includes "N ideas".
 
-### 5.2 侧栏 Ideas 区块
+### 5.2 Sidebar Ideas block
 
-位置：Sessions 之后、Details 之前（2026-10-15 用户反馈：放到 Sessions 下面）。卡片没有任何 idea 时整个区块不渲染。
+Position: after Sessions, before Details (2026-10-15 user feedback: put it under Sessions). When the card has no idea at all the whole block is not rendered.
 
-- 标题 `Ideas`，计数为 open 数。
-- 每个 open idea 一张小卡片（2026-10-16 用户要求优化设计、交互与动效，接受按钮改为 Good idea）：
-  - 标题（加粗）；一行元信息：类型、优先级（仅非 Normal；High/Urgent 带箭头图标，Low 显示为不带图标的 “Low priority”）、提出时间（相对时间）；理由；What to do（detail）与 Context 不截断地排在其后。字体与 Progress 卡片一致：标题 base 中等字重（同 State），理由与字段正文 md，字段名与元信息 xs 弱化色。
-  - 截断渐隐（2026-10-19 用户反馈，与 Progress 卡片一致，共用 `client/content-card.tsx` 的 `ContentCard` 通用卡片样式）：整块内容（标题、元信息、理由、What to do、Context）超过约 5 行（104 pt）时整体收起到该高度，底部渐隐；底部同一行左侧为 Show more / Show less 展开或收起，右侧为操作按钮（高度过渡 220 ms 减速 / 160 ms 加速，可打断，遵循 Reduce Motion）。内容未超出时完整显示且不出现 Show more。Show more 的图标与文字贴齐正文左边缘（静止时与上方文字对齐），悬停高亮向外只多出 6 pt，不贴卡片边框；标题与元信息一组，其后的块（理由、What to do、Context）之间间距与 Progress 一致（8 pt）。点击卡片本身不再展开，文字可直接选择。
-  - 右下角按钮（2026-10-19 用户反馈：右对齐，恢复标准尺寸，不再使用紧凑尺寸；与 Show more 并排在同一行以节省空间。Ideas 页的来源行 “From …” 位于该行之下）：**Dismiss**（安静按钮，忽略；2026-10-19 由 Not now 改名）、**Good idea**（主操作，`ThumbsUp` 图标，打开选择菜单，见 §6，位于最右）。无障碍名称分别为 “Dismiss …”、“Good idea: … Choose to do it in this task or start a new task.”。Closed 分组的 Restore 仍使用紧凑尺寸。
-  - 元信息行最前面显示 agent 的建议：`CornerDownRight` “Continues this task” 或 `SquarePlus` “New task”。
-  - Dismiss 为乐观更新：卡片立即离开，在原位收起（高度、透明度与轻微缩放一起过渡 160 ms），桌面与手机一致，与 Memory 卡片相同（2026-10-22 用户决定：Memory 的收起更好，取代 2026-10-19 的桌面向右滑出）。Reduce Motion 下直接移除。保存失败时恢复并弹 error toast。“在本卡继续”同样乐观收起，成功后弹 success toast “Sent to <session>”；idea 被转成卡片后同样收起离开列表。
-  - 抽屉打开时已有的 idea 不播放进场。打开期间新到达（agent 提出）或被 Restore 的 idea 播放插入动画：先展开所在行高度（160 ms），再进场淡入（220 ms 减速）；Restore 的卡片与新到达的一样轻微上浮（不再从右侧滑入）。即使该 idea 在抽屉打开时就存在，Restore 也会播放插入动画（2026-10-19 用户反馈）。Reduce Motion 下直接出现。
-  - 所有动效使用 `client/motion.tsx` 原语，遵循 Reduce Motion、可打断；收起中的卡片不可交互、对读屏隐藏。
-- 没有 open idea 但有已关闭的 idea 时显示 “No open ideas. Agents add them when they see a worthwhile next step.”
-- 非 open 的 idea 收在默认折叠的 `Closed · N` 分组：
-  - accepted（`ThumbsUp` 图标）：新建卡片时显示 “→ 新卡标题”，点击打开该卡，新卡已删除时显示 “→ deleted card”；在本卡继续时显示 “→ Sent to <session 标题>”。
-  - dismissed：显示弱化标题与 **Restore**。
-- 项目已归档时按钮禁用。卡片 Done/Cancelled 或已归档时 idea 保持 open，只能新建卡片或忽略（2026-10-16 起，见 [IDEAS-INBOX-SPEC](IDEAS-INBOX-SPEC.md) §2）。
-- Dismiss / Restore 成功不弹 toast（列表本身即反馈），失败用 error toast。
+- The title `Ideas`, with the count being the number of open ones.
+- One small card per open idea (2026-10-16 the user asked to improve the design, interaction and motion, and the accept button became Good idea):
+  - The title (bold); a line of meta info: type, priority (only non-Normal; High/Urgent carry an arrow icon, Low is shown as "Low priority" with no icon), time proposed (relative time); the rationale; What to do (detail) and Context follow without truncation. The fonts are consistent with the Progress card: the title is base medium weight (same as State), the rationale and field bodies md, the field names and meta info xs in a dimmed color.
+  - Truncation fade (2026-10-19 user feedback, consistent with the Progress card, sharing the generic card style `ContentCard` of `client/content-card.tsx`): when the whole content (title, meta info, rationale, What to do, Context) exceeds about 5 lines (104 pt), it collapses as a whole to that height with a fade at the bottom; on the same row at the bottom, the left is Show more / Show less to expand or collapse, and the right is the action buttons (height transition 220 ms decelerating / 160 ms accelerating, interruptible, follows Reduce Motion). When the content does not overflow it is shown in full and Show more does not appear. The icon and text of Show more sit flush against the left edge of the body (aligned with the text above when at rest), the hover highlight extends outward only 6 pt more, not touching the card border; the title and meta info form one group, and the spacing between the blocks after it (rationale, What to do, Context) is the same as Progress (8 pt). Clicking the card itself no longer expands it, and the text can be selected directly.
+  - Bottom-right buttons (2026-10-19 user feedback: right-aligned, restored to standard size, no longer the compact size; on the same row as Show more to save space. The source row "From …" of the Ideas page sits below this row): **Dismiss** (a quiet button, ignore; renamed from Not now on 2026-10-19), **Good idea** (the primary action, `ThumbsUp` icon, opens the choice menu, see §6, at the far right). The accessibility names are "Dismiss …" and "Good idea: … Choose to do it in this task or start a new task." respectively. Restore in the Closed group still uses the compact size.
+  - The very front of the meta info row shows the agent's suggestion: `CornerDownRight` "Continues this task" or `SquarePlus` "New task".
+  - Dismiss is an optimistic update: the card leaves immediately and collapses in place (height, opacity and a slight scale transition together over 160 ms), the same on desktop and phone, the same as the Memory card (2026-10-22 user decision: Memory's collapse is better, replacing the desktop slide-out to the right of 2026-10-19). Under Reduce Motion it is removed directly. When saving fails it restores and shows an error toast. "Continue in this card" likewise collapses optimistically, and on success shows the success toast "Sent to <session>"; after an idea is turned into a card it likewise collapses and leaves the list.
+  - Ideas that already exist when the drawer opens do not play an enter animation. An idea that newly arrives (proposed by an agent) or is Restored while it is open plays an insertion animation: first the height of its row expands (160 ms), then it fades in (220 ms decelerating); a Restored card, like a newly arrived one, floats up slightly (no longer sliding in from the right). Even if the idea existed when the drawer opened, Restore still plays the insertion animation (2026-10-19 user feedback). Under Reduce Motion it just appears.
+  - All motion uses the `client/motion.tsx` primitives, follows Reduce Motion, and is interruptible; a card that is collapsing is not interactive and is hidden from screen readers.
+- When there is no open idea but there are closed ideas, show "No open ideas. Agents add them when they see a worthwhile next step."
+- Non-open ideas are kept in a default-collapsed `Closed · N` group:
+  - accepted (`ThumbsUp` icon): when a card was created it shows "→ new card title", clicking opens that card, and when the new card has been deleted it shows "→ deleted card"; when continued in this card it shows "→ Sent to <session title>".
+  - dismissed: shows a dimmed title and **Restore**.
+- When the project is archived the buttons are disabled. When the card is Done/Cancelled or archived, the idea stays open, and can only be turned into a new card or ignored (since 2026-10-16, see [IDEAS-INBOX-SPEC](IDEAS-INBOX-SPEC.md) §2).
+- A successful Dismiss / Restore shows no toast (the list itself is the feedback), and a failure uses an error toast.
 
-### 5.3 新卡侧栏
+### 5.3 New card sidebar
 
-有 `origin` 时，在描述之前显示一行 “From idea on <来源卡标题>”，点击打开来源卡；来源卡已删除时显示 “From idea on a deleted card”，不可点。
+When there is an `origin`, one line "From idea on <source card title>" is shown before the description, and clicking opens the source card; when the source card has been deleted it shows "From idea on a deleted card", not clickable.
 
-## 6. Good idea 的两条路
+## 6. The two paths of Good idea
 
-点 **Good idea** 打开插件菜单（桌面为锚定下拉、手机为底部弹层），标题 “Good idea”（2026-10-16 用户确认加入“新 session”与“选择 session”）：
+Clicking **Good idea** opens the plugin menu (an anchored dropdown on desktop, a bottom sheet on phones), titled "Good idea" (2026-10-16 the user confirmed adding "new session" and "choose session"):
 
-- **Continue in <session>**（`CornerDownRight`）→ §6.2，发给默认 session：提出该 idea 的 session（仍在本卡 workspace 且未归档）优先，否则本卡最新的未归档 session；没有可用 session 时不显示此项；
-- **Send to another session…**（`MessagesSquare`，本卡有 2 个及以上未归档 session 时出现）→ 打开第二个菜单 “Send to”，列出所有未归档 session（默认的那个带 `Check`），选中后按 §6.2 发送；
-- **Do it in a new session**（`Plus`）→ §6.3；
-- 分隔线；
-- **Start a new task**（`SquarePlus`）→ §6.1。
+- **Continue in <session>** (`CornerDownRight`) → §6.2, sent to the default session: the session that proposed the idea (still in this card's workspace and not archived) first, otherwise this card's latest unarchived session; when there is no usable session this item is not shown;
+- **Send to another session…** (`MessagesSquare`, appears when this card has 2 or more unarchived sessions) → opens a second menu "Send to", listing all unarchived sessions (the default one carries a `Check`), and after one is selected it is sent per §6.2;
+- **Do it in a new session** (`Plus`) → §6.3;
+- a divider;
+- **Start a new task** (`SquarePlus`) → §6.1.
 
-（2026-11-09 起）`scope=new`（或没有 scope）的 idea 在 *Quick task for New task* 开启、来源卡可继续时，Good idea 不弹菜单，直接打开 Quick task；本卡的动作通过对话框的 **Other options…** 到达：Continue in <session>、Send to another session…（有 2 个及以上未归档 session 时）、Do it in a new session，以及完整表单。*Quick task for New task* 关闭时没有 Other options…，所以仍弹菜单，“Start a new task · Suggested” 排在最前、其余在分隔线后。`scope=here` 的 idea 始终弹菜单，本卡的三项在前，不受该设置影响。
+(Since 2026-11-09) for an idea with `scope=new` (or no scope), when *Quick task for New task* is on and the source card can continue, Good idea does not pop up the menu but opens Quick task directly; this card's actions are reached through the dialog's **Other options…**: Continue in <session>, Send to another session… (when there are 2 or more unarchived sessions), Do it in a new session, and the full form. When *Quick task for New task* is off there is no Other options…, so the menu still pops up, with "Start a new task · Suggested" first and the rest after the divider. An idea with `scope=here` always pops up the menu, with this card's three items first, unaffected by that setting.
 
-建议 `scope=here` 时本卡的三项在前，Continue 带 “· Suggested”（没有可用 session 时改由 “Do it in a new session” 带 Suggested）。
+When `scope=here` is suggested, this card's three items come first, Continue carries "· Suggested" (when there is no usable session, "Do it in a new session" carries Suggested instead).
 
-“Start a new task” 在 *Quick task for New task* 开启时打开 Quick task（锁定 idea 的项目，预填 idea，带 `ideaId`；对话框里的 **Other options…** 列出完整表单和上面本卡的三项），关闭时打开 §6.1 的完整表单；见 QUICK-TASK-SPEC §10。项目 idea 与来源卡已结束/归档/不存在的 idea 只有新建一条路，Good idea 直接打开同一个 Quick task（或完整表单），不再弹菜单。
+"Start a new task", when *Quick task for New task* is on, opens Quick task (locking the idea's project, pre-filling the idea, carrying `ideaId`; the dialog's **Other options…** lists the full form and this card's three items above), and when off opens the full form of §6.1; see QUICK-TASK-SPEC §10. A project idea, and an idea whose source card is finished/archived/non-existent, has only the create-new path, and Good idea opens the same Quick task (or the full form) directly, with no menu any more.
 
 ### 6.4 Discuss
 
-每个 open idea 卡在 Dismiss 左侧有 **Discuss**（侧栏 Ideas 与项目 Ideas 页，共用 `IdeaCard`），仅当看板能打开 dispatcher 聊天时显示。它打开 dispatcher 聊天，把一段关于该 idea 的草稿放进消息框，不发送；见 DISPATCHER-SPEC §9.5。
+Each open idea card has **Discuss** to the left of Dismiss (the sidebar Ideas and the project Ideas page, sharing `IdeaCard`), shown only when the board can open the dispatcher chat. It opens the dispatcher chat and puts a draft about that idea into the message box, without sending; see DISPATCHER-SPEC §9.5.
 
-### 6.1 新建卡片
+### 6.1 Create a new card
 
-1. 打开现有新建任务表单（同一组件），预填：
-   - 标题、类型、优先级 = idea 的值（未给则为表单默认）；状态 = 该项目第一个可用的起始泳道（与普通新建相同的默认）。
-   - 描述 = `ideaDescription()`（`shared/ideas.ts`）：
+1. Open the existing new-task form (the same component), pre-filled:
+   - Title, type, priority = the idea's values (the form defaults if not given); status = the project's first available start lane (the same default as an ordinary create).
+   - Description = `ideaDescription()` (`shared/ideas.ts`):
 
      ```
      <detail>
@@ -179,28 +179,28 @@ Amended 2026-10-29 (user decision, [AGENT-CARDS-SPEC](AGENT-CARDS-SPEC.md) D1): 
      Context:
      <context>
 
-     From card: <来源卡标题> (<来源卡 ID>)
-     Source progress:            // 仅当来源卡有 summary
+     From card: <source card title> (<source card ID>)
+     Source progress:            // only when the source card has a summary
      <target>
      <recap>
      ```
 
-     超过描述上限 20000 时截断并以 `…` 结尾。
-   - workspace 与 “Start agent” 照常可选；第一条指令不预填（现有规则）。
-   - 表单标题为 “Create task from idea”。
-2. 保存时 `tasks.create` 的输入带 `ideaId`。服务端：
-   - 创建 workspace **之前**检查 idea 存在、为 open、属于同一项目，否则报 “This idea is no longer open.”，不留下 workspace。
-   - 写入新卡的同一事务中再检查一次，写 `origin`，把 idea 改为 accepted 并记录 `acceptedTaskId`，在来源卡记 `idea_accepted` 事件。
-   - 同一 `operationId` 的重复提交返回首次创建的卡（现有行为），不重复处理 idea。
-3. 新卡的 agent 会话上下文在任务类型之后加一行 `Derived from card: <来源卡标题> (<ID>)`。
+     When it exceeds the description limit of 20000 it is truncated and ends with `…`.
+   - workspace and "Start agent" are optional as usual; the first instruction is not pre-filled (the existing rule).
+   - The form title is "Create task from idea".
+2. On save the input of `tasks.create` carries `ideaId`. Server:
+   - **Before** creating the workspace, check that the idea exists, is open and belongs to the same project; otherwise report "This idea is no longer open.", leaving no workspace behind.
+   - In the same transaction that writes the new card, check once more, write `origin`, change the idea to accepted and record `acceptedTaskId`, and record an `idea_accepted` event on the source card.
+   - A repeated submission with the same `operationId` returns the card created the first time (existing behavior), and does not process the idea again.
+3. The new card's agent session context adds one line after the task type, `Derived from card: <source card title> (<ID>)`.
 
-### 6.2 在本卡继续
+### 6.2 Continue in this card
 
-`ideas.adopt { id, agentId }`（`server/ideas.ts`）：
+`ideas.adopt { id, agentId }` (`server/ideas.ts`):
 
-1. 校验 idea 为 open，目标 session 属于本卡 workspace、未归档、不是 summarizer，否则报错且不改任何数据。
-2. 先在一次事务中把 idea 改为 accepted、记录 `acceptedAgentId`、在本卡记 `idea_adopted` 事件（卡片或项目已归档时拒绝），这样重复点击不会发两次。
-3. 再通过 composer 队列把 `ideaInstruction()` 发给该 session：空闲时立即发送，运行中则排在当前回合之后（与侧栏发消息的排队行为一致，不打断）。消息：
+1. Validate that the idea is open, and the target session belongs to this card's workspace, is not archived and is not a summarizer; otherwise report an error and change no data.
+2. First, in one transaction, change the idea to accepted, record `acceptedAgentId`, and record an `idea_adopted` event on this card (rejected when the card or project is archived), so that a repeated click does not send twice.
+3. Then send `ideaInstruction()` to that session through the composer queue: sent at once when idle, and when running it is queued after the current turn (consistent with the queuing behavior of sending a message in the sidebar, without interrupting). The message:
 
    ```
    Good idea — go ahead with it in this task: <title>
@@ -213,49 +213,49 @@ Amended 2026-10-29 (user decision, [AGENT-CARDS-SPEC](AGENT-CARDS-SPEC.md) D1): 
    <context>
    ```
 
-   这是用户显式选择的看板动作，因此不受“普通跟进只发送用户原文”的限制。
-4. 入队失败时把 idea 恢复为 open、删除该事件，并把错误返回给界面。
+   This is a board action the user chose explicitly, so it is not subject to the limit "an ordinary follow-up sends only the user's own text".
+4. When enqueuing fails, restore the idea to open, delete that event, and return the error to the UI.
 
-不改卡片状态或 task revision；session 收到消息开始新回合后，现有自动状态规则照常生效。
+It does not change the card status or task revision; after the session receives the message and starts a new turn, the existing automatic status rules take effect as usual.
 
-### 6.3 用新 session 做
+### 6.3 Do it in a new session
 
-适合原 session 正忙、上下文过长或想换模型的情况。
+Suited to when the original session is busy, its context is too long or one wants to switch models.
 
-1. 打开现有 “Start session” 弹窗（`SessionCreate`），预填 session 标题 = idea 标题、第一条指令 = `ideaInstruction()`；模型、模式照常可选，指令可修改。由于是用户从 idea 显式发起，这里预填指令是允许的（普通 Start session 仍不预填）。
-2. session 创建成功后调用 `ideas.adopt { id, agentId: <新 session>, send: false }`：只校验并记录（accepted、`acceptedAgentId`、`idea_adopted` 事件），不再经 composer 发送，避免重复。
-3. 记录失败时 session 照常运行，弹 error toast “Session started, but the idea was not marked: …”；关闭弹窗不创建 session 时 idea 保持 open。
+1. Open the existing "Start session" dialog (`SessionCreate`), pre-filling the session title = the idea title and the first instruction = `ideaInstruction()`; the model and mode are optional as usual, and the instruction can be edited. Because it is explicitly initiated by the user from an idea, pre-filling the instruction here is allowed (an ordinary Start session still does not pre-fill).
+2. After the session is created successfully, call `ideas.adopt { id, agentId: <new session>, send: false }`: it only validates and records (accepted, `acceptedAgentId`, the `idea_adopted` event), and no longer sends through the composer, to avoid a duplicate.
+3. When recording fails the session runs as usual, with the error toast "Session started, but the idea was not marked: …"; closing the dialog without creating a session leaves the idea open.
 
-## 7. 人工 RPC
+## 7. Human RPC
 
-| 方法 | 输入 | 行为 |
+| Method | Input | Behavior |
 | --- | --- | --- |
-| `ideas.update` | `{ id, status: "open" \| "dismissed" }` | open ↔ dismissed；accepted 报错；恢复为 open 时，若本卡已有同标题（去首尾空白、忽略大小写）的 open idea 则报错 “This card already has an open idea with that title.”，并受 10 个上限约束；状态不变时不写 |
-| `ideas.adopt` | `{ id, agentId, send = true }` | 在本卡继续（§6.2）；`send: false` 只记录（§6.3）；返回更新后的 idea |
+| `ideas.update` | `{ id, status: "open" \| "dismissed" }` | open ↔ dismissed; accepted reports an error; when restoring to open, if this card already has an open idea with the same title (trimmed, case-insensitive) it reports the error "This card already has an open idea with that title.", and it is subject to the limit of 10; no write when the status is unchanged |
+| `ideas.adopt` | `{ id, agentId, send = true }` | Continue in this card (§6.2); `send: false` only records (§6.3); returns the updated idea |
 
-看板 revision 随之增加，客户端经现有 etag 读取刷新。
+The board revision increases accordingly, and the client refreshes through the existing etag read.
 
-## 8. 删除与归档
+## 8. Deletion and archive
 
-- 永久删除卡片：一并删除以它为来源的 idea，写入 `removed/task-…json` 备份。由这些 idea 建出的卡保留 `origin`。
-- 移除项目：一并删除并备份该项目的 idea。
-- 归档卡片：idea 保留且仍可处理（只能新建卡片或忽略，IDEAS-INBOX-SPEC §2）；agent 不能再提出（与其他写工具一致）。
+- Permanently deleting a card: the ideas that have it as source are deleted with it and written to the `removed/task-…json` backup. Cards created from those ideas keep `origin`.
+- Removing a project: the project's ideas are deleted and backed up with it.
+- Archiving a card: its ideas are kept and can still be handled (only a new card or ignore, IDEAS-INBOX-SPEC §2); an agent can no longer propose (consistent with the other write tools).
 
-## 9. 不做
+## 9. Not done
 
-- summarizer 自动生成 idea；虚拟 Ideas 泳道。项目级 Ideas 页已于 2026-10-16 加入，见 [IDEAS-INBOX-SPEC](IDEAS-INBOX-SPEC.md)。
-- 自动建卡或自动给新卡派 agent；idea 排序、投票；用户在界面上编辑 idea（agent 编辑见 §3.1）。
+- The summarizer automatically generating ideas; a virtual Ideas lane. The project-level Ideas page was added on 2026-10-16, see [IDEAS-INBOX-SPEC](IDEAS-INBOX-SPEC.md).
+- Automatically creating cards or automatically assigning an agent to a new card; idea sorting, voting; the user editing an idea in the UI (agent editing is in §3.1).
 
-## 10. 验收
+## 10. Acceptance
 
-- 单元：
-  - 提出：回执重放、`REQUEST_REUSED`、`IDEA_DUPLICATE`、`IDEA_LIMIT`、归档/已完成拒绝、不改 task revision、50 个上限修剪。
-  - 建卡：预检与事务内复检、`origin` 与 accepted 原子写入、非 open idea 报错且不创建 workspace、跨项目拒绝。
-  - `ideas.update` 状态约束；删除卡片与移除项目的级联与备份；旧 `board.json`（无 `ideas`）可读。
-  - `ideaDescription()` 输出与截断；`sessionContext` 的来源行。
-  - 管理（§3.1）：本卡 open idea 修改字段、关闭、删除；dismissed 只可删除或重复关闭；accepted 不可改删；跨卡拒绝；改名重名、空更新、Ideas 关闭；回执重放与 `REQUEST_REUSED`；事件记录正确，卡片 revision 保持不变。
-  - Astra 回归：提出 → 删除 → 重载服务 → 原样重放提出，仍返回原 `ideaId` 和回执，保留空 ideas 且不再写文件；旧回执无 `ideaId` 且实体仍在时兼容反查；新增 Activity 两个键在全部语言目录中完整。
-- 工具服务：注册 `flowly_propose_idea`、`flowly_update_idea`、`flowly_remove_idea`；`/api` 的 `idea` / `idea_update` / `idea_remove` 动作；`flowly_get_task` 返回 `ideas`；CLI `idea-update` / `idea-remove` 和无效参数拒绝。
-- 管理工具的真实验证（2026-10-22）：已 reload 的插件上，以本卡临时 idea 走通 MCP 与 Luna 6 full-access CLI 的“提出 → 修改 → 关闭 → 删除”，检查回执重放、错误拒绝、Activity、卡片状态与 revision 不变，结束清理临时 idea 与测试 session。该增量没有客户端变更，桌面/compact 渲染不作为工具调用通过的证据。报告见 [idea-tools verification](verification/idea-tools-2026-10-22.md)。
-- 交付时提醒（§4.1，`server/agent-service.test.ts`）：`in_review` 且该会话没提过 idea、Ideas 开 → 结果带 ideas 提醒；Ideas 关 → 没有；该会话已提过（含已忽略的）→ 没有；另一个会话提过的不算；旧的 `idea_proposed` 事件被修剪后仍不误报（按 `board.ideas` 判断）；`blocked`/`question`/`result` 不带 ideas 提醒；失败的写入（`WORKPAD_OPEN`）不带。
-- typecheck、全量测试；安装并 reload 本插件；用 Luna 6 全权限测试 session 在 fixture 卡片上走通“提出 → 侧栏显示 → 建卡 → 双向链接”，结束后清理。
+- Unit:
+  - Proposing: receipt replay, `REQUEST_REUSED`, `IDEA_DUPLICATE`, `IDEA_LIMIT`, archived/finished rejection, no task revision change, pruning at the limit of 50.
+  - Creating a card: the pre-check and the re-check inside the transaction, atomic write of `origin` and accepted, a non-open idea reports an error and creates no workspace, cross-project rejection.
+  - `ideas.update` status constraints; the cascade and backup on card deletion and project removal; an old `board.json` (without `ideas`) is readable.
+  - The output and truncation of `ideaDescription()`; the source line of `sessionContext`.
+  - Management (§3.1): changing fields, closing and deleting this card's open idea; dismissed can only be deleted or closed again; accepted cannot be changed or deleted; cross-card rejection; a rename to a duplicate, an empty update, Ideas off; receipt replay and `REQUEST_REUSED`; events recorded correctly, the card revision stays unchanged.
+  - Astra regression: propose → delete → reload the service → replay the proposal as is, still returning the original `ideaId` and receipt, keeping ideas empty and writing no file again; an old receipt without `ideaId` with the entity still present is looked up compatibly; the two new Activity keys are complete in all language catalogs.
+- Tool service: register `flowly_propose_idea`, `flowly_update_idea`, `flowly_remove_idea`; the `idea` / `idea_update` / `idea_remove` actions of `/api`; `flowly_get_task` returns `ideas`; the CLI `idea-update` / `idea-remove` and invalid-parameter rejection.
+- Real verification of the management tools (2026-10-22): on a reloaded plugin, with a temporary idea on this card, walk through "propose → edit → close → delete" via MCP and the Luna 6 full-access CLI, check receipt replay, error rejection, Activity, and that the card status and revision are unchanged, and at the end clean up the temporary idea and test session. This increment has no client change, and desktop/compact rendering is not evidence that the tool calls pass. For the report see [idea-tools verification](verification/idea-tools-2026-10-22.md).
+- Delivery-time reminder (§4.1, `server/agent-service.test.ts`): `in_review` with this session having proposed no idea and Ideas on → the result carries the ideas reminder; Ideas off → none; this session has already proposed (including dismissed ones) → none; one proposed by another session does not count; after old `idea_proposed` events are pruned there is still no false reminder (judged by `board.ideas`); `blocked`/`question`/`result` carry no ideas reminder; a failed write (`WORKPAD_OPEN`) carries none.
+- typecheck, full tests; install and reload this plugin; with a Luna 6 full-access test session on a fixture card, walk through "propose → sidebar display → create card → two-way link", and clean up afterwards.

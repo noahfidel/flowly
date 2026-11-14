@@ -121,7 +121,7 @@ The person's drag = one authorization ("I have reviewed it, go merge"); everythi
 - Lanes are fixed built-in statuses (renamable / switchable / reorderable), with no Merging.
 - Constraints: an ordinary follow-up sends only the user's own text; Done/Cancelled is decided by a person; PR automation is outside v1.
 
-### A design to borrow: Lane actions
+### The design to borrow: Lane actions
 **Core**: a project can configure "entry actions" for some lanes. When a person moves a card into that lane, the daemon sends that lane's instructions to the card's session, and after the agent does it as instructed it moves the card to the agreed next column. The drag itself is the person's explicit instruction, in the same class as "Send Kanban work instructions", an explicit action and not an ordinary follow-up.
 
 The most valuable chain: **In review → (person drags) Merging → the agent merges → Done → automatic Wrap up**. Most Flowly cards are worktrees, and Merging does not have to be a PR:
