@@ -1,87 +1,86 @@
-# 工作流阶段拆分：In progress → Design / Development / Test
+# Workflow stage split: In progress → Design / Development / Test
 
-状态：用户 2026-10-15 批准（“可以 试试看吧，不行再改回去”），已实现。回退见 §8。
+Status: approved by the user on 2026-10-15 ("OK, let's try it, change it back if it doesn't work", translated), implemented. For rollback see §8.
 
-> 2026-10-29：In review 之后新增 Committed（[COMMITTED-STAGE-SPEC](COMMITTED-STAGE-SPEC.md)），状态集合长度为 10；它不是工作阶段。
+> 2026-10-29: Committed was added after In review ([COMMITTED-STAGE-SPEC](COMMITTED-STAGE-SPEC.md)), making the status set 10 long; it is not a work stage.
 >
-> 2026-10-29：Committed 之后新增 Integrated（[INTEGRATED-STAGE-SPEC](INTEGRATED-STAGE-SPEC.md)），状态集合长度为 11；它也不是工作阶段。
+> 2026-10-29: Integrated was added after Committed ([INTEGRATED-STAGE-SPEC](INTEGRATED-STAGE-SPEC.md)), making the status set 11 long; it is not a work stage either.
 
-用户决定：
-1. In progress 范围过大，拆成 **Design → Development → Test** 三个阶段；
-2. 对**所有项目**生效：`in_progress` 退役，现有数据迁移（方案 B）；
-3. 先设计还是直接开发，**由 agent 根据指令自行决定**：系统规则不替 agent 选择开工阶段。
+User decisions:
+1. In progress is too broad, so split it into three stages, **Design → Development → Test**;
+2. It applies to **all projects**: `in_progress` is retired and existing data is migrated (option B);
+3. Whether to design first or develop directly is **decided by the agent from its instructions**: the system rules do not choose the starting stage for the agent.
 
-## 1. 状态集合
+## 1. Status set
 
-默认顺序：
+Default order:
 
 ```
 backlog → todo → design → development → test → in_review → blocked → done → cancelled
 ```
 
-| status | 默认名称 | 含义 |
+| status | Default name | Meaning |
 | --- | --- | --- |
-| `design` | Design | 方案、规格、调研 |
-| `development` | Development | 实现 |
-| `test` | Test | 验证、修复验证中发现的问题 |
+| `design` | Design | Plan, spec, research |
+| `development` | Development | Implementation |
+| `test` | Test | Verification, fixing problems found in verification |
 
-- `in_progress` 不再是卡片或泳道的合法状态，`taskInput`、`taskEdit`、`tasks.place`、`projects.update` 中出现 `in_progress` 一律按校验错误拒绝。
-- 三者统称“工作阶段”（`workStatuses = ["design", "development", "test"]`，在 `shared/model.ts` 导出），凡原来判断 `status === "in_progress"` 的地方改为判断“属于工作阶段”。
-- 泳道配置仍是全部内置状态的有序列表（长度变为 9），可排序、开关、改名，规则不变。
+- `in_progress` is no longer a valid status for a card or lane. An `in_progress` in `taskInput`, `taskEdit`, `tasks.place` or `projects.update` is rejected as a validation error.
+- The three are together called "work stages" (`workStatuses = ["design", "development", "test"]`, exported from `shared/model.ts`); everywhere that used to check `status === "in_progress"` now checks "is a work stage".
+- The lane configuration is still an ordered list of all built-in statuses (its length becomes 9), which can be reordered, switched on and off and renamed, with the same rules.
 
-## 2. 数据迁移（v3 → v4）
+## 2. Data migration (v3 → v4)
 
-`board.json` 版本升为 4。`BoardStore.load` 读到 v3 时在内存中迁移，下一次写入时持久化：
+`board.json` goes to version 4. When `BoardStore.load` reads v3 it migrates in memory and persists on the next write:
 
-1. **卡片**：`status === "in_progress"` → `development`。不增加 revision，不写活动（迁移不是业务变更）。
-2. **泳道**：项目有 `lanes` 时，把 `in_progress` 那一项原位替换为 `design`、`development`、`test` 三项，`enabled` 沿用原值；原 `name` 若非空，转给 `development`。没有 `lanes` 的项目继续用默认值。
-3. **历史**：`events[].from/to` 与 `agentReceipts[].status` **不改写**。它们改用 `historyStatusSchema = statusSchema ∪ {"in_progress"}`，界面显示为“In progress”。
-4. **备份**：首次读到 v4 之前的数据时，若 `board.pre-v4.json` 不存在，则把原文件复制为 `board.pre-v4.json`（与已有的 `.bak` 分开，不会被后续写入覆盖）。
-5. v1/v2 先按现有路径升到 v3 形态，再走上述步骤。
-6. 迁移后不变式校验失败时按现有规则保留原文件、报 `StoreInvalidError`，不重置数据。
+1. **Cards**: `status === "in_progress"` → `development`. No revision increase and no activity is written (migration is not a business change).
+2. **Lanes**: when a project has `lanes`, the `in_progress` entry is replaced in place by the three entries `design`, `development`, `test`, with `enabled` carried over from the original; if the original `name` is non-empty, it goes to `development`. Projects without `lanes` keep using the defaults.
+3. **History**: `events[].from/to` and `agentReceipts[].status` are **not rewritten**. They use `historyStatusSchema = statusSchema ∪ {"in_progress"}` instead, and the UI shows "In progress".
+4. **Backup**: the first time data from before v4 is read, if `board.pre-v4.json` does not exist, the original file is copied to `board.pre-v4.json` (separate from the existing `.bak`, so later writes do not overwrite it).
+5. v1/v2 first go up to the v3 shape by the existing path, then go through the steps above.
+6. When the invariant check fails after migration, the original file is kept and `StoreInvalidError` is reported, per the existing rule; data is not reset.
 
-## 3. 自动状态规则（修订 AUTO-STATUS-SPEC）
+## 3. Automatic status rules (amends AUTO-STATUS-SPEC)
 
-| 规则 | 修订后行为 |
+| Rule | Behavior after the amendment |
 | --- | --- |
-| **A1 开工** | 卡片在 Backlog/Todo 时，session 开始一轮**不再改状态**。进入哪个阶段由 agent 按指令判断并调用 `flowly_update_status` 设置；agent 指南要求它在开始实际工作时立即设置。 |
-| **A1 继续** | （2026-10-15 再修订）卡片在 **In review** 时，session 开始一轮 → **Development**（评审后的反馈通常是返工；方案返工由 agent 改回 Design）；Development 未开启时按下述 Blocked 的回退。卡片在 **Blocked** 时 → 回到**卡片上一次所在的工作阶段**：从活动中最近一条 `to ∈ 工作阶段 ∪ {in_progress}` 的 `status_changed` 推导，`in_progress` 视为 `development`；找不到或该泳道未开启时，取已开启工作阶段中的第一个；三个都关闭则不动。 |
-| **A1r 恢复** | 判断条件中的 “task.status === in_progress” 改为“属于工作阶段”，其余不变。 |
-| **M2 静默结束** | `silentTurn` 的条件改为“卡片在任一工作阶段”。 |
-| 其他 | A2、M1、M3 不变。规则从不在三个工作阶段之间自动推进。 |
+| **A1 Start** | When the card is in Backlog/Todo, a session starting a turn **no longer changes the status**. The agent decides which stage to enter from its instructions and sets it by calling `flowly_update_status`; the agent guide requires it to set the stage as soon as it starts real work. |
+| **A1 Continue** | (amended again 2026-10-15) When the card is in **In review**, a session starting a turn → **Development** (feedback after review is usually rework; for plan rework the agent changes it back to Design); when Development is not enabled, use the Blocked fallback below. When the card is in **Blocked** → back to **the work stage the card was last in**: derived from the most recent `status_changed` in the activity with `to ∈ work stages ∪ {in_progress}`, where `in_progress` counts as `development`; when none is found or that lane is not enabled, take the first enabled work stage; when all three are off, do nothing. |
+| **A1r Recover** | The condition "task.status === in_progress" becomes "is a work stage"; the rest is unchanged. |
+| **M2 Silent end** | The `silentTurn` condition becomes "the card is in any work stage". |
+| Other | A2, M1, M3 are unchanged. The rules never advance automatically between the three work stages. |
 
-已知取舍：Backlog/Todo 的卡片在 agent 设状态之前仍留在原列，session 的运行状态照常显示在卡片上。
+Known trade-off: a Backlog/Todo card stays in its original column until the agent sets a status, and the session's running state is shown on the card as usual.
 
-## 4. Agent 工具、CLI、skill
+## 4. Agent tool, CLI, skill
 
-- `agentStatuses = ["design", "development", "test", "blocked", "in_review"]`；`allowedStatuses` 仍只列出项目已开启的泳道。
-- **兼容旧调用**：已运行的 session 可能还持有旧工具 schema，或按旧 skill 调 `status in_progress`。工具输入额外接受 `in_progress` 作为别名：卡片已在工作阶段时保持不变（只记录 note），否则解析为 `development`。回执与活动记录的是解析后的真实状态。别名不出现在 `allowedStatuses` 或文档中。
-- CLI `status <state>` 的用法提示和校验同步更新，别名规则相同。
-- skill 与工具描述改为：开始方案/调研时设 Design，开始实现时设 Development，开始验证时设 Test，按任务需要自行决定从哪个阶段开始、可以跳过或回退阶段；交付设 In review；被阻塞设 Blocked。“新一轮自动回到 in_progress” 改为“自动回到之前的工作阶段”。
-- 2026-10-15 修订（用户反馈：返工实现的卡被拉回 Design）：agent 曾在 Design 中完成实现并直接交付，未切到 Development，A1 因此回到过期阶段。指南与工具描述补充：阶段要随工作实时切换，开始改代码立即设 Development，不得从 Design 直接交付实现；每轮开始时核对自动恢复的阶段，与本轮工作不符就先改正（原文“不要为了继续而自己设置”已删除）。同日用户再次反馈旧 session 仍被拉回 Design，于是 A1 改为 In review 继续时进 Development（见 §3）。
+- `agentStatuses = ["design", "development", "test", "blocked", "in_review"]`; `allowedStatuses` still lists only the lanes the project has enabled.
+- **Compatibility with old calls**: a running session may still hold the old tool schema, or call `status in_progress` per the old skill. The tool input additionally accepts `in_progress` as an alias: when the card is already in a work stage it stays unchanged (only the note is recorded), otherwise it resolves to `development`. The receipt and the activity record the resolved real status. The alias does not appear in `allowedStatuses` or in docs.
+- The CLI `status <state>` usage hint and validation are updated the same way, with the same alias rule.
+- The skill and tool descriptions now say: set Design when starting plan/research, Development when starting implementation, Test when starting verification; decide by the task's needs which stage to start from, and stages may be skipped or stepped back; set In review on delivery; set Blocked when blocked. "A new turn automatically returns to in_progress" becomes "automatically returns to the previous work stage".
+- 2026-10-15 amendment (user feedback: a card whose implementation was being reworked was pulled back to Design): the agent had finished implementation in Design and delivered directly without switching to Development, so A1 returned to a stale stage. The guide and tool descriptions now add: the stage must switch in real time with the work, set Development as soon as you start changing code, and never deliver an implementation straight from Design; at the start of each turn check the automatically restored stage and, if it does not match this turn's work, correct it first (the original text "do not set it yourself just to continue" was removed). The same day the user reported again that an old session was still pulled back to Design, so A1 was changed so that continuing from In review goes to Development (see §3).
 
-## 5. 界面
+## 5. UI
 
-- 状态图标/颜色：与其他状态同属 lucide `Circle*` 一族以保持视觉大小一致（宿主内置完整 lucide，已在安装包中确认）：Design `CircleEllipsis`（foreground）、Development `CircleDot`（warning）、Test `CircleGauge`（accent）。
-- 泳道编辑器、看板列、手机状态弹层、卡片状态下拉、紧凑布局“首个有卡的泳道”逻辑都通过 `statuses` 自动覆盖，无需特判。
-- 文案更新：项目设置中 Auto-update 说明（`client/forms.tsx`）、session 预览中的工具说明（`client/session-preview.tsx`）。
-- 活动时间线中的历史 `in_progress` 显示为 “In progress”。
+- Status icons/colors: they belong to the same lucide `Circle*` family as the other statuses to keep the visual size consistent (the host bundles full lucide, confirmed in the installed package): Design `CircleEllipsis` (foreground), Development `CircleDot` (warning), Test `CircleGauge` (accent).
+- The lane editor, board columns, the phone status sheet, the card status dropdown and the compact layout's "first lane with cards" logic all cover them automatically through `statuses`, with no special cases.
+- Copy updates: the Auto-update description in project settings (`client/forms.tsx`) and the tool description in the session preview (`client/session-preview.tsx`).
+- A historical `in_progress` in the activity timeline is shown as "In progress".
 
-## 6. 文档
+## 6. Docs
 
-- 更新 AUTO-STATUS-SPEC（A1/A1r/M2）、SPEC-OUTLINE 顶部增加本条目、PROGRESS 记录检查结果。
+- Update AUTO-STATUS-SPEC (A1/A1r/M2), add this entry at the top of SPEC-OUTLINE, and record the check results in PROGRESS.
 
-## 7. 验收
+## 7. Acceptance
 
-聚焦测试：
-- 迁移：v3 卡片 `in_progress` → `development`；泳道原位展开、开关沿用、改名转给 Development；无 `lanes` 项目不变；历史事件与回执保持原值且可解析；`board.pre-v4.json` 只写一次；v1/v2 链式迁移。
-- 规则：Backlog/Todo 开工不动；In review 继续进 Development（未开启时回退）；Blocked 继续回到上一个工作阶段（含历史 `in_progress` → development、泳道关闭时的回退、全部关闭不动）；A1r 在三个阶段都能恢复；`autoStatus=false`、已完成/归档不动；`silentTurn` 覆盖三个阶段。
-- 工具：`allowedStatuses` 按泳道过滤；三个阶段可设置；`in_progress` 别名两种情形；未开启泳道被拒绝。
-- 输入校验：人为 `in_progress` 写入被拒绝。
+Focused tests:
+- Migration: v3 card `in_progress` → `development`; lanes expanded in place, enabled carried over, rename goes to Development; projects without `lanes` unchanged; historical events and receipts keep their original value and can be parsed; `board.pre-v4.json` is written only once; chained v1/v2 migration.
+- Rules: Backlog/Todo start does not move; In review continue goes to Development (fallback when not enabled); Blocked continue returns to the previous work stage (including historical `in_progress` → development, the fallback when the lane is off, and no move when all are off); A1r recovers in all three stages; no move for `autoStatus=false`, finished or archived cards; `silentTurn` covers the three stages.
+- Tool: `allowedStatuses` is filtered by lane; the three stages can be set; both cases of the `in_progress` alias; a lane that is not enabled is rejected.
+- Input validation: a hand-written `in_progress` is rejected.
 
-其他：`npm run typecheck`、`npm test`；`paseo plugin reload paseo-ultra-kanban` 后检查真实看板数据迁移结果（迁移前记录 `board.json` 中 in_progress 卡片数量）；按项目要求用 full-access 的 `codex/gpt-6-luna` session 验证桌面与紧凑 UI、agent 设置阶段和规则，证据保存到 `docs/verification/workflow-stages.md`。
+Other: `npm run typecheck`, `npm test`; after `paseo plugin reload paseo-ultra-kanban`, check the migration result on the real board data (record the number of in_progress cards in `board.json` before migrating); per the project requirement, use a full-access `codex/gpt-6-luna` session to verify the desktop and compact UI, the agent setting stages and the rules, and save the evidence to `docs/verification/workflow-stages.md`.
 
-## 8. 回退
+## 8. Rollback
 
-拆分不合适时：停用插件或回滚代码前，用 `board.pre-v4.json` 覆盖 `board.json`（会丢失迁移之后的看板变更），或保留数据、仅把 v4 中的 design/development/test 卡片手工映射回 `in_progress` 并降回 v3。旧代码无法读取 v4 数据（版本校验失败时会保留文件并报错，不会重置）。
-
+If the split turns out wrong: before disabling the plugin or rolling back code, overwrite `board.json` with `board.pre-v4.json` (this loses board changes made after the migration), or keep the data and only map the design/development/test cards in v4 back to `in_progress` by hand and lower the version to v3. Old code cannot read v4 data (a version check failure keeps the file and reports an error; it does not reset).

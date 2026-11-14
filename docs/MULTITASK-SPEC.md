@@ -1,111 +1,111 @@
-# M2.5：多任务人工管理
+# M2.5: manual multi-task management
 
-状态：用户于 2026-10-14 授权（选定 A、B、D；C、E 暂不做；要求先把看板基础功能做好）。上游：[ROADMAP-V2 §0/§8](ROADMAP-V2.md)。
-本阶段只用人工操作和 Paseo 已有的 session 信号，不新增 agent 工具，不改变 agent 的状态权限。存储结构不变（board v3），也不引入新的持久化文件。
+Status: authorized by the user on 2026-10-14 (A, B and D chosen; C and E not for now; asked to get the basic board features right first). Upstream: [ROADMAP-V2 §0/§8](ROADMAP-V2.md).
+This phase uses only manual actions and the session signals Paseo already has; it adds no agent tool and does not change the agent's status permissions. The storage structure is unchanged (board v3), and no new persistence file is introduced.
 
-## A. “需要关注”总览
+## A. "Needs attention" overview
 
-- 看板工具栏新增 Attention 按钮（铃铛图标）。有待处理项时显示数量角标。
-- 弹窗按卡片列出所有需要关注的 session：
-  - 范围：未归档项目中未归档的卡片。不受当前项目、搜索、优先级、Finished 筛选的影响。
-  - 判定沿用现有 `sessionAttention`：等待授权、出错、回合结束未读。running 不算。
-  - 读状态不可用时不判定未读，只列授权和错误，并在弹窗顶部说明。
-- 每行显示：卡片标题、项目名、卡片状态、各项原因（如 “1 approval · 2 unread”）、最近 session 更新时间。排序规则：
-  1. 有授权或错误的卡片排前；
-  2. 同一档内，最近更新的排前。
-- 点击一行：切到该项目，打开卡片侧栏。
-  - 若该卡只有一个需要关注的 session，直接打开它的预览。复用 session chip 的一次性入口机制，“Back” 回到卡片详情。
-  - 有多个需要关注的 session 时停在卡片详情，由用户选择。
-- 打开 session 不会自动标为已读；已读仍由现有 “Mark as read” 操作完成。
-- 空状态显示 “Nothing needs your attention.”。数据随看板现有轮询（≤5s）刷新。
+- The board toolbar gets an Attention button (bell icon). When there are pending items it shows a count badge.
+- The dialog lists all sessions that need attention, grouped by card:
+  - Scope: non-archived cards in non-archived projects. It is not affected by the current project, search, priority or Finished filters.
+  - The judgment reuses the existing `sessionAttention`: waiting for approval, error, turn ended unread. Running does not count.
+  - When the read state is unavailable, unread is not judged; only approvals and errors are listed, with a note at the top of the dialog.
+- Each row shows: card title, project name, card status, each reason (such as "1 approval · 2 unread"), and the latest session update time. Sorting rule:
+  1. Cards with an approval or an error come first;
+  2. Within the same tier, the most recently updated come first.
+- Clicking a row: switch to that project and open the card sidebar.
+  - If the card has only one session that needs attention, open its preview directly. It reuses the one-time entry mechanism of the session chip, and "Back" returns to the card detail.
+  - With several sessions that need attention, stop at the card detail and let the user choose.
+- Opening a session does not mark it as read automatically; reading is still done by the existing "Mark as read" action.
+- The empty state shows "Nothing needs your attention.". The data refreshes with the board's existing polling (≤5s).
 
-## B. 一键开 session
+## B. One-click start session
 
-- 入口有三个：
-  - 侧栏 Sessions 区标题旁的 “Start session”（原 “New session”）；
-  - 卡片无 session 时，空状态里的主按钮；
-  - 卡片操作菜单中的 “Start session”：打开侧栏并直接弹出创建框。
-- 创建框预填以下内容，均可修改：
-  - **Provider / model / mode**：沿用最近一次创建的 session，即所有卡片 workspace 中 `createdAt` 最新、未归档的 session。若它的 provider 不可用或 model 不可选，回退到 provider 默认 model；若 mode 不在可选列表，回退到 provider 默认权限。没有历史时保持现状（codex + 默认 model）。
-  - **初始指令**：卡片标题加描述（空描述时只有标题）。
-  - **标题**：留空，即使用卡片标题。
-- 创建逻辑、Kanban 工具注入、幂等与恢复行为不变。
+- There are three entry points:
+  - "Start session" (formerly "New session") next to the title of the sidebar Sessions section;
+  - the primary button in the empty state when the card has no session;
+  - "Start session" in the card action menu: opens the sidebar and pops up the create dialog directly.
+- The create dialog prefills the following, all editable:
+  - **Provider / model / mode**: follows the most recently created session, that is, the non-archived session with the latest `createdAt` across all card workspaces. If its provider is unavailable or its model is not selectable, fall back to the provider's default model; if the mode is not in the selectable list, fall back to the provider's default permission. With no history, stay as it is now (codex + default model).
+  - **Initial instruction**: the card title plus the description (only the title when the description is empty).
+  - **Title**: empty, meaning the card title is used.
+- Creation logic, Kanban tool injection, idempotency and recovery behavior are unchanged.
 
-## D. 手动收尾（Wrap up）
+## D. Manual wrap-up (Wrap up)
 
-- 卡片状态为 Done 或 Cancelled 且未归档时，侧栏 “Needs” 位置显示 “Wrap up” 区块和按钮。其他状态不显示。
-- 点击后先做检查（RPC `tasks.wrapup-check`），再弹窗展示结果：
+- When the card status is Done or Cancelled and it is not archived, the sidebar shows a "Wrap up" block and button in the "Needs" position. It is not shown for other statuses.
+- Clicking first runs a check (RPC `tasks.wrapup-check`), then pops up a dialog with the result:
 
-| 检查 | 级别 | 说明 |
+| Check | Level | Notes |
 | --- | --- | --- |
-| session 运行中/启动中 | 阻止 | 先停止或等待结束 |
-| workspace 正在归档或不可用 | 阻止（不可用时只允许归档看板记录） | — |
-| 未提交改动（仅 worktree） | 警告 | 归档后 Paseo 可能删除 worktree 目录，改动会丢失 |
-| 未推送提交 `git rev-list --count HEAD --not --remotes`（仅 worktree） | 警告 | 分支保留，但提交只在本地 |
-| Git 状态无法读取（仅 worktree） | 警告 | — |
+| A session is running/starting | Block | Stop it or wait for it to finish first |
+| The workspace is being archived or unavailable | Block (when unavailable, only archiving the board record is allowed) | — |
+| Uncommitted changes (worktree only) | Warning | After archiving, Paseo may delete the worktree directory and the changes will be lost |
+| Unpushed commits `git rev-list --count HEAD --not --remotes` (worktree only) | Warning | The branch is kept, but the commits exist only locally |
+| Git state cannot be read (worktree only) | Warning | — |
 
-- 收尾动作按 workspace 类型区分：
-  - **worktree**：归档该 workspace。Paseo 会同时归档其 session 和终端；当它是该 worktree 的最后一个活动引用时，Paseo 会移除 worktree 目录，分支保留。
-  - **directory / checkout / local_checkout**：不归档 workspace（它可能是项目根或用户的常用目录），只逐个归档该 workspace 内未归档的 session。
-  - 两种情况最后都把卡片标为已归档，记录活动 `wrapped_up`（含已归档的 session 数、是否归档了 workspace、被确认的警告）。
-- 确认：
-  - 有阻止项时，“Wrap up” 不可点。
-  - 有警告时，按钮为危险样式，文案为 “Wrap up anyway”；请求带 `acknowledgeWarnings=true`。
-  - 服务端执行前重新检查。若出现新的阻止项，或警告变化且未被确认，则拒绝并返回最新检查结果。
-- 请求带卡片 `revision`，卡片已被他人修改时返回冲突。
-- 执行顺序：资源归档在前，卡片归档在后。
-  - 任一 session 或 workspace 归档失败：卡片不归档，返回已完成与失败的明细，可再次重试（已归档的资源会被跳过）。
-- 卡片原有的 Archive（只归档看板记录）保持不变。收尾成功用原生 toast 提示。
-- 这是用户显式操作，符合“归档看板记录不隐式归档 Paseo 资源”的约束；AGENTS.md 增补一行说明此显式例外。
+- The wrap-up action differs by workspace type:
+  - **worktree**: archive that workspace. Paseo archives its sessions and terminals at the same time; when it is the last active reference to that worktree, Paseo removes the worktree directory and keeps the branch.
+  - **directory / checkout / local_checkout**: do not archive the workspace (it may be the project root or a directory the user uses often); only archive the non-archived sessions in that workspace one by one.
+  - In both cases the card is finally marked archived, and the activity `wrapped_up` is recorded (with the number of archived sessions, whether the workspace was archived, and the warnings that were acknowledged).
+- Confirmation:
+  - When there are blocks, "Wrap up" cannot be clicked.
+  - When there are warnings, the button has a danger style and the label is "Wrap up anyway"; the request carries `acknowledgeWarnings=true`.
+  - The server re-checks before executing. If a new block appears, or the warnings changed and were not acknowledged, it refuses and returns the latest check result.
+- The request carries the card `revision`, and a conflict is returned when the card was modified by someone else.
+- Execution order: resource archiving first, card archiving after.
+  - If any session or workspace archive fails: the card is not archived, and the details of what was done and what failed are returned; it can be retried (already archived resources are skipped).
+- The card's existing Archive (archives only the board record) is unchanged. A successful wrap-up is announced with a native toast.
+- This is an explicit user action and fits the constraint "archiving a board record does not implicitly archive Paseo resources"; AGENTS.md adds one line to state this explicit exception.
 
-## 补充：worktree 分支名可选（2026-10-15）
+## Addendum: worktree branch name optional (2026-10-15)
 
-创建卡片时选择 New isolated worktree，可以不填 New branch，由服务端生成 `kanban/<标题英文 slug>-<6 位 hash>`：
-- slug 取标题中的英文和数字，转小写，非字母数字统一换成 `-`，最长 40 字符；标题没有可用的英文时用 `task`。
-- hash 取自本次创建的 operationId，同一次创建重试时分支名与幂等键保持不变，不会多建一个 worktree。
-- 用户填写了分支名时按原值使用。
+When creating a card with New isolated worktree selected, New branch can be left empty, and the server generates `kanban/<English slug of the title>-<6-char hash>`:
+- The slug takes the English letters and digits of the title, lowercases them, replaces everything that is not alphanumeric with `-`, up to 40 characters; when the title has no usable English, it uses `task`.
+- The hash comes from the operationId of this creation; when the same creation is retried, the branch name and idempotency key stay the same, so no extra worktree is created.
+- When the user fills in a branch name, it is used as given.
 
-## 补充：新建任务时可同时启动第一个 agent（2026-10-15）
+## Addendum: start the first agent together with a new task (2026-10-15)
 
-- New task 表单增加开关 “Start an agent now”，记住上次选择（host 设置 `board-view.startAgentOnCreate`，首次默认开启）：
-  - **开启**：显示与 New session 相同的 Agent 选择（Provider / Model / Permissions，预填最近一次 session 的设置）和 “First instruction”。First instruction 跟随标题与描述生成，用户编辑后不再覆盖。按钮为 “Create and start”：先创建卡片与 workspace，再以与侧栏 Start session 相同的配置（MCP + skill + 卡片上下文）启动 session，然后打开卡片侧栏。
-  - **关闭**：只创建任务，之后从卡片手动启动。
-- 失败处理：卡片已创建但 agent 启动失败时保留卡片，弹出错误提示，可在侧栏重新启动。启动使用基于本次创建 operationId 的固定 launch ID，重试时复用已准备的 agent，不会重复创建。
-- Agent 选择逻辑抽为 `useAgentChoice` / `AgentPicker`，供 New session 与 New task 共用；启动逻辑为 `launchKanbanSession`。
-- 设置读取统一经 `boardViewValues` 补全默认值，因为宿主不会对旧存储值套用新字段的默认值。
-- 实测：新建并启动 haiku session、侧栏自动打开并显示运行中、A1 自动转 In progress；随后 Wrap up 清理（[截图](verification/create-and-start.png)）。
+- The New task form gets a switch "Start an agent now" that remembers the last choice (host setting `board-view.startAgentOnCreate`, on by default the first time):
+  - **On**: shows the same Agent choice as New session (Provider / Model / Permissions, prefilled from the latest session's settings) and "First instruction". The First instruction follows the title and description, and is no longer overwritten once the user edits it. The button is "Create and start": it first creates the card and workspace, then starts a session with the same configuration as the sidebar Start session (MCP + skill + card context), then opens the card sidebar.
+  - **Off**: only the task is created, and a session is started manually from the card later.
+- Failure handling: when the card is created but the agent fails to start, the card is kept, an error message pops up, and it can be restarted in the sidebar. The start uses a fixed launch ID based on this creation's operationId, so a retry reuses the already prepared agent and does not create a duplicate.
+- The agent choice logic is extracted to `useAgentChoice` / `AgentPicker`, shared by New session and New task; the start logic is `launchKanbanSession`.
+- Settings are read uniformly through `boardViewValues`, which fills in defaults, because the host does not apply the defaults of new fields to old stored values.
+- Measured: a new haiku session was created and started, the sidebar opened automatically and showed running, and A1 moved to In progress automatically; Wrap up then cleaned up ([screenshot](verification/create-and-start.png)).
 
-## 补充：移到 Done/Cancelled 时收尾（2026-10-15）
+## Addendum: wrap up when moved to Done/Cancelled (2026-10-15)
 
-用户要求：卡片移到 Done 或 Cancelled 时默认询问是否 wrap up，同意则归档 workspace；设置中可改为自动归档。
+The user asked that moving a card to Done or Cancelled by default asks whether to wrap up, and on yes archives the workspace; a setting can switch it to automatic archiving.
 
-- 设置：host 设置 `wrap-up.autoWrapup`（Ultra Kanban settings → Finishing cards → Auto wrap up），默认关闭。
-- 触发：人在看板（菜单 Move to、拖拽放置）、侧栏状态、编辑表单中把卡片从非 Done/Cancelled 改为 Done 或 Cancelled。Done ↔ Cancelled 之间互相移动不触发。
-- **关闭（默认）**：该客户端在状态写入成功后弹出 “Wrap up this card?”：
-  - 先跑 Wrap up 检查，展示阻止项/警告，规则与手动 Wrap up 相同（有警告时按钮为 “Wrap up anyway”）。
-  - 确认后归档 session/workspace，卡片**保留**在看板上（RPC `tasks.wrapup` 带 `keepCard=true`，记录活动 `wrapped_up`，备注含 “card kept”，不改卡片 revision）。
-  - “Not now” 关闭，不动任何资源；之后仍可用侧栏 Wrap up。
-  - 卡片已没有可归档内容（workspace 不可用，或 workspace 不归本卡且无 session）时不弹出。
-- **开启**：daemon 在状态写入后后台执行，不阻塞写入；同一卡片同时只跑一次。只有在没有阻止项、没有警告、workspace 归本卡所有时才归档 workspace（Paseo 同时归档其 session 和终端），卡片保留，记录 `workspace_auto_archived`；否则不动资源，记录 `workspace_auto_archive_skipped`（附原因），之后可手动 Wrap up。执行前再确认卡片仍为 Done/Cancelled 且 revision 未变。
-- 摘要会话：回合结束后插件会在卡片 workspace 中创建短时的 “Kanban summary” 子会话（标签 `ultra-kanban=summarizer`），结束后自动归档。它不算 “仍在运行” 的 session，也不计入归档数量；自动与手动 Wrap up 都先等待本卡进行中的摘要跑完（`SummaryService.settled`，受摘要自身超时限制）再做检查和归档，避免回合刚结束就移到 Done 时被误判跳过或截断摘要（2026-10-18 修复）。
-- 归属：新卡记录 `ownsWorkspace`（新建 directory/worktree 为 true，关联已有 workspace 为 false）。旧卡没有该字段时，Paseo workspace 标题与卡片标题一致才视为本卡创建（插件创建时用卡片标题命名）。归本卡所有的 workspace（含 directory 类）整体归档，directory 目录留在磁盘；worktree 目录可能被 Paseo 移除，分支保留。不归本卡的 directory workspace（如项目 main）从不归档，只归档其中的 session。
-- 已收尾状态：卡片最近一次 `wrapped_up` / `workspace_auto_archived` 之后没有 `workspace_restored`，也没有移回非 Done/Cancelled 状态时，视为已收尾（`shared/wrapup-state.ts`）。此时侧栏 “Finished” 区块改为 “Wrapped up”（显示归档了什么、何时归档，以及移出 Done/Cancelled 可恢复），不再显示 Wrap up 按钮和菜单项，也不再提示 “Workspace is unavailable or archived.”。
-- 侧栏手动 Wrap up 不变（仍会归档卡片），只是同样整体归档归本卡所有的 directory workspace。
+- Setting: host setting `wrap-up.autoWrapup` (Ultra Kanban settings → Finishing cards → Auto wrap up), off by default.
+- Trigger: a person on the board (menu Move to, drag and drop), in the sidebar status, or in the edit form changes a card from non-Done/Cancelled to Done or Cancelled. Moving between Done ↔ Cancelled does not trigger.
+- **Off (default)**: that client pops up "Wrap up this card?" after the status write succeeds:
+  - It first runs the Wrap up check and shows the blocks/warnings, with the same rules as manual Wrap up (with warnings the button is "Wrap up anyway").
+  - After confirmation it archives the sessions/workspace, and the card is **kept** on the board (RPC `tasks.wrapup` with `keepCard=true`, records the activity `wrapped_up`, with a note that contains "card kept", and does not change the card revision).
+  - "Not now" closes it and touches no resource; Wrap up in the sidebar can still be used later.
+  - It does not pop up when the card has nothing left to archive (the workspace is unavailable, or the workspace does not belong to this card and has no session).
+- **On**: the daemon runs it in the background after the status write, without blocking the write; only one run per card at a time. It archives the workspace (Paseo archives its sessions and terminals at the same time) only when there are no blocks, no warnings and the workspace belongs to this card; the card is kept and `workspace_auto_archived` is recorded; otherwise it touches no resource and records `workspace_auto_archive_skipped` (with the reason), and a manual Wrap up can be done later. Before executing it confirms again that the card is still Done/Cancelled and the revision is unchanged.
+- Summary session: after a turn ends the plugin creates a short-lived "Kanban summary" child session in the card workspace (label `ultra-kanban=summarizer`), and archives it automatically when finished. It does not count as a "still running" session and is not counted in the archived number; both automatic and manual Wrap up first wait for this card's in-progress summary to finish (`SummaryService.settled`, bounded by the summary's own timeout) before checking and archiving, to avoid being wrongly judged as skipped or cutting the summary short when a card moves to Done right after a turn ends (fixed 2026-10-18).
+- Ownership: a new card records `ownsWorkspace` (true for a newly created directory/worktree, false when linking an existing workspace). For an old card without the field, it counts as created by this card only when the Paseo workspace title equals the card title (the plugin names it with the card title when it creates it). A workspace owned by this card (including the directory kind) is archived as a whole, with the directory left on disk; the worktree directory may be removed by Paseo, and the branch is kept. A directory workspace not owned by this card (such as the project main) is never archived; only the sessions in it are archived.
+- Wrapped-up state: when the card's latest `wrapped_up` / `workspace_auto_archived` has no `workspace_restored` after it, and the card was not moved back out of Done/Cancelled, it counts as wrapped up (`shared/wrapup-state.ts`). Then the sidebar "Finished" block becomes "Wrapped up" (showing what was archived, when, and that moving out of Done/Cancelled can restore it), no longer shows the Wrap up button and menu item, and no longer prompts "Workspace is unavailable or archived.".
+- The sidebar manual Wrap up is unchanged (it still archives the card), except that it also archives the directory workspace owned by this card as a whole.
 
-## 补充：移出 Done/Cancelled 时恢复 workspace（2026-10-15）
+## Addendum: restore the workspace when moved out of Done/Cancelled (2026-10-15)
 
-把已收尾的卡片移出 Done/Cancelled 时，后台恢复收尾时归档的 workspace：沿用同一 workspace ID，worktree 被删除的会在原分支上重建。同时恢复该次收尾归档的 session（用户自己归档的不动）。详见 [WORKSPACE-RESTORE-SPEC](WORKSPACE-RESTORE-SPEC.md)。
+When a wrapped-up card is moved out of Done/Cancelled, the workspace archived at wrap-up is restored in the background: the same workspace ID is kept, and a deleted worktree is recreated on its original branch. The sessions archived by that wrap-up are restored too (those the user archived themselves are left alone). See [WORKSPACE-RESTORE-SPEC](WORKSPACE-RESTORE-SPEC.md) for details.
 
-## 不做
+## Not doing
 
-agent 自动推进、阶段、提问、自动启动（见 ROADMAP-V2 远期）、卡片排序/筛选增强（C）、卡片备注（E）、延迟收尾、自动归档卡片本身。
+Agent auto-advance, stages, questions, auto-start (see the long-term items in ROADMAP-V2), card sort/filter enhancements (C), card notes (E), delayed wrap-up, automatically archiving the card itself.
 
-## 验收
+## Acceptance
 
-- 先 typecheck，再跑聚焦测试和全量 `npm test`，然后只 reload 本插件。
-- 聚焦测试：
-  - 关注列表的计算：范围、排序、读状态不可用；
-  - 默认 session 设置的推导；
-  - 收尾检查与执行（git 临时仓库 + fake SDK）：阻止、警告确认、worktree/directory 分支、部分失败不归档卡片、revision 冲突、重复执行。
-- 真实渲染检查：桌面和手机宽度的 Attention 弹窗、侧栏 Start/Wrap up。不对用户的真实卡片执行收尾。
-- 按用户此前决定，Luna 验收暂不运行，记为 UNRUN。
+- Typecheck first, then the focused tests and the full `npm test`, then reload only this plugin.
+- Focused tests:
+  - Computation of the attention list: scope, sorting, read state unavailable;
+  - Derivation of default session settings;
+  - Wrap-up check and execution (temporary git repo + fake SDK): blocks, warning confirmation, worktree/directory branches, partial failure does not archive the card, revision conflict, repeated execution.
+- Real rendering check: the Attention dialog and the sidebar Start/Wrap up at desktop and phone widths. Do not run wrap-up on the user's real cards.
+- Per the user's earlier decision, Luna acceptance is not run for now and is recorded as UNRUN.

@@ -1,97 +1,97 @@
-# Agent 自管进度：调研与 v1 方案
+# Agent-managed progress: research and v1 proposal
 
-状态：设计草案，2026-10-15，待用户确认后写实施 spec。取代 [PHASE-03-SPEC](PHASE-03-SPEC.md) 中“全部靠 agent 调工具”的思路；后者的工作流、阶段、审批设计作为本方案的远期扩展保留。
+Status: design draft, 2026-10-15, to be confirmed by the user before an implementation spec is written. Replaces the "everything depends on the agent calling tools" idea in [PHASE-03-SPEC](PHASE-03-SPEC.md); that spec's workflow, stage and approval design is kept as a long-term extension of this proposal.
 
-## 1. 现状问题
+## 1. Current problem
 
-现在卡片状态只在 agent **主动调用** `flowly_update_status` 时变化。实测：
-- 显式要求汇报的 F1–F4 每张都正确走完 Todo → In progress → In review。
-- 没接工具或没收到指示的 session，84 轮里状态零变化。
+Today a card's status changes only when the agent **actively calls** `flowly_update_status`. Measured:
+- F1–F4, which were explicitly told to report, each went correctly through Todo → In progress → In review.
+- A session with no tool connected or no instructions showed zero status change in 84 turns.
 
-“靠 agent 自觉”不稳定。更重要的是，系统其实已经知道很多事实：session 开始一轮、结束一轮、失败、等待授权、你又发了消息。这些都没被用来推进卡片。
+"Relying on the agent's discipline" is unstable. More importantly, the system already knows many facts: a session starts a turn, ends a turn, fails, waits for approval, or you send another message. None of this is used to advance the card.
 
-## 2. 其他产品怎么做
+## 2. How other products do it
 
-| 产品 | 状态来源 | agent 要做什么 | 人的环节 |
+| Product | Source of status | What the agent must do | Human step |
 | --- | --- | --- | --- |
-| **Vibe Kanban** | 主要由**执行生命周期**驱动（第三方资料）：卡片拖到 In Progress 即建 worktree 并启动 agent；agent 执行结束卡片进入 In Review；要求修改后回到 In Progress。新版改为 workspace 状态，含 “Needs Attention: agent finished or needs input” | 几乎什么都不用做 | 看 diff、给反馈、开 PR、合并 |
-| **GitHub Copilot coding agent** | **PR 状态**：指派 issue 后开 PR，做完后请求你 review | 完成时请求 review | 在 PR 上评论让它迭代 |
-| **Linear agents** | 两层：**session 状态**（pending/active/awaitingInput/error/complete/stale）由 Linear 根据 agent 最后一条 activity **自动推导**；**issue 状态**由 agent 在开始时移到第一个 started 状态 | 发 activity：thought / action / elicitation（需要输入）/ response（完成）/ error；可选 plan 清单（pending/inProgress/completed/canceled，整体替换） | 回复 elicitation；验收 |
-| **Multica** | agent 通过 CLI 改 issue 状态；执行完成不改状态；失败且无重试时 in_progress 回退 todo；PR 合并可自动 Done | 按说明改状态、评论 | 评论即触发新一轮；人设 Done |
-| **Backlog.md** | 任务是仓库里的 Markdown 文件，agent 用 CLI/MCP 认领并改状态 | 遵守验收标准和 Definition of Done | 审 spec、审计划、审代码三个检查点 |
+| **Vibe Kanban** | Mostly driven by the **execution lifecycle** (third-party sources): dragging a card to In Progress creates a worktree and starts the agent; when the agent finishes the card moves to In Review; asking for changes moves it back to In Progress. The newer version uses workspace status, including "Needs Attention: agent finished or needs input" | Almost nothing | Look at the diff, give feedback, open a PR, merge |
+| **GitHub Copilot coding agent** | **PR status**: after an issue is assigned it opens a PR and asks you to review when done | Request review when done | Comment on the PR to make it iterate |
+| **Linear agents** | Two layers: the **session status** (pending/active/awaitingInput/error/complete/stale) is **derived automatically** by Linear from the agent's last activity; the **issue status** is moved by the agent to the first started status at the start | Emit activities: thought / action / elicitation (needs input) / response (done) / error; an optional plan checklist (pending/inProgress/completed/canceled, replaced as a whole) | Reply to an elicitation; accept |
+| **Multica** | The agent changes the issue status through a CLI; finishing a run does not change the status; on failure with no retry, in_progress falls back to todo; a merged PR can set Done automatically | Change the status and comment as instructed | A comment triggers a new round; a human sets Done |
+| **Backlog.md** | A task is a Markdown file in the repo; the agent claims it and changes its status through the CLI/MCP | Follow the acceptance criteria and the Definition of Done | Three checkpoints: review the spec, the plan and the code |
 
-共同规律：
-1. **生命周期事实由系统推导**（Vibe Kanban、Linear 的 session 状态），不靠 agent 记得报。
-2. **agent 只报系统推导不出的语义**：我需要输入、我做完了、我的计划是什么（Linear 的 elicitation/response/plan，Copilot 的 request review）。
-3. **人的消息本身就是状态信号**：要求修改 → 回到进行中（Vibe Kanban、Copilot、Multica）。
-4. **Done 留给人或外部事实**（PR 合并）。
+Common patterns:
+1. **Lifecycle facts are derived by the system** (Vibe Kanban, Linear's session status); they do not depend on the agent remembering to report.
+2. **The agent reports only the meaning the system cannot derive**: I need input, I am done, what my plan is (Linear's elicitation/response/plan, Copilot's request review).
+3. **A human message is itself a status signal**: asking for changes → back to in progress (Vibe Kanban, Copilot, Multica).
+4. **Done is left to a human or an external fact** (a merged PR).
 
-## 3. 方案：事实 → 规则 → 状态
+## 3. Proposal: facts → rules → status
 
 ```
-信号（事实）                     规则（项目级，可开关）           结果
-─────────────────               ──────────────────────          ─────────────
-session 生命周期 hook  ──┐
-  turn 开始/结束/失败     │
-  授权请求/处理            ├──▶  小型规则表（daemon 内）  ──▶  卡片状态变更（带原因）
-agent 报告（工具）         │      trigger + condition + action    卡片标记（需要你/静默/出错）
-  progress/question/result│                                     活动记录（可追溯）
-人的操作                   │
-  发消息/拖拽/验收        ──┘
+Signal (fact)                    Rules (project-level, switchable)  Result
+─────────────────               ──────────────────────────────     ─────────────
+session lifecycle hook ──┐
+  turn start/end/failure  │
+  approval request/handled ├──▶  small rule table (in daemon) ──▶  card status change (with reason)
+agent report (tool)       │      trigger + condition + action      card marker (needs you/silent/error)
+  progress/question/result│                                        activity record (traceable)
+human action              │
+  message/drag/accept   ──┘
 ```
 
-### 3.1 信号
+### 3.1 Signals
 
-- **session 生命周期**：已有的 `agent.turn_started`、`agent.turn_ended`（含 outcome），以及 `agent.permission_requested/resolved`、`agent.archived`。只看**看板管理的 session**（见 PHASE-02 修订）。
-- **agent 报告**：保留现有工具，`flowly_report_progress` 的 kind 增加 `question`（需要你回答）。`result` 表示“我认为交付了”。不新增工具，agent 只需记住两个词：有问题报 `question`，做完报 `result`。
-- **人的操作**：在卡片或 session 中给看板管理的 session 发消息、拖拽、验收。
+- **Session lifecycle**: the existing `agent.turn_started`, `agent.turn_ended` (with outcome), plus `agent.permission_requested/resolved` and `agent.archived`. Only **board-managed sessions** count (see the PHASE-02 amendment).
+- **Agent report**: keep the existing tools; the `kind` of `flowly_report_progress` gains `question` (needs your answer). `result` means "I believe it is delivered". No new tool; the agent only needs to remember two words: report `question` when it has a question, `result` when done.
+- **Human action**: sending a message to a board-managed session from a card or session, dragging, accepting.
 
-### 3.2 v1 默认规则
+### 3.2 v1 default rules
 
-| # | 触发 | 条件 | 动作 |
+| # | Trigger | Condition | Action |
 | --- | --- | --- | --- |
-| R1 | 看板管理的 session 开始一轮 | 卡片在 Backlog/Todo | → **In progress**（对应 Linear 的 “first started status”、Vibe 的拖入即开工） |
-| R2 | agent 报告 `result` 或设 in_review | 卡片未完成 | → **In review**（已有） |
-| R3 | 看板管理的 session 结束一轮 | 卡片 In progress；本轮无任何报告；同卡没有其他运行中的 session | 卡片标记 **“等你看”**，进入 Attention；**不改状态** |
-| R4 | agent 报告 `question` | — | 卡片标记 **“需要你回答”**，进入 Attention；不改状态（D2） |
-| R5 | 回合失败 / 等待授权 | — | 卡片标记出错 / 等授权（已有） |
-| R6 | 人给该卡的看板管理 session 发消息 | 卡片在 In review 或 Blocked | → **In progress**（“要求修改即回到进行中”）；清除“需要你回答”标记 |
-| R7 | Done / Cancelled | — | 只能由人设置（未来可加 “PR 已合并”） |
+| R1 | A board-managed session starts a turn | Card is in Backlog/Todo | → **In progress** (matches Linear's "first started status" and Vibe's drag-to-start) |
+| R2 | Agent reports `result` or sets in_review | Card is not finished | → **In review** (existing) |
+| R3 | A board-managed session ends a turn | Card is In progress; no report this turn; no other running session on the same card | Mark the card **"Look at me"** and put it in Attention; **do not change the status** |
+| R4 | Agent reports `question` | — | Mark the card **"Needs your answer"** and put it in Attention; do not change the status (D2) |
+| R5 | Turn fails / waiting for approval | — | Mark the card as error / waiting for approval (existing) |
+| R6 | A human sends a message to the card's board-managed session | Card is In review or Blocked | → **In progress** ("asking for changes returns to in progress"); clear the "Needs your answer" marker |
+| R7 | Done / Cancelled | — | Set only by a human (a "PR merged" signal may be added later) |
 
-规则与现有约束的关系：
-- 业务状态变化来自**明确的事实**，不来自“一轮结束 = 完成”。R3 只打标记不改状态，回合结束仍然不会自动完成卡片。
-- R1、R6 由系统改状态，需要修订 AGENTS.md 中“业务状态与执行状态独立”一条：改为“由项目规则基于明确事实推导，可按项目关闭，每次变更记录触发原因”。
+How the rules relate to existing constraints:
+- Business status changes come from **explicit facts**, not from "a turn ended = done". R3 only sets a marker and does not change the status, so a turn ending still never completes a card automatically.
+- R1 and R6 change the status from the system, which requires amending the AGENTS.md item "business status and execution status are independent" to: "derived by project rules from explicit facts, switchable per project, with the trigger reason recorded on every change".
 
-### 3.3 为什么更轻量、更有效
+### 3.3 Why it is lighter and more effective
 
-- **agent 不报也能走对大半**：开工（R1）、等你看（R3）、打回续工（R6）都由系统推导，覆盖“84 轮零变化”的情况。
-- **agent 只需最小协议**：两种报告（question / result），skill 可以压缩到几行。
-- **每次状态变更都带原因**：活动里显示“由 R1：session X 开始工作”，人能看懂、能撤销（拖回去即可）。
-- **不引入新存储**：规则在 daemon 的 hook 中执行，沿用现有串行写、CAS 和活动记录。
+- **It gets most of it right even if the agent reports nothing**: starting work (R1), waiting for you (R3) and sending it back to continue (R6) are all derived by the system, which covers the "zero change in 84 turns" case.
+- **The agent needs only a minimal protocol**: two kinds of report (question / result); the skill can shrink to a few lines.
+- **Every status change carries a reason**: the activity shows "by R1: session X started working", so a person can understand it and undo it (just drag it back).
+- **No new storage**: the rules run in the daemon's hooks and reuse the existing serialized writes, CAS and activity records.
 
-### 3.4 扩展路径（不在 v1）
+### 3.4 Extension path (not in v1)
 
-规则表的 trigger/condition/action 都是可枚举的类型，后续扩展只需加类型：
+The trigger/condition/action of the rule table are enumerable types, so later extensions only add types:
 
-| 扩展 | 加什么 |
+| Extension | What to add |
 | --- | --- |
-| 可配置工作流 / 阶段（PHASE-03 D1） | condition 支持 stage；action 支持 set_stage；项目级编辑 UI |
-| 计划清单（Linear plan） | 新信号 `plan_updated`，卡片显示进度条 |
-| PR 合并 → Done | 新信号 `pr_merged`（轮询 gh/glab） |
-| 回合结束直接进 Review（Vibe 模式） | 把 R3 的动作改为 → In review，作为项目选项 |
-| 自动开工队列 | 新触发：卡片进入 Todo → 启动 session |
-| 失败重试 / 卡住检测 | 新触发：超时、失败次数 |
+| Configurable workflow / stages (PHASE-03 D1) | condition supports stage; action supports set_stage; project-level editing UI |
+| Plan checklist (Linear plan) | New signal `plan_updated`, the card shows a progress bar |
+| PR merged → Done | New signal `pr_merged` (poll gh/glab) |
+| Turn end goes straight to Review (Vibe mode) | Change R3's action to → In review, as a project option |
+| Auto-start queue | New trigger: card enters Todo → start a session |
+| Failure retry / stuck detection | New triggers: timeout, failure count |
 
-## 4. 待确认
+## 4. To confirm
 
-1. 是否接受 R1、R6 由系统改状态（需修订 AGENTS.md），默认开启、可按项目关闭？
-2. 回合结束且无报告时（R3），v1 只打“等你看”标记（推荐），还是像 Vibe Kanban 直接进 In review？
-3. `question` 标记的回答方式：v1 直接复用 session 输入框（回复即清除标记，推荐），还是做专门的回答区（PHASE-03 方案）？
+1. Do you accept R1 and R6 changing the status from the system (requires amending AGENTS.md), on by default and switchable per project?
+2. When a turn ends with no report (R3), should v1 only set the "Look at me" marker (recommended), or go straight to In review like Vibe Kanban?
+3. How to answer the `question` marker: should v1 reuse the session input box directly (replying clears the marker, recommended), or build a dedicated answer area (the PHASE-03 proposal)?
 
-## 参考
+## References
 
-- Vibe Kanban（状态流转为第三方资料，官方 README 已标注 sunsetting）：https://github.com/BloopAI/vibe-kanban ，https://vibekanban.com/docs/core-features/monitoring-task-execution
-- Linear agents：https://linear.app/developers/agent-interaction ，https://linear.app/developers/agent-best-practices
-- GitHub Copilot coding agent：https://docs.github.com/en/copilot/using-github-copilot/coding-agent/using-copilot-to-work-on-an-issue
-- Backlog.md：https://cdn.jsdelivr.net/gh/MrLesk/Backlog.md@main/README.md
-- Multica：本地源码调研（commit 52b2690），见对话记录
+- Vibe Kanban (the status flow is from third-party sources; the official README is marked sunsetting): https://github.com/BloopAI/vibe-kanban , https://vibekanban.com/docs/core-features/monitoring-task-execution
+- Linear agents: https://linear.app/developers/agent-interaction , https://linear.app/developers/agent-best-practices
+- GitHub Copilot coding agent: https://docs.github.com/en/copilot/using-github-copilot/coding-agent/using-copilot-to-work-on-an-issue
+- Backlog.md: https://cdn.jsdelivr.net/gh/MrLesk/Backlog.md@main/README.md
+- Multica: local source research (commit 52b2690), see the conversation record
