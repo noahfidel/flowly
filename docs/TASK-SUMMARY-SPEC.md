@@ -1,124 +1,124 @@
-# 任务进展 summary：每轮自动 wrap up
+# Task progress summary: automatic wrap-up every turn
 
-状态：用户 2026-10-15 确认设计（“开干”）。卡片任务 `8c22cc02`。
+Status: design confirmed by the user on 2026-10-15 ("go", translated). Card task `8c22cc02`.
 
-## 1. 目的
+## 1. Purpose
 
-- 一眼看到卡片现在到哪一步：状态一句话、已做了什么、下一步。
-- 卡片 Done 之后仍能回查当时做到什么程度：保留每次更新的历史版本。
+- See at a glance where the card is now: a one-line state, what has been done, the next step.
+- After a card is Done, still be able to look up how far it got: every update is kept as a historical version.
 
-summary 是系统写的描述文字，**不改**卡片业务状态（lane），也不改 task revision。
+A summary is descriptive text written by the system; it **does not change** the card's business status (lane) or the task revision.
 
-## 2. 触发与运行（daemon）
+## 2. Trigger and run (daemon)
 
-- 触发：卡片的任一对话（§2.1）收到 `agent.turn_ended` 且 `outcome.kind === "completed"`。失败、取消的回合不触发。已归档卡片、已归档项目不处理；Done/Cancelled 的卡片仍可更新。
-- 开关：设置 `summaryEnabled=false` 时不触发（手动 Refresh 仍可用）。
-- 单飞与合并：每张卡同时最多一个 summarizer。运行中又有回合结束时，把该回合的文本加入待处理；当前运行结束后，把累积的所有回合合并为一次再运行。待处理文本保存在内存中，插件 reload 会丢失，下一轮自然补上。
-- 输入（无状态，每次完整传入）：卡片标题、描述（≤2000 字）、当前 lane 名、上一版 summary（若有）、本轮或合并轮次的文本。
-- 回合文本：取 hook 自带的 `timeline`；Paseo 0.13 起 `agent.turn_ended` 的 `timeline` 恒为空数组（0.12 有内容），此时由 `server/turn-timeline.ts` 读该 session timeline 最新一页（`tail`、200 条、`projected`）并取最后一轮，与手动 Refresh 同一做法；读取失败保持空，本轮不生成。`user_message` → `User:`，`assistant_message` → `Assistant:`，`tool_call` 只记名字（连续调用合并为一行 `Tools: a, b ×3`），`error` 记一行，其余（reasoning、todo、compaction、plugin、notification）忽略。总长 ≤12000 字，超出时保留开头 3000 字与结尾，中间标注省略。
-- 调用：`paseo.workspaces.ref(<卡片 workspace>).agents.create`（2026-10-15 修订，用户选 B）
-  - 作为**刚结束回合的 session 的子 session**（`parent`）运行在卡片自己的 workspace 中，不新建原生 project 或 workspace；
-  - `config.provider`：设置中的 Summary model（§4）；`config.modeId`：`readOnlyMode(provider)`（`shared/summary.ts`，2026-10-30）——`claude/*` 和 `claude-*` 自定义 provider（如 `claude-compass-smith-sqp`）用 `plan`（Plan Mode，只分析不执行工具、不改文件，不会停在权限确认上），其他 provider 不设（没有只读模式；绝不用 full-access），这类 session 停在权限确认时由 `finishRefusingPermissions` 回 deny 后继续（AUTO-REVIEW-SPEC §4.4）。卡片 summarizer、记忆复盘、Insights 日报、workflow insights、guardrails 补学、外部 session 的 insights 和评审 session 都按这条创建；
-  - `title`：`Kanban summary · <卡片标题>`；`labels`：`{"flowly": "summarizer", "flowly-task": <taskId>}`；
-  - `prompt` 与 `outputSchema`（§3）；
-  - `waitForFinish(120000)`；无论成功、失败、超时，都在 `finally` 中移除该 session（硬删除失败时回退归档，见 §10）。
-  - 看板视图按标签隐藏 summarizer：卡片 session 列表、计数、最近输出、Attention、侧栏角标、`flowly_get_task` 的 sessions。项目 Remove 与 Wrap up 的“运行中 session”检查**不**隐藏它，运行中的 summarizer 仍会阻止这些破坏性操作。
-  - 初版把 cwd 放在插件数据目录，实测（[验证](verification/task-summary.md)）Paseo 为该目录注册了原生 project 并每次新建 workspace，因此改为本方案；遗留的 project 已删除（`paseo project delete`，不删目录）。
-- summarizer 自己的回合结束不会递归触发：它带 `flowly: summarizer` 标签，不属于任何卡片的对话（§2.1）。
+- Trigger: any chat of the card (§2.1) receives `agent.turn_ended` with `outcome.kind === "completed"`. Failed and cancelled turns do not trigger. Archived cards and archived projects are not processed; Done/Cancelled cards can still be updated.
+- Switch: with the setting `summaryEnabled=false` it does not trigger (manual Refresh still works).
+- Single flight and merging: at most one summarizer per card at a time. When another turn ends during a run, that turn's text is added to the pending set; after the current run ends, all accumulated turns are merged into one more run. The pending text is kept in memory and is lost on a plugin reload; the next turn naturally fills it in.
+- Input (stateless, passed in full every time): card title, description (≤2000 characters), current lane name, the previous summary (if any), the text of this turn or of the merged turns.
+- Turn text: take the hook's own `timeline`; from Paseo 0.13 the `timeline` of `agent.turn_ended` is always an empty array (0.12 had content), so `server/turn-timeline.ts` reads the latest page of that session's timeline (`tail`, 200 entries, `projected`) and takes the last turn, the same way as manual Refresh; if the read fails it stays empty and no summary is generated this turn. `user_message` → `User:`, `assistant_message` → `Assistant:`, `tool_call` records only the name (consecutive calls are merged into one line `Tools: a, b ×3`), `error` records one line, and the rest (reasoning, todo, compaction, plugin, notification) is ignored. Total length ≤12000 characters; when exceeded, keep the first 3000 characters and the end, and mark the omission in the middle.
+- Call: `paseo.workspaces.ref(<card workspace>).agents.create` (amended 2026-10-15, user chose B)
+  - It runs as a **child session (`parent`) of the session whose turn just ended**, in the card's own workspace, and does not create a native project or workspace;
+  - `config.provider`: the Summary model from the settings (§4); `config.modeId`: `readOnlyMode(provider)` (`shared/summary.ts`, 2026-10-30) — `claude/*` and `claude-*` custom providers (such as `claude-compass-smith-sqp`) use `plan` (Plan Mode: analysis only, no tool execution, no file changes, and it does not stop at a permission prompt); other providers set nothing (there is no read-only mode; never use full-access), and such a session that stops at a permission prompt is answered with deny by `finishRefusingPermissions` and then continues (AUTO-REVIEW-SPEC §4.4). The card summarizer, memory review, Insights daily report, workflow insights, guardrails catch-up learning, insights of outside sessions and review sessions are all created by this rule;
+  - `title`: `Kanban summary · <card title>`; `labels`: `{"flowly": "summarizer", "flowly-task": <taskId>}`;
+  - `prompt` and `outputSchema` (§3);
+  - `waitForFinish(120000)`; whether it succeeds, fails or times out, the session is removed in `finally` (when the hard delete fails it falls back to archiving, see §10).
+  - The board view hides summarizers by label: the card's session list, counts, latest output, Attention, sidebar badges and the sessions of `flowly_get_task`. The "running session" checks of project Remove and Wrap up do **not** hide it, so a running summarizer still blocks these destructive operations.
+  - The first version put the cwd in the plugin data directory; measured ([verification](verification/task-summary.md)), Paseo registered a native project for that directory and created a new workspace every time, so it was changed to this design; the leftover project was deleted (`paseo project delete`, which does not delete the directory).
+- The summarizer's own turn ending does not trigger recursively: it carries the `flowly: summarizer` label and does not belong to any card's chats (§2.1).
 
-### 2.1 卡片的对话（2026-11-09 用户决定）
+### 2.1 Chats of a card (user decision 2026-11-09)
 
-哪些 session 属于一张卡片，不取决于是谁启动的。`server/card-chats.ts` 是唯一的判定，手动 Refresh、无对话提示与自动 summary 共用：
+Which sessions belong to a card does not depend on who started them. `server/card-chats.ts` is the only judgment, shared by manual Refresh, the no-chat hint and the automatic summary:
 
-1. 绑定到该卡的看板管理 session（工具绑定文件，`managedSessions`），无论在哪个 workspace；
-2. 加上卡片 workspace（`task.workspaceId`）里未归档的其他 session（例如 PR review 卡片由外部 watcher 以 `pr-review-watch` 标签启动的 review session），经插件 SDK `agents.list({ includeArchived: false })` 分页读取后按 `workspaceId` 过滤（SDK 无 workspace 过滤）。第 2 项排除：
-   - 另一张未归档卡片绑定同一 workspace 时（如 local 模式多张卡共用项目 checkout），整个第 2 项跳过，只算第 1 项；
-   - 绑定到其他卡片的看板管理 session；
-   - 已归档的 session；
-   - 内部 session：带 `flowly: summarizer`（含旧 `ultra-kanban: summarizer`；summary、Insights、session insights、quick title、memory、workflow insights 的运行都带它）或 `flowly-dispatcher` 标签的，以及 Paseo 标记 `internal` 的。
+1. Board-managed sessions bound to this card (tool binding file, `managedSessions`), in whatever workspace;
+2. plus the other non-archived sessions in the card's workspace (`task.workspaceId`) (for example a review session that an outside watcher started with the `pr-review-watch` label for a PR review card), read page by page through the plugin SDK `agents.list({ includeArchived: false })` and then filtered by `workspaceId` (the SDK has no workspace filter). Item 2 excludes:
+   - when another non-archived card is bound to the same workspace (such as several cards sharing the project checkout in local mode), the whole of item 2 is skipped and only item 1 counts;
+   - board-managed sessions bound to other cards;
+   - archived sessions;
+   - internal sessions: those with the `flowly: summarizer` label (including the old `ultra-kanban: summarizer`; the runs of summary, Insights, session insights, quick title, memory and workflow insights all carry it) or the `flowly-dispatcher` label, and those Paseo marks `internal`.
 
-Flowly MCP 工具仍只给 Flowly 启动的 session（启动时注入）；本节只决定 Progress 读哪些对话。自动 summary 中，非管理 session 的回合结束时，daemon 只在其 workspace 上有未归档卡片时读取该 session（hook 事件不带标签），再按同一规则判定是否属于唯一那张卡；属于则进入同一队列，同样受 `summaryEnabled` 控制。该回合的 session insights（NATIVE-SESSION-SPEC §12）照旧，互不影响。
+Flowly MCP tools are still given only to sessions Flowly started (injected at launch); this section only decides which chats Progress reads. In the automatic summary, when a turn of a non-managed session ends, the daemon reads that session only if its workspace has a non-archived card (the hook event carries no labels), then decides by the same rule whether it belongs to that one card; if so it enters the same queue and is also controlled by `summaryEnabled`. The session insights for that turn (NATIVE-SESSION-SPEC §12) work as before, independently of this.
 
-## 3. 输出
+## 3. Output
 
-`outputSchema`（JSON Schema）与服务端 zod 校验一致：
+`outputSchema` (JSON Schema) matches the server-side zod validation:
 
 ```
 { update: boolean, state: string, target: string, recap: string, next: string }
 ```
 
-- `update=false`：本轮没有实质进展（寒暄、致谢、只读查询无新结论），不写入新版本。没有上一版时必须给出 summary。
-- `state`：一句短语说明现在到哪一步（≤15 词或 30 个汉字），例如“实现完成，等待测试”。
-- `target`（2026-10-15 用户追加）：任务的目标与功能点。一行 `Goal: ` 加最多 4 行 `- ` 功能点，依据卡片描述和用户提出或认可的范围；范围不变时原样保留，只有增删或重定义功能时才改。旧版本没有该字段，读作空串。
-- `recap`：截至目前对判断进度有用的结果（不只本轮），最多 4 行 `- ` 要点，每行 ≤15 词或 30 个汉字；超出时合并或丢弃旧要点；只写决策和结果，不写读文件、跑命令等过程。
-- `next`：唯一的下一步或在等谁，一句话（≤20 词或 40 个汉字）。
-- 语言与对话一致。
-- 解析 `lastMessage`：容忍 ```json 代码块包裹与前后多余文字（取第一个完整 JSON 对象）。不截断任何字段；仅当单个字段超过 4000 字符（存储安全上限）时视为错误，保留旧版本。Claude provider 不强制 `outputSchema`，实测会返回数组形式的 recap：字符串数组按 `- ` 行拼接；`update` 接受字符串 "true"/"false"；`update=false` 时允许缺字段。
+- `update=false`: there was no real progress this turn (small talk, thanks, a read-only query with no new conclusion), and no new version is written. When there is no previous version, a summary must be given.
+- `state`: a short phrase saying where things stand now (≤15 words or 30 Chinese characters), for example "Implementation done, waiting for tests".
+- `target` (added by the user 2026-10-15): the task's goal and feature points. One line `Goal: ` plus at most 4 lines `- ` of feature points, based on the card description and the scope the user raised or approved; when the scope is unchanged it is kept as it is, and it changes only when features are added, removed or redefined. Old versions have no such field, and it reads as an empty string.
+- `recap`: results so far that help judge progress (not only this turn), at most 4 lines `- ` of points, each line ≤15 words or 30 Chinese characters; when exceeded, merge or drop old points; write only decisions and results, not processes such as reading files or running commands.
+- `next`: the single next step or who it is waiting on, one sentence (≤20 words or 40 Chinese characters).
+- The language matches the conversation.
+- Parsing `lastMessage`: tolerate a ```json code block wrapper and extra text before and after (take the first complete JSON object). No field is truncated; only when a single field exceeds 4000 characters (the storage safety limit) is it treated as an error and the old version kept. The Claude provider does not enforce `outputSchema`, and was observed to return a recap in array form: an array of strings is joined as `- ` lines; `update` accepts the strings "true"/"false"; when `update=false`, missing fields are allowed.
 
-## 4. 设置
+## 4. Settings
 
-2026-10-23 增量：用户可添加多个模型并调整优先级，默认仍 Haiku→Luna。完整兼容、UI 与共享调用合约见 [SUMMARY-MODELS-SPEC](SUMMARY-MODELS-SPEC.md)，取代下文旧的单模型编辑方式；`summaryModel` 保留作兼容输入。
+2026-10-23 increment: the user can add several models and adjust their priority, and the default is still Haiku→Luna. For the full compatibility, UI and shared call contract see [SUMMARY-MODELS-SPEC](SUMMARY-MODELS-SPEC.md), which replaces the old single-model editing below; `summaryModel` is kept as a compatibility input.
 
-新增 host 设置 `task-summary`（v1），daemon `registerSettings` 读取，客户端在看板顶部工具栏设置齿轮打开的弹层中编辑（§7；Ruling (Noah, 2026-11-09)：设置按钮从左下角移到工具栏）：
+A new host setting `task-summary` (v1), read by the daemon's `registerSettings`, edited by the client in the popover opened by the settings gear in the board's top toolbar (§7; Ruling (Noah, 2026-11-09): the settings button moved from the bottom left to the toolbar):
 
-| 字段 | 默认 | 说明 |
+| Field | Default | Notes |
 | --- | --- | --- |
-| `summaryEnabled` | `true` | 每轮自动更新 |
-| `summaryModel` | `""` | 兼容旧 `provider/model`；空为 Auto |
-| `summaryModels` | 未存储时兼容旧值 | 有序、非空、去重的 `provider/model` 列表，优先于旧值；默认 Haiku→Luna |
+| `summaryEnabled` | `true` | Update automatically every turn |
+| `summaryModel` | `""` | Compatible with the old `provider/model`; empty is Auto |
+| `summaryModels` | When not stored, compatible with the old value | An ordered, non-empty, de-duplicated list of `provider/model`, which takes priority over the old value; default Haiku→Luna |
 
-Auto：按 `claude/claude-haiku-5-5` → `codex/gpt-6-luna` 顺序尝试可用、可选的模型。模型列表中的可用不代表仍有额度：创建失败、额度耗尽/运行错误、超时、请求权限或输出不合 schema 时，清理本次子 session 后尝试下一个模型，每个候选最多一次。首个成功（包括 `update=false`）即停止；保存实际成功的模型。每次候选使用相同输入、父 session 和卡片 workspace，不新建项目或 workspace。旧的手动单模型或单项列表只尝试该模型；多项列表按保存顺序回退，不添加未配置的模型。都不可用或全部失败时报错。设置页的模型选项来自 `providers.listAvailable` + `listModels`（可用 provider 的可选模型）。
+Auto: try the available, selectable models in the order `claude/claude-haiku-5-5` → `codex/gpt-6-luna`. Being available in the model list does not mean quota is left: when creation fails, quota is exhausted or a run error occurs, a timeout occurs, a permission is requested, or the output does not match the schema, clean up this child session and try the next model, each candidate at most once. The first success (including `update=false`) stops it; the model that actually succeeded is saved. Each candidate uses the same input, parent session and card workspace, and does not create a new project or workspace. An old manual single model or single-item list tries only that model; a multi-item list falls back in the saved order and does not add unconfigured models. When none is available or all fail, an error is reported. The model options of the settings page come from `providers.listAvailable` + `listModels` (the selectable models of available providers).
 
-## 5. 数据
+## 5. Data
 
-独立文件 `summaries.json`（与 `board.json` 同目录），串行写、备份、原子替换；内容无效时保留文件并报错，不重置。
+A separate file `summaries.json` (in the same directory as `board.json`), with serialized writes, backup and atomic replacement; when its content is invalid the file is kept and an error is reported, with no reset.
 
 ```
 { version: 1,
   entries: [{ id, taskId, at, model, agentIds: string[], state, target, recap, next }],
-  errors:  [{ taskId, at, message }] }   // 每卡仅保留最近一条
+  errors:  [{ taskId, at, message }] }   // only the latest one per card is kept
 ```
 
-- 每张卡最多保留 50 个版本，最新一版为当前 summary。
-- 成功写入新版本或 `update=false` 时清除该卡的错误。
-- 归档卡片保留 summaries。项目 Remove 时，其卡片的 summaries 与错误写入 `removed/<project>-summaries-<time>.json` 后从文件中删除。
+- At most 50 versions are kept per card, and the latest version is the current summary.
+- Writing a new version successfully, or `update=false`, clears that card's error.
+- Archived cards keep their summaries. On project Remove, the summaries and errors of its cards are written to `removed/<project>-summaries-<time>.json` and then deleted from the file.
 
 ## 6. RPC
 
-| 方法 | 输入 | 输出 |
+| Method | Input | Output |
 | --- | --- | --- |
-| `summaries.read` | `{}` | 每卡最新一版、运行中的 taskId、每卡错误 |
-| `summaries.history` | `{ taskId }` | 该卡全部版本（新→旧） |
-| `summaries.refresh` | `{ taskId }` | `{ queued: true }`；取该卡最近活跃的对话（§2.1）的 tail timeline（≤200 条）中最后一轮作为输入；没有对话时报错 “This card has no chats to summarize yet.” |
-| `summaries.chats` | `{ taskId }` | `{ count }`：该卡对话（§2.1）的数量，卡片不存在为 0 |
+| `summaries.read` | `{}` | The latest version of each card, the running taskIds, each card's error |
+| `summaries.history` | `{ taskId }` | All versions of the card (new → old) |
+| `summaries.refresh` | `{ taskId }` | `{ queued: true }`; takes the last turn in the tail timeline (≤200 entries) of the card's most recently active chat (§2.1) as input; when there are no chats it reports the error "This card has no chats to summarize yet." |
+| `summaries.chats` | `{ taskId }` | `{ count }`: the number of chats of the card (§2.1), 0 when the card does not exist |
 
 ## 7. UI
 
-- 卡片：有 summary 时，标题下显示 `state`，最多一行（超出以省略号结尾）；全文在侧栏 Progress 查看（2026-10-15 用户反馈）。
-- 侧栏：描述之后、Sessions 之前的 **Progress** 区块：State（强调）、Recap、Next，脚注“Updated 5m ago · Haiku 5.5”。文字从不截断，简短由 prompt 约束。整块内容（State、Target、Recap、Next 一起）超过约 12 行（240 pt）时整体收起到该高度，底部渐隐（2026-10-29 用户反馈：原先约 5 行（104 pt）几乎每条 summary 都被截断；240 pt 下 State、4 行 Recap 与 Next 在默认侧栏宽度约 640 pt 时可完整显示，带 Target 的通常仍收起。该高度经 `ContentCard` 的 `clampHeight` 参数只用于侧栏 Progress，Ideas、Memory 仍为 104 pt；Paseo 时间线中的 Progress 行自 2026-10-29 起默认展开，Show less 收起到 104 pt，见 NATIVE-SESSION-SPEC §5.3），左下角（与右侧“Updated · 模型”脚注同一行，2026-10-19 起位置对调，与 Ideas 卡片一致，共用 `client/content-card.tsx` 的 `ContentCard` 通用卡片样式）的 Show more / Show less 展开或收起；高度用动画过渡（展开 220 ms 减速、收起 160 ms 加速，可打断，遵循 Reduce Motion；首次测量直接定位不播放）。内容未超出时完整显示且不出现按钮。History 列表同样不截断（2026-10-15 用户反馈）。
-  - 运行中显示 “Updating…”；最近一次失败显示一行弱化错误，不弹窗。
-  - **Refresh** 按钮手动触发；该卡没有对话（`summaries.chats` 为 0，且没有运行中的 summary）时不显示按钮，改为一行弱化文字 “No chats on this card yet.”。计数仅在侧栏打开时读取：workspace 的实时 session 列表变化时立即重读，否则每 30 s 一次；数量未知时保留按钮。**History** 展开为倒序版本列表，每条显示时间与 state，点开看 Recap/Next。
-  - 无 summary 时显示一行提示：“Updates after each agent turn.”（自动关闭时提示去设置开启）。
-- 设置：看板顶部工具栏的设置齿轮（原左下角悬浮按钮，Ruling (Noah, 2026-11-09)）打开插件自绘的 “Ultra Kanban settings” 弹层（host 的 `addSettingsScreen` 页在当前 Paseo 中不显示，已弃用），Auto summary 开关；Provider（Auto 或可用 provider）→ Model（该 provider 的可选模型）两级选择，选定模型才保存，选 Auto 立即保存。
+- Card: when there is a summary, `state` is shown under the title, at most one line (ending with an ellipsis when it overflows); the full text is viewed in the sidebar Progress (user feedback 2026-10-15).
+- Sidebar: a **Progress** block after the description and before Sessions: State (emphasized), Recap, Next, with the footnote "Updated 5m ago · Haiku 5.5". Text is never truncated; brevity is enforced by the prompt. When the whole content (State, Target, Recap, Next together) exceeds about 12 lines (240 pt), the whole is collapsed to that height with a fade at the bottom (user feedback 2026-10-29: the earlier about 5 lines (104 pt) truncated almost every summary; at 240 pt State, a 4-line Recap and Next show completely at the default sidebar width of about 640 pt, and ones with a Target usually still collapse. That height goes through the `clampHeight` parameter of `ContentCard` and is used only for the sidebar Progress; Ideas and Memory stay at 104 pt; the Progress row in the Paseo timeline is expanded by default since 2026-10-29 and Show less collapses it to 104 pt, see NATIVE-SESSION-SPEC §5.3), and Show more / Show less at the bottom left (on the same row as the "Updated · model" footnote on the right; since 2026-10-19 the positions are swapped to match the Ideas card, sharing the generic card style `ContentCard` of `client/content-card.tsx`) expands or collapses it; the height transitions with an animation (expand 220 ms decelerating, collapse 160 ms accelerating, interruptible, honoring Reduce Motion; the first measurement positions directly without playing). When the content does not overflow it is shown completely and no button appears. The History list is not truncated either (user feedback 2026-10-15).
+  - While running it shows "Updating…"; the latest failure shows one muted error line, with no popup.
+  - The **Refresh** button triggers manually; when the card has no chats (`summaries.chats` is 0 and no summary is running) the button is not shown and a muted line "No chats on this card yet." is shown instead. The count is read only while the sidebar is open: it is re-read immediately when the workspace's live session list changes, otherwise every 30 s; when the count is unknown the button stays. **History** expands into a list of versions in reverse order, each showing the time and state, and opening one shows its Recap/Next.
+  - When there is no summary, one hint line is shown: "Updates after each agent turn." (when automatic is off, the hint points to the settings to turn it on).
+- Settings: the settings gear in the board's top toolbar (formerly the floating button at the bottom left, Ruling (Noah, 2026-11-09)) opens the plugin's self-drawn "Ultra Kanban settings" popover (the host's `addSettingsScreen` page is not shown in the current Paseo and is deprecated), with the Auto summary switch; a two-level choice Provider (Auto or an available provider) → Model (the selectable models of that provider), where the model is saved only once chosen, and choosing Auto saves immediately.
 
-## 8. 错误
+## 8. Errors
 
-模型列表的单个候选失败先按 §4 回退；全部候选失败（包括单项列表）才记录到 `errors`，保留旧 summary，不循环重试。错误按尝试顺序带模型名与失败原因（仍受 500 字符存储上限约束）。运行结果即使是 `idle`，若带 `error` 也视为失败，不接受其中可能残留的 JSON。只对模型调用与输出解析回退，持久化失败不再次调用模型。成功写入或有效 `update=false` 清除旧错误。日志不打印 prompt 内容。
+A failure of a single candidate in the model list first falls back per §4; only when all candidates fail (including a single-item list) is it recorded in `errors`, the old summary is kept, and there is no retry loop. The error carries, in the order tried, the model name and the failure reason (still bound by the 500-character storage limit). A run result counts as a failure even if it is `idle` when it carries `error`, and any JSON that may remain in it is not accepted. Fallback applies only to the model call and output parsing; a persistence failure does not call the model again. A successful write or a valid `update=false` clears the old error. The log does not print the prompt content.
 
-## 9. 不做（扩展）
+## 9. Not doing (extensions)
 
-- 结构化 todo list：以后可让 `next` 演变为清单。
-- summary 驱动状态变更。
+- A structured todo list: later `next` can evolve into a checklist.
+- Status changes driven by the summary.
 
-## 10. 已知风险
+## 10. Known risks
 
-- 插件 SDK 未开放 `internal`：summarizer 在卡片 workspace 中短暂可见（Paseo 原生 workspace 视图里是父 session 的子 session），完成后**硬删除**（`server/summarizer-remove.ts`，本地 `DaemonClient.deleteAgent`，用户 2026-10-22 批准；失败回退归档并记日志），不再留在归档。Paseo 可能为它发一次 finished 通知，尚未实测。
-- 手动 Refresh 若判断无新进展（`update=false`）不会新增版本。
+- The plugin SDK does not expose `internal`: the summarizer is briefly visible in the card workspace (in Paseo's native workspace view it is a child session of the parent session), and after it finishes it is **hard-deleted** (`server/summarizer-remove.ts`, local `DaemonClient.deleteAgent`, approved by the user 2026-10-22; on failure it falls back to archiving and logs), so it no longer stays in the archive. Paseo may send a finished notification for it once; not yet measured.
+- A manual Refresh does not add a version if it judges there is no new progress (`update=false`).
 
-## 11. 验收
+## 11. Acceptance
 
-- 单元：回合文本转换与截断、输出解析容错、模型 Auto 解析、单飞与合并、`update=false` 不写、50 版本上限、错误记录与清除、项目移除备份、不改 board/task revision。
-- 回退回归（fake SDK）：运行错误/额度耗尽、idle 带 error、创建失败、wait 抛错、超时/权限/坏输出均尝试下一可用候选；成功或有效 `update=false` 停止；全部失败保留旧摘要、记录各候选模型原因；手动模型不回退；每次已创建的子 session 都清理。
-- 卡片对话（§2.1）：只有管理 session；workspace 中非 Flowly 启动的 session（PR review 卡片）计入；workspace 被另一张卡共用时只算管理 session；绑定到其他卡的、归档的、内部 session 不计入；无对话为空；手动 Refresh 能总结非管理的 workspace session。
-- 集成（fake SDK）：卡片对话（§2.1）触发；出错/超时也移除（硬删除，失败回退归档）summarizer session；失败回合不触发。
-- typecheck、全量测试；reload 本插件；Luna 6 全权限测试 session 用 fixture 卡片实测并清理。
+- Unit: turn text conversion and truncation, output parsing tolerance, model Auto resolution, single flight and merging, `update=false` not written, the 50-version cap, error recording and clearing, project-removal backup, board/task revision unchanged.
+- Fallback regression (fake SDK): run error/quota exhausted, idle with error, creation failure, wait throwing, timeout/permission/bad output all try the next available candidate; success or a valid `update=false` stops; when all fail the old summary is kept and each candidate model's reason is recorded; a manual model does not fall back; every child session that was created is cleaned up.
+- Card chats (§2.1): only managed sessions; sessions in the workspace not started by Flowly (PR review cards) count; when the workspace is shared by another card only managed sessions count; sessions bound to other cards, archived and internal sessions do not count; no chats is empty; a manual Refresh can summarize a non-managed workspace session.
+- Integration (fake SDK): triggered by the card chats (§2.1); the summarizer session is also removed on error/timeout (hard delete, falling back to archiving on failure); a failed turn does not trigger.
+- Typecheck and the full tests; reload this plugin; a Luna 6 full-access test session runs against a fixture card and cleans up.
