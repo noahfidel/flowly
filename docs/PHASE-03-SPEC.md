@@ -1,121 +1,121 @@
-# Phase 3（M3）：可配置工作流与人机闭环
+# Phase 3 (M3): configurable workflow and the human-agent loop
 
-状态：**暂缓**（2026-10-14 用户调整优先级：当前以人工多任务管理为主，agent 自动调整是远期目标）。本文保留为远期设计，实施前需重新确认。
-上游：[ROADMAP-V2](ROADMAP-V2.md) M3，用户已确认决策 D1–D6：
-- D1：工作流可配置，内置一套默认，允许用户自定义。
-- D2：需要人回答时不改业务状态，只在卡片上出标记。
-- D3：设计门禁默认关闭，可按阶段开启。
-- D4：收尾归档策略属于 M4，本阶段不实现。
-- D5：回复或打回后自动续工。
-- D6：收件箱包含 session 信号。
+Status: **deferred** (2026-10-14, the user adjusted priorities: the current focus is manual multi-task management, and agents adjusting status automatically is a long-term goal). This document is kept as a long-term design and must be reconfirmed before implementation.
+Upstream: [ROADMAP-V2](ROADMAP-V2.md) M3, with the user-confirmed decisions D1–D6:
+- D1: the workflow is configurable, with a built-in default that users may customize.
+- D2: when a human must answer, the business status does not change; only a marker appears on the card.
+- D3: the design gate is off by default and can be turned on per stage.
+- D4: the wrap-up archive policy belongs to M4 and is not implemented in this phase.
+- D5: work continues automatically after a reply or a send-back.
+- D6: the inbox includes session signals.
 
-继承 Phase 1/2、single-root、UI refresh 的全部约定，除非本文明确修订。
+All conventions of Phase 1/2, single-root and UI refresh are inherited unless this document amends them explicitly.
 
-## 1. 目标
+## 1. Goal
 
-agent 在卡片 workspace 里按项目工作流推进阶段，需要人时在卡片上留标记。人在卡片、收件箱或原生 session 的 chip 上回答、批准或验收，答复自动送回发起的 session，agent 继续工作。卡片业务状态只由 agent 工具调用或人的操作改变，session 事件只产生提示。
+The agent advances through stages in the card workspace following the project workflow, and leaves a marker on the card when a human is needed. The human answers, approves or accepts on the card, in the inbox or on the native session's chip, and the reply is automatically sent back to the originating session so the agent keeps working. The card's business status changes only by agent tool calls or human actions; session events only produce hints.
 
-不在本阶段：一键开始与 playbook 默认 agent（M4）、自动接入原生新建 session（M4）、Done 后的收尾与归档（M4）、Git 信息（M4）、自动启动与重试（M5）、自定义看板列（候选）。
+Not in this phase: one-click start and the playbook default agent (M4), automatic attachment of sessions created from the native entry (M4), wrap-up and archiving after Done (M4), Git info (M4), auto-start and retries (M5), custom board columns (candidate).
 
-## 2. 工作流模型
+## 2. Workflow model
 
-### 2.1 定义
+### 2.1 Definition
 
-工作流是一组有序阶段，只在业务状态为 In progress 时推进。看板的 7 个业务列保持不变：agent 权限、Finished 筛选和后续收尾都依赖它们。自定义列另行评估。
+A workflow is an ordered set of stages that advance only while the business status is In progress. The board's 7 business columns stay unchanged: agent permissions, the Finished filter and later wrap-up all depend on them. Custom columns are evaluated separately.
 
-| 字段 | 约束 | 说明 |
+| Field | Constraint | Notes |
 | --- | --- | --- |
-| `id` | 创建时生成的稳定 slug，1–40 字符，项目内唯一 | 卡片引用它；改名不改 id |
-| `name` | trim 后 1–40 字符，项目内唯一（不区分大小写） | 卡片和工具中显示 |
-| `instructions` | ≤ 4000 字符 | 本阶段要做什么；随 `get_task` 下发给 agent |
-| `exitCriteria` | ≤ 2000 字符 | 进入下一阶段前须满足的条件 |
-| `gate` | `none` 或 `human` | `human`：离开本阶段进入后一阶段前须由人批准 |
+| `id` | A stable slug generated at creation, 1–40 characters, unique within the project | Cards reference it; renaming does not change the id |
+| `name` | 1–40 characters after trim, unique within the project (case-insensitive) | Shown on the card and in tools |
+| `instructions` | ≤ 4000 characters | What to do in this stage; sent to the agent with `get_task` |
+| `exitCriteria` | ≤ 2000 characters | Conditions to satisfy before moving to the next stage |
+| `gate` | `none` or `human` | `human`: a human must approve before leaving this stage for the next one |
 
-一个工作流有 1–8 个阶段，另有 `revision`（正整数）和 `updatedAt`。
+A workflow has 1–8 stages, plus `revision` (a positive integer) and `updatedAt`.
 
-内置默认工作流：
+The built-in default workflow:
 
-| id | name | gate | 要点 |
+| id | name | gate | Key points |
 | --- | --- | --- | --- |
-| `design` | Design | none | 理解需求，阅读相关代码，写出方案、取舍与验证计划，用 progress 汇报方案 |
-| `develop` | Develop | none | 按方案实现，保持改动范围；偏离方案时先汇报 |
-| `verify` | Verify | none | 运行验证（typecheck、测试、实际使用），记录通过、失败和未运行项；失败回到 Develop |
+| `design` | Design | none | Understand the requirement, read the relevant code, write the plan, trade-offs and verification plan, and report the plan with progress |
+| `develop` | Develop | none | Implement per the plan, keep the change scope; report first when deviating from the plan |
+| `verify` | Verify | none | Run verification (typecheck, tests, real use), and record passes, failures and items not run; on failure go back to Develop |
 
-### 2.2 作用范围与编辑
+### 2.2 Scope and editing
 
-- 每个项目有自己的工作流。没有自定义的项目使用“新项目默认工作流”：初始为内置默认，用户可把任一项目的工作流设为新项目默认。新建项目时复制当前默认。
-- 入口：项目选择弹窗 →“Workflow”。编辑弹窗支持增、删、改名、上移/下移，编辑 instructions/exitCriteria，开关 gate，以及“恢复内置默认”和“设为新项目默认”。
-- 保存时对项目工作流 `revision` 做 CAS，冲突返回 `REVISION_CONFLICT`，草稿保留。
-- 删除仍被未归档、未完成卡片引用的阶段会被拒绝（`STAGE_IN_USE`），并列出这些卡片。改名、调整顺序和改 gate 立即生效。
-- 修改工作流会增加项目工作流 revision，**不增加** `project.revision`，因此不会让 agent 的普通写入因工作流编辑而冲突。agent 下次读取时拿到新定义。
-- 已归档项目只读。legacy 多 repo 卡片同样适用工作流。
+- Each project has its own workflow. A project without a custom one uses the "new-project default workflow": initially the built-in default, and the user may set any project's workflow as the new-project default. Creating a project copies the current default.
+- Entry: project picker dialog → "Workflow". The edit dialog supports adding, deleting, renaming, moving up/down, editing instructions/exitCriteria, switching the gate, plus "Restore built-in default" and "Set as new-project default".
+- On save, CAS is applied to the project workflow `revision`; a conflict returns `REVISION_CONFLICT` and the draft is kept.
+- Deleting a stage that is still referenced by non-archived, unfinished cards is rejected (`STAGE_IN_USE`) and those cards are listed. Renaming, reordering and changing a gate take effect immediately.
+- Modifying the workflow increases the project workflow revision and **does not increase** `project.revision`, so an agent's ordinary writes do not conflict because of a workflow edit. The agent gets the new definition the next time it reads.
+- An archived project is read-only. Legacy multi-repo cards also use the workflow.
 
-### 2.3 卡片的阶段
+### 2.3 Stage of a card
 
-- `task.stage`：阶段 id 或 null。
-- 卡片进入 In progress 且 stage 为 null 时，自动设为第一个阶段，同一次提交、同一条活动记录完成。
-- 卡片离开 In progress（Review、Blocked、Done 等）时保留 stage，显示为“停在哪个阶段”。回到 In progress 时继续该阶段。
-- 人可随时在侧栏改阶段：未归档、未完成的卡片均可，不受 gate 约束（人即审批者）。这会增加 task revision。
-- stage 指向的阶段若已不存在（例如编辑被并发绕过、导入的旧数据），显示为“Unknown stage”，agent 读取时 `stageValid=false`。agent 或人设置一个有效阶段即可恢复。
+- `task.stage`: a stage id or null.
+- When a card enters In progress and its stage is null, it is set to the first stage automatically, in the same commit and the same activity record.
+- When a card leaves In progress (Review, Blocked, Done, etc.) the stage is kept, shown as "which stage it stopped at". When it returns to In progress it continues that stage.
+- A human can change the stage at any time in the sidebar: any non-archived, unfinished card, not bound by gates (the human is the approver). This increases the task revision.
+- If the stage points to a stage that no longer exists (for example an edit bypassed by concurrency, or imported old data), it is shown as "Unknown stage", and when the agent reads it `stageValid=false`. The agent or a human setting a valid stage recovers it.
 
-### 2.4 agent 切换阶段
+### 2.4 The agent switches stages
 
-`flowly_set_stage(stage, note)`：
+`flowly_set_stage(stage, note)`:
 
-- 只在状态为 In progress 时可用，否则返回 `STAGE_NOT_ACTIVE`。目标须为当前工作流中的阶段，否则返回 `STAGE_UNKNOWN`。
-- 向后移动或同阶段（仅记活动）始终允许。
-- 向前移动时，若当前阶段到目标之间（含当前阶段、不含目标）有 `gate=human` 的阶段：不移动 stage，创建一个 `approval` 请求（第 3 节）。返回 `{ pendingApproval: requestId }`，结果标记为 accepted-not-applied。卡片已有同一 from→to 的未结 approval 时，直接返回该请求，不重复创建。
-- 成功移动时增加 task revision，记录 `stage_changed` 活动（from/to stage id 与名称、note、agentId）。
+- Available only when the status is In progress, otherwise it returns `STAGE_NOT_ACTIVE`. The target must be a stage of the current workflow, otherwise it returns `STAGE_UNKNOWN`.
+- Moving backward or to the same stage (only an activity is recorded) is always allowed.
+- Moving forward: if between the current stage and the target (including the current stage, excluding the target) there is a stage with `gate=human`, the stage is not moved and an `approval` request is created (section 3). It returns `{ pendingApproval: requestId }`, and the result is marked accepted-not-applied. When the card already has an open approval for the same from→to, that request is returned directly and not created again.
+- A successful move increases the task revision and records a `stage_changed` activity (from/to stage id and name, note, agentId).
 
-## 3. 请求（“需要你”标记）
+## 3. Requests ("Needs you" marker)
 
-### 3.1 种类
+### 3.1 Kinds
 
-| kind | 来源 | 人的操作 | 结果 |
+| kind | Source | Human action | Result |
 | --- | --- | --- | --- |
-| `question` | agent `flowly_request_human` | 选一个选项或填写回答 | 答复送回发起的 session |
-| `approval` | 阶段 gate（2.4） | Approve 或 Reject（Reject 须填意见） | Approve：stage 前进，通知 session；Reject：stage 不变，意见送回 |
+| `question` | agent `flowly_request_human` | Pick an option or write an answer | The answer goes back to the originating session |
+| `approval` | Stage gate (2.4) | Approve or Reject (Reject needs a comment) | Approve: the stage advances and the session is notified; Reject: the stage stays and the comment goes back |
 
-请求**不改变业务状态，不增加 task revision**，只增加 board revision 并记活动。卡片因此可以一边保持 In progress 一边显示“需要你”。agent 可以继续做其他部分，也可以等待；skill 要求它在 note 中说明是否会等待。
+A request **does not change the business status and does not increase the task revision**, only the board revision, and records an activity. So a card can stay In progress while showing "Needs you". The agent may keep working on other parts or wait; the skill requires it to say in the note whether it will wait.
 
-### 3.2 数据
+### 3.2 Data
 
-`board.requests[]`：
+`board.requests[]`:
 
-| 字段 | 说明 |
+| Field | Notes |
 | --- | --- |
-| `id` | `req_` 加随机串，显示时取短号 |
-| `taskId` / `agentId` | 所属卡片与发起的 session（approval 记录触发 gate 的 session） |
-| `kind` | `question` 或 `approval` |
-| `question` | trim 后 1–4000 字符；approval 由系统生成，如 “Approve moving from Design to Develop” |
-| `options` | 0–6 个，每个 1–200 字符，不可重复；仅 question 使用 |
-| `stageFrom` / `stageTo` | 仅 approval 使用 |
-| `createdAt` | 创建时间 |
-| `state` | `open`、`answered`、`approved`、`rejected`、`withdrawn`、`dismissed` |
-| `answer` / `closedAt` / `closedBy` | `closedBy` 为 `human` 或 agentId |
-| `delivery` | `{ state: pending/sent/failed/unknown, at, error, agentId }`；仅人关闭请求时产生 |
+| `id` | `req_` plus a random string, shown with a short number |
+| `taskId` / `agentId` | The owning card and the originating session (for an approval, the session that triggered the gate) |
+| `kind` | `question` or `approval` |
+| `question` | 1–4000 characters after trim; for an approval generated by the system, such as "Approve moving from Design to Develop" |
+| `options` | 0–6, each 1–200 characters, no duplicates; used only by question |
+| `stageFrom` / `stageTo` | Used only by approval |
+| `createdAt` | Creation time |
+| `state` | `open`, `answered`, `approved`, `rejected`, `withdrawn`, `dismissed` |
+| `answer` / `closedAt` / `closedBy` | `closedBy` is `human` or an agentId |
+| `delivery` | `{ state: pending/sent/failed/unknown, at, error, agentId }`; produced only when a human closes the request |
 
-约束：每卡最多 10 个 open 请求，超出返回 `REQUEST_LIMIT`；关闭后不可再关闭（`REQUEST_CLOSED`）。每卡保留全部 open 请求和最近 50 个已关闭请求；被清理的已关闭请求仍可从活动记录追溯。
+Constraints: at most 10 open requests per card, beyond which `REQUEST_LIMIT` is returned; a closed request cannot be closed again (`REQUEST_CLOSED`). Each card keeps all open requests and the latest 50 closed requests; closed requests that were cleaned up can still be traced from the activity records.
 
-### 3.3 关闭方式
+### 3.3 Ways to close
 
-- **人回答或批准**：RPC `requests.resolve({ id, action: answer/approve/reject/dismiss, answer?, operationId })`。
-  - `answer`：须为某个选项原文，或 1–10000 字符的自由回答。
-  - `reject`：须带意见。
-  - `dismiss`：表示“不需要了”，不投递。
-  - 同一 `operationId` 重放返回首次结果。
-- **agent 撤回**：`flowly_withdraw_request(requestId, note)`，只能撤回自己发起的 open question。approval 由人处理，agent 撤回 approval 返回 `REQUEST_CLOSED` 之外的 `INVALID_REQUEST`。
-- **卡片归档或进入 Done/Cancelled**：剩余 open 请求自动转为 `dismissed`（closedBy=system），不投递。
+- **A human answers or approves**: RPC `requests.resolve({ id, action: answer/approve/reject/dismiss, answer?, operationId })`.
+  - `answer`: must be the exact text of an option, or a free answer of 1–10000 characters.
+  - `reject`: must carry a comment.
+  - `dismiss`: means "no longer needed", not delivered.
+  - Replaying the same `operationId` returns the first result.
+- **The agent withdraws**: `flowly_withdraw_request(requestId, note)`, which can withdraw only an open question it raised itself. Approvals are handled by a human; an agent withdrawing an approval returns `INVALID_REQUEST`, not `REQUEST_CLOSED`.
+- **The card is archived or enters Done/Cancelled**: the remaining open requests automatically become `dismissed` (closedBy=system), not delivered.
 
-### 3.4 投递（D5 自动续工）
+### 3.4 Delivery (D5 automatic continuation)
 
-关闭后由 daemon 投递，不依赖客户端在线：
+After closing, the daemon delivers, without depending on the client being online:
 
-1. 先在 store 中提交关闭结果，`delivery.state=pending`。
-2. 用 SDK 刷新目标 session，须仍属于该卡 workspace 且未归档。session 正在运行时用 `activeTurnBehavior: "steer"` 发送，空闲时直接发送。
-3. 按结果写回 `sent` 或 `failed`（附错误）。
+1. First commit the close result in the store, with `delivery.state=pending`.
+2. Refresh the target session with the SDK; it must still belong to this card's workspace and not be archived. When the session is running, send with `activeTurnBehavior: "steer"`; when idle, send directly.
+3. Write back `sent` or `failed` (with the error) by the result.
 
-投递内容是显式的 Kanban 消息，带标识，和“普通 follow-up 原样发送”的规则区分：
+The delivered content is an explicit Kanban message with a marker, distinct from the rule "an ordinary follow-up is sent as it is":
 
 ```
 [Ultra Kanban] Reply to request R-1a2b on "<card title>"
@@ -123,128 +123,128 @@ Question: <question>
 Answer: <answer>
 ```
 
-approval 的消息为 `Stage gate approved: Design → Develop. Continue with Develop.` 或 `Stage gate rejected (stay in Design): <comment>`。
+The approval message is `Stage gate approved: Design → Develop. Continue with Develop.` or `Stage gate rejected (stay in Design): <comment>`.
 
-失败与恢复：
-- 投递失败时请求仍为已关闭，卡片显示“未送达”，提供“重试”或“改投到其他 session”。改投只能选同卡 workspace 内的 session。
-- daemon 在 pending 状态重启时，把状态标为 `unknown`，不自动重发以免重复，由人决定是否重发。
-- 重发需要显式操作，并记录新的投递活动。
+Failure and recovery:
+- When delivery fails the request is still closed, the card shows "not delivered", and offers "Retry" or "Redirect to another session". Redirecting can only choose a session within the same card workspace.
+- When the daemon restarts in the pending state, it marks the state `unknown` and does not resend automatically to avoid duplicates; a human decides whether to resend.
+- Resending needs an explicit action and records a new delivery activity.
 
-## 4. Review 与验收
+## 4. Review and acceptance
 
-### 4.1 agent 提交
+### 4.1 The agent submits
 
-`flowly_submit_review(summary, verification, notRun?, links?)`：
+`flowly_submit_review(summary, verification, notRun?, links?)`:
 
-| 字段 | 约束 |
+| Field | Constraint |
 | --- | --- |
-| `summary` | 1–6000 字符 |
-| `verification` | 1–6000 字符 |
-| `notRun` | 0–4000 字符 |
-| `links` | ≤ 10 个，每个 1–500 字符 |
+| `summary` | 1–6000 characters |
+| `verification` | 1–6000 characters |
+| `notRun` | 0–4000 characters |
+| `links` | ≤ 10, each 1–500 characters |
 
-- 仅从 In progress 或 Blocked 提交，否则返回 `INVALID_STATUS`。
-- 一次提交内完成：状态改为 In review、写入 `task.review`（id、agentId、submittedAt、上述字段、verdict=null），增加 task revision，记录 `review_submitted` 活动。
-- 原 `flowly_update_status(in_review, note)` 继续可用，视为只有 summary 的交付。
+- Submittable only from In progress or Blocked, otherwise it returns `INVALID_STATUS`.
+- Done in one submission: the status changes to In review, `task.review` is written (id, agentId, submittedAt, the fields above, verdict=null), the task revision increases, and a `review_submitted` activity is recorded.
+- The old `flowly_update_status(in_review, note)` stays usable and is treated as a delivery with only a summary.
 
-### 4.2 人验收
+### 4.2 Human acceptance
 
-RPC `tasks.review({ id, revision, verdict, comment?, operationId })`，要求卡片当前为 In review：
+RPC `tasks.review({ id, revision, verdict, comment?, operationId })`, requiring the card to be In review now:
 
-- **Approve**：状态改为 Done，`review.verdict=approved`。M3 不做任何资源收尾。
-- **Request changes**：须带意见。状态改回 In progress，stage 不变，`review.verdict=changes`，意见按 3.4 的方式投递给 `review.agentId`：`[Ultra Kanban] Changes requested on "<title>": <comment>`。该 session 不可用时，弹出同卡 session 列表供改投。agent 收到后自行决定回到哪个阶段。
-- 人直接拖拽或在状态菜单改状态仍然允许。若卡片有未定的 review，记为 `verdict=bypassed`，不投递。
+- **Approve**: the status changes to Done, `review.verdict=approved`. M3 does no resource wrap-up.
+- **Request changes**: must carry a comment. The status changes back to In progress, the stage is unchanged, `review.verdict=changes`, and the comment is delivered to `review.agentId` as in 3.4: `[Ultra Kanban] Changes requested on "<title>": <comment>`. When that session is unavailable, a list of sessions in the same card is shown for redirecting. After receiving it, the agent decides on its own which stage to return to.
+- A human changing the status directly by drag or the status menu is still allowed. If the card has an undecided review, it is recorded as `verdict=bypassed` and not delivered.
 
-## 5. Session 信号（D6）
+## 5. Session signals (D6)
 
-信号来自 hook 和 SDK，只做提示，不改业务状态。在卡片、收件箱和侧栏中与请求分组显示。
+Signals come from hooks and the SDK, are hints only, and do not change the business status. On the card, in the inbox and in the sidebar they are shown grouped separately from requests.
 
-| 信号 | 判定 | 清除 |
+| Signal | Judgment | Cleared |
 | --- | --- | --- |
-| 等待授权 | session 有 pending permission，沿用现有判定 | 授权被处理 |
-| Turn 失败 | `agent.turn_ended` 的 outcome 为 failed（记录 outcome 与错误消息，截断到 500 字符） | 该 session 下一次 turn 开始，或人把该 session 标为已读 |
-| 静默结束 | 卡片处于 In progress 时，某 session 的 turn 结束，且从该 turn 开始到结束之间没有该 session 的任何看板工具写入 | 该 session 之后有工具写入，或人标记已读 |
+| Waiting for approval | The session has a pending permission, reusing the existing judgment | The approval is handled |
+| Turn failed | The outcome of `agent.turn_ended` is failed (the outcome and error message are recorded, truncated to 500 characters) | That session's next turn starts, or a human marks that session as read |
+| Silent ending | While the card is In progress, a session's turn ends and between the start and the end of that turn there is no board tool write from that session | That session writes with a tool afterwards, or a human marks it read |
 
-`agent.turn_ended` 活动增加可选字段 `outcome`（completed/failed/canceled）。信号由共享纯函数从活动、session 快照和已读回执计算，客户端与 daemon 结果一致，并单独测试。
+The `agent.turn_ended` activity gets an optional field `outcome` (completed/failed/canceled). Signals are computed by shared pure functions from the activity, session snapshots and read receipts, so the client and daemon agree, and they are tested separately.
 
-## 6. Agent 工具与 CLI
+## 6. Agent tools and CLI
 
-所有新工具沿用 Phase 2 的身份绑定、session/workspace 校验、请求 ID 与 issuedAt、幂等回执和错误格式。
+All new tools reuse Phase 2's identity binding, session/workspace validation, request ID and issuedAt, idempotent receipts and error format.
 
-| 工具 | 输入 | 状态 / revision |
+| Tool | Input | Status / revision |
 | --- | --- | --- |
-| `flowly_get_task` | 不变 | 返回字段新增：<br>• `workflow`：阶段数组和 revision<br>• `stage` / `stageValid`、`nextStage`、`gateBeforeNext`<br>• `requests`：本卡 open 请求，以及最近 10 个已关闭请求及其答复<br>• `review` |
-| `flowly_set_stage` | expectedRevision、request、`stage`、note | 移动时增加 task revision；遇到 gate 只建请求 |
-| `flowly_request_human` | expectedRevision、request、`question`、`options?`、note | 不改状态，不增加 task revision |
-| `flowly_withdraw_request` | expectedRevision、request、`requestId`、note | 不改状态，不增加 task revision |
-| `flowly_submit_review` | expectedRevision、request、4.1 中的字段 | 状态改为 In review，增加 task revision |
-| `flowly_update_status` / `flowly_report_progress` | 不变 | 不变；进入 In progress 时自动补首个阶段（2.3） |
+| `flowly_get_task` | Unchanged | New returned fields:<br>• `workflow`: the stage array and revision<br>• `stage` / `stageValid`, `nextStage`, `gateBeforeNext`<br>• `requests`: this card's open requests, plus the latest 10 closed requests and their answers<br>• `review` |
+| `flowly_set_stage` | expectedRevision, request, `stage`, note | A move increases the task revision; at a gate it only creates a request |
+| `flowly_request_human` | expectedRevision, request, `question`, `options?`, note | Does not change the status, does not increase the task revision |
+| `flowly_withdraw_request` | expectedRevision, request, `requestId`, note | Does not change the status, does not increase the task revision |
+| `flowly_submit_review` | expectedRevision, request, the fields in 4.1 | The status changes to In review, the task revision increases |
+| `flowly_update_status` / `flowly_report_progress` | Unchanged | Unchanged; the first stage is filled in automatically on entering In progress (2.3) |
 
-- `request_human` 与 `withdraw_request` 同样校验读取时的 task/project revision（与 progress 一致），避免按旧上下文提问。
-- CLI 子命令一一对应：`stage <id>`、`ask --question … [--option …]`、`withdraw <requestId>`、`review --summary … --verification … [--not-run …] [--link …]`，与 MCP 共用同一服务。
-- 新错误码：`STAGE_UNKNOWN`、`STAGE_NOT_ACTIVE`、`REQUEST_LIMIT`、`REQUEST_NOT_FOUND`、`REQUEST_CLOSED`、`INVALID_REQUEST`、`WORKFLOW_INVALID`、`STAGE_IN_USE`。其余沿用。
+- `request_human` and `withdraw_request` also validate the task/project revision at read time (consistent with progress), to avoid asking a question from stale context.
+- The CLI subcommands correspond one to one: `stage <id>`, `ask --question … [--option …]`, `withdraw <requestId>`, `review --summary … --verification … [--not-run …] [--link …]`, sharing the same service as MCP.
+- New error codes: `STAGE_UNKNOWN`, `STAGE_NOT_ACTIVE`, `REQUEST_LIMIT`, `REQUEST_NOT_FOUND`, `REQUEST_CLOSED`, `INVALID_REQUEST`, `WORKFLOW_INVALID`, `STAGE_IN_USE`. The rest are reused.
 
-Skill 增补：
-- 每个阶段开始前读取 `get_task`，按 stage 的 instructions 和 exitCriteria 工作，满足条件后 `set_stage` 进入下一阶段。
-- 遇到 pendingApproval 时，汇报方案摘要后等待人的消息。
-- 必须找人的情况：不可逆或高风险操作、方案取舍、缺少信息或权限、需求超出卡片范围。问题要具体，尽量给选项，并说明在等待还是继续做其他部分。
-- 问题已自行解决时撤回请求。
-- 交付用 `submit_review`，写清改动、验证、未运行项和遗留问题。
-- 收到带 `[Ultra Kanban]` 标识的消息时，按其内容继续工作。
+Skill additions:
+- Before each stage starts, read `get_task`, work according to the stage's instructions and exitCriteria, and after the conditions are met `set_stage` to the next stage.
+- On pendingApproval, after reporting a summary of the plan, wait for the human's message.
+- Cases where a human must be asked: irreversible or high-risk operations, design trade-offs, missing information or permissions, requirements beyond the card's scope. The question must be specific, give options where possible, and say whether it is waiting or continuing on other parts.
+- Withdraw the request when the question has been solved on its own.
+- Deliver with `submit_review`, stating the changes, the verification, the items not run and the remaining issues.
+- When a message with the `[Ultra Kanban]` marker is received, continue working according to its content.
 
-## 7. 人侧 UI
+## 7. Human-side UI
 
-| 位置 | 呈现 |
+| Place | Presentation |
 | --- | --- |
-| 卡片 | 信号行新增：<br>• 阶段标签“Develop · 2/3”（In progress，以及停留在某阶段的 Review/Blocked 卡）<br>• “Needs you n”（warning 色，open 请求数）<br>• In review 且有待定交付时显示“To verify”（accent）<br>• session 信号沿用现有色点：授权、错误、静默<br>无障碍标签同步。 |
-| 侧栏头部 | 属性行增加 Stage 标签，点开为阶段菜单（显示 gate 图标），与 Status、Priority 并列 |
-| 侧栏“Needs you”区 | 固定在描述之前，有内容时才显示：<br>• 每个 open question：问题、选项按钮、回答输入框和 Send、Dismiss<br>• approval：from→to、Approve / Reject（需意见）<br>• 待验收交付：summary、verification、notRun、links，以及 Approve / Request changes（需意见）<br>• 投递状态：sent、failed（重试/改投）、unknown（重发）<br>• session 信号：点击打开对应 session 预览 |
-| 收件箱 | 工具栏 Inbox 按钮带总数角标。弹窗分四组：Questions、Approvals、To verify、Session signals；每项显示卡片标题、项目、摘要、时间。点击切到该项目并打开卡片侧栏（信号项直接打开 session 预览）。跨所有未归档项目，桌面和手机通用 |
-| 原生 session chip | 该 session 有自己发起的 open 请求时，chip 标签变为 “Task · Needs you”，behavior 改为 popover，内容为该 session 的请求，可直接回答或批准。若宿主 popover 内无法调用插件 RPC，退回 action，打开卡片侧栏并定位到 Needs you 区；实现时先做能力验证 |
-| 工作流编辑 | 见 2.2，使用现有 Field、Choices、Row 组件；手机全屏模态 |
-| 活动时间线 | 新增文案：阶段变更、提问、回答、批准/驳回、撤回、提交验收、验收结论、投递结果 |
+| Card | The signal row adds:<br>• a stage label "Develop · 2/3" (In progress, and Review/Blocked cards that stopped at a stage)<br>• "Needs you n" (warning color, the number of open requests)<br>• "To verify" (accent) when In review with a pending delivery<br>• session signals reuse the existing color dots: approval, error, silent<br>Accessibility labels are synchronized. |
+| Sidebar header | The properties row adds a Stage label, which opens a stage menu (showing the gate icon), alongside Status and Priority |
+| Sidebar "Needs you" block | Fixed before the description, shown only when there is content:<br>• each open question: the question, option buttons, an answer input with Send, and Dismiss<br>• approval: from→to, Approve / Reject (needs a comment)<br>• a pending-acceptance delivery: summary, verification, notRun, links, and Approve / Request changes (needs a comment)<br>• delivery state: sent, failed (retry/redirect), unknown (resend)<br>• session signals: clicking opens the corresponding session preview |
+| Inbox | The toolbar Inbox button has a total count badge. The dialog has four groups: Questions, Approvals, To verify, Session signals; each item shows the card title, project, summary and time. Clicking switches to that project and opens the card sidebar (a signal item opens the session preview directly). Across all non-archived projects, shared by desktop and phone |
+| Native session chip | When that session has open requests it raised itself, the chip label becomes "Task · Needs you" and the behavior becomes a popover, with the content being that session's requests, which can be answered or approved directly. If the plugin RPC cannot be called inside the host popover, fall back to an action that opens the card sidebar and locates the Needs you block; do a capability check first when implementing |
+| Workflow editing | See 2.2, using the existing Field, Choices and Row components; a full-screen modal on phones |
+| Activity timeline | New texts: stage change, question, answer, approve/reject, withdraw, submit for acceptance, acceptance verdict, delivery result |
 
-操作成功用原生 toast，失败在对应区块内显示带恢复动作的错误。所有新模态遵循 Theme.Provider 规则，动效遵循 MOTION-SPEC。
+A successful operation uses a native toast, and a failure is shown inside the relevant block as an error with a recovery action. All new modals follow the Theme.Provider rule, and motion follows MOTION-SPEC.
 
-## 8. 数据迁移与兼容
+## 8. Data migration and compatibility
 
-- 存储 v3 → v4：
+- Storage v3 → v4:
   - `board.requests=[]`
-  - `board.settings={ defaultWorkflow: 内置默认 }`
-  - `project.workflow` 缺省视为当前默认的副本，首次编辑时写入
-  - `task.stage=null`、`task.review=null`
-  - 已在 In progress 的卡在首次被读取或写入时，按 2.3 补第一个阶段（读取不写盘，只在下次写入时一并补上）
-- 无效数据沿用“保留文件、报错、不重置”的策略。
-- RPC 新增 `workflow.update`、`workflow.setDefault`、`requests.resolve`、`requests.redeliver`、`tasks.review`，均使用 schema 校验和 CAS。`board.read` 返回 requests 和 settings。
-- 工具 `toolVersion` 升为 2。旧 session 中的 v1 CLI context 文件仍可用于原有三个操作，调用新操作时提示重新发送看板工作指示。
+  - `board.settings={ defaultWorkflow: built-in default }`
+  - a missing `project.workflow` is treated as a copy of the current default and written on first edit
+  - cards already In progress get the first stage filled in per 2.3 when first read or written (a read does not write to disk; it is filled in on the next write)
+  - `task.stage=null`, `task.review=null`
+- Invalid data keeps the strategy "keep the file, report an error, do not reset".
+- New RPCs `workflow.update`, `workflow.setDefault`, `requests.resolve`, `requests.redeliver`, `tasks.review`, all using schema validation and CAS. `board.read` returns requests and settings.
+- The tool `toolVersion` goes to 2. A v1 CLI context file in an old session is still usable for the original three operations, and calling a new operation prompts to resend the Kanban work instructions.
 
-## 9. 需要同步修改的 AGENTS.md 约束
+## 9. AGENTS.md constraints that need to change in sync
 
-实施获批后，在 Product invariants 增补：
+After implementation is approved, add to Product invariants:
 
-- 回复、批准/驳回、验收打回是显式的 Kanban 投递，带 `[Ultra Kanban]` 标识，只发给相关 session；普通 follow-up 仍原样发送。
-- 请求与 session 信号不改变业务状态。业务状态只由 agent 工具（In progress、Blocked、In review）和人的操作改变。
+- Replies, approve/reject and acceptance send-backs are explicit Kanban deliveries, carry the `[Ultra Kanban]` marker and are sent only to the relevant session; an ordinary follow-up is still sent as it is.
+- Requests and session signals do not change the business status. The business status changes only by agent tools (In progress, Blocked, In review) and human actions.
 
-“Automatic assignment…outside v1”在 M3 不变。D4 的归档修订在 M4 再改。
+"Automatic assignment…outside v1" is unchanged in M3. D4's archive amendment changes in M4.
 
-## 10. 验收
+## 10. Acceptance
 
-实现后：先 typecheck，再跑聚焦测试和全量 `npm test`，然后只 reload 本插件；最后用一个 full-access 的 `codex/gpt-6-luna` 会话做独立验收。测试资源事先登记，结束后清理，证据保存到 `docs/verification/phase-03.md`。PASS、FAIL、UNRUN 分开记录。
+After implementation: typecheck first, then the focused tests and the full `npm test`, then reload only this plugin; finally do an independent acceptance with a full-access `codex/gpt-6-luna` session. Test resources are registered beforehand and cleaned up at the end, and the evidence is saved to `docs/verification/phase-03.md`. PASS, FAIL and UNRUN are recorded separately.
 
-| 场景 | 预期 |
+| Scenario | Expected |
 | --- | --- |
-| 默认工作流 | 新项目带 Design/Develop/Verify；卡片进入 In progress 自动处于 Design |
-| 自定义工作流 | 增删改名排序后，卡片和工具立即反映；删除在用阶段被拒并列出卡片；CAS 冲突保留草稿；设为新项目默认生效 |
-| 阶段推进 | agent 依次 set_stage；非 In progress 时被拒；未知阶段被拒；人可任意改阶段 |
-| gate | 开启 gate 后 agent 前进只产生 approval；重复调用不重复建请求；Approve 后 stage 前进并收到消息；Reject 带意见后 stage 不变并收到消息 |
-| 提问 | 状态与 task revision 不变，卡片显示 Needs you，收件箱有该项；选项或自由回答送达运行中（steer）和空闲两种 session；重复 resolve 幂等 |
-| 撤回、忽略、上限 | agent 撤回自己的问题；人 dismiss 不投递；第 11 个 open 请求被拒；Done 或归档后剩余请求自动 dismissed |
-| 投递失败 | session 归档后回答显示 failed，可改投；pending 时重启变 unknown，不自动重发 |
-| Review | submit_review 进入 In review 并展示交付物；Approve → Done，无资源变更；Request changes → In progress 且意见送达；直接拖拽记 bypassed |
-| 信号 | 授权、失败 turn、静默结束正确出现和清除，不改业务状态 |
-| 多 session | 两个 session 并发 set_stage 只有一个成功，另一个 REVISION_CONFLICT；各自的问题投递回各自的 session |
-| 迁移 | v3 文件升级后既有卡片、活动、回执保留；无效文件保持原样并报错 |
-| UI | 桌面、手机、深浅色下卡片标记、侧栏 Needs you、收件箱、工作流编辑器可用；chip 的 popover 或退回行为符合第 7 节 |
-| 清理 | 测试创建的 project、workspace、session、卡片和临时目录在原生注册表与看板中都已移除 |
+| Default workflow | A new project comes with Design/Develop/Verify; a card entering In progress is automatically in Design |
+| Custom workflow | After add/delete/rename/reorder the cards and tools reflect it immediately; deleting a stage in use is rejected and the cards are listed; a CAS conflict keeps the draft; setting as the new-project default takes effect |
+| Stage advance | The agent calls set_stage in turn; rejected when not In progress; an unknown stage is rejected; a human can change the stage freely |
+| gate | With a gate on, an agent advance only produces an approval; repeated calls do not create duplicate requests; after Approve the stage advances and a message is received; after Reject with a comment the stage stays and a message is received |
+| Question | Status and task revision unchanged, the card shows Needs you, the inbox has the item; an option or free answer is delivered to both a running (steer) and an idle session; repeated resolve is idempotent |
+| Withdraw, dismiss, limit | The agent withdraws its own question; a human dismiss is not delivered; the 11th open request is rejected; after Done or archive the remaining requests are automatically dismissed |
+| Delivery failure | After the session is archived the answer shows failed and can be redirected; a restart while pending becomes unknown and is not resent automatically |
+| Review | submit_review enters In review and shows the deliverable; Approve → Done with no resource change; Request changes → In progress and the comment is delivered; a direct drag records bypassed |
+| Signals | Approval, failed turn and silent ending appear and clear correctly and do not change the business status |
+| Multi-session | Two sessions calling set_stage concurrently, only one succeeds and the other gets REVISION_CONFLICT; each one's questions are delivered back to its own session |
+| Migration | After a v3 file is upgraded the existing cards, activities and receipts are kept; an invalid file stays as it is and an error is reported |
+| UI | The card markers, sidebar Needs you, inbox and workflow editor work on desktop, phone and light/dark; the chip's popover or fallback behavior matches section 7 |
+| Cleanup | The projects, workspaces, sessions, cards and temporary directories created by the test are all removed in both the native registry and the board |
 
-UI 操作只能针对已识别的非全屏 Paseo 窗口。无法绑定时，记为 UNRUN，可用 web 客户端和组件级证据补充，但须注明不等同于原生验证。
+UI actions may target only an identified non-fullscreen Paseo window. When it cannot be bound, record UNRUN; the web client and component-level evidence may supplement it, but it must be stated that this is not equivalent to native verification.
