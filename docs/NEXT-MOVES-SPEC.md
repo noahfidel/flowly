@@ -1,344 +1,344 @@
-# 下一步建议（NEXT-MOVES-SPEC）
+# Next-step suggestions (NEXT-MOVES-SPEC)
 
-## 1. 目标
+## 1. Goal
 
-Agent 完成一段工作后常在回复末尾写“接下来要不要……或者……”（例如开发完建议做 Luna 验证、验证完建议提交合入）。这些建议埋在文字里，用户要自己重新组织成一条消息再发。
+After finishing a stretch of work, an agent often writes at the end of its reply "Next, do you want to ... or ..." (for example after development it suggests Luna verification, and after verification it suggests commit and merge). These suggestions are buried in text, and the user has to reorganize them into one message and send it again.
 
-本功能给 agent 一个工具，把本轮结束后的候选下一步结构化地交给 Flowly；会话输入框上方显示这一轮的建议，点一下就把对应指令**预填**进输入框，**不自动发送**，由用户修改或直接发送。
+This feature gives the agent a tool to hand the candidate next steps after this turn ends to Flowly in structured form; above the session input box the suggestions of this turn are shown, and one click **pre-fills** the matching instruction into the input box, **without sending automatically**, for the user to edit or send directly.
 
-与 Ideas 的区别：idea 是本卡目标之外、值得以后做的工作（进 Ideas 收件箱，可建新卡）；next move 是**这个会话下一条消息**的候选，只在本轮结束到下一轮开始之间有效，不进收件箱、不建卡。
+The difference from Ideas: an idea is work outside this card's goal that is worth doing later (it goes to the Ideas inbox and can become a new card); a next move is a candidate for **this session's next message**, valid only between the end of this turn and the start of the next, and it does not go to the inbox or create a card.
 
-## 2. Agent 工具 `flowly_suggest_next_moves`
+## 2. Agent tool `flowly_suggest_next_moves`
 
-- 输入：`expectedRevision`、`request`（照抄 get_task）、`moves`：1–3 条（§9.4 起也可为空列表，表示“本轮没有需要用户的下一步”），每条
-  - `label`：按钮文字，1–60 字符，短动词短语，用用户使用的语言（如“用 Luna 验证”“提交并推送”）。
-  - `prompt`：点按后预填进输入框的完整指令，1–2000 字符，写成用户发给 agent 的话，能独立理解。
-- 同一会话同一轮内再次调用：以最新一次为准（整组替换）。
-- 写入：记录事件 `next_moves_suggested`（actor=agent，`agentId`，`note` 为各 label 用 ` · ` 连接，新字段 `moves` 保存原样的列表）。**不改** task revision、卡片状态，不进 Ideas。
-- 校验与其它写工具一致：签名、revision、过期、归档、Done/Cancelled 拒绝（`TASK_FINISHED`）、精确重放返回原回执，`REQUEST_REUSED`。回执 action=`next_moves`。label/prompt 去掉首尾空白后为空、超长、条数大于 3 为 `INVALID_INPUT`（空列表在 §9.4 之前也是 `INVALID_INPUT`）。
-- CLI：`next-moves --request-file <snapshot> --moves '<JSON 数组>'`（`[{"label":"…","prompt":"…"}]`）。HTTP API action `next_moves`。
-- 何时调用（写进 skill）：一轮工作结束、准备把控制交回用户前，如果有明确的下一步（验证、提交/推送、继续下一阶段、修复刚发现的问题），调用一次；只放用户最可能选的 1–3 个，最推荐的放第一个。不需要用户动作时不调用。仍应在回复正文里简述这些选项（用户可能不在 Flowly 里看）。不要用它提问（提问用 provider 自带的提问工具，没有时用 `kind=question`，SESSION-QUESTION-SPEC §2.2），不要用它代替 idea。§9 把“如果有明确的下一步”改成与交付时刻绑定的规则。
+- Input: `expectedRevision`, `request` (copied verbatim from get_task), `moves`: 1–3 items (from §9.4 it can also be an empty list, meaning "no next step needing the user this turn"), each with
+  - `label`: the button text, 1–60 characters, a short verb phrase, in the language the user uses (for example, in the user's language, "Verify with Luna" or "Commit and push").
+  - `prompt`: the complete instruction pre-filled into the input box on tap, 1–2000 characters, written as what the user would say to the agent, understandable on its own.
+- Calling again within the same turn of the same session: the latest call wins (replaced as a whole group).
+- Write: records an event `next_moves_suggested` (actor=agent, `agentId`, `note` is the labels joined with ` · `, and the new field `moves` stores the list as is). It **does not change** the task revision or card status, and does not go to Ideas.
+- Validation is the same as the other write tools: signature, revision, expiry, archived, Done/Cancelled rejected (`TASK_FINISHED`), an exact replay returns the original receipt, `REQUEST_REUSED`. Receipt action=`next_moves`. A label/prompt that is empty after trimming, too long, or more than 3 items is `INVALID_INPUT` (an empty list is also `INVALID_INPUT` before §9.4).
+- CLI: `next-moves --request-file <snapshot> --moves '<JSON array>'` (`[{"label":"…","prompt":"…"}]`). HTTP API action `next_moves`.
+- When to call (written into the skill): at the end of a stretch of work, before handing control back to the user, if there is a clear next step (validation, commit/push, continuing to the next stage, fixing a problem just found), call once; put in only the 1–3 the user is most likely to pick, with the most recommended first. When no user action is needed, do not call. It should still briefly describe the options in the reply body (the user may not be looking in Flowly). Do not use it to ask questions (ask with the provider's own question tool, and when there is none use `kind=question`, SESSION-QUESTION-SPEC §2.2), and do not use it to replace an idea. §9 changes "if there is a clear next step" into a rule tied to the delivery moment.
 
-## 3. 有效期（“这一轮的”建议）
+## 3. Validity ("this turn's" suggestions)
 
-`openNextMoves(events, agentId)`（`shared/next-moves.ts`）：该会话最新一条 `next_moves_suggested` 事件，且其后没有该会话的 `agent.turn_started`；否则为空。即用户发出下一条消息、新一轮开始后，旧建议自动消失。
+`openNextMoves(events, agentId)` (`shared/next-moves.ts`): this session's latest `next_moves_suggested` event with no `agent.turn_started` of this session after it; otherwise empty. That is, after the user sends the next message and a new turn starts, the old suggestions disappear automatically.
 
-客户端再加两条：会话 `lastUserMessageAt` 晚于事件时间（生命周期事件缺失时的兜底）不显示；本地点了关闭（×）的那一组（按事件 id）不再显示，直到新的一组出现。
+The client adds two more: when the session's `lastUserMessageAt` is later than the event time (a fallback when lifecycle events are missing) it is not shown; a group that was closed (×) locally (by event id) is no longer shown until a new group appears.
 
-活动时间线不显示 `next_moves_suggested`（它是会话级提示，不是卡片变化）；flow log 照常记录（不含 `moves`）。规则 A1r（“只回了句谢谢”回退 In review）不把这个事件当作工作汇报。
+The activity timeline does not show `next_moves_suggested` (it is a session-level hint, not a card change); the flow log records it as usual (without `moves`). Rule A1r (the "only replied thanks" fallback to In review) does not count this event as a work report.
 
-## 4. 界面
+## 4. UI
 
-位置：Flowly 会话视图输入框正上方（与问题/审批表单同一位置，排在其后）。
+Position: right above the input box of the Flowly session view (the same position as the question/approval form, after it).
 
-显示条件：有有效建议，会话不在运行（`running`/`initializing`），没有待答的问题/审批，用户可以写入该会话。
+Display condition: there are valid suggestions, the session is not running (`running`/`initializing`), there is no pending question/approval, and the user can write to that session.
 
-样式：一行，左侧小号 `Sparkles` 图标，后接最多 3 个胶囊按钮（单行截断，横向可滚动，不换行，不把输入框顶高），行尾 × 关闭。出现时使用共享的 `Enter` 过渡（遵循减少动态效果）。手机与桌面同一组件，手机上触控高度保持可点。
+Style: one row, a small `Sparkles` icon on the left, followed by at most 3 capsule buttons (truncated to one line, horizontally scrollable, no wrapping, not pushing the input box taller), and a × to close at the end of the row. On appearing it uses the shared `Enter` transition (following reduced motion). The same component on phone and desktop, with touch height kept tappable on phones.
 
-点按一个建议：
-- 输入框为空：填入其 `prompt`。
-- 输入框已有文字：在原文后空一行追加 `prompt`（不覆盖用户已输入的内容）。
-- 然后聚焦输入框（原生端按“外部改写”重挂载输入并聚焦，不破坏 IME；web 直接改受控值）。**不发送**。建议行保留到用户发送（新一轮开始）或关闭。
-- 无障碍：按钮名“Suggested next step: {label}”，提示“Fills the message box. Nothing is sent until you send it.”
+Tapping a suggestion:
+- Input box empty: fill in its `prompt`.
+- Input box already has text: append the `prompt` after the existing text with a blank line (without overwriting what the user has typed).
+- Then focus the input box (on native, remount the input as an "external rewrite" and focus it, without breaking IME; on web, change the controlled value directly). **Not sent**. The suggestion row stays until the user sends (a new turn starts) or closes it.
+- Accessibility: the button name "Suggested next step: {label}", the hint "Fills the message box. Nothing is sent until you send it."
 
-## 5. 新手引导
+## 5. Onboarding
 
-- 欢迎页特色列表新增一条“Suggested next steps”。
-- 新一次性提示 `next-move`：当前项目某卡有有效建议时出现，文案“When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send.”优先级排在 first-idea 之前（它比 idea 更直接地等待用户）。
-- README Highlights 的“Needs-you reminders”后补一句，并在 agent 工具列表加上新工具。
+- The welcome page feature list gains an item "Suggested next steps".
+- A new one-time tip `next-move`: appears when some card in the current project has valid suggestions, with the copy "When an agent finishes a turn, its suggested next steps sit above the message box. Tap one to fill it in; nothing is sent until you press Send." Its priority is before first-idea (it waits on the user more directly than an idea).
+- Add a sentence after "Needs-you reminders" in the README Highlights, and add the new tool to the agent tool list.
 
-## 6. 验收
+## 6. Acceptance
 
-- `server/agent-service.test.ts`：写入事件并带 `moves`、不改 revision；同轮再次调用以最新为准；重放；空/超长/超过 3 条拒绝；Done 卡拒绝。
-- `shared/next-moves.test.ts`：新一轮开始后失效、取最新一组、只看本会话、预填拼接规则。
-- `server/progress-rules.test.ts`：只有 next moves 的回合仍按 A1r 回退。
-- `server/tool-server.test.ts`：工具列表包含 `flowly_suggest_next_moves`。
-- `client/onboarding-logic.test.ts`：`next-move` 提示规则与优先级。
-- Skill 文本（`server/skill-source.ts` 与 `skills/flowly/SKILL.md` 一致；`server/tool-server.test.ts` 逐字比较）。
-- §9（交付时提醒）的验收见 §9.9。
-- 人工/Luna：真实会话调用工具后输入框上方出现建议；点按只预填不发送、可编辑；已有文字时追加；发送后建议消失；关闭后不再显示；手机紧凑布局可用。
+- `server/agent-service.test.ts`: the event is written with `moves`, no revision change; a second call in the same turn takes the latest; replay; empty/too long/more than 3 items rejected; a Done card rejected.
+- `shared/next-moves.test.ts`: invalid after a new turn starts, takes the latest group, looks only at this session, the pre-fill concatenation rule.
+- `server/progress-rules.test.ts`: a turn with only next moves still falls back per A1r.
+- `server/tool-server.test.ts`: the tool list contains `flowly_suggest_next_moves`.
+- `client/onboarding-logic.test.ts`: the `next-move` tip rule and priority.
+- Skill text (`server/skill-source.ts` identical to `skills/flowly/SKILL.md`; `server/tool-server.test.ts` compares them verbatim).
+- The acceptance of §9 (delivery-time reminder) is in §9.9.
+- Manual/Luna: after a real session calls the tool, the suggestions appear above the input box; tapping only pre-fills and does not send, and can be edited; with existing text it appends; after sending the suggestions disappear; after closing they are no longer shown; the phone compact layout works.
 
-## 7. “移至 Done”建议（设计，待实现）
+## 7. "Move to Done" suggestion (design, pending implementation)
 
-### 7.1 目标与边界
+### 7.1 Goal and boundary
 
-任务完成、已提交并推送后，agent 最自然的下一步是“把卡片放到 Done”。但 Done 是**用户的决定**（`allowedStatuses` 不含 done，agent 不能自己移）。所以它不是一条预填的消息，而是一种**动作型建议**：agent 只提出，用户点一下才移动；点按本身就是用户的决定。
+After a task is done, committed and pushed, the agent's most natural next step is "put the card in Done". But Done is the **user's decision** (`allowedStatuses` does not include done, and the agent cannot move it itself). So it is not a pre-filled message but an **action-type suggestion**: the agent only proposes, and the card moves only when the user taps; the tap itself is the user's decision.
 
-不做：agent 直接把卡移到 Done；点按之外的自动移动；在 Flowly 里自行判断“已推送”（git 状态由 agent 判断，见 7.5）。
+Not done: the agent moving the card to Done directly; any automatic move apart from the tap; Flowly judging by itself that "it was pushed" (the git state is judged by the agent, see 7.5).
 
-### 7.2 数据契约
+### 7.2 Data contract
 
-`NextMove` 增加可选字段 `moveTo: "done"`（枚举预留，现在只允许 `done`）。
+`NextMove` gains an optional field `moveTo: "done"` (an enum reserved, and only `done` is allowed now).
 
-- 普通建议：`{label, prompt}`，行为不变。
-- 动作建议：`{label, moveTo:"done"}`，`prompt` 可省略（省略即不预填任何内容；如给出则忽略）。
-- 校验（`nextMovesInputSchema` 与 `nextMoveSchema`，`prompt` 改为可选，非动作建议仍必须有非空 `prompt`）：一组里最多 1 条动作建议；动作建议与普通建议可混排，总数仍 1–3；未知 `moveTo` 为 `INVALID_INPUT`。
-- 事件 `next_moves_suggested` 的 `moves` 原样保存新字段；有效期、重放、Done/Cancelled 拒绝、revision 规则不变。旧事件无该字段，照常工作。
-- CLI：`--moves '[{"label":"移至 Done","moveTo":"done"}]'`。
+- An ordinary suggestion: `{label, prompt}`, behavior unchanged.
+- An action suggestion: `{label, moveTo:"done"}`, with `prompt` omittable (omitted means nothing is pre-filled; if given it is ignored).
+- Validation (`nextMovesInputSchema` and `nextMoveSchema`, with `prompt` made optional, while a non-action suggestion must still have a non-empty `prompt`): at most 1 action suggestion in a group; action and ordinary suggestions can be mixed, with the total still 1–3; an unknown `moveTo` is `INVALID_INPUT`.
+- The `moves` of the event `next_moves_suggested` stores the new field as is; the validity, replay, Done/Cancelled rejection and revision rules are unchanged. An old event has no such field and works as usual.
+- CLI: `--moves '[{"label":"Move to Done","moveTo":"done"}]'`.
 
-### 7.3 界面
+### 7.3 UI
 
-- 动作建议的胶囊前加 `Check` 图标，边框用成功色，与消息型胶囊区分；仍在同一行，沿用 3 条上限与横向滚动。
-- 显示条件在 §4 基础上再加：卡片当前不在 Done/Cancelled（已完成则隐藏该胶囊），且用户有权限移动卡片。
-- 点按：
-  1. 不动输入框内容，不发送任何消息。
-  2. 走与拖拽到 Done 相同的移动路径（`rpc.moveTask`），再进入 `askWrapup`：未开 *Auto wrap up* 时弹出“是否收尾（归档会话与自有工作区）”，开了则由守护进程处理，规则不变（`docs/MULTITASK-SPEC.md`）。
-  3. 成功用原生 toast“Moved to Done”；失败（revision 过期等）用现有错误提示，建议行保留，用户可重试。
-  4. 移动成功后卡片已是 Done，该胶囊自然消失；其余消息型建议保留到本轮结束或关闭。
-- 不额外弹确认框：点一个标明“Move to Done”的按钮已是明确意图；移出 Done 可恢复（`WORKSPACE-RESTORE-SPEC.md`）。
-- 无障碍：按钮名“Suggested next step: {label}”，提示“Moves this card to Done.”（消息型仍用原提示）。
-- 实现点：`session-preview.tsx` 新增 `onMoveToDone` 属性，由 `board.tsx` 提供（复用 `reorder` + `askWrapup`，无新 RPC）；`NextMoves` 按 `move.moveTo` 分支渲染并调用 `onPick` / `onAction`；传入的回调用 `useStableCallback`，保持 `React.memo`。
+- The capsule of an action suggestion gets a `Check` icon in front and a success-color border, to tell it apart from message capsules; it stays on the same row, keeping the limit of 3 and horizontal scrolling.
+- The display condition adds to §4: the card is currently not in Done/Cancelled (once done the capsule is hidden), and the user has permission to move the card.
+- Tap:
+  1. Do not touch the input box content, send no message.
+  2. Take the same move path as dragging to Done (`rpc.moveTask`), then enter `askWrapup`: when *Auto wrap up* is off it pops up "Wrap up (archive the sessions and the own workspace)?", and when on the daemon handles it, with the rules unchanged (`docs/MULTITASK-SPEC.md`).
+  3. On success use the native toast "Moved to Done"; on failure (revision stale and so on) use the existing error hint, the suggestion row is kept, and the user can retry.
+  4. After a successful move the card is already Done and that capsule disappears naturally; the other message suggestions are kept until the turn ends or they are closed.
+- No extra confirmation dialog: tapping a button labeled "Move to Done" is already a clear intent; moving out of Done can be restored (`WORKSPACE-RESTORE-SPEC.md`).
+- Accessibility: the button name "Suggested next step: {label}", the hint "Moves this card to Done." (a message-type one still uses the original hint).
+- Implementation points: `session-preview.tsx` gains an `onMoveToDone` prop, provided by `board.tsx` (reusing `reorder` + `askWrapup`, with no new RPC); `NextMoves` renders by branching on `move.moveTo` and calls `onPick` / `onAction`; the passed callbacks use `useStableCallback`, keeping `React.memo`.
 
-### 7.4 对其它规则的影响
+### 7.4 Effect on other rules
 
-- 规则 A1r（只回了句谢谢回退 In review）、活动时间线、flow log：不变。
-- “agent 不能设 Done”不变：工具只是提出建议，状态变更由用户点按触发，事件记录 actor=human。
+- Rule A1r (the "only replied thanks" fallback to In review), the activity timeline and the flow log: unchanged.
+- "An agent cannot set Done" is unchanged: the tool only proposes a suggestion, the status change is triggered by the user's tap, and the event records actor=human.
 
-### 7.5 Skill 文本（`server/skill-source.ts` 与 `skills/paseo-ultra-kanban/SKILL.md` 同步）
+### 7.5 Skill text (`server/skill-source.ts` synced with `skills/paseo-ultra-kanban/SKILL.md`)
 
-在 next moves 一条后补：整张卡的工作已完成、已交付到 In review、改动已提交并推送（或确认无需提交）、没有遗留问题时，可在 moves 中加入一条 `moveTo:"done"` 的建议（label 用用户语言，如“移至 Done”），通常放在“提交并推送”之后的下一轮、或与其它收尾项并列；还有未提交/未推送改动、未验证项或待用户决定的问题时不要加。每组最多一条。
+After the next moves item add: when the whole card's work is done, it has been delivered to In review, the changes are committed and pushed (or confirmed to need no commit), and there are no remaining issues, a suggestion with `moveTo:"done"` may be added to moves (label in the user's language, such as "Move to Done"), usually placed in the next turn after "commit and push", or alongside other wrap-up items; when there are uncommitted/unpushed changes, unverified items or questions awaiting the user's decision, do not add it. At most one per group.
 
-### 7.6 新手引导
+### 7.6 Onboarding
 
-- 欢迎页 “Suggested next steps” 一条补半句：“…including moving the card to Done once the work is pushed.”
-- 现有 `next-move` 提示文案补一句“Some steps move the card, like Done.”，不新增 tip id（不重复向所有人弹出）。README Highlights 同步。所有新文案加入全部语言包。
+- The welcome page's "Suggested next steps" item gains half a sentence: "…including moving the card to Done once the work is pushed."
+- The existing `next-move` tip copy gains a sentence "Some steps move the card, like Done.", and no new tip id is added (so it is not popped up again for everyone). The README Highlights are synced. All new copy goes into all language packs.
 
-### 7.7 验收
+### 7.7 Acceptance
 
-- `shared/next-moves.test.ts`：动作建议随有效期失效；卡已 Done 时过滤掉动作建议。
-- `server/agent-service.test.ts`：接受 `moveTo:"done"` 且无 prompt；同组两条动作建议、未知 `moveTo`、非动作建议缺 prompt 均 `INVALID_INPUT`；事件保存 `moveTo`；不改 revision。
-- `server/tool-server.test.ts`：工具 schema 含 `moveTo`。
-- `client/onboarding-logic.test.ts`：无新 tip，现有规则不回归。
-- 人工/Luna：agent 提交推送后建议出现“移至 Done”；点按不改输入框、卡片进入 Done 并按设置弹出/自动收尾；revision 冲突时报错且建议保留；已 Done 卡片不显示；手机紧凑布局可点。
+- `shared/next-moves.test.ts`: an action suggestion becomes invalid with the validity period; when the card is already Done the action suggestion is filtered out.
+- `server/agent-service.test.ts`: `moveTo:"done"` with no prompt is accepted; two action suggestions in a group, an unknown `moveTo`, and a non-action suggestion missing prompt are all `INVALID_INPUT`; the event stores `moveTo`; no revision change.
+- `server/tool-server.test.ts`: the tool schema contains `moveTo`.
+- `client/onboarding-logic.test.ts`: no new tip, existing rules do not regress.
+- Manual/Luna: after the agent commits and pushes, the suggestion "Move to Done" appears; tapping does not change the input box, the card goes into Done and pops up/automatically wraps up per the settings; on a revision conflict it reports an error and the suggestion is kept; an already-Done card does not show it; the phone compact layout is tappable.
 
-## 8. 下一步建议随交付调用一起提交（已实现，桌面真实会话已验证）
+## 8. Next-step suggestions submitted with the delivery call (implemented, verified in a real desktop session)
 
-> 2026-10-20 已实现：`shared/tools.ts`（共用的 0–3 条建议 schema，`nextMoves` 加到 status/progress，独立工具下限同为 0）、`server/agent-service.ts`（Done 守卫、同事务第二条事件）、`server/cli-source.ts`（`--moves` / `--no-moves`）、`shared/next-moves.ts`（`isNoMoves`、`noMovesNote`）、`client/drawer.tsx`（活动里的 “Suggested no next moves”）、工具描述与 skill 两份文字、README 两份、9 个语言包各 1 条。2026-10-20 已用两个 `codex/gpt-6-luna` full-access 会话在 Tinylink 临时卡上验证（MCP 与不带 MCP 的纯 CLI：带建议出现胶囊、`[]`/`--no-moves` 无胶囊且活动里有一行、Done 守卫在真实环境被拒），见 [verification/next-moves-delivery.md](verification/next-moves-delivery.md)；手机/紧凑布局与上线后覆盖率未验。§9（交付时提醒）尚未实现，见 §9.11。
+> Implemented on 2026-10-20: `shared/tools.ts` (the shared 0–3 suggestion schema, `nextMoves` added to status/progress, the standalone tool's lower bound also 0), `server/agent-service.ts` (the Done guard, the second event in the same transaction), `server/cli-source.ts` (`--moves` / `--no-moves`), `shared/next-moves.ts` (`isNoMoves`, `noMovesNote`), `client/drawer.tsx` ("Suggested no next moves" in the activity), the two texts of tool descriptions and skill, the two READMEs, 1 entry in each of the 9 language packs. On 2026-10-20 it was verified with two `codex/gpt-6-luna` full-access sessions on a Tinylink temporary card (MCP and pure CLI without MCP: with suggestions the capsule appears, `[]`/`--no-moves` gives no capsule and a line in the activity, and the Done guard was rejected in the real environment), see [verification/next-moves-delivery.md](verification/next-moves-delivery.md); phone/compact layout and the coverage after launch are not verified. §9 (delivery-time reminder) is not implemented yet, see §9.11.
 
-### 8.1 评估
+### 8.1 Assessment
 
-**问题成立，方案可行，按卡片实现，另有两处调整（8.2）。遗漏提示不在本节，由 §9 承担（8.9）。**
+**The problem holds, the approach is feasible, implement it by card, with two further adjustments (8.2). The missing-hint is not in this section but is handled by §9 (8.9).**
 
-依据（`~/.paseo/plugin-data/flowly/board.json`，2026-10-19 起、按“会话的一轮”统计，agent 事件，共 171 轮）：
+Basis (`~/.paseo/plugin-data/flowly/board.json`, since 2026-10-19, counted per "one turn of a session", agent events, 171 turns in total):
 
-| 这一轮怎么结束 | 轮数 | 其中带下一步建议 |
+| How this turn ended | Turns | Of which with next-step suggestions |
 |---|---|---|
-| 交付到 In review（`status in_review`） | 89 | 48（54%） |
+| Delivered to In review (`status in_review`) | 89 | 48 (54%) |
 | `question` / `result` | 8 / 4 | 4 / 4 |
-| 其它状态切换、仅 `progress` | 22 / 7 | 3 / 1 |
-| 没有任何 status/progress 调用 | 41 | 2 |
+| Other status switches, `progress` only | 22 / 7 | 3 / 1 |
+| No status/progress call at all | 41 | 2 |
 
-- 交付轮只有约一半带建议，且分布不均：有会话 7 次交付全带，另有两个会话共 22 次交付只有 2 次带。从这个分布看，建议是否出现更像取决于 agent 是否想起第二次调用，而不是有没有下一步（这是推断，看板数据里没有 agent 的想法）。§9.1 的统计口径略宽（把系统或人写的 in_review 也算进去），结论一致：约一半交付轮没有建议。
-- 交付、提问、结果这三类轮（101 轮，占 59%）结束时本来就会调用 `flowly_update_status` / `flowly_report_progress`。把字段放在这两个调用上，能覆盖这 101 轮；现在这些轮里只有 56 轮（48+4+4）有建议。
-- **覆盖不到的部分要说清楚**：41 轮（24%）没有调用任何 Flowly 写工具（纯对话轮），本方案对它们无效，也不打算处理（这类轮多半不需要建议，且没有可挂的调用）。验收按“交付/提问/结果轮的覆盖率”衡量，不按全部轮。
-- 卡片里的“MCP 重连后收尾退化成一条 status 命令”这一场景，说明 CLI 与 MCP 必须同等支持（8.4）。
+- Only about half of the delivery turns carry suggestions, and unevenly: one session carried them in all 7 deliveries, while two other sessions had only 2 in 22 deliveries together. From this distribution, whether a suggestion appears looks more like whether the agent remembers the second call than whether there is a next step (this is inference, as the board data has no record of the agent's thoughts). The statistics basis of §9.1 is slightly wider (counting an in_review written by the system or a person too), and the conclusion is consistent: about half of the delivery turns have no suggestion.
+- The three kinds of turn, delivery, question and result (101 turns, 59%), end by calling `flowly_update_status` / `flowly_report_progress` anyway. Putting the field on these two calls can cover these 101 turns; currently only 56 of these turns (48+4+4) have suggestions.
+- **Be clear about what is not covered**: 41 turns (24%) called no Flowly write tool at all (pure conversation turns), and this approach is ineffective for them and not meant to handle them (such turns mostly need no suggestion, and have no call to attach to). Acceptance is measured by the "coverage of delivery/question/result turns", not by all turns.
+- The scenario in the card where "after an MCP reconnect the wrap-up degraded into a single status command" shows that the CLI and MCP must be supported equally (8.4).
 
-**考虑过、不采用：**
-- `nextMoves` 在 `in_review` 上设为必填：仍在运行的旧会话（旧 skill、旧 CLI 快照）会交付失败，还会逼出“继续”之类的凑数建议。可选字段 + 显式 `[]` 的可见度相同，不让交付失败。
-- 守护进程在一轮结束时代为写入“无建议”：与“没传”无法区分，抹掉“agent 的选择可见”这一目的。
-- 新增“结束本轮”合并工具：又多一个要记住的工具，失败模式不变。
-- 用摘要器的 `next` 一句话补建议：每轮多开一个子会话、只在开启自动摘要时有、一句话不是可执行的 prompt。
+**Considered and not adopted:**
+- Making `nextMoves` required on `in_review`: old sessions that are still running (old skill, old CLI snapshot) would fail to deliver, and it would force filler suggestions like "continue". An optional field + an explicit `[]` has the same visibility and does not make delivery fail.
+- The daemon writing "no suggestion" on the agent's behalf when a turn ends: it cannot be distinguished from "not passed", wiping out the purpose of making "the agent's choice visible".
+- A new merged "end turn" tool: one more tool to remember, with the same failure mode.
+- Filling in suggestions with the summarizer's one-line `next`: it opens one more child session each turn, exists only when automatic summary is on, and one line is not an executable prompt.
 
-### 8.2 数据契约
+### 8.2 Data contract
 
-- `statusInputSchema` 与 `progressInputSchema` 增加可选字段 `nextMoves`，元素与 `flowly_suggest_next_moves` 的 `moves` 完全相同（label 1–60、prompt 1–2000、`moveTo:"done"` 且无 prompt、一组最多 1 条 `moveTo`、至多 3 条）。**三处下限相同，都是 0**：独立工具也接受 `[]`（§9.4、§9.11 第 1 点：提醒之后 agent 唯一的补救就是调用它）。实现上抽出共用的元素 schema 与校验函数，三处引用，不复制；现有测试“独立工具拒绝 `[]`”相应改为接受。
-- 三种取值：
-  - **没传**：不记录任何东西，行为与今天完全一致（本轮此前的建议保留）。
-  - **`[]`**：显式“这一轮没有要用户做的事”。
-  - **1–3 条**：与独立工具相同的建议。
-- `nextMoves` 可用于 `report_progress` 的所有 `kind`（`progress` 也接受）。工具描述与 skill 只要求在交付、提问、阻塞、结果时传。**我的决定**：不在 `kind=progress` 上拒绝，因为守护进程无法判断这一轮是否结束，而拒绝会让整条汇报失败；代价是中途 `progress` 带 `[]` 会清掉本轮先前的建议，与“同轮后一次替换前一次”一致，描述里写明。
-- **Done 守卫**（卡片所说的“同样的守卫”）：
-  - 沿用：一组至多 1 条 `moveTo`、非动作建议必须有 prompt、未知 `moveTo` 为 `INVALID_INPUT`、已 Done/Cancelled 的卡为 `TASK_FINISHED`。
-  - **新增，仅对合并调用**：带 `moveTo:"done"` 的 `nextMoves` 只在这次调用之后卡片处于 In review 时接受（`status in_review`，或卡片已在 In review 时的 `report_progress`）；否则 `INVALID_INPUT`（“moveTo done is only offered with a delivery to In review”），整条调用不写入任何东西。这把 skill 里的“已交付到 In review”变成机械检查。独立工具不加这条，避免改变已有调用的行为。
-  - 不做：在守护进程里判断“已提交并推送”（见 7.1，仍是 agent 的判断）。
-  - 2026-10-29：Committed 也是交付状态，`moveTo:"done"` 随 `status committed` 同样接受（[COMMITTED-STAGE-SPEC](COMMITTED-STAGE-SPEC.md) §3）。
-  - 2026-10-29：Integrated 同样是交付状态，`moveTo:"done"` 随 `status integrated` 接受（[INTEGRATED-STAGE-SPEC](INTEGRATED-STAGE-SPEC.md) §3）。
+- `statusInputSchema` and `progressInputSchema` gain an optional field `nextMoves`, whose elements are exactly the same as the `moves` of `flowly_suggest_next_moves` (label 1–60, prompt 1–2000, `moveTo:"done"` with no prompt, at most 1 `moveTo` in a group, at most 3 items). **The lower bound is the same in all three places, 0**: the standalone tool also accepts `[]` (§9.4, §9.11 point 1: after a reminder the agent's only remedy is to call it). In implementation, extract a shared element schema and validation function, referenced from three places, not copied; the existing test "the standalone tool rejects `[]`" is changed accordingly to accept.
+- Three kinds of value:
+  - **Not passed**: nothing is recorded, behavior exactly the same as today (the suggestions from earlier in this turn are kept).
+  - **`[]`**: an explicit "nothing for the user to do this turn".
+  - **1–3 items**: the same suggestions as the standalone tool.
+- `nextMoves` can be used on all `kind` values of `report_progress` (`progress` accepts it too). The tool description and skill only ask to pass it at delivery, question, block and result. **My decision**: do not reject on `kind=progress`, because the daemon cannot judge whether this turn is over, and rejecting would make the whole report fail; the cost is that a mid-way `progress` with `[]` clears the earlier suggestions of this turn, consistent with "a later one in the same turn replaces an earlier one", stated in the description.
+- **Done guard** (the "same guard" the card mentions):
+  - Kept: at most 1 `moveTo` in a group, a non-action suggestion must have a prompt, an unknown `moveTo` is `INVALID_INPUT`, a Done/Cancelled card is `TASK_FINISHED`.
+  - **New, only for the merged call**: `nextMoves` carrying `moveTo:"done"` is accepted only when the card is in In review after this call (`status in_review`, or `report_progress` when the card is already in In review); otherwise `INVALID_INPUT` ("moveTo done is only offered with a delivery to In review"), and the whole call writes nothing. This turns "already delivered to In review" in the skill into a mechanical check. The standalone tool does not get this, to avoid changing the behavior of existing calls.
+  - Not done: judging "committed and pushed" in the daemon (see 7.1, still the agent's judgment).
+  - 2026-10-29: Committed is also a delivery status, and `moveTo:"done"` is likewise accepted with `status committed` ([COMMITTED-STAGE-SPEC](COMMITTED-STAGE-SPEC.md) §3).
+  - 2026-10-29: Integrated is likewise a delivery status, and `moveTo:"done"` is accepted with `status integrated` ([INTEGRATED-STAGE-SPEC](INTEGRATED-STAGE-SPEC.md) §3).
 
-### 8.3 写入语义
+### 8.3 Write semantics
 
-- 在同一个事务里，主事件（`status_changed` 或 `progress_reported`）之后再写一条 `next_moves_suggested`（actor=agent、同一 `agentId`、`moves` 原样、`note` 为各 label 用 ` · ` 连接；`[]` 时 `note` 为 `No next steps needed`，与 §9.4 相同）。主事件先，所以活动里先看到“改状态/汇报”，再看到“没有下一步”。
-- 一次调用一份回执：`action` 仍是 `status` / `progress`，`eventId` 指向主事件。回执重放返回原回执，不再写第二条建议事件；`payloadHash` 包含 `nextMoves`，同一请求 ID 换了 `nextMoves` 为 `REQUEST_REUSED`。
-- 任何拒绝都不写建议：`WORKPAD_OPEN`、`REVISION_CONFLICT`、Done 守卫等。事务内抛错整体不落盘（`store.transaction` 每次重新加载看板，抛错即丢弃），所以不存在“状态改了、建议没写”。skill 里写明：被拒后用同样的 `nextMoves` 重发。
-- 有效期不变，`openNextMoves` 无需改动：它已经把 `moves` 为空的最新事件当作“没有”（`shared/next-moves.ts`），所以 `[]` 自然替换本轮先前的建议并且不出现胶囊。独立工具与合并调用混用时，同轮以最后一次为准。
-- 不改 task revision（状态切换本身的 revision 变化照旧）。
+- In the same transaction, after the main event (`status_changed` or `progress_reported`), write one more `next_moves_suggested` (actor=agent, the same `agentId`, `moves` as is, `note` is the labels joined with ` · `; for `[]` the `note` is `No next steps needed`, the same as §9.4). The main event comes first, so in the activity one first sees "changed status / reported", then "no next steps".
+- One receipt per call: `action` is still `status` / `progress`, and `eventId` points to the main event. A receipt replay returns the original receipt and does not write a second suggestion event; `payloadHash` includes `nextMoves`, and the same request ID with a different `nextMoves` is `REQUEST_REUSED`.
+- Any rejection writes no suggestion: `WORKPAD_OPEN`, `REVISION_CONFLICT`, the Done guard and so on. An error thrown inside the transaction does not persist as a whole (`store.transaction` reloads the board each time, and an error discards it), so there is no "the status changed but the suggestion was not written". The skill says explicitly: after a rejection, resend with the same `nextMoves`.
+- Validity is unchanged and `openNextMoves` needs no change: it already treats the latest event with empty `moves` as "none" (`shared/next-moves.ts`), so `[]` naturally replaces the earlier suggestions of this turn and no capsule appears. When the standalone tool and the merged call are mixed, the last one in the same turn wins.
+- No task revision change (the revision change of the status switch itself is as before).
 
 ### 8.4 CLI
 
-- `status <state> --note … [--moves '<JSON 数组>' | --no-moves]`、`note [--kind …] --note … [--moves '<JSON 数组>' | --no-moves]`。
-- `--no-moves` 等价于 `nextMoves: []`；`--moves` 必须是 JSON 数组（可为 `[]`）；`--moves` 与 `--no-moves` 同时给出、`--no-moves` 用在 `next-moves`/其它命令上都在客户端报错。`next-moves` 命令不变（`--moves '[]'` 现在也被接受，§9.4）。
-- `cli-source.ts`：`allowed` 增加 `no-moves`，`booleanFlags` 增加它；现有“`--moves` 只能用于 next-moves”的检查改为允许 `status`/`note`/`next-moves`。skill 末尾的命令说明与 CLI 用法串同步。
-- MCP 与 CLI 走同一个 `write(identity, "status"|"progress", input)`，没有第二套逻辑。
+- `status <state> --note … [--moves '<JSON array>' | --no-moves]`, `note [--kind …] --note … [--moves '<JSON array>' | --no-moves]`.
+- `--no-moves` is equivalent to `nextMoves: []`; `--moves` must be a JSON array (it can be `[]`); giving `--moves` and `--no-moves` together, or using `--no-moves` on `next-moves`/other commands, both report an error on the client. The `next-moves` command is unchanged (`--moves '[]'` is now accepted too, §9.4).
+- `cli-source.ts`: `allowed` adds `no-moves`, `booleanFlags` adds it; the existing check "`--moves` can only be used with next-moves" changes to allow `status`/`note`/`next-moves`. The command description at the end of the skill and the CLI usage string are synced.
+- MCP and CLI go through the same `write(identity, "status"|"progress", input)`, with no second set of logic.
 
-### 8.5 界面
+### 8.5 UI
 
-- 胶囊行不变：交付后会话空闲时显示。
-- **活动时间线**：`next_moves_suggested` 对非空建议仍不显示，**例外**是 `moves` 为空（显式无建议）的那条，显示为“{agent} suggested no next moves”（时间照常；这一行不再显示 `note`，避免与文案重复）。这**取代** §9.4 里“活动时间线（不显示该事件）”一句：卡片要求 agent 的“无”选择在活动里可见。判断函数放在 `shared/next-moves.ts`（`isNoMoves(event)`），时间线过滤与文案共用，单元测试直接测它。新字符串 “Suggested no next moves” 加入全部语言包。
-- flow log 照常记录；`moves` 为空的 `next_moves_suggested`（`note` 为 `No next steps needed`）即显式无建议，覆盖率统计可据此区分“建议 / 无 / 没传”。
-- 手机与桌面同一行，无新布局。
+- The capsule row is unchanged: shown when the session is idle after delivery.
+- **Activity timeline**: `next_moves_suggested` is still not shown for non-empty suggestions, with the **exception** of the one whose `moves` is empty (explicitly no suggestion), shown as "{agent} suggested no next moves" (time as usual; this line no longer shows `note`, to avoid repeating the text). This **replaces** the sentence in §9.4 "the activity timeline (does not show this event)": the card requires the agent's "none" choice to be visible in the activity. The judgment function is in `shared/next-moves.ts` (`isNoMoves(event)`), shared by the timeline filter and the text, and the unit test tests it directly. The new string "Suggested no next moves" is added to all language packs.
+- The flow log records as usual; a `next_moves_suggested` with empty `moves` (`note` is `No next steps needed`) is an explicit no-suggestion, from which the coverage statistics can tell "suggestion / none / not passed".
+- The same row on phone and desktop, with no new layout.
 
-### 8.6 文案
+### 8.6 Copy
 
-工具描述（`server/tool-server.ts`）：
-- `flowly_update_status` 末尾加：“When you deliver (in_review), pass nextMoves: the 1-3 messages the user is most likely to send you next (same items as flowly_suggest_next_moves; a moveTo=\"done\" move is only accepted together with in_review), or [] when nothing needs the user. Leave it out on mid-work stage changes. A refused call records nothing: resend it with the same nextMoves.”
-- `flowly_report_progress` 末尾加：“When you ask (kind=question; the moves are the likely answers), report a blocker or give a result, pass nextMoves (or [] when nothing needs the user).”
-- `flowly_suggest_next_moves` 开头加：“For updates in the middle of a turn, or when your delivery call had none; when you deliver or ask, pass nextMoves on flowly_update_status / flowly_report_progress instead.”
+Tool descriptions (`server/tool-server.ts`):
+- `flowly_update_status` appends: "When you deliver (in_review), pass nextMoves: the 1-3 messages the user is most likely to send you next (same items as flowly_suggest_next_moves; a moveTo=\"done\" move is only accepted together with in_review), or [] when nothing needs the user. Leave it out on mid-work stage changes. A refused call records nothing: resend it with the same nextMoves."
+- `flowly_report_progress` appends: "When you ask (kind=question; the moves are the likely answers), report a blocker or give a result, pass nextMoves (or [] when nothing needs the user)."
+- `flowly_suggest_next_moves` prepends: "For updates in the middle of a turn, or when your delivery call had none; when you deliver or ask, pass nextMoves on flowly_update_status / flowly_report_progress instead."
 
-Skill（`server/skill-source.ts` 与 `skills/flowly/SKILL.md` 逐字相同，`tool-server.test.ts` 已比较两者）：skill 只改一次，与 §9 合并（§9.11 第 3 点）。§8 这一半的目标语义，替换以 “When you end a turn and there are clear next steps” 开头的那条：交付（in_review）、提问（kind=question）、汇报结果（kind=result）的回合，在结束本轮的那次调用里带 next moves——交付传给 `flowly_update_status`，提问或汇报结果传给 `flowly_report_progress`；内容是 1–3 条用户最可能发给你的下一条消息（提问时是可能的回答），最推荐的放第一个，label 用用户的语言、prompt 写成用户对你的指令；没有需要用户的事就传 `nextMoves: []`（CLI `--no-moves`），不要直接跳过；`flowly_suggest_next_moves` 用于一轮中途的更新，或交付调用没带时的补救；被拒绝的调用不会记录，重发时带上同样的 `nextMoves`。有效期、“仍在回复里简述选项”、`moveTo:"done"` 的条件（并注明它只在随 `in_review` 交付时被接受）、“提问用 `kind=question`、分叉的工作用 `flowly_propose_idea`”都保留。§9 的 `reminders` 与 ideas 两句另加。skill 最后一条命令说明补 `--moves`/`--no-moves`。`description` 前言不变。
+Skill (`server/skill-source.ts` and `skills/flowly/SKILL.md` verbatim identical, `tool-server.test.ts` already compares the two): the skill is changed only once, merged with §9 (§9.11 point 3). The target semantics of this half of §8, replacing the item that begins with "When you end a turn and there are clear next steps": in a turn of delivery (in_review), question (kind=question) or reporting a result (kind=result), carry next moves in the call that ends the turn — pass them to `flowly_update_status` for delivery, and to `flowly_report_progress` for a question or a result report; the content is the 1–3 messages the user is most likely to send you next (when asking, the likely answers), with the most recommended first, the label in the user's language and the prompt written as the user's instruction to you; when nothing needs the user pass `nextMoves: []` (CLI `--no-moves`), and do not just skip it; `flowly_suggest_next_moves` is for updates in the middle of a turn, or as a remedy when the delivery call did not carry them; a rejected call is not recorded, so when resending carry the same `nextMoves`. The validity, "still briefly describe the options in the reply", the condition for `moveTo:"done"` (and noting that it is accepted only with a delivery to `in_review`), and "ask with `kind=question`, divergent work with `flowly_propose_idea`" are all kept. The two sentences about `reminders` and ideas in §9 are added separately. The last command description of the skill adds `--moves`/`--no-moves`. The `description` preamble is unchanged.
 
-### 8.7 对其它规则的影响
+### 8.7 Effect on other rules
 
-- A1r（“只回了句谢谢”回退）：合并调用的主事件是 agent 的工作汇报，不会被回退；只有建议事件的回合仍按 A1r 回退。逻辑不改，补一个两事件的用例。
-- “Needs you”、注意力、会话已读：不变（建议事件与今天同一 action）。
-- 新手引导：不加 tour 条目或新 tip（可见变化只有活动里一行“suggested no next moves”，用户已通过 `next-move` 提示了解建议）。README 两份在 agent 工具一行补一句“`flowly_update_status` / `flowly_report_progress` 可携带 `nextMoves`”。交付说明里写明此判断。
-- 工具列表体积：两个工具各多一份建议元素 schema，估计多几百个 token；实现时用 `tools/list` 实测，明显偏大就缩短字段说明（说明写在共用 schema 上，不重复）。
+- A1r (the "only replied thanks" fallback): the main event of a merged call is the agent's work report and will not be rolled back; a turn with only a suggestion event still falls back per A1r. The logic is not changed, and a two-event case is added.
+- "Needs you", attention, session read: unchanged (the suggestion event is the same action as today).
+- Onboarding: no tour entry or new tip is added (the only visible change is a line "suggested no next moves" in the activity, and the user already learned about suggestions through the `next-move` tip). The two READMEs add a sentence on the agent tool line, "`flowly_update_status` / `flowly_report_progress` can carry `nextMoves`". The delivery note states this judgment.
+- Tool list size: each of the two tools gets one more suggestion element schema, estimated at a few hundred more tokens; at implementation measure with `tools/list`, and if it is clearly too large shorten the field descriptions (put the description on the shared schema, not repeated).
 
-### 8.8 兼容与上线
+### 8.8 Compatibility and rollout
 
-- 纯增量：旧 skill、旧 CLI 快照、仍在运行的会话照常工作；新字段只有传了才生效。旧版本读到 `moves: []` 的事件也合法（schema 本就允许 0–3 条）。
-- 插件重载时 `ToolServer.initialize()` 重写运行时的 `flowly.mjs` 与 `SKILL.md`；已连接的 MCP 会话通常要重连才会看到新的工具 schema，在那之前只能用 CLI 传，所以 CLI 必须完整支持（8.4）。落地顺序见 §9.11：先 §8，再 §9，最好同一个会话做。
-- 实现时工作区里 `client/drawer.tsx`、`server/agent-service.ts`、`server/skill-source.ts`、`shared/tools.ts`、`skills/flowly/SKILL.md` 已有别的卡片的未提交改动；提交时只暂存本卡的 hunk（`git add -p`）。
+- Purely additive: old skills, old CLI snapshots and still-running sessions work as usual; the new field takes effect only when passed. An old version reading an event with `moves: []` is also legal (the schema already allowed 0–3).
+- On plugin reload `ToolServer.initialize()` rewrites the runtime `flowly.mjs` and `SKILL.md`; an already connected MCP session usually has to reconnect to see the new tool schema, and until then can pass only through the CLI, so the CLI must be fully supported (8.4). The landing order is in §9.11: first §8, then §9, preferably in the same session.
+- At implementation the workspace's `client/drawer.tsx`, `server/agent-service.ts`, `server/skill-source.ts`, `shared/tools.ts` and `skills/flowly/SKILL.md` already had uncommitted changes from other cards; when committing stage only this card's hunks (`git add -p`).
 
-### 8.9 遗漏提示
+### 8.9 Missing-hint
 
-字段是可选的，没传仍然静默；补这个洞的是 §9 的 `reminders`（交付、提问、结果之后，若本轮还没有 next moves 事件，结果里带一句提醒），不在本节。本节只需保证两点：(1) 合并调用在同一事务里写建议事件，所以带了 `nextMoves`（含 `[]`）的交付不会再收到“没有建议”的提醒（§9.3）；(2) §9.6 的提醒文字里“call flowly_suggest_next_moves”在本节落地后仍然成立（独立工具保留），无需改。
+The field is optional, and not passing it is still silent; what plugs this hole is §9's `reminders` (after delivery, question and result, if this turn has no next moves event yet, the result carries a reminder sentence), not this section. This section only needs to guarantee two things: (1) the merged call writes the suggestion event in the same transaction, so a delivery that carries `nextMoves` (including `[]`) will not receive the "no suggestion" reminder (§9.3); (2) the "call flowly_suggest_next_moves" in the reminder text of §9.6 still holds after this section lands (the standalone tool is kept), and needs no change.
 
-### 8.10 验收
+### 8.10 Acceptance
 
-- `server/agent-service.test.ts`：
-  1. `status in_review` + `nextMoves`：一条 `status_changed`、一条 `next_moves_suggested`（顺序、`agentId`、`moves`、`note`），task revision 只涨一次，回执 `action=status`，`openNextMoves` 返回该组。
-  2. `nextMoves: []`：写入 `moves: []`、`note` 为 `No next steps needed`；`openNextMoves` 为 `null`；本轮先前非空的建议被替换为无。
-  3. 没传：不写建议事件，先前的建议保留。
-  4. `report_progress` 的 `question`/`blocker`/`result`/`progress` 都能带；非法元素（空 label、超长、4 条、缺 prompt、未知 `moveTo`）为 `INVALID_INPUT` 且不写状态。
-  5. Done 守卫：`in_review` + `moveTo:"done"` 通过；`development` + `moveTo:"done"` 为 `INVALID_INPUT`，状态不变、无事件、无回执；同组两条 `moveTo` 拒绝；Done/Cancelled 卡为 `TASK_FINISHED`。
-  6. 重放返回原回执且只有一条建议事件；同请求换 `nextMoves` 为 `REQUEST_REUSED`。
-  7. `WORKPAD_OPEN` 拒绝时不写建议；带 `acknowledgeOpen` 重发后写入。
-  8. 独立 `next_moves` 用例保持通过，唯一改动是“`[]` 被拒绝”改为接受并记录（§9.4）；独立与合并混用以最后一次为准。
-- `shared/next-moves.test.ts`：`[]` 在非空之后替换为无；`isNoMoves`；带 `nextMoves`（含 `[]`）的交付不触发 §9 的提醒（`needsNextMoves`，两张卡都落地后）。
-- `server/progress-rules.test.ts`：主事件 + 建议事件的回合不回退；只有建议事件的回合仍回退。
-- `server/tool-server.test.ts`：两个工具的 schema 含 `nextMoves`（可为空数组）；CLI：`status --moves`、`status --no-moves`、`note --kind question --moves`；`--moves` 与 `--no-moves` 并用、`--moves` 非数组、`--no-moves` 用在 `next-moves` 均失败；skill 两份文件一致。
-- 客户端：时间线过滤只放行显式无建议的那条；新字符串在全部语言包（`npm test` 的 i18n 检查）。
-- §9 的提醒用例由 §9.9 负责；两张卡合并后补一条：交付调用带 `nextMoves`（含 `[]`）时结果没有 `reminders`。
-- 人工/Luna：真实会话 `status in_review` 带建议后胶囊出现；`[]` 后无胶囊且活动里有一行“suggested no next moves”；CLI 路径同样；旧 skill 的会话不受影响。
-- 上线后用同一脚本复算：交付/提问/结果轮中，带建议（含显式 `[]`）的比例，目标 ≥ 90%。基线 56/101（约 55%）。
-- 先 `npm run typecheck`，再 `npm test`，再 `paseo plugin install "$PWD" --id flowly` / `paseo plugin reload flowly`。
+- `server/agent-service.test.ts`:
+  1. `status in_review` + `nextMoves`: one `status_changed`, one `next_moves_suggested` (order, `agentId`, `moves`, `note`), task revision increases only once, receipt `action=status`, `openNextMoves` returns that group.
+  2. `nextMoves: []`: writes `moves: []`, `note` is `No next steps needed`; `openNextMoves` is `null`; the earlier non-empty suggestions of this turn are replaced with none.
+  3. Not passed: no suggestion event written, the earlier suggestions are kept.
+  4. All of `question`/`blocker`/`result`/`progress` of `report_progress` can carry it; illegal elements (empty label, too long, 4 items, missing prompt, unknown `moveTo`) are `INVALID_INPUT` and write no status.
+  5. Done guard: `in_review` + `moveTo:"done"` passes; `development` + `moveTo:"done"` is `INVALID_INPUT`, with status unchanged, no event, no receipt; two `moveTo` in a group rejected; a Done/Cancelled card is `TASK_FINISHED`.
+  6. A replay returns the original receipt and there is only one suggestion event; the same request with a different `nextMoves` is `REQUEST_REUSED`.
+  7. On a `WORKPAD_OPEN` rejection no suggestion is written; after resending with `acknowledgeOpen` it is written.
+  8. The standalone `next_moves` cases keep passing, with the only change being that "`[]` is rejected" becomes accepted and recorded (§9.4); standalone and merged mixed use takes the last one.
+- `shared/next-moves.test.ts`: `[]` after a non-empty one replaces it with none; `isNoMoves`; a delivery carrying `nextMoves` (including `[]`) does not trigger the reminder of §9 (`needsNextMoves`, after both cards have landed).
+- `server/progress-rules.test.ts`: a turn with a main event + a suggestion event is not rolled back; a turn with only a suggestion event is still rolled back.
+- `server/tool-server.test.ts`: the schemas of both tools contain `nextMoves` (can be an empty array); CLI: `status --moves`, `status --no-moves`, `note --kind question --moves`; `--moves` and `--no-moves` used together, a non-array `--moves`, and `--no-moves` used on `next-moves` all fail; the two skill files are identical.
+- Client: the timeline filter lets through only the explicit no-suggestion one; the new string is in all language packs (the i18n check of `npm test`).
+- The reminder cases of §9 are handled by §9.9; after the two cards merge add one: when the delivery call carries `nextMoves` (including `[]`) the result has no `reminders`.
+- Manual/Luna: a real session's `status in_review` with suggestions shows the capsule; after `[]` there is no capsule and one line "suggested no next moves" in the activity; the CLI path likewise; sessions with the old skill are unaffected.
+- After launch recompute with the same script: among delivery/question/result turns, the share carrying suggestions (including an explicit `[]`), target ≥ 90%. Baseline 56/101 (about 55%).
+- First `npm run typecheck`, then `npm test`, then `paseo plugin install "$PWD" --id flowly` / `paseo plugin reload flowly`.
 
-## 9. 交付时提醒（已实现，2026-10-20）
+## 9. Delivery-time reminder (implemented, 2026-10-20)
 
-卡片：“Delivery-time reminders for missing next moves and ideas, plus firmer skill wording”（2026-10-20，Sidebar UI/UX 调整的跟进）。同一机制也提醒 Ideas，见 [IDEAS-SPEC](IDEAS-SPEC.md) §4.1。
+Card: "Delivery-time reminders for missing next moves and ideas, plus firmer skill wording" (2026-10-20, a follow-up to the Sidebar UI/UX adjustment). The same mechanism also reminds about Ideas, see [IDEAS-SPEC](IDEAS-SPEC.md) §4.1.
 
-### 9.1 目标与边界
+### 9.1 Goal and boundary
 
-skill 里“有明确下一步时调用一次”是**可选的第二次调用**，agent 做完活后常常忽略。看板数据（`board.json` 事件，按“同一会话、同一卡片、`agent.turn_started` 起的一轮”统计）：
+In the skill, "call once when there is a clear next step" is an **optional second call**, which the agent often ignores after finishing the work. Board data (`board.json` events, counted by "the same session, the same card, one turn starting from `agent.turn_started`"):
 
-| 日期 | 回合 | 有 next moves 的回合 | 含交付类写入（→ in_review、`question`、`result`）的回合 | 其中没有 next moves |
+| Date | Turns | Turns with next moves | Turns containing a delivery-type write (→ in_review, `question`, `result`) | Of which with no next moves |
 | --- | --- | --- | --- | --- |
 | 2026-10-19 | 145 | 60 | 102 | 47 |
-| 2026-10-20（截至设计时） | 26 | 2 | 11 | 9 |
+| 2026-10-20 (as of design time) | 26 | 2 | 11 | 9 |
 
-做法：agent 在**本来就要调用**的交付类写工具成功后，结果里附一条纯文字提醒。此刻 agent 仍在回合内、还能再调用工具，成本只是结果里的一行字。
+Approach: after a delivery-type write tool that the agent **was going to call anyway** succeeds, attach a plain-text reminder to the result. At that moment the agent is still inside the turn and can still call tools, and the cost is just one line in the result.
 
-不做：
-- 不拦截、不报错、不新增错误码、不改写入语义（不同于 `WORKPAD_OPEN`）；提醒只是文字，写入照常成功。
-- 不覆盖没有任何交付类调用的回合（上表：10-19 有 43 个，10-20 有 15 个）。那些回合只有 skill 文字能影响；是否值得补一个覆盖率指标见 §9.10。
-- 不在回合结束后由守护进程替 agent 发消息或代调工具（AGENTS.md：普通跟进只发送用户的文字）。
+Not done:
+- No blocking, no error, no new error code, no change to write semantics (unlike `WORKPAD_OPEN`); the reminder is only text, and the write succeeds as usual.
+- Turns with no delivery-type call at all are not covered (in the table above: 43 on 10-19 and 15 on 10-20). Only skill text can influence those turns; whether a coverage metric is worth adding is in §9.10.
+- After a turn ends, the daemon does not send messages or call tools on the agent's behalf (AGENTS.md: an ordinary follow-up sends only the user's text).
 
-### 9.2 触发
+### 9.2 Trigger
 
-写入成功后（含 §9.5 的重放）、且卡片仍可写（未归档、不在 Done/Cancelled）时判断：
+Judged after a write succeeds (including the replay of §9.5), and when the card is still writable (not archived, not in Done/Cancelled):
 
-| 调用 | next moves 提醒 | ideas 提醒 |
+| Call | next moves reminder | ideas reminder |
 | --- | --- | --- |
-| `flowly_update_status` → `in_review` | 是 | 是 |
-| `flowly_update_status` → `blocked`（项目启用该泳道时） | 是 | 否 |
-| `flowly_report_progress` `kind=question` | 是（“可能的回答”措辞） | 否 |
-| `flowly_report_progress` `kind=result` | 是 | 否 |
-| 其它：切换到 design/development/test、`kind=progress`/`blocker`、其它工具 | 否 | 否 |
+| `flowly_update_status` → `in_review` | yes | yes |
+| `flowly_update_status` → `blocked` (when the project has that lane enabled) | yes | no |
+| `flowly_report_progress` `kind=question` | yes (with the "likely answers" wording) | no |
+| `flowly_report_progress` `kind=result` | yes | no |
+| Others: switching to design/development/test, `kind=progress`/`blocker`, other tools | no | no |
 
-2026-10-21：卡片缺 type、tags 或 workpad 时，**所有**写工具的结果还会带一条设置提醒（排在本表两种提醒之后），见 [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md) §3.3。
+2026-10-21: when a card lacks type, tags or workpad, the result of **every** write tool also carries a setup reminder (placed after the two reminders of this table), see [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md) §3.3.
 
-`in_review` 不要求状态真的发生变化：卡片已在 In review 时再次调用同样会判断（仍是一次交付调用）。写入失败（含 `WORKPAD_OPEN`、`REVISION_CONFLICT`）不带提醒，因为什么都没写入。
+`in_review` does not require the status to actually change: when the card is already in In review, calling again is judged the same way (it is still a delivery call). A failed write (including `WORKPAD_OPEN`, `REVISION_CONFLICT`) carries no reminder, because nothing was written.
 
-### 9.3 条件
+### 9.3 Conditions
 
-- **next moves**：该会话在本卡上，最近一次 `agent.turn_started` 之后没有任何 `next_moves_suggested` 事件。**空列表事件（§9.4）也算**，它表示 agent 已决定本轮无需用户动作。若该会话在本卡没有 `agent.turn_started`（生命周期事件缺失），把保留的全部事件当作同一轮；这只会少提醒，不会多提醒。判断是纯函数 `needsNextMoves(events, taskId, agentId)`（放在 `shared/next-moves.ts`，与 `openNextMoves` 并排）。注意 `board.events` 含所有卡片，必须按 `taskId` 过滤，这一点不同于只收到本卡事件的客户端。
-- **ideas**：提醒只在 `in_review`；要求 Ideas 设置为开，且该会话在本卡**从未**提出过 idea。来源取 `board.ideas`（`taskId` + `agentId` 匹配，含已忽略/已采纳的），**不用** `idea_proposed` 事件：事件按卡片只保留最近 100 条（`BoardStore.event`），一张忙碌的卡上旧的 `idea_proposed` 会被修剪，提醒会误报。取舍：这是“卡片级”判断，不是“本轮级”——会话在本卡提过一次后，之后的交付（返工后再交付）不再收到 ideas 提醒（skill 仍写“每次交付”）。选它是为了让“有意识决定提 0 个”的卡不至于每个回合被重复提醒；想改成本轮级只需把来源换成 `idea_proposed` 事件加 `agent.turn_started` 边界。
-- **安静路径**：Ideas 关闭（`ideasOn()` 为 false）时不提 ideas，也不为此读取其它数据；工作板关闭、`IDEAS_DISABLED`、`ARTIFACTS_DISABLED` 等路径行为不变，提醒文字不提它们。
-- 计算在**写入事务内、事件写完之后**进行，读同一份 `board`。这样 §8（`update_status`/`report_progress` 自带 `nextMoves`）把 moves 事件写在同一事务里时，本条件不用改：交付调用传了 `nextMoves`（含 `[]`）就没有提醒，两样都没做才提醒。
-- 子 agent（Paseo 原生子会话，带 `paseo.parent-agent-id` 标签）由主 agent 管理，其 next moves 没有用户去点（SUBAGENTS-SPEC 的 attention 决定同理）。核实结果：会话只有被插件准备过（卡片启动或显式加入）才持有 Flowly 工具身份（`ToolSecrets.managedIdentity`；`tool-server.test.ts` “session_open injection is limited to Kanban-managed sessions”），子会话默认没有，调不到这些工具，所以无需特殊处理；被准备过的子会话与其它会话同样对待。
+- **next moves**: this session on this card has no `next_moves_suggested` event after the most recent `agent.turn_started`. **An empty-list event (§9.4) counts too**, since it means the agent has decided this turn needs no user action. If this session has no `agent.turn_started` on this card (lifecycle events missing), all retained events are treated as the same turn; this only under-reminds, never over-reminds. The judgment is the pure function `needsNextMoves(events, taskId, agentId)` (in `shared/next-moves.ts`, alongside `openNextMoves`). Note that `board.events` contains all cards and must be filtered by `taskId`, which differs from the client that receives only this card's events.
+- **ideas**: the reminder is only on `in_review`; it requires the Ideas setting to be on, and this session to have **never** proposed an idea on this card. The source is `board.ideas` (matching `taskId` + `agentId`, including dismissed/accepted ones), **not** the `idea_proposed` events: events keep only the latest 100 per card (`BoardStore.event`), and on a busy card old `idea_proposed` events get pruned, and the reminder would be falsely raised. The trade-off: this is a "card-level" judgment, not "turn-level" — once the session has proposed one on this card, later deliveries (a delivery after rework) no longer receive the ideas reminder (the skill still says "at each delivery"). It is chosen so that a card where "a conscious decision to propose 0" was made is not reminded repeatedly every turn; to change it to turn-level, just switch the source to the `idea_proposed` event plus an `agent.turn_started` boundary.
+- **Quiet path**: when Ideas is off (`ideasOn()` is false) ideas are not mentioned, and no other data is read for it; the behavior of paths such as the workpad off, `IDEAS_DISABLED`, `ARTIFACTS_DISABLED` is unchanged, and the reminder text does not mention them.
+- The computation happens **inside the write transaction, after the events are written**, reading the same `board`. This way when §8 (`update_status`/`report_progress` carrying `nextMoves` itself) writes the moves event in the same transaction, this condition needs no change: a delivery call that passed `nextMoves` (including `[]`) has no reminder, and the reminder appears only when neither was done.
+- A sub-agent (a Paseo native child session, carrying the `paseo.parent-agent-id` label) is managed by the main agent, and its next moves have no user to tap them (the same as the attention decision of SUBAGENTS-SPEC). Verified result: a session holds a Flowly tool identity only after the plugin has prepared it (card launch or explicit join) (`ToolSecrets.managedIdentity`; `tool-server.test.ts` "session_open injection is limited to Kanban-managed sessions"), and a child session by default has none and cannot call these tools, so no special handling is needed; a child session that has been prepared is treated like any other session.
 
-### 9.4 空列表：显式“本轮不需要”
+### 9.4 Empty list: an explicit "not needed this turn"
 
-卡片里的提醒文字写着“…or [] if nothing needs them”，但现状 `moves` 至少 1 条，空列表是 `INVALID_INPUT`。不放开就没有“有意识地选择不建议”的出口，每个无事可建议的交付都会被重复提醒。因此：
+The reminder text in the card says "…or [] if nothing needs them", but currently `moves` has at least 1 item and an empty list is `INVALID_INPUT`. Without opening it up there is no exit for "a conscious choice not to suggest", and every delivery with nothing to suggest would be reminded repeatedly. Therefore:
 
-- `moves` 允许 0–3 条（`nextMovesInputSchema` 的 `.min(1)` 改为 `.min(0)`；描述改为“0-3 next steps … pass [] when nothing needs the user this turn”）。
-- 空列表照常记录 `next_moves_suggested` 事件（`moves: []`，`note` 为 `No next steps needed`）；不改 task revision、状态，不进 Ideas。回执 action 仍为 `next_moves`；重放、签名、过期、`TASK_FINISHED` 规则不变。
-- 同轮的后一次调用整组替换前一次：空列表会清掉本轮先前的建议，之后再给非空列表则重新出现。
-- 会话视图无需改：`openNextMoves` 对空 `moves` 返回 `null`，会话视图的 `moves.length > 0` 判断已覆盖；`hasOpenNextMoves`（`next-move` 提示）、规则 A1r（`next_moves_suggested` 不算工作汇报）都不受影响；活动时间线对非空建议仍不显示，只多显示空列表这一条（§8.5）。现有测试“`bad([])` 被拒绝”要改成“接受并记录”。
-- CLI：`next-moves --moves '[]'` 已能通过（非空字符串）；只更新用法文字为“0-3”。
+- `moves` allows 0–3 items (the `.min(1)` of `nextMovesInputSchema` becomes `.min(0)`; the description becomes "0-3 next steps … pass [] when nothing needs the user this turn").
+- An empty list records the `next_moves_suggested` event as usual (`moves: []`, `note` is `No next steps needed`); no task revision or status change, and it does not go to Ideas. The receipt action is still `next_moves`; replay, signature, expiry and `TASK_FINISHED` rules are unchanged.
+- A later call in the same turn replaces the earlier one as a whole group: an empty list clears the earlier suggestions of this turn, and giving a non-empty list afterwards makes them appear again.
+- The session view needs no change: `openNextMoves` returns `null` for an empty `moves`, which the session view's `moves.length > 0` check already covers; `hasOpenNextMoves` (the `next-move` tip) and rule A1r (`next_moves_suggested` does not count as a work report) are both unaffected; the activity timeline still does not show non-empty suggestions, and only additionally shows the empty-list one (§8.5). The existing test "`bad([])` is rejected" is to be changed to "accepted and recorded".
+- CLI: `next-moves --moves '[]'` can already pass (a non-empty string); only the usage text is updated to "0-3".
 
-### 9.5 结果形状与位置
+### 9.5 Result shape and position
 
-- `toolResultSchema` 增加可选 `reminders: string[]`（英文，面向 agent）。没有提醒时不出现该键，其它调用的结果完全不变。
-- 键顺序固定为 `receipt, replayed, reminders, …, current`：`current` 是整张卡的上下文（数 KB），提醒必须排在它前面，agent 才不会漏看。MCP 的文本内容和 `structuredContent` 同源；CLI 本就把整个结果格式化输出，所以提醒自然跟在回执后面，**不需要**另写 stderr 输出（stdout 保持可解析的 JSON）。
-- 重放（`replayed: true`）也带提醒，按**当前**看板判断：重放通常是首次响应丢了，agent 恰好没看到过提醒。卡片已 Done/Cancelled 或已归档时（重放仍返回回执）不带提醒。
+- `toolResultSchema` gains an optional `reminders: string[]` (English, agent-facing). When there is no reminder the key does not appear, and the results of other calls are completely unchanged.
+- The key order is fixed as `receipt, replayed, reminders, …, current`: `current` is the context of the whole card (several KB), and the reminder must come before it so the agent does not miss it. The MCP text content and `structuredContent` come from the same source; the CLI already formats and prints the whole result, so the reminder naturally follows the receipt, and **no** separate stderr output is needed (stdout stays parseable JSON).
+- A replay (`replayed: true`) also carries the reminder, judged against the **current** board: a replay is usually because the first response was lost, and the agent happened never to have seen the reminder. When the card is already Done/Cancelled or archived (a replay still returns the receipt) no reminder is carried.
 
-### 9.6 文案（英文，agent 面向）
+### 9.6 Copy (English, agent-facing)
 
-- next moves（in_review / blocked / result）：`No next moves suggested this turn. Before you end the turn, call flowly_suggest_next_moves with the 1-3 messages the user is most likely to send you next (recommended first), or with moves=[] if nothing needs the user. This write already succeeded.`
-- next moves（question）：`No answers suggested for your question. If the user is likely to reply with one of a few options, call flowly_suggest_next_moves with those replies (1-3, recommended first) before you end the turn, or with moves=[] if the reply is free-form. This write already succeeded.`
-- ideas（in_review）：`You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose.`
+- next moves (in_review / blocked / result): `No next moves suggested this turn. Before you end the turn, call flowly_suggest_next_moves with the 1-3 messages the user is most likely to send you next (recommended first), or with moves=[] if nothing needs the user. This write already succeeded.`
+- next moves (question): `No answers suggested for your question. If the user is likely to reply with one of a few options, call flowly_suggest_next_moves with those replies (1-3, recommended first) before you end the turn, or with moves=[] if the reply is free-form. This write already succeeded.`
+- ideas (in_review): `You have proposed no ideas on this card. Consider 0-3 ideas (flowly_propose_idea) for worthwhile follow-ups you noticed: bugs, refactors, next features. Zero is fine; decide on purpose.`
 
-两条同时出现时 next moves 在前。
+When both appear at once, next moves comes first.
 
-### 9.7 `question` 与 next moves 的关系（措辞决定）
+### 9.7 The relationship between `question` and next moves (a wording decision)
 
-skill 现有一句“Questions go through kind=question … not next moves”。卡片要求 question 回合也以 next moves 结尾。两者不矛盾，但措辞要改清楚：**问题本身仍走 `kind=question`**；next moves 放用户**可能发回的回答**（如“用方案 A”），点按即预填输入框。会话视图在没有待答的原生问题/审批时显示建议，所以回答胶囊与 “Needs you” 并存没有冲突。这是本设计的措辞选择，不改 §4 的界面。
+The skill currently has a sentence "Questions go through kind=question … not next moves". The card asks that a question turn also end with next moves. The two do not contradict, but the wording needs to be made clear: **the question itself still goes through `kind=question`**; next moves hold the **answers the user may send back** (such as "go with option A"), and tapping pre-fills the input box. The session view shows suggestions when there is no pending native question/approval, so an answer capsule coexisting with "Needs you" is no conflict. This is a wording choice of this design, and does not change the UI of §4.
 
-2026-10-20 补充（SESSION-QUESTION-SPEC §2.2）：provider 自带提问工具时问题走该工具，选项就在表单里，不需要 next moves；上述规则只适用于 `kind=question` 的回退提问。
+2026-10-20 addition (SESSION-QUESTION-SPEC §2.2): when the provider has its own question tool the question goes through that tool, the options are right in the form, and next moves are not needed; the above rule applies only to the fallback question with `kind=question`.
 
-### 9.8 Skill 文本（`server/skill-source.ts` 与 `skills/flowly/SKILL.md` 同步）
+### 9.8 Skill text (`server/skill-source.ts` synced with `skills/flowly/SKILL.md`)
 
-- next moves 一条（替换“When you end a turn and there are clear next steps … call once”）：每个**交付（in_review）、提问（kind=question）或汇报结果（kind=result）**的回合都以 `flowly_suggest_next_moves` 结尾：1–3 条用户最可能发给你的下一条消息（提问时是可能的回答；问题本身仍走 kind=question），最推荐的放第一个。只有确实不需要用户时才传空列表 `[]`，不要直接跳过——这几个写入的结果会提醒你。其余原文保留（label/prompt 要求、过期规则、仍在正文里简述、`moveTo="done"` 的条件）。末句改为：“The question itself goes through kind=question and divergent work through flowly_propose_idea; next moves are only messages for this session.”
-- 紧随其后补一条：写入结果若带 `reminders`，那是本轮漏掉的调用；在结束回合前补上（或有意识地不做）。写入本身已经成功。
-- ideas 一条（见 IDEAS-SPEC §4）：把“usually when you deliver”改成“每次交付时回顾你注意到的东西，最多提 3 个；没有值得提的可以是 0 个，但要有意识地决定”。
-- 第一条里的 skill `description` 不变。
+- The next moves item (replacing "When you end a turn and there are clear next steps … call once"): every turn of **delivery (in_review), question (kind=question) or reporting a result (kind=result)** ends with `flowly_suggest_next_moves`: 1–3 messages the user is most likely to send you next (when asking, the likely answers; the question itself still goes through kind=question), with the most recommended first. Pass an empty list `[]` only when the user is truly not needed, and do not just skip it — the results of these writes will remind you. The rest of the original is kept (the label/prompt requirements, the expiry rule, still briefly describing in the body, the condition for `moveTo="done"`). The last sentence becomes: "The question itself goes through kind=question and divergent work through flowly_propose_idea; next moves are only messages for this session."
+- Right after it add an item: if a write result carries `reminders`, that is a call missed in this turn; make it before ending the turn (or consciously do not). The write itself has already succeeded.
+- The ideas item (see IDEAS-SPEC §4): change "usually when you deliver" to "at each delivery review what you noticed, propose at most 3; having nothing worth proposing can be 0, but decide consciously".
+- The skill `description` in the first item is unchanged.
 
-### 9.9 验收
+### 9.9 Acceptance
 
-- `server/agent-service.test.ts`：
-  - `in_review` 无 moves、无 ideas：`reminders` 同时有两条，键顺序在 `current` 之前。
-  - 本轮已发 moves：只剩 ideas 提醒；Ideas 关闭：只剩 moves 提醒；该会话已提过 idea：只剩 moves 提醒；两者都满足：结果没有 `reminders` 键。
-  - 回合边界：上一轮有 moves、新的 `agent.turn_started` 之后重新提醒；新一轮内再发 moves 后不提醒；另一个会话的 moves 不算。
-  - 空列表：被接受并记录、清掉先前建议、抑制提醒；同轮再给非空列表后重新生效。
-  - 触发矩阵：`question`/`result` 有 moves 提醒（`question` 为回答措辞）；`progress`/`blocker`、design/development/test 没有；`blocked`（启用该泳道的项目）只有 moves 提醒，没有 ideas。
-  - 失败不带提醒（`WORKPAD_OPEN`）；重放带提醒，Done 后的重放不带。
-  - 现有 “`bad([])` 被拒绝” 改为接受。
-- `shared/next-moves.test.ts`：`needsNextMoves` 的回合边界、按 `taskId`/`agentId` 过滤、空列表事件算已决定、无 `turn_started` 时的退化。
-- `server/tool-server.test.ts`：`flowly_suggest_next_moves` 的 schema 允许空数组；结果 schema 含 `reminders`；SKILL.md 与 `skillText` 逐字一致（已有）。
-- `typecheck`、全量 `npm test`。
-- 人工（可与 Luna 一起做）：真实会话交付到 In review 时结果里有提醒；调用 `moves=[]` 后同一轮再次交付不再提醒。
+- `server/agent-service.test.ts`:
+  - `in_review` with no moves and no ideas: `reminders` has both, with the key order before `current`.
+  - Moves already sent this turn: only the ideas reminder remains; Ideas off: only the moves reminder remains; this session has already proposed an idea: only the moves reminder remains; both satisfied: the result has no `reminders` key.
+  - Turn boundary: moves in the previous turn, reminded again after a new `agent.turn_started`; no reminder after sending moves within the new turn; another session's moves do not count.
+  - Empty list: accepted and recorded, clears earlier suggestions, suppresses the reminder; after giving a non-empty list in the same turn it takes effect again.
+  - Trigger matrix: `question`/`result` have a moves reminder (`question` with the answer wording); `progress`/`blocker`, design/development/test have none; `blocked` (in a project with that lane enabled) has only the moves reminder and no ideas.
+  - A failure carries no reminder (`WORKPAD_OPEN`); a replay carries the reminder, and a replay after Done does not.
+  - The existing "`bad([])` is rejected" becomes accepted.
+- `shared/next-moves.test.ts`: the turn boundary of `needsNextMoves`, filtering by `taskId`/`agentId`, an empty-list event counting as decided, the degradation with no `turn_started`.
+- `server/tool-server.test.ts`: the schema of `flowly_suggest_next_moves` allows an empty array; the result schema contains `reminders`; SKILL.md and `skillText` are verbatim identical (already exists).
+- `typecheck`, full `npm test`.
+- Manual (can be done together with Luna): when a real session delivers to In review the result has the reminder; after calling `moves=[]`, delivering again in the same turn no longer reminds.
 
-### 9.10 影响与后续
+### 9.10 Impact and follow-up
 
-- 新手引导：不变。这是 agent 面向的改动，用户看到的只是更多的建议胶囊和 Ideas，现有 `next-move` / `first-idea` 提示已覆盖；README 不需新增卖点。交付说明里写明。
-- 所有提醒文字是 agent 面向的英文，不进入语言包。
-- 效果无法保证：提醒只能影响出现交付类调用的回合。建议上线后用同一口径复盘“交付回合中有 moves 的比例”；若要常态化，可作为后续在 Workflow Insights 里加一条覆盖率规则（已作为 idea 提出）。
+- Onboarding: unchanged. This is an agent-facing change, and all the user sees is more suggestion capsules and Ideas, which the existing `next-move` / `first-idea` tips already cover; the README needs no new selling point. The delivery note states this.
+- All reminder text is agent-facing English and does not go into the language packs.
+- The effect cannot be guaranteed: a reminder can only influence turns that have a delivery-type call. After launch, review the "share of delivery turns with moves" by the same basis; to make it routine, a coverage rule can be added later in Workflow Insights (already proposed as an idea).
 
-### 9.11 与 §8（next moves 随交付调用提交）的关系
+### 9.11 Relationship with §8 (next moves submitted with the delivery call)
 
-状态：§8 已先落地（commit 96ac586）：`moves` 下限在三处统一为 0，§8.9 已改成指向本节，`isNoMoves`、`noMovesNote` 已存在。下面第 1、2 点因此已满足；第 3 点（skill 只改一次）由本节的实现完成。
+Status: §8 landed first (commit 96ac586): the `moves` lower bound is unified at 0 in three places, §8.9 has been changed to point to this section, and `isNoMoves` and `noMovesNote` already exist. Points 1 and 2 below are therefore already satisfied; point 3 (change the skill only once) is completed by the implementation of this section.
 
-§8 是另一张卡并行写下的设计（同一份规格、同一批文件），目前只有规格、没有代码。两者目标一致，机制互补：§8 让 agent 在交付调用里**一次写完**，§9 在它**没写**时提醒。需要对齐的地方：
+§8 is a design written in parallel by another card (the same spec, the same set of files), and so far has only the spec and no code. The two have the same goal and complementary mechanisms: §8 lets the agent **write it all at once** in the delivery call, and §9 reminds when it **did not**. Points to align:
 
-1. **独立工具必须接受 `[]`。** §8.2 写的是“独立工具仍是 1–3 条”。§9 的提醒发生在交付调用**之后**，agent 能补救的唯一办法就是调用独立工具，提醒文字也这么写，所以 `flowly_suggest_next_moves` 也要允许 `[]`（§9.4）。落地时 §8.2 那句改成“三处下限相同，都是 0”，共用的元素 schema 与数组校验函数仍只有一份。
-2. **§8.9 的 `notice` 被 §9 取代**（§8.9 本就在等用户确认）：同一机制，但用 `reminders: string[]`，因为它还要承载 ideas 提醒；触发范围按本卡（in_review/blocked、question/result，不含 `blocker`）；重放也带提醒（§9.5）。§8.9 里“没传 `nextMoves` 且本轮没有建议”的条件，在 §9.3 里就是“事务内事件写完后仍没有 moves 事件”，自动涵盖。§8.9 已改为指向本节的说明，不再有待决定项。
-3. **skill 只改一次。** 两处都要改“When you end a turn and there are clear next steps…”这一条。合并后的语义：交付/提问/汇报结果的回合以 next moves 结尾，首选写在交付调用的 `nextMoves` 里（§8），其次独立工具；没有需要用户的事就传 `[]`；写入结果带 `reminders` 时补上。措辞在实现时一次写定，`skill-source.ts` 与 `SKILL.md` 同步。
-4. **落地顺序**：先 §8，再 §9；最好同一个会话做，避免 `server/agent-service.ts`、`shared/tools.ts`、`server/skill-source.ts`、`skills/flowly/SKILL.md`、`server/tool-server.ts` 的重复冲突。工作区里这些文件已有别的卡片的未提交改动，提交时只暂存本卡的 hunk。
-5. **成功指标共用** §8.10 的口径：交付/提问/结果轮中带建议（含显式 `[]`）的比例，基线约 55%，目标 ≥ 90%。
+1. **The standalone tool must accept `[]`.** §8.2 says "the standalone tool is still 1–3 items". The reminder of §9 happens **after** the delivery call, and the only way the agent can remedy is to call the standalone tool, and the reminder text says so, so `flowly_suggest_next_moves` must also allow `[]` (§9.4). At landing, that sentence of §8.2 becomes "the lower bound is the same in all three places, 0", and the shared element schema and array validation function remain only one copy.
+2. **The `notice` of §8.9 is replaced by §9** (§8.9 was waiting for the user's confirmation anyway): the same mechanism, but using `reminders: string[]`, because it must also carry the ideas reminder; the trigger scope follows this card (in_review/blocked, question/result, not including `blocker`); a replay also carries the reminder (§9.5). The condition of §8.9 "`nextMoves` not passed and no suggestion this turn" is, in §9.3, "still no moves event after the events inside the transaction are written", which covers it automatically. §8.9 has been changed to a note pointing to this section, with no pending decision left.
+3. **Change the skill only once.** Both places need to change the item "When you end a turn and there are clear next steps…". The merged semantics: a turn of delivery/question/reporting a result ends with next moves, preferably written in the `nextMoves` of the delivery call (§8), second with the standalone tool; when nothing needs the user pass `[]`; when a write result carries `reminders`, fill in. The wording is fixed once at implementation, and `skill-source.ts` and `SKILL.md` are synced.
+4. **Landing order**: first §8, then §9; preferably in the same session, to avoid repeated conflicts in `server/agent-service.ts`, `shared/tools.ts`, `server/skill-source.ts`, `skills/flowly/SKILL.md`, `server/tool-server.ts`. These files in the workspace already had uncommitted changes from other cards, and when committing stage only this card's hunks.
+5. **Shared success metric** with the basis of §8.10: among delivery/question/result turns, the share carrying suggestions (including an explicit `[]`), baseline about 55%, target ≥ 90%.
 
-### 9.12 实现与检查（2026-10-20）
+### 9.12 Implementation and checks (2026-10-20)
 
-- 代码：`shared/next-moves.ts` `needsNextMoves`（回合边界，纯函数）；`server/reminders.ts`（三条文案与 `deliveryReminders`，触发矩阵）；`server/agent-service.ts` `write()`（事务内、事件写完后计算，重放也计算；Ideas 开关只在 `in_review` 交付时读取；`remindersField` 控制键顺序）；`shared/tools.ts` `toolResultSchema.reminders`；`server/skill-source.ts` 与 `skills/flowly/SKILL.md`（两条规则加一条 `reminders` 说明）；`server/tool-server.ts` 两个工具的描述各加一句。CLI 无需改动：它输出整个结果，`reminders` 紧跟回执。
-- 通过：`npm run typecheck`；`npm test`（93 个文件通过，711 个用例通过，13 个文件 / 65 个用例按原样跳过）；新增用例在 `server/agent-service.test.ts`（五个：默认两条、各种“已做过”、回合边界、触发矩阵、失败与已完成卡）、`shared/next-moves.test.ts`（`needsNextMoves`）、`server/tool-server.test.ts`（MCP 的 `structuredContent.reminders` 与 JSON 文本键序、CLI 输出键序、skill 与工具描述文字）。
-- 实机（2026-10-20，`docs/verification/delivery-reminders.md`）：5 个 `codex/gpt-6-luna` 全权限会话在 Tinylink 临时卡上交付。MCP 与 CLI 的结果里都带 `reminders`（键序 `receipt, replayed, reminders, current`）；允许会话响应时（S3 走 MCP 传 `[]`、S4 走 CLI `next-moves`）第二次交付不再带 next moves 提醒；交付调用自带 `[]` 的会话（S1、S5）也没有该提醒；ideas 提醒在 9 次 in_review 交付里都出现、没有会话提 idea。**没有证明的**：会话被要求“别传 next moves 并结束本轮”时（S2）不会响应提醒（用户指令优先），所以这轮只证明提醒送达且可操作，不是遵从率；遵从率看 Insights 的 Agent habits。手机布局、非英文、`question`/`result` 与重放的实机未做。
-- 上线后的效果指标：Insights 的 Agent habits（WORKFLOW-INSIGHTS-SPEC §12）已按 flow log 统计交付/结果回合里 next moves 与 idea 的占比，并标出 10 次以上交付仍没有 next moves 的模型/会话，用它复盘即可，不需要另做覆盖率规则。注意 `board.json` 每卡只留最近 100 条事件，本节开头的统计只能当量级参考，以 flow log 为准。
+- Code: `shared/next-moves.ts` `needsNextMoves` (turn boundary, a pure function); `server/reminders.ts` (the three texts and `deliveryReminders`, the trigger matrix); `server/agent-service.ts` `write()` (computed inside the transaction after the events are written, and also computed on replay; the Ideas switch is read only on an `in_review` delivery; `remindersField` controls the key order); `shared/tools.ts` `toolResultSchema.reminders`; `server/skill-source.ts` and `skills/flowly/SKILL.md` (two rules plus one `reminders` note); `server/tool-server.ts` one sentence added to each of the two tools' descriptions. The CLI needs no change: it prints the whole result, and `reminders` follows the receipt right away.
+- Passed: `npm run typecheck`; `npm test` (93 files passed, 711 cases passed, 13 files / 65 cases skipped as before); the new cases are in `server/agent-service.test.ts` (five: the default two, the various "already done" cases, the turn boundary, the trigger matrix, failure and finished cards), `shared/next-moves.test.ts` (`needsNextMoves`), `server/tool-server.test.ts` (MCP's `structuredContent.reminders` and the JSON text key order, the CLI output key order, the skill and tool description texts).
+- Real machine (2026-10-20, `docs/verification/delivery-reminders.md`): 5 `codex/gpt-6-luna` full-access sessions delivered on Tinylink temporary cards. The results of both MCP and CLI carry `reminders` (key order `receipt, replayed, reminders, current`); when the session was allowed to respond (S3 passing `[]` via MCP, S4 via CLI `next-moves`) the second delivery no longer carried the next moves reminder; the sessions whose delivery call carried `[]` itself (S1, S5) also had no such reminder; the ideas reminder appeared in all 9 in_review deliveries, and no session proposed an idea. **What was not proven**: when a session was told "do not pass next moves and end the turn" (S2) it does not respond to the reminder (the user's instruction takes priority), so this round only proves the reminder is delivered and actionable, and is not a compliance rate; the compliance rate is seen in the Agent habits of Insights. The phone layout, non-English, and the real-machine runs of `question`/`result` and replay were not done.
+- The effect metric after launch: the Agent habits of Insights (WORKFLOW-INSIGHTS-SPEC §12) already count by the flow log the share of next moves and ideas in delivery/result turns, and mark the models/sessions that still have no next moves after 10 or more deliveries; use it for the review, and no separate coverage rule is needed. Note that `board.json` keeps only the latest 100 events per card, so the statistics at the start of this section can serve only as an order-of-magnitude reference, and the flow log is authoritative.
