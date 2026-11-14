@@ -1,165 +1,165 @@
-# Ultra Kanban v2 路线图：Paseo 内的人机协作工作流
+# Ultra Kanban v2 roadmap: a human-agent collaboration workflow inside Paseo
 
-状态：规划草案，2026-10-14。按第 0 节调整：当前聚焦人工多任务管理；M3 及之后为远期设计（D1–D6 已确认，[PHASE-03-SPEC](PHASE-03-SPEC.md) 暂缓）。各里程碑实施前单独写 spec，并按 AGENTS.md 获得授权。
-基线：Phase 1/2、[single-root](SINGLE-ROOT-SPEC.md)、[UI refresh](UI-REFRESH-SPEC.md) 已交付。Multica 的调研结论沿用 [SPEC-OUTLINE §3](SPEC-OUTLINE.md)，并补充了其 README 中的新能力（Inbox、Review gates、Autopilots、Squads、Retries、Usage）。
+Status: planning draft, 2026-10-14. Adjusted per section 0: the current focus is manual multi-task management; M3 and later are long-term designs (D1–D6 confirmed, [PHASE-03-SPEC](PHASE-03-SPEC.md) deferred). Each milestone gets its own spec before implementation and needs authorization per AGENTS.md.
+Baseline: Phase 1/2, [single-root](SINGLE-ROOT-SPEC.md) and [UI refresh](UI-REFRESH-SPEC.md) are delivered. The research conclusions on Multica carry over from [SPEC-OUTLINE §3](SPEC-OUTLINE.md), with the new capabilities from its README added (Inbox, Review gates, Autopilots, Squads, Retries, Usage).
 
-## 0. 优先级调整（2026-10-14，用户决定，优先于下文）
+## 0. Priority adjustment (2026-10-14, user decision, takes precedence over the text below)
 
-- **最高优先级**：用看板方便地人工管理多个并行任务。状态以人工调整为主，尽可能简单。
-- **agent 自动调整状态是远期目标**，不是当前重点。下文 M3–M6（含 [PHASE-03-SPEC](PHASE-03-SPEC.md)）保留为远期设计，暂缓实施。D1–D6 的结论仍有效，到时直接沿用。
-- 现有 agent 工具（`get_task`/`update_status`/`report_progress`）保持可用、不扩展；agent 不调用也不影响使用。
-- 下一步改为 **M2.5 多任务人工管理**（见第 8 节），具体范围待用户确认后写 spec。
+- **Highest priority**: use the board to manage several parallel tasks by hand, conveniently. Status is mostly adjusted by hand, as simple as possible.
+- **Agents adjusting status automatically is a long-term goal**, not the current focus. M3–M6 below (including [PHASE-03-SPEC](PHASE-03-SPEC.md)) are kept as long-term designs, with implementation deferred. The conclusions of D1–D6 are still valid and will be reused as they are then.
+- The existing agent tools (`get_task`/`update_status`/`report_progress`) stay available and are not extended; it does not matter for use if the agent does not call them.
+- The next step becomes **M2.5 manual multi-task management** (see section 8); the exact scope waits for the user's confirmation before a spec is written.
 
-## 1. 目标工作流
+## 1. Target workflow
 
-用户创建卡片并点“开始”后，agent 按项目工作流（内置默认，可自定义）推进阶段。需要人回答时只在卡片上标记，不改状态；交付后进入 Review。人确认完成后，系统自动收尾（归档 session 和 workspace）。
+The user creates a card and clicks "Start", and the agent advances through stages following the project workflow (a built-in default, customizable). When a human must answer, it is only marked on the card and the status does not change; after delivery it goes to Review. After the human confirms completion, the system wraps up automatically (archives the session and workspace).
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Todo: 人创建卡片
-    Todo --> InProgress: 人点“开始”(M4)<br/>或项目开启自动启动(M5)
+    [*] --> Todo: a human creates the card
+    Todo --> InProgress: a human clicks Start (M4)<br/>or the project enables auto-start (M5)
     state InProgress {
         [*] --> Design
-        Design --> Develop: agent set_stage<br/>(gate 阶段需人批准)
+        Design --> Develop: agent set_stage<br/>(a gate stage needs human approval)
         Develop --> Verify: agent set_stage
-        Verify --> Develop: 验证失败
-        note right of Design: 阶段可按项目自定义<br/>默认 Design/Develop/Verify
+        Verify --> Develop: verification fails
+        note right of Design: stages can be customized per project<br/>default Design/Develop/Verify
     }
-    note left of InProgress: 提问只在卡片上标记“Needs you”，不改状态<br/>人回答后投递给提问的 session
-    InProgress --> InReview: agent submit_review<br/>(交付物+验证+未运行项)
-    InReview --> InProgress: 人“要求修改”+意见 → 投递
-    InReview --> Done: 人“通过”
-    InProgress --> Blocked: 外部阻塞
-    Blocked --> InProgress: 解除
-    Done --> Finalized: 收尾流水线<br/>preflight → 归档 session/workspace
+    note left of InProgress: a question only marks the card as Needs you, no status change<br/>after a human answers it is delivered to the asking session
+    InProgress --> InReview: agent submit_review<br/>(deliverables + verification + items not run)
+    InReview --> InProgress: a human requests changes + comments → delivered
+    InReview --> Done: a human approves
+    InProgress --> Blocked: external block
+    Blocked --> InProgress: unblocked
+    Done --> Finalized: wrap-up pipeline<br/>preflight → archive session/workspace
 ```
 
-| 角色 | 负责 |
+| Role | Responsible for |
 | --- | --- |
-| 人 | 建卡、开始、回答问题、审核交付、通过或打回、例外处理 |
-| Agent | 读取卡片与项目 playbook，切换阶段，汇报进展，遇到需要人的情况主动发起请求，提交 Review |
-| 插件 daemon | 校验并持久化；通过 hook 观察 session（授权请求、失败、静默结束）并在卡片上提示；执行收尾流水线；重启后核对状态 |
+| Human | Creating cards, starting, answering questions, reviewing deliveries, approving or sending back, handling exceptions |
+| Agent | Reading the card and the project playbook, switching stages, reporting progress, raising a request on its own when a human is needed, submitting Review |
+| Plugin daemon | Validating and persisting; observing sessions through hooks (approval requests, failures, silent endings) and hinting on the card; running the wrap-up pipeline; reconciling state after a restart |
 
-“Needs you”不是新的业务列，也不改变状态（D2）：卡片保持当前状态，只显示标记和请求数，并进入收件箱。In review 只表示 agent 已交付、等你验收。
+"Needs you" is not a new business column and does not change the status (D2): the card keeps its current status, only shows a marker and the request count, and goes into the inbox. In review only means the agent has delivered and is waiting for your acceptance.
 
-## 2. 现状与差距
+## 2. Current state and gaps
 
-| 能力 | 现在 | 差距 |
+| Capability | Now | Gap |
 | --- | --- | --- |
-| 业务状态 | 7 列；agent 可设 In progress/Blocked/In review；Done/Cancelled 由人设 | 没有阶段（设计/开发/验证）概念 |
-| Agent 工具 | `get_task` / `update_status` / `report_progress`，MCP+CLI 共用校验，CAS 与幂等回执 | 缺 `set_stage`、`request_human`、结构化 `submit_review` |
-| 需要人 | 卡片只显示 session 未读、授权、错误计数 | 没有“问题+回复”闭环，人的回答无法定向回到提问的 session |
-| Review | 移到 In review 后只有一条 note | 没有交付物视图，也没有通过/打回按钮；打回后不会自动续工 |
-| 启动 | 侧栏手动建 session，可选 provider/model/mode | 没有一键开始，没有项目级默认 agent/playbook，也没有自动启动 |
-| 工具接入 | 侧栏新建的 session 自动带 MCP；已有 session 需手动“发送看板工作指示” | 原生入口新建的 session 不会自动接入（可用 `before("agent.create")` 解决） |
-| 完成 | 人设 Done，资源全部保留 | 没有收尾流水线（preflight + 归档） |
-| 观察 | turn started/ended、授权请求写入活动；卡片显示汇总 | 没有失败、卡住、静默结束、重启后核对的处理；没有执行历史和成本 |
-| 跨卡视图 | 按项目分列 | 没有跨项目的“待你处理”收件箱 |
+| Business status | 7 columns; the agent can set In progress/Blocked/In review; Done/Cancelled are set by a human | No concept of stages (design/development/verification) |
+| Agent tools | `get_task` / `update_status` / `report_progress`, shared validation for MCP+CLI, CAS and idempotent receipts | Missing `set_stage`, `request_human`, structured `submit_review` |
+| Needs a human | The card only shows session unread, approval and error counts | No "question + reply" loop; a human's answer cannot be routed back to the asking session |
+| Review | After moving to In review there is only one note | No deliverables view and no approve/send-back buttons; work does not continue automatically after a send-back |
+| Start | Manually create a session in the sidebar, with optional provider/model/mode | No one-click start, no project-level default agent/playbook, and no auto-start |
+| Tool attachment | A session created in the sidebar automatically carries MCP; an existing session needs a manual "Send Kanban work instructions" | A session created from the native entry is not attached automatically (solvable with `before("agent.create")`) |
+| Completion | A human sets Done, and all resources are kept | No wrap-up pipeline (preflight + archive) |
+| Observation | turn started/ended and approval requests are written to the activity; the card shows a summary | No handling of failures, being stuck, silent endings or reconciliation after a restart; no execution history or cost |
+| Cross-card view | Columns by project | No cross-project "waiting for you" inbox |
 
-## 3. 对标 Multica
+## 3. Benchmark against Multica
 
-| Multica 能力 | 在 Paseo 中的对应 | 现状 | 里程碑 |
+| Multica capability | Counterpart in Paseo | Now | Milestone |
 | --- | --- | --- | --- |
-| Assign issue → agent 领取并自行更新状态 | 卡片“开始”/自动启动 + 看板工具 | 部分（需手动建 session） | M4 / M5 |
-| Agent 汇报进展、主动报 blocker、完成后移到 review | `report_progress` / `update_status` / `request_human` / `submit_review` | 部分 | M3 |
-| Review gates：人批准后才发布 | In review 交付物视图 + 通过/打回 + Git 信息 | 缺 | M3 / M4 |
-| Inbox：需要决策时才通知 | 跨项目“待你处理”收件箱 + composer pill/header button 提示 + 原生 agent attention | 缺 | M3 |
-| Steer a running agent | 侧栏 Steer/Interrupt 已有 | 已有 | — |
-| Execution log | Paseo 原生 timeline + 侧栏预览；卡片级执行历史 | 部分 | M5 |
-| Skills（可复用 playbook） | 项目 playbook：分阶段指令、完成定义、验证命令，建 session 时注入；也可复用 Paseo/provider skills | 缺 | M4 |
-| Retries & timeouts | daemon watchdog：失败重试、卡住告警、静默结束提醒 | 缺 | M5 |
-| Usage analytics | 按卡片/项目汇总 agent usage（取决于 SDK 是否暴露 usage） | 缺 | M5 |
-| Autopilots（cron 周期任务） | 插件服务端定时建卡并启动 | 缺 | M6 |
-| Squads / 角色路由 | 设计、开发、评审由不同 agent 交接，评审 agent 先于人审核 | 缺 | M6 |
-| Projects + repo/docs 作为上下文 | single-root 项目 + playbook + 项目文档 | 部分 | M4 |
-| Chat、多客户端、自托管 | Paseo 本身提供 | 由宿主提供 | — |
+| Assign issue → the agent picks it up and updates the status itself | Card "Start"/auto-start + board tools | Partial (a session must be created by hand) | M4 / M5 |
+| The agent reports progress, raises blockers on its own, moves to review when done | `report_progress` / `update_status` / `request_human` / `submit_review` | Partial | M3 |
+| Review gates: publish only after a human approves | In review deliverables view + approve/send back + Git info | Missing | M3 / M4 |
+| Inbox: notify only when a decision is needed | Cross-project "waiting for you" inbox + composer pill/header button hint + native agent attention | Missing | M3 |
+| Steer a running agent | Sidebar Steer/Interrupt already exist | Exists | — |
+| Execution log | Paseo's native timeline + sidebar preview; card-level execution history | Partial | M5 |
+| Skills (reusable playbooks) | Project playbook: per-stage instructions, definition of done, verification commands, injected when a session is created; Paseo/provider skills can also be reused | Missing | M4 |
+| Retries & timeouts | daemon watchdog: failure retry, stuck alert, silent-ending reminder | Missing | M5 |
+| Usage analytics | Agent usage summarized by card/project (depends on whether the SDK exposes usage) | Missing | M5 |
+| Autopilots (cron periodic tasks) | The plugin server creates cards and starts them on a schedule | Missing | M6 |
+| Squads / role routing | Design, development and review handed between different agents, with a review agent before the human | Missing | M6 |
+| Projects + repo/docs as context | single-root project + playbook + project docs | Partial | M4 |
+| Chat, multiple clients, self-hosting | Provided by Paseo itself | Provided by the host | — |
 
-## 4. 里程碑
+## 4. Milestones
 
-### M3 人机闭环（建议下一步）
+### M3 Human-agent loop (suggested next step)
 
-目标：agent 自己切换阶段、在需要人时发起请求、提交 Review；人在卡片上回答或审核，结果回到正确的 session。
+Goal: the agent switches stages by itself, raises a request when a human is needed, and submits Review; the human answers or reviews on the card, and the result goes back to the right session.
 
-- 数据：task 增加 `stage`（`design/develop/verify` 或 null）和 `requests[]`。request 字段包括 id、kind（`decision/approval/input/review`）、question、options、agentId、createdAt，以及 answer/answeredAt/answeredBy。另增交付记录 `deliverable`：summary、verification、notRun、links、changes。存储 v3 → v4 迁移，保留无效数据而不重置。
-- Agent 工具（MCP 与 CLI 同一服务，沿用 CAS 和幂等回执）：
-  - `flowly_set_stage(stage, note)`：仅在 In progress 下可用。
-  - `flowly_request_human(question, options?)`：记录请求，不改状态，卡片标为“Needs you”。每卡最多 10 个未结请求。
-  - 工作流可配置（D1）：项目级阶段列表，每个阶段有说明、退出条件和可选的人审 gate；内置默认，可设为新项目默认。
-  - `flowly_submit_review(deliverable)`：结构化交付，卡片移到 In review 并标为“等你验收”。原 `update_status(in_review)` 继续兼容。
-- 人侧 UI：
-  - 卡片：右上显示“需要你”徽标（warning 色）和问题摘要；阶段以小标签显示在信号行。
-  - 侧栏：顶部固定一块“待处理”：问题、选项按钮、回复框；或交付物卡片配“通过 / 要求修改”。
-  - 回复或打回：写入卡片并定向投递给发起请求的 session。投递内容带明确的 Kanban 回复标识，属于显式的 Kanban 操作，与普通 follow-up 原样发送的规则区分。回复不改状态；打回时卡片回到 In progress。人点“通过”即设为 Done。
-  - 收件箱：工具栏“待你处理 (n)”，跨项目列出所有带未结请求或待验收的卡片。
-  - 原生 session 内：现有 composer chip 标签改为显示“需要你”；chip 支持 `popover`，可直接在原生 session 页回答。
-- Hook 信号（只提示，不改业务状态）：授权请求和失败 turn 在卡片上提示；卡片处于 In progress 时，turn 结束但本轮没有任何工具汇报，记为“静默结束”。
-- Skill：阶段协议、何时必须请求人（不可逆操作、方案取舍、缺信息、超出范围）、交付物格式。
-- 验收：一张卡完整走通设计 → 开发 → 提问 → 回答 → 验证 → 提交 → 打回 → 修改 → 通过；覆盖多 session 冲突、重启和重复投递（幂等）。
+- Data: a task gets `stage` (`design/develop/verify` or null) and `requests[]`. A request has id, kind (`decision/approval/input/review`), question, options, agentId, createdAt, plus answer/answeredAt/answeredBy. A delivery record `deliverable` is also added: summary, verification, notRun, links, changes. Storage migration v3 → v4, keeping invalid data without resetting.
+- Agent tools (MCP and CLI on the same service, reusing CAS and idempotent receipts):
+  - `flowly_set_stage(stage, note)`: available only under In progress.
+  - `flowly_request_human(question, options?)`: records a request, does not change the status, and marks the card "Needs you". At most 10 open requests per card.
+  - Configurable workflow (D1): a project-level stage list, where each stage has a description, exit criteria and an optional human-review gate; a built-in default that can be set as the new-project default.
+  - `flowly_submit_review(deliverable)`: structured delivery; the card moves to In review and is marked "waiting for your acceptance". The old `update_status(in_review)` stays compatible.
+- Human-side UI:
+  - Card: a "needs you" badge (warning color) and a question summary at the top right; the stage is shown as a small label in the signal row.
+  - Sidebar: a fixed "Pending" block at the top: the question, option buttons and a reply box; or a deliverable card with "Approve / Request changes".
+  - Reply or send-back: written to the card and delivered to the session that raised the request. The delivered content carries an explicit Kanban reply marker, which is an explicit Kanban action and is distinct from the rule that an ordinary follow-up is sent as it is. A reply does not change the status; on a send-back the card returns to In progress. When a human clicks "Approve" it is set to Done.
+  - Inbox: the toolbar "Waiting for you (n)" lists, across projects, all cards with open requests or awaiting acceptance.
+  - Inside the native session: the existing composer chip label now shows "Needs you"; the chip supports `popover`, so one can answer directly on the native session page.
+- Hook signals (hint only, no business status change): approval requests and failed turns are hinted on the card; when the card is In progress and a turn ends with no tool report in that turn, it is recorded as a "silent ending".
+- Skill: the stage protocol, when a human must be asked (irreversible operations, design trade-offs, missing information, out of scope), the deliverable format.
+- Acceptance: one card goes through design → development → question → answer → verification → submit → send back → change → approve in full; covering multi-session conflicts, restarts and duplicate delivery (idempotency).
 
-### M4 启动与收尾自动化
+### M4 Start and wrap-up automation
 
-- 一键开始：卡片“开始”按钮按项目 playbook 的默认 provider/model/mode（可选 full-access）建 session，并带上卡片指令，stage 设为 design。
-- 自动接入：用 `before("agent.create")` 给在卡片 workspace 中新建的任何 session 注入 MCP 和环境变量。原生入口新建的 session 也自动可用；已存在的 session 仍走显式指示。
-- 项目 playbook（对标 Skills）：分阶段指令、完成定义（DoD）、验证命令、是否需要人审方案（design gate）。版本化，在侧栏可查看。
-- 收尾流水线（人点“通过”后执行，可按项目关闭）：
-  1. Preflight：所有 session 空闲；git 工作区干净；分支已推送或已合并；无未推送提交。结果写到卡片上。
-  2. 全部通过且项目策略为“自动”时，归档该卡 session 和 workspace。否则弹确认框，列出未通过项，由人决定。
-  3. 只自动归档插件为本卡创建的 worktree workspace。Paseo 归档最后一个引用后会删除 worktree 目录，因此 preflight 必须先过。directory 类 workspace（如项目根）从不自动归档。
-  4. 回执写入活动；失败时卡片显示“收尾失败”并可重试；看板卡片保留并标记已收尾。
-- Git 交付信息：卡片和侧栏显示分支、ahead/behind、diff stat、PR/MR 链接（通过 `gh`/`glab` 参数数组子进程调用）。CI 状态留待后续。
+- One-click start: the card "Start" button creates a session with the default provider/model/mode of the project playbook (full-access optional) and carries the card instruction, with the stage set to design.
+- Automatic attachment: use `before("agent.create")` to inject MCP and environment variables into any session created in the card workspace. A session created from the native entry is also usable automatically; an existing session still goes through the explicit instruction.
+- Project playbook (benchmarked on Skills): per-stage instructions, definition of done (DoD), verification commands, whether a human must review the design (design gate). Versioned, viewable in the sidebar.
+- Wrap-up pipeline (runs after a human clicks "Approve", can be turned off per project):
+  1. Preflight: all sessions idle; git working tree clean; branch pushed or merged; no unpushed commits. The result is written on the card.
+  2. When everything passes and the project policy is "automatic", archive the card's sessions and workspace. Otherwise a confirmation dialog lists the items that failed and the human decides.
+  3. Only the worktree workspace the plugin created for this card is archived automatically. Paseo deletes the worktree directory after archiving the last reference, so preflight must pass first. A directory-type workspace (such as the project root) is never archived automatically.
+  4. A receipt is written to the activity; on failure the card shows "wrap-up failed" and can retry; the board card is kept and marked wrapped up.
+- Git delivery info: the card and sidebar show the branch, ahead/behind, diff stat and PR/MR links (via `gh`/`glab` subprocesses with argument arrays). CI status is left for later.
 
-### M5 自主运行与可靠性
+### M5 Autonomous running and reliability
 
-- 自动启动队列（对标 assign + 容量）：项目开启后，Todo 卡按优先级自动开始，最大并发 N，可暂停或恢复。
-- Watchdog：running 超过阈值记为卡住；失败 turn 按退避自动重试（上限 n 次）后再提示人；静默结束发一次提醒（可配置）。
-- 重启核对：hook 是尽力投递，daemon 启动和周期任务时用 SDK 核对 session 与 workspace 的实际状态，修正卡片提示。
-- 执行历史：卡片级记录每个 turn 的 session、开始/结束、结果、耗时，若 SDK 提供则加上 usage/成本；按项目汇总。
-- 通知：以 Paseo 原生 agent attention 加插件收件箱为主；可选外部推送（如 SeaTalk webhook）。
+- Auto-start queue (benchmarked on assign + capacity): once enabled for a project, Todo cards start automatically by priority, with a maximum concurrency N, pausable and resumable.
+- Watchdog: running beyond a threshold is recorded as stuck; a failed turn is retried automatically with backoff (up to n times) before a human is prompted; a silent ending sends one reminder (configurable).
+- Restart reconciliation: hooks are best-effort delivery, so at daemon start and in periodic tasks the SDK is used to reconcile the actual state of sessions and workspaces and correct the card hints.
+- Execution history: card-level record of each turn's session, start/end, result and duration, plus usage/cost if the SDK provides it; summarized by project.
+- Notification: mainly Paseo's native agent attention plus the plugin inbox; optional external push (such as a SeaTalk webhook).
 
-### M6 团队化与规模（候选）
+### M6 Teams and scale (candidate)
 
-- 角色交接（Squads）：设计、开发、评审由不同 agent 担任（可用不同 provider），评审 agent 先于人做一轮自动审查。
-- 子卡与依赖，阶段完成自动唤醒下一阶段；规划 agent 把项目目标拆成卡片（原 A3/A4）。
-- Autopilot：周期任务（cron）自动建卡并启动。
-- 外部同步（Jira/GitLab issue）、跨 host 调度。
+- Role handoff (Squads): design, development and review are done by different agents (possibly different providers), with a review agent doing one automatic review round before the human.
+- Subcards and dependencies, with stage completion automatically waking the next stage; a planning agent splits the project goal into cards (the former A3/A4).
+- Autopilot: periodic tasks (cron) create cards and start them automatically.
+- External sync (Jira/GitLab issues), cross-host scheduling.
 
-## 5. 需要调整的项目约束
+## 5. Project constraints that need adjusting
 
-以下 AGENTS.md 条款与目标冲突，需要在对应里程碑开始前由用户确认修改：
+The following AGENTS.md clauses conflict with the goal and need the user's confirmation to change before the corresponding milestone starts:
 
-| 现约束 | 建议改为 | 里程碑 |
+| Current constraint | Suggested change | Milestone |
 | --- | --- | --- |
-| “Automatic assignment, multi-agent handoffs, role orchestration… are outside v1” | v2 按里程碑引入：M4 一键开始、M5 自动启动队列、M6 角色交接；每项默认关闭，按项目开启 | M4–M6 |
-| “Archiving plugin records … does not implicitly archive/delete Paseo resources” | 人点“通过”后，按项目收尾策略、在 preflight 通过时归档本卡 session 和插件创建的 worktree workspace；其余情况仍不隐式归档 | M4 |
-| “ordinary follow-up sends exactly the user's text” | 保持不变。另增显式的“回复请求 / 要求修改”投递类型，带 Kanban 标识 | M3 |
-| “A turn ending never automatically completes the card” | 保持不变。turn 事件只产生提示；状态变化只来自 agent 工具调用或人的操作 | — |
+| "Automatic assignment, multi-agent handoffs, role orchestration… are outside v1" | v2 introduces them by milestone: M4 one-click start, M5 auto-start queue, M6 role handoff; each off by default and enabled per project | M4–M6 |
+| "Archiving plugin records … does not implicitly archive/delete Paseo resources" | After a human clicks "Approve", per the project wrap-up policy and when preflight passes, archive this card's sessions and the worktree workspace the plugin created; in other cases still no implicit archiving | M4 |
+| "ordinary follow-up sends exactly the user's text" | Unchanged. Add an explicit "reply to request / request changes" delivery type that carries a Kanban marker | M3 |
+| "A turn ending never automatically completes the card" | Unchanged. Turn events only produce hints; status changes come only from agent tool calls or human actions | — |
 
-## 6. 待确认决策
+## 6. Decisions to confirm
 
-| # | 问题 | 建议 |
+| # | Question | Suggestion |
 | --- | --- | --- |
-| D1 | 阶段固定还是可配置 | **已定**：可配置，内置默认 Design/Develop/Verify，用户可自定义，并可设为新项目默认（M3） |
-| D2 | “需要人”用新列还是 In review | **已定**：不改状态，只在卡片上出标记 |
-| D3 | 设计方案是否默认需要人审批 | **已定**：默认关闭，按阶段开启 gate |
-| D4 | 收尾归档的范围与确认方式 | **已定**：只归档插件创建的 worktree；preflight 全绿自动归档，否则弹确认；directory workspace 不自动归档（M4） |
-| D5 | 打回或回复后是否自动续工 | **已定**：是，投递给原 session；打回时卡片回到 In progress |
-| D6 | 收件箱是否包含 session 信号 | **已定**：包含，与 agent 的请求分组显示 |
+| D1 | Fixed or configurable stages | **Decided**: configurable, built-in default Design/Develop/Verify, customizable by the user and settable as the new-project default (M3) |
+| D2 | A new column or In review for "needs a human" | **Decided**: no status change, only a marker on the card |
+| D3 | Whether a design proposal needs human approval by default | **Decided**: off by default, a gate can be turned on per stage |
+| D4 | Scope and confirmation of the wrap-up archive | **Decided**: archive only the worktree the plugin created; automatic archiving when preflight is all green, otherwise a confirmation; a directory workspace is not archived automatically (M4) |
+| D5 | Whether work continues automatically after a send-back or reply | **Decided**: yes, delivered to the original session; on a send-back the card returns to In progress |
+| D6 | Whether the inbox includes session signals | **Decided**: yes, shown grouped separately from the agent's requests |
 
-## 7. 下一步
+## 7. Next steps
 
-1. ~~确认 D1–D6~~（已完成）。第 5 节的约束修改随对应里程碑实施时写入 AGENTS.md。
-2. ~~写 M3 spec~~：[PHASE-03-SPEC](PHASE-03-SPEC.md)，等待实现授权。
-3. 实现：typecheck、聚焦测试、reload，再用 full-access 的 `codex/gpt-6-luna` 会话验收并清理 fixture，然后停下来交用户 review。
-4. 之后按 M4 → M5 → M6 推进，每个里程碑单独写 spec、单独授权。
+1. ~~Confirm D1–D6~~ (done). The constraint changes in section 5 are written into AGENTS.md when the corresponding milestone is implemented.
+2. ~~Write the M3 spec~~: [PHASE-03-SPEC](PHASE-03-SPEC.md), waiting for authorization to implement.
+3. Implement: typecheck, focused tests, reload, then verify with a full-access `codex/gpt-6-luna` session and clean up the fixtures, then stop and hand over to the user for review.
+4. After that proceed M4 → M5 → M6, each milestone with its own spec and its own authorization.
 
-## 8. M2.5 多任务人工管理（候选范围，待确认）
+## 8. M2.5 Manual multi-task management (candidate scope, to be confirmed)
 
-只用人工操作和已有的 Paseo session 信号，不新增 agent 工具。
+Uses only manual actions and the existing Paseo session signals, and adds no agent tool.
 
-| # | 能力 | 说明 |
+| # | Capability | Notes |
 | --- | --- | --- |
-| A | “需要关注”总览 | 工具栏一个入口，跨项目列出有 session 待处理的卡片：回合结束未读、等待授权、出错；点击直达卡片或 session。完全基于现有信号 |
-| B | 一键开 session | 卡片上“Start session”，沿用上次的 provider/model/mode，初始指令默认带卡片标题和描述，可改 |
-| C | 卡片按关注度排序/筛选 | 列内可选把需要关注的卡片排前；筛选“有运行中 / 需要关注” |
-| D | 手动收尾 | Done 的卡片上“归档 workspace”按钮：先列出检查结果（session 是否空闲、未提交改动、分支是否推送），确认后归档；只针对插件创建的 worktree，directory workspace 只归档看板记录 |
-| E | 卡片备注 | 卡片上可追加简短备注，便于人自己记录进度（不投递给 agent） |
+| A | "Needs attention" overview | One toolbar entry that lists, across projects, the cards with pending session items: turn ended unread, waiting for approval, error; clicking goes straight to the card or session. Entirely based on existing signals |
+| B | One-click start session | "Start session" on the card, reusing the last provider/model/mode, with the initial instruction defaulting to the card title and description, editable |
+| C | Sort/filter cards by attention | Optionally put cards that need attention first within a column; filter "running / needs attention" |
+| D | Manual wrap-up | An "Archive workspace" button on Done cards: first lists the check results (whether sessions are idle, uncommitted changes, whether the branch is pushed), and archives after confirmation; only for worktrees the plugin created, and for a directory workspace only the board record is archived |
+| E | Card notes | Short notes can be appended on a card so a person can record progress (not delivered to the agent) |
