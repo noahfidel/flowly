@@ -292,7 +292,7 @@ export class AgentCards {
           status,
           priority: input.priority,
           ...(input.type ? { type: input.type } : {}),
-          ...(input.linearTicket === false ? { linearTicket: false } : {}),
+          ...(typeof input.linearTicket === "boolean" ? { linearTicket: input.linearTicket } : {}),
           ...(tags.length ? { tags } : {}),
           mode: input.workspace,
           baseRef: "",
@@ -511,7 +511,7 @@ export class AgentCards {
         if (input[k] !== undefined && input[k] !== task[k]) changed.push(k);
       const tagsChanged = !!tagChange && (tagChange.added.length > 0 || tagChange.removed.length > 0);
       if (tagsChanged) changed.push("tags");
-      const linearChange = input.linearTicket !== undefined && (input.linearTicket === false) !== (task.linearTicket === false);
+      const linearChange = input.linearTicket !== undefined && (input.linearTicket ?? undefined) !== task.linearTicket;
       if (linearChange) changed.push("linearTicket");
       if (!changed.length) return { value: { card: cardView(board, project, task, linear), changed }, changed: false };
       const previous = task.status;
@@ -522,7 +522,7 @@ export class AgentCards {
       if (input.status !== undefined) task.status = input.status;
       if (tagsChanged) setTags(task, tagChange!.tags);
       if (linearChange) {
-        if (input.linearTicket === false) task.linearTicket = false;
+        if (typeof input.linearTicket === "boolean") task.linearTicket = input.linearTicket;
         else delete task.linearTicket;
       }
       task.revision++;
@@ -579,7 +579,7 @@ export function cardView(board: Board, project: Project, task: Task, linear: Car
       return plan ? { title: plan.title, approved: planApproved(plan) } : null;
     })(),
     linear,
-    ...(task.linearTicket === false ? { linearTicket: false as const } : {}),
+    ...(typeof task.linearTicket === "boolean" ? { linearTicket: task.linearTicket } : {}),
   };
 }
 

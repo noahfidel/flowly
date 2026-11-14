@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { hasLinearItem, linearTeamValue, linearTicketLines } from "./linear-ticket";
+import { hasLinearItem, linearSkipTypesValue, linearSkipTypesOf, linearTeamValue, linearTicketLines, linearTicketTypeDefault, linearTicketWanted } from "./linear-ticket";
+import { taskTypes } from "./model";
 import { sessionContext } from "./scope";
 import type { Artifact, Project, Task } from "./model";
 
@@ -74,4 +75,57 @@ test("the team value is trimmed, one line and at most 80 characters", () => {
   expect(linearTeamValue("  Platform \n Eng ")).toBe("Platform Eng");
   expect(linearTeamValue("   ")).toBe("");
   expect(linearTeamValue("x".repeat(100))).toHaveLength(80);
+});
+
+describe("which cards get the Linear step (LINEAR-TICKET-SPEC §1, §2, §6)", () => {
+  const on = project({ linearTicket: true });
+  const link = { kind: "url", target: "https://linear.app/chord/issue/ENG-1" } as Artifact;
+  test("skip list: absent is research, [] skips none, the stored order follows the card types", () => {
+    expect(linearSkipTypesOf(project())).toEqual(["research"]);
+    expect(linearSkipTypesOf(project({ linearSkipTypes: [] }))).toEqual([]);
+    expect(linearSkipTypesOf(project({ linearSkipTypes: ["chore", "docs"] }))).toEqual(["chore", "docs"]);
+    expect(linearSkipTypesValue(["chore", "feature", "chore", "docs", "feature"])).toEqual(["feature", "docs", "chore"]);
+    expect(linearSkipTypesValue([])).toEqual([]);
+  });
+  test("a project with the switch off gives no card the step, whatever its type or field", () => {
+    for (const p of [project(), project({ linearTicket: false })])
+      for (const type of [...taskTypes, undefined])
+        for (const linearTicket of [true, false, undefined]) expect(linearTicketWanted(p, { type, linearTicket }, [])).toBe(false);
+    expect(linearTicketTypeDefault(project(), "feature")).toBe(false);
+  });
+  test("default list: research unset is no, every other type and no type is yes", () => {
+    expect(linearTicketWanted(on, { type: "research" }, [])).toBe(false);
+    for (const type of ["feature", "bugfix", "refactor", "docs", "chore"] as const) expect(linearTicketWanted(on, { type }, [])).toBe(true);
+    expect(linearTicketWanted(on, {}, [])).toBe(true);
+    expect(linearTicketWanted(on, { type: null }, [])).toBe(true);
+  });
+  test("true forces a skipped type on; false turns any type off", () => {
+    expect(linearTicketWanted(on, { type: "research", linearTicket: true }, [])).toBe(true);
+    for (const type of [...taskTypes, undefined]) expect(linearTicketWanted(on, { type, linearTicket: false }, [])).toBe(false);
+  });
+  test("a custom list and an empty list", () => {
+    const chore = project({ linearTicket: true, linearSkipTypes: ["chore"] });
+    expect(linearTicketWanted(chore, { type: "chore" }, [])).toBe(false);
+    expect(linearTicketWanted(chore, { type: "research" }, [])).toBe(true);
+    expect(linearTicketWanted(chore, { type: "chore", linearTicket: true }, [])).toBe(true);
+    const none = project({ linearTicket: true, linearSkipTypes: [] });
+    for (const type of taskTypes) expect(linearTicketWanted(none, { type }, [])).toBe(true);
+  });
+  test("a linked Linear item means no step, even with true", () => {
+    expect(linearTicketWanted(on, { type: "feature", linearTicket: true }, [link])).toBe(false);
+    expect(linearTicketWanted(on, { type: "feature" }, [link])).toBe(false);
+  });
+  test("the type default", () => {
+    expect(linearTicketTypeDefault(on, "research")).toBe(false);
+    expect(linearTicketTypeDefault(on, "feature")).toBe(true);
+    expect(linearTicketTypeDefault(on, undefined)).toBe(true);
+    expect(linearTicketTypeDefault(on, null)).toBe(true);
+    expect(linearTicketTypeDefault(project({ linearTicket: true, linearSkipTypes: [] }), "research")).toBe(true);
+  });
+  test("the block follows the type", () => {
+    const card = { title: "Audit", canLink: true };
+    expect(linearTicketLines(on, [], { ...card, type: "research" })).toEqual([]);
+    expect(linearTicketLines(on, [], { ...card, type: "feature" }).join("\n")).toMatch(/^Linear ticket:/);
+    expect(linearTicketLines(on, [], { ...card, type: "research", linearTicket: true }).join("\n")).toMatch(/^Linear ticket:/);
+  });
 });

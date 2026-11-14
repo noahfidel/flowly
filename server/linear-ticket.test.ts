@@ -17,7 +17,7 @@ test("the project setting is saved and the first-session context follows it (LIN
 
   const on = await x.store.updateProject({ id: "p", revision: 1, linearTicket: true, linearTeam: "  Platform\nEng " });
   expect(on).toMatchObject({ linearTicket: true, linearTeam: "Platform Eng" });
-  expect(await context()).toContain('Linear ticket: this project wants every card tracked');
+  expect(await context()).toContain('Linear ticket: this project wants this card tracked');
   expect(await context()).toContain('Linear team "Platform Eng"');
 
   // An empty team removes it; the switch stays on.
@@ -97,7 +97,36 @@ test("a card can opt out of the project's Linear ticket ask; others keep it (LIN
   expect(await context("t")).not.toContain("Linear ticket:");
   expect(await context("t2")).toContain("Linear ticket:");
 
-  await x.store.editTask({ id: "t", revision: await revision(), linearTicket: true, actor: "human" });
+  await x.store.editTask({ id: "t", revision: await revision(), linearTicket: null, actor: "human" });
   expect("linearTicket" in (await stored())).toBe(false);
   expect(await context("t")).toContain("Linear ticket:");
+});
+
+test("linearSkipTypes is saved deduplicated in card-type order and a research card gets no block by default (LINEAR-TICKET-SPEC §1, §5)", async () => {
+  const x = await agentFixture();
+  roots.push(x.root);
+  await x.store.updateProject({ id: "p", revision: 1, linearTicket: true });
+  const context = async () => (await new BoardService(x.store).context("t", x.paseo)).context;
+  const revision = async () => (await x.store.read()).tasks.find((t) => t.id === "t")!.revision;
+  const stored = async () => (await x.store.read()).tasks.find((t) => t.id === "t")!;
+  const projectRev = async () => (await x.store.read()).projects.find((p) => p.id === "p")!.revision;
+
+  await x.store.editTask({ id: "t", revision: await revision(), type: "research", actor: "human" });
+  expect(await context()).not.toContain("Linear ticket:");
+  await x.store.editTask({ id: "t", revision: await revision(), linearTicket: true, actor: "human" });
+  expect((await stored()).linearTicket).toBe(true);
+  expect(await context()).toContain("Linear ticket:");
+  await x.store.editTask({ id: "t", revision: await revision(), linearTicket: null, actor: "human" });
+  expect("linearTicket" in (await stored())).toBe(false);
+  expect(await context()).not.toContain("Linear ticket:");
+  await x.store.editTask({ id: "t", revision: await revision(), linearTicket: false, actor: "human" });
+  expect((await stored()).linearTicket).toBe(false);
+
+  const saved = await x.store.updateProject({ id: "p", revision: await projectRev(), linearSkipTypes: ["chore", "docs", "chore"] });
+  expect(saved.linearSkipTypes).toEqual(["docs", "chore"]);
+  expect((await x.store.read()).projects.find((p) => p.id === "p")!.linearSkipTypes).toEqual(["docs", "chore"]);
+  await x.store.editTask({ id: "t", revision: await revision(), linearTicket: null, actor: "human" });
+  expect(await context()).toContain("Linear ticket:");
+  const none = await x.store.updateProject({ id: "p", revision: await projectRev(), linearSkipTypes: [] });
+  expect(none.linearSkipTypes).toEqual([]);
 });

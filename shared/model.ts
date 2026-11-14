@@ -282,6 +282,8 @@ export const projectSchema = z.object({
   linearTicket: z.boolean().optional(),
   /** The Linear team (name or key) those tickets go to; absent lets the agent infer it (LINEAR-TICKET-SPEC §1). */
   linearTeam: z.string().max(80).optional(),
+  /** Card types that get no Linear ticket step by default; absent means ["research"], [] skips none (LINEAR-TICKET-SPEC §1). */
+  linearSkipTypes: z.array(taskTypeSchema).optional(),
   /** Display order in the project chooser (lower first); absent sorts by creation. */
   position: z.number().optional(),
   lanes: lanesSchema.optional(),
@@ -400,7 +402,7 @@ export const taskSchema = z.object({
   prRef: z.string().optional(),
   /** How the card is delivered (DELIVERY-MODE-SPEC §2); a plain string so a value this version does not know still loads. Absent: the host default. */
   deliveryMode: z.string().optional(),
-  /** Opt out of the project's Linear ticket ask (LINEAR-TICKET-SPEC §5); only false is stored, absent inherits. */
+  /** false: never the Linear ticket step; true: the step even for a type the project skips; absent follows the project and the type (LINEAR-TICKET-SPEC §5). */
   linearTicket: z.boolean().optional(),
   /** When the card first entered In review, Committed or Integrated; kept when it moves back, so the mode stays fixed (DELIVERY-MODE-SPEC §2). */
   deliveredAt: timestamp.optional(),
@@ -798,6 +800,8 @@ export const projectEdit = z.strictObject({
   linearTicket: z.boolean().optional(),
   /** "" removes the team (LINEAR-TICKET-SPEC §1). */
   linearTeam: z.string().max(200).optional(),
+  /** Replaces the whole list (LINEAR-TICKET-SPEC §1). */
+  linearSkipTypes: z.array(taskTypeSchema).optional(),
   /** Refused once groups are ready (`LANES_IN_GROUP`: lanes belong to the project's group, BOARD-GROUPS-SPEC §2); taken only while groups are not ready and the board has none stored. */
   lanes: lanesSchema.optional(),
   /** A model sets the project default; null removes it (the global default applies again). */
@@ -882,8 +886,8 @@ export const taskInput = z.strictObject({
   followUpOf: z.string().min(1).optional(),
   /** How the card is delivered (DELIVERY-MODE-SPEC §2); omitted: the host default applies when the context is built. */
   deliveryMode: z.enum(deliveryModes).optional(),
-  /** Opt out of the project's Linear ticket ask (LINEAR-TICKET-SPEC §5); only false is taken. */
-  linearTicket: z.boolean().optional(),
+  /** true and false are stored; null or omitted stores nothing (LINEAR-TICKET-SPEC §5). */
+  linearTicket: z.boolean().nullable().optional(),
   /** Create from this open workflow-insights suggestion (WORKFLOW-INSIGHTS-SPEC §5.2). */
   insightFindingId: z.string().min(1).max(100).optional(),
   /** External items added as inputs in the same write (EXTERNAL-TRACKER-SPEC §5.4, CONNECTORS-SPEC §8.2). */
@@ -907,8 +911,8 @@ export const taskEdit = z.strictObject({
   archived: z.boolean().optional(),
   /** Refused once the card has been in review, committed or integrated, even after a move back (DELIVERY-MODE-SPEC §2). */
   deliveryMode: z.enum(deliveryModes).optional(),
-  /** false opts the card out of the project's Linear ticket ask; true inherits the project's setting again (LINEAR-TICKET-SPEC §5). */
-  linearTicket: z.boolean().optional(),
+  /** true and false are stored; null removes it (follow the project and the type again); omitted changes nothing (LINEAR-TICKET-SPEC §5). */
+  linearTicket: z.boolean().nullable().optional(),
   note: z.string().max(10000).optional(),
   actor: z.enum(["human", "agent"]).default("human"),
   agentId: z.string().optional(),

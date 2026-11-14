@@ -1648,4 +1648,5 @@ test("flowly_reply_to_agent is gated like every dispatcher write, and only the d
 test("the dispatcher's card tools accept linearTicket (LINEAR-TICKET-SPEC §5)", () => {
   expect(dispatcherInputs.createCard.parse({ projectId: "p", title: "Audit", idempotencyKey: "k1", linearTicket: false })).toMatchObject({ linearTicket: false });
   expect(dispatcherInputs.updateCard.parse({ projectId: "p", taskId: "t", revision: 1, linearTicket: true })).toMatchObject({ linearTicket: true });
+  expect(dispatcherInputs.updateCard.parse({ projectId: "p", taskId: "t", revision: 1, linearTicket: null })).toMatchObject({ linearTicket: null });
 });

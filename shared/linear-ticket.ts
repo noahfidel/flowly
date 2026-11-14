@@ -1,5 +1,5 @@
 import { itemTypeOf } from "./connectors";
-import type { Artifact, Project } from "./model";
+import { taskTypes, type Artifact, type Project, type TaskType } from "./model";
 
 /**
  * "Make sure there's a Linear ticket" (docs/LINEAR-TICKET-SPEC.md). Flowly only asks the agent; the agent searches,
@@ -10,6 +10,31 @@ export const linearTeamMax = 80;
 
 /** The stored team: trimmed, one line, at most 80 characters; "" means none (§1). */
 export const linearTeamValue = (value: string) => value.replace(/\s+/g, " ").trim().slice(0, linearTeamMax).trim();
+
+/** The card types skipped by default when the project stores no list (§1). */
+const defaultSkipTypes: readonly TaskType[] = ["research"];
+
+/** The project's skip list: absent means research only, [] skips none (§1). */
+export const linearSkipTypesOf = (project: Pick<Project, "linearSkipTypes">): readonly TaskType[] => project.linearSkipTypes ?? defaultSkipTypes;
+
+/** The stored list: deduplicated, in the order of the card types (§1). */
+export const linearSkipTypesValue = (types: readonly TaskType[]): TaskType[] => taskTypes.filter((t) => types.includes(t));
+
+/** What a card of this type gets with its own field unset; false while the project's switch is off (§6). */
+export function linearTicketTypeDefault(project: Pick<Project, "linearTicket" | "linearSkipTypes">, type: TaskType | undefined | null): boolean {
+  if (project.linearTicket !== true) return false;
+  return !type || !linearSkipTypesOf(project).includes(type);
+}
+
+/** Whether the card gets the Linear step: the one answer for the block and any surface that shows it (§2, §6). */
+export function linearTicketWanted(
+  project: Pick<Project, "linearTicket" | "linearSkipTypes">,
+  card: { type?: TaskType | null; linearTicket?: boolean },
+  artifacts: readonly Pick<Artifact, "kind" | "target" | "external">[],
+): boolean {
+  if (project.linearTicket !== true || card.linearTicket === false || hasLinearItem(artifacts)) return false;
+  return card.linearTicket === true || linearTicketTypeDefault(project, card.type);
+}
 
 function onLinearApp(target: string) {
   try {
@@ -27,29 +52,20 @@ export function hasLinearItem(artifacts: readonly Pick<Artifact, "kind" | "targe
 }
 
 /**
- * Whether a card is asked to have a Linear ticket by its project and its own setting (LINEAR-TICKET-SPEC §1, §5): the
- * project's switch is on and the card did not opt out. One rule for the session context and the dispatcher's card
- * confirm (DISPATCHER-SPEC §5.2); a linked Linear item is checked by the caller.
- */
-export function linearTicketAsked(project: Pick<Project, "linearTicket"> | null | undefined, card: { linearTicket?: boolean }) {
-  return project?.linearTicket === true && card.linearTicket !== false;
-}
-
-/**
  * The block for the card's session context, or [] when the project does not ask for it, the card opted out (§5) or a ticket is linked (§2, §3).
  * `canLink` is false while agent artifacts are turned off: the agent cannot link the ticket, so later sessions find it
  * again by the card's title instead of creating a second one.
  */
 export function linearTicketLines(
-  project: Pick<Project, "linearTicket" | "linearTeam">,
+  project: Pick<Project, "linearTicket" | "linearTeam" | "linearSkipTypes">,
   artifacts: readonly Pick<Artifact, "kind" | "target" | "external">[],
-  card: { title: string; canLink: boolean; linearTicket?: boolean },
+  card: { title: string; canLink: boolean; type?: TaskType | null; linearTicket?: boolean },
 ): string[] {
-  if (!linearTicketAsked(project, card) || hasLinearItem(artifacts)) return [];
+  if (!linearTicketWanted(project, card, artifacts)) return [];
   const team = linearTeamValue(project.linearTeam ?? "");
   const title = card.title.replace(/\s+/g, " ").trim();
   return [
-    "Linear ticket: this project wants every card tracked by a Linear ticket, and none is linked to this card yet. Before you start the work:",
+    "Linear ticket: this project wants this card tracked by a Linear ticket, and none is linked to this card yet. Before you start the work:",
     card.canLink
       ? "1. Search Linear with your Linear tools (for example list_issues) for an existing ticket that matches this card."
       : `1. Search Linear with your Linear tools (for example list_issues) for an existing ticket that matches this card, starting with its title ${JSON.stringify(title)}: an earlier session of this card may already have created one. Reuse it when it fits.`,

@@ -23,7 +23,7 @@ import {
   type AttentionRestoreInput,
 } from "../shared/attention-dismiss";
 import type { FlowLog } from "./flow-log";
-import { linearTeamValue } from "../shared/linear-ticket";
+import { linearSkipTypesValue, linearTeamValue } from "../shared/linear-ticket";
 import { sessionStartValue } from "../shared/session-start";
 import type { ProjectSnapshot } from "./project-folder";
 import {
@@ -414,8 +414,8 @@ export class BoardStore {
       else if (input.type !== undefined) task.type = input.type;
       if (input.status !== undefined) task.status = input.status;
       if (deliveryChange) task.deliveryMode = input.deliveryMode;
-      if (input.linearTicket === false) task.linearTicket = false;
-      else if (input.linearTicket === true) delete task.linearTicket;
+      if (input.linearTicket === null) delete task.linearTicket;
+      else if (input.linearTicket !== undefined) task.linearTicket = input.linearTicket;
       if (input.archived !== undefined)
         task.archivedAt = input.archived ? new Date().toISOString() : null;
       task.revision++;
@@ -557,6 +557,7 @@ export class BoardStore {
       if (input.workflowInsights !== undefined) p.workflowInsights = input.workflowInsights;
       if (input.memory !== undefined) p.memory = input.memory;
       if (input.linearTicket !== undefined) p.linearTicket = input.linearTicket;
+      if (input.linearSkipTypes !== undefined) p.linearSkipTypes = linearSkipTypesValue(input.linearSkipTypes);
       if (input.linearTeam !== undefined) {
         const team = linearTeamValue(input.linearTeam);
         if (team) p.linearTeam = team;
