@@ -1,39 +1,39 @@
-# 卡片 Workpad：验收、验证与交付门槛（WORKPAD-SPEC）
+# Card Workpad: acceptance, validation and delivery gate (WORKPAD-SPEC)
 
-> 2026-10-28：本文部分内容被 [GUARDRAILS-SPEC](GUARDRAILS-SPEC.md) 取代（§12）。被取代：§2.1 的 validation / confusions / env / head / delivery、§3 的输入、§4.2 环境戳、§5 全部、§6.1 卡面信号、§6.2 的 Checks / Confusions、§6.3 的验证操作、§7 skill；仍有效：§2.2 Plan、§2.4 两种 revision、§6.3 的 acceptance 勾选、§9 项目开关。
+> 2026-10-28: parts of this document are superseded by [GUARDRAILS-SPEC](GUARDRAILS-SPEC.md) (§12). Superseded: validation / confusions / env / head / delivery in §2.1, the inputs in §3, the environment stamp in §4.2, all of §5, the card-face signal in §6.1, Checks / Confusions in §6.2, the validation actions in §6.3, the skill in §7. Still valid: Plan in §2.2, the two revisions in §2.4, the acceptance ticking in §6.3, the project switch in §9.
 
-状态：2026-10-19 用户审阅定稿并要求实现。卡片任务 `78fb25af`。来源：[SYMPHONY-RESEARCH](SYMPHONY-RESEARCH.md) §2.3、§2.4、§3 P1/P2。用户已选“精简版”：Plan 从原生 todo 派生；agent 只写 Acceptance、Validation（三态 + sha）、Confusions；不做 Notes；workpad 用独立 revision；交付门槛与 sha 过期检测包含在内。定稿决定：没有 workpad 的卡交付不检查（§5.3）；有验收标准时隐藏 summary 的 Target（§6.2）；人可以把验证标为 pass，用当前 HEAD 盖章（§6.3）。
+Status: reviewed and finalized by the user on 2026-10-19, who asked for implementation. Card task `78fb25af`. Source: [SYMPHONY-RESEARCH](SYMPHONY-RESEARCH.md) §2.3, §2.4, §3 P1/P2. The user chose the "lean version": Plan is derived from the native todo; the agent writes only Acceptance, Validation (three states + sha) and Confusions; no Notes; the workpad has its own revision; the delivery gate and sha staleness detection are included. Final decisions: a card without a workpad is not checked on delivery (§5.3); when there are acceptance criteria the summary's Target is hidden (§6.2); a human can mark a validation as pass, stamped with the current HEAD (§6.3).
 
-## 1. 目的
+## 1. Purpose
 
-人审一张卡时，要一眼看到四件事：计划做什么、验收标准是什么、哪些验证跑了（过了/挂了/没跑）、这些验证是不是在当前代码上跑的。现在这些只能从追加式 progress note、事后 summary 和对话里拼出来；AGENTS.md 要求的“completed / failed / unrun 分开记录”全靠 agent 在文本里自觉写。
+When a human reviews a card, they should see four things at a glance: what is planned, what the acceptance criteria are, which validations were run (passed / failed / not run), and whether those validations were run on the current code. Today these can only be pieced together from append-only progress notes, after-the-fact summaries and the conversation; the "completed / failed / unrun recorded separately" that AGENTS.md requires depends entirely on the agent writing it in text by discipline.
 
-Workpad 是挂在卡片上、**就地更新**的结构化清单。它同时是后续自动化（Nudge 续跑、Merging 泳道动作、Rework 重开）判断“还剩什么”的数据来源，所以字段要能被程序读取，而不只是给人看。
+A Workpad is a structured checklist attached to the card and **updated in place**. It is also the data source later automation (Nudge continuation, Merging lane actions, Rework reopen) uses to judge "what is left", so the fields must be machine-readable and not only for humans.
 
-原则：
+Principles:
 
-- **agent 写系统推不出来的，系统推得出来的自己推。** Plan 来自 provider 原生 todo（零额外工具调用）；环境戳与 sha 由 daemon 用 git 读，不靠 agent 自报。
-- **门槛是软的。** 有未完成项时不拒绝交付，但要求 agent 明确确认，并在卡片上留下可见标记。Done 仍只由人决定。
-- **不改 task revision。** workpad 有自己的 revision，人勾一项不会让 agent 的其它写入报 `REVISION_CONFLICT`。
+- **The agent writes what the system cannot infer; the system infers what it can.** Plan comes from the provider's native todo (zero extra tool calls); the environment stamp and sha are read by the daemon with git, not self-reported by the agent.
+- **The gate is soft.** With open items, delivery is not refused, but the agent must confirm explicitly and a visible marker is left on the card. Done is still decided only by a human.
+- **It does not change the task revision.** The workpad has its own revision, so a human ticking one item does not make the agent's other writes fail with `REVISION_CONFLICT`.
 
-不做（v1）：层级 Plan；Notes 段（progress note 已覆盖）；人编辑条目文字或新增条目（人通过描述或消息告诉 agent）；Confusions 汇总进 Insights；多仓库（共同父目录下多个 repo）的逐仓 sha；自动续跑。
+Not in v1: hierarchical Plan; a Notes section (progress notes already cover it); humans editing the text of items or adding items (a human tells the agent through the description or a message); aggregating Confusions into Insights; per-repo sha for multiple repos (several repos under a common parent directory); automatic continuation.
 
-## 2. 数据
+## 2. Data
 
-### 2.1 Workpad（agent 维护，每卡一份）
+### 2.1 Workpad (maintained by the agent, one per card)
 
-`board.json` 新增 `workpads` 数组（同 `artifacts`，缺失读作空数组，看板版本不变），随现有 etag 看板读取到达客户端，不新增轮询。
+`board.json` gets a new `workpads` array (like `artifacts`; missing reads as an empty array, and the board version is unchanged), and reaches the client with the existing etag board read, with no new polling.
 
 ```
 Workpad {
   taskId, projectId,
-  revision: int ≥ 1,              // workpad 自己的 revision，见 §2.4
+  revision: int ≥ 1,              // the workpad's own revision, see §2.4
   acceptance: AcceptanceItem[],   // ≤ 20
   validation: ValidationItem[],   // ≤ 20
   confusions: ConfusionItem[],    // ≤ 10
-  env: { host, path, head: GitHead | null } | null,   // 最近一次 agent 写入时 daemon 读取（§4.2）
-  head: GitHead | null,                               // 最近一次刷新的当前 HEAD（§5.2）
-  delivery?: { unchecked, failed, unrun, stale, total, revision, eventId, at },  // 最近一次 agent 交付（§5.3）
+  env: { host, path, head: GitHead | null } | null,   // read by the daemon at the latest agent write (§4.2)
+  head: GitHead | null,                               // the current HEAD at the latest refresh (§5.2)
+  delivery?: { unchecked, failed, unrun, stale, total, revision, eventId, at },  // the latest agent delivery (§5.3)
   updatedAt, updatedBy: "agent" | "human", agentId?
 }
 
@@ -42,271 +42,271 @@ GitHead { sha?, branch?, dirty, at }
 AcceptanceItem { id, text (1–300), done: boolean, by: "agent" | "human", at }
 
 ValidationItem {
-  id, text (1–300),                      // 要验证什么，人看的描述
-  command?: string (≤ 300),              // 具体命令，如 "npm test"
+  id, text (1–300),                      // what to verify, a description for humans
+  command?: string (≤ 300),              // the concrete command, such as "npm test"
   state: "pass" | "fail" | "unrun",
-  sha?: string,                          // 运行时的 commit，12 位短 sha（§5.1）
-  dirty?: boolean,                       // 运行时工作区有未提交改动
+  sha?: string,                          // the commit at run time, 12-character short sha (§5.1)
+  dirty?: boolean,                       // the working tree had uncommitted changes at run time
   ranAt?: timestamp,
-  evidence?: string (≤ 600),             // 输出摘要、失败原因或产物引用
+  evidence?: string (≤ 600),             // output summary, failure reason or artifact reference
   by: "agent" | "human", at
 }
 
 ConfusionItem { id, text (1–600), at }
 ```
 
-`shared/model.ts` 新增 `workpadSchema`、`workpadLimits = { text: 300, command: 300, evidence: 600, confusion: 600, acceptance: 20, validation: 20, confusions: 10, planItems: 50, planText: 300 }`。`id` 为 1–40 位 `[a-z0-9-]`，卡内同段唯一。纯逻辑（合并、新鲜度、未完成项、卡面信号、从 timeline 取 Plan）在 `shared/workpad.ts`；git 读取、人工编辑与 Plan 记录在 `server/workpad.ts`。
+`shared/model.ts` adds `workpadSchema` and `workpadLimits = { text: 300, command: 300, evidence: 600, confusion: 600, acceptance: 20, validation: 20, confusions: 10, planItems: 50, planText: 300 }`. `id` is 1–40 characters of `[a-z0-9-]`, unique within a section of a card. The pure logic (merging, freshness, open items, card-face signal, taking Plan from the timeline) is in `shared/workpad.ts`; git reading, human editing and Plan recording are in `server/workpad.ts`.
 
-上限按工具请求体估算：满额的 workpad 含多字节文字时可能超过 64 KiB，工具服务的请求体上限因此从 64 KiB 提高到 256 KiB（MCP 与 CLI 的 `/api` 相同）。
+The limits are estimated against the tool request body: a full workpad with multi-byte text can exceed 64 KiB, so the request body limit of the tool service is raised from 64 KiB to 256 KiB (the same for MCP and the CLI's `/api`).
 
-### 2.2 Plan（从原生 todo 派生，每卡每 session 一份）
+### 2.2 Plan (derived from the native todo, one per card per session)
 
-`board.json` 新增 `plans` 数组：
+`board.json` gets a new `plans` array:
 
 ```
 PlanSnapshot { taskId, agentId, items: { text (≤ 300), status: "pending" | "in_progress" | "completed" }[] (≤ 50), at }
 ```
 
-- 来源：看板管理的 session（AUTO-STATUS-SPEC §1 的范围）收到 `agent.turn_ended` 时（任何 outcome），取 hook 自带 `timeline` 中**最后一个** `type: "todo"` 条目（`@getpaseo/protocol` 的 `AgentTaskItem[]`：Claude 的 TodoWrite、Codex 的 plan 工具）。`status` 缺失时由 `completed` 推出（`completed ? "completed" : "pending"`）。
-- 本轮没有 todo 条目：保留上一份快照不变。todo 条目为空数组：清空该 session 的 Plan。
-- 只在回合结束时更新，回合进行中看到的是上一轮结束时的计划（运行中的实时计划在 session 预览里已可见）。
-- 不记事件、不改 task revision，只增加看板 revision；内容没变时不写入。由 `WorkpadService.recordTurn` 在 hook 返回后执行，失败只记日志，不阻塞 hook。
-- Plan **不计入**交付门槛（原生 todo 经常没被 agent 收尾，计入会产生噪音），只展示。
+- Source: when a board-managed session (the scope of AUTO-STATUS-SPEC §1) receives `agent.turn_ended` (any outcome), take the **last** `type: "todo"` entry in the hook's own `timeline` (`AgentTaskItem[]` of `@getpaseo/protocol`: Claude's TodoWrite, Codex's plan tool). When `status` is missing it is derived from `completed` (`completed ? "completed" : "pending"`).
+- No todo entry this turn: keep the previous snapshot unchanged. An empty todo array: clear that session's Plan.
+- Updated only at turn end; during a turn what is seen is the plan from the end of the previous turn (the live plan of a running session is already visible in the session preview).
+- No event is recorded and the task revision is not changed; only the board revision increases; nothing is written when the content did not change. `WorkpadService.recordTurn` runs it after the hook returns, and a failure is only logged and does not block the hook.
+- Plan is **not counted** in the delivery gate (native todos are often not wrapped up by the agent, and counting them would create noise); it is only shown.
 
-### 2.3 事件
+### 2.3 Events
 
-| action | actor | 何时 | note |
+| action | actor | When | note |
 | --- | --- | --- | --- |
-| `workpad_updated` | agent（带 agentId） | `flowly_update_workpad` 提交 | 计数摘要，如 `Acceptance 2/4 · Checks 3/5, 1 failed` |
-| `workpad_checked` | human | 人勾选/改状态/移除 confusion（§6.3） | `<段名>: <条目文字前 80 字>` → 新状态 |
+| `workpad_updated` | agent (with agentId) | `flowly_update_workpad` submitted | A count summary, such as `Acceptance 2/4 · Checks 3/5, 1 failed` |
+| `workpad_checked` | human | A human ticks / changes the state / removes a confusion (§6.3) | `<section name>: <first 80 characters of the item text>` → new state |
 
-两者都**不**显示在卡片活动时间线（与 `next_moves_suggested` 相同，避免刷屏），flow log 照常记录。`status_changed` 事件新增可选字段 `workpad`（交付快照，§5.3）。
+Neither is shown in the card activity timeline (same as `next_moves_suggested`, to avoid flooding); the flow log records them as usual. The `status_changed` event gets an optional field `workpad` (the delivery snapshot, §5.3).
 
-`silentTurn`（`shared/progress.ts`）把 `workpad_updated` 也算作本轮的汇报；`openQuestion` 不变（更新 workpad 不等于回答了问题）。规则 A1r 已把 next moves 以外的任何 agent 事件算作工作，无需修改。
+`silentTurn` (`shared/progress.ts`) also counts `workpad_updated` as a report in this turn; `openQuestion` is unchanged (updating the workpad is not answering the question). Rule A1r already counts any agent event other than next moves as work and needs no change.
 
-### 2.4 两种 revision
+### 2.4 Two revisions
 
-- **task revision**：workpad 写入（agent 或人）都不改。现有工具的 `expectedRevision.task` 语义不变。
-- **workpad revision**：每次写入（agent 整体替换、人改一项）+1。agent 写入必须带 `workpadRevision`（尚无 workpad 时为 0），不符则 `WORKPAD_CONFLICT`。这样人刚勾的项不会被 agent 用旧副本覆盖，而 agent 的状态/进度/产物写入不受人勾选影响。
+- **task revision**: a workpad write (by the agent or a human) never changes it. The `expectedRevision.task` semantics of the existing tools are unchanged.
+- **workpad revision**: every write (the agent replacing it as a whole, a human changing one item) adds 1. An agent write must carry `workpadRevision` (0 when there is no workpad yet), and a mismatch gives `WORKPAD_CONFLICT`. This way an item a human just ticked is not overwritten by the agent with a stale copy, while the agent's status/progress/artifact writes are not affected by human ticks.
 
-## 3. Agent 工具 `flowly_update_workpad`
+## 3. Agent tool `flowly_update_workpad`
 
-### 3.1 输入
+### 3.1 Input
 
 ```
 {
-  expectedRevision, request,          // 照抄 get_task，校验同其它写工具
-  workpadRevision: int ≥ 0,           // get_task 里 workpad.revision；没有 workpad 时 0
+  expectedRevision, request,          // copied from get_task, validated like the other write tools
+  workpadRevision: int ≥ 0,           // workpad.revision from get_task; 0 when there is no workpad
   acceptance: { id?, text, done }[],
   validation: { id?, text, command?, state, sha?, dirty?, evidence? }[],
   confusions: { id?, text }[]
 }
 ```
 
-- **整体替换**三段：不在输入里的条目即删除。三段都必须给出（可为空数组）。
-- 条目匹配（用于保留 `by`、`at`、`sha`）：先按 `id`，没有 `id` 时按去空白、大小写不敏感的 `text`；都匹配不上视为新条目，daemon 分配 `id`（由 text 生成 slug，冲突加序号）。
-- `by` / `at`：内容（text、done、state、command、evidence、sha）与匹配到的旧条目相同则保留原值；否则 `by: "agent"`、`at` 为当前时间。
-- `sha` 解析见 §5.1。
+- The three sections are **replaced as a whole**: an item not in the input is deleted. All three sections must be given (they may be empty arrays).
+- Item matching (used to keep `by`, `at`, `sha`): first by `id`; with no `id`, by `text` with whitespace stripped and case-insensitive; if neither matches it is a new item, and the daemon assigns an `id` (a slug generated from the text, with a number added on conflict).
+- `by` / `at`: when the content (text, done, state, command, evidence, sha) equals the matched old item, the original values are kept; otherwise `by: "agent"` and `at` is the current time.
+- `sha` resolution: see §5.1.
 
-### 3.2 校验与结果
+### 3.2 Validation and results
 
-- 签名、`expectedRevision`、过期、归档、Done/Cancelled（`TASK_FINISHED`）、重放、`REQUEST_REUSED`：与其它写工具一致（`server/agent-service.ts` 的 `write`）。回执 action=`workpad`，新增 `workpadRevision`（提交后的值）。
-- `WORKPAD_CONFLICT`：`workpadRevision` 不是当前值。消息带当前值：“Workpad changed (current revision=N), possibly by the user. Re-read get_task, keep their checks, then retry.” 不提交任何内容。
-- `WORKPAD_INVALID`：超出数量或长度上限、`id` 格式不对或同段重复、`state` 不是三态之一、`sha` 无法解析为该仓库的 commit、工作区不是 git 仓库却给了 `sha`。
-- 成功：写入 `workpad_updated` 事件，刷新 `env` 与 `head`（§4.2、§5.2）。结果的 `current` 中包含新的 workpad。
-- CLI：`workpad --request-file <snapshot> --workpad-revision <n> (--workpad '<JSON>' | --workpad-file <path>)`，JSON 为 `{acceptance, validation, confusions}`。HTTP API action `workpad`。
+- Signature, `expectedRevision`, expiry, archived, Done/Cancelled (`TASK_FINISHED`), replay and `REQUEST_REUSED`: the same as the other write tools (`write` in `server/agent-service.ts`). The receipt has action=`workpad`, with a new `workpadRevision` (the value after the commit).
+- `WORKPAD_CONFLICT`: `workpadRevision` is not the current value. The message carries the current value: "Workpad changed (current revision=N), possibly by the user. Re-read get_task, keep their checks, then retry." Nothing is committed.
+- `WORKPAD_INVALID`: exceeding a count or length limit, a wrong `id` format or a duplicate within a section, a `state` that is not one of the three, a `sha` that cannot be resolved to a commit of that repo, a workspace that is not a git repo but was given a `sha`.
+- Success: a `workpad_updated` event is written, and `env` and `head` are refreshed (§4.2, §5.2). The `current` in the result contains the new workpad.
+- CLI: `workpad --request-file <snapshot> --workpad-revision <n> (--workpad '<JSON>' | --workpad-file <path>)`, where the JSON is `{acceptance, validation, confusions}`. HTTP API action `workpad`.
 
-### 3.3 工具描述（英文，进 description 与 skill）
+### 3.3 Tool description (English, goes into the description and the skill)
 
 > Replace this card's workpad: acceptance criteria (done or not), validation checks (pass, fail or unrun, with the command and the commit they ran on) and confusions (what in the card was unclear). The plan comes from your own todo list; do not repeat it here. Send all three lists every time; items you leave out are removed. Copy workpad.revision from get_task as workpadRevision (0 when there is none). On WORKPAD_CONFLICT the user changed it: re-read, keep their checks, retry. Does not change card status or task revision.
 
-## 4. get_task 与环境戳
+## 4. get_task and the environment stamp
 
-### 4.1 get_task 新增字段
+### 4.1 New get_task fields
 
 ```
 workpad: {
-  revision, acceptance, validation (每项附 fresh: "fresh" | "stale" | "unknown"，§5.2),
+  revision, acceptance, validation (each with fresh: "fresh" | "stale" | "unknown", §5.2),
   confusions, env, head,
-  open: { unchecked, failed, unrun, stale, total }   // §5.3 的计数
+  open: { unchecked, failed, unrun, stale, total }   // the counts of §5.3
 } | null,
-plan: { agentId, own: boolean, items, at }[]         // 本卡各 session 的 Plan，本 session 在前
+plan: { agentId, own: boolean, items, at }[]         // the Plan of each session of this card, this session first
 ```
 
-### 4.2 环境戳 `env`
+### 4.2 Environment stamp `env`
 
-每次 agent 写入 workpad 时，daemon 在事务外读取（参数数组子进程，5 秒超时，失败则对应字段为空，不阻止写入）：
+On every agent workpad write, the daemon reads the following outside the transaction (argument-array subprocesses, 5-second timeout; on failure the corresponding field is empty and the write is not blocked):
 
-- `host`：`os.hostname()`；`path`：卡片 workspace 目录（展示时把 home 缩写为 `~`）；
-- `head.sha`：`git -C <dir> rev-parse --short=12 HEAD`；
-- `head.branch`：`git -C <dir> rev-parse --abbrev-ref HEAD`（detached 时省略）；
-- `head.dirty`：`git -C <dir> status --porcelain` 输出非空（包含未跟踪文件）。
+- `host`: `os.hostname()`; `path`: the card workspace directory (home abbreviated to `~` when displayed);
+- `head.sha`: `git -C <dir> rev-parse --short=12 HEAD`;
+- `head.branch`: `git -C <dir> rev-parse --abbrev-ref HEAD` (omitted when detached);
+- `head.dirty`: the output of `git -C <dir> status --porcelain` is non-empty (including untracked files).
 
-展示为 `host:path@sha`（dirty 时追加 `*`）。工作区不是 git 仓库（例如多个子仓库的共同父目录）：`sha`、`branch` 为空，sha 相关检测全部为 `unknown`。
+Shown as `host:path@sha` (with `*` appended when dirty). When the workspace is not a git repo (for example a common parent directory of several sub-repos): `sha` and `branch` are empty and all sha-related checks are `unknown`.
 
-## 5. 验证新鲜度与交付门槛
+## 5. Validation freshness and the delivery gate
 
-### 5.1 验证条目的 sha
+### 5.1 The sha of a validation item
 
-`state` 为 `pass` / `fail` 的条目必须有 sha，按以下顺序确定：
+An item with `state` `pass` / `fail` must have a sha, determined in this order:
 
-1. agent 给了 `sha`：`git rev-parse --verify --quiet <sha>^{commit}` 校验后存 12 位短 sha；解析失败为 `WORKPAD_INVALID`。`dirty` 照 agent 给的值（缺省 false）。
-2. 未给，且匹配到的旧条目 `state` 相同、已有 sha：保留旧 sha、`dirty`、`ranAt`（agent 没重跑，只是整体重发）。
-3. 否则 daemon 用写入时的 HEAD 盖章，`dirty` 取写入时工作区状态，`ranAt` 为当前时间。
+1. The agent gave `sha`: after validating with `git rev-parse --verify --quiet <sha>^{commit}` the 12-character short sha is stored; a resolution failure is `WORKPAD_INVALID`. `dirty` takes the value the agent gave (default false).
+2. Not given, and the matched old item has the same `state` and already a sha: keep the old sha, `dirty` and `ranAt` (the agent did not rerun, it only resent the whole thing).
+3. Otherwise the daemon stamps it with the HEAD at write time, `dirty` takes the working tree state at write time, and `ranAt` is the current time.
 
-`unrun` 条目清空 `sha`、`dirty`、`ranAt`。skill 要求：重跑一项验证后在该条目上给出运行时的 `sha`（`git rev-parse --short HEAD`），在未提交改动上跑的同时给 `dirty: true`。
+An `unrun` item clears `sha`, `dirty` and `ranAt`. The skill requires: after rerunning a validation, give the `sha` at run time on that item (`git rev-parse --short HEAD`), and also `dirty: true` when it ran on uncommitted changes.
 
-### 5.2 新鲜度（sha 过期检测）
+### 5.2 Freshness (sha staleness detection)
 
-`validationFreshness(item, head)`（`shared/workpad.ts`，纯函数）：
+`validationFreshness(item, head)` (`shared/workpad.ts`, a pure function):
 
-| 条件 | 结果 |
+| Condition | Result |
 | --- | --- |
-| `state = unrun` | 不适用 |
-| 条目或 `head` 没有 sha（非 git、git 失败） | `unknown` |
-| `head.sha` 与条目 sha 相同 | `fresh` |
-| 不同 | `stale`：之后有新 commit，验证需要重跑 |
+| `state = unrun` | Not applicable |
+| The item or `head` has no sha (non-git, git failure) | `unknown` |
+| `head.sha` equals the item's sha | `fresh` |
+| Different | `stale`: there are new commits since, and the validation needs a rerun |
 
-已知局限：同一 HEAD 上验证后又改了未提交的代码，无法判断为过期。仍按 `fresh` 计，条目显示“on uncommitted changes”（`dirty` 时）。
+Known limitation: when uncommitted code was changed after validating on the same HEAD, it cannot be judged stale. It still counts as `fresh`, and the item shows "on uncommitted changes" (when `dirty`).
 
-`head` 的刷新时机（一次 `rev-parse` + 一次 `status`，不轮询）：
+When `head` is refreshed (one `rev-parse` + one `status`, no polling):
 
-- agent 写入 workpad；
-- agent 把卡移到 In review（门槛计算前）；
-- 本卡看板管理的 session `agent.turn_ended`，且该卡 workpad 有 pass/fail 条目；
-- 抽屉打开该卡的 Workpad 段时调用 RPC `workpads.refresh`（同一卡 30 秒内不重复执行 git，直接返回已存值）。
+- the agent writes the workpad;
+- the agent moves the card to In review (before the gate is computed);
+- a board-managed session of this card gets `agent.turn_ended`, and the card's workpad has pass/fail items;
+- when the drawer opens this card's Workpad section it calls the RPC `workpads.refresh` (git is not run again within 30 seconds for the same card, and the stored value is returned directly).
 
-`head` 变化只增加看板 revision，不记事件。
+A `head` change only increases the board revision and records no event.
 
-### 5.3 交付门槛（软）
+### 5.3 Delivery gate (soft)
 
-“未完成项” `openItems(workpad)`：
+"Open items" `openItems(workpad)`:
 
-- `unchecked`：`done = false` 的验收标准；
-- `failed`：`state = fail` 的验证；
-- `unrun`：`state = unrun` 的验证；
-- `stale`：`state = pass` 且新鲜度为 `stale` 的验证；
-- `total` 为四者之和。Plan 与 Confusions 不计入。
+- `unchecked`: acceptance criteria with `done = false`;
+- `failed`: validations with `state = fail`;
+- `unrun`: validations with `state = unrun`;
+- `stale`: validations with `state = pass` and freshness `stale`;
+- `total` is the sum of the four. Plan and Confusions are not counted.
 
-agent 调 `flowly_update_status(status=in_review)` 时（只在 agent 路径；人拖到 In review 不检查）：
+When the agent calls `flowly_update_status(status=in_review)` (agent path only; a human dragging to In review is not checked):
 
-> 2026-10-29：`status=committed` 同样是交付，门槛、快照与卡面标记规则相同（[COMMITTED-STAGE-SPEC](COMMITTED-STAGE-SPEC.md) §3）。
+> 2026-10-29: `status=committed` is also a delivery, with the same gate, snapshot and card-face marker rules ([COMMITTED-STAGE-SPEC](COMMITTED-STAGE-SPEC.md) §3).
 
-1. 先刷新 `head`，计算 `openItems`。
-2. `total = 0`：照常提交。没有 workpad（项目开启时）：2026-10-21 用户决定改为软卡，返回 `SETUP_INCOMPLETE`，见 [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md) §3.4（已实现）；此前的“没有 workpad 照常提交”作废。
-3. `total > 0` 且本 session 尚未收到对当前状态的拒绝，或输入没有 `acknowledgeOpen: true`：返回 `WORKPAD_OPEN`，不提交任何内容（不写回执，同一 request 可以带确认后重试）。消息列出未完成项：“{n} workpad items are still open: … Deliver anyway only if the note explains each one (failed, not run, or out of date), with acknowledgeOpen=true.”
-4. `total > 0`、本 session 已收到当前状态的拒绝，且 `acknowledgeOpen: true`：提交；`status_changed` 事件带交付快照 `workpad: { unchecked, failed, unrun, stale, total, revision }`。
+1. First refresh `head` and compute `openItems`.
+2. `total = 0`: submit as usual. No workpad (when the project has it on): on 2026-10-21 the user decided on a soft card, returning `SETUP_INCOMPLETE`, see [CARD-SETUP-SPEC](CARD-SETUP-SPEC.md) §3.4 (implemented); the earlier "submit as usual when there is no workpad" is void.
+3. `total > 0` and this session has not yet received a rejection for the current state, or the input has no `acknowledgeOpen: true`: return `WORKPAD_OPEN` and commit nothing (no receipt is written, and the same request can be retried with the confirmation). The message lists the open items: "{n} workpad items are still open: … Deliver anyway only if the note explains each one (failed, not run, or out of date), with acknowledgeOpen=true."
+4. `total > 0`, this session has received a rejection for the current state, and `acknowledgeOpen: true`: submit; the `status_changed` event carries the delivery snapshot `workpad: { unchecked, failed, unrun, stale, total, revision }`.
 
-2026-10-22 修订：首次预带 `acknowledgeOpen=true` 也拒绝；确认只对同 session/card/workspace、同 card/project/workpad revision 和 HEAD 状态有效，最多 15 分钟。回合开始 hook 清空确认记录，不依赖每卡截断事件；服务重载后重新拒绝。详见 [DELIVERY-CONSTRAINTS-SPEC](DELIVERY-CONSTRAINTS-SPEC.md) §2。
+2026-10-22 amendment: a first call that already carries `acknowledgeOpen=true` is also rejected; the confirmation is valid only for the same session/card/workspace, the same card/project/workpad revision and HEAD state, for at most 15 minutes. The turn-start hook clears the confirmation records, without depending on the per-card truncated events; after a service reload it is rejected again. See [DELIVERY-CONSTRAINTS-SPEC](DELIVERY-CONSTRAINTS-SPEC.md) §2.
 
-`flowly_update_status` 输入新增可选 `acknowledgeOpen: boolean`（默认 false），CLI 加 `--acknowledge-open`。门槛不检查 note 的内容（系统无法判断），只保证 agent 看过清单并主动确认。
+The `flowly_update_status` input gets an optional `acknowledgeOpen: boolean` (default false), and the CLI adds `--acknowledge-open`. The gate does not check the content of the note (the system cannot judge it); it only ensures the agent has seen the list and confirmed on its own.
 
-卡片标记：每次 agent 交付都把快照同时写进 workpad 的 `delivery`（带该 `status_changed` 事件的 id）。卡片在 In review，且最近一条进入 In review 的 `status_changed` 就是这次交付（事件已被裁剪时也算），`total > 0` 时卡面显示“Delivered with {n} open items”（警告色）。卡片离开 In review、或之后被人重新拖进 In review，都不再显示。标记反映交付时的状态；之后人或 agent 再勾选，标记不变，抽屉里看实时状态。
+Card marker: every agent delivery also writes the snapshot into the workpad's `delivery` (with the id of that `status_changed` event). When the card is In review, the latest `status_changed` that entered In review is this delivery (also when the event has been trimmed), and `total > 0`, the card face shows "Delivered with {n} open items" (warning color). It is no longer shown once the card leaves In review, or is dragged into In review again by a human afterwards. The marker reflects the state at delivery time; if a human or the agent ticks more afterwards the marker does not change, and the drawer shows the live state.
 
-## 6. 界面
+## 6. UI
 
-### 6.1 卡面
+### 6.1 Card face
 
-在 `CardSignals`（`client/card.tsx`）加一个信号，有 workpad 时才显示，按优先级只显示一个：
+Add one signal to `CardSignals` (`client/card.tsx`), shown only when there is a workpad, and only one by priority:
 
-| 条件 | 文案 | 颜色 |
+| Condition | Text | Color |
 | --- | --- | --- |
-| In review 且交付快照 `total > 0` | Delivered with {n} open items | 警告 |
-| 有 `fail` 验证 | Checks {pass}/{total} · {n} failed | 危险 |
-| 有 `stale` 验证 | Checks {pass}/{total} · out of date | 警告 |
-| 有验证条目 | Checks {pass}/{total} | 默认 |
-| 只有验收标准 | Acceptance {done}/{total} | 默认 |
+| In review and the delivery snapshot `total > 0` | Delivered with {n} open items | Warning |
+| There is a `fail` validation | Checks {pass}/{total} · {n} failed | Danger |
+| There is a `stale` validation | Checks {pass}/{total} · out of date | Warning |
+| There are validation items | Checks {pass}/{total} | Default |
+| Only acceptance criteria | Acceptance {done}/{total} | Default |
 
-`pass` 只数新鲜度不是 `stale` 的通过项。图标 `ListChecks`。所有计数从已在客户端的看板数据算出，不新增请求。
+`pass` counts only passed items whose freshness is not `stale`. Icon `ListChecks`. All counts are computed from the board data already on the client, with no new request.
 
-完成的卡（Done、Cancelled 或已归档）不再判断过期（2026-10-20 用户决定）：之后的 commit 不会再让它显示 out of date，旧 commit 上的 pass 照常计入；失败仍显示。卡片内 Workpad 的每项仍标出 `@sha · out of date`，作为历史记录。
+Finished cards (Done, Cancelled or archived) no longer judge staleness (user decision 2026-10-20): later commits no longer make it show out of date, a pass on an old commit counts as usual, and failures are still shown. In the card's Workpad each item is still marked `@sha · out of date` as a historical record.
 
-### 6.2 抽屉
+### 6.2 Drawer
 
-在 `TaskProgress` 与 `TaskArtifacts` 之间新增 **Workpad** 段（`client/task-workpad.tsx`，`React.memo`，回调用 `useStableCallback`），默认展开，没有 workpad 也没有 Plan 时整段不显示：
+A new **Workpad** section between `TaskProgress` and `TaskArtifacts` (`client/task-workpad.tsx`, `React.memo`, callbacks via `useStableCallback`), expanded by default, and the whole section is not shown when there is no workpad and no Plan:
 
-- 整段可收起（2026-10-19）：点 `Workpad` 标题（带箭头）收起/展开；收起时标题右侧显示 `Acceptance n/m · Checks n/m`（通过数）；是否默认展开由 设置 → Cards → Card sidebar 决定（默认展开）。Acceptance、Checks、Confusions 各先显示 5 条，“Show N more” 每次追加 5 条；Checks 按 失败、过期、未运行、通过 排序；命令默认只显示一行，展开输出或点击命令后显示全部（[DRAWER-SPEC](DRAWER-SPEC.md#section-order-and-artifacts-paging)）。
-- 头部：`Workpad` + 环境戳 `host:path@sha`（可选中复制）+ “Updated {time} by {session}”。
-- **Acceptance**：复选框列表。人勾选的项旁标小字“by you”。
-- **Checks**：每行状态图标（pass 绿勾 / 过期的 pass 警告三角 / fail 红叉 / unrun 灰色虚线圈），点图标按 unrun → pass → fail → unrun 切换（§6.3）；文字、等宽 `command`；第二行小字：`@sha`、“out of date”（stale，警告色）、“on uncommitted changes”（dirty）、相对 `ranAt`；有 `evidence` 时用 “Show output / Hide output” 展开。
-- **Steps**（2026-11-10 起由 Plan 改名，避免与卡片的计划 [CARD-PLAN-SPEC](CARD-PLAN-SPEC.md) 混淆；数据名 `PlanSnapshot`/`plans` 不变）：只读，来自原生 todo。一个 session 时直接列出；多个 session 时按 session 标题分组，最近更新的在前。行首状态图标（pending / in_progress / completed），标注“From the agent's todo list · updated at turn end”。
-- **Confusions**：列表，每条可由人移除（“Resolved”）。
-- 新鲜度：打开该段且有跑过的验证时调用 `workpads.refresh`（§5.2），完成前显示已存的值，不显示加载态；HEAD 变了才刷新看板。
+- The whole section is collapsible (2026-10-19): click the `Workpad` title (with an arrow) to collapse/expand; when collapsed, `Acceptance n/m · Checks n/m` (passed count) is shown on the right of the title; whether it is expanded by default is decided by Settings → Cards → Card sidebar (expanded by default). Acceptance, Checks and Confusions each first show 5 items, and "Show N more" adds 5 each time; Checks are sorted failed, out of date, not run, passed; a command by default shows only one line, and after expanding the output or clicking the command it shows all ([DRAWER-SPEC](DRAWER-SPEC.md#section-order-and-artifacts-paging)).
+- Header: `Workpad` + the environment stamp `host:path@sha` (selectable and copyable) + "Updated {time} by {session}".
+- **Acceptance**: a list of checkboxes. Items ticked by a human get a small "by you" next to them.
+- **Checks**: each row has a status icon (pass green tick / an out-of-date pass warning triangle / fail red cross / unrun gray dashed circle), and clicking the icon cycles unrun → pass → fail → unrun (§6.3); the text, and the monospace `command`; a second small line: `@sha`, "out of date" (stale, warning color), "on uncommitted changes" (dirty), relative `ranAt`; with `evidence`, expand it with "Show output / Hide output".
+- **Steps** (renamed from Plan on 2026-11-10 to avoid confusion with the card's plan [CARD-PLAN-SPEC](CARD-PLAN-SPEC.md); the data names `PlanSnapshot`/`plans` are unchanged): read-only, from the native todo. With one session it is listed directly; with several sessions it is grouped by session title, most recently updated first. The status icon at the start of each row (pending / in_progress / completed), labeled "From the agent's todo list · updated at turn end".
+- **Confusions**: a list, where each can be removed by a human ("Resolved").
+- Freshness: when the section is opened and there are validations that have been run, `workpads.refresh` is called (§5.2); until it finishes the stored value is shown, with no loading state; the board is refreshed only when HEAD changed.
 
-与 summary 的分工（TASK-SUMMARY-SPEC）：workpad 有验收标准时，`TaskProgress` 不再显示 summary 的 `target`（Goal + 功能点），只显示 `state`、`recap`、`next`，避免同一件事写两遍。summarizer 的 prompt 和存储不变。
+Division of labor with the summary (TASK-SUMMARY-SPEC): when the workpad has acceptance criteria, `TaskProgress` no longer shows the summary's `target` (Goal + feature points) and shows only `state`, `recap`, `next`, to avoid writing the same thing twice. The summarizer's prompt and storage are unchanged.
 
-### 6.3 人工操作（RPC）
+### 6.3 Human actions (RPC)
 
-| 方法 | 输入 | 行为 |
+| Method | Input | Behavior |
 | --- | --- | --- |
-| `workpads.check` | `{ taskId, section: "acceptance" \| "validation", itemId, done? , state? }` | 改一项：验收标准切换 `done`；验证设为 pass / fail / unrun（人标的 pass 用当前 HEAD 盖章，`by: "human"`） |
-| `workpads.resolve-confusion` | `{ taskId, itemId }` | 移除一条 confusion |
-| `workpads.refresh` | `{ taskId }` | §5.2，只读 git 并更新 `head` |
+| `workpads.check` | `{ taskId, section: "acceptance" \| "validation", itemId, done? , state? }` | Change one item: for acceptance toggle `done`; for validation set pass / fail / unrun (a pass marked by a human is stamped with the current HEAD, `by: "human"`) |
+| `workpads.resolve-confusion` | `{ taskId, itemId }` | Remove one confusion |
+| `workpads.refresh` | `{ taskId }` | §5.2, only reads git and updates `head` |
 
-- 按条目操作，作用于最新版本，不要求客户端带 revision；条目已不存在时报 “This item is no longer in the workpad.”，客户端刷新。每次成功 workpad revision +1，记 `workpad_checked` 事件，不改 task revision。
-- 卡片或项目已归档时拒绝：“Archived cards can't be changed.” Done/Cancelled 卡片允许人勾选（复盘用）。
-- 操作即时生效，乐观更新，失败时回滚并用现有错误提示；成功不弹 toast（勾选本身就是反馈）。
-- 无障碍：复选框名为条目文字，状态读出“passed / failed / not run / out of date”。
+- Operates per item, on the latest version, and does not require the client to carry a revision; when the item no longer exists it reports "This item is no longer in the workpad." and the client refreshes. Each success adds 1 to the workpad revision, records a `workpad_checked` event, and does not change the task revision.
+- Refused when the card or project is archived: "Archived cards can't be changed." Done/Cancelled cards allow human ticking (for retrospectives).
+- Operations take effect immediately, update optimistically, and on failure roll back and use the existing error hint; no toast on success (the tick itself is the feedback).
+- Accessibility: the checkbox is named by the item text, and the state is read out as "passed / failed / not run / out of date".
 
-### 6.4 生命周期
+### 6.4 Lifecycle
 
-- 永久删除卡片：workpad 与 Plan 一并删除，进入 `removed/` 备份（TASK-DELETE-SPEC）。
-- 归档、Wrap up、移出 Done 恢复：workpad 保留不动。
-- Follow-up 新卡：不继承 workpad（新卡的 agent 从描述重建）。
+- Permanently deleting a card: the workpad and Plan are deleted with it and go into the `removed/` backup (TASK-DELETE-SPEC).
+- Archive, Wrap up, restore from moving out of Done: the workpad is kept untouched.
+- A follow-up new card: does not inherit the workpad (the new card's agent rebuilds it from the description).
 
-## 7. Skill 文本
+## 7. Skill text
 
-`server/skill-source.ts` 与 `skills/paseo-ultra-kanban/SKILL.md` 同步新增一条（英文）：
+`server/skill-source.ts` and `skills/paseo-ultra-kanban/SKILL.md` add one item in sync (English):
 
 > - Keep the card's workpad current with flowly_update_workpad: acceptance criteria, validation checks and confusions. Your plan is read from your own todo list, so keep that list current instead of copying it. Before you start implementing, write the acceptance criteria and the checks you will run; when the card description has a Validation, Test plan or acceptance section, copy each item into the workpad word for word and never weaken or drop one. Each check names the exact command. Update the workpad after each milestone: mark a check pass or fail only after you actually ran it, with the commit it ran on (sha, plus dirty=true when it ran on uncommitted changes); leave it unrun otherwise. Add a confusion when something in the card was unclear and you had to guess. A check that turns out to be unnecessary is removed with a reason in your reply, not marked pass. Before delivering to in_review, rerun checks that are out of date. If items are still open, the status update returns WORKPAD_OPEN: deliver only with acknowledgeOpen=true and a note that explains every open item.
 
-并在现有 “Deliver the overall result to in_review…” 一句后补：“…unrun checks and remaining issues; the workpad shows them on the card, so keep it and your note consistent.”
+And after the existing sentence "Deliver the overall result to in_review…" add: "…unrun checks and remaining issues; the workpad shows them on the card, so keep it and your note consistent."
 
-CLI 用法段加入 `workpad` 子命令和 `status in_review --acknowledge-open`。
+The CLI usage section adds the `workpad` subcommand and `status in_review --acknowledge-open`.
 
-## 8. 新手引导与文档
+## 8. Onboarding and docs
 
-- 欢迎页特色列表新增一条 **Workpad**：“Agents keep a workpad on each card: acceptance criteria, checks marked passed, failed or not run on a named commit, and what confused them.”
-- 一次性提示 `first-workpad`：当前项目任一卡片有 workpad 时出现，文案 “This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself.” 优先级排在 `next-move` 之后、`first-idea` 之前。`client/onboarding-logic.ts` 加 tip id 与事实 `workpads`，`client/board.tsx` 的 `tipText` 加文案，ONBOARDING-SPEC 提示表加一行。
-- README / README.zh-CN Highlights 加一句，agent 工具列表加 `flowly_update_workpad`。
-- 所有新文案（卡面信号、抽屉段落、状态读出、错误、tip、欢迎页）加入 `shared/i18n/` 全部目录；`tn` 用于计数。agent 面向文字和 daemon 错误保持英文。
-- 实现时在 SPEC-OUTLINE 顶部加一条记录，PROGRESS.md 记录完成/失败/未运行的检查。
+- The welcome page feature list adds one item, **Workpad**: "Agents keep a workpad on each card: acceptance criteria, checks marked passed, failed or not run on a named commit, and what confused them."
+- A one-time tip `first-workpad`: appears when any card of the current project has a workpad, with the text "This card has a workpad: the agent's acceptance criteria and checks. The card shows how many checks passed; open it to see which ran on which commit, and tick items yourself." Its priority is after `next-move` and before `first-idea`. `client/onboarding-logic.ts` adds the tip id and the fact `workpads`, `tipText` in `client/board.tsx` adds the text, and the ONBOARDING-SPEC tip table adds one row.
+- README / README.zh-CN Highlights add one sentence, and the agent tool list adds `flowly_update_workpad`.
+- All new texts (card-face signal, drawer section, state read-outs, errors, tip, welcome page) are added to all catalogs in `shared/i18n/`; `tn` is used for counts. Agent-facing text and daemon errors stay English.
+- On implementation add one record at the top of SPEC-OUTLINE, and PROGRESS.md records the completed/failed/unrun checks.
 
-## 9. 项目开关
+## 9. Project switch
 
-2026-10-19 用户追加：workpad 是可选功能，在项目设置里开关。
+2026-10-19 added by the user: the workpad is an optional feature, switched on and off in the project settings.
 
-- 数据：`Project.workpad?: boolean`，缺省为开（老项目与新项目都开）；`projects.update` 接受 `workpad`，与其它项目编辑一样增加项目 revision。
-- 设置：项目设置弹层在 “Auto-update status in this project” 之后新增开关 **Card workpad**，说明 “Agents keep acceptance criteria and checks on each card, and delivering with open items needs a note. Off hides it and stops these checks; what agents wrote is kept.” 只在编辑已有项目时显示。
-- 关闭时：
-  - `flowly_update_workpad` 返回 `WORKPAD_DISABLED`（不写入、不留回执）；`get_task` 返回 `workpadEnabled: false`、`workpad: null`、`plan: []`；skill 要求 agent 改在进度和交付说明里列出验收与验证，不重试；
-  - 交付不检查（不返回 `WORKPAD_OPEN`，不记交付快照）；
-  - 回合结束不记录 Plan、不刷新 HEAD；`workpads.check` / `workpads.resolve-confusion` 拒绝（“The workpad is turned off for this project.”），`workpads.refresh` 不执行 git；
-  - 卡面不显示 workpad 信号（包括 “Delivered with N open items”），抽屉不显示 Workpad 段，Progress 重新显示 summary 的 Target，`first-workpad` 提示不出现。
-- 已有的 workpad 与 Plan 数据保留不动；重新打开后照常显示，agent 读到的仍是关闭前的版本。
+- Data: `Project.workpad?: boolean`, on by default when missing (both old and new projects are on); `projects.update` accepts `workpad`, and like other project edits it increases the project revision.
+- Settings: the project settings popover adds a switch **Card workpad** after "Auto-update status in this project", with the description "Agents keep acceptance criteria and checks on each card, and delivering with open items needs a note. Off hides it and stops these checks; what agents wrote is kept." Shown only when editing an existing project.
+- When off:
+  - `flowly_update_workpad` returns `WORKPAD_DISABLED` (nothing written, no receipt left); `get_task` returns `workpadEnabled: false`, `workpad: null`, `plan: []`; the skill requires the agent to list acceptance and validation in progress and delivery notes instead, and not to retry;
+  - delivery is not checked (no `WORKPAD_OPEN`, no delivery snapshot recorded);
+  - turn end records no Plan and refreshes no HEAD; `workpads.check` / `workpads.resolve-confusion` are refused ("The workpad is turned off for this project."), and `workpads.refresh` runs no git;
+  - the card face shows no workpad signal (including "Delivered with N open items"), the drawer shows no Workpad section, Progress shows the summary's Target again, and the `first-workpad` tip does not appear.
+- Existing workpad and Plan data are kept untouched; after turning it back on they are shown as usual, and what the agent reads is still the version from before it was turned off.
 
-## 10. 验收
+## 10. Acceptance
 
-聚焦单测：
+Focused unit tests:
 
-- `shared/workpad.test.ts`：`validationFreshness` 四种结果；`openItems` 计数（Plan、Confusions 不计入，stale pass 计入）；条目匹配（按 id、按 text、新条目 slug 去重）；`by`/`at` 在内容不变时保留；卡面信号优先级。
-- `server/agent-service.test.ts`（workpad 部分）：
-  - 首次写入 `workpadRevision=0` 成功，revision=1；不改 task revision；记 `workpad_updated`；
-  - 旧 `workpadRevision` → `WORKPAD_CONFLICT` 且无写入；人 `workpads.check` 后 agent 用旧 revision 写入被拒；
-  - sha 三种来源（给出并校验、沿用旧值、daemon 盖章）；非法 sha、非 git 目录给 sha → `WORKPAD_INVALID`；超限 → `WORKPAD_INVALID`；
-  - 精确重放返回原回执；Done 卡 `TASK_FINISHED`；
-  - 门槛：有未完成项无确认 → `WORKPAD_OPEN` 且状态未变、无回执；带 `acknowledgeOpen` → 提交且事件带快照；无 workpad 或全部完成 → 照常；HEAD 前进使 pass 变 stale 并计入门槛。
-- `server/workpad-plan.test.ts`：从 timeline 取最后一个 todo；无 todo 保留旧快照；空数组清空；`status` 缺失时由 `completed` 推出；只处理看板管理的 session；条目与长度上限。
-- `server/progress-rules.test.ts`：只更新了 workpad 的回合不算 silent turn；A1r 把 workpad 更新算作工作。
-- `server/tool-server.test.ts`：工具列表含 `flowly_update_workpad`，`flowly_update_status` schema 含 `acknowledgeOpen`。
-- `client/onboarding-logic.test.ts`：`first-workpad` 规则与优先级。
-- 项目开关（§9）：关闭后写入返回 `WORKPAD_DISABLED`、交付不拦、`get_task` 不返回 workpad、回合结束不记 Plan、人工编辑被拒；重新打开后旧数据仍在；`projects.update` 保存开关。
-- `npm test` 的 i18n 目录检查通过；`npm run typecheck` 通过。
+- `shared/workpad.test.ts`: the four results of `validationFreshness`; `openItems` counts (Plan and Confusions not counted, stale pass counted); item matching (by id, by text, new-item slug de-duplication); `by`/`at` kept when the content is unchanged; card-face signal priority.
+- `server/agent-service.test.ts` (workpad part):
+  - the first write with `workpadRevision=0` succeeds with revision=1; the task revision is unchanged; `workpad_updated` is recorded;
+  - an old `workpadRevision` → `WORKPAD_CONFLICT` with no write; after a human `workpads.check` the agent's write with the old revision is rejected;
+  - the three sources of sha (given and validated, kept from the old value, stamped by the daemon); an illegal sha, a sha given for a non-git directory → `WORKPAD_INVALID`; over the limit → `WORKPAD_INVALID`;
+  - an exact replay returns the original receipt; a Done card gives `TASK_FINISHED`;
+  - gate: open items without confirmation → `WORKPAD_OPEN` with the status unchanged and no receipt; with `acknowledgeOpen` → submitted and the event carries the snapshot; no workpad or all complete → as usual; HEAD advancing turns a pass into stale and counts it in the gate.
+- `server/workpad-plan.test.ts`: take the last todo from the timeline; no todo keeps the old snapshot; an empty array clears it; a missing `status` is derived from `completed`; only board-managed sessions are processed; item and length limits.
+- `server/progress-rules.test.ts`: a turn that only updated the workpad does not count as a silent turn; A1r counts a workpad update as work.
+- `server/tool-server.test.ts`: the tool list contains `flowly_update_workpad`, and the `flowly_update_status` schema contains `acknowledgeOpen`.
+- `client/onboarding-logic.test.ts`: the `first-workpad` rule and priority.
+- Project switch (§9): when off, a write returns `WORKPAD_DISABLED`, delivery is not blocked, `get_task` returns no workpad, turn end records no Plan, and human edits are refused; after turning it back on the old data is still there; `projects.update` saves the switch.
+- The i18n catalog check of `npm test` passes; `npm run typecheck` passes.
 
-人工 / Luna（按 AGENTS.md，用 Tinylink 项目新增的测试卡，结束后清理自己创建的卡和 session）：
+Manual / Luna (per AGENTS.md, using a test card newly added in the Tinylink project, and cleaning up the cards and sessions it created at the end):
 
-- 真实 Codex 与 Claude session 各一：todo 列表在回合结束后出现在 Plan；agent 按 skill 写入 workpad；卡面显示 Checks n/m。
-- 人在抽屉勾选后 agent 用旧 revision 写入收到冲突，重读后保留人的勾选。
-- agent 提交新 commit 后，旧 pass 在抽屉与卡面显示 out of date。
-- 有未完成项时交付：第一次 `WORKPAD_OPEN`，确认后进入 In review 且卡面显示 “Delivered with n open”。
-- 手机紧凑布局：卡面信号不换行溢出，抽屉复选框可点。
+- One real Codex and one real Claude session each: the todo list appears in Plan after turn end; the agent writes the workpad per the skill; the card face shows Checks n/m.
+- After a human ticks in the drawer, the agent's write with the old revision gets a conflict and, after re-reading, keeps the human's ticks.
+- After the agent submits a new commit, the old pass shows out of date in the drawer and on the card face.
+- Delivering with open items: the first time `WORKPAD_OPEN`, after confirmation it enters In review and the card face shows "Delivered with n open".
+- Phone compact layout: the card-face signal does not wrap or overflow, and the drawer checkboxes are tappable.
