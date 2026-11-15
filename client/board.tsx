@@ -67,6 +67,7 @@ import {
   type SnoozeList,
 } from "./attention";
 import { relativeTime } from "./ui";
+import { stateColors } from "./state-colors";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
 import { QuickTaskForm } from "./quick-task-form";
 import { ideaQuickSeed, quickProject, quickProjects, type QuickTaskSeed } from "./quick-task";
@@ -3166,7 +3167,7 @@ function ProjectSwitcher({
           {title}
         </Label>
       </View>
-      {otherNeeds > 0 && <Dot size={7} color={colors.accent} />}
+      {otherNeeds > 0 && <Dot size={7} color={stateColors(colors).needsYou} />}
       <Icon name="ChevronsUpDown" size={14} color={colors.foregroundMuted} />
     </Pressable>
   );

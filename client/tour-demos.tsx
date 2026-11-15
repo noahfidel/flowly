@@ -15,6 +15,7 @@ import { ClosedIdea, IdeaCard } from "./task-ideas";
 import { ActivityBlock, TranscriptEntry } from "./session-transcript";
 import { groupTranscript, recentSessionOutput } from "./session-state";
 import { Button, CueRing, Dot, IconButton, Label, Row, font, noFocusRing, radius, relativeTime, space, tint, touch, useTheme } from "./ui";
+import { stateColors } from "./state-colors";
 import { t, tn } from "../shared/i18n";
 
 /*
@@ -100,7 +101,7 @@ export function AttentionDemo() {
   const next = index >= 0 ? queue[index + 1] : queue.find((need) => needs.indexOf(need) > at);
   const handle = (id: string) => setHandled((done) => new Set(done).add(id));
   const tone = (need: Need) =>
-    need.kind === "error" ? colors.statusDanger : need.kind === "unread" ? colors.statusSuccess : colors.statusWarning;
+    need.kind === "error" ? stateColors(colors).error : need.kind === "unread" ? stateColors(colors).unread : stateColors(colors).needsYou;
   return (
     <View style={{ gap: space[2] }}>
       <DemoControls hint={t("Try it: open or snooze a card.")} canRestart={handled.size > 0 || !!shown} onStartOver={() => (setHandled(new Set()), setShown(null))} />

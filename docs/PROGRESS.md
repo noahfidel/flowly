@@ -1,5 +1,9 @@
 # Implementation progress
 
+## Running is always blue, unread always green (branch `kanban/make-the-blue-and-green-status-colors-co-9dca97`) — 2026-11-14
+
+- Cause: the overview bar's running chip used `statusSuccess` and its updated chip used `accent`, the reverse of the cards and sessions. Fix: `client/state-colors.ts` is the one mapping (running = `accent`, unread = `statusSuccess`, needs you = `statusWarning`, error = `statusDanger`) and the board, card, drawer, session and tour code read it; the group switcher's need-you dot is now `statusWarning`. Test: `client/state-colors.test.ts`. UI-REFRESH-SPEC color semantics. No new string, tip, telemetry field or What's new change.
+
 ## Ship to main no longer loops on a stopped ship (branch `kanban/stop-the-auto-review-ship-loop-and-check-85c152`) — 2026-11-14
 
 - Cause: every agent delivery to In review starts an auto review (`AutoReviewService.review`), and every pass on a `ship_main` card sent the ship message, with no memory of an earlier ship at the same commit. A ship that stopped on a rebase conflict re-delivered at the same head, passed again, got the same ship message and hit the same conflict (seen on card 9317e741, 2026-11-14).

@@ -35,6 +35,7 @@ import {
   message,
   verticalScroll,
   verticalContent, noFocusRing } from "./ui";
+import { stateColors } from "./state-colors";
 import { PriorityIcon, StatusIcon, TypeIcon, WorkspaceIcon, priorityLabels, workspaceLabel, workspaceLabels } from "./status";
 import { cardWorkspace } from "../shared/card-display";
 import { useLiveAgents } from "./queries";
@@ -1342,7 +1343,7 @@ function SubagentToggle({ id, summary, running, open, onPress }: { id: string; s
       })}
     >
       {/* Folded with a subagent running: the row carries the running sessions' dot sweep, on its own beat (MOTION-SPEC, running state). */}
-      {running && <RunningDots color={colors.accent} seed={`${id}/subagents`} />}
+      {running && <RunningDots color={stateColors(colors).running} seed={`${id}/subagents`} />}
       <Icon name="CornerDownRight" size={13} color={colors.foregroundMuted} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <Label muted size={font.sm} lines={1} selectable={false}>{summary}</Label>

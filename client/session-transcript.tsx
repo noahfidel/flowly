@@ -4,6 +4,7 @@ import { ActivityIndicator, Animated, Platform, Pressable, View, type ListRender
 import { FlatList, Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { usePaseo } from "@getpaseo/plugin/client";
 import { Label, Notice, font, message, noFocusRing, radius, space, touch, useTheme, verticalContent, verticalScroll, type Tone } from "./ui";
+import { stateColors } from "./state-colors";
 import { activitySummary, groupTranscript, lastOutputRow, pendingEchoes, recentSessionOutput, type SentEcho, type TranscriptBlock } from "./session-state";
 import { coalescedRefresh, createFocusJump, FOLLOW_SLACK, useSessionFollowTail } from "./session-follow";
 import { useSessionTimeline } from "./session-timeline";
@@ -630,7 +631,7 @@ export const ActivityBlock = memo(function ActivityBlock({ block, live }: { bloc
         }}
       >
         {live ? (
-          <PulseDot color={colors.accent} size={7} />
+          <PulseDot color={stateColors(colors).running} size={7} />
         ) : (
           <Icon name={block.tools ? "Wrench" : "Brain"} size={12} color={colors.foregroundMuted} />
         )}

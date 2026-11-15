@@ -3,6 +3,7 @@ import { Animated, PanResponder, Pressable, View, type GestureResponderEvent } f
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { taskTypeLabels, type Review, type Task } from "../shared/model";
 import { AiMark, Badge, Dot, IconButton, Label, font, radius, relativeTime, space, tint, touch, useTheme, noFocusRing } from "./ui";
+import { stateColors } from "./state-colors";
 import { PriorityIcon, TypeIcon, WorkspaceIcon, priorityAccent, priorityLabels, workspaceLabel, workspaceLabels } from "./status";
 import { dragThreshold, type Point } from "./geometry";
 import type { SessionAttentionSummary } from "../shared/session-attention";
@@ -289,7 +290,7 @@ export function TaskCard({
         opacity,
       }}
     >
-      {live && <RunningDots radius={radius.lg - 1} color={colors.accent} seed={task.id} />}
+      {live && <RunningDots radius={radius.lg - 1} color={stateColors(colors).running} seed={task.id} />}
       <Pressable
         accessibilityRole="button"
         testID={`card-${task.id}`}
@@ -540,7 +541,7 @@ function ReviewStrip({ taskId, review, running }: { taskId: string; review: Revi
           overflow: "hidden",
         }}
       >
-        <RunningDots color={colors.accent} seed={`${taskId}:review`} />
+        <RunningDots color={stateColors(colors).running} seed={`${taskId}:review`} />
         <Icon name="Loader" size={13} color={colors.accent} />
         <Label size={font.sm} color={colors.accent} selectable={false}>
           {t("Reviewing")}
@@ -614,23 +615,23 @@ function CardSignals({
   } else if (summary) {
     // Approvals and errors ask for the user, so they show whatever the session switch says.
     if (summary.permissions)
-      items.push(<Signal key="perm" color={colors.statusWarning} text={tn(summary.permissions, "{n} approval", "{n} approvals")} />);
+      items.push(<Signal key="perm" color={stateColors(colors).needsYou} text={tn(summary.permissions, "{n} approval", "{n} approvals")} />);
     if (summary.errors)
-      items.push(<Signal key="err" color={colors.statusDanger} text={tn(summary.errors, "{n} error", "{n} errors")} />);
+      items.push(<Signal key="err" color={stateColors(colors).error} text={tn(summary.errors, "{n} error", "{n} errors")} />);
     if (display.sessions) {
       if (summary.running || summary.starting)
         items.push(
           <Signal
             key="run"
             pulse
-            color={colors.accent}
+            color={stateColors(colors).running}
             text={summary.starting && !summary.running ? t("{n} starting", { n: summary.starting }) : t("{n} running", { n: summary.running + summary.starting })}
           />,
         );
       // A session with an open question is already shown as "Needs you".
       const unread = Math.max(0, summary.unread - questions - summary.questions);
       if (unread)
-        items.push(<Signal key="unread" color={colors.statusSuccess} text={t("{n} unread", { n: unread })} />);
+        items.push(<Signal key="unread" color={stateColors(colors).unread} text={t("{n} unread", { n: unread })} />);
       if (!items.length && summary.total)
         items.push(<Signal key="total" icon="MessageSquare" text={`${summary.total}`} />);
       if (summaryState === "stale")

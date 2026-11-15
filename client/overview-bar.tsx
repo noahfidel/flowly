@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { Dot, Label, font, noFocusRing, radius, space, touch, useTheme } from "./ui";
+import { stateColors } from "./state-colors";
 import { Enter, PulseDot } from "./motion";
 import { overviewRow, type BoardOverview } from "./overview";
 import { t, tn } from "../shared/i18n";
@@ -59,6 +60,7 @@ export function OverviewBar({
   memoryShortcut: string;
 }) {
   const { colors } = useTheme();
+  const state = stateColors(colors);
   const o = overview;
   const row = overviewRow({ runningTasks: o.runningTasks, needYou, updated }, { ideas: openIdeas !== null, memory: memoryCount !== null || guardrailCount !== null, insights: !!onInsights });
   return (
@@ -85,19 +87,19 @@ export function OverviewBar({
         {row.running && (
           <Chip
             label={o.runningSessions > o.runningTasks ? t("{tasks} running ({sessions})", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks"), sessions: tn(o.runningSessions, "{n} session", "{n} sessions") }) : t("{tasks} running", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks") })}
-            icon={<PulseDot color={colors.statusSuccess} size={7} />}
+            icon={<PulseDot color={state.running} size={7} />}
             onPress={onRunning}
           >
             {t("{n} running", { n: o.runningTasks })}
           </Chip>
         )}
         {row.needYou && (
-          <Chip label={tn(needYou, "{n} ask waiting on you. Step through it", "{n} asks waiting on you. Step through them")} icon={<Dot size={7} color={colors.statusWarning} />} onPress={onNeedYou} strong>
+          <Chip label={tn(needYou, "{n} ask waiting on you. Step through it", "{n} asks waiting on you. Step through them")} icon={<Dot size={7} color={state.needsYou} />} onPress={onNeedYou} strong>
             {tn(needYou, "{n} needs you", "{n} need you")}
           </Chip>
         )}
         {row.updated && (
-          <Chip label={`${tn(updated, "{n} card has something new to read. Step through it", "{n} cards have something new to read. Step through them")}${updatedShortcut ? ` (${updatedShortcut})` : ""}`} icon={<Dot size={7} color={colors.accent} />} onPress={onUpdated}>
+          <Chip label={`${tn(updated, "{n} card has something new to read. Step through it", "{n} cards have something new to read. Step through them")}${updatedShortcut ? ` (${updatedShortcut})` : ""}`} icon={<Dot size={7} color={state.unread} />} onPress={onUpdated}>
             {t("{n} updated", { n: updated })}
           </Chip>
         )}

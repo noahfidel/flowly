@@ -4,6 +4,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { legacyStatus, priorityLabels, type HistoryStatus, type Status, type Task, type TaskType } from "../shared/model";
 import type { CardWorkspace } from "../shared/card-display";
 import { tint, useTheme } from "./ui";
+import { stateColors } from "./state-colors";
 
 type Colors = PluginTheme["colors"];
 
@@ -89,10 +90,10 @@ export function sessionTone(
   state: { label: string; active: boolean; waiting?: boolean },
   unread = false,
 ) {
-  if (state.waiting) return colors.statusWarning;
-  if (state.label === "Error") return colors.statusDanger;
-  if (state.active) return colors.accent;
-  if (unread) return colors.statusSuccess;
+  if (state.waiting) return stateColors(colors).needsYou;
+  if (state.label === "Error") return stateColors(colors).error;
+  if (state.active) return stateColors(colors).running;
+  if (unread) return stateColors(colors).unread;
   if (state.label === "Archived" || state.label === "Closed") return colors.border;
   return tint(colors.foregroundMuted, 0.55);
 }

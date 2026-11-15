@@ -3,6 +3,7 @@ import { Animated, Pressable, ScrollView, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { PaseoAgent } from "@getpaseo/client";
 import { Dot, Label, font, noFocusRing, radius, space, touch, useTheme } from "./ui";
+import { stateColors } from "./state-colors";
 import { PulseDot, lerp, useMotionPresence } from "./motion";
 import { useLiveAgents } from "./queries";
 import { sessionState } from "./session-state";
@@ -56,9 +57,9 @@ export const SubagentsChip = memo(function SubagentsChip({
   const summary = subagentSummary(children);
   const segmentDot = (bucket: SubagentBucket) =>
     bucket === "running" ? (
-      <PulseDot color={colors.accent} size={7} />
+      <PulseDot color={stateColors(colors).running} size={7} />
     ) : (
-      <Dot size={6} color={bucket === "needs_input" ? colors.statusWarning : bucket === "failed" ? colors.statusDanger : colors.statusSuccess} />
+      <Dot size={6} color={bucket === "needs_input" ? stateColors(colors).needsYou : bucket === "failed" ? stateColors(colors).error : colors.statusSuccess} />
     );
   return (
     <View style={{ position: "relative", alignSelf: "flex-start", maxWidth: "100%" }}>
