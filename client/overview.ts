@@ -99,3 +99,11 @@ export function mergeRunning(shown: readonly RunningRow[], now: readonly Running
   const have = new Set(shown.map((r) => r.taskId));
   return [...kept, ...now.filter((r) => !have.has(r.taskId))];
 }
+
+/** True when both lists hold the same rows in the same order, so a state update can keep its current reference. */
+export function sameRunningRows(a: readonly RunningRow[], b: readonly RunningRow[]): boolean {
+  return a.length === b.length && a.every((r, i) => {
+    const o = b[i];
+    return r.taskId === o.taskId && r.title === o.title && r.projectId === o.projectId && r.status === o.status && r.since === o.since && r.ended === o.ended;
+  });
+}

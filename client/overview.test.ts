@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { boardOverview, mergeRunning, overviewRow, runningRows } from "./overview";
+import { boardOverview, mergeRunning, overviewRow, runningRows, sameRunningRows, type RunningRow } from "./overview";
 import type { Task, Project } from "../shared/model";
 import type { AttentionItem } from "./attention";
 
@@ -83,4 +83,28 @@ test("running list: a session that ends while it is open stays, marked ended, an
   const next = mergeRunning(open, run("b", "d"));
   expect(next.map((r) => [r.taskId, r.ended])).toEqual([["a", true], ["b", false], ["d", false]]);
   expect(mergeRunning(next, run("a", "b", "d")).map((r) => [r.taskId, r.ended])).toEqual([["a", false], ["b", false], ["d", false]]);
+});
+
+const row = (taskId: string, ended = false): RunningRow => ({ taskId, title: taskId, projectId: "p", status: "development", since: "2026-11-12T10:00:00Z", ended });
+
+test("sameRunningRows compares content, not identity", () => {
+  expect(sameRunningRows([row("a"), row("b")], [row("a"), row("b")])).toBe(true);
+  expect(sameRunningRows([], [])).toBe(true);
+  expect(sameRunningRows([row("a")], [row("a"), row("b")])).toBe(false);
+  expect(sameRunningRows([row("a"), row("b")], [row("b"), row("a")])).toBe(false);
+  expect(sameRunningRows([row("a")], [row("a", true)])).toBe(false);
+});
+
+test("running list: the effect cycle reaches a fixed point", () => {
+  const settle = (kept: RunningRow[], now: RunningRow[]) => {
+    const next = mergeRunning(kept, now);
+    return sameRunningRows(kept, next) ? kept : next;
+  };
+  const closed: RunningRow[] = [];
+  expect(settle(closed, [])).toBe(closed);
+  const live = settle([], [row("a")]);
+  expect(settle(live, [row("a")])).toBe(live);
+  const ended = settle(live, []);
+  expect(ended[0].ended).toBe(true);
+  expect(settle(ended, [])).toBe(ended);
 });

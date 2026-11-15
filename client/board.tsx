@@ -134,7 +134,7 @@ import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen,
 import { GroupTabs, needLabel } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
 import { RemoveProjectDialog } from "./project-remove";
-import { boardOverview, mergeRunning, runningRows, type RunningRow } from "./overview";
+import { boardOverview, mergeRunning, runningRows, sameRunningRows, type RunningRow } from "./overview";
 import { enabledStatuses, laneName } from "../shared/lanes";
 import { groupLaneCounts } from "../shared/group-lanes";
 import { boardSortText, boardSorts, sortTasks, turnEndActivity, type BoardSort } from "../shared/sort";
@@ -227,6 +227,7 @@ const noTasks: Task[] = [];
 // board-groups 3/7: the overview's groups, empty until it loads.
 const noGroups: Group[] = [];
 const noProjects: Project[] = [];
+const noRunning: RunningRow[] = [];
 const noIds: string[] = [];
 const noAgents: PaseoAgent[] = [];
 const noTurnFacts: ReadonlyMap<string, { latestTurn?: { action: string; at: string } }> = new Map();
@@ -942,11 +943,12 @@ function BoardContent(
   const stepScope = useMemo(() => boardScope(overviewCover.projects.map((p) => p.id)), [overviewCover]);
   // The running list (DISPATCHER-SPEC §9.2a): rows stay in place while it is open; stopped ones grey out until it closes.
   const runningNow = useMemo(() => runningRows(overviewCover.projects, board?.tasks ?? [], agents.data ?? []), [overviewCover, board?.tasks, agents.data]);
-  const [runningKept, setRunningKept] = useState<RunningRow[]>([]);
+  const [runningKept, setRunningKept] = useState<RunningRow[]>(noRunning);
   const runningOpen = menu === "running";
-  const runningShown = useMemo(() => (runningOpen ? mergeRunning(runningKept, runningNow) : []), [runningOpen, runningKept, runningNow]);
+  const runningShown = useMemo(() => (runningOpen ? mergeRunning(runningKept, runningNow) : noRunning), [runningOpen, runningKept, runningNow]);
   useEffect(() => {
-    setRunningKept(runningOpen ? runningShown : []);
+    const next = runningOpen ? runningShown : noRunning;
+    setRunningKept((kept) => (sameRunningRows(kept, next) ? kept : next));
   }, [runningOpen, runningShown]);
   const needsIds = useMemo(() => needsQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const needYouCount = useMemo(() => needsCount(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
