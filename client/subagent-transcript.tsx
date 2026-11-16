@@ -43,7 +43,9 @@ export const SubagentTranscript = memo(function SubagentTranscript({
   const known = useRef(subagent);
   if (subagent) known.current = subagent;
   const shown = subagent ?? known.current;
-  const running = shown?.status === "running";
+  // The last known descriptor only names it; running means still in the current list and running,
+  // so a subagent the daemon forgot stops the polling after one last read.
+  const running = subagent?.status === "running";
   // Once it is no longer running: one last read, and polling stops (the transcript polls only while live).
   const wasRunning = useRef(running);
   useEffect(() => {
