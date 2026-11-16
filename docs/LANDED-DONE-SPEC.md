@@ -1,6 +1,6 @@
 # Move a card to Done when its work lands
 
-Status: accepted 2026-11-16 (rulings by Noah, 2026-11-16, below).
+Status: implemented 2026-11-16 (rulings by Noah, 2026-11-16, below).
 
 When a card's own work has landed on its project's base branch on the remote, Flowly moves the card to Done. It does this in the same check that archives PR review cards (PR-REVIEW-CARDS-SPEC §10). There is no second timer.
 
@@ -71,7 +71,7 @@ When all four hold, the card moves to Done. A non-zero exit at step 4 leaves the
 
 ## 4. Moving to Done
 
-Inside one store transaction, Flowly reads the card again. It leaves the card alone if the card was archived, left the R2 lanes, moved to another workspace, or (for §3.1) its single PR changed since the check read it. Otherwise it moves the card to Done the way a person's move to Done does: the status, the revision and the `status_changed` event, with `actor: "system"` and the note "Moved to Done: PR merged (`owner/repo#n`)" or "Moved to Done: work landed on `<base>`". Everything that follows any move into Done follows here too, including the wrap-up question and *Auto wrap up* (MULTITASK-SPEC). The card is not archived.
+Inside one store transaction, Flowly reads the card again. It leaves the card alone if the card was archived, left the R2 lanes, moved to another workspace, or (for §3.1) its single PR changed since the check read it. Otherwise it moves the card to Done the way a person's move to Done does: the status, the revision and the `status_changed` event, with `actor: "system"` and the note "Moved to Done: PR merged (`owner/repo#n`)" or "Moved to Done: work landed on `<base>`". Everything the daemon runs after any move into Done runs here too (`afterStatus`: the project memory review, guardrails, and *Auto wrap up*, MULTITASK-SPEC). The wrap-up question is not asked: the client asks it only after its own move, so a daemon move has no client to ask it. The card's Wrap up action stays available. The card is not archived.
 
 The R4 note is a `note` event with `actor: "system"` on the card. Before writing one, Flowly looks through the card's activity for the same note and writes nothing if it is already there. A restart therefore never repeats it.
 
