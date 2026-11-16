@@ -9,7 +9,7 @@
 - PR lookup finding: the card's single PR output (§3.1), else for worktree cards `gh pr list --head` (§3.2), else the ancestor check (§3.3); paseo-linked-prs is deliberately not used.
 - Tests added in `server/landed-done.test.ts` and `server/pr-review-archive.test.ts` (failing before the fix: 5 of 31, the four new landed-done/lane tests plus the `landCandidate` lane test; the existing "landed on origin/base" test timed out at 5 s on this machine regardless).
 - Spec: LANDED-DONE-SPEC R2, R3, §3.1, §4, §8; AGENTS.md and SPEC-OUTLINE updated.
-- Checks on 4b1913e (rebased on origin/main): `npm run typecheck` exit 0; `npm test` exit 0 (223 files passed, 1 skipped; 2610 tests passed, 7 skipped). Unrun: no live check against PR #9229's card or a dispatcher (installed plugin not updated, per the card).
+- Checks on 3d659c6 (rebased on main 02788d3): `npm run typecheck` exit 0; `npm test` exit 0 (225 files passed, 1 skipped; 2654 tests passed, 7 skipped). Unrun: no live check against PR #9229's card or a dispatcher (installed plugin not updated, per the card).
 - No tip, tour, What's new entry or telemetry field (a bug fix; switch label unchanged).
 
 ## Dispatchers of different board groups message each other (branch `kanban/let-board-group-dispatchers-message-each-614595`) — 2026-11-16
