@@ -25,6 +25,7 @@ import {
 import type { FlowLog } from "./flow-log";
 import { linearSkipTypesValue, linearTeamValue } from "../shared/linear-ticket";
 import { sessionStartValue } from "../shared/session-start";
+import { baseRefProblem, baseRefValue } from "../shared/worktree-base";
 import type { ProjectSnapshot } from "./project-folder";
 import {
   boardSchema,
@@ -576,6 +577,13 @@ export class BoardStore {
         const text = sessionStartValue(input.sessionStartText);
         if (text) p.sessionStartText = text;
         else delete p.sessionStartText;
+      }
+      if (input.baseRef !== undefined) {
+        const problem = baseRefProblem(input.baseRef);
+        if (problem) throw new Error(problem);
+        const ref = baseRefValue(input.baseRef);
+        if (ref) p.baseRef = ref;
+        else delete p.baseRef;
       }
       if (input.archived !== undefined)
         p.archivedAt = input.archived ? new Date().toISOString() : null;

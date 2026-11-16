@@ -4,6 +4,7 @@ import { connectorLimits, externalRefSchema, itemTypeSchema } from "./connectors
 import { z } from "zod";
 import { deliveryModes } from "./delivery-mode";
 import { attentionDismissLimits, attentionDismissalSchema } from "./attention-dismiss";
+import { baseRefProblem } from "./worktree-base";
 
 export const statuses = [
   "backlog",
@@ -306,6 +307,8 @@ export const projectSchema = z.object({
   deliveryMode: z.string().optional(),
   /** The text a card's New session box opens with (SESSION-START-TEXT-SPEC); absent: the built-in default. */
   sessionStartText: z.string().max(2000).optional(),
+  /** Base branch new worktrees branch off, e.g. `origin/dev` (START-CARD-SPEC §4.1); absent: the main checkout's current branch. */
+  baseRef: z.string().optional(),
 });
 /** Board groups kept at most, and a group name's length (BOARD-GROUPS-SPEC §1). */
 export const groupLimits = { groups: 50, name: 80 } as const;
@@ -813,6 +816,12 @@ export const projectEdit = z.strictObject({
   deliveryMode: z.enum(deliveryModes).nullable().optional(),
   /** The New session starting text (SESSION-START-TEXT-SPEC); "" removes it (the built-in default applies again). */
   sessionStartText: z.string().max(4000).optional(),
+  /** The base branch for new worktrees (START-CARD-SPEC §4.1); "" removes it (the main checkout's current branch again). */
+  baseRef: z
+    .string()
+    .max(1000)
+    .refine((v) => baseRefProblem(v) === null, { message: "Enter a valid branch name (such as origin/main) or leave it empty." })
+    .optional(),
 });
 /** What a group's defaults edit sends: a value sets a default, null removes it (inherit again). */
 export const groupDefaultsInput = z.strictObject({

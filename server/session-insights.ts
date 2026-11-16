@@ -25,7 +25,8 @@ import { sessionSummaryRow } from "../shared/native-session";
 import { within } from "./summaries";
 import { runSummaryModels, isWorkspaceGone } from "./summary-models";
 import type { NextMoveRows } from "./next-move-rows";
-import { generatedBranchName, resolveWorktreeBaseRef } from "./service";
+import { generatedBranchName } from "./service";
+import { dropUpstream, projectWorktreeBase, remoteBase } from "./base-ref";
 import { logFailure } from "./error-report";
 import { BackgroundJobs } from "./background-jobs";
 
@@ -117,6 +118,8 @@ export class SessionInsightService {
     private timeoutMs = INSIGHT_TIMEOUT_MS,
     private rowTimeoutMs = ROW_TIMEOUT_MS,
     private remove: RemoveAgent = daemonRemoveAgent(),
+    /** The base branch of the Flowly project on this Paseo project, "" when none (START-CARD-SPEC §4.1). */
+    private projectBaseRef: (paseoProjectId: string) => Promise<string> = async () => "",
   ) {}
 
   running() {
@@ -330,7 +333,10 @@ export class SessionInsightService {
       const workspace = await paseo.workspaces.ref(agent.workspaceId).refresh();
       const directory = workspace?.workspaceDirectory || agent.cwd;
       if (!directory || !workspace?.projectId) throw new Error("This session's workspace has no project to branch from. Use New session instead.");
-      const baseRef = await resolveWorktreeBaseRef(directory, "").catch(() => {
+      const projectBase = await this.projectBaseRef(workspace.projectId).catch(() => "");
+      const baseRef = await projectWorktreeBase(directory, projectBase, "").catch((e: unknown) => {
+        // The project's base branch has its own message; without one the folder has no branch to start from.
+        if (projectBase) throw e;
         throw new Error("This session's folder is not a Git repository with a named branch. Use New session instead.");
       });
       const created = await paseo.workspaces.create({
@@ -338,6 +344,7 @@ export class SessionInsightService {
         idempotencyKey: `flowly-session-idea:${idea.id}`,
         source: { kind: "worktree", cwd: directory, projectId: workspace.projectId, action: "branch-off", refName: baseRef, branchName: generatedBranchName(idea.title, idea.id) },
       });
+      if (remoteBase(baseRef)) await dropUpstream((await paseo.workspaces.ref(created.id).refresh().catch(() => null))?.workspaceDirectory);
       // As a card's worktree: the workspace first, then its session.
       const started = await paseo.workspaces.ref(created.id).agents.create({ config, title: idea.title.slice(0, 120), prompt: instruction });
       adopted = { target: "workspace", workspaceId: created.id, agentId: started.id };

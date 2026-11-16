@@ -34,31 +34,12 @@ import { logFailure } from "./error-report";
 import { ToolError } from "./tool-error";
 import { runPaseo } from "./paseo-cli";
 import { columnEnd } from "../shared/group-order";
+import { dropUpstream, projectWorktreeBase, remoteBase } from "./base-ref";
 
 const execute = promisify(execFile);
 type RemoveResult = z.infer<typeof removeProjectRpc.output>;
 type RestoreCheck = z.infer<typeof restoreProjectCheckRpc.output>;
-export async function resolveWorktreeBaseRef(
-  sourcePath: string,
-  requested: string,
-): Promise<string> {
-  const explicit = requested.trim();
-  if (explicit && explicit !== "HEAD") return explicit;
-  try {
-    const { stdout } = await execute(
-      "git",
-      ["-C", sourcePath, "symbolic-ref", "--quiet", "HEAD"],
-      { timeout: 10000 },
-    );
-    const branch = stdout.trim();
-    if (!branch.startsWith("refs/heads/")) throw new Error("No named branch");
-    return branch;
-  } catch {
-    throw new Error(
-      "Cannot determine the selected repository's current named branch. Enter a valid base ref (such as main or origin/main); detached HEAD and non-Git directories have no automatic branch.",
-    );
-  }
-}
+export { resolveWorktreeBaseRef } from "./base-ref";
 export const paseoHome = () =>
   process.env.PASEO_HOME || resolve(homedir(), ".paseo");
 /**
@@ -570,7 +551,7 @@ export class BoardService {
             : undefined;
         baseRef =
           input.mode === "worktree"
-            ? await resolveWorktreeBaseRef(sourcePath, input.baseRef)
+            ? await projectWorktreeBase(sourcePath, project.baseRef, input.baseRef)
             : undefined;
         const intent = createHash("sha256")
           .update(
@@ -605,6 +586,9 @@ export class BoardService {
                 },
         });
         workspaceId = created.id;
+        // A branch made from a remote base never tracks it (START-CARD-SPEC §4.1).
+        if (baseRef && remoteBase(baseRef))
+          await dropUpstream((await paseo.workspaces.ref(created.id).refresh().catch(() => null))?.workspaceDirectory);
       }
       const id = workspaceId!;
       try {

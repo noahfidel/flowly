@@ -8,11 +8,16 @@ import { NextMoveRows } from "./next-move-rows";
 import { SessionInsightService, SessionInsightStore, type InsightSettings, type OutsideAgent } from "./session-insights";
 
 vi.mock("./service", () => ({
-  resolveWorktreeBaseRef: async (dir: string) => {
-    if (dir.includes("nogit")) throw new Error("no git");
-    return "refs/heads/main";
-  },
   generatedBranchName: (title: string, id: string) => `kanban/${title.toLowerCase()}-${id.slice(0, 4)}`,
+}));
+const upstreamDropped = vi.hoisted(() => [] as (string | null | undefined)[]);
+vi.mock("./base-ref", () => ({
+  projectWorktreeBase: async (dir: string, projectBase: string | undefined) => {
+    if (dir.includes("nogit")) throw new Error("no git");
+    return projectBase ? `refs/remotes/${projectBase}` : "refs/heads/main";
+  },
+  remoteBase: (ref: string) => ref.startsWith("refs/remotes/"),
+  dropUpstream: async (directory: string | null | undefined) => void upstreamDropped.push(directory),
 }));
 
 const roots: string[] = [];
@@ -28,7 +33,7 @@ const gated = () => {
 };
 const turn = (text: string) => [{ type: "user_message", text }, { type: "assistant_message", text: "ok " + text }];
 
-async function setup(options: { settings?: Partial<InsightSettings>; agentStatus?: string; directory?: string } = {}) {
+async function setup(options: { settings?: Partial<InsightSettings>; agentStatus?: string; directory?: string; baseRefs?: Record<string, string> } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "flowly-insights-")));
   roots.push(root);
   const store = new SessionInsightStore(join(root, "data"));
@@ -78,7 +83,7 @@ async function setup(options: { settings?: Partial<InsightSettings>; agentStatus
     },
   } as unknown as PaseoApi;
   let settings: InsightSettings = { enabled: true, parts: { progress: true, nextMoves: true, ideas: true }, model: "", ...options.settings };
-  const service = new SessionInsightService(store, rows, async () => settings, async () => "en", 1000, 1000, async (a) => { await a.archive(); });
+  const service = new SessionInsightService(store, rows, async () => settings, async () => "en", 1000, 1000, async (a) => { await a.archive(); }, async (id) => options.baseRefs?.[id] ?? "");
   const agent: OutsideAgent = { id: "a1", workspaceId: "w1", parentAgentId: null, title: "Fix login", cwd: "/repo" };
   const json = (o: object) => JSON.stringify({ update: true, state: "S", target: "T", recap: "- r", next: "N", moves: [], ideas: [], ...o });
   return { store, service, paseo, replies, created, appended, sent, workspacesCreated, archived: () => archived, agent, json, set: (s: Partial<InsightSettings>) => (settings = { ...settings, ...s }) };
@@ -209,6 +214,17 @@ test("idea actions: here sends the instruction, session starts one in the worksp
   expect(ws).toMatchObject({ target: "workspace", workspaceId: "wks-new" });
   expect(x.workspacesCreated[0]).toMatchObject({ source: { kind: "worktree", cwd: "/repo", projectId: "prj", action: "branch-off", refName: "refs/heads/main" } });
   expect((await x.store.read()).sessions[0].ideas.every((i) => i.status === "adopted")).toBe(true);
+});
+
+test("an idea started as a new workspace branches off the matching project's base branch and drops the upstream (START-CARD-SPEC §4.1)", async () => {
+  upstreamDropped.length = 0;
+  const x = await setup({ baseRefs: { prj: "origin/dev" } });
+  x.replies.push({ text: x.json({ ideas: [{ title: "W", detail: "", rationale: "", scope: "new" }] }) });
+  await x.service.enqueue(x.agent, turn("x"), x.paseo);
+  const id = (await x.store.read()).sessions[0].ideas[0].id;
+  await x.service.runIdea({ agentId: "a1", ideaId: id, target: "workspace" }, x.paseo);
+  expect(x.workspacesCreated[0]).toMatchObject({ source: { action: "branch-off", refName: "refs/remotes/origin/dev" } });
+  expect(upstreamDropped).toEqual(["/repo"]);
 });
 
 test("idea actions refuse a busy session (here) and a folder that is not a Git repo (workspace); dismiss closes an idea", async () => {

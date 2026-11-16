@@ -199,6 +199,39 @@ test("worktree originates from native root and default base resolves its named b
     "refs/heads/root-main",
   );
 });
+test("a worktree card branches off the project's base branch unless the card names its own (START-CARD-SPEC §4.1)", async () => {
+  const x = await setup();
+  const remote = join(x.root, "remote.git");
+  await git("git", ["init", "-q", "--bare", remote]);
+  await git("git", ["-C", x.a, "init", "-q", "-b", "main"]);
+  await git("git", ["-C", x.a, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"]);
+  await git("git", ["-C", x.a, "remote", "add", "origin", remote]);
+  await git("git", ["-C", x.a, "push", "-q", "origin", "main:dev"]);
+  await x.store.updateProject({ id: "p", revision: 1, baseRef: "origin/dev" });
+  const card = await x.service.createTask({ ...x.input, mode: "worktree", branchName: "one" }, x.paseo);
+  expect(card.baseRef).toBe("refs/remotes/origin/dev");
+  expect(x.create.mock.calls[0][0]).toMatchObject({ source: { kind: "worktree", action: "branch-off", refName: "refs/remotes/origin/dev" } });
+  // The card's own base ref wins over the project's.
+  x.create.mockResolvedValueOnce({ id: "workspace-2" });
+  const own = await x.service.createTask({ ...x.input, operationId: "op2", mode: "worktree", branchName: "two", baseRef: "main" }, x.paseo);
+  expect(own.baseRef).toBe("main");
+});
+test("projects.update stores the base branch trimmed, clears it with an empty value and refuses invalid names", async () => {
+  const x = await setup();
+  const set = await x.store.updateProject({ id: "p", revision: 1, baseRef: "  origin/dev " });
+  expect(set.baseRef).toBe("origin/dev");
+  const other = await x.store.updateProject({ id: "p", revision: 2, title: "Renamed" });
+  expect(other.baseRef).toBe("origin/dev");
+  const cleared = await x.store.updateProject({ id: "p", revision: 3, baseRef: "" });
+  expect("baseRef" in cleared).toBe(false);
+  for (const bad of ["--upload-pack=x", "origin/my branch", "a..b", "x~1", "origin/dev/", "ref.lock", "a:b"]) {
+    expect(projectEdit.safeParse({ id: "p", revision: 4, baseRef: bad }).success).toBe(false);
+    await expect(x.store.updateProject({ id: "p", revision: 4, baseRef: bad })).rejects.toThrow(/not a valid branch name/);
+  }
+  expect(projectEdit.safeParse({ id: "p", revision: 4, baseRef: "refs/remotes/upstream/release/1.2" }).success).toBe(true);
+  // A stale revision is refused like any other project edit.
+  await expect(x.store.updateProject({ id: "p", revision: 1, baseRef: "origin/main" })).rejects.toThrow(/Revision conflict/);
+});
 test("non-Git common root requires a directory workspace", async () => {
   const x = await setup();
   await expect(

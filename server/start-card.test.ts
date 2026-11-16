@@ -269,7 +269,8 @@ test("an owned card that never had a session moves to a new worktree and its dir
   expect(source.branchName).toMatch(/^kanban\/.+-[0-9a-f]{6}$/);
   expect(started.workspaceId).toBe("created-1");
   const task = (await x.store.read()).tasks.find((t) => t.id === "c")!;
-  expect(task).toMatchObject({ workspaceId: "created-1", ownsWorkspace: true, revision: 3, status: "development" });
+  // Kept on the card for the review's own change (GUARDRAILS-SPEC §6.2).
+  expect(task).toMatchObject({ workspaceId: "created-1", ownsWorkspace: true, revision: 3, status: "development", baseRef: "refs/heads/main" });
   expect(task.previousWorkspaces).toEqual([expect.objectContaining({ id: "ws-c", kind: "directory", directory: x.a })]);
   expect(task.switch).toBeUndefined();
   expect((await x.store.read()).events.filter((e) => e.taskId === "c" && e.action === "workspace_switched").at(-1)).toMatchObject({
@@ -280,6 +281,34 @@ test("an owned card that never had a session moves to a new worktree and its dir
   });
   expect(x.archived).toEqual(["ws-c"]);
   expect(x.createdSessions[0].workspaceId).toBe("created-1");
+});
+
+test("the project's base branch is fetched and the new worktree branches off it (START-CARD-SPEC §4.1)", async () => {
+  const x = await setup();
+  const remote = join(x.root, "remote.git");
+  execFileSync("git", ["init", "-q", "--bare", remote]);
+  git(x.a, "remote", "add", "origin", remote);
+  git(x.a, "push", "-q", "origin", "main:dev");
+  // Never fetched here (the push recorded it; forget it): the start fetches it.
+  git(x.a, "update-ref", "-d", "refs/remotes/origin/dev");
+  expect(() => git(x.a, "rev-parse", "--verify", "refs/remotes/origin/dev")).toThrow();
+  await x.store.updateProject({ id: "p", revision: 1, baseRef: "origin/dev" });
+  await x.card("c", { ownsWorkspace: true });
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces[0].source).toMatchObject({ action: "branch-off", refName: "refs/remotes/origin/dev" });
+  expect(git(x.a, "rev-parse", "refs/remotes/origin/dev").trim()).toBe(git(x.a, "rev-parse", "main").trim());
+  expect((await x.store.read()).tasks.find((t) => t.id === "c")?.baseRef).toBe("refs/remotes/origin/dev");
+  // Cleared: the main checkout's current branch again.
+  await x.store.updateProject({ id: "p", revision: 2, baseRef: "" });
+  await x.card("d", { ownsWorkspace: true });
+  await x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces[1].source).toMatchObject({ action: "branch-off", refName: "refs/heads/main" });
+  // A base that does not exist refuses the start before anything is made.
+  await x.store.updateProject({ id: "p", revision: 3, baseRef: "origin/missing" });
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  await x.card("e", { ownsWorkspace: true });
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "e", idempotencyKey: "go" }, x.paseo))).toBe("NEEDS_WORKTREE");
+  expect(x.createdWorkspaces).toHaveLength(2);
 });
 
 test("directory cards Flowly did not create for this card, or that had a session, need a worktree first", async () => {

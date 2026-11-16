@@ -165,7 +165,11 @@ export default function contribute(host: PluginServerContext) {
       parts: { progress: native.outsideProgress, nextMoves: native.outsideNextMoves, ideas: native.outsideIdeas },
       model: summaryModelsOf(summary),
     };
-  }, aiLanguage);
+  }, aiLanguage, undefined, undefined, undefined, async (paseoProjectId) => {
+    // The live Flowly project on that Paseo project, for the idea's new worktree (START-CARD-SPEC §4.1).
+    const board = await store.read();
+    return board.projects.find((p) => !p.archivedAt && p.paseoProjectId === paseoProjectId)?.baseRef ?? "";
+  });
   // Untrimmed event log + project insights (PROJECT-INSIGHTS-SPEC).
   const flow = new FlowLog(store.directory);
   store.flow = flow;

@@ -363,6 +363,7 @@ export class WorkspaceSwitchService {
     const created = await paseo.workspaces.create({
       title: task.title,
       idempotencyKey: `flowly-switch:${input.operationId}`,
+      // Always the main checkout's own branch, never the project's base branch: the copied diff is relative to its HEAD (START-CARD-SPEC §4.1).
       source: { kind: "worktree", cwd: root, projectId: project.paseoProjectId, action: "branch-off", refName: `refs/heads/${mainBranch}`, branchName },
     });
     const directory = (await paseo.workspaces.ref(created.id).refresh())?.workspaceDirectory;

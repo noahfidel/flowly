@@ -12,7 +12,8 @@ import { startCardInputSchema, type StartCardInput, type StartCardResult, type T
 import type { AgentCards, CardCaller } from "./agent-cards";
 import type { ConnectorService } from "./connectors/service";
 import { logFailure } from "./error-report";
-import { generatedBranchName, resolveWorktreeBaseRef } from "./service";
+import { generatedBranchName } from "./service";
+import { dropUpstream, projectWorktreeBase, remoteBase } from "./base-ref";
 import type { BoardStore } from "./store";
 import { digest } from "./tool-context";
 import { checkGroup, ToolError } from "./tool-error";
@@ -238,7 +239,7 @@ export class CardStarter {
     const root = project.primaryPath;
     let base: string;
     try {
-      base = await resolveWorktreeBaseRef(root, "");
+      base = await projectWorktreeBase(root, project.baseRef, "");
     } catch (e) {
       throw new ToolError("NEEDS_WORKTREE", `Flowly cannot make a worktree for this project: ${errorText(e)}`);
     }
@@ -321,6 +322,8 @@ export class CardStarter {
     }
     if (!made || made.archivingAt)
       throw new ToolError("START_FAILED", `Paseo returned worktree workspace ${created.id} for this idempotencyKey, but it is archived or gone; the card was not moved. Use a new idempotencyKey.`);
+    // A branch made from a remote base never tracks it (§4.1).
+    if (request.source.action === "branch-off" && remoteBase(request.source.refName)) await dropUpstream(made.workspaceDirectory);
     // A session started in the directory workspace meanwhile (the drawer's Start session) keeps the card there (§4.2).
     const meanwhile = await workspaceSessions(paseo, old, true).catch((e: unknown) => e);
     if (!Array.isArray(meanwhile)) {
@@ -354,6 +357,9 @@ export class CardStarter {
         ].slice(-switchLimits.previousWorkspaces);
         t.workspaceId = created.id;
         t.ownsWorkspace = true;
+        // Where the card's own change starts, as for a card created in a worktree (GUARDRAILS-SPEC §6.2).
+        if (request.source.action === "branch-off") t.baseRef = request.source.refName;
+        else delete t.baseRef;
         t.revision++;
         t.updatedAt = now;
         this.store.event(board, {
