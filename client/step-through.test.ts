@@ -219,6 +219,10 @@ test("N need you opens the waiting dispatcher before any card, also while a card
   expect(needsStartAction(1, null, null, queue, null)).toEqual({ kind: "dispatcher" });
   expect(needsStartAction(2, open, "needs", queue, "b")).toEqual({ kind: "dispatcher" });
   expect(needsStartAction(1, null, null, [], null)).toEqual({ kind: "dispatcher" });
+  // The dock already shows the waiting dispatcher (a request it cannot answer, e.g. unguarded): the press walks the cards.
+  expect(needsStartAction(1, null, null, queue, null, true)).toEqual({ kind: "card", taskId: "a", keep: false });
+  expect(needsStartAction(1, open, "needs", queue, "b", true)).toEqual({ kind: "card", taskId: "b", keep: true });
+  expect(needsStartAction(1, null, null, [], null, true)).toBeNull();
   // Answered: the next press walks the cards as before.
   expect(needsStartAction(0, null, null, queue, null)).toEqual({ kind: "card", taskId: "a", keep: false });
   expect(needsStartAction(0, open, "needs", queue, "b")).toEqual({ kind: "card", taskId: "b", keep: true });

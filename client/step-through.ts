@@ -114,7 +114,9 @@ export function stepStartTarget(
 /**
  * What a "N need you" press does (§9.4; Ruling, Noah 2026-11-16): while the shown group's dispatcher waits on the user
  * (`dispatcherWaits` > 0) it opens the dispatcher chat, before any card and also while a need-you walk is open; the
- * dispatcher is never a step of the walk. Otherwise it is `stepStartTarget`'s card. Null: nothing waits.
+ * dispatcher is never a step of the walk. Otherwise it is `stepStartTarget`'s card. A press while the dock already shows
+ * that dispatcher (`dispatcherShown`) walks the cards, so a request the dock cannot answer (an unguarded dispatcher)
+ * never traps the walk. Null: nothing waits.
  */
 export function needsStartAction(
   dispatcherWaits: number,
@@ -122,8 +124,9 @@ export function needsStartAction(
   currentKind: StepKind | null,
   queue: readonly string[],
   openTaskId: string | null,
+  dispatcherShown = false,
 ): { kind: "dispatcher" } | { kind: "card"; taskId: string; keep: boolean } | null {
-  if (dispatcherWaits > 0) return { kind: "dispatcher" };
+  if (dispatcherWaits > 0 && !dispatcherShown) return { kind: "dispatcher" };
   const target = stepStartTarget(current, currentKind, "needs", queue, openTaskId);
   return target ? { kind: "card", ...target } : null;
 }

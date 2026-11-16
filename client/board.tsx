@@ -1010,6 +1010,8 @@ function BoardContent(
   };
   // A start before the board and sessions are read (a notification's link at launch) waits for them.
   const [pendingStep, setPendingStep] = useState<StepKind | null>(null);
+  // The dock is showing the dispatcher chat (phones: no card sits over the chat page).
+  const dockShowsChat = (compact ? chat.open : chatOpen) && !(compact && task);
   const startStep = useStableCallback((kind: StepKind) => {
     // Both queues read the sessions now (updated holds the unread turns).
     if (!projected || !agents.data) return setPendingStep(kind);
@@ -1017,7 +1019,7 @@ function BoardContent(
     // Need you: a waiting dispatcher (the shown group's) opens its chat first, where its requests are answered; it is
     // never a step of the card walk (§9.4; Ruling, Noah 2026-11-16).
     if (kind === "needs") {
-      const action = needsStartAction(shownDispatcherNeeds, step, step?.kind ?? null, queue, taskId || null);
+      const action = needsStartAction(shownDispatcherNeeds, step, step?.kind ?? null, queue, taskId || null, dockShowsChat);
       if (action?.kind === "dispatcher") return openWaitingDispatcher();
       if (!action) return void toast.show(t("Nothing needs your attention."), { variant: "info" });
       if (!action.keep) showStepCard(kind, action.taskId);
