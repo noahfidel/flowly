@@ -52,7 +52,7 @@ import { DispatcherPanel } from "./dispatcher-panel";
 import { LeftDock } from "./left-dock";
 import { lastCollapsed, rememberCollapsed, shownCollapsed } from "./collapsed-columns";
 import { dockShortcut, escAction, toolbarDockButtons } from "./dock-logic";
-import { afterMarkSeen, cardAsks, changeItem, changeSummary, needsCount, needsQueue, needsStartAction, stableQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
+import { afterMarkSeen, cardAsks, changeItem, changeSummary, needsCount, needsQueue, needsStartAction, dispatcherInView, stableQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
 import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
@@ -1011,7 +1011,7 @@ function BoardContent(
   // A start before the board and sessions are read (a notification's link at launch) waits for them.
   const [pendingStep, setPendingStep] = useState<StepKind | null>(null);
   // The dock is showing the dispatcher chat (phones: no card sits over the chat page).
-  const dockShowsChat = (compact ? chat.open : chatOpen) && !(compact && task);
+  const dockShowsChat = dispatcherInView(compact, compact ? chat.open : chatOpen, !!task);
   const startStep = useStableCallback((kind: StepKind) => {
     // Both queues read the sessions now (updated holds the unread turns).
     if (!projected || !agents.data) return setPendingStep(kind);
@@ -1020,7 +1020,12 @@ function BoardContent(
     // never a step of the card walk (§9.4; Ruling, Noah 2026-11-16).
     if (kind === "needs") {
       const action = needsStartAction(shownDispatcherNeeds, step, step?.kind ?? null, queue, taskId || null, dockShowsChat);
-      if (action?.kind === "dispatcher") return openWaitingDispatcher();
+      if (action?.kind === "dispatcher") {
+        openWaitingDispatcher();
+        // The dock already shows it: say so, so the press is not silent.
+        if (action.shown) toast.show(t("The dispatcher is waiting for you in its chat."), { variant: "info" });
+        return;
+      }
       if (!action) return void toast.show(t("Nothing needs your attention."), { variant: "info" });
       if (!action.keep) showStepCard(kind, action.taskId);
       return;

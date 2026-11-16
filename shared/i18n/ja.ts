@@ -129,6 +129,7 @@ const catalog: Catalog = {
   "Step through what needs you": "対応が必要なカードを順に確認",
   "Step through what's new to read": "新着の未読カードを順に確認",
   "Nothing needs your attention.": "対応が必要なものはありません。",
+  "The dispatcher is waiting for you in its chat.": "ディスパッチャーがチャットであなたを待っています。",
   "{n} questions": "質問 {n} 件",
   "{n} approvals": "承認 {n} 件",
   "{n} errors": "エラー {n} 件",

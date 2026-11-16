@@ -1,5 +1,13 @@
 # Implementation progress
 
+## N need you no longer says nothing needs you while only the dispatcher waits (branch `kanban/fix-clicking-the-needs-you-chip-shows-no-281ff0`) — 2026-11-16
+
+- Cause: the desktop dock is open by default, so `dockShowsChat` was almost always true; `needsStartAction` then skipped the waiting dispatcher (the "press while the dock shows it walks the cards" rule) and, with no card queued, returned null: the "Nothing needs your attention." toast.
+- Fix: `needsStartAction` falls back to `{ kind: "dispatcher", shown: true }` when no card waits (the dock stays on the dispatcher and a toast says "The dispatcher is waiting for you in its chat."); `dispatcherInView` (`client/step-through.ts`) replaces the inline expression in `board.tsx`. DISPATCHER-SPEC §9.4 ruling paragraph updated; the new string is in all catalogs.
+- Failing-then-passing tests: `client/step-through.test.ts` (start action, `dispatcherInView`, and the agent-list cases: only this group's dispatcher, only another group's, dispatcher plus card, open walk kept).
+- Checks: `npm run typecheck` exit 0; `npm test` exit 0 (220 files passed, 1 skipped; 2557 tests passed, 7 skipped).
+- Unrun: live UI check (desktop and phone). No tip, What's new entry or telemetry field.
+
 ## The dispatcher's own asks count as need you (branch `kanban/show-the-dispatcher-s-own-pending-asks-i-3f89b0`) — 2026-11-16
 
 - DISPATCHER-SPEC §9.4 and §9.3 rulings (Noah, 2026-11-16). `dispatcherWaits` (`shared/attention.ts`) counts each pending request of every live dispatcher session labelled `flowly-dispatcher-group=<id>` of a group on the board, one need-you item per request (as a card's `p:` asks). The sidebar badge (`readAttentionCount`) adds every group's; "N need you", the phone bell and other groups' tab and switcher counts add their group's (`needsCount`'s new `dispatcher` argument, `otherGroupNeeds` passes the group id). "N need you" / `N` / the bell / a Needs attention link open the dock on the shown group's dispatcher chat while it waits (`needsStartAction`), else walk the cards as before; the step-through bar stays cards only. The toolbar's Dispatcher button shows the needs-you dot and adds the count to its accessible name (`needLabel`, no new strings). Data path: the agent lists both already read; the board's agent stream now subscribes with `includeBackground: true` (as its reconcile list already did), so no RPC or poll is added. Known limit: a dispatcher started before board groups (no group label) is not counted.

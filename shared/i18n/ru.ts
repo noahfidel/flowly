@@ -129,6 +129,7 @@ const catalog: Catalog = {
   "Step through what needs you": "Пройти по тому, что требует вас",
   "Step through what's new to read": "Пройти по новому, что нужно прочитать",
   "Nothing needs your attention.": "Ничего не требует вашего внимания.",
+  "The dispatcher is waiting for you in its chat.": "Диспетчер ждёт вас в своём чате.",
   "{n} questions": {"one": "{n} вопрос", "few": "{n} вопроса", "many": "{n} вопросов", "other": "{n} вопроса"},
   "{n} approvals": {"one": "{n} запрос на подтверждение", "few": "{n} запроса на подтверждение", "many": "{n} запросов на подтверждение", "other": "{n} запроса на подтверждение"},
   "{n} errors": {"one": "{n} ошибка", "few": "{n} ошибки", "many": "{n} ошибок", "other": "{n} ошибки"},

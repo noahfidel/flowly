@@ -112,11 +112,20 @@ export function stepStartTarget(
 }
 
 /**
+ * Whether the dock shows the dispatcher chat (§9.4): on desktop the docked chat shows while it is open, beside an open
+ * card too; on a phone the chat page sits under an open card, so it shows only with no card open.
+ */
+export function dispatcherInView(compact: boolean, chatOpen: boolean, cardOpen: boolean): boolean {
+  return chatOpen && !(compact && cardOpen);
+}
+
+/**
  * What a "N need you" press does (§9.4; Ruling, Noah 2026-11-16): while the shown group's dispatcher waits on the user
  * (`dispatcherWaits` > 0) it opens the dispatcher chat, before any card and also while a need-you walk is open; the
  * dispatcher is never a step of the walk. Otherwise it is `stepStartTarget`'s card. A press while the dock already shows
  * that dispatcher (`dispatcherShown`) walks the cards, so a request the dock cannot answer (an unguarded dispatcher)
- * never traps the walk. Null: nothing waits.
+ * never traps the walk; with no card to walk it keeps the dock on the dispatcher (`shown: true`) instead of claiming
+ * nothing needs you. Null: nothing waits.
  */
 export function needsStartAction(
   dispatcherWaits: number,
@@ -125,10 +134,11 @@ export function needsStartAction(
   queue: readonly string[],
   openTaskId: string | null,
   dispatcherShown = false,
-): { kind: "dispatcher" } | { kind: "card"; taskId: string; keep: boolean } | null {
-  if (dispatcherWaits > 0 && !dispatcherShown) return { kind: "dispatcher" };
+): { kind: "dispatcher"; shown: boolean } | { kind: "card"; taskId: string; keep: boolean } | null {
+  if (dispatcherWaits > 0 && !dispatcherShown) return { kind: "dispatcher", shown: false };
   const target = stepStartTarget(current, currentKind, "needs", queue, openTaskId);
-  return target ? { kind: "card", ...target } : null;
+  if (target) return { kind: "card", ...target };
+  return dispatcherWaits > 0 ? { kind: "dispatcher", shown: true } : null;
 }
 
 /**

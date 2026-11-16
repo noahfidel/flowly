@@ -129,6 +129,7 @@ const catalog: Catalog = {
   "Step through what needs you": "逐个查看需要你处理的卡片",
   "Step through what's new to read": "逐个查看有新内容待读的卡片",
   "Nothing needs your attention.": "没有需要你关注的事项。",
+  "The dispatcher is waiting for you in its chat.": "调度器正在其聊天中等你。",
   "{n} questions": "{n} 个问题",
   "{n} approvals": "{n} 个授权请求",
   "{n} errors": "{n} 个错误",

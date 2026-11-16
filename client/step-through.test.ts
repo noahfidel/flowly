@@ -1,8 +1,10 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import type { Project, Task } from "../shared/model";
 import type { AttentionItem } from "../shared/attention";
 import type { ChatItem } from "../shared/dispatcher";
-import { afterMarkSeen, changeSummary, stableQueue, cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, needsStartAction, updatedQueue, type ChangeItem } from "./step-through";
+import { afterMarkSeen, changeSummary, stableQueue, cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, needsStartAction, dispatcherInView, updatedQueue, type ChangeItem } from "./step-through";
+import { dispatcherWaits } from "../shared/attention";
+import { otherGroupNeeds } from "./board-groups";
 
 /** The need-you and updated step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). */
 
@@ -216,17 +218,78 @@ test("the need-you count adds the dispatcher's pending requests; the card queue 
 test("N need you opens the waiting dispatcher before any card, also while a card walk is open; otherwise it walks the cards", () => {
   const queue = ["a", "b"];
   const open = stepAt(queue, "b");
-  expect(needsStartAction(1, null, null, queue, null)).toEqual({ kind: "dispatcher" });
-  expect(needsStartAction(2, open, "needs", queue, "b")).toEqual({ kind: "dispatcher" });
-  expect(needsStartAction(1, null, null, [], null)).toEqual({ kind: "dispatcher" });
+  expect(needsStartAction(1, null, null, queue, null)).toEqual({ kind: "dispatcher", shown: false });
+  expect(needsStartAction(2, open, "needs", queue, "b")).toEqual({ kind: "dispatcher", shown: false });
+  expect(needsStartAction(1, null, null, [], null)).toEqual({ kind: "dispatcher", shown: false });
   // The dock already shows the waiting dispatcher (a request it cannot answer, e.g. unguarded): the press walks the cards.
   expect(needsStartAction(1, null, null, queue, null, true)).toEqual({ kind: "card", taskId: "a", keep: false });
   expect(needsStartAction(1, open, "needs", queue, "b", true)).toEqual({ kind: "card", taskId: "b", keep: true });
-  expect(needsStartAction(1, null, null, [], null, true)).toBeNull();
+  expect(needsStartAction(1, null, null, [], null, true)).toEqual({ kind: "dispatcher", shown: true });
   // Answered: the next press walks the cards as before.
   expect(needsStartAction(0, null, null, queue, null)).toEqual({ kind: "card", taskId: "a", keep: false });
   expect(needsStartAction(0, open, "needs", queue, "b")).toEqual({ kind: "card", taskId: "b", keep: true });
   expect(needsStartAction(0, null, null, [], null)).toBeNull();
   // The bar's position stays over the cards only.
   expect(stepPosition(queue, open)).toMatchObject({ index: 1, total: 2 });
+});
+
+test("dispatcherInView: the docked chat shows beside an open card on desktop; on a phone the chat page sits under an open card", () => {
+  expect(dispatcherInView(false, true, false)).toBe(true);
+  expect(dispatcherInView(false, true, true)).toBe(true);
+  expect(dispatcherInView(false, false, true)).toBe(false);
+  expect(dispatcherInView(true, true, false)).toBe(true);
+  expect(dispatcherInView(true, true, true)).toBe(false);
+  expect(dispatcherInView(true, false, false)).toBe(false);
+});
+
+// Ruling (Noah, 2026-11-16): N never claims nothing needs you while the shown group's dispatcher waits.
+describe("N need you from the agent list", () => {
+  const groups = [{ id: "g1" }, { id: "g2" }];
+  const dispatcher = (id: string, group: string) => ({
+    id,
+    archivedAt: null,
+    status: "idle",
+    labels: { "flowly-dispatcher": "1", "flowly-dispatcher-group": group },
+    pendingPermissions: [{ id: `r-${id}`, kind: "tool" }],
+  });
+  const none = new Set<string>();
+  const waitsOf = (agents: ReturnType<typeof dispatcher>[], group: string) => dispatcherWaits(agents, groups).get(group) ?? 0;
+
+  test("only the shown group's dispatcher waits, no card", () => {
+    const waits = waitsOf([dispatcher("d1", "g1")], "g1");
+    expect(needsCount([], none, all, waits)).toBe(1);
+    const press = (compact: boolean, chatOpen: boolean, cardOpen: boolean) =>
+      needsStartAction(waits, null, null, [], null, dispatcherInView(compact, chatOpen, cardOpen));
+    expect(press(false, true, false)).toEqual({ kind: "dispatcher", shown: true });
+    expect(press(false, false, false)).toEqual({ kind: "dispatcher", shown: false });
+    expect(press(true, false, false)).toEqual({ kind: "dispatcher", shown: false });
+    expect(press(true, true, false)).toEqual({ kind: "dispatcher", shown: true });
+    expect(press(true, true, true)).toEqual({ kind: "dispatcher", shown: false });
+  });
+
+  test("only another group's dispatcher waits: the shown group has nothing, its own tab counts it", () => {
+    const agents = [dispatcher("d2", "g2")];
+    const waits = waitsOf(agents, "g1");
+    expect(needsCount([], none, all, waits)).toBe(0);
+    expect(needsStartAction(waits, null, null, [], null, true)).toBeNull();
+    const all2 = dispatcherWaits(agents, groups);
+    const projects = [{ id: "a", groupId: "g1", position: 0, createdAt: "x", archivedAt: null }, { id: "b", groupId: "g2", position: 0, createdAt: "x", archivedAt: null }];
+    const count = (scope: (id: string) => boolean, gid: string) => needsCount([], none, scope, all2.get(gid) ?? 0);
+    expect(otherGroupNeeds(groups, projects, "g1", count)).toEqual(new Map([["g2", 1]]));
+  });
+
+  test("the dispatcher and a card both wait", () => {
+    const waits = waitsOf([dispatcher("d1", "g1")], "g1");
+    const items = [card("a", "p", 1)];
+    expect(needsCount(items, none, all, waits)).toBe(2);
+    const queue = needsQueue(items, none, all);
+    expect(needsStartAction(waits, null, null, queue, null, false)).toEqual({ kind: "dispatcher", shown: false });
+    expect(needsStartAction(waits, null, null, queue, null, true)).toEqual({ kind: "card", taskId: "a", keep: false });
+  });
+
+  test("the dock shows the dispatcher while a walk is open on a card still queued: keep that card", () => {
+    const waits = waitsOf([dispatcher("d1", "g1")], "g1");
+    const queue = ["a", "b"];
+    expect(needsStartAction(waits, stepAt(queue, "b"), "needs", queue, "b", true)).toEqual({ kind: "card", taskId: "b", keep: true });
+  });
 });
