@@ -2241,3 +2241,123 @@ test("flowly_message_dispatcher works per group: each session has its own bucket
   expect(x.server.dispatcherTools["peerSlots"].get("disp")).toHaveLength(1);
   expect(x.server.dispatcherTools["peerSlots"].get(x.bId)).toHaveLength(1);
 });
+
+/** Rewrites one group's record entry (tests only). */
+async function editEntry(x: { server: ToolServer }, groupId: string, change: (e: DispatcherRecord["groups"][string]) => DispatcherRecord["groups"][string]) {
+  await (x.server.dispatcher as unknown as { save: (change: (r: DispatcherRecord) => DispatcherRecord) => Promise<void> }).save((r) => ({
+    ...r,
+    groups: { ...r.groups, [groupId]: change(r.groups[groupId]) },
+  }));
+}
+
+test("queued peer messages wait through a Replace of the target and reach the new session (DISPATCHER-SPEC §5.5)", async () => {
+  const x = await peers();
+  x.agents[x.bId].pendingPermissions = [{ id: "req-1", kind: "tool", name: "Read", input: {} }];
+  await x.toB("for whoever is there");
+  await x.peerQueue.idle();
+  // An old charter, so Replace takes it.
+  await editEntry(x, x.clients.id, (e) => ({ ...e, charter: 0 }));
+  const kept: number[] = [];
+  const sweepNow = async () => {
+    await x.peerQueue.sweep(x.paseo);
+    kept.push((await x.peerQueue.list()).length);
+  };
+  const agents = x.paseo.agents as unknown as { ref: (id: string) => Record<string, unknown> };
+  const ref = agents.ref;
+  // A check right after the old session is archived (before the record names the new one)...
+  agents.ref = (id) =>
+    id === x.bId
+      ? {
+          ...ref(id),
+          archive: async () => {
+            x.agents[x.bId].archivedAt = stamp;
+            await sweepNow();
+          },
+        }
+      : ref(id);
+  // ...and one after the record names the new session but before Paseo has created it.
+  const workspaces = x.paseo.workspaces as unknown as { ref: (id: string) => { agents: { create: (o: unknown) => Promise<unknown> } } };
+  const wref = workspaces.ref;
+  workspaces.ref = (id) => {
+    const w = wref(id);
+    return {
+      ...w,
+      agents: {
+        create: async (o: unknown) => {
+          await sweepNow();
+          return w.agents.create(o);
+        },
+      },
+    };
+  };
+  const { agentId } = await x.server.dispatcher.replace(x.paseo, { groupId: x.clients.id, agentId: x.bId });
+  expect(kept).toEqual([1, 1]);
+  expect(x.sent).toEqual([]);
+  // The next check after the replace delivers to the new session.
+  await x.peerQueue.sweep(x.paseo);
+  expect(x.sent.map((m) => m.id)).toEqual([agentId]);
+  expect(x.sent[0].text).toContain("for whoever is there");
+  expect(await x.peerQueue.list()).toEqual([]);
+});
+
+test("queued peer messages are kept, not delivered or dropped, while the target dispatcher is unguarded (DISPATCHER-SPEC §5.5)", async () => {
+  const x = await peers();
+  x.agents[x.bId].pendingPermissions = [{ id: "req-1", kind: "tool", name: "Read", input: {} }];
+  await x.toB("held");
+  await x.peerQueue.idle();
+  const guard = (await x.entry(x.clients.id)).guard;
+  await editEntry(x, x.clients.id, ({ guard: _, ...e }) => e);
+  x.agents[x.bId].pendingPermissions = [];
+  await x.peerQueue.sweep(x.paseo);
+  await x.peerQueue.agentChanged(x.bId, x.paseo);
+  expect(x.sent).toEqual([]);
+  expect((await x.peerQueue.list()).map((m) => m.text)).toEqual(["held"]);
+  await editEntry(x, x.clients.id, (e) => ({ ...e, guard }));
+  await x.peerQueue.sweep(x.paseo);
+  expect(x.sent.map((m) => m.id)).toEqual([x.bId]);
+});
+
+test("a message dropped right after it was queued is refused as DISPATCHER_DOWN, or GROUP_NOT_FOUND for a deleted group, its slot and chain count given back (DISPATCHER-SPEC §5.5)", async () => {
+  const x = await peers();
+  const agents = x.paseo.agents as unknown as { ref: (id: string) => Record<string, unknown> };
+  const ref = agents.ref;
+  /**
+   * The tool's read sees the target live and waiting; `then` runs after that read (the tool has read the board by then)
+   * and before the check that follows the queue write.
+   */
+  const raceOnce = (then: () => Promise<void>) => {
+    let reads = 0;
+    agents.ref = (id) =>
+      id === x.bId
+        ? {
+            ...ref(id),
+            refresh: async () => {
+              const seen = { agent: { ...x.agents[x.bId], pendingPermissions: [{ id: "req-1", kind: "tool", name: "Read", input: {} }] } };
+              if (reads++ === 0) await then();
+              else return { agent: { ...x.agents[x.bId] } };
+              return seen;
+            },
+          }
+        : ref(id);
+  };
+  const chain = () => [...(x.server.dispatcherTools["peerChains"] as Map<string, { count: number }>).values()].reduce((n, c) => n + c.count, 0);
+  raceOnce(async () => {
+    x.agents[x.bId].archivedAt = stamp;
+  });
+  const down = await x.toB("too late");
+  expect(code(down)).toBe("DISPATCHER_DOWN");
+  expect(x.server.dispatcherTools["peerSlots"].get("disp") ?? []).toEqual([]);
+  expect(chain()).toBe(0);
+  expect(await x.peerQueue.list()).toEqual([]);
+  // The group is deleted between the tool's read and the check.
+  x.agents[x.bId].archivedAt = null;
+  raceOnce(async () => {
+    const group = (await x.store.read()).groups.find((g) => g.id === x.clients.id);
+    if (group) await x.store.deleteGroup({ id: group.id, revision: group.revision });
+  });
+  const gone = await x.toB("too late again");
+  expect(code(gone)).toBe("GROUP_NOT_FOUND");
+  expect(x.server.dispatcherTools["peerSlots"].get("disp") ?? []).toEqual([]);
+  expect(chain()).toBe(0);
+  expect(x.sent).toEqual([]);
+});

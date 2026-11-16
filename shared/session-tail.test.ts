@@ -147,3 +147,21 @@ test("a dispatcher's flowly_message_dispatcher call keeps the target group and t
   ]);
   expect(others.map((e) => e.item.to)).toEqual([undefined, undefined, undefined, undefined]);
 });
+
+test("only a flowly_message_dispatcher call that succeeded or was queued gets a To row; a refused or failed one stays a plain tool call (DISPATCHER-SPEC §5.5)", () => {
+  const input = { groupId: "g2", text: "Hi" };
+  const call = (extra: Record<string, unknown>, output: unknown = { structuredContent: { sent: true } }) => ({
+    item: { type: "tool_call", name: "flowly_message_dispatcher", callId: "c", status: "completed", error: null, detail: { type: "unknown", input, output }, ...extra },
+  });
+  const entries = slimTimeline([
+    call({}),
+    call({}, { structuredContent: { sent: false, queued: true } }),
+    call({ status: "failed", error: { message: "x" } }),
+    call({ error: "boom" }),
+    call({}, { isError: true, structuredContent: { error: { code: "DISPATCHER_DOWN" } } }),
+    call({}, { structuredContent: { error: { code: "GROUP_NOT_FOUND" } } }),
+    call({ status: "canceled" }),
+    call({ status: "running" }),
+  ]);
+  expect(entries.map((e) => !!e.item.to)).toEqual([true, true, false, false, false, false, false, false]);
+});

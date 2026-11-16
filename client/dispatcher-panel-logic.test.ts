@@ -211,3 +211,9 @@ test("a message from another group's dispatcher is a From row and its answers co
   const user = displayRows(mergeTimeline([entry(1, "user_message", "From the Flowly dispatcher of group Clients, hi", 1)], [])).flatMap((r) => (r.kind === "entry" ? [r.entry] : []));
   expect(user[0].kind).toBe("user_message");
 });
+
+test("a failed flowly_message_dispatcher call stays the plain tool call, not a To row (DISPATCHER-SPEC §5.5)", () => {
+  const failed: TailEntry = { seqStart: 1, seqEnd: 1, timestamp: at(1), item: { type: "tool_call", name: "flowly_message_dispatcher", status: "failed", to: { id: "g2", text: "Hi" } } };
+  const shown = displayRows(mergeTimeline([failed], [], { groupName: () => "Clients" }));
+  expect(shown.map((r) => r.kind)).toEqual(["activity"]);
+});
