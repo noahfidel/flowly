@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
@@ -8,11 +8,17 @@ import { agentFixture } from "./agent-fixture";
 import { changeLine } from "./dispatcher-items";
 import { dispatcherInputs, replyOnceNote } from "./dispatcher-tools";
 import { cancelledAskMessage, DispatcherQueue, DispatcherQueueFile, dispatcherMessageDroppedAction } from "./dispatcher-queue";
+import { DispatcherPeerQueueFile } from "./dispatcher-peer-queue";
+import type { DispatcherRecord } from "./dispatcher";
 import { BoardService } from "./service";
 import { projectCreator } from "./project-create";
 import {
   dispatcherConfirmedToolNames,
+  dispatcherGuardVersion,
   dispatcherMessagePrefix,
+  parsePeerMessage,
+  peerMessageNote,
+  peerMessagePrefix,
   dispatcherRepliesPerAgentPerHour,
   dispatcherRepliesPerHour,
   dispatcherToolNames,
@@ -39,6 +45,7 @@ const dispatcherTools = [
   "flowly_update_idea",
   "flowly_message_card",
   "flowly_reply_to_agent",
+  "flowly_message_dispatcher",
   "flowly_archive_card",
   // Not preapproved: the user confirms each call (ruling, Noah 2026-11-10).
   "flowly_create_project",
@@ -227,10 +234,11 @@ test("a dispatcher token can write to any live project", async () => {
   // None of them answers a card's ask (permission, question, blocker); only flowly_message_card messages a card's
   // session, and never answers (ruling, Noah 2026-11-09; DISPATCHER-SPEC §5.3).
   for (const name of await d.names()) expect(name).not.toMatch(/answer|respond|permission|approve|allow|deny|send|prompt/);
-  expect((await d.names()).filter((n) => /message/.test(n))).toEqual(["flowly_message_card"]);
+  // flowly_message_dispatcher reaches only another group's dispatcher, never a card's session or ask (§5.5).
+  expect((await d.names()).filter((n) => /message/.test(n))).toEqual(["flowly_message_card", "flowly_message_dispatcher"]);
   // Replacing or archiving a dispatcher (its session or workspace) is the user's confirmed click only, never one of its
   // own tools (ruling, Noah 2026-11-09). Archiving a card (flowly_archive_card) is a board edit, not that.
-  for (const name of await d.names()) expect(name).not.toMatch(/replace|dispatcher|archive_(session|agent|workspace)/);
+  for (const name of await d.names()) expect(name).not.toMatch(/replace|archive_(session|agent|workspace|dispatcher)|(start|archive|stop)_dispatcher/);
   const projects = (await d.call("flowly_list_projects", {})).structuredContent.projects;
   expect(projects).toEqual([
     { projectId: "p", title: "Project", rootAvailable: true, openCards: 1 },
@@ -1965,4 +1973,271 @@ test("a message queued after the ask ended between the read and the write is che
   await queue.idle();
   expect(x.sent.map((m) => m.text)).toEqual([expect.stringContaining("raced")]);
   expect(await queue.list()).toEqual([]);
+});
+
+// ---- Messaging another group's dispatcher (DISPATCHER-SPEC §5.5) ----
+
+const hour = 3_600_000;
+/** A started dispatcher for a new group with no projects: its id, token and client. */
+async function groupDispatcher<X extends Awaited<ReturnType<typeof setup>>>(x: X, name: string) {
+  const group = await x.store.createGroup({ name });
+  const { agentId } = await x.server.dispatcher.start(x.paseo, { groupId: group.id, provider: "claude/claude-sonnet-5-5" });
+  x.agents[agentId].currentModeId = "default";
+  const saved = x.launched[agentId]["flowly-dispatcher"] as { headers: { Authorization: string } };
+  return { group, agentId, client: await x.connect(saved.headers.Authorization.replace(/^Bearer /, "")) };
+}
+/**
+ * Groups "Projects" (dispatcher "disp", client a) and "Clients" (a started dispatcher, client b). With `guardA`, disp's
+ * record gets this build's guard, so it takes messages too (a v1 record has none: unguarded).
+ */
+async function peers({ guardA = true } = {}) {
+  const x = await setup();
+  const { clients, agentId, a, b } = await twoGroups(x);
+  if (guardA)
+    await (x.server.dispatcher as unknown as { save: (change: (r: DispatcherRecord) => DispatcherRecord) => Promise<void> }).save((r) => ({
+      ...r,
+      groups: { ...r.groups, [x.groupId]: { ...r.groups[x.groupId], guard: { version: dispatcherGuardVersion, provider: "claude" } } },
+    }));
+  const toB = (text = "Please start a card for the API.") => a.call("flowly_message_dispatcher", { groupId: clients.id, text });
+  const toA = (text = "Started it.") => b.call("flowly_message_dispatcher", { groupId: x.groupId, text });
+  return { ...x, clients, bId: agentId, a, b, toA, toB, peerQueue: x.server.dispatcherPeerQueue };
+}
+const projectsPrefix = (x: { groupId: string }) => peerMessagePrefix({ id: x.groupId, name: "Projects" });
+
+test("flowly_message_dispatcher steers a message marked with the sender's group into the target group's stored dispatcher (DISPATCHER-SPEC §5.5)", async () => {
+  const x = await peers();
+  expect(await x.a.names()).toContain("flowly_message_dispatcher");
+  const result = await x.toB("  Please start a card for the API.  ");
+  expect(code(result)).toBeUndefined();
+  expect(result.structuredContent).toEqual({ sent: true, groupId: x.clients.id, note: peerMessageNote });
+  expect(peerMessageNote).toMatch(/don't send it again/i);
+  expect(x.sent).toEqual([{ id: x.bId, text: `${projectsPrefix(x)}Please start a card for the API.`, options: { activeTurnBehavior: "steer" } }]);
+  // Routed by Flowly's record, never by Paseo's labels: a stray session labelled for the group gets nothing.
+  x.agents.stray = { id: "stray", workspaceId: "dw", status: "idle", archivedAt: null, labels: { "flowly-dispatcher-group": x.clients.id } };
+  expect(code(await x.toB("again"))).toBeUndefined();
+  expect(x.sent.map((m) => m.id)).toEqual([x.bId, x.bId]);
+  // The receiver answers with the same tool; an idle (or closed) dispatcher gets it the same way, steered.
+  x.agents.disp.status = "closed";
+  expect((await x.toA("Started.")).structuredContent).toEqual({ sent: true, groupId: x.groupId, note: peerMessageNote });
+  expect(x.sent.at(-1)).toEqual({ id: "disp", text: `${peerMessagePrefix({ id: x.clients.id, name: "Clients" })}Started.`, options: { activeTurnBehavior: "steer" } });
+  // Not a card event.
+  expect((await x.store.read()).events.some((e) => /dispatcher/.test(e.action))).toBe(false);
+});
+
+test("flowly_message_dispatcher refuses an unknown group, its own group, a group with no live dispatcher or an unguarded one (DISPATCHER-SPEC §5.5)", async () => {
+  const x = await peers({ guardA: false });
+  const agentsBefore = Object.keys(x.agents).length;
+  const call = (groupId: string, client = x.a) => client.call("flowly_message_dispatcher", { groupId, text: "hi" });
+  expect(code(await x.a.call("flowly_message_dispatcher", { groupId: x.clients.id, text: "   " }))).toBeDefined();
+  expect(code(await call("no-such-group"))).toBe("GROUP_NOT_FOUND");
+  expect(code(await call(x.groupId))).toBe("DISPATCHER_SELF");
+  // The target is unguarded (a v1 record has no guard): refused as dispatcher.send refuses it.
+  expect(code(await x.toA())).toBe("DISPATCHER_UNGUARDED");
+  // A group that never had a dispatcher, and one whose dispatcher is dead (archived): refused, and none is started.
+  const empty = await x.store.createGroup({ name: "Empty" });
+  const none = await call(empty.id);
+  expect(code(none)).toBe("DISPATCHER_DOWN");
+  expect(none.structuredContent.error.message).toBe("The Empty group has no running dispatcher. Tell the user; only they can start it.");
+  x.agents[x.bId].archivedAt = stamp;
+  expect(code(await x.toB())).toBe("DISPATCHER_DOWN");
+  delete x.agents[x.bId];
+  expect(code(await x.toB())).toBe("DISPATCHER_DOWN");
+  expect(Object.keys(x.agents).length).toBe(agentsBefore - 1);
+  expect(x.sent).toEqual([]);
+  // A write: the Agents create and edit cards switch applies, before the group is looked at.
+  x.server.cards.on = async () => false;
+  expect(code(await call("no-such-group"))).toBe("AGENT_CARDS_DISABLED");
+  // None of it took a slot.
+  expect(x.server.dispatcherTools["peerSlots"].get("disp") ?? []).toEqual([]);
+});
+
+test("flowly_message_dispatcher queues while the target waits on its user, then delivers merged per sender group (DISPATCHER-SPEC §5.5)", async () => {
+  const x = await peers();
+  const ops = await groupDispatcher(x, "Ops");
+  x.agents[x.bId].pendingPermissions = [{ id: "req-1", kind: "tool", name: "mcp__flowly-dispatcher__flowly_create_project", input: {} }];
+  x.peerQueue.now = () => new Date("2026-11-16T09:05:00.000Z");
+  const first = await x.toB("first: start the API card");
+  expect(code(first)).toBeUndefined();
+  expect(first.structuredContent).toMatchObject({ sent: false, queued: true, groupId: x.clients.id });
+  expect(first.structuredContent.note).toMatch(/waits on (its|the) user/);
+  x.peerQueue.now = () => new Date("2026-11-16T09:10:00.000Z");
+  expect((await ops.client.call("flowly_message_dispatcher", { groupId: x.clients.id, text: "from ops" })).structuredContent).toMatchObject({ queued: true });
+  x.peerQueue.now = () => new Date("2026-11-16T09:20:00.000Z");
+  expect((await x.toB("second: and link it")).structuredContent).toMatchObject({ queued: true });
+  await x.peerQueue.idle();
+  expect(x.sent).toEqual([]);
+  // Still waiting: a sweep or another check sends nothing. It survives a reload (the file).
+  await x.peerQueue.sweep(x.paseo);
+  expect(x.sent).toEqual([]);
+  expect((await new DispatcherPeerQueueFile(x.store.directory).list()).map((m) => [m.groupId, m.fromGroupId, m.fromGroupName, m.text])).toEqual([
+    [x.clients.id, x.groupId, "Projects", "first: start the API card"],
+    [x.clients.id, ops.group.id, "Ops", "from ops"],
+    [x.clients.id, x.groupId, "Projects", "second: and link it"],
+  ]);
+  // The user answered the request; Paseo's snapshot may still list it, so the resolved one is left out.
+  await x.peerQueue.agentChanged(x.bId, x.paseo, { resolvedRequestId: "req-1" });
+  expect(x.sent.map((m) => m.id)).toEqual([x.bId, x.bId]);
+  const [projects, fromOps] = x.sent;
+  expect(projects.options).toEqual({ activeTurnBehavior: "steer" });
+  expect(projects.text.startsWith(projectsPrefix(x))).toBe(true);
+  expect(projects.text.split("From the Flowly dispatcher")).toHaveLength(2);
+  expect(projects.text.indexOf("first: start the API card")).toBeLessThan(projects.text.indexOf("second: and link it"));
+  expect(projects.text).toContain("2026-11-16 09:05 UTC");
+  expect(projects.text).toContain("2026-11-16 09:20 UTC");
+  expect(fromOps.text.startsWith(peerMessagePrefix({ id: ops.group.id, name: "Ops" }))).toBe(true);
+  expect(fromOps.text).toContain("from ops");
+  expect(await x.peerQueue.list()).toEqual([]);
+  // Never twice, and never an answer to the target's request.
+  await x.peerQueue.agentChanged(x.bId, x.paseo);
+  expect(x.sent).toHaveLength(2);
+  expect(x.responded).toEqual([]);
+  // Queued messages took their slots when queued.
+  expect(x.server.dispatcherTools["peerSlots"].get("disp")).toHaveLength(2);
+});
+
+test("flowly_message_dispatcher: a message behind older queued ones from the same group goes out after them, merged (DISPATCHER-SPEC §5.5)", async () => {
+  const x = await peers();
+  x.agents[x.bId].pendingPermissions = [{ id: "req-1", kind: "question", name: "AskUserQuestion", input: {} }];
+  expect((await x.toB("one")).structuredContent.queued).toBe(true);
+  await x.peerQueue.idle();
+  // The ask ended with no hook yet: the next message is queued behind, checked at once, and both go out in order.
+  x.agents[x.bId].pendingPermissions = [];
+  const result = await x.toB("two");
+  expect(result.structuredContent).toEqual({ sent: true, groupId: x.clients.id, note: peerMessageNote });
+  expect(x.sent).toHaveLength(1);
+  expect(x.sent[0].text.indexOf("one")).toBeLessThan(x.sent[0].text.indexOf("two"));
+  expect(await x.peerQueue.list()).toEqual([]);
+  // A failed delivery keeps them queued for the next check.
+  x.agents[x.bId].pendingPermissions = [{ id: "req-2", kind: "tool", name: "Read", input: {} }];
+  await x.toB("three");
+  x.agents[x.bId].pendingPermissions = [];
+  x.failSend(true);
+  await x.peerQueue.agentChanged(x.bId, x.paseo);
+  expect((await x.peerQueue.list()).map((m) => m.text)).toEqual(["three"]);
+  x.failSend(false);
+  await x.peerQueue.sweep(x.paseo);
+  expect(x.sent.at(-1)!.text).toContain("three");
+  expect(await x.peerQueue.list()).toEqual([]);
+});
+
+test("queued peer messages are dropped when the target group is deleted or has no live dispatcher, with a log line only (DISPATCHER-SPEC §5.5)", async () => {
+  const x = await peers();
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  try {
+    x.agents[x.bId].pendingPermissions = [{ id: "req-1", kind: "tool", name: "Read", input: {} }];
+    await x.toB("secret one");
+    await x.toB("secret two");
+    await x.peerQueue.idle();
+    // The target dies: the next check drops its queue, sends nothing and starts nothing.
+    x.agents[x.bId].archivedAt = stamp;
+    await x.peerQueue.sweep(x.paseo);
+    expect(await x.peerQueue.list()).toEqual([]);
+    expect(x.sent).toEqual([]);
+    const logged = errors.mock.calls.filter((c) => c[0] === "Flowly dispatcher peer messages dropped:");
+    expect(logged).toHaveLength(1);
+    expect(JSON.stringify(logged)).toContain("2 messages");
+    expect(JSON.stringify(logged)).not.toContain("secret");
+    // A deleted group's queue is dropped at the delete.
+    const ops = await groupDispatcher(x, "Ops");
+    x.agents[ops.agentId].pendingPermissions = [{ id: "req-2", kind: "tool", name: "Read", input: {} }];
+    await x.a.call("flowly_message_dispatcher", { groupId: ops.group.id, text: "secret three" });
+    await x.peerQueue.idle();
+    expect((await x.peerQueue.list()).length).toBe(1);
+    // Dead, so the delete archives nothing.
+    x.agents[ops.agentId].archivedAt = stamp;
+    const group = (await x.store.read()).groups.find((g) => g.id === ops.group.id)!;
+    await x.server.dispatcher.deleteGroup(x.paseo, { id: group.id, revision: group.revision }, x.store);
+    await x.peerQueue.idle();
+    expect(await x.peerQueue.list()).toEqual([]);
+    expect(errors.mock.calls.filter((c) => c[0] === "Flowly dispatcher peer messages dropped:")).toHaveLength(2);
+    expect(x.sent).toEqual([]);
+    // No card activity either.
+    expect((await x.store.read()).events.some((e) => /dispatcher/.test(e.action))).toBe(false);
+  } finally {
+    errors.mockRestore();
+  }
+});
+
+test("flowly_message_dispatcher: 5 per target and 20 per hour per sender session; refusals and failed sends give the slot back (DISPATCHER-SPEC §5.5)", async () => {
+  const x = await peers();
+  const tools = x.server.dispatcherTools;
+  let now = Date.parse("2026-11-16T09:00:00.000Z");
+  tools.clock = () => now;
+  for (let i = 0; i < 5; i++) expect(code(await x.toB(`m${i}`)), `#${i + 1}`).toBeUndefined();
+  const perTarget = await x.toB("m5");
+  expect(code(perTarget)).toBe("DISPATCHER_MESSAGE_LIMIT");
+  expect(perTarget.structuredContent.error.message).toMatch(/5 times/);
+  expect(tools["peerSlots"].get("disp")).toHaveLength(5);
+  // An hour later the target's bucket is free again; a failed send gives its slot back.
+  now += hour;
+  x.failSend(true);
+  expect(code(await x.toB("fails"))).toBe("SEND_FAILED");
+  x.failSend(false);
+  expect(tools["peerSlots"].get("disp")!.filter((s: { at: number }) => now - s.at < hour)).toHaveLength(0);
+  // 20 in the hour over all targets.
+  tools["peerSlots"].set(
+    "disp",
+    Array.from({ length: 20 }, (_, i) => ({ to: `other-${i % 10}`, at: now })),
+  );
+  const perHour = await x.toB("m6");
+  expect(code(perHour)).toBe("DISPATCHER_MESSAGE_LIMIT");
+  expect(perHour.structuredContent.error.message).toMatch(/20 times/);
+  // Each sender session has its own buckets.
+  expect(code(await x.toA("from b"))).toBeUndefined();
+});
+
+test("flowly_message_dispatcher: at most 10 queued per target group (QUEUE_FULL), the slot given back (DISPATCHER-SPEC §5.5)", async () => {
+  const x = await peers();
+  const ops = await groupDispatcher(x, "Ops");
+  const tools = x.server.dispatcherTools;
+  let now = Date.parse("2026-11-16T09:00:00.000Z");
+  tools.clock = () => now;
+  x.agents[x.bId].pendingPermissions = [{ id: "req-1", kind: "tool", name: "Read", input: {} }];
+  for (let i = 0; i < 5; i++) {
+    expect((await x.toB(`a${i}`)).structuredContent.queued).toBe(true);
+    expect((await ops.client.call("flowly_message_dispatcher", { groupId: x.clients.id, text: `o${i}` })).structuredContent.queued).toBe(true);
+  }
+  now += hour;
+  const full = await x.toB("one more");
+  expect(code(full)).toBe("QUEUE_FULL");
+  expect(full.structuredContent.error.message).toContain("the Clients dispatcher is waiting on them");
+  expect(tools["peerSlots"].get("disp")!.filter((s: { at: number }) => now - s.at < hour)).toHaveLength(0);
+  expect((await x.peerQueue.list()).length).toBe(10);
+});
+
+test("the chain cap stops two dispatchers after 6 messages without the user; a user message to either resets it (DISPATCHER-SPEC §5.5)", async () => {
+  const x = await peers();
+  const ops = await groupDispatcher(x, "Ops");
+  for (let i = 0; i < 3; i++) {
+    expect(code(await x.toB(`to b ${i}`))).toBeUndefined();
+    expect(code(await x.toA(`to a ${i}`))).toBeUndefined();
+  }
+  const seventh = await x.toB("seventh");
+  expect(code(seventh)).toBe("DISPATCHER_CHAIN_LIMIT");
+  expect(seventh.structuredContent.error.message).toBe("You and the Clients dispatcher have exchanged 6 messages without the user; stop and ask the user before messaging it again.");
+  expect(code(await x.toA("either way"))).toBe("DISPATCHER_CHAIN_LIMIT");
+  // A refused message takes no slot; another pair is not affected.
+  expect(x.server.dispatcherTools["peerSlots"].get("disp")).toHaveLength(3);
+  expect(code(await ops.client.call("flowly_message_dispatcher", { groupId: x.clients.id, text: "ops" }))).toBeUndefined();
+  // The user's message to either dispatcher resets every pair that group is in.
+  await x.server.dispatcher.send(x.paseo, { groupId: x.clients.id, text: "carry on", messageId: "msg-1" });
+  expect(code(await x.toB("after the user"))).toBeUndefined();
+  // What should I do? resets too.
+  x.server.dispatcherTools.clock = () => Date.now() + 2 * hour;
+  for (let i = 0; i < 5; i++) expect(code(await x.toA(`again ${i}`)), `#${i + 1}`).toBeUndefined();
+  expect(code(await x.toA("too many"))).toBe("DISPATCHER_CHAIN_LIMIT");
+  await x.server.dispatcher.whatNext(x.paseo, x.groupId, "What should I do?");
+  expect(code(await x.toB("after what next"))).toBeUndefined();
+});
+
+test("flowly_message_dispatcher works per group: each session has its own buckets and its own group's name (DISPATCHER-SPEC §5.5)", async () => {
+  const x = await peers();
+  await x.toB("hi");
+  await x.toA("hello");
+  expect(x.sent.map((m) => parsePeerMessage(m.text))).toEqual([
+    { groupId: x.groupId, name: "Projects", text: "hi" },
+    { groupId: x.clients.id, name: "Clients", text: "hello" },
+  ]);
+  expect(x.server.dispatcherTools["peerSlots"].get("disp")).toHaveLength(1);
+  expect(x.server.dispatcherTools["peerSlots"].get(x.bId)).toHaveLength(1);
 });

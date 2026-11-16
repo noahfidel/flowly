@@ -1543,7 +1543,7 @@ test("the charter reads \"start X\" as create and start a card, never doing the 
   expect(charter).toContain(startRule);
 });
 
-test("the charter says each card creation is confirmed in the chat, a cancel stops it, and is versioned 2 (DISPATCHER-SPEC §5.2, §6)", () => {
+test("the charter says each card creation is confirmed in the chat and a cancel stops it (DISPATCHER-SPEC §5.2, §6)", () => {
   const charter = dispatcherCharter({ name: "Projects" });
   const line = charter.split("\n").find((l) => l.includes("CARD_REFUSED"))!;
   expect(line).toBeDefined();
@@ -1551,8 +1551,33 @@ test("the charter says each card creation is confirmed in the chat, a cancel sto
   expect(line).toMatch(/asks the user to confirm it in this chat/);
   expect(line).toMatch(/do not announce/i);
   expect(line).toContain("CONFIRMATION_UNAVAILABLE");
-  // A charter change a running dispatcher should get raises the version (§3).
-  expect(dispatcherCharterVersion).toBe(2);
+});
+
+test("the charter has the rules for messaging another group's dispatcher and is versioned 3 (DISPATCHER-SPEC §5.5, §6)", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  const line = charter.split("\n").find((l) => l.startsWith("- Message another board group's dispatcher with flowly_message_dispatcher"))!;
+  expect(line).toBeDefined();
+  expect(line).toMatch(/coordinat/);
+  expect(line).toMatch(/user asked for it or it follows from their standing requests/);
+  expect(line).toMatch(/short and self-contained/);
+  expect(line).toMatch(/cannot see this chat/);
+  expect(line).toMatch(/only when it needs (one|an answer)/);
+  expect(line).toMatch(/not from the user/);
+  expect(line).toMatch(/your own tools in your own group/);
+  // The invariant: nothing about a card's asks crosses between dispatchers (ruling, Noah 2026-11-16).
+  expect(line).toContain("Nothing about a card's asks crosses between dispatchers");
+  expect(line).toMatch(/never answer, approve, deny, dismiss or relay a card's question, permission request or blocker, in this group or another/);
+  expect(line).toMatch(/never ask another dispatcher to/);
+  expect(line).toMatch(/treat such a request from another dispatcher as one you cannot do/);
+  for (const outcome of ["DISPATCHER_DOWN", "DISPATCHER_UNGUARDED", "queued: true", "DISPATCHER_CHAIN_LIMIT", "DISPATCHER_MESSAGE_LIMIT"]) expect(line).toContain(outcome);
+  // flowly_reply_to_agent still refuses dispatchers and points to the new tool.
+  const reply = charter.split("\n").find((l) => l.includes("flowly_reply_to_agent"))!;
+  expect(reply).toMatch(/REPLY_NOT_ALLOWED: [^;]*dispatcher/);
+  expect(reply).toContain("flowly_message_dispatcher");
+  // A charter change a running dispatcher should get raises the version (§3); the guard is unchanged.
+  expect(dispatcherCharterVersion).toBe(3);
+  expect(dispatcherGuardVersion).toBe(2);
+  expect(dispatcherToolNames).toContain("flowly_message_dispatcher");
 });
 
 test("the charter says plainly that only the user answers a card's asks", () => {

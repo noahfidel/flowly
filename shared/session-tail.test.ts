@@ -129,3 +129,21 @@ test("a plain tool call or a malformed agentMessage gets no from", () => {
   expect(entries.map((e) => e.item.from)).toEqual([undefined, undefined, undefined, undefined, undefined, { id: "a", event: "message" }]);
   expect(entries.slice(0, 5).every((e) => e.item.text === undefined)).toBe(true);
 });
+
+test("a dispatcher's flowly_message_dispatcher call keeps the target group and text, nothing else (DISPATCHER-SPEC §9.3)", () => {
+  const call = (name: string, detail: unknown) => ({ seqStart: 4, item: { type: "tool_call", name, callId: "c1", status: "completed", error: null, detail } });
+  const [mcp] = slimTimeline([call("mcp__flowly-dispatcher__flowly_message_dispatcher", { type: "unknown", input: { groupId: "g2", text: "Please start a card for the API." }, output: { secret: "x" } })]);
+  expect(mcp.item).toEqual({ type: "tool_call", name: "mcp__flowly-dispatcher__flowly_message_dispatcher", callId: "c1", status: "completed", to: { id: "g2", text: "Please start a card for the API." } });
+  const [bare] = slimTimeline([call("flowly_message_dispatcher", { type: "unknown", input: { groupId: "g3", text: "Hi" } })]);
+  expect(bare.item.to).toEqual({ id: "g3", text: "Hi" });
+  const [long] = slimTimeline([call("flowly_message_dispatcher", { type: "unknown", input: { groupId: "g3", text: "x".repeat(TAIL_TEXT_MAX + 5) } })]);
+  expect(long.item.to!.text.length).toBe(TAIL_TEXT_MAX);
+  // Another tool, or a malformed input, gets none.
+  const others = slimTimeline([
+    call("flowly_message_card", { type: "unknown", input: { groupId: "g2", text: "Hi" } }),
+    call("flowly_message_dispatcher", { type: "unknown", input: { groupId: 5, text: "Hi" } }),
+    call("flowly_message_dispatcher", { type: "unknown", input: "nope" }),
+    call("flowly_message_dispatcher", null),
+  ]);
+  expect(others.map((e) => e.item.to)).toEqual([undefined, undefined, undefined, undefined]);
+});

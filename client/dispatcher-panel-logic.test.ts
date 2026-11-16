@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { answersWithText, chatRows, discussAvailable, discussDraft, discussFill, discussIdeaText, displayRows, mergeTimeline, outdatedNotice, replaceOffer } from "./dispatcher-panel-logic";
-import type { ChatItem } from "../shared/dispatcher";
+import { peerMessagePrefix, type ChatItem } from "../shared/dispatcher";
 import { lastOutputRow } from "./session-state";
 import type { TailEntry } from "../shared/session-tail";
 
@@ -181,4 +181,33 @@ test("the dispatcher's answers to another agent collapse, up to the next user me
   expect(kinds(displayRows(mergeTimeline(transcript, []))).filter((k) => k.startsWith("agent-reply"))).toEqual([]);
   expect(kinds(chatRows(transcript, [], { collapseReplies: false })).filter((k) => k.startsWith("agent-reply"))).toEqual([]);
   expect(kinds(chatRows(transcript, [], { collapseReplies: true })).filter((k) => k.startsWith("agent-reply"))).toHaveLength(3);
+});
+
+test("a message from another group's dispatcher is a From row and its answers collapse; a sent one is a To row (DISPATCHER-SPEC §5.5, §9.3)", () => {
+  const peer = entry(2, "user_message", `${peerMessagePrefix({ id: "g2", name: "Clients" })}Can you start a card for the API?\nIt blocks ours.`, 2);
+  const to: TailEntry = { seqStart: 5, seqEnd: 5, timestamp: at(5), item: { type: "tool_call", name: "mcp__flowly-dispatcher__flowly_message_dispatcher", status: "completed", to: { id: "g2", text: "Started it.\nCard link follows." } } };
+  const gone: TailEntry = { seqStart: 6, seqEnd: 6, timestamp: at(6), item: { type: "tool_call", name: "flowly_message_dispatcher", status: "completed", to: { id: "g9", text: "Hello?" } } };
+  const transcript = [entry(1, "assistant_message", "Before.", 1), peer, entry(3, "assistant_message", "Starting it. Done.", 3), entry(4, "user_message", "Thanks", 4), to, gone, entry(7, "assistant_message", "Told them.", 7)];
+  const names: Record<string, string> = { g2: "Client work" };
+  const rows = mergeTimeline(transcript, [], { groupName: (id) => names[id] });
+  // The dispatcher's answer to the peer message is a reply; its message to the user after a user message is not.
+  expect(rows.flatMap((r) => (r.kind === "entry" && r.reply ? [r.entry.seqStart] : []))).toEqual([3]);
+  const shown = displayRows(rows, { collapseReplies: true }).flatMap((r) => (r.kind === "entry" ? [r.entry] : r.kind === "activity" ? r.items : []));
+  const from = shown.find((e) => e.kind === "agent-message")!;
+  // The sender is named from the board's groups (the prefix's name when the group is gone), and the prefix is not shown.
+  expect(from).toMatchObject({ sender: "Client work dispatcher", text: "Can you start a card for the API?\nIt blocks ours." });
+  expect(shown.find((e) => e.text === "Starting it. Done.")?.kind).toBe("agent-reply");
+  const sent = shown.filter((e) => e.kind === "agent-message-to");
+  expect(sent.map((e) => [e.sender, e.text])).toEqual([
+    ["Client work dispatcher", "Started it.\nCard link follows."],
+    // A group no longer on the board: its id.
+    ["g9 dispatcher", "Hello?"],
+  ]);
+  expect(shown.find((e) => e.text === "Told them.")?.kind).toBe("assistant_message");
+  // Without the board's name, the name the prefix carries.
+  const plain = displayRows(mergeTimeline([peer], [])).flatMap((r) => (r.kind === "entry" ? [r.entry] : []));
+  expect(plain[0]).toMatchObject({ kind: "agent-message", sender: "Clients dispatcher" });
+  // An ordinary user message that merely mentions the words is the user's.
+  const user = displayRows(mergeTimeline([entry(1, "user_message", "From the Flowly dispatcher of group Clients, hi", 1)], [])).flatMap((r) => (r.kind === "entry" ? [r.entry] : []));
+  expect(user[0].kind).toBe("user_message");
 });
