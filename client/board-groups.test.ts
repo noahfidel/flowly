@@ -144,6 +144,15 @@ describe("scope predicate", () => {
     expect(otherGroupNeeds(groups, projects, "g2", (scope) => needsCount(withArchived, new Set(["a1:permission"]), scope))).toEqual(new Map());
   });
 
+  // DISPATCHER-SPEC §9.4, Ruling (Noah, 2026-11-16): a group's dispatcher's own asks count on that group's tab.
+  test("other groups' counts add each group's dispatcher asks, by group id", () => {
+    const none = new Set<string>();
+    const waits = new Map([["g1", 1], ["g2", 2]]);
+    const count = (scope: (id: string) => boolean, groupId: string) => needsCount(items, none, scope, waits.get(groupId) ?? 0);
+    expect(otherGroupNeeds(groups, projects, "g1", count)).toEqual(new Map([["g2", 3]]));
+    expect(otherGroupNeeds(groups, projects, "g2", count)).toEqual(new Map([["g1", 2]]));
+  });
+
   // Ruling (Noah, 2026-11-10): the counts and step-throughs show on an unfiltered group board too, over every live
   // member; filtered, over that project. Only the per-project entries need a filter.
   test("unfiltered, the overview covers every live member and shows no per-project entries", () => {

@@ -99,3 +99,22 @@ test("the badge counts what waits on you, not unread turns (need you; Ruling, No
   f.list.mockResolvedValue({ entries: [{ agent: agent("a", finished) }], pageInfo: {} });
   expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 0 });
 });
+
+// DISPATCHER-SPEC §9.4, Ruling (Noah, 2026-11-16): the badge is global, so every group's dispatcher's requests count.
+test("the badge adds each pending request of every group's dispatcher, from the same agent list", async () => {
+  const b = { ...board(), groups: [{ id: "g1" }, { id: "g2" }] } as unknown as Board;
+  const dispatcher = (id: string, group: string, pending: unknown[], extra = {}) =>
+    agent(id, { labels: { "flowly-dispatcher": "1", "flowly-dispatcher-group": group }, pendingPermissions: pending, ...extra });
+  const agents = [
+    agent("a", { pendingPermissions: [{ id: "r1", kind: "tool" }] }),
+    dispatcher("d1", "g1", [{ id: "c1", kind: "tool" }, { id: "c2", kind: "question" }]),
+    dispatcher("d2", "g2", [{ id: "c3", kind: "tool" }]),
+    dispatcher("d3", "g2", [], { status: "closed" }),
+  ];
+  const f = fixture(b, agents);
+  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 4 });
+  expect(f.list).toHaveBeenCalledTimes(1);
+  // A board without groups (or a dispatcher of a deleted group) adds nothing.
+  f.store.read.mockResolvedValue(board());
+  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 1 });
+});

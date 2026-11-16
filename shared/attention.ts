@@ -202,6 +202,30 @@ export function openAskCount(items: readonly AttentionItem[], resolved: Readonly
 
 const noSignals: ReadonlySet<string> = new Set();
 
+/** The label that ties a dispatcher session to its board group (set when the dispatcher is created, DISPATCHER-SPEC §3). */
+export const DISPATCHER_GROUP_LABEL = "flowly-dispatcher-group";
+
+/**
+ * The dispatcher's own asks (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-16): each group's number of pending requests
+ * (permissions and AskUserQuestion requests alike) in its live dispatcher sessions, one need-you item per request as a
+ * card session's `p:` ask is. Only non-archived sessions labelled with a group on the board count; a closed one has none
+ * (Paseo clears them). Groups with none are left out.
+ */
+export function dispatcherWaits(
+  agents: readonly { archivedAt?: string | null; labels?: Readonly<Record<string, string>> | null; pendingPermissions?: readonly unknown[] | null }[],
+  groups: readonly { id: string }[],
+): Map<string, number> {
+  const known = new Set(groups.map((g) => g.id));
+  const waits = new Map<string, number>();
+  for (const agent of agents) {
+    const groupId = agent.labels?.[DISPATCHER_GROUP_LABEL];
+    if (agent.archivedAt || !groupId || !known.has(groupId)) continue;
+    const n = pendingRequests(agent).length;
+    if (n) waits.set(groupId, (waits.get(groupId) ?? 0) + n);
+  }
+  return waits;
+}
+
 /**
  * Whether the card has an open signal in `list` (ATTENTION-DISMISS-SPEC, Card menu): a part of that list not snoozed
  * and not resolved in the chat, or, for Needs you, a review waiting for a person whose list is not snoozed (the review

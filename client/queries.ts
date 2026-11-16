@@ -194,7 +194,9 @@ function openAgentStream(paseo: PaseoApi, client: QueryClient, onReady: () => vo
     },
   };
   void paseo.agents
-    .list({ filter: { includeArchived: false }, page: { limit: 1 }, subscribe: {} })
+    // Background sessions too, as `listAgents` lists them: a dispatcher's pending request reaches the board's need-you
+    // count without waiting for the reconcile (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-16).
+    .list({ filter: { includeArchived: false, includeBackground: true }, page: { limit: 1 }, subscribe: {} })
     .then((result) => {
       release = () => result.subscription.release();
       if (!alive) return void release().catch(() => undefined);

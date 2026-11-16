@@ -52,7 +52,7 @@ import { DispatcherPanel } from "./dispatcher-panel";
 import { LeftDock } from "./left-dock";
 import { lastCollapsed, rememberCollapsed, shownCollapsed } from "./collapsed-columns";
 import { dockShortcut, escAction, toolbarDockButtons } from "./dock-logic";
-import { afterMarkSeen, cardAsks, changeItem, changeSummary, needsCount, needsQueue, stableQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
+import { afterMarkSeen, cardAsks, changeItem, changeSummary, needsCount, needsQueue, needsStartAction, stableQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
 import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
@@ -60,6 +60,7 @@ import {
   attentionItemsWithFacts,
   attentionOpen,
   attentionOpenToken,
+  dispatcherWaits,
   listSignals,
   openInList,
   snoozeMenu,
@@ -951,11 +952,15 @@ function BoardContent(
     setRunningKept((kept) => (sameRunningRows(kept, next) ? kept : next));
   }, [runningOpen, runningShown]);
   const needsIds = useMemo(() => needsQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
-  const needYouCount = useMemo(() => needsCount(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
+  // Each group's dispatcher's own pending requests, from the same live agent list (§9.4; Ruling, Noah 2026-11-16): they
+  // count in that group's need-you numbers, and the shown group's open its chat on N before any card.
+  const dispatcherNeeds = useMemo(() => dispatcherWaits(agents.data ?? noAgents, boardGroups), [agents.data, boardGroups]);
+  const shownDispatcherNeeds = (dispatcherGroupId && dispatcherNeeds.get(dispatcherGroupId)) || 0;
+  const needYouCount = useMemo(() => needsCount(attention, resolvedSignals, stepScope, shownDispatcherNeeds), [attention, resolvedSignals, stepScope, shownDispatcherNeeds]);
   // Every other group's need-you count, on its tab and switcher row (§3; Ruling, Noah 2026-11-11). Only with the groups known.
   const otherNeeds = useMemo(
-    () => otherGroupNeeds(boardGroups, board?.projects || noProjects, group?.id ?? "", (scope) => needsCount(attention, resolvedSignals, scope)),
-    [boardGroups, board?.projects, group?.id, attention, resolvedSignals],
+    () => otherGroupNeeds(boardGroups, board?.projects || noProjects, group?.id ?? "", (scope, groupId) => needsCount(attention, resolvedSignals, scope, dispatcherNeeds.get(groupId) ?? 0)),
+    [boardGroups, board?.projects, group?.id, attention, resolvedSignals, dispatcherNeeds],
   );
   const otherNeedTotal = useMemo(() => [...otherNeeds.values()].reduce((n, x) => n + x, 0), [otherNeeds]);
   const changed = useMemo(() => changeItem(dispatcherItems.data), [dispatcherItems.data]);
@@ -1009,7 +1014,16 @@ function BoardContent(
     // Both queues read the sessions now (updated holds the unread turns).
     if (!projected || !agents.data) return setPendingStep(kind);
     const queue = kind === "updated" ? updatedIds : needsIds;
-    if (!queue.length) return void toast.show(kind === "needs" ? t("Nothing needs your attention.") : t("Nothing new to read."), { variant: "info" });
+    // Need you: a waiting dispatcher (the shown group's) opens its chat first, where its requests are answered; it is
+    // never a step of the card walk (§9.4; Ruling, Noah 2026-11-16).
+    if (kind === "needs") {
+      const action = needsStartAction(shownDispatcherNeeds, step, step?.kind ?? null, queue, taskId || null);
+      if (action?.kind === "dispatcher") return openWaitingDispatcher();
+      if (!action) return void toast.show(t("Nothing needs your attention."), { variant: "info" });
+      if (!action.keep) showStepCard(kind, action.taskId);
+      return;
+    }
+    if (!queue.length) return void toast.show(t("Nothing new to read."), { variant: "info" });
     // Pressing the open step-through's own chip keeps its card and place (it would otherwise restart and mark every
     // chat read); Updates starts on the open card when it counts it, else at its first card.
     const target = stepStartTarget(step, step?.kind ?? null, kind, queue, taskId || null);
@@ -1334,6 +1348,13 @@ function BoardContent(
     } else if (open !== chatOpen) void view.update({ chatMinimized: !open });
   });
   const openDock = useStableCallback(() => setDockOpen(true));
+  // N need you while the shown group's dispatcher waits (§9.4; Ruling, Noah 2026-11-16): the dock on its chat, where its
+  // pending requests show with their actions. The box is not focused, so a phone's keyboard does not cover them.
+  const openWaitingDispatcher = useStableCallback(() => {
+    setMenu(null);
+    dockActive.current = true;
+    setDockOpen(true);
+  });
   // D / the toolbar button opened the dock: the chat focuses its message box (each request is distinct).
   const [chatFocus, setChatFocus] = useState(0);
   // The dock is the active area (Ruling, Noah 2026-11-09): its box gained focus or the user pressed inside it, and nothing
@@ -2235,7 +2256,7 @@ function BoardContent(
               />
             )}
             {/* Opens the dock, or minimizes it when open; a minimized dock leaves nothing else on the board (§9.3; Ruling, Noah 2026-11-09). */}
-            {toolbarButtons.dispatcher && <IconButton icon="Bot" label={withKey(t("Dispatcher"), "D")} active={chatShown} onPress={toggleChat} />}
+            {toolbarButtons.dispatcher && <DispatcherButton label={withKey(t("Dispatcher"), "D")} waits={shownDispatcherNeeds} active={chatShown} onPress={toggleChat} />}
             {toolbarButtons.bell && (
               <AttentionButton count={needYouCount} compact={compact} open={step?.kind === "needs"} shortcut={shortcutsOn ? "N" : ""} onPress={startNeeds} />
             )}
@@ -3123,6 +3144,24 @@ function BoardContent(
     </Theme.Provider>
     </SettingsOpenerContext.Provider>
     </BoardOutputActive.Provider>
+  );
+}
+
+/**
+ * The toolbar's Dispatcher button; while the shown group's dispatcher waits on the user it carries the needs-you dot, as
+ * the group switcher does, and its name says how many (DISPATCHER-SPEC §9.3; Ruling, Noah 2026-11-16).
+ */
+function DispatcherButton({ label, waits, active, onPress }: { label: string; waits: number; active: boolean; onPress(): void }) {
+  const { colors } = useTheme();
+  return (
+    <View>
+      <IconButton icon="Bot" label={needLabel(label, waits)} active={active} onPress={onPress} />
+      {waits > 0 && (
+        <View pointerEvents="none" style={{ position: "absolute", top: 3, right: 3 }}>
+          <Dot size={7} color={stateColors(colors).needsYou} />
+        </View>
+      )}
+    </View>
   );
 }
 

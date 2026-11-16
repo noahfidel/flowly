@@ -5,6 +5,7 @@ import {
   attentionItems,
   attentionOpenToken,
   attentionScreenParams,
+  dispatcherWaits,
 } from "./attention";
 
 const now = "2026-10-14T10:00:00.000Z";
@@ -129,4 +130,30 @@ test("a wrapped-up card's unread turn leaves Updates while its asks stay; reopen
   for (const back of [ev("x", "status_changed", { to: "development" }), ev("x", "workspace_restored")]) {
     expect(attentionItems(board([wrap, back]), unread, [], false)[0]).toMatchObject({ unread: 1 });
   }
+});
+
+// DISPATCHER-SPEC §9.4, Ruling (Noah, 2026-11-16): a dispatcher's own pending requests are need-you items of its group.
+test("a dispatcher's pending requests count once each under its group; archived, unlabelled, unknown-group and card sessions add nothing", () => {
+  const groups = [{ id: "g1" }, { id: "g2" }];
+  const dispatcher = (id: string, group: string | null, pending: unknown[], extra = {}) => ({
+    id,
+    archivedAt: null,
+    status: "idle",
+    labels: { "flowly-dispatcher": "1", ...(group ? { "flowly-dispatcher-group": group } : {}) },
+    pendingPermissions: pending,
+    ...extra,
+  });
+  const agents = [
+    dispatcher("d1", "g1", [{ id: "r1", kind: "tool" }, { id: "r2", kind: "question" }]),
+    dispatcher("d2", "g2", [{ id: "r3", kind: "tool" }]),
+    dispatcher("old", "g2", [{ id: "r4", kind: "tool" }], { archivedAt: now }),
+    dispatcher("v1", null, [{ id: "r5", kind: "tool" }]),
+    dispatcher("gone", "g9", [{ id: "r6", kind: "tool" }]),
+    dispatcher("asleep", "g1", [], { status: "closed" }),
+    dispatcher("bad", "g1", [{}, { id: "" }]),
+    { id: "card", archivedAt: null, labels: {}, pendingPermissions: [{ id: "r7", kind: "tool" }] },
+  ];
+  expect(dispatcherWaits(agents, groups)).toEqual(new Map([["g1", 2], ["g2", 1]]));
+  expect(dispatcherWaits(agents.slice(5), groups)).toEqual(new Map());
+  expect(dispatcherWaits(agents, [])).toEqual(new Map());
 });

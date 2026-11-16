@@ -26,9 +26,12 @@ export function needsQueue(items: readonly AttentionItem[], resolved: ReadonlySe
   return newestFirst(items.filter((item) => inScope(item.task.projectId) && openParts(item, resolved, "needs").length)).map((item) => item.task.id);
 }
 
-/** "N need you": the bell's count (every open ask that waits on you, never unread turns), over the cards in scope. */
-export function needsCount(items: readonly AttentionItem[], resolved: ReadonlySet<string>, inScope: (projectId: string) => boolean): number {
-  return openAskCount(items.filter((item) => inScope(item.task.projectId)), resolved);
+/**
+ * "N need you": the bell's count (every open ask that waits on you, never unread turns), over the cards in scope, plus
+ * `dispatcher`, the pending requests of the scope's group's dispatcher (§9.4; Ruling, Noah 2026-11-16).
+ */
+export function needsCount(items: readonly AttentionItem[], resolved: ReadonlySet<string>, inScope: (projectId: string) => boolean, dispatcher = 0): number {
+  return openAskCount(items.filter((item) => inScope(item.task.projectId)), resolved) + dispatcher;
 }
 
 /**
@@ -106,6 +109,23 @@ export function stepStartTarget(
   if (current && currentKind === kind) return { taskId: current.taskId, keep: true };
   if (kind === "updated" && openTaskId && queue.includes(openTaskId)) return { taskId: openTaskId, keep: false };
   return queue[0] ? { taskId: queue[0], keep: false } : null;
+}
+
+/**
+ * What a "N need you" press does (§9.4; Ruling, Noah 2026-11-16): while the shown group's dispatcher waits on the user
+ * (`dispatcherWaits` > 0) it opens the dispatcher chat, before any card and also while a need-you walk is open; the
+ * dispatcher is never a step of the walk. Otherwise it is `stepStartTarget`'s card. Null: nothing waits.
+ */
+export function needsStartAction(
+  dispatcherWaits: number,
+  current: Step | null,
+  currentKind: StepKind | null,
+  queue: readonly string[],
+  openTaskId: string | null,
+): { kind: "dispatcher" } | { kind: "card"; taskId: string; keep: boolean } | null {
+  if (dispatcherWaits > 0) return { kind: "dispatcher" };
+  const target = stepStartTarget(current, currentKind, "needs", queue, openTaskId);
+  return target ? { kind: "card", ...target } : null;
 }
 
 /**

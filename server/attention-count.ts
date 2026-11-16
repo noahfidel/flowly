@@ -1,7 +1,7 @@
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import type { BoardStore } from "./store";
 import type { SessionReadReceipt } from "../shared/session-attention";
-import { asksFrom, openAsks } from "../shared/attention";
+import { asksFrom, dispatcherWaits, openAsks } from "../shared/attention";
 import { waitsOnYou } from "../shared/attention-dismiss";
 import { isSummarizer } from "../shared/summary";
 
@@ -57,7 +57,8 @@ export class AttentionAgents implements AgentLister {
 /**
  * Keep all board/history/agent decoding on the daemon for the native sidebar. The count is "N need you" (plan Q1):
  * the open asks `asksFrom` lists that wait on you, less those the chat recorded as answered, ended or dismissed
- * (`resolved`). Unread turns are not counted (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09).
+ * (`resolved`). Unread turns are not counted (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). Each pending request of
+ * every group's dispatcher counts too (§9.4; Ruling, Noah 2026-11-16).
  */
 export async function readAttentionCount(
   store: Pick<BoardStore, "read">,
@@ -66,5 +67,9 @@ export async function readAttentionCount(
   options: { agents?: AgentLister; resolved?: ReadonlySet<string> } = {},
 ) {
   const [board, agents, receipts] = await Promise.all([store.read(), options.agents ? options.agents.list(paseo) : listAttentionAgents(paseo), reads.read().catch(() => null)]);
-  return { count: openAsks(asksFrom(board, agents, receipts?.receipts || [], board.attentionDismissals, !receipts), options.resolved).filter((a) => waitsOnYou(a.kind)).length };
+  const cards = openAsks(asksFrom(board, agents, receipts?.receipts || [], board.attentionDismissals, !receipts), options.resolved).filter((a) => waitsOnYou(a.kind)).length;
+  // Every group's dispatcher's own pending requests, from the same list (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-16).
+  let dispatchers = 0;
+  for (const n of dispatcherWaits(agents, board.groups ?? []).values()) dispatchers += n;
+  return { count: cards + dispatchers };
 }

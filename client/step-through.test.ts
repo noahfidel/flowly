@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { Project, Task } from "../shared/model";
 import type { AttentionItem } from "../shared/attention";
 import type { ChatItem } from "../shared/dispatcher";
-import { afterMarkSeen, changeSummary, stableQueue, cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, updatedQueue, type ChangeItem } from "./step-through";
+import { afterMarkSeen, changeSummary, stableQueue, cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, needsStartAction, updatedQueue, type ChangeItem } from "./step-through";
 
 /** The need-you and updated step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). */
 
@@ -202,4 +202,27 @@ test("a changed card's summary reads in plain words", () => {
     ),
   ).toBe("Moved to Committed · New result note · Session finished · New question");
   expect(changeSummary(undefined, t, (s) => s)).toBe("");
+});
+
+// DISPATCHER-SPEC §9.4, Ruling (Noah, 2026-11-16): the shown group's dispatcher's own asks.
+test("the need-you count adds the dispatcher's pending requests; the card queue is unchanged", () => {
+  const items = [card("a", "p", 1), card("b", "p", 2, [{ key: "p:x:r1" }])];
+  expect(needsCount(items, new Set(), inP, 2)).toBe(4);
+  expect(needsCount(items, new Set(), inP)).toBe(2);
+  expect(needsCount([], new Set(), inP, 1)).toBe(1);
+  expect(needsQueue(items, new Set(), inP)).toEqual(["b", "a"]);
+});
+
+test("N need you opens the waiting dispatcher before any card, also while a card walk is open; otherwise it walks the cards", () => {
+  const queue = ["a", "b"];
+  const open = stepAt(queue, "b");
+  expect(needsStartAction(1, null, null, queue, null)).toEqual({ kind: "dispatcher" });
+  expect(needsStartAction(2, open, "needs", queue, "b")).toEqual({ kind: "dispatcher" });
+  expect(needsStartAction(1, null, null, [], null)).toEqual({ kind: "dispatcher" });
+  // Answered: the next press walks the cards as before.
+  expect(needsStartAction(0, null, null, queue, null)).toEqual({ kind: "card", taskId: "a", keep: false });
+  expect(needsStartAction(0, open, "needs", queue, "b")).toEqual({ kind: "card", taskId: "b", keep: true });
+  expect(needsStartAction(0, null, null, [], null)).toBeNull();
+  // The bar's position stays over the cards only.
+  expect(stepPosition(queue, open)).toMatchObject({ index: 1, total: 2 });
 });
