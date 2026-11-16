@@ -140,7 +140,14 @@ export class DispatcherQueueFile {
       return (this.cached = storedQueueSchema.parse(JSON.parse(text)).messages);
     } catch (e) {
       const kept = `${this.path}.invalid-${Date.now()}`;
-      await rename(this.path, kept).catch((error) => logFailure("Flowly dispatcher queue not preserved:", error));
+      try {
+        await rename(this.path, kept);
+      } catch (error) {
+        // Not kept aside: refuse reads and writes rather than overwrite it (AGENTS.md, preserve invalid data). Retried on
+        // the next read.
+        logFailure("Flowly dispatcher queue is invalid and could not be kept aside:", error, this.path);
+        throw new Error("The dispatcher queue file is invalid and could not be kept aside; Flowly leaves it unchanged.");
+      }
       logFailure("Flowly dispatcher queue is invalid; starting empty:", e, kept);
       return (this.cached = []);
     }
@@ -172,8 +179,12 @@ export class DispatcherQueue {
     return (await this.list()).map(({ id, taskId, agentId, text, at }) => ({ id, taskId, agentId, text, at }));
   }
 
-  /** Queues one message for `agentId` (flowly_message_card, §5.3); QUEUE_FULL past the per-session cap. */
-  async enqueue(input: Pick<QueuedMessage, "taskId" | "projectId" | "agentId" | "from" | "text">): Promise<QueuedMessage> {
+  /**
+   * Queues one message for `agentId` (flowly_message_card, §5.3); QUEUE_FULL past the per-session cap. With `paseo`,
+   * the session is checked right after (serialized), so an ask that ended between the tool's read and this write
+   * delivers at once.
+   */
+  async enqueue(input: Pick<QueuedMessage, "taskId" | "projectId" | "agentId" | "from" | "text">, paseo?: PaseoApi): Promise<QueuedMessage> {
     const message: QueuedMessage = { id: randomUUID(), ...input, at: this.now().toISOString() };
     await this.file.update((messages) => {
       const live = messages.filter((m) => !this.sent.has(m.id));
@@ -187,6 +198,7 @@ export class DispatcherQueue {
       return { messages: [...live, message], value: undefined };
     });
     this.schedule();
+    if (paseo) void this.check(input.agentId, paseo).catch((e) => logFailure("Flowly queued dispatcher message not checked:", e, input.agentId));
     return message;
   }
 
@@ -264,6 +276,11 @@ export class DispatcherQueue {
       await this.deliver(queued, paseo);
       return { denied, delivered: queued.length };
     });
+  }
+
+  /** Resolves once every check, delivery or cancel started so far has finished. */
+  async idle(): Promise<void> {
+    await this.chain;
   }
 
   /** Runs sweeps while anything is queued (unref'd); stopped by `stop`. */

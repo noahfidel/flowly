@@ -485,8 +485,10 @@ function TaskDrawerView({
   // read only while one of the card's sessions has an ask open.
   const ownEvents = events.filter((e) => e.taskId === task.id);
   const blockedAgents = liveSessions.filter((a) => openReport(ownEvents, a.id, "blocker")).map((a) => a.id);
-  const queuedQuery = useQueuedMessagesQuery(active && (asking.length > 0 || questions.length > 0 || blockedAgents.length > 0));
-  const queued = queuedQuery.data;
+  const queuedOn = active && (asking.length > 0 || questions.length > 0 || blockedAgents.length > 0);
+  const queuedQuery = useQueuedMessagesQuery(queuedOn);
+  // A disabled query keeps its cached list: once no ask is open, nothing queued is shown (it was delivered or dropped).
+  const queued = queuedOn ? queuedQuery.data : undefined;
   // Blockers have no banner of their own here; a session with queued messages and no question or request shows them alone.
   const queuedAlone = [...new Set((queued ?? []).filter((m) => m.taskId === task.id).map((m) => m.agentId))].filter(
     (agentId) => !questions.some((q) => q.agentId === agentId) && !asking.some((a) => a.id === agentId) && liveSessions.some((a) => a.id === agentId),

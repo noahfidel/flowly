@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dispatcherMessagePrefix } from "../shared/dispatcher";
@@ -31,4 +31,21 @@ test("a corrupt queue file is kept aside and the queue starts empty (DISPATCHER-
   // An invalid write is refused and changes nothing.
   await expect(file.update((messages) => ({ messages: [...messages, { ...message, text: "" }], value: undefined }))).rejects.toThrow();
   expect(await new DispatcherQueueFile(folder).list()).toEqual([message]);
+});
+
+test("a corrupt queue file that can't be kept aside refuses reads and writes, never overwritten (DISPATCHER-SPEC §5.3)", async () => {
+  const folder = await mkdtemp(join(tmpdir(), "flowly-queue-"));
+  folders.push(folder);
+  const path = join(folder, "dispatcher-queue.json");
+  await writeFile(path, "{ not json");
+  // A folder that can't be written: the rename aside fails.
+  await chmod(folder, 0o500);
+  try {
+    const file = new DispatcherQueueFile(folder);
+    await expect(file.list()).rejects.toThrow();
+    await expect(file.update((messages) => ({ messages, value: undefined }))).rejects.toThrow();
+    expect(await readFile(path, "utf8")).toBe("{ not json");
+  } finally {
+    await chmod(folder, 0o700);
+  }
 });

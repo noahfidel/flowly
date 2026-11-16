@@ -58,6 +58,7 @@ import type { CardStarter } from "./start-card";
 import type { BoardStore } from "./store";
 import type { DispatcherIdentity } from "./tool-context";
 import { checkGroup, ToolError, toolResult } from "./tool-error";
+import { logFailure } from "./error-report";
 
 /** The dispatcher's cross-project tools and their caller check (DISPATCHER-SPEC §4–5). */
 
@@ -435,7 +436,10 @@ export class DispatcherTools {
     // Never sidestep a request: while a pending permission or question, or an open question or blocker report, waits on
     // the user, the message is queued and delivered once the user resolved it (ruling, Noah 2026-11-16).
     const waiting = waitingOn(board, task.id, target);
-    if (waiting) return this.queueMessage(caller.agentId, task, target.id, input.text, waiting);
+    // Older messages still queued for it (an ask that ended without a hook yet, or a failed delivery): this one goes
+    // behind them, merged in order, never ahead.
+    const backlog = !waiting && (await this.queuedFor(target.id));
+    if (waiting || backlog) return this.queueMessage(caller.agentId, task, target.id, input.text, waiting, paseo);
     const release = this.reserveMessage(caller.agentId);
     try {
       // Steered, like the dock's chat: a send without it interrupts a turn and answers pending permissions (§5.3).
@@ -447,17 +451,50 @@ export class DispatcherTools {
     return { sent: true as const, sessionId: target.id };
   }
 
-  /** Queues a message for a session that waits on the user; it takes its MESSAGE_LIMIT slot now, never again on delivery (§5.3). */
-  private async queueMessage(from: string, task: { id: string; projectId: string }, agentId: string, text: string, waiting: "permission" | "question" | "blocker") {
+  /** Whether anything is queued for the session; an unreadable queue counts as empty (it has nothing to deliver). */
+  private async queuedFor(agentId: string) {
+    if (!this.queue) return false;
+    try {
+      return (await this.queue.list()).some((m) => m.agentId === agentId);
+    } catch (e) {
+      logFailure("Flowly dispatcher queue not read:", e, agentId);
+      return false;
+    }
+  }
+
+  /**
+   * Queues a message for a session that waits on the user, or that still has older queued messages; it takes its
+   * MESSAGE_LIMIT slot now, never again on delivery (§5.3).
+   */
+  private async queueMessage(
+    from: string,
+    task: { id: string; projectId: string },
+    agentId: string,
+    text: string,
+    waiting: "permission" | "question" | "blocker" | null,
+    paseo: PaseoApi,
+  ) {
     const queue = this.queue;
     if (!queue) throw new ToolError("PASEO_UNAVAILABLE", "Flowly is still starting; try again in a moment.", true);
     const release = this.reserveMessage(from);
     try {
-      await queue.enqueue({ taskId: task.id, projectId: task.projectId, agentId, from, text });
+      // Waiting: checked right after the write, in the background (§5.3). Not waiting: checked below, now.
+      await queue.enqueue({ taskId: task.id, projectId: task.projectId, agentId, from, text }, waiting ? paseo : undefined);
     } catch (e) {
       release();
       if (e instanceof ToolError) throw e;
       throw new ToolError("QUEUE_FAILED", `Flowly could not queue the message: ${e instanceof Error ? e.message : String(e)}`, true);
+    }
+    if (!waiting) {
+      // Free session: the backlog and this message go out now, merged in order, unless the delivery fails again.
+      await queue.check(agentId, paseo).catch((e) => logFailure("Flowly queued dispatcher message not checked:", e, agentId));
+      if (!(await this.queuedFor(agentId))) return { sent: true as const, sessionId: agentId };
+      return {
+        sent: false as const,
+        queued: true as const,
+        sessionId: agentId,
+        note: "Queued, not sent yet: earlier messages to this session are still queued, and Flowly delivers them with yours, in order, at its next try. Don't send it again.",
+      };
     }
     const what = waiting === "permission" ? "a permission request" : waiting === "question" ? "a question" : "a blocker";
     return {

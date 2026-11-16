@@ -63,7 +63,10 @@ export function StepThroughBar({
 }) {
   const { colors } = useTheme();
   // Dispatcher messages queued for an asking session (DISPATCHER-SPEC §5.3): read only while asks are pinned here.
-  const queued = useQueuedMessagesQuery(kind === "needs" && asks.some((a) => a.state === "open"));
+  const queuedOn = kind === "needs" && asks.some((a) => a.state === "open");
+  const queuedQuery = useQueuedMessagesQuery(queuedOn);
+  // A disabled query keeps its cached list: without an open ask nothing queued is shown.
+  const queued = queuedOn ? queuedQuery.data : undefined;
   const bar = stepBarState(kind, position);
   const title = kind === "needs" ? t("Needs you") : t("Updates");
   const where =
@@ -106,7 +109,7 @@ export function StepThroughBar({
         ) : asks.length ? (
           <ScrollView {...verticalScroll} style={{ maxHeight: 320 }} contentContainerStyle={{ ...verticalContent, paddingHorizontal: space[3], paddingBottom: space[3], gap: space[2] }}>
             {asks.map((ask) => (
-              <AskRow key={ask.signal} item={ask} focused={false} onOpenCard={onOpenCard} onChanged={onChanged} queued={queuedFor(queued.data, ask.taskId, ask.agentId)} />
+              <AskRow key={ask.signal} item={ask} focused={false} onOpenCard={onOpenCard} onChanged={onChanged} queued={queuedFor(queued, ask.taskId, ask.agentId)} />
             ))}
           </ScrollView>
         ) : null

@@ -1256,43 +1256,48 @@ const turnStarted = (id: string, at: string, agentId = "s1") => ({ id, taskId: "
 test("flowly_message_card queues, never sends or answers, while the session waits on the user (DISPATCHER-SPEC §5.3; ruling, Noah 2026-11-16)", async () => {
   const x = await withSessions();
   const queue = x.server.dispatcherQueue;
-  // A pending question or permission: queued, nothing sent, nothing answered.
-  x.agents.s1.pendingPermissions = [{ id: "req-1", kind: "question", name: "AskUserQuestion", input: {} }];
-  const queued = await x.message({ text: " new scope " });
-  expect(code(queued)).toBeUndefined();
-  expect(queued.structuredContent).toMatchObject({ sent: false, queued: true, sessionId: "s1", waitingOn: "question" });
-  expect(queued.structuredContent.note).toMatch(/queued/i);
-  x.agents.s1.pendingPermissions = [{ id: "req-2", kind: "tool", name: "Bash", input: {} }];
-  expect((await x.message({})).structuredContent).toMatchObject({ queued: true, waitingOn: "permission" });
-  x.agents.s1.pendingPermissions = [];
+  /** Queues while waiting (nothing sent or answered, even after the check that follows the write), then delivers once the ask is gone. */
+  const waitsThenDelivers = async (name: string, waitingOn: string, wait: () => Promise<unknown>, end: () => Promise<unknown>) => {
+    await wait();
+    const before = x.sent.length;
+    const queued = await x.message({ text: ` ${name} ` });
+    expect(code(queued), name).toBeUndefined();
+    expect(queued.structuredContent, name).toMatchObject({ sent: false, queued: true, sessionId: "s1", waitingOn });
+    expect(queued.structuredContent.note, name).toMatch(/queued/i);
+    await queue.idle();
+    expect(x.sent.length, name).toBe(before);
+    expect((await queue.list()).map((m) => [m.agentId, m.taskId, m.text]), name).toEqual([["s1", "q1", name]]);
+    await end();
+    await queue.check("s1", x.paseo);
+    expect(x.sent.length, name).toBe(before + 1);
+    expect(x.sent.at(-1)!.text, name).toContain(name);
+  };
+  const pending = (p: unknown[]) => async () => (x.agents.s1.pendingPermissions = p);
+  await waitsThenDelivers("ask", "question", pending([{ id: "req-1", kind: "question", name: "AskUserQuestion", input: {} }]), pending([]));
+  await waitsThenDelivers("approval", "permission", pending([{ id: "req-2", kind: "tool", name: "Bash", input: {} }]), pending([]));
   // An open question or blocker report, until the session's next turn starts.
-  for (const [n, kind] of ["question", "blocker"].entries()) {
-    await x.store.mutate((board) => {
-      board.events.push(reportEvent(`e-${kind}`, kind, `2026-11-08T1${n * 2 + 1}:00:00.000Z`) as never);
-    });
-    expect((await x.message({})).structuredContent, kind).toMatchObject({ queued: true, waitingOn: kind });
-    await x.store.mutate((board) => {
-      board.events.push(turnStarted(`t-${kind}`, `2026-11-08T1${n * 2 + 2}:00:00.000Z`) as never);
-    });
-  }
-  expect(x.sent).toEqual([]);
+  for (const [n, kind] of ["question", "blocker"].entries())
+    await waitsThenDelivers(
+      `report ${kind}`,
+      kind,
+      () =>
+        x.store.mutate((board) => {
+          board.events.push(reportEvent(`e-${kind}`, kind, `2026-11-08T1${n * 2 + 1}:00:00.000Z`) as never);
+        }),
+      () =>
+        x.store.mutate((board) => {
+          board.events.push(turnStarted(`t-${kind}`, `2026-11-08T1${n * 2 + 2}:00:00.000Z`) as never);
+        }),
+    );
   expect(x.responded).toEqual([]);
-  const stored = await queue.list();
-  expect(stored.map((m) => [m.agentId, m.taskId, m.text])).toEqual([
-    ["s1", "q1", "new scope"],
-    ["s1", "q1", "integrate"],
-    ["s1", "q1", "integrate"],
-    ["s1", "q1", "integrate"],
-  ]);
-  // Each queued message took one of the hour's 30 slots.
+  // Each queued message took one of the hour's 30 slots, and only that one.
   expect(x.server.dispatcherTools["messageSlots"].get("disp")?.length).toBe(4);
   // Another session of the card that waits does not block a named, free one; its message is queued for it alone.
   x.agents.s2 = { id: "s2", workspaceId: "w-q1", status: "idle", archivedAt: null, pendingPermissions: [{ id: "r", kind: "tool", name: "Bash", input: {} }] };
   expect((await x.message({ sessionId: "s2" })).structuredContent).toMatchObject({ queued: true, sessionId: "s2" });
-  // s1's reports are closed now, so its own queue is delivered on the next check, and a new message is sent at once.
-  await queue.check("s1", x.paseo);
   expect((await x.message({ sessionId: "s1" })).structuredContent).toEqual({ sent: true, sessionId: "s1" });
-  expect(x.sent.map((m) => m.id)).toEqual(["s1", "s1"]);
+  await queue.idle();
+  expect(x.sent.map((m) => m.id)).toEqual(["s1", "s1", "s1", "s1", "s1"]);
   expect((await queue.list()).map((m) => m.agentId)).toEqual(["s2"]);
   expect(x.responded).toEqual([]);
 });
@@ -1833,4 +1838,34 @@ test("the dispatcher's card tools accept linearTicket (LINEAR-TICKET-SPEC §5)",
   expect(dispatcherInputs.createCard.parse({ projectId: "p", title: "Audit", idempotencyKey: "k1", linearTicket: false })).toMatchObject({ linearTicket: false });
   expect(dispatcherInputs.updateCard.parse({ projectId: "p", taskId: "t", revision: 1, linearTicket: true })).toMatchObject({ linearTicket: true });
   expect(dispatcherInputs.updateCard.parse({ projectId: "p", taskId: "t", revision: 1, linearTicket: null })).toMatchObject({ linearTicket: null });
+});
+
+test("a new message to a free session with older ones still queued goes out merged after them, not ahead (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  const queue = x.server.dispatcherQueue;
+  x.agents.s1.pendingPermissions = [{ id: "req-1", kind: "tool", name: "Bash", input: {} }];
+  // An earlier send failed: the first message stays queued after the ask ended.
+  x.failSend(true);
+  await x.message({ text: "older" });
+  x.agents.s1.pendingPermissions = [];
+  await queue.check("s1", x.paseo);
+  expect((await queue.list()).map((m) => m.text)).toEqual(["older"]);
+  x.failSend(false);
+  const result = await x.message({ text: "newer" });
+  expect(code(result)).toBeUndefined();
+  expect(result.structuredContent).toMatchObject({ sent: true, sessionId: "s1" });
+  expect(x.sent).toHaveLength(1);
+  expect(x.sent[0].text.indexOf("older")).toBeGreaterThan(0);
+  expect(x.sent[0].text.indexOf("newer")).toBeGreaterThan(x.sent[0].text.indexOf("older"));
+  expect(await queue.list()).toEqual([]);
+});
+
+test("a message queued after the ask ended between the read and the write is checked at once (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  const queue = x.server.dispatcherQueue;
+  // The tool read a waiting session; by the queue write the ask is gone.
+  await queue.enqueue({ taskId: "q1", projectId: "q", agentId: "s1", from: "disp", text: "raced" }, x.paseo);
+  await queue.idle();
+  expect(x.sent.map((m) => m.text)).toEqual([expect.stringContaining("raced")]);
+  expect(await queue.list()).toEqual([]);
 });
