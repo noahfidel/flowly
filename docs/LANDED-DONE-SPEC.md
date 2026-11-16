@@ -52,26 +52,26 @@ The paseo-linked-prs workspace map is not used. Its `mentioned` list holds every
 
 ### 3.2 A PR whose head is the card's branch
 
-This source applies only to a worktree card (the card's workspace directory is a git worktree and the card has a `baseRef`) that has no PR output. Its branch is the branch checked out in the workspace directory; a detached HEAD skips this source and §3.3. Flowly runs `gh pr list --head <branch> --state all --json number,state,url,mergedAt --limit 5` in that directory, as an argument array with no shell.
+This source applies only to a worktree card (the card's workspace directory is a git worktree and the card has a `baseRef`) that has no PR output. Its branch is the branch checked out in the workspace directory; a detached HEAD skips this source and §3.3. Flowly runs `gh pr list --head <branch> --state all --json number,state,url,mergedAt,headRefOid,isCrossRepository --limit 5` in that directory, as an argument array with no shell.
 
-- If any listed PR is merged, the card moves to Done.
+- If a listed PR is merged, is not cross-repository, and its `headRefOid` equals the worktree's `HEAD`, the card moves to Done. Branch names are reused (a follow-up card for the same ticket gets the same branch name), so a matching name alone does not count: the PR must carry exactly this card's head commit. If the card kept committing after its PR merged, this source does not move it.
 - If none is merged, the card is not moved by this source, and §3.3 still runs. A closed PR found this way gets no R4 note, because the card never claimed it.
 - If the lookup fails, Flowly goes on to §3.3.
 
 ### 3.3 The ancestor check
 
-This source applies only to a worktree card with a `baseRef` (R6), when §3.2 found no merged PR. With `base` = `baseRef` minus `refs/heads/`, all of the following must hold:
+This source applies only to a worktree card with a `baseRef` (R6), when §3.2 found no merged PR. With `base` = `baseRef` minus `refs/heads/` (a `baseRef` that still starts with `refs/` after that, such as a tag, gets no check), all of the following must hold:
 
-1. The workspace has no uncommitted changes (`git status --porcelain` is empty). Work that isn't committed hasn't landed.
-2. The branch has moved since the worktree was created: the oldest entry of `git reflog show <branch>` names a different commit than `HEAD`. A worktree with no commits of its own is trivially an ancestor of its base, so it must not count. With no reflog, the check is skipped and the card is left alone.
-3. `git fetch origin <base>` succeeds.
+1. The workspace has no uncommitted changes (`git --no-optional-locks status --porcelain` is empty). Work that isn't committed hasn't landed.
+2. The card made at least one commit of its own: the branch's reflog (`git reflog show --format=%gs refs/heads/<branch>`) has an entry starting with `commit` (`commit:`, `commit (amend):`, `commit (merge):` and so on). A worktree with no commits of its own is trivially an ancestor of its base, including after a fast-forward pull or a reset to the base, so it must not count. With no reflog, the check is skipped and the card is left alone.
+3. `git fetch origin +refs/heads/<base>:refs/remotes/origin/<base>` succeeds. The refspec is explicit, so a narrow fetch configuration still updates the tracking ref. It runs with auto-gc and maintenance off and with no prompts (`GIT_TERMINAL_PROMPT=0`, SSH in batch mode).
 4. `git merge-base --is-ancestor HEAD origin/<base>` exits 0.
 
 When all four hold, the card moves to Done. A non-zero exit at step 4 leaves the card unchanged. A git failure at any step also leaves it unchanged and counts as unknown.
 
 ## 4. Moving to Done
 
-Inside one store transaction, Flowly reads the card again. It leaves the card alone if the card was archived, left the R2 lanes, moved to another workspace, or (for §3.1) its single PR changed since the check read it. Otherwise it moves the card to Done the way a person's move to Done does: the status, the revision and the `status_changed` event, with `actor: "system"` and the note "Moved to Done: PR merged (`owner/repo#n`)" or "Moved to Done: work landed on `<base>`". Everything the daemon runs after any move into Done runs here too (`afterStatus`: the project memory review, guardrails, and *Auto wrap up*, MULTITASK-SPEC). The wrap-up question is not asked: the client asks it only after its own move, so a daemon move has no client to ask it. The card's Wrap up action stays available. The card is not archived.
+Just before writing, Flowly reads the running sessions of that card's workspace again (R3), because the check's earlier snapshot can be minutes old. Then, inside one store transaction, it reads the card again. It leaves the card alone if the card was archived, its status or revision changed since the check read it, it left the R2 lanes, moved to another workspace, or (for §3.1) its single PR changed since the check read it. Otherwise it moves the card to Done the way a person's move to Done does: the status, the revision and the `status_changed` event, with `actor: "system"` and the note "Moved to Done: PR merged (`owner/repo#n`)" or "Moved to Done: work landed on `<base>`". Everything the daemon runs after any move into Done runs here too (`afterStatus`: the project memory review, guardrails, and *Auto wrap up*, MULTITASK-SPEC). The wrap-up question is not asked: the client asks it only after its own move, so a daemon move has no client to ask it. The card's Wrap up action stays available. The card is not archived.
 
 The R4 note is a `note` event with `actor: "system"` on the card. Before writing one, Flowly looks through the card's activity for the same note and writes nothing if it is already there. A restart therefore never repeats it.
 
@@ -93,7 +93,9 @@ One check builds one list: the review-card candidates (PR-REVIEW-CARDS-SPEC §10
 - With the switch on, a card in In review, Committed or Integrated whose single PR output is merged moves to Done at the next check, with the note "Moved to Done: PR merged (…)". An open PR changes nothing.
 - A closed PR adds one "PR closed without merging" note. A second check, or a check after a restart, adds no second note. The card stays in its lane.
 - A worktree card with no PR output, no uncommitted changes, a branch that has moved since creation, and `HEAD` an ancestor of `origin/<base>` moves to Done with "Moved to Done: work landed on <base>". A fresh worktree with no commits of its own, a card with uncommitted changes, and a card whose head isn't on the remote base all stay.
-- A worktree card whose branch is the head of a merged PR moves to Done.
+- A worktree card whose branch is the head of a merged PR moves to Done. A merged PR on a branch of the same name whose head commit isn't the card's `HEAD`, or that comes from another repository, does not count.
+- A worktree with no commits of its own stays, even after a fast-forward pull or `reset --hard` to the base.
+- A session that starts on the card's workspace during a check, or a change to the card's status or revision during a check, keeps the card where it is.
 - These cards stay: a card in Todo, Design, Development, Test or Blocked; a card whose workspace has a running session; a card with two distinct PR outputs; a directory card with no PR output; a card where neither source can read the state.
 - With the switch off, no normal card moves, and review cards still archive (and the reverse when only the review switch is off).
 - Review cards and normal cards share one check and one 20-lookup cap.
