@@ -587,8 +587,13 @@ export class BoardService {
         });
         workspaceId = created.id;
         // A branch made from a remote base never tracks it (START-CARD-SPEC §4.1).
-        if (baseRef && remoteBase(baseRef))
-          await dropUpstream((await paseo.workspaces.ref(created.id).refresh().catch(() => null))?.workspaceDirectory);
+        if (baseRef && remoteBase(baseRef)) {
+          const made = await paseo.workspaces.ref(created.id).refresh().catch((e: unknown) => {
+            logFailure("Flowly worktree not checked for an upstream:", e, `worktree ${created.id}`);
+            return null;
+          });
+          await dropUpstream(made?.workspaceDirectory, baseRef);
+        }
       }
       const id = workspaceId!;
       try {

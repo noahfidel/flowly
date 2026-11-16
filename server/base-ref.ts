@@ -5,7 +5,7 @@ import { logFailure } from "./error-report";
 
 const execute = promisify(execFile);
 /** How long the base branch fetch may take before Flowly branches off the last fetched ref. */
-export const BASE_FETCH_TIMEOUT_MS = 30_000;
+export const BASE_FETCH_TIMEOUT_MS = 15_000;
 
 const git = async (cwd: string, args: string[], timeout = 10_000) =>
   (await execute("git", ["-C", cwd, ...args], { timeout, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } })).stdout;
@@ -46,24 +46,32 @@ async function remoteBranchOf(root: string, ref: string) {
  * A remote-tracking base is fetched first; when the fetch fails the last fetched ref is used and the failure logged.
  * Throws only when the chosen base does not exist (never fetched and the fetch failed, or a wrong name).
  */
-export async function projectWorktreeBase(root: string, projectBaseRef: string | undefined, requested: string): Promise<string> {
+export async function projectWorktreeBase(root: string, projectBaseRef: string | undefined, requested: string, fetchTimeoutMs = BASE_FETCH_TIMEOUT_MS): Promise<string> {
   const explicit = requested.trim() === "HEAD" ? "" : requested.trim();
   const chosen = explicit || baseRefValue(projectBaseRef ?? "");
   if (!chosen) return resolveWorktreeBaseRef(root, "");
   if (chosen.startsWith("-")) throw new Error(`Base branch ${chosen} is not a valid branch name.`);
   const remote = await remoteBranchOf(root, chosen);
-  if (!remote) {
-    // As before for an explicit ref: Paseo resolves it. The project's own setting is checked here, for a clear error.
-    if (explicit) return explicit;
-    const found = await git(root, ["rev-parse", "--verify", "--quiet", `${chosen}^{commit}`]).then(
-      () => true,
-      () => false,
-    );
-    if (!found) throw new Error(`The project's base branch ${chosen} was not found. Fix it in the project's settings, or leave it empty to use the main checkout's current branch.`);
-    return chosen;
+  if (remote) return fetchedRemoteBase(root, remote, chosen, fetchTimeoutMs);
+  // As before for an explicit ref: Paseo resolves it. The project's own setting is checked here, for a clear error.
+  if (explicit) return explicit;
+  const found = await git(root, ["rev-parse", "--verify", "--quiet", `${chosen}^{commit}`]).then(
+    () => true,
+    () => false,
+  );
+  if (found) return chosen;
+  // A short name (`dev`) that is not local but exists on origin counts as `origin/dev`.
+  const short = chosen.startsWith("refs/") ? null : await remoteBranchOf(root, `origin/${chosen}`);
+  if (short) {
+    const qualified = await fetchedRemoteBase(root, short, chosen, fetchTimeoutMs).catch(() => null);
+    if (qualified) return qualified;
   }
+  throw new Error(`The project's base branch ${chosen} was not found. Fix it in the project's settings, or leave it empty to use the main checkout's current branch.`);
+}
+
+async function fetchedRemoteBase(root: string, remote: { remote: string; branch: string; qualified: string }, chosen: string, timeoutMs: number) {
   try {
-    await git(root, ["fetch", "--quiet", remote.remote, `+refs/heads/${remote.branch}:${remote.qualified}`], BASE_FETCH_TIMEOUT_MS);
+    await git(root, ["fetch", "--quiet", remote.remote, `+refs/heads/${remote.branch}:${remote.qualified}`], timeoutMs);
   } catch (e) {
     logFailure("Flowly worktree base fetch failed; branching off the last fetched ref:", e, `${root} ${remote.qualified}`);
   }
@@ -80,17 +88,17 @@ export async function projectWorktreeBase(root: string, projectBaseRef: string |
 export const remoteBase = (ref: string) => ref.startsWith("refs/remotes/");
 
 /**
- * Removes the upstream of the branch checked out in `directory`, if it has one (START-CARD-SPEC §4.1): a branch made
- * from a remote base must not push to it. Paseo already passes `--no-track`; this guards against other versions and
- * `branch.autoSetupMerge=always`. Never throws.
+ * Removes the upstream of the branch checked out in `directory` when it is `baseRef` (START-CARD-SPEC §4.1): a branch
+ * made from a remote base must not push to it. Paseo already passes `--no-track`; this guards against other versions
+ * and `branch.autoSetupMerge=always`. Any other upstream (the branch's own pushed remote) is left alone. Never throws.
  */
-export async function dropUpstream(directory: string | null | undefined) {
+export async function dropUpstream(directory: string | null | undefined, baseRef: string) {
   if (!directory) return;
-  const upstream = await git(directory, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).then(
+  const upstream = await git(directory, ["rev-parse", "--symbolic-full-name", "@{u}"]).then(
     (out) => out.trim(),
     () => "",
   );
-  if (!upstream) return;
+  if (!upstream || upstream !== baseRef) return;
   try {
     await git(directory, ["branch", "--unset-upstream"]);
   } catch (e) {

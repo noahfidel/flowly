@@ -323,7 +323,7 @@ export class CardStarter {
     if (!made || made.archivingAt)
       throw new ToolError("START_FAILED", `Paseo returned worktree workspace ${created.id} for this idempotencyKey, but it is archived or gone; the card was not moved. Use a new idempotencyKey.`);
     // A branch made from a remote base never tracks it (§4.1).
-    if (request.source.action === "branch-off" && remoteBase(request.source.refName)) await dropUpstream(made.workspaceDirectory);
+    if (request.source.action === "branch-off" && remoteBase(request.source.refName)) await dropUpstream(made.workspaceDirectory, request.source.refName);
     // A session started in the directory workspace meanwhile (the drawer's Start session) keeps the card there (§4.2).
     const meanwhile = await workspaceSessions(paseo, old, true).catch((e: unknown) => e);
     if (!Array.isArray(meanwhile)) {

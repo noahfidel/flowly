@@ -344,7 +344,7 @@ export class SessionInsightService {
         idempotencyKey: `flowly-session-idea:${idea.id}`,
         source: { kind: "worktree", cwd: directory, projectId: workspace.projectId, action: "branch-off", refName: baseRef, branchName: generatedBranchName(idea.title, idea.id) },
       });
-      if (remoteBase(baseRef)) await dropUpstream((await paseo.workspaces.ref(created.id).refresh().catch(() => null))?.workspaceDirectory);
+      if (remoteBase(baseRef)) await dropUpstream((await paseo.workspaces.ref(created.id).refresh().catch(() => null))?.workspaceDirectory, baseRef);
       // As a card's worktree: the workspace first, then its session.
       const started = await paseo.workspaces.ref(created.id).agents.create({ config, title: idea.title.slice(0, 120), prompt: instruction });
       adopted = { target: "workspace", workspaceId: created.id, agentId: started.id };
