@@ -15,6 +15,8 @@ import {
   type PrState,
   type PrTarget,
 } from "./pr-review-archive";
+import { landCandidate } from "./landed-done";
+import { archiveCandidate } from "./pr-review-archive";
 import { refKey } from "./connectors/service";
 import type { Status, Task } from "../shared/model";
 import type { Connection, ExternalRef } from "../shared/connectors";
@@ -252,4 +254,22 @@ test("PR state sources: connector first, then gh; neither known is null", async 
   expect(await firstKnown(none, gh(JSON.stringify({ state: "CLOSED" })))(pr)).toBe("closed");
   expect(await firstKnown(async () => "merged", gh(new Error("unused")))(pr)).toBe("merged");
   expect(await firstKnown(none, gh(new Error("gh: command not found")))(pr)).toBeNull();
+});
+
+test("landCandidate takes an ordinary card in any open lane and not Todo, Backlog, Done or Cancelled; a PR review card is still In review only", () => {
+  const task = (status: Status, review = false) =>
+    ({
+      id: "t",
+      projectId: "p",
+      status,
+      operationId: review ? "pr-review:agent-t" : "op-t",
+      archivedAt: null,
+      ...(review ? { prRef: "acme/widgets#1" } : {}),
+    }) as Task;
+  const pr = [{ id: "a", taskId: "t", role: "output", kind: "url", target: "https://github.com/acme/widgets/pull/1" }] as never;
+  for (const s of ["design", "development", "test", "blocked", "in_review", "committed", "integrated"] as Status[]) expect(landCandidate(task(s), pr), s).toBe(true);
+  for (const s of ["todo", "backlog", "done", "cancelled"] as Status[]) expect(landCandidate(task(s), pr), s).toBe(false);
+  expect(landCandidate(task("development", true), pr)).toBe(false);
+  expect(archiveCandidate(task("development", true))).toBe(false);
+  expect(archiveCandidate(task("in_review", true))).toBe(true);
 });

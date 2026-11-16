@@ -7,6 +7,7 @@ import type { PaseoApi } from "@getpaseo/client";
 import { BoardStore } from "./store";
 import { PrReviewArchiver, archiveLookupsPerTick, type PrState, type PrTarget } from "./pr-review-archive";
 import { ancestorLanded, baseBranch, cardPrOutputs, ghHeadPrMerged, runGit, type GitRun, type RunIn } from "./landed-done";
+import { factsFromCommit, isStop } from "./event-bus";
 import type { Artifact, Status, Task } from "../shared/model";
 
 // Moving a card to Done when its work lands (LANDED-DONE-SPEC). Made-up repositories and PRs only; the git
@@ -98,10 +99,14 @@ async function fixture(
     });
   });
   const running = new Set<string>();
+  const idle = new Set<string>();
   const paseo = {
     agents: {
       list: async () => ({
-        entries: [...running].map((workspaceId, i) => ({ agent: { id: `a${i}`, workspaceId, status: "running", archivedAt: null } })),
+        entries: [
+          ...[...running].map((workspaceId, i) => ({ agent: { id: `a${i}`, workspaceId, status: "running", archivedAt: null } })),
+          ...[...idle].map((workspaceId, i) => ({ agent: { id: `i${i}`, workspaceId, status: "idle", archivedAt: null } })),
+        ],
         pageInfo: { nextCursor: null },
       }),
     },
@@ -134,7 +139,7 @@ async function fixture(
   archiver.afterDone = (taskId, previous) => afterDone.push({ taskId, previous });
   const card = async (id: string) => (await store.read()).tasks.find((t) => t.id === id)!;
   const events = async (id: string) => (await store.read()).events.filter((e) => e.taskId === id);
-  return { store, archiver, running, looked, logs, switches, ghCalls, afterDone, card, events, paseo, lookup };
+  return { store, archiver, running, idle, looked, logs, switches, ghCalls, afterDone, card, events, paseo, lookup };
 }
 
 /**
@@ -220,6 +225,56 @@ test("a card whose single PR output is merged moves to Done with a system note; 
   expect(await x.events("o")).toEqual([]);
 });
 
+test("cards in Design, Development, Test and Blocked move to Done when their PR merged; an idle session does not block, a running one does", async () => {
+  const open: Status[] = ["design", "development", "test", "blocked"];
+  const x = await fixture(
+    [
+      ...open.map((status, i) => ({ id: status, status, outputs: [{ url: `https://github.com/acme/widgets/pull/${i + 50}` }] })),
+      { id: "busy", status: "development", outputs: [{ url: "https://github.com/acme/widgets/pull/60" }] },
+    ],
+    { states: Object.fromEntries([...open.map((_, i) => [`acme/widgets#${i + 50}`, "merged"]), ["acme/widgets#60", "merged"]]) },
+  );
+  x.idle.add("w-development");
+  x.running.add("w-busy");
+  const out = await x.archiver.tick();
+  expect(out).toHaveLength(4);
+  for (const [i, status] of open.entries()) {
+    expect((await x.card(status)).status).toBe("done");
+    expect((await x.events(status)).at(-1)).toMatchObject({ action: "status_changed", actor: "system", from: status, to: "done", note: `Moved to Done: PR merged (acme/widgets#${i + 50})` });
+  }
+  expect(x.afterDone).toEqual(expect.arrayContaining(open.map((status) => ({ taskId: status, previous: status }))));
+  expect(x.afterDone).toHaveLength(4);
+  const busy = await x.card("busy");
+  expect(busy.status).toBe("development");
+  expect(busy.revision).toBe(1);
+});
+
+test("a Development worktree card without a PR output moves when its branch heads a merged PR or landed on origin/main", async () => {
+  const viaPr = await repo({ commits: 1 });
+  const viaGit = await repo({ commits: 1, pushed: true });
+  const x = await fixture(
+    [
+      { id: "pr", status: "development", baseRef: "refs/heads/main" },
+      { id: "git", status: "development", baseRef: "refs/heads/main" },
+    ],
+    { where: { "w-pr": { directory: viaPr, worktree: true }, "w-git": { directory: viaGit, worktree: true } } },
+  );
+  x.archiver.gh = async (_file, _args, cwd) => (cwd === viaPr ? merged(77, sh(viaPr, "rev-parse", "HEAD")) : "[]");
+  await x.archiver.tick();
+  expect((await x.events("pr")).at(-1)).toMatchObject({ actor: "system", from: "development", to: "done", note: "Moved to Done: PR merged (acme/widgets#77)" });
+  expect((await x.events("git")).at(-1)).toMatchObject({ actor: "system", from: "development", to: "done", note: "Moved to Done: work landed on main" });
+});
+
+test("the move to Done is a dispatcher stop carrying the card's project", async () => {
+  const x = await fixture([{ id: "d", status: "development", outputs: [{ url: "https://github.com/acme/widgets/pull/70" }] }], { states: { "acme/widgets#70": "merged" } });
+  await x.archiver.tick();
+  const board = await x.store.read();
+  const event = board.events.filter((e) => e.taskId === "d").at(-1)!;
+  const fact = factsFromCommit([event], board)[0];
+  expect(isStop(fact)).toBe(true);
+  expect(fact).toMatchObject({ kind: "board", projectId: "p" });
+});
+
 test("a closed PR adds one note, never twice, even after a restart; the card stays in its lane", async () => {
   const x = await fixture([{ id: "c", outputs: [{ url: "https://github.com/acme/widgets/pull/9" }] }], { states: { "acme/widgets#9": "closed" } });
   expect(await x.archiver.tick()).toEqual([{ taskId: "c", note: "closed", pr: "acme/widgets#9" }]);
@@ -298,9 +353,9 @@ test("a closed PR found by the branch gets no note, and the ancestor check still
   expect((await x.events("h")).some((e) => e.action === "note")).toBe(false);
 });
 
-test("cards out of the lanes, busy, with two PRs, without a worktree, or unreadable stay", async () => {
+test("cards in Todo, Backlog, Done or Cancelled, busy, with two PRs, without a worktree, or unreadable stay", async () => {
   const noOrigin = await repo({ commits: 1, noOrigin: true });
-  const lanes: Status[] = ["todo", "design", "development", "test", "blocked", "backlog", "done", "cancelled"];
+  const lanes: Status[] = ["todo", "backlog", "done", "cancelled"];
   const x = await fixture(
     [
       ...lanes.map((status) => ({ id: `lane-${status}`, status, outputs: [{ url: `https://github.com/acme/widgets/pull/${lanes.indexOf(status) + 100}` }] })),
@@ -367,7 +422,7 @@ test("review cards and ordinary cards share one check and one lookup cap, least 
   expect(x.looked.slice(0, 5).sort()).toEqual(missed.sort());
 });
 
-test("a card that left the lanes, or whose PR changed, while it was looked up is left alone", async () => {
+test("a card that changed status, or whose PR changed, while it was looked up is left alone", async () => {
   const x = await fixture([
     { id: "moved", outputs: [{ url: "https://github.com/acme/widgets/pull/1" }] },
     { id: "swapped", outputs: [{ url: "https://github.com/acme/widgets/pull/2" }] },
