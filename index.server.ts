@@ -530,13 +530,16 @@ export default function contribute(host: PluginServerContext) {
     const state = await prReviewPrefs.read().catch(() => null);
     return prReviewSettingsValues(state?.status === "ready" ? state.values : {}).prReviewCards;
   };
-  // Review cards still in In review are archived once their PR is merged or closed (PR-REVIEW-CARDS-SPEC §10).
+  // Review cards still in In review are archived once their PR is merged or closed (PR-REVIEW-CARDS-SPEC §10), and
+  // ordinary cards move to Done once their work lands (LANDED-DONE-SPEC), in the same check; each switch gates its kind.
   let hookPaseo: PaseoApi | null = null;
   const reviewArchiver = new PrReviewArchiver(store, firstKnown(connectorPrState(connectors), ghPrState()));
-  reviewArchiver.enabled = async () => {
+  const prReviewValues = async () => {
     const state = await prReviewPrefs.read().catch(() => null);
-    return prReviewSettingsValues(state?.status === "ready" ? state.values : {}).archiveOnClose;
+    return prReviewSettingsValues(state?.status === "ready" ? state.values : {});
   };
+  reviewArchiver.enabled = async () => (await prReviewValues()).archiveOnClose;
+  reviewArchiver.doneOnLand = async () => (await prReviewValues()).doneOnLand;
   reviewArchiver.paseo = () => {
     if (hookPaseo) return hookPaseo;
     try {
@@ -753,6 +756,8 @@ export default function contribute(host: PluginServerContext) {
       logFailure("Kanban auto wrap-up failed:", e),
     );
   };
+  // A landed card's move to Done is followed like a person's (LANDED-DONE-SPEC §4).
+  reviewArchiver.afterDone = (taskId, previous, paseo) => afterStatus(previous, { id: taskId, status: "done" }, paseo);
   const statusOf = async (id: string) => (await store.read()).tasks.find((t) => t.id === id)?.status;
   server.handle(rpc.updateTask, async (input, { paseo }) => {
     const previous = input.status ? await statusOf(input.id) : undefined;

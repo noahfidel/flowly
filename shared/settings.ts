@@ -138,6 +138,8 @@ export const prReviewSettings = defineSettings({
     prReviewCards: z.boolean().default(true),
     /** Archive a PR review card in In review once its PR is merged or closed (PR-REVIEW-CARDS-SPEC §10). */
     archiveOnClose: z.boolean().default(true),
+    /** Move an ordinary card in In review, Committed or Integrated to Done once its work lands (LANDED-DONE-SPEC §5). */
+    doneOnLand: z.boolean().default(true),
   }),
 });
 export type PrReviewSettings = z.infer<typeof prReviewSettings.schema>;
