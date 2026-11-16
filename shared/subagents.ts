@@ -172,3 +172,9 @@ export function subagentRows<N, P extends ProviderNode>(native: readonly N[], pr
     ...providerOrder(provider).map(({ subagent, depth }) => ({ kind: "provider" as const, subagent, depth })),
   ];
 }
+
+/** A read that reports `unavailable` is an error for the query, which then keeps its last good list. */
+export function providerListOrThrow<T extends { unavailable: boolean }>(response: T): T {
+  if (response.unavailable) throw new Error("Provider subagents are unavailable.");
+  return response;
+}

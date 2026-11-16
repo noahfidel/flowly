@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chipSegments, childAgents, mergedCounts, parentAgentLabel, providerBucket, providerOrder, providerTitle, sessionTree, subagentBucket, subagentCounts, subagentRows, type ProviderSubagent, type SubagentSource } from "./subagents";
+import { chipSegments, childAgents, mergedCounts, parentAgentLabel, providerBucket, providerListOrThrow, providerOrder, providerTitle, sessionTree, subagentBucket, subagentCounts, subagentRows, type ProviderSubagent, type SubagentSource } from "./subagents";
 
 const agent = (over: Partial<SubagentSource> & { id: string }): SubagentSource => ({
   createdAt: "2026-10-19T08:00:00.000Z",
@@ -151,5 +151,13 @@ describe("provider subagents (SUBAGENTS-SPEC §9.3)", () => {
     expect(providerTitle(provider("1", { description: " Fix the chip ", title: "sonnet-coder" }))).toBe("Fix the chip");
     expect(providerTitle(provider("2", { description: " ", title: "browser-qa" }))).toBe("browser-qa");
     expect(providerTitle(provider("3", { description: null, title: null }))).toBeNull();
+  });
+});
+
+describe("providerListOrThrow", () => {
+  it("returns a good answer and throws on an unavailable one, so the last good list stays", () => {
+    const answer = { subagents: [], unavailable: false };
+    expect(providerListOrThrow(answer)).toBe(answer);
+    expect(() => providerListOrThrow({ subagents: [], unavailable: true })).toThrow();
   });
 });

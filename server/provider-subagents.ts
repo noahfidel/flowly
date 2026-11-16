@@ -10,7 +10,7 @@ import { providerSubagentStatuses, type ProviderSubagent, type ProviderSubagentS
 export class ProviderSubagentsUnsupported extends Error {
   override name = "ProviderSubagentsUnsupported";
   constructor() {
-    super("This Paseo version cannot show provider subagents.");
+    super("Update Paseo to view subagent conversations.");
   }
 }
 

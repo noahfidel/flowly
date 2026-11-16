@@ -273,14 +273,14 @@ test("the list does not call the daemon without providerSubagents; the tail need
   client.features = { providerSubagents: false, projectedSubagentTimeline: false };
   const x = await setup("w", async () => client);
   await x.service.list({ taskId: "t", agentId: "a" }, x.paseo);
-  await expect(x.service.tail(tailInput, x.paseo)).rejects.toThrow(/cannot show provider subagents/);
+  await expect(x.service.tail(tailInput, x.paseo)).rejects.toThrow(/Update Paseo to view subagent conversations/);
   expect(client.calls).toEqual([]);
   await x.service.stop();
   const onlyList = fakeClient();
   onlyList.features = { providerSubagents: true };
   const y = await setup("w", async () => onlyList);
   expect((await y.service.list({ taskId: "t", agentId: "a" }, y.paseo)).unavailable).toBe(false);
-  await expect(y.service.tail(tailInput, y.paseo)).rejects.toThrow(/cannot show provider subagents/);
+  await expect(y.service.tail(tailInput, y.paseo)).rejects.toThrow(/Update Paseo to view subagent conversations/);
   expect(onlyList.calls.map((c) => (c as unknown[])[0])).toEqual(["list"]);
   await y.service.stop();
 });

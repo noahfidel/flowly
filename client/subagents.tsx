@@ -14,6 +14,7 @@ import {
   chipSegments,
   childAgents,
   mergedCounts,
+  providerListOrThrow,
   providerTitle,
   subagentBucket,
   subagentCounts,
@@ -63,12 +64,13 @@ const noProviderSubagents: readonly ProviderSubagent[] = [];
  * A card session's provider subagents (SUBAGENTS-SPEC §9.3): read while `enabled` (the session view
  * is shown, the session not archived), then every 5 s only while the session or one of them runs.
  * Unchanged reads keep the same array (the query's structural sharing); none is a shared empty one.
+ * A read that reports `unavailable` throws, so the last good list stays (and keeps polling) until one succeeds.
  */
 export function useProviderSubagents(taskId: string, agentId: string, enabled: boolean, sessionRunning: boolean): readonly ProviderSubagent[] {
   const read = useRpc(providerSubagents);
   const query = useQuery({
     queryKey: ["flowly", "provider-subagents", taskId, agentId],
-    queryFn: () => read({ taskId, agentId }),
+    queryFn: async () => providerListOrThrow(await read({ taskId, agentId })),
     enabled,
     retry: false,
     refetchInterval: (q) => (sessionRunning || q.state.data?.subagents.some((s) => s.status === "running") ? 5000 : false),
