@@ -30,6 +30,8 @@ type RawTimeline = {
 /** What the reads need from a daemon connection; `DaemonClient` satisfies it. */
 export interface ProviderSubagentClient {
   readonly isConnected?: boolean;
+  /** What the daemon announced on connect (`features`); the bundled client's methods exist on any daemon. */
+  getLastServerInfoMessage(): { features?: Record<string, unknown> } | null;
   listProviderSubagents(parentAgentId: string, options?: { timeout?: number }): Promise<{ subagents: readonly unknown[] }>;
   fetchProviderSubagentTimeline(parentAgentId: string, subagentId: string, options: TimelineOptions): Promise<RawTimeline>;
   close(): Promise<void>;
@@ -47,6 +49,11 @@ async function connectLocal(): Promise<ProviderSubagentClient> {
   return client as unknown as ProviderSubagentClient;
 }
 
+/** The daemon feature each read needs (SUBAGENTS-SPEC §9.1). */
+type Feature = "providerSubagents" | "projectedSubagentTimeline";
+/** An older daemon is not asked again for this long. */
+export const UNSUPPORTED_MS = 5 * 60_000;
+
 /** A call longer than this is given up (an older daemon may never answer an unknown request). */
 const REQUEST_TIMEOUT_MS = 10_000;
 export const IDLE_CLOSE_MS = 30_000;
@@ -56,8 +63,16 @@ const LIST_MAX = 500;
 /** The daemon cannot serve the reads right now: not Flowly's failure, never reported. */
 const unavailable = (e: unknown) =>
   e instanceof LocalDaemonUnavailable || e instanceof ProviderSubagentsUnsupported || (e instanceof Error && e.name === "DaemonConnectionError");
-/** A daemon's own answer (`payload.error`) or a request timeout: a plain message, expected. */
-const plain = (e: unknown): e is Error => e instanceof Error && e.constructor === Error;
+/** The daemon answered the request with an error (an older one does not know it): expected, never reported. */
+const rpcError = (e: unknown): e is Error & { userMessage?: unknown } => e instanceof Error && e.name === "DaemonRpcError";
+/** A daemon's own answer (`payload.error`), a request error or a request timeout: a plain message, expected. */
+const plain = (e: unknown): e is Error => (e instanceof Error && e.constructor === Error) || rpcError(e);
+/** The connection itself is gone; a request timeout leaves it usable for other calls. */
+const connectionLost = (e: unknown) =>
+  e instanceof LocalDaemonUnavailable ||
+  (e instanceof Error && e.name === "DaemonConnectionError" && (e as { code?: unknown }).code !== "DAEMON_REQUEST_TIMEOUT");
+const failureMessage = (e: unknown) =>
+  rpcError(e) && typeof e.userMessage === "string" && e.userMessage ? e.userMessage : e instanceof Error ? e.message : String(e);
 
 const text = (value: unknown, max: number) => (typeof value === "string" ? (value.length > max ? value.slice(0, max) : value) : null);
 
@@ -92,6 +107,7 @@ export class ProviderSubagentService {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private busy = 0;
   private stopped = false;
+  private readonly unsupportedUntil = new Map<Feature, number>();
 
   constructor(
     readonly store: BoardStore,
@@ -102,7 +118,7 @@ export class ProviderSubagentService {
   async list(input: { taskId: string; agentId: string }, paseo: PaseoApi): Promise<{ subagents: ProviderSubagent[]; unavailable: boolean }> {
     await this.check(input, paseo);
     try {
-      const response = await this.use((client) => client.listProviderSubagents(input.agentId, { timeout: REQUEST_TIMEOUT_MS }));
+      const response = await this.use("providerSubagents", (client) => client.listProviderSubagents(input.agentId, { timeout: REQUEST_TIMEOUT_MS }));
       const subagents = (response.subagents ?? [])
         .map(providerDescriptor)
         .filter((s): s is ProviderSubagent => !!s)
@@ -123,7 +139,7 @@ export class ProviderSubagentService {
     await this.check(input, paseo);
     let page: RawTimeline;
     try {
-      page = await this.use((client) =>
+      page = await this.use("projectedSubagentTimeline", (client) =>
         client.fetchProviderSubagentTimeline(input.agentId, input.subagentId, {
           direction: input.mode,
           limit: input.limit,
@@ -132,9 +148,10 @@ export class ProviderSubagentService {
         }),
       );
     } catch (e) {
+      if (e instanceof ProviderSubagentsUnsupported) throw new Error(e.message);
       if (unavailable(e)) throw new Error("Paseo could not be reached to read this subagent. Try again shortly.");
       if (!plain(e)) logFailure("Flowly could not read a provider subagent:", e);
-      throw new Error(e instanceof Error ? e.message : String(e));
+      throw new Error(failureMessage(e));
     }
     // Rewritten, or rows were skipped: the client reads the tail again.
     if (page.reset || page.staleCursor || page.gap) return { entries: [], epoch: page.epoch, reset: true };
@@ -168,16 +185,28 @@ export class ProviderSubagentService {
     if (!agent || agent.workspaceId !== task.workspaceId) throw new Error("Session is unavailable or belongs to a different workspace.");
   }
 
-  private async use<T>(call: (client: ProviderSubagentClient) => Promise<T>): Promise<T> {
+  private async use<T>(feature: Feature, call: (client: ProviderSubagentClient) => Promise<T>): Promise<T> {
+    if ((this.unsupportedUntil.get(feature) ?? 0) > Date.now()) throw new ProviderSubagentsUnsupported();
     this.busy++;
     this.clearTimer();
     try {
-      const client = await this.client();
+      const client = await this.client().catch((e: unknown) => {
+        if (e instanceof ProviderSubagentsUnsupported) this.unsupportedUntil.set(feature, Date.now() + UNSUPPORTED_MS);
+        throw e;
+      });
+      // The bundled client has both methods whatever the daemon is; the daemon announces its own
+      // features before `connect()` resolves (the connected state is set by that message).
+      // Missing server info is treated as unsupported: the answer is remembered for 5 minutes.
+      if (client.getLastServerInfoMessage()?.features?.[feature] !== true) {
+        this.unsupportedUntil.set(feature, Date.now() + UNSUPPORTED_MS);
+        throw new ProviderSubagentsUnsupported();
+      }
       try {
         return await call(client);
       } catch (e) {
-        // A dropped connection is opened again by the next call.
-        if (client.isConnected === false || unavailable(e)) await this.drop(client);
+        // A lost connection is opened again by the next call; a timeout or a daemon's error
+        // answer leaves it, and the calls in flight on it, alone.
+        if (client.isConnected === false || connectionLost(e)) await this.drop(client);
         throw e;
       }
     } finally {

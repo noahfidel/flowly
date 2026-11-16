@@ -4,6 +4,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoardStore } from "./store";
+import { UNSUPPORTED_MS } from "./provider-subagents";
 import { LocalDaemonUnavailable } from "./local-daemon";
 import { ProviderSubagentService, ProviderSubagentsUnsupported, type ProviderSubagentClient } from "./provider-subagents";
 
@@ -30,13 +31,15 @@ const descriptor = (id: string, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-type Fake = ProviderSubagentClient & { closed: number; calls: unknown[]; connected: boolean };
+type Fake = ProviderSubagentClient & { closed: number; calls: unknown[]; connected: boolean; features: Record<string, boolean> };
 
 function fakeClient(over: Partial<ProviderSubagentClient> = {}): Fake {
   const fake: Fake = {
     closed: 0,
     calls: [],
     connected: true,
+    features: { providerSubagents: true, projectedSubagentTimeline: true },
+    getLastServerInfoMessage: () => ({ features: fake.features }),
     get isConnected() {
       return fake.connected;
     },
@@ -249,5 +252,116 @@ test("a failed open is not cached", async () => {
   });
   expect((await x.service.list({ taskId: "t", agentId: "a" }, x.paseo)).unavailable).toBe(true);
   expect((await x.service.list({ taskId: "t", agentId: "a" }, x.paseo)).unavailable).toBe(false);
+  await x.service.stop();
+});
+
+const tailInput = { taskId: "t", agentId: "a", subagentId: "s", limit: 10, mode: "tail" as const };
+
+test("a daemon without the provider subagent features is not asked: the list is unavailable, nothing is logged", async () => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const x = await setup("w", async () => fakeClient({ getLastServerInfoMessage: () => ({ features: { projectedSubagentTimeline: true } }) }));
+  expect(await x.service.list({ taskId: "t", agentId: "a" }, x.paseo)).toEqual({ subagents: [], unavailable: true });
+  expect(log).not.toHaveBeenCalled();
+  await x.service.stop();
+  const none = await setup("w", async () => fakeClient({ getLastServerInfoMessage: () => null }));
+  expect((await none.service.list({ taskId: "t", agentId: "a" }, none.paseo)).unavailable).toBe(true);
+  await none.service.stop();
+});
+
+test("the list does not call the daemon without providerSubagents; the tail needs projectedSubagentTimeline", async () => {
+  const client = fakeClient();
+  client.features = { providerSubagents: false, projectedSubagentTimeline: false };
+  const x = await setup("w", async () => client);
+  await x.service.list({ taskId: "t", agentId: "a" }, x.paseo);
+  await expect(x.service.tail(tailInput, x.paseo)).rejects.toThrow(/cannot show provider subagents/);
+  expect(client.calls).toEqual([]);
+  await x.service.stop();
+  const onlyList = fakeClient();
+  onlyList.features = { providerSubagents: true };
+  const y = await setup("w", async () => onlyList);
+  expect((await y.service.list({ taskId: "t", agentId: "a" }, y.paseo)).unavailable).toBe(false);
+  await expect(y.service.tail(tailInput, y.paseo)).rejects.toThrow(/cannot show provider subagents/);
+  expect(onlyList.calls.map((c) => (c as unknown[])[0])).toEqual(["list"]);
+  await y.service.stop();
+});
+
+test("an unsupported daemon is remembered for 5 minutes, then asked again", async () => {
+  vi.useFakeTimers();
+  const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const x = await setup();
+  x.clients.length = 0;
+  let opens = 0;
+  const service = new ProviderSubagentService(x.service.store, async () => {
+    opens++;
+    const c = fakeClient();
+    c.features = {};
+    return c;
+  });
+  await service.list({ taskId: "t", agentId: "a" }, x.paseo);
+  await service.list({ taskId: "t", agentId: "a" }, x.paseo);
+  expect(opens).toBe(1);
+  await vi.advanceTimersByTimeAsync(UNSUPPORTED_MS - 1000);
+  await service.list({ taskId: "t", agentId: "a" }, x.paseo);
+  expect(opens).toBe(1);
+  await vi.advanceTimersByTimeAsync(2000);
+  await service.list({ taskId: "t", agentId: "a" }, x.paseo);
+  expect(opens).toBe(2);
+  expect(log).not.toHaveBeenCalled();
+  await service.stop();
+});
+
+class DaemonRpcError extends Error {
+  override name = "DaemonRpcError";
+  userMessage = "Unknown request";
+  constructor() {
+    super("Unknown request requestType=agent.provider_subagents.list.request code=unknown");
+  }
+}
+
+test("a daemon rpc error is expected: not logged, the tail shows its user message", async () => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const fail = async () => {
+    throw new DaemonRpcError();
+  };
+  const x = await setup("w", async () => fakeClient({ listProviderSubagents: fail, fetchProviderSubagentTimeline: fail }));
+  expect(await x.service.list({ taskId: "t", agentId: "a" }, x.paseo)).toEqual({ subagents: [], unavailable: true });
+  const failure = await x.service.tail(tailInput, x.paseo).catch((e: unknown) => e);
+  expect((failure as Error).message).toBe("Unknown request");
+  expect(log).not.toHaveBeenCalled();
+  await x.service.stop();
+});
+
+class DaemonConnectionError extends Error {
+  override name = "DaemonConnectionError";
+  constructor(
+    message: string,
+    readonly code: string,
+  ) {
+    super(message);
+  }
+}
+
+test("a request timeout keeps the shared connection; a lost connection drops it", async () => {
+  let fail: Error | null = new DaemonConnectionError("Timeout", "DAEMON_REQUEST_TIMEOUT");
+  const x = await setup("w", async () => {
+    const c = fakeClient({
+      listProviderSubagents: async () => {
+        if (fail) throw fail;
+        return { subagents: [] };
+      },
+    });
+    x.clients.push(c);
+    return c;
+  });
+  await x.service.list({ taskId: "t", agentId: "a" }, x.paseo);
+  await x.service.list({ taskId: "t", agentId: "a" }, x.paseo);
+  expect(x.clients).toHaveLength(1);
+  expect(x.clients[0].closed).toBe(0);
+  fail = new DaemonConnectionError("Transport not connected", "DAEMON_CONNECTION_LOST");
+  await x.service.list({ taskId: "t", agentId: "a" }, x.paseo);
+  expect(x.clients[0].closed).toBe(1);
+  fail = null;
+  expect((await x.service.list({ taskId: "t", agentId: "a" }, x.paseo)).unavailable).toBe(false);
+  expect(x.clients).toHaveLength(2);
   await x.service.stop();
 });
