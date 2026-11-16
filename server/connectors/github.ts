@@ -64,6 +64,21 @@ function http(connection: StoredConnection, fetchImpl: Fetch) {
   });
 }
 
+/** A pull request's author and reviews, as the review-approval check needs them (LANDED-DONE-SPEC §9.3). */
+export type PullReviewFacts = { author: string; reviews: { login: string; state: string; submittedAt: string }[] };
+
+/** Reads one pull request's author and its first 100 reviews through the read-only endpoints. */
+export async function githubPullReviews(connection: StoredConnection, fetchImpl: Fetch, repoKey: string, number: number): Promise<PullReviewFacts> {
+  const client = http(connection, fetchImpl);
+  const base = `/repos/${repoKey}/pulls/${number}`;
+  const pull = (await client.get<{ user?: User }>(base)).data;
+  const reviews = (await client.get<Review[]>(`${base}/reviews`, { per_page: 100 })).data;
+  return {
+    author: pull.user?.login || "",
+    reviews: (Array.isArray(reviews) ? reviews : []).map((r) => ({ login: r.user?.login || "", state: r.state || "", submittedAt: r.submitted_at || "" })),
+  };
+}
+
 function statusOf(issue: GithubIssue) {
   if (issue.pull_request) {
     if (issue.pull_request.merged_at) return "Merged";

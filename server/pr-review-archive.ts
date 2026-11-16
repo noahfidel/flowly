@@ -65,6 +65,8 @@ export function firstKnown(...lookups: PrStateLookup[]): PrStateLookup {
 export type ConnectorReads = {
   list(): Promise<Connection[]>;
   summaries(refs: readonly ExternalRef[], maxAge?: number, fingerprints?: boolean): Promise<Summaries>;
+  /** The signed-in user's login, the PR's author and its reviews (LANDED-DONE-SPEC §9.3); optional for fakes. */
+  githubPullReviews?(key: string): Promise<ReviewFacts | null>;
 };
 
 /** Through the user's GitHub connector for github.com, when one has a working token. */
@@ -82,6 +84,41 @@ export function connectorPrState(connectors: ConnectorReads): PrStateLookup {
     const status = hit.summary.status;
     return status === "Merged" ? "merged" : status === "Closed" ? "closed" : status === "Open" || status === "Draft" ? "open" : null;
   };
+}
+
+/** What the approval check needs of a PR: who is signed in, who wrote it, and every review (LANDED-DONE-SPEC §9.3). */
+export type ReviewFacts = { viewer: string; author: string; reviews: { login: string; state: string; submittedAt: string }[] };
+/** `own`: the signed-in user wrote the PR (skipped, R12). */
+export type Approval = "approved" | "not" | "own";
+/** The facts for a PR, or null when this source cannot tell. */
+export type ReviewLookup = (pr: PrTarget) => Promise<ReviewFacts | null>;
+
+const sameLogin = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+const decisiveStates = ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"];
+
+/** Whether the signed-in user's latest decisive review is an approval; comments and pending reviews are ignored (§9.3). */
+export function approvalOf(f: ReviewFacts): Approval {
+  if (sameLogin(f.author, f.viewer)) return "own";
+  let latest: ReviewFacts["reviews"][number] | null = null;
+  for (const r of f.reviews)
+    if (sameLogin(r.login, f.viewer) && decisiveStates.includes(r.state) && (!latest || r.submittedAt >= latest.submittedAt)) latest = r;
+  return latest?.state === "APPROVED" ? "approved" : "not";
+}
+
+/** The first source that can tell wins: the GitHub connector, then the `gh` CLI. */
+export function firstKnownReview(...lookups: ReviewLookup[]): ReviewLookup {
+  return async (pr) => {
+    for (const lookup of lookups) {
+      const found = await lookup(pr).catch(() => null);
+      if (found) return found;
+    }
+    return null;
+  };
+}
+
+/** Through the user's GitHub connector, for github.com PRs only. */
+export function connectorPrReviews(connectors: ConnectorReads): ReviewLookup {
+  return async (pr) => (pr.host || !connectors.githubPullReviews ? null : connectors.githubPullReviews(pr.key));
 }
 
 type Run = (file: string, args: readonly string[]) => Promise<string>;
@@ -102,12 +139,37 @@ export function ghPrState(run: Run = runFile): PrStateLookup {
   };
 }
 
+/** Through the GitHub CLI: the signed-in login (kept per host once read) and `gh pr view --json author,reviews`; argument arrays. */
+export function ghPrReviews(run: Run = runFile): ReviewLookup {
+  const logins = new Map<string, string>();
+  return async (pr) => {
+    const host = pr.host ?? "github.com";
+    let viewer = logins.get(host);
+    if (!viewer) {
+      viewer = (await run("gh", ["api", "user", "--jq", ".login", ...(pr.host ? ["--hostname", pr.host] : [])])).trim();
+      if (!viewer) return null;
+      logins.set(host, viewer);
+    }
+    const out = await run("gh", ["pr", "view", String(pr.number), "--repo", pr.host ? `${pr.host}/${pr.repo}` : pr.repo, "--json", "author,reviews"]);
+    const parsed = JSON.parse(out) as { author?: { login?: unknown }; reviews?: { author?: { login?: unknown }; state?: unknown; submittedAt?: unknown }[] };
+    const author = parsed.author?.login;
+    if (typeof author !== "string" || !author) return null;
+    const reviews = (Array.isArray(parsed.reviews) ? parsed.reviews : []).map((r) => ({
+      login: typeof r.author?.login === "string" ? r.author.login : "",
+      state: typeof r.state === "string" ? r.state : "",
+      submittedAt: typeof r.submittedAt === "string" ? r.submittedAt : "",
+    }));
+    return { viewer, author, reviews };
+  };
+}
+
 /** A review card archived (PR-REVIEW-CARDS-SPEC §10). */
 export type ArchiveOutcome = { taskId: string; state: Exclude<PrState, "open"> };
 /** An ordinary card moved to Done, or noted for a PR closed without merging (LANDED-DONE-SPEC §3–§4). */
 export type LandOutcome =
   | { taskId: string; done: "pr" | "branch-pr"; pr: string }
   | { taskId: string; done: "landed"; base: string }
+  | { taskId: string; done: "approved"; pr: string }
   | { taskId: string; note: "closed"; pr: string };
 export type CheckOutcome = ArchiveOutcome | LandOutcome;
 
@@ -116,7 +178,8 @@ export const closedPrNote = (pr: string) => `PR closed without merging: ${pr}`;
 
 /**
  * Every ~10 minutes, one check over two kinds of card (LANDED-DONE-SPEC §6): archives PR review cards still in
- * In review whose pull request was merged or closed (PR-REVIEW-CARDS-SPEC §10), and moves ordinary cards in In review,
+ * In review whose pull request was merged or closed (PR-REVIEW-CARDS-SPEC §10), moves those whose open PR the
+ * signed-in user approved to Done (LANDED-DONE-SPEC §9), and moves ordinary cards in In review,
  * Committed or Integrated to Done once their work landed on the base branch (LANDED-DONE-SPEC). Neither touches a
  * card's workspace or sessions itself; a move to Done is followed by what follows a person's move (`afterDone`).
  */
@@ -129,6 +192,8 @@ export class PrReviewArchiver {
   paseo: () => PaseoApi | null = () => null;
   /** Where a card's workspace lives (LANDED-DONE-SPEC §3.2). */
   workspace: WorkspaceWhere = paseoWorkspace;
+  /** The signed-in user's review state of an open PR (LANDED-DONE-SPEC §9.3); unknown until the plugin entry sets it. */
+  reviews: ReviewLookup = async () => null;
   /** Runs `gh` in a card's directory (§3.2). */
   gh: RunIn = runFileIn;
   /** Runs `git` in a card's directory (§3.3). */
@@ -180,7 +245,7 @@ export class PrReviewArchiver {
     const live = new Set(board.projects.filter((p) => !p.archivedAt).map((p) => p.id));
     // One list of both kinds (LANDED-DONE-SPEC §6); each switch gates only its own kind (§5).
     const candidates = board.tasks.filter(
-      (t) => live.has(t.projectId) && ((reviewOn && archiveCandidate(t)) || (doneOn && landCandidate(t, board.artifacts))),
+      (t) => live.has(t.projectId) && (((reviewOn || doneOn) && archiveCandidate(t)) || (doneOn && landCandidate(t, board.artifacts))),
     );
     for (const id of [...this.checkedAt.keys()]) if (!candidates.some((t) => t.id === id)) this.checkedAt.delete(id);
     if (!candidates.length) return [];
@@ -208,8 +273,19 @@ export class PrReviewArchiver {
           unknown++;
           continue;
         }
-        if (state === "open") continue;
-        if (await this.archive(task, state)) outcomes.push({ taskId: task.id, state });
+        if (state === "open") {
+          if (!doneOn) continue;
+          // Open: Done once the user's latest decisive review is an approval (LANDED-DONE-SPEC §9.3).
+          const facts = await this.reviews(cardPr(task)!).catch(() => null);
+          if (!facts || !facts.viewer) {
+            unknown++;
+            continue;
+          }
+          if (approvalOf(facts) === "approved" && (await this.moveReviewToDone(task, paseo)))
+            outcomes.push({ taskId: task.id, done: "approved", pr: cardPr(task)!.key });
+          continue;
+        }
+        if (reviewOn && (await this.archive(task, state))) outcomes.push({ taskId: task.id, state });
         continue;
       }
       const found = await landing(task, board.artifacts, paseo, deps).catch((): Landing => ({ kind: "unknown" }));
@@ -290,6 +366,32 @@ export class PrReviewArchiver {
       this.afterDone(read.id, previous, paseo);
     } catch (e) {
       logFailure("Flowly follow-up of a landed card's move to Done failed:", e, read.id);
+    }
+    return true;
+  }
+
+  /** Moves an approved review card to Done (LANDED-DONE-SPEC §9.4); nothing when it changed since it was read. */
+  private async moveReviewToDone(read: Task, paseo: PaseoApi): Promise<boolean> {
+    const busy = await workspaceBusy(paseo, read.workspaceId).catch(() => true);
+    if (busy) return false;
+    const key = cardPr(read)?.key;
+    const previous = await this.store.transaction<Status | null>((board) => {
+      const t = board.tasks.find((x) => x.id === read.id);
+      const project = t && board.projects.find((p) => p.id === t.projectId);
+      if (!t || !project || project.archivedAt || !archiveCandidate(t) || cardPr(t)?.key !== key || t.workspaceId !== read.workspaceId) return { value: null, changed: false };
+      if (t.status !== read.status || t.revision !== read.revision || laneProblem(project, "done")) return { value: null, changed: false };
+      const from = t.status;
+      t.status = "done";
+      t.revision++;
+      t.updatedAt = new Date().toISOString();
+      this.store.event(board, { taskId: t.id, actor: "system", action: "status_changed", from, to: "done", note: `Moved to Done: PR approved (${key})` });
+      return { value: from, changed: true };
+    });
+    if (!previous) return false;
+    try {
+      this.afterDone(read.id, previous, paseo);
+    } catch (e) {
+      logFailure("Flowly follow-up of an approved review card's move to Done failed:", e, read.id);
     }
     return true;
   }

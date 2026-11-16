@@ -73,7 +73,7 @@ import { validZone } from "./shared/insights";
 import { SearchService } from "./server/search";
 import { QuickTitleService } from "./server/quick-title";
 import { PrReviewCards } from "./server/pr-review-cards";
-import { PrReviewArchiver, connectorPrState, firstKnown, ghPrState } from "./server/pr-review-archive";
+import { PrReviewArchiver, connectorPrReviews, connectorPrState, firstKnown, firstKnownReview, ghPrReviews, ghPrState } from "./server/pr-review-archive";
 import { ReviewLedgers } from "./server/review-ledgers";
 import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
 import { FLOWLY_VERSION } from "./shared/version";
@@ -534,6 +534,7 @@ export default function contribute(host: PluginServerContext) {
   // ordinary cards move to Done once their work lands (LANDED-DONE-SPEC), in the same check; each switch gates its kind.
   let hookPaseo: PaseoApi | null = null;
   const reviewArchiver = new PrReviewArchiver(store, firstKnown(connectorPrState(connectors), ghPrState()));
+  reviewArchiver.reviews = firstKnownReview(connectorPrReviews(connectors), ghPrReviews());
   const prReviewValues = async () => {
     const state = await prReviewPrefs.read().catch(() => null);
     return prReviewSettingsValues(state?.status === "ready" ? state.values : {});

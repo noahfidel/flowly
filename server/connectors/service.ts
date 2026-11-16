@@ -26,6 +26,7 @@ import { adapterFor } from "./index";
 import type { Fetched, ItemRef, SearchScope } from "./types";
 import { logFailure } from "../error-report";
 import { listScope, listTeams } from "./linear";
+import { githubPullReviews } from "./github";
 
 /**
  * External items as read-only card inputs (CONNECTORS-SPEC, EXTERNAL-TRACKER-SPEC).
@@ -180,6 +181,25 @@ export class ConnectorService {
 
   async list(): Promise<Connection[]> {
     return (await this.connections.all()).map(publicConnection);
+  }
+
+  /**
+   * The signed-in GitHub user's login, the PR's author and its reviews, for a github.com PR (`owner/repo#n`), through a
+   * GitHub connection with a working token and a stored login; null when none can tell (LANDED-DONE-SPEC §9.3).
+   */
+  async githubPullReviews(key: string): Promise<{ viewer: string; author: string; reviews: { login: string; state: string; submittedAt: string }[] } | null> {
+    const match = /^([^/\s]+\/[^/#\s]+)#(\d+)$/.exec(key);
+    if (!match) return null;
+    const stored = (await this.connections.all()).find(
+      (c) => familyOf(c.provider) === "github" && !c.authFailed && !!c.login && new URL(c.baseUrl).host.toLowerCase() === "github.com",
+    );
+    if (!stored) return null;
+    try {
+      const pull = await this.call(stored.id, (c) => githubPullReviews(c, this.fetchImpl, match[1], Number(match[2])));
+      return pull.author ? { viewer: stored.login, ...pull } : null;
+    } catch {
+      return null;
+    }
   }
 
   /**

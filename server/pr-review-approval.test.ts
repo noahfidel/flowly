@@ -132,7 +132,7 @@ test("a running session or another lane leaves the card alone", async () => {
   const f = await fixture(
     [
       { id: "busy", prRef: pr, workspaceId: "wb" },
-      { id: "lane", prRef: "acme/web#8", status: "in_progress" },
+      { id: "lane", prRef: "acme/web#8", status: "development" },
     ],
     { facts: { ...approved, "acme/web#8": facts([rv("APPROVED", "10:00")]) } },
   );
@@ -140,7 +140,7 @@ test("a running session or another lane leaves the card alone", async () => {
   expect(await f.archiver.tick()).toEqual([]);
   expect(f.reviewLooked).toEqual([]);
   expect((await f.card("busy")).status).toBe("in_review");
-  expect((await f.card("lane")).status).toBe("in_progress");
+  expect((await f.card("lane")).status).toBe("development");
 });
 
 test("a running session that starts after the check read leaves the card alone", async () => {

@@ -163,6 +163,7 @@ test("merged and closed PRs archive the card with an activity entry; open ones s
 test("the setting off does nothing", async () => {
   const x = await fixture([{ id: "m", prRef: "acme/widgets#20" }], { "acme/widgets#20": "merged" });
   x.setOn(false);
+  x.archiver.doneOnLand = async () => false; // review cards are also looked at while Move to Done is on (LANDED-DONE-SPEC §9.2)
   expect(await x.archiver.tick()).toEqual([]);
   expect(x.looked).toEqual([]);
   expect(await x.archivedIds()).toEqual([]);
