@@ -136,6 +136,15 @@ test("switch to worktree copies everything, moves the card, writes the handoff a
   expect(x.create).toHaveBeenCalledTimes(1);
 });
 
+test("switch to worktree ignores the project's base branch and branches off the main checkout's own branch", async () => {
+  const x = await fixture();
+  await x.store.mutate((board) => {
+    board.projects[0].baseRef = "origin/dev";
+  });
+  await x.service.run({ id: "t", revision: 3, operationId: "op-base", direction: "to_worktree", branchName: "kanban/b" }, x.paseo);
+  expect(x.create.mock.calls[0][0]).toMatchObject({ source: { kind: "worktree", action: "branch-off", refName: "refs/heads/main" } });
+});
+
 test("release, undo and integrate move exactly the card's changes and keep the other cards' work", async () => {
   const x = await fixture();
   const result = await x.service.run({ id: "t", revision: 3, operationId: "op1", direction: "to_worktree", branchName: "kanban/a" }, x.paseo);

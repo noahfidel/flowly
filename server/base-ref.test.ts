@@ -89,19 +89,54 @@ test("a remote whose name has a slash is matched by name, not by the first slash
   expect(git(x.a, "rev-parse", "refs/remotes/team/up/dev")).toBe(tip);
 });
 
-test("a branch made from a remote base with tracking gets its upstream removed; one without is left alone", async () => {
+test("a branch made from a remote base with tracking gets that upstream removed; other upstreams and none are left alone", async () => {
   const x = await setup();
+  const base = "refs/remotes/origin/dev";
   const tracked = join(x.root, "tracked");
   // Simulates a git that sets up tracking for every new branch.
-  git(x.a, "-c", "branch.autoSetupMerge=always", "worktree", "add", "-q", "-b", "card", tracked, "refs/remotes/origin/dev");
+  git(x.a, "-c", "branch.autoSetupMerge=always", "worktree", "add", "-q", "-b", "card", tracked, base);
   expect(git(tracked, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")).toBe("origin/dev");
-  await dropUpstream(tracked);
+  await dropUpstream(tracked, base);
   expect(() => git(tracked, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")).toThrow();
+  // The branch's own pushed remote is a different upstream and stays.
+  const pushed = join(x.root, "pushed");
+  git(x.a, "worktree", "add", "-q", "-b", "mine", "--no-track", pushed, base);
+  git(pushed, "push", "-q", "-u", "origin", "mine");
+  expect(git(pushed, "rev-parse", "--symbolic-full-name", "@{u}")).toBe("refs/remotes/origin/mine");
+  await dropUpstream(pushed, base);
+  expect(git(pushed, "rev-parse", "--symbolic-full-name", "@{u}")).toBe("refs/remotes/origin/mine");
   const plain = join(x.root, "plain");
-  git(x.a, "worktree", "add", "-q", "-b", "plain", "--no-track", plain, "refs/remotes/origin/dev");
+  git(x.a, "worktree", "add", "-q", "-b", "plain", "--no-track", plain, base);
   const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-  await dropUpstream(plain);
-  await dropUpstream(join(x.root, "gone"));
-  await dropUpstream(undefined);
+  await dropUpstream(plain, base);
+  await dropUpstream(join(x.root, "gone"), base);
+  await dropUpstream(undefined, base);
   expect(logged).not.toHaveBeenCalled();
+});
+
+test("a fetch that times out is logged and the last fetched ref is used", async () => {
+  const x = await setup();
+  const before = git(x.a, "rev-parse", "refs/remotes/origin/dev");
+  x.advance("dev");
+  // A remote whose upload-pack hangs.
+  git(x.a, "config", "remote.origin.uploadpack", "sleep 5 #");
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  const started = Date.now();
+  expect(await projectWorktreeBase(x.a, "origin/dev", "", 300)).toBe("refs/remotes/origin/dev");
+  expect(Date.now() - started).toBeLessThan(4000);
+  expect(git(x.a, "rev-parse", "refs/remotes/origin/dev")).toBe(before);
+  expect(logged).toHaveBeenCalledWith("Flowly worktree base fetch failed; branching off the last fetched ref:", expect.anything(), expect.any(String));
+});
+
+test("a short name in the setting that is not a local branch is taken as origin/<name>", async () => {
+  const x = await setup();
+  const tip = x.advance("dev");
+  expect(await projectWorktreeBase(x.a, "dev", "")).toBe("refs/remotes/origin/dev");
+  expect(git(x.a, "rev-parse", "refs/remotes/origin/dev")).toBe(tip);
+  // Not fetched yet locally: fetched on demand.
+  git(x.a, "push", "-q", "origin", "main:fresh");
+  git(x.a, "update-ref", "-d", "refs/remotes/origin/fresh");
+  expect(await projectWorktreeBase(x.a, "fresh", "")).toBe("refs/remotes/origin/fresh");
+  expect(git(x.a, "rev-parse", "--verify", "refs/remotes/origin/fresh")).toBe(git(x.a, "rev-parse", "main"));
+  await expect(projectWorktreeBase(x.a, "nowhere", "")).rejects.toThrow(/base branch nowhere was not found/);
 });

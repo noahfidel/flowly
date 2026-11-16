@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import type { PaseoApi } from "@getpaseo/client";
 import { AgentCards } from "./agent-cards";
@@ -118,6 +119,20 @@ test("a session outside cards creates a plain card: no link and nothing on anoth
   expect(stored.links).toEqual([]);
   expect(stored.events.filter((e) => e.taskId === "t")).toEqual([]);
   expect(stored.events.find((e) => e.taskId === made.card.taskId)).toMatchObject({ actor: "agent", agentId: "outside", action: "created" });
+});
+
+test("create_card with workspace=worktree uses the project's base branch setting", async () => {
+  const x = await setup();
+  const remote = join(x.root, "remote.git");
+  const git = (...args: string[]) => execFileSync("git", ["-C", x.a, "-c", "user.email=t@t", "-c", "user.name=t", ...args]);
+  execFileSync("git", ["init", "-q", "--bare", remote]);
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  git("remote", "add", "origin", remote);
+  git("push", "-q", "origin", "main:dev");
+  await x.store.updateProject({ id: "p", revision: (await x.store.read()).projects[0].revision, baseRef: "origin/dev" });
+  await x.cards.create(x.board, { title: "From dev", workspace: "worktree", idempotencyKey: "dev" });
+  expect(x.workspaces[0].source).toMatchObject({ kind: "worktree", action: "branch-off", refName: "refs/remotes/origin/dev" });
 });
 
 test("create_card with workspace=worktree branches off the project's base", async () => {
