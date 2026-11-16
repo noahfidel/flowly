@@ -67,14 +67,17 @@ export const runFileIn: RunIn = (file, args, cwd) =>
     execFile(file, [...args], { cwd, timeout: 20_000, maxBuffer: 256 * 1024 }, (error, stdout) => (error ? reject(error) : resolve(String(stdout)))),
   );
 
-/** A git command in a directory: its exit code and output; rejects only when git cannot run at all. */
-export type GitRun = (cwd: string, args: readonly string[]) => Promise<{ code: number; stdout: string }>;
-export const runGit: GitRun = (cwd, args) =>
+/**
+ * A git command in a directory: its exit code and output; rejects only when git cannot run at all. `env` adds to the
+ * daemon's environment (which always gets `GIT_TERMINAL_PROMPT=0`).
+ */
+export type GitRun = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<{ code: number; stdout: string }>;
+export const runGit: GitRun = (cwd, args, env) =>
   new Promise((resolve, reject) =>
     execFile(
       "git",
       [...args],
-      { cwd, timeout: 60_000, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_SSH_COMMAND: "ssh -o BatchMode=yes" } },
+      { cwd, timeout: 60_000, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env } },
       (error, stdout) => {
         if (!error) return resolve({ code: 0, stdout: String(stdout) });
         const code = (error as { code?: unknown }).code;
@@ -127,21 +130,54 @@ export async function headCommit(git: GitRun, directory: string): Promise<string
   return r.stdout.trim();
 }
 
+/** At most this many of the worktree's own commits are tried, newest first (§3.3 step 2). */
+const ownCommitsChecked = 20;
+
 /**
- * §3.3, the ancestor check: "landed" when the workspace is clean, the card made a commit of its own (a `commit…`
- * entry in the branch's reflog; a fast-forward pull or a reset to the base is not one), the fetch of `origin/<base>`
+ * §3.3 step 2: the card made a commit of its own that HEAD still contains. The worktree's own HEAD reflog starts when
+ * the worktree was created, so a reused branch name brings no earlier card's commits; a commit dropped by a reset is
+ * no longer an ancestor of HEAD. An empty or failing reflog counts as no commit.
+ */
+async function ownCommitInHead(git: GitRun, directory: string): Promise<boolean> {
+  const reflog = await git(directory, ["reflog", "show", "--format=%H%x09%gs", "HEAD", "--"]);
+  if (reflog.code !== 0) return false;
+  const shas = [
+    ...new Set(
+      reflog.stdout
+        .split("\n")
+        .map((line) => line.split("\t"))
+        .filter(([sha, subject]) => /^[0-9a-f]{7,64}$/i.test(sha ?? "") && (subject ?? "").startsWith("commit"))
+        .map(([sha]) => sha),
+    ),
+  ].slice(0, ownCommitsChecked);
+  for (const sha of shas) if ((await git(directory, ["merge-base", "--is-ancestor", sha, "HEAD"])).code === 0) return true;
+  return false;
+}
+
+/** Batch-mode SSH for the fetch, only when neither `GIT_SSH_COMMAND` nor `core.sshCommand` is set (§3.3 step 3). */
+async function sshBatchEnv(git: GitRun, directory: string): Promise<Record<string, string> | undefined> {
+  if (process.env.GIT_SSH_COMMAND) return undefined;
+  const configured = await git(directory, ["config", "--get", "core.sshCommand"]).catch(() => ({ code: 1, stdout: "" }));
+  return configured.code === 0 && configured.stdout.trim() ? undefined : { GIT_SSH_COMMAND: "ssh -o BatchMode=yes" };
+}
+
+/**
+ * §3.3, the ancestor check: "landed" when the workspace is clean, the card made a commit of its own that HEAD still
+ * contains (a fast-forward pull or a reset to the base is not one), the fetch of `origin/<base>`
  * works and HEAD is an ancestor of it. "stays" when one of those is plainly not so (or there is no reflog);
  * "unknown" when git failed.
  */
-export async function ancestorLanded(git: GitRun, directory: string, branch: string, base: string): Promise<"landed" | "stays" | "unknown"> {
+export async function ancestorLanded(git: GitRun, directory: string, _branch: string, base: string): Promise<"landed" | "stays" | "unknown"> {
   try {
     const status = await git(directory, ["--no-optional-locks", "status", "--porcelain"]);
     if (status.code !== 0) return "unknown";
     if (status.stdout.trim()) return "stays";
-    const reflog = await git(directory, ["reflog", "show", "--format=%gs", `refs/heads/${branch}`, "--"]);
-    if (reflog.code !== 0) return "stays";
-    if (!reflog.stdout.split("\n").some((line) => line.startsWith("commit"))) return "stays";
-    const fetch = await git(directory, ["-c", "gc.auto=0", "-c", "maintenance.auto=false", "fetch", "--quiet", "--no-auto-gc", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`]);
+    if (!(await ownCommitInHead(git, directory))) return "stays";
+    const fetch = await git(
+      directory,
+      ["-c", "gc.auto=0", "-c", "maintenance.auto=false", "fetch", "--quiet", "--no-auto-gc", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`],
+      await sshBatchEnv(git, directory),
+    );
     if (fetch.code !== 0) return "unknown";
     const ancestor = await git(directory, ["merge-base", "--is-ancestor", "HEAD", `refs/remotes/origin/${base}`]);
     return ancestor.code === 0 ? "landed" : ancestor.code === 1 ? "stays" : "unknown";

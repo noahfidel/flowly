@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { BoardStore } from "./store";
 import { PrReviewArchiver, archiveLookupsPerTick, type PrState, type PrTarget } from "./pr-review-archive";
-import { baseBranch, cardPrOutputs, ghHeadPrMerged, runGit, type GitRun, type RunIn } from "./landed-done";
+import { ancestorLanded, baseBranch, cardPrOutputs, ghHeadPrMerged, runGit, type GitRun, type RunIn } from "./landed-done";
 import type { Artifact, Status, Task } from "../shared/model";
 
 // Moving a card to Done when its work lands (LANDED-DONE-SPEC). Made-up repositories and PRs only; the git
@@ -137,7 +137,10 @@ async function fixture(
   return { store, archiver, running, looked, logs, switches, ghCalls, afterDone, card, events, paseo, lookup };
 }
 
-/** A clone with a bare origin; `main` pushed. The card's branch is `feature`, created off main (so it has a reflog). */
+/**
+ * A clone with a bare origin and `main` pushed; the card's workspace is a git worktree of it on branch `feature`
+ * (`git worktree add -b feature`, as Paseo makes one), so its HEAD reflog starts at its creation.
+ */
 async function repo(shape: { commits: number; pushed?: boolean; dirty?: boolean; detached?: boolean; noOrigin?: boolean }) {
   const root = await mkdtemp(join(tmpdir(), "flowly-landed-git-"));
   roots.push(root);
@@ -153,17 +156,18 @@ async function repo(shape: { commits: number; pushed?: boolean; dirty?: boolean;
     sh(work, "remote", "add", "origin", origin);
     sh(work, "push", "origin", "main");
   }
-  sh(work, "checkout", "-b", "feature");
+  const wt = join(root, "wt");
+  sh(work, "worktree", "add", "-q", "-b", "feature", wt, "main");
   for (let i = 0; i < shape.commits; i++) {
-    await writeFile(join(work, `f${i}.txt`), `${i}\n`);
-    sh(work, "add", `f${i}.txt`);
-    sh(work, "commit", "-m", `feature ${i}`);
+    await writeFile(join(wt, `f${i}.txt`), `${i}\n`);
+    sh(wt, "add", `f${i}.txt`);
+    sh(wt, "commit", "-m", `feature ${i}`);
   }
   // Landed: the branch's commits reached origin/main (a merge or fast-forward elsewhere); the local main is not moved.
-  if (shape.pushed) sh(work, "push", "origin", "feature:main");
-  if (shape.dirty) await writeFile(join(work, "wip.txt"), "wip\n");
-  if (shape.detached) sh(work, "checkout", "--detach", "HEAD");
-  return work;
+  if (shape.pushed) sh(wt, "push", "-q", "origin", "feature:main");
+  if (shape.dirty) await writeFile(join(wt, "wip.txt"), "wip\n");
+  if (shape.detached) sh(wt, "checkout", "-q", "--detach", "HEAD");
+  return wt;
 }
 
 const merged = (n: number, headRefOid: string, isCrossRepository = false) =>
@@ -491,8 +495,58 @@ test("the fetch names its refspec and runs without prompts, auto-gc or maintenan
   expect(await x.archiver.tick()).toEqual([{ taskId: "c", done: "landed", base: "main" }]);
   expect(calls).toContainEqual(["-c", "gc.auto=0", "-c", "maintenance.auto=false", "fetch", "--quiet", "--no-auto-gc", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
   expect(calls).toContainEqual(["--no-optional-locks", "status", "--porcelain"]);
-  expect(calls).toContainEqual(["reflog", "show", "--format=%gs", "refs/heads/feature", "--"]);
+  expect(calls).toContainEqual(["reflog", "show", "--format=%H%x09%gs", "HEAD", "--"]);
   expect(baseBranch("refs/heads/dev")).toBe("dev");
   expect(baseBranch("refs/tags/v1.0")).toBeNull();
   expect(baseBranch("main")).toBe("main");
+});
+
+test("own commits dropped by a reset, or a reused branch's earlier commits, do not count as the card's work", async () => {
+  // Committed, then reset to a newer origin/main: the commit is in the reflogs but not in HEAD.
+  const dropped = await repo({ commits: 1 });
+  await advanceOrigin(dropped);
+  sh(dropped, "fetch", "-q", "origin");
+  sh(dropped, "reset", "-q", "--hard", "origin/main");
+  // A branch name reused by a later card: the earlier card's commit landed, and a new worktree checks the branch out again.
+  const first = await repo({ commits: 1, pushed: true });
+  const clone = sh(first, "rev-parse", "--path-format=absolute", "--git-common-dir").replace(/\/\.git$/, "");
+  sh(clone, "worktree", "remove", "--force", first);
+  const reused = `${first}-again`;
+  roots.push(reused);
+  sh(clone, "worktree", "add", "-q", reused, "feature");
+  const x = await fixture(
+    [
+      { id: "dropped", baseRef: "refs/heads/main" },
+      { id: "reused", baseRef: "refs/heads/main" },
+    ],
+    { where: { "w-dropped": { directory: dropped, worktree: true }, "w-reused": { directory: reused, worktree: true } }, gh: { feature: "[]" } },
+  );
+  expect(await x.archiver.tick()).toEqual([]);
+  expect((await x.card("dropped")).status).toBe("in_review");
+  expect((await x.card("reused")).status).toBe("in_review");
+});
+
+test("the fetch keeps a configured SSH command and adds batch-mode SSH only when none is set", async () => {
+  const work = await repo({ commits: 1, pushed: true });
+  const fetchEnv = async (sshCommand: string | null) => {
+    let seen: Record<string, string> | undefined;
+    const git: GitRun = (cwd, args, env) => {
+      if (args.includes("config") && args.includes("core.sshCommand")) return Promise.resolve(sshCommand ? { code: 0, stdout: `${sshCommand}\n` } : { code: 1, stdout: "" });
+      if (args.includes("fetch")) seen = env;
+      return runGit(cwd, args, env);
+    };
+    expect(await ancestorLanded(git, work, "feature", "main")).toBe("landed");
+    return seen ?? {};
+  };
+  const saved = process.env.GIT_SSH_COMMAND;
+  delete process.env.GIT_SSH_COMMAND;
+  try {
+    expect(await fetchEnv("ssh -i ~/.ssh/work_key")).not.toHaveProperty("GIT_SSH_COMMAND");
+    expect(await fetchEnv(null)).toMatchObject({ GIT_SSH_COMMAND: "ssh -o BatchMode=yes" });
+    process.env.GIT_SSH_COMMAND = "ssh -i ~/.ssh/env_key";
+    expect(await fetchEnv(null)).not.toHaveProperty("GIT_SSH_COMMAND");
+  } finally {
+    if (saved === undefined) delete process.env.GIT_SSH_COMMAND;
+    else process.env.GIT_SSH_COMMAND = saved;
+  }
 });
