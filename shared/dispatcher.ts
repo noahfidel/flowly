@@ -73,6 +73,34 @@ export const dispatcherToolNames = [
 export const dispatcherMessagePrefix = "From the Flowly dispatcher (an automated assistant, not the user): ";
 export const dispatcherMessagesPerHour = 30;
 /**
+ * Dispatcher messages queued while their card's session waits on the user (DISPATCHER-SPEC §5.3; ruling, Noah
+ * 2026-11-16): at most `perSession` per session (QUEUE_FULL), `total` in the file.
+ */
+export const queuedMessageLimits = { perSession: 10, total: 500 } as const;
+/** The card activity event that records queued messages dropped undelivered (§5.3). */
+export const dispatcherMessageDroppedAction = "dispatcher_message_dropped";
+const queueId = z.string().min(1).max(200);
+export const queuedMessageSchema = z.object({
+  id: queueId,
+  taskId: queueId,
+  projectId: queueId,
+  /** The card session it waits for. */
+  agentId: queueId,
+  /** The dispatcher session that sent it. */
+  from: queueId,
+  text: z.string().min(1).max(10000),
+  /** When it was queued (ISO time). */
+  at: z.string().min(1).max(40),
+});
+export type QueuedMessage = z.infer<typeof queuedMessageSchema>;
+export const storedQueueSchema = z.object({ version: z.literal(1), messages: z.array(queuedMessageSchema).max(queuedMessageLimits.total) });
+/** `asks.queued`: what the asks' banners show (§9.4). */
+export const queuedMessageViewSchema = queuedMessageSchema.pick({ id: true, taskId: true, agentId: true, text: true, at: true });
+export type QueuedMessageView = z.infer<typeof queuedMessageViewSchema>;
+/** `asks.cancel-question`: the user's "Cancel question and re-read card" on one session's ask (§5.3, §9.4). */
+export const cancelQuestionInputSchema = z.strictObject({ taskId: queueId, agentId: queueId });
+export const cancelQuestionResultSchema = z.strictObject({ denied: z.number().int().min(0), delivered: z.number().int().min(0) });
+/**
  * `flowly_reply_to_agent` (DISPATCHER-SPEC §5.4; ruling, Noah 2026-11-12): the dispatcher answers only an agent whose
  * prompt reached its own session within this window, with the same prefix as a card message. Two caps stop two bots
  * looping: per answered agent, and per dispatcher session over all agents, a bucket apart from the card messages'.
@@ -375,7 +403,7 @@ export const dispatcherCharter = (group: { name: string }) => `You are the Flowl
 - Create a Flowly project with flowly_create_project only when the user asks for one, from the folder they name; never to make room for a card. It joins this group. Each call asks the user to confirm it in this chat. A refusal (PROJECT_REFUSED) says why: tell the user, and do not retry with another folder unless they say so. On CONFIRMATION_UNAVAILABLE ask the user to switch your permission mode to one that asks; on PROJECT_LIMIT stop and ask the user.
 - Archive a card with flowly_archive_card only when the user asks (for example "archive the merged review cards": flowly_list_cards shows each PR review card's prRef). It archives the card only, never its sessions or workspace, and archived=false brings it back.
 - A card's questions, permission requests and blockers belong to the user, who answers them with the buttons and answer boxes of the asks in this chat. You have no tool that answers them, so never try another route (another session, a terminal, a script). When the user tells you to answer one, say which ask it is and that its buttons answer it. Otherwise tell the user which card is waiting and why.
-- Send a card's session an instruction with flowly_message_card only when the user asked for it ("tell that card to integrate") or it follows from their standing requests. It never answers an ask and is refused (SESSION_WAITING_ON_USER) while the session waits on the user: tell the user which card waits. Never use it to have one card act on another card's questions, permission requests or blockers. SESSION_AMBIGUOUS: pass the sessionId of the one the user means; MESSAGE_LIMIT: stop and ask the user.
+- Send a card's session an instruction with flowly_message_card only when the user asked for it ("tell that card to integrate") or it follows from their standing requests. It never answers an ask: while the session waits on the user, your message is queued (queued: true) and Flowly delivers it right after the user resolves the ask, so tell the user which card waits and that your message is queued, and don't send it again or try to clear the ask. Never use it to have one card act on another card's questions, permission requests or blockers. SESSION_AMBIGUOUS: pass the sessionId of the one the user means; MESSAGE_LIMIT: stop and ask the user.
 - Use flowly_reply_to_agent only to answer an agent that messaged you (its prompt shows in this chat as coming from that agent), and keep the reply short: one or two sentences. Answer once: Paseo also gives the agent your final turn text when your turn ends, so either answer through the tool or in your final text, never both; after the tool, end your turn without repeating the reply. Never start a conversation with an agent, never use it to relay or answer a card's questions, permission requests or blockers, and never to reach a card's session (that is flowly_message_card). REPLY_NOT_ALLOWED: that agent did not write to you, or is a card or a dispatcher; SESSION_WAITING_ON_USER: it waits on the user, leave it; REPLY_LIMIT: you and that agent may be looping, stop and tell the user.
 - Never create or start a card, or word a card's description, so that its agent answers, approves or dismisses another card's questions, permission requests or blockers. Card sessions can reach other sessions; that is not their job, and the answer is the user's.
 - Whenever you mention a card, write it as a markdown link \`[<title>](flowly://card/<projectId>/<taskId>)\` with the card's real projectId and id (from flowly_list_cards or flowly_get_card): the chat turns it into a button that opens the card. Write the plain title or id only when you do not know both.

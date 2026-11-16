@@ -1694,5 +1694,9 @@ const catalog: Catalog = {
   "Base branch for new worktrees": "新工作树的基准分支",
   "Remote branches are fetched first. Empty: the main checkout's current branch.": "远程分支会先拉取。留空：使用主检出的当前分支。",
   "Not a valid branch name.": "不是有效的分支名称。",
+  "Scope changed since this was asked:": "提出此问题后范围已变化：",
+  "Cancel question and re-read card": "取消问题并重新读取卡片",
+  "Queued message sent": "已发送排队的消息",
+  "Dropped a queued dispatcher message": "丢弃了一条排队的调度器消息",
 };
 export default catalog;

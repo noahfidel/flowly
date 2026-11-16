@@ -39,6 +39,7 @@ import { isSummarizer } from "../shared/summary";
 import {
   dispatcherMessagePrefix,
   dispatcherMessagesPerHour,
+  queuedMessageLimits,
   dispatcherRepliesPerAgentPerHour,
   dispatcherRepliesPerHour,
   dispatcherReplyWindowMs,
@@ -46,10 +47,10 @@ import {
 } from "../shared/dispatcher";
 import { slimTimeline } from "../shared/session-tail";
 import { pendingRequests } from "../shared/permission-question";
-import { openReport } from "../shared/progress";
 import { rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
 import { changeIdea } from "./agent-service";
 import { confirmsCards, type Dispatcher } from "./dispatcher";
+import { waitingOn, type DispatcherQueue } from "./dispatcher-queue";
 import { addLink, linkNote } from "./links";
 import type { ProjectIdeas } from "./project-ideas";
 import { directory } from "./service";
@@ -152,7 +153,14 @@ export const dispatcherProjectsPerHour = 5;
  * it relies on cannot be shown to happen there (ruling, Noah 2026-11-10; §5.2).
  */
 export const promptingModes: readonly string[] = ["default", "acceptEdits", "plan"];
-const messageResultSchema = z.object({ sent: z.literal(true), sessionId: z.string() });
+const messageResultSchema = z.object({
+  sent: z.boolean(),
+  sessionId: z.string(),
+  /** Queued while the session waits on the user (§5.3). */
+  queued: z.literal(true).optional(),
+  waitingOn: z.enum(["permission", "question", "blocker"]).optional(),
+  note: z.string().optional(),
+});
 /**
  * Paseo reports the dispatcher's final turn text to a sender that is notified on finish (its default), so a tool reply
  * followed by a final text that repeats it reaches the sender twice. The result says so (DISPATCHER-SPEC §5.4).
@@ -235,6 +243,8 @@ export class DispatcherTools {
   private groupSlots = new Map<string, number[]>();
   /** The board group writes flowly_manage_groups shares with the groups.* RPCs (group-writes.ts, §5.2). */
   groupsWith?: GroupWriter;
+  /** Messages for sessions that wait on the user (§5.3). */
+  queue?: DispatcherQueue;
   constructor(
     private readonly store: BoardStore,
     private readonly cards: AgentCards,
@@ -389,7 +399,7 @@ export class DispatcherTools {
 
   /**
    * A plain instruction to a card's session, steered and marked as the dispatcher's (DISPATCHER-SPEC §5.3). A write.
-   * Never answers anything: refused while the session waits on the user.
+   * Never answers anything: while the session waits on the user it is queued (`DispatcherQueue`), not sent.
    */
   async messageCard(identity: DispatcherIdentity, raw: unknown) {
     const input = dispatcherInputs.messageCard.parse(raw);
@@ -422,13 +432,10 @@ export class DispatcherTools {
         throw new ToolError("SESSION_AMBIGUOUS", `The card has ${live.length} live sessions and none is the only running one. Pass sessionId.${this.sessionList(live)}`);
       target = working[0];
     }
-    // Never sidestep a request: a pending permission or question, or an open question or blocker report, is the user's.
-    const events = board.events.filter((e) => e.taskId === task.id);
-    if (pendingRequests(target).length || openReport(events, target.id, "question") || openReport(events, target.id, "blocker"))
-      throw new ToolError(
-        "SESSION_WAITING_ON_USER",
-        "This card's session waits on the user (a permission request, a question or a blocker). Only the user answers it; tell them which card is waiting.",
-      );
+    // Never sidestep a request: while a pending permission or question, or an open question or blocker report, waits on
+    // the user, the message is queued and delivered once the user resolved it (ruling, Noah 2026-11-16).
+    const waiting = waitingOn(board, task.id, target);
+    if (waiting) return this.queueMessage(caller.agentId, task, target.id, input.text, waiting);
     const release = this.reserveMessage(caller.agentId);
     try {
       // Steered, like the dock's chat: a send without it interrupts a turn and answers pending permissions (§5.3).
@@ -438,6 +445,28 @@ export class DispatcherTools {
       throw new ToolError("SEND_FAILED", `Paseo could not deliver the message: ${e instanceof Error ? e.message : String(e)}`, true);
     }
     return { sent: true as const, sessionId: target.id };
+  }
+
+  /** Queues a message for a session that waits on the user; it takes its MESSAGE_LIMIT slot now, never again on delivery (§5.3). */
+  private async queueMessage(from: string, task: { id: string; projectId: string }, agentId: string, text: string, waiting: "permission" | "question" | "blocker") {
+    const queue = this.queue;
+    if (!queue) throw new ToolError("PASEO_UNAVAILABLE", "Flowly is still starting; try again in a moment.", true);
+    const release = this.reserveMessage(from);
+    try {
+      await queue.enqueue({ taskId: task.id, projectId: task.projectId, agentId, from, text });
+    } catch (e) {
+      release();
+      if (e instanceof ToolError) throw e;
+      throw new ToolError("QUEUE_FAILED", `Flowly could not queue the message: ${e instanceof Error ? e.message : String(e)}`, true);
+    }
+    const what = waiting === "permission" ? "a permission request" : waiting === "question" ? "a question" : "a blocker";
+    return {
+      sent: false as const,
+      queued: true as const,
+      sessionId: agentId,
+      waitingOn: waiting,
+      note: `Queued, not sent: this card's session waits on the user (${what}). Flowly delivers your message, marked as yours, right after the user resolves it; the user sees it on the ask and can cancel the ask to deliver it at once. Don't answer the ask and don't send this again; tell the user which card waits on them and that your message is queued.`,
+    };
   }
 
   private sessionList(live: readonly PaseoAgent[]) {
@@ -855,7 +884,7 @@ export class DispatcherTools {
     mcp.registerTool(
       "flowly_message_card",
       {
-        description: `Send a plain instruction to a card's session (for example "integrate" or "finish up"), steered into its running turn. Use only for what the user asked or their standing requests cover. Flowly marks it as coming from the dispatcher. It never answers anything: SESSION_WAITING_ON_USER means the session has a pending permission, question or blocker that only the user answers. Default session: the card's only live one, or its only running one; SESSION_AMBIGUOUS lists them, pass sessionId. NO_LIVE_SESSION, SESSION_NOT_FOUND, SEND_FAILED. At most ${dispatcherMessagesPerHour} per hour (MESSAGE_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
+        description: `Send a plain instruction to a card's session (for example "integrate" or "finish up"), steered into its running turn. Use only for what the user asked or their standing requests cover. Flowly marks it as coming from the dispatcher. It never answers anything: while the session waits on the user (a pending permission, question or blocker that only the user answers), the message is queued instead (queued: true, waitingOn says what) and Flowly delivers it right after the user resolves that; tell the user which card waits and don't send it again. At most ${queuedMessageLimits.perSession} queued per session (QUEUE_FULL: stop, tell the user). Default session: the card's only live one, or its only running one; SESSION_AMBIGUOUS lists them, pass sessionId. NO_LIVE_SESSION, SESSION_NOT_FOUND, SEND_FAILED. At most ${dispatcherMessagesPerHour} per hour, queued ones included (MESSAGE_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.messageCard,
         outputSchema: messageResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

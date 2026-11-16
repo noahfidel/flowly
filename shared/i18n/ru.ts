@@ -1694,5 +1694,9 @@ const catalog: Catalog = {
   "Base branch for new worktrees": "Базовая ветка для новых worktree",
   "Remote branches are fetched first. Empty: the main checkout's current branch.": "Удалённые ветки сначала загружаются. Пусто: текущая ветка основного checkout.",
   "Not a valid branch name.": "Недопустимое имя ветки.",
+  "Scope changed since this was asked:": "С момента этого вопроса объём работы изменился:",
+  "Cancel question and re-read card": "Отменить вопрос и перечитать карточку",
+  "Queued message sent": "Сообщение из очереди отправлено",
+  "Dropped a queued dispatcher message": "Отбросил сообщение диспетчера из очереди",
 };
 export default catalog;

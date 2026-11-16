@@ -75,6 +75,7 @@ import { ToolSecrets, writePrivate, type ContextMethod } from "./tool-context";
 import { ToolError, toolFailure, toolResult } from "./tool-error";
 import { Dispatcher, dispatcherFolder, dispatcherSummary, type DispatcherMcpServer } from "./dispatcher";
 import { DispatcherTools } from "./dispatcher-tools";
+import { DispatcherQueue, DispatcherQueueFile } from "./dispatcher-queue";
 import type { DispatcherIdentity } from "./tool-context";
 import { cliSource } from "./cli-source";
 import { skillText, workingInstructions } from "./skill-source";
@@ -95,6 +96,8 @@ export class ToolServer {
   readonly starter: CardStarter;
   readonly dispatcher: Dispatcher;
   readonly dispatcherTools: DispatcherTools;
+  /** Dispatcher messages waiting for a session that waits on the user (DISPATCHER-SPEC §5.3). */
+  readonly dispatcherQueue: DispatcherQueue;
   private server?: Server;
   private handler?: McpHttpHandler;
   private starting?: Promise<void>;
@@ -127,6 +130,15 @@ export class ToolServer {
       dispatcherPath,
     );
     this.dispatcherTools = new DispatcherTools(store, this.cards, this.starter, this.projectIdeas, () => this.agents.ideasOn(), this.dispatcher);
+    this.dispatcherQueue = new DispatcherQueue(store, new DispatcherQueueFile(store.directory));
+    this.dispatcherQueue.api = () => {
+      try {
+        return this.cards.api();
+      } catch {
+        return undefined;
+      }
+    };
+    this.dispatcherTools.queue = this.dispatcherQueue;
   }
   /** The `flowly-dispatcher` MCP server entry for a dispatcher session (DISPATCHER-SPEC §4). */
   private async dispatcherServer(identity: DispatcherIdentity) {
@@ -904,6 +916,7 @@ export class ToolServer {
   }
   async stop() {
     this.stopped = true;
+    this.dispatcherQueue.stop();
     if (this.starting) await this.starting.catch(() => undefined);
     await this.closeListener();
     await this.store.read().catch(() => undefined);

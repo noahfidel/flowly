@@ -437,6 +437,23 @@ export function useResolvedAsksQuery(enabled: boolean) {
     placeholderData: (previous) => previous,
   });
 }
+/**
+ * Dispatcher messages queued for sessions that wait on the user (DISPATCHER-SPEC §5.3), for the asks' banners: read
+ * only while an ask is on screen. An etag read: unchanged polls carry no list.
+ */
+export const queuedMessagesKey = ["flowly", "asks-queued"] as const;
+export function useQueuedMessagesQuery(enabled: boolean) {
+  const read = useRpc(rpc.asksQueued);
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: queuedMessagesKey,
+    queryFn: () => readChanged(client, queuedMessagesKey, (etag) => read(etag ? { etag } : {})),
+    enabled,
+    staleTime: 0,
+    refetchInterval: enabled ? 5_000 : false,
+    placeholderData: (previous) => previous,
+  });
+}
 /** Observing commands and guidelines learned this week per project, for the overview chip; read with the board, once a minute. */
 export const guardrailCountsKey = ["flowly", "guardrail-counts"] as const;
 export function useGuardrailCountsQuery(enabled: boolean) {

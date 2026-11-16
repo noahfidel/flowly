@@ -1694,5 +1694,9 @@ const catalog: Catalog = {
   "Base branch for new worktrees": "새 워크트리의 기준 브랜치",
   "Remote branches are fetched first. Empty: the main checkout's current branch.": "원격 브랜치는 먼저 가져옵니다. 비워 두면 메인 체크아웃의 현재 브랜치를 사용합니다.",
   "Not a valid branch name.": "올바른 브랜치 이름이 아닙니다.",
+  "Scope changed since this was asked:": "이 질문 이후 범위가 바뀌었습니다:",
+  "Cancel question and re-read card": "질문 취소하고 카드 다시 읽기",
+  "Queued message sent": "대기 중인 메시지를 보냈습니다",
+  "Dropped a queued dispatcher message": "대기 중인 디스패처 메시지를 버림",
 };
 export default catalog;

@@ -1505,6 +1505,15 @@ test("the charter limits flowly_reply_to_agent to answering an agent that wrote 
   expect(line).toMatch(/never .*relay/i);
 });
 
+test("the charter says a card message is queued, not refused, while the session waits on the user (DISPATCHER-SPEC §5.3, §6)", () => {
+  const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.startsWith("- Send a card's session an instruction with flowly_message_card"))!;
+  expect(line).toBeDefined();
+  expect(line).toMatch(/never answers an ask/);
+  expect(line).toMatch(/queued/);
+  expect(line).toMatch(/tell the user which card waits/);
+  expect(line).not.toContain("SESSION_WAITING_ON_USER");
+});
+
 test("the charter says to answer an agent once: the tool or final text, never both (DISPATCHER-SPEC §5.4)", () => {
   const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("flowly_reply_to_agent"))!;
   expect(line).toMatch(/Answer once/);

@@ -7,6 +7,7 @@ import { groupWriter } from "./group-writes";
 import { agentFixture } from "./agent-fixture";
 import { changeLine } from "./dispatcher-items";
 import { dispatcherInputs, replyOnceNote } from "./dispatcher-tools";
+import { cancelledAskMessage, DispatcherQueue, DispatcherQueueFile, dispatcherMessageDroppedAction } from "./dispatcher-queue";
 import { BoardService } from "./service";
 import { projectCreator } from "./project-create";
 import {
@@ -111,6 +112,8 @@ async function setup() {
   const policies: Record<string, unknown> = {};
   /** Messages sent to sessions through `agents.ref(id).send`, and whether the next sends fail. */
   const sent: { id: string; text: string; options?: unknown }[] = [];
+  /** Permission responses through `agents.ref(id).respondToPermission`: only the user's Cancel question makes one (§5.3). */
+  const responded: { id: string; requestId: string; response: { behavior: string; message?: string } }[] = [];
   let failSend = false;
   /** Each session's projected timeline, oldest first, paged as Paseo pages it (tail, then before a cursor). */
   const timelines: Record<string, { seqStart: number; seqEnd: number; timestamp?: string; item: Record<string, unknown> }[]> = {};
@@ -123,6 +126,11 @@ async function setup() {
         send: async (text: string, options?: unknown) => {
           if (failSend) throw new Error("daemon down");
           sent.push({ id, text, options });
+        },
+        respondToPermission: async (r: { requestId: string; response: { behavior: string; message?: string } }) => {
+          responded.push({ id, ...r });
+          // As Paseo: the answered request leaves the session's snapshot.
+          if (agents[id]) agents[id].pendingPermissions = (agents[id].pendingPermissions ?? []).filter((p) => (p as { id: string }).id !== r.requestId);
         },
         timeline: {
           refetch: async (o: { direction: string; limit: number; cursor?: { seq: number } }) => {
@@ -206,7 +214,7 @@ async function setup() {
   const dispatcherToken = server.secrets.dispatcherCredential({ agentId: "disp", workspaceId: "dw" });
   /** Group `groupId`'s entry of the stored record (DISPATCHER-SPEC §1). */
   const entry = async (id = groupId) => (await server.dispatcher.resolvedRecord()).groups[id];
-  return { ...fixture, server, paseo, agents, sent, timelines, timelineReads, failSend: (v: boolean) => (failSend = v), url, createdWorkspaces, launched, policies, connect, dispatcherToken, groupId, entry };
+  return { ...fixture, server, paseo, agents, sent, responded, timelines, timelineReads, failSend: (v: boolean) => (failSend = v), url, createdWorkspaces, launched, policies, connect, dispatcherToken, groupId, entry };
 }
 
 const code = (result: { isError?: boolean; structuredContent?: { error?: { code?: string } } }) =>
@@ -1232,40 +1240,216 @@ test("flowly_message_card: no live session, an ambiguous default, and a named se
   expect(x.sent.map((m) => m.id)).toEqual(["s2", "s1"]);
 });
 
-test("flowly_message_card never touches a session that waits on the user (DISPATCHER-SPEC §5.3)", async () => {
+/** An open question or blocker report of session `agentId` on card q1 (§9.4), at `at`. */
+const reportEvent = (id: string, reportKind: string, at: string, agentId = "s1") => ({
+  id,
+  taskId: "q1",
+  at,
+  actor: "agent" as const,
+  agentId,
+  action: "progress_reported" as const,
+  reportKind,
+  note: "?",
+});
+const turnStarted = (id: string, at: string, agentId = "s1") => ({ id, taskId: "q1", at, actor: "system" as const, agentId, action: "agent.turn_started" });
+
+test("flowly_message_card queues, never sends or answers, while the session waits on the user (DISPATCHER-SPEC §5.3; ruling, Noah 2026-11-16)", async () => {
   const x = await withSessions();
-  // A pending permission or question: refused, nothing sent, nothing answered.
+  const queue = x.server.dispatcherQueue;
+  // A pending question or permission: queued, nothing sent, nothing answered.
   x.agents.s1.pendingPermissions = [{ id: "req-1", kind: "question", name: "AskUserQuestion", input: {} }];
-  expect(code(await x.message({}))).toBe("SESSION_WAITING_ON_USER");
+  const queued = await x.message({ text: " new scope " });
+  expect(code(queued)).toBeUndefined();
+  expect(queued.structuredContent).toMatchObject({ sent: false, queued: true, sessionId: "s1", waitingOn: "question" });
+  expect(queued.structuredContent.note).toMatch(/queued/i);
   x.agents.s1.pendingPermissions = [{ id: "req-2", kind: "tool", name: "Bash", input: {} }];
-  expect(code(await x.message({}))).toBe("SESSION_WAITING_ON_USER");
+  expect((await x.message({})).structuredContent).toMatchObject({ queued: true, waitingOn: "permission" });
   x.agents.s1.pendingPermissions = [];
   // An open question or blocker report, until the session's next turn starts.
-  const report = (id: string, reportKind: string, at: string) => ({
-    id,
-    taskId: "q1",
-    at,
-    actor: "agent" as const,
-    agentId: "s1",
-    action: "progress_reported" as const,
-    reportKind,
-    note: "?",
-  });
   for (const [n, kind] of ["question", "blocker"].entries()) {
     await x.store.mutate((board) => {
-      board.events.push(report(`e-${kind}`, kind, `2026-11-08T1${n * 2 + 1}:00:00.000Z`) as never);
+      board.events.push(reportEvent(`e-${kind}`, kind, `2026-11-08T1${n * 2 + 1}:00:00.000Z`) as never);
     });
-    expect(code(await x.message({})), kind).toBe("SESSION_WAITING_ON_USER");
+    expect((await x.message({})).structuredContent, kind).toMatchObject({ queued: true, waitingOn: kind });
     await x.store.mutate((board) => {
-      board.events.push({ id: `t-${kind}`, taskId: "q1", at: `2026-11-08T1${n * 2 + 2}:00:00.000Z`, actor: "system", agentId: "s1", action: "agent.turn_started" } as never);
+      board.events.push(turnStarted(`t-${kind}`, `2026-11-08T1${n * 2 + 2}:00:00.000Z`) as never);
     });
-    expect(code(await x.message({})), `after ${kind}`).toBeUndefined();
   }
-  expect(x.sent.length).toBe(2);
-  // Another session of the card that waits does not block a named, free one.
+  expect(x.sent).toEqual([]);
+  expect(x.responded).toEqual([]);
+  const stored = await queue.list();
+  expect(stored.map((m) => [m.agentId, m.taskId, m.text])).toEqual([
+    ["s1", "q1", "new scope"],
+    ["s1", "q1", "integrate"],
+    ["s1", "q1", "integrate"],
+    ["s1", "q1", "integrate"],
+  ]);
+  // Each queued message took one of the hour's 30 slots.
+  expect(x.server.dispatcherTools["messageSlots"].get("disp")?.length).toBe(4);
+  // Another session of the card that waits does not block a named, free one; its message is queued for it alone.
   x.agents.s2 = { id: "s2", workspaceId: "w-q1", status: "idle", archivedAt: null, pendingPermissions: [{ id: "r", kind: "tool", name: "Bash", input: {} }] };
-  expect(code(await x.message({ sessionId: "s2" }))).toBe("SESSION_WAITING_ON_USER");
-  expect(code(await x.message({ sessionId: "s1" }))).toBeUndefined();
+  expect((await x.message({ sessionId: "s2" })).structuredContent).toMatchObject({ queued: true, sessionId: "s2" });
+  // s1's reports are closed now, so its own queue is delivered on the next check, and a new message is sent at once.
+  await queue.check("s1", x.paseo);
+  expect((await x.message({ sessionId: "s1" })).structuredContent).toEqual({ sent: true, sessionId: "s1" });
+  expect(x.sent.map((m) => m.id)).toEqual(["s1", "s1"]);
+  expect((await queue.list()).map((m) => m.agentId)).toEqual(["s2"]);
+  expect(x.responded).toEqual([]);
+});
+
+test("flowly_message_card: at most 10 queued per session (QUEUE_FULL), the slot given back (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  x.agents.s1.pendingPermissions = [{ id: "req-1", kind: "tool", name: "Bash", input: {} }];
+  for (let i = 0; i < 10; i++) expect((await x.message({ text: `m${i}` })).structuredContent.queued, `#${i + 1}`).toBe(true);
+  const full = await x.message({});
+  expect(code(full)).toBe("QUEUE_FULL");
+  expect(x.server.dispatcherTools["messageSlots"].get("disp")?.length).toBe(10);
+  expect((await x.server.dispatcherQueue.list()).length).toBe(10);
+});
+
+test("a queued message goes out right after the user resolves the ask, steered, marked, several merged into one (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  const queue = x.server.dispatcherQueue;
+  x.agents.s1.status = "running";
+  x.agents.s1.pendingPermissions = [{ id: "req-1", kind: "tool", name: "Bash", input: {} }];
+  queue.now = () => new Date("2026-11-16T09:05:00.000Z");
+  await x.message({ text: "first: only touch the API" });
+  queue.now = () => new Date("2026-11-16T09:20:00.000Z");
+  await x.message({ text: "second: and skip the docs" });
+  // Still waiting: nothing goes out, whatever triggers the check.
+  await queue.check("s1", x.paseo);
+  await queue.sweep(x.paseo);
+  expect(x.sent).toEqual([]);
+  // The user answered in Paseo; its snapshot may still list the request for a moment (§9.4), so the resolved request is
+  // left out.
+  await queue.check("s1", x.paseo, { resolvedRequestId: "req-1" });
+  expect(x.sent).toHaveLength(1);
+  const [delivered] = x.sent;
+  expect(delivered.id).toBe("s1");
+  expect(delivered.options).toEqual({ activeTurnBehavior: "steer" });
+  // One marker at the top, then each message in order with its time.
+  expect(delivered.text.startsWith(dispatcherMessagePrefix)).toBe(true);
+  expect(delivered.text.split(dispatcherMessagePrefix)).toHaveLength(2);
+  const first = delivered.text.indexOf("first: only touch the API");
+  const second = delivered.text.indexOf("second: and skip the docs");
+  expect(first).toBeGreaterThan(0);
+  expect(second).toBeGreaterThan(first);
+  expect(delivered.text).toContain("2026-11-16 09:05 UTC");
+  expect(delivered.text).toContain("2026-11-16 09:20 UTC");
+  expect(delivered.text).toContain("flowly_get_task");
+  expect(await queue.list()).toEqual([]);
+  // Delivered once.
+  await queue.check("s1", x.paseo);
+  expect(x.sent).toHaveLength(1);
+  // Flowly never answered the ask for the dispatcher.
+  expect(x.responded).toEqual([]);
+});
+
+test("a queued message waits for an open report until the session's next turn starts (DISPATCHER-SPEC §5.3, §9.4)", async () => {
+  const x = await withSessions();
+  const queue = x.server.dispatcherQueue;
+  await x.store.mutate((board) => {
+    board.events.push(reportEvent("e-q", "question", "2026-11-16T09:00:00.000Z") as never);
+  });
+  expect((await x.message({ text: "scope change" })).structuredContent.queued).toBe(true);
+  await queue.check("s1", x.paseo);
+  expect(x.sent).toEqual([]);
+  // The user's answer starts the next turn: the turn start hook delivers before the turn is recorded on the board.
+  await queue.check("s1", x.paseo, { turnStarted: true });
+  expect(x.sent.map((m) => m.text)).toEqual([expect.stringContaining("scope change")]);
+  // A failed send keeps it queued (logged) for the next check.
+  await x.store.mutate((board) => {
+    board.events.push(reportEvent("e-b", "blocker", "2026-11-16T10:00:00.000Z") as never);
+  });
+  await x.message({ text: "again" });
+  x.failSend(true);
+  await queue.check("s1", x.paseo, { turnStarted: true });
+  expect((await queue.list()).map((m) => m.text)).toEqual(["again"]);
+  x.failSend(false);
+  await x.store.mutate((board) => {
+    board.events.push(turnStarted("t-b", "2026-11-16T10:30:00.000Z") as never);
+  });
+  await queue.sweep(x.paseo);
+  expect(x.sent.map((m) => m.text)).toEqual([expect.stringContaining("scope change"), expect.stringContaining("again")]);
+  expect(await queue.list()).toEqual([]);
+});
+
+test("queued messages are dropped, and the drop is in the card's activity, when the card ends or the session goes (DISPATCHER-SPEC §5.3; ruling, Noah 2026-11-16)", async () => {
+  const x = await withSessions();
+  const queue = x.server.dispatcherQueue;
+  const waiting = () => (x.agents.s1 = { id: "s1", workspaceId: "w-q1", status: "idle", archivedAt: null, pendingPermissions: [{ id: "r", kind: "tool", name: "Bash", input: {} }] });
+  const dropped = async () => (await x.store.read()).events.filter((e) => e.taskId === "q1" && e.action === dispatcherMessageDroppedAction);
+  const setCard = (change: { status?: "todo" | "done" | "cancelled"; archivedAt?: string | null }) =>
+    x.store.mutate((board) => {
+      Object.assign(board.tasks.find((t) => t.id === "q1")!, change);
+    });
+  const cases: [string, () => Promise<unknown>, RegExp][] = [
+    ["done", () => setCard({ status: "done" }), /Done/],
+    ["cancelled", () => setCard({ status: "cancelled" }), /Cancelled/],
+    ["archived", () => setCard({ archivedAt: stamp }), /archived/],
+    ["session archived", async () => (x.agents.s1.archivedAt = stamp), /session/],
+    ["session gone", async () => delete (x.agents as Record<string, unknown>).s1, /session/],
+  ];
+  for (const [n, [name, end, reason]] of cases.entries()) {
+    await setCard({ status: "todo", archivedAt: null });
+    waiting();
+    expect((await x.message({ text: `msg ${name}` })).structuredContent.queued, name).toBe(true);
+    await end();
+    await queue.sweep(x.paseo);
+    expect(await queue.list(), name).toEqual([]);
+    const events = await dropped();
+    expect(events, name).toHaveLength(n + 1);
+    expect(events.at(-1)!.actor).toBe("system");
+    expect(events.at(-1)!.note, name).toMatch(reason);
+    expect(events.at(-1)!.note, name).toContain(`msg ${name}`);
+  }
+  expect(x.sent).toEqual([]);
+  expect(x.responded).toEqual([]);
+  // A card move seen on the board drops at once, without waiting for a sweep.
+  await setCard({ status: "todo", archivedAt: null });
+  waiting();
+  await x.message({ text: "late" });
+  await setCard({ status: "done" });
+  await queue.taskChanged("q1");
+  expect(await queue.list()).toEqual([]);
+  expect(await dropped()).toHaveLength(cases.length + 1);
+});
+
+test("Cancel question and re-read card: the user's action denies the pending request and delivers the queue (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  const queue = x.server.dispatcherQueue;
+  // Nothing queued: nothing to cancel, and the ask is left alone.
+  x.agents.s1.pendingPermissions = [{ id: "req-q", kind: "question", name: "AskUserQuestion", input: {} }];
+  await expect(queue.cancelQuestion({ taskId: "q1", agentId: "s1" }, x.paseo)).rejects.toThrow(/Nothing is queued/);
+  expect(x.responded).toEqual([]);
+  await x.message({ text: "one" });
+  await x.message({ text: "two" });
+  // Another card's session is refused.
+  await expect(queue.cancelQuestion({ taskId: "q2", agentId: "s1" }, x.paseo)).rejects.toThrow();
+  await expect(queue.cancelQuestion({ taskId: "q1", agentId: "s1", extra: 1 }, x.paseo)).rejects.toThrow();
+  expect(await queue.cancelQuestion({ taskId: "q1", agentId: "s1" }, x.paseo)).toEqual({ denied: 1, delivered: 2 });
+  expect(x.responded).toEqual([{ id: "s1", requestId: "req-q", response: { behavior: "deny", message: cancelledAskMessage } }]);
+  expect(cancelledAskMessage).toContain("flowly_get_task");
+  expect(x.sent).toHaveLength(1);
+  expect(x.sent[0].text.indexOf("one")).toBeLessThan(x.sent[0].text.indexOf("two"));
+  expect(x.sent[0].options).toEqual({ activeTurnBehavior: "steer" });
+  expect(await queue.list()).toEqual([]);
+  // An open report has no request to deny: delivering the message starts the next turn, which closes it.
+  await x.store.mutate((board) => {
+    board.events.push(reportEvent("e-b", "blocker", "2026-11-16T09:00:00.000Z") as never);
+  });
+  await x.message({ text: "three" });
+  expect(await queue.cancelQuestion({ taskId: "q1", agentId: "s1" }, x.paseo)).toEqual({ denied: 0, delivered: 1 });
+  expect(x.responded).toHaveLength(1);
+  expect(x.sent.map((m) => m.text)).toEqual([expect.stringContaining("one"), expect.stringContaining("three")]);
+});
+
+test("queued messages survive a plugin reload (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  x.agents.s1.pendingPermissions = [{ id: "req-1", kind: "tool", name: "Bash", input: {} }];
+  await x.message({ text: "kept" });
+  const reloaded = new DispatcherQueue(x.store, new DispatcherQueueFile(x.store.directory));
+  expect((await reloaded.list()).map((m) => m.text)).toEqual(["kept"]);
 });
 
 test("flowly_message_card is gated like every dispatcher write (DISPATCHER-SPEC §4)", async () => {

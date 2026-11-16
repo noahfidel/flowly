@@ -1694,5 +1694,9 @@ const catalog: Catalog = {
   "Base branch for new worktrees": "新しいワークツリーのベースブランチ",
   "Remote branches are fetched first. Empty: the main checkout's current branch.": "リモートブランチは先に取得されます。空欄の場合はメインチェックアウトの現在のブランチです。",
   "Not a valid branch name.": "有効なブランチ名ではありません。",
+  "Scope changed since this was asked:": "この質問の後で範囲が変わりました:",
+  "Cancel question and re-read card": "質問を取り消してカードを読み直す",
+  "Queued message sent": "保留中のメッセージを送信しました",
+  "Dropped a queued dispatcher message": "保留中のディスパッチャーのメッセージを破棄しました",
 };
 export default catalog;

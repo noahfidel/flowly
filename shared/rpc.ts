@@ -72,6 +72,10 @@ import {
   askAnswerInputSchema,
   askAnswerResultSchema,
   askDismissInputSchema,
+  cancelQuestionInputSchema,
+  cancelQuestionResultSchema,
+  queuedMessageLimits,
+  queuedMessageViewSchema,
   chatItemSchema,
   dispatcherGroupId,
   dispatcherGroupInputSchema,
@@ -1176,6 +1180,14 @@ export const asksResolved = defineRpc({
   input: etagInput,
   output: z.object({ etag: z.string(), value: z.array(z.string().max(1000)).max(10000).optional() }),
 });
+/** Dispatcher messages queued for sessions that wait on the user, oldest first, for the asks' banners (DISPATCHER-SPEC §5.3, §9.4). */
+export const asksQueued = defineRpc({
+  name: "asks.queued",
+  input: etagInput,
+  output: z.object({ etag: z.string(), value: z.array(queuedMessageViewSchema).max(queuedMessageLimits.total).optional() }),
+});
+/** The user's "Cancel question and re-read card": denies the session's pending requests, then delivers its queued messages (DISPATCHER-SPEC §5.3). */
+export const asksCancelQuestion = defineRpc({ name: "asks.cancel-question", input: cancelQuestionInputSchema, output: cancelQuestionResultSchema });
 /** Start again on an ended ask: the flowly_start_card path, started by the user (DISPATCHER-SPEC §9.4). */
 export const startAgain = defineRpc({ name: "tasks.start-again", input: startAgainInputSchema, output: startCardResultSchema });
 

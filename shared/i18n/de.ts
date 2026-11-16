@@ -1694,5 +1694,9 @@ const catalog: Catalog = {
   "Base branch for new worktrees": "Basis-Branch für neue Worktrees",
   "Remote branches are fetched first. Empty: the main checkout's current branch.": "Remote-Branches werden zuerst abgerufen. Leer: der aktuelle Branch des Haupt-Checkouts.",
   "Not a valid branch name.": "Kein gültiger Branch-Name.",
+  "Scope changed since this was asked:": "Der Umfang hat sich seit dieser Frage geändert:",
+  "Cancel question and re-read card": "Frage abbrechen und Karte neu lesen",
+  "Queued message sent": "Wartende Nachricht gesendet",
+  "Dropped a queued dispatcher message": "Hat eine wartende Dispatcher-Nachricht verworfen",
 };
 export default catalog;

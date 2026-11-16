@@ -1694,5 +1694,9 @@ const catalog: Catalog = {
   "Base branch for new worktrees": "Rama base para nuevos worktrees",
   "Remote branches are fetched first. Empty: the main checkout's current branch.": "Las ramas remotas se descargan primero. Vacío: la rama actual del checkout principal.",
   "Not a valid branch name.": "No es un nombre de rama válido.",
+  "Scope changed since this was asked:": "El alcance cambió desde que se preguntó esto:",
+  "Cancel question and re-read card": "Cancelar la pregunta y releer la tarjeta",
+  "Queued message sent": "Mensaje en cola enviado",
+  "Dropped a queued dispatcher message": "Descartó un mensaje en cola del despachador",
 };
 export default catalog;

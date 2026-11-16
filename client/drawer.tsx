@@ -38,7 +38,7 @@ import {
 import { stateColors } from "./state-colors";
 import { PriorityIcon, StatusIcon, TypeIcon, WorkspaceIcon, priorityLabels, workspaceLabel, workspaceLabels } from "./status";
 import { cardWorkspace } from "../shared/card-display";
-import { useLiveAgents } from "./queries";
+import { useLiveAgents, useQueuedMessagesQuery } from "./queries";
 import { shallowEqual, useStableCallback } from "./stable";
 import { isLegacyScope } from "../shared/scope";
 import { SessionCard } from "./session-card";
@@ -62,7 +62,9 @@ import { currentWrapup } from "../shared/wrapup-state";
 import { useComposer } from "./composer";
 import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { openNativeSession, openNativeWorkspace } from "./session-state";
-import { cardQuestions } from "../shared/progress";
+import { cardQuestions, openReport } from "../shared/progress";
+import { QueuedMessages, queuedFor, sameQueued } from "./queued-messages";
+import type { QueuedMessageView } from "../shared/dispatcher";
 import { PendingRequests } from "./session-question";
 import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
 import { workspaceSession } from "./session";
@@ -478,6 +480,16 @@ function TaskDrawerView({
         .map((a) => ({ id: a.id, title: a.title || "", providerUnavailable: !!a.providerUnavailable, requests: pendingRequests(a) }))
         .filter((a) => a.requests.length),
     [askingKey],
+  );
+  // Dispatcher messages queued for a session that waits on the user, shown on its ask (DISPATCHER-SPEC §5.3, §9.4):
+  // read only while one of the card's sessions has an ask open.
+  const ownEvents = events.filter((e) => e.taskId === task.id);
+  const blockedAgents = liveSessions.filter((a) => openReport(ownEvents, a.id, "blocker")).map((a) => a.id);
+  const queuedQuery = useQueuedMessagesQuery(active && (asking.length > 0 || questions.length > 0 || blockedAgents.length > 0));
+  const queued = queuedQuery.data;
+  // Blockers have no banner of their own here; a session with queued messages and no question or request shows them alone.
+  const queuedAlone = [...new Set((queued ?? []).filter((m) => m.taskId === task.id).map((m) => m.agentId))].filter(
+    (agentId) => !questions.some((q) => q.agentId === agentId) && !asking.some((a) => a.id === agentId) && liveSessions.some((a) => a.id === agentId),
   );
   const respondInCard = useStableCallback((agentId: string, request: PendingRequest, reply: PermissionReply) => {
     if (!detailActive.current || lock.current || !beginOperation(agentId)) return;
@@ -964,6 +976,7 @@ function TaskDrawerView({
           refresh={stableRefreshAll}
           cardFinished={task.status === "done" || task.status === "cancelled" || !!task.archivedAt || !!project.archivedAt}
           onMoveToDone={moveToDone}
+          dispatcherQueued={queuedFor(queued, task.id, selected)}
         />
       ) : (
         <>
@@ -1072,6 +1085,7 @@ function TaskDrawerView({
                   <Label muted size={font.xs} selectable={false}>{relativeTime(q.at)}</Label>
                 </View>
                 <Label size={font.base} selectable>{q.note || t("The agent asked a question.")}</Label>
+                {!!q.agentId && <QueuedMessages taskId={task.id} agentId={q.agentId} messages={queuedFor(queued, task.id, q.agentId)} disabled={!active} />}
                 <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
                   <Button
                     primary
@@ -1090,6 +1104,7 @@ function TaskDrawerView({
             {asking.map((a) => (
               <CardRequests
                 key={a.id}
+                taskId={task.id}
                 agentId={a.id}
                 title={a.title}
                 requests={a.requests}
@@ -1098,7 +1113,11 @@ function TaskDrawerView({
                 onRespond={respondInCard}
                 onOpen={openSession}
                 onOpenInPaseo={typeof navigation?.openAgent === "function" ? openInPaseo : undefined}
+                queued={queuedFor(queued, task.id, a.id)}
               />
+            ))}
+            {queuedAlone.map((agentId) => (
+              <QueuedMessages key={agentId} taskId={task.id} agentId={agentId} messages={queuedFor(queued, task.id, agentId)} disabled={!active || !!task.archivedAt} />
             ))}
             {releasePending && <ReleaseNotice disabled={!active} onRelease={() => setShowRelease(true)} />}
             {(task.status === "done" || task.status === "cancelled") && !task.archivedAt && !project.archivedAt && (
@@ -1279,6 +1298,7 @@ function TaskDrawerView({
  */
 /** One session's pending questions/approvals in the drawer's Needs-you area. */
 const CardRequests = memo(function CardRequests({
+  taskId,
   agentId,
   title,
   requests,
@@ -1287,7 +1307,9 @@ const CardRequests = memo(function CardRequests({
   onRespond,
   onOpen,
   onOpenInPaseo,
+  queued,
 }: {
+  taskId: string;
   agentId: string;
   title: string;
   requests: readonly PendingRequest[];
@@ -1296,6 +1318,8 @@ const CardRequests = memo(function CardRequests({
   onRespond(agentId: string, request: PendingRequest, reply: PermissionReply): void;
   onOpen(agentId: string): void;
   onOpenInPaseo?: (agentId: string) => void;
+  /** Dispatcher messages queued for this session (DISPATCHER-SPEC §5.3). */
+  queued: readonly QueuedMessageView[];
 }) {
   const { colors } = useTheme();
   const openNative = useMemo(() => (onOpenInPaseo ? () => onOpenInPaseo(agentId) : undefined), [agentId, onOpenInPaseo]);
@@ -1316,8 +1340,13 @@ const CardRequests = memo(function CardRequests({
         <Button quiet icon="MessageSquare" onPress={() => onOpen(agentId)}>{t("Open")}</Button>
       </View>
       <PendingRequests requests={requests} disabled={disabled} onRespond={respond} onOpenInPaseo={openNative} />
+      <QueuedMessages taskId={taskId} agentId={agentId} messages={queued} disabled={disabled} />
     </View>
   );
+}, (a, b) => {
+  const { queued: qa, ...ra } = a;
+  const { queued: qb, ...rb } = b;
+  return sameQueued(qa, qb) && shallowEqual(ra, rb);
 });
 
 /** The row under a main session that shows or hides its subagents, lined up with the subagent rows. */
@@ -1442,6 +1471,7 @@ const activityText: Record<string, string> = localizedLabels({
   plan_set: msg("Set the plan"),
   plan_approved: msg("Approved the plan"),
   plan_cleared: msg("Removed the plan"),
+  dispatcher_message_dropped: msg("Dropped a queued dispatcher message"),
   "agent.turn_started": msg("Started a turn"),
   "agent.turn_ended": msg("Finished a turn"),
 });

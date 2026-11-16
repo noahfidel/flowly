@@ -5,7 +5,8 @@ import { useRpc } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc";
 import { msg, t } from "../shared/i18n";
 import type { AskKind } from "../shared/attention-dismiss";
-import type { ChatItem } from "../shared/dispatcher";
+import type { ChatItem, QueuedMessageView } from "../shared/dispatcher";
+import { QueuedMessages, sameQueued } from "./queued-messages";
 import { Button, IconButton, Label, Notice, TextBox, font, message, noFocusRing, radius, space, touch, useTheme } from "./ui";
 import { answersWithText, sameItem } from "./dispatcher-panel-logic";
 import { markAsksAnswered } from "./answered-asks";
@@ -35,9 +36,16 @@ const kindIcons: Record<AskKind, string> = {
 /** Allow / Deny of a request without provider actions are English identities, translated here. */
 const plainActions: Record<string, string> = { allow: msg("Allow"), deny: msg("Deny") };
 
-type RowProps = { item: AskItem; focused: boolean; onOpenCard(taskId: string): void; onChanged(): void };
+type RowProps = {
+  item: AskItem;
+  focused: boolean;
+  onOpenCard(taskId: string): void;
+  onChanged(): void;
+  /** Dispatcher messages queued for the ask's session (DISPATCHER-SPEC §5.3), shown while it is open. */
+  queued?: readonly QueuedMessageView[];
+};
 
-export const AskRow = memo(function AskRow({ item, focused, onOpenCard, onChanged }: RowProps) {
+export const AskRow = memo(function AskRow({ item, focused, onOpenCard, onChanged, queued = [] }: RowProps) {
   const { colors } = useTheme();
   const kind = item.askKind ?? "unread";
   const head = [item.title, t(kindNames[kind])].join(" · ");
@@ -60,6 +68,7 @@ export const AskRow = memo(function AskRow({ item, focused, onOpenCard, onChange
         {(item.state === "open" || item.state === "session_ended") && <DismissButton item={item} onChanged={onChanged} />}
       </View>
       {!!item.detail && <Label size={font.md} lines={8}>{item.detail}</Label>}
+      {item.state === "open" && !!item.agentId && <QueuedMessages taskId={item.taskId} agentId={item.agentId} messages={queued} />}
       {item.state === "open" ? (
         <AskBody item={item} kind={kind} onOpenCard={onOpenCard} onChanged={onChanged} />
       ) : item.state === "session_ended" ? (
@@ -69,7 +78,8 @@ export const AskRow = memo(function AskRow({ item, focused, onOpenCard, onChange
       )}
     </View>
   );
-}, (a, b) => a.focused === b.focused && a.onOpenCard === b.onOpenCard && a.onChanged === b.onChanged && sameItem(a.item, b.item));
+}, (a, b) =>
+  a.focused === b.focused && a.onOpenCard === b.onOpenCard && a.onChanged === b.onChanged && sameItem(a.item, b.item) && sameQueued(a.queued ?? [], b.queued ?? []));
 
 /** Snoozes one ask in its list (ATTENTION-DISMISS-SPEC, Needs you rows). */
 function DismissButton({ item, onChanged }: { item: AskItem; onChanged(): void }) {

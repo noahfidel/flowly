@@ -62,6 +62,8 @@ import { useKeyboardInset } from "./keyboard";
 import { restoredDraft } from "./session-input";
 import { ComposerBox, useComposerDraft } from "./session-composer";
 import { t, tn } from "../shared/i18n";
+import { QueuedMessages, sameQueued } from "./queued-messages";
+import type { QueuedMessageView } from "../shared/dispatcher";
 
 type SessionPreviewProps = Parameters<typeof SessionPreviewView>[0];
 
@@ -81,6 +83,8 @@ export function sameSessionPreviewProps(a: SessionPreviewProps, b: SessionPrevie
       if (!samePreviewTask(a.task, b.task)) return false;
     } else if (key === "events") {
       if (turnEventKey(a.events, a.sessionId) !== turnEventKey(b.events, b.sessionId)) return false;
+    } else if (key === "dispatcherQueued") {
+      if (!sameQueued(a.dispatcherQueued ?? [], b.dispatcherQueued ?? [])) return false;
     } else if (!Object.is(a[key], b[key])) return false;
   }
   return true;
@@ -108,6 +112,7 @@ function SessionPreviewView({
   visible = true,
   cardFinished = false,
   onMoveToDone,
+  dispatcherQueued = [],
 }: {
   task: Task;
   sessionId: string;
@@ -138,6 +143,8 @@ function SessionPreviewView({
   cardFinished?: boolean;
   /** Move the card to Done (an action next move); the drawer owns revision and wrap-up. */
   onMoveToDone?(): void;
+  /** Dispatcher messages queued while this session waits on the user (DISPATCHER-SPEC §5.3). */
+  dispatcherQueued?: readonly QueuedMessageView[];
 }) {
   usePerfRender("switch.preview.commit");
   const switchStart = perfStart();
@@ -756,6 +763,11 @@ function SessionPreviewView({
           onPress={() => setChipMenu(null)}
           style={{ ...noFocusRing, position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 }}
         />
+      )}
+      {active && dispatcherQueued.length > 0 && (
+        <View style={{ flexShrink: 0, paddingHorizontal: space[3], paddingTop: space[2] }}>
+          <QueuedMessages taskId={task.id} agentId={sessionId} messages={dispatcherQueued} disabled={!canWrite || busy} />
+        </View>
       )}
       {active && (
         <Animated.View

@@ -473,6 +473,19 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.asksAnswer, (input, { paseo }) => asks.answer(input, paseo));
   server.handle(rpc.asksDismiss, (input, { paseo }) => asks.dismiss(input, paseo));
   server.handle(rpc.asksResolved, async ({ etag }, { paseo }) => ifChanged(await asks.resolvedSignals(paseo), etag));
+  // Dispatcher messages queued while a card's session waits on the user (DISPATCHER-SPEC §5.3): shown on the ask,
+  // delivered when it ends, dropped when the card ends or the session goes; the user's Cancel question delivers at once.
+  const queue = tools.dispatcherQueue;
+  queue.start();
+  server.handle(rpc.asksQueued, async ({ etag }) => ifChanged(await queue.views(), etag));
+  server.handle(rpc.asksCancelQuestion, (input, { paseo }) => queue.cancelQuestion(input, paseo));
+  const unwireQueue = bus.subscribe((facts) => queue.boardFacts(facts));
+  const checkQueue = (agentId: string, paseo: PaseoApi, hint?: { resolvedRequestId?: string; turnStarted?: boolean }) =>
+    void queue.check(agentId, paseo, hint).catch((e) => logFailure("Flowly dispatcher queue not checked:", e, agentId));
+  server.addHook("agent.turn.before", async (event, { paseo }) => checkQueue(event.agent.id, paseo, { turnStarted: true }));
+  server.addHook("agent.turn.after", async (event, { paseo }) => checkQueue(event.agent.id, paseo));
+  server.addHook("agent.permission.after", async (event, { paseo }) => checkQueue(event.agent.id, paseo, { resolvedRequestId: event.requestId }));
+  server.addHook("agent.archive.after", async (event, { paseo }) => checkQueue(event.agent.id, paseo));
   server.handle(rpc.startAgain, async (input, { paseo }) => {
     tools.attach(paseo);
     const task = (await store.read()).tasks.find((t) => t.id === input.taskId);
@@ -1153,6 +1166,8 @@ export default function contribute(host: PluginServerContext) {
     stopFeaturePrefs();
     folders.stop();
     unwireDispatcher();
+    unwireQueue();
+    queue.stop();
     tools.stop();
   };
 }
