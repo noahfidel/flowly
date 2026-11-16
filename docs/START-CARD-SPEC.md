@@ -124,3 +124,51 @@ New codes: `NOT_FOUND`, `PROJECT_ARCHIVED`, `CARD_FINISHED`, `CARD_HAS_SESSION`,
 ## 10. Mode and the card's plan (2026-11-10)
 
 `startCardInputSchema` gains optional `mode` (a permission mode id, checked against `providers.listModes` when Paseo lists them: `MODE_UNAVAILABLE`). Without it, §5's defaults are resolved first and then adjusted by `suggestPlanAwareMode`: a card with an approved plan does not start in `plan`. The default prompt gains a line naming the approved plan. See [CARD-PLAN-SPEC](CARD-PLAN-SPEC.md) §6.
+
+## 11. Where a follow-up branches from (2026-11-16)
+
+A follow-up card whose parent's commits are not in the project's base yet would start without code it depends on. A per-project setting decides where its new worktree branches from, so the dispatcher no longer asks each time.
+
+Rulings (Noah, 2026-11-16): (1) the setting offers *Parent's branch when it is ahead of the base*, *Always the project base* and *Ask me each time*; the default is the parent's branch. (2) It is per project, next to *Base branch for new worktrees*, with no global setting. (3) Existing projects get the same default as new ones (no migration; an absent value reads as the default). (4) A follow-up branched from its parent's branch gets a *blocks* link parent → follow-up automatically.
+
+### 11.1 The setting
+
+`Project.followUpBase?: "parent" | "base" | "ask"`; absent reads as `"parent"`. `projects.update` takes `followUpBase` (`"parent"` is stored as absent, the others as written; a stale revision is refused as for every project edit). Project settings show it as *Follow-ups branch from* under *Base branch for new worktrees*, with the three choices *Parent's branch when ahead*, *Project base*, *Ask each time*; not offered for a linked-root project (no worktrees).
+
+### 11.2 Parents and "ahead"
+
+- **Parents** of a card: the other ends of its `follow_up_of` links (a `derived` link from the card), plus, for `flowly_create_card`, the card it is created as a follow-up of. A parent that is Done, Cancelled or archived (`isResolved`) does not count: its work has landed or been dropped, and a squash-merged parent is caught here once it is Done.
+- **A parent's branch:** the branch checked out in the parent card's current workspace, when that workspace is a worktree of the same repository (`git -C <dir> symbolic-ref --short HEAD`). A parent in a directory workspace, on a detached HEAD, or whose workspace cannot be read has no branch; an unreadable one adds a warning.
+- **Ahead:** the base is resolved first exactly as in §4.1 (a remote base is fetched). The parent is ahead when `git rev-list --count <base>..refs/heads/<branch>` in the project root is above 0 (the count is the N shown on the card). Uncommitted changes in the parent's worktree are never carried over.
+
+### 11.3 The decision
+
+Applies only where Flowly makes a new branch (`branch-off`): `flowly_start_card` moving a card to a worktree (§4) and `flowly_create_card` with `workspace: "worktree"` (§7). The checkout of an existing Linear branch (§4.1) is unchanged and wins. Not New task, Switch to worktree or an idea's new workspace. First match wins:
+
+1. **Explicit `baseRef`** in the call (§11.5): `"parent"` uses the one parent's branch (refused with `BASE_CHOICE_NEEDED` when the card has no open parent with a branch, or more than one); any other value is the request's own base (§4.1 rule 1). An explicit base that names a parent's branch counts as branched from that parent (§11.4).
+2. **No parent ahead:** the project base (§4.1), as before.
+3. **Setting `parent`:** one parent ahead → its branch (`refName: refs/heads/<branch>`). Several parents ahead → `BASE_CHOICE_NEEDED` naming them; the caller passes `baseRef`.
+4. **Setting `base`:** the project base; the result warns `Parent "<title>" has N commits not in <base>; the card branched from <base>.`
+5. **Setting `ask`:** `BASE_CHOICE_NEEDED` (`Parent "<title>" (<branch>) has N commits not in <base>. Ask the user where to branch from and pass baseRef ("parent" or a branch).`) before anything is made. For the user's own Start again (a human caller) `ask` acts as `base` with the warning: the user is the one who would be asked.
+
+The decision is kept with the worktree request (§4.1), so a retry with the same key makes the same branch.
+
+### 11.4 What is recorded
+
+When the branch is made from a parent's branch:
+
+- `Task.baseRef` stays the **project base** (as resolved in §4.1), not the parent's branch: it is where the card lands, and the landed check (LANDED-DONE-SPEC §3.3) and the review diff (GUARDRAILS-SPEC §6.2) read it.
+- `Task.branchedFrom = { taskId, branch, commit, ahead }`: the parent card, its branch, the parent's tip commit the card branched from, and N. Absent otherwise.
+- A `blocks` link parent → follow-up (`createdBy: "system"`), unless one already exists or it would close a cycle (then nothing is added and the failure is logged).
+- The card's details show `Branched from <branch> (<parent title>), N commits not in <base>` while `branchedFrom` is set.
+- The session's first message gets one more line (also after a caller's own prompt): `This card branched from <branch> (card "<parent title>"), which has N commits not in <base>. Before shipping, rebase onto <base> once the parent has landed: git rebase --onto <base> <commit>.`
+
+**The card's own change** (GUARDRAILS-SPEC §6.2 `changeBase`): with `branchedFrom.commit` an ancestor of HEAD, the change base is `merge-base(<baseRef>, HEAD)` when `branchedFrom.commit` is an ancestor of that merge base (the parent landed by a merge or fast-forward, or the card was rebased), else `branchedFrom.commit`. So a review counts only the card's own commits, also after the parent was squash-merged or its branch deleted (the commit stays reachable from the card's HEAD).
+
+**Landing:** unchanged. The landed check compares the card's own branch tip with `origin/<base>` from `Task.baseRef`; a follow-up lands only once its own commits (and so its parent's) are in the base. After a squash merge of the parent the follow-up lands through its PR or after the rebase above.
+
+### 11.5 Tool contract
+
+- `startCardInputSchema` and `createCardInputSchema` gain optional `baseRef` (1–200 characters, trimmed): `"parent"` or a branch (`git check-ref-format` rules as the project setting; `BASE_INVALID` otherwise). On `flowly_start_card` it is ignored with a warning when the card already has its worktree; on `flowly_create_card` it needs `workspace: "worktree"` (`BASE_INVALID` otherwise).
+- `startCardResultSchema` and the create result gain `base?: { ref, from: "explicit" | "parent" | "project" | "checkout", parentTaskId?, ahead? }` whenever a worktree was made: the ref branched off (or the branch checked out), and why.
+- New code `BASE_CHOICE_NEEDED`; nothing is created when it is returned.
