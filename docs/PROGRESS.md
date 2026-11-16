@@ -1,5 +1,17 @@
 # Implementation progress
 
+## Merged cards move to Done from any open lane (branch `kanban/move-merged-cards-to-done-from-any-statu-eaa452`) — 2026-11-16
+
+- Cause: `landStatuses` held only In review, Committed and Integrated (the first R2), so a card left in Development after its PR merged (PR #9229's card) was never a candidate: no move to Done and no dispatcher note.
+- Fix: `landStatuses` is now Design, Development, Test, Blocked, In review, Committed and Integrated (`server/landed-done.ts`); the `stillLanding` re-check in `server/pr-review-archive.ts` uses the same list. PR review cards (§9, R11) are unchanged: In review only.
+- Ruling (Noah, 2026-11-16, reverses the first R2): Todo and Backlog are skipped (no work to land), Done and Cancelled are finished. Only a session whose status is running or initializing skips a card, re-checked right before writing; idle, closed and errored sessions never block.
+- Dispatcher finding: a system move to Done is an `isStop` status change, batched per card by NoteBatcher to the project's group; nothing to fix.
+- PR lookup finding: the card's single PR output (§3.1), else for worktree cards `gh pr list --head` (§3.2), else the ancestor check (§3.3); paseo-linked-prs is deliberately not used.
+- Tests added in `server/landed-done.test.ts` and `server/pr-review-archive.test.ts` (failing before the fix: 5 of 31, the four new landed-done/lane tests plus the `landCandidate` lane test; the existing "landed on origin/base" test timed out at 5 s on this machine regardless).
+- Spec: LANDED-DONE-SPEC R2, R3, §3.1, §4, §8; AGENTS.md and SPEC-OUTLINE updated.
+- Checks: TBD
+- No tip, tour, What's new entry or telemetry field (a bug fix; switch label unchanged).
+
 ## Dispatchers of different board groups message each other (branch `kanban/let-board-group-dispatchers-message-each-614595`) — 2026-11-16
 
 - User rulings 2026-11-16 (DISPATCHER-SPEC §5.5): a new preapproved `flowly_message_dispatcher { groupId, text }`. It sends messages only; the receiver acts inside its own group, so `PROJECT_OUT_OF_GROUP` stays. `flowly_reply_to_agent` is unchanged. Messages need no confirm and show in both chats. Limits: 5 per target and 20 per hour per sender, plus a chain cap of 6 between two groups that resets when the user sends a message to either one. While the target waits on its user, messages go to a persistent queue. A group with no live dispatcher is refused with `DISPATCHER_DOWN`, and Flowly never starts one. The invariant that nothing about a card's asks crosses between dispatchers is in the spec and the charter.

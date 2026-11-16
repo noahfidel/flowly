@@ -7,8 +7,8 @@ When a card's own work has landed on its project's base branch on the remote, Fl
 ## 1. Rulings (Noah, 2026-11-16)
 
 - **R1: landed means Done.** Landed work moves the card to Done. It does not move it to Integrated, and it does not archive it.
-- **R2: lanes.** Only cards in *In review*, *Committed* or *Integrated* are checked. A card in Todo, Design, Development, Test or Blocked is mid-work or in rework and is left alone.
-- **R3: running sessions.** A card whose workspace has a running or starting session is skipped and looked at again in a later check, as for review cards.
+- **R2: lanes** (ruling Noah 2026-11-16, later the same day; reverses the first R2, which checked only In review, Committed and Integrated and missed a card left in Development after its PR merged). A card in Design, Development, Test, Blocked, In review, Committed or Integrated is checked. Todo and Backlog cards have no work to land and are left alone; Done and Cancelled are finished.
+- **R3: running sessions.** Only a session whose status is running or initializing (mid-turn, including one waiting on a permission prompt, which Paseo reports as running) makes the check skip the card; it is looked at again in a later check, as for review cards. An idle, closed or errored session does not block (ruling 2026-11-16, confirmed).
 - **R4: a PR closed without merging.** The card gets one activity note, "PR closed without merging: `<owner/repo#n>`", once per PR. It is not moved and not archived.
 - **R5: base branch.** "Base" means the card's base branch (`task.baseRef`, for example `refs/heads/dev`), not literally `main`. A merge into `dev` counts. A later `dev` → `main` release PR is not the card's work.
 - **R6: git check.** This partly reverses INTEGRATED-STAGE-SPEC user decision 2 ("the daemon does not check git"). The daemon may check git for this purpose only, and only in a card's own worktree. The check is the card's own branch against the remote base branch, so the shared-checkout attribution problem behind decision 2 does not arise. Directory cards, linked cards and legacy cards get no git check (§3.3).
@@ -21,8 +21,8 @@ A check looks at each card that meets all of the following:
 
 - not archived, in a live project;
 - not a PR review card (`pr-review:` operation id; those keep PR-REVIEW-CARDS-SPEC §10);
-- in *In review*, *Committed* or *Integrated* (R2);
-- in a workspace with no running or starting session (R3);
+- in *Design*, *Development*, *Test*, *Blocked*, *In review*, *Committed* or *Integrated*, not Todo or Backlog (R2);
+- in a workspace with no running or starting session (R3; an idle session does not count);
 - with evidence to check (§3): exactly one PR in its outputs, or a worktree with a `baseRef`.
 
 The delivery mode does not choose the check. The evidence does, so a card whose mode changed is still covered. In practice:
@@ -48,6 +48,8 @@ These count as the card's PR: its output artifacts whose target is a GitHub pull
 
 When the outputs name two or more distinct PRs, the card is left alone. One card is at most one PR, so more than one PR means a person should look. No other source is tried for that card.
 
+A card that has not registered its PR as an output (common in Development) is still found through §3.2 when it is a worktree card; a directory card without a PR output is not checked.
+
 The paseo-linked-prs workspace map is not used. Its `mentioned` list holds every PR mentioned in a workspace's chats, so it cannot name the card's own PR.
 
 ### 3.2 A PR whose head is the card's branch
@@ -71,7 +73,7 @@ When all four hold, the card moves to Done. A non-zero exit at step 4 leaves the
 
 ## 4. Moving to Done
 
-Just before writing, Flowly reads the running sessions of that card's workspace again (R3), because the check's earlier snapshot can be minutes old. Then, inside one store transaction, it reads the card again. It leaves the card alone if the card was archived, its status or revision changed since the check read it, it left the R2 lanes, moved to another workspace, or (for §3.1) its single PR changed since the check read it. Otherwise it moves the card to Done the way a person's move to Done does: the status, the revision and the `status_changed` event, with `actor: "system"` and the note "Moved to Done: PR merged (`owner/repo#n`)" or "Moved to Done: work landed on `<base>`". Everything the daemon runs after any move into Done runs here too (`afterStatus`: the project memory review, guardrails, and *Auto wrap up*, MULTITASK-SPEC). The wrap-up question is not asked: the client asks it only after its own move, so a daemon move has no client to ask it. The card's Wrap up action stays available. The card is not archived.
+Just before writing, Flowly reads the running sessions of that card's workspace again (R3), because the check's earlier snapshot can be minutes old. Then, inside one store transaction, it reads the card again. It leaves the card alone if the card was archived, its status or revision changed since the check read it, it left the R2 lanes, moved to another workspace, or (for §3.1) its single PR changed since the check read it. Otherwise it moves the card to Done the way a person's move to Done does: the status, the revision and the `status_changed` event, with `actor: "system"` and the note "Moved to Done: PR merged (`owner/repo#n`)" or "Moved to Done: work landed on `<base>`". Everything the daemon runs after any move into Done runs here too (`afterStatus`: the project memory review, guardrails, and *Auto wrap up*, MULTITASK-SPEC). The wrap-up question is not asked: the client asks it only after its own move, so a daemon move has no client to ask it. The card's Wrap up action stays available. The card is not archived. The move's `status_changed` event (actor system, to done) is a dispatcher stop (EVENT-BUS-SPEC §2), so it reaches the card's group dispatcher as a batched note like any other status change.
 
 The R4 note is a `note` event with `actor: "system"` on the card. Before writing one, Flowly looks through the card's activity for the same note and writes nothing if it is already there. A restart therefore never repeats it.
 
@@ -90,13 +92,14 @@ One check builds one list: the review-card candidates (PR-REVIEW-CARDS-SPEC §10
 
 ## 8. Acceptance
 
-- With the switch on, a card in In review, Committed or Integrated whose single PR output is merged moves to Done at the next check, with the note "Moved to Done: PR merged (…)". An open PR changes nothing.
+- With the switch on, a card in an R2 lane whose single PR output is merged moves to Done at the next check, with the note "Moved to Done: PR merged (…)". An open PR changes nothing.
 - A closed PR adds one "PR closed without merging" note. A second check, or a check after a restart, adds no second note. The card stays in its lane.
 - A worktree card with no PR output, no uncommitted changes, a commit of its own that `HEAD` still contains, and `HEAD` an ancestor of `origin/<base>` moves to Done with "Moved to Done: work landed on <base>". A fresh worktree with no commits of its own, a card with uncommitted changes, and a card whose head isn't on the remote base all stay.
 - A worktree card whose branch is the head of a merged PR moves to Done. A merged PR on a branch of the same name whose head commit isn't the card's `HEAD`, or that comes from another repository, does not count.
 - A worktree with no commits of its own stays, even after a fast-forward pull or `reset --hard` to the base, and so does one that committed and then reset to the base.
 - A session that starts on the card's workspace during a check, or a change to the card's status or revision during a check, keeps the card where it is.
-- These cards stay: a card in Todo, Design, Development, Test or Blocked; a card whose workspace has a running session; a card with two distinct PR outputs; a directory card with no PR output; a card where neither source can read the state.
+- A card in Design, Development, Test or Blocked whose single PR output merged, or whose worktree branch heads a merged PR or landed, moves to Done; an idle session on its workspace does not block.
+- These cards stay: a card in Todo, Backlog, Done or Cancelled; a card whose workspace has a running session; a card with two distinct PR outputs; a directory card with no PR output; a card where neither source can read the state.
 - With the switch off, no normal card moves, and review cards still archive (and the reverse when only the review switch is off).
 - Review cards and normal cards share one check and one 20-lookup cap.
 
