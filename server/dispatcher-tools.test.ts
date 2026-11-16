@@ -1926,6 +1926,37 @@ test("a new message to a free session with older ones still queued goes out merg
   expect(await queue.list()).toEqual([]);
 });
 
+test("a queued message the check drops at once is reported as dropped, never as queued or sent (DISPATCHER-SPEC §5.3)", async () => {
+  const x = await withSessions();
+  const queue = x.server.dispatcherQueue;
+  const setStatus = (status: "todo" | "done") =>
+    x.store.mutate((board) => {
+      board.tasks.find((t) => t.id === "q1")!.status = status;
+    });
+  const dropped = async () => (await x.store.read()).events.filter((e) => e.taskId === "q1" && e.action === dispatcherMessageDroppedAction);
+  // Waiting session on a card already in Done: queued, then dropped by the check that follows the write.
+  x.agents.s1.pendingPermissions = [{ id: "req-1", kind: "tool", name: "Bash", input: {} }];
+  await setStatus("done");
+  const waiting = await x.message({ text: "too late" });
+  expect(code(waiting)).toBeUndefined();
+  expect(waiting.structuredContent).toMatchObject({ sent: false, queued: false, dropped: true, sessionId: "s1", reason: "the card moved to Done" });
+  expect(waiting.structuredContent.note).toMatch(/not delivered/i);
+  expect(waiting.structuredContent.waitingOn).toBeUndefined();
+  expect(await queue.list()).toEqual([]);
+  expect(await dropped()).toHaveLength(1);
+  // A free session with a backlog on a card that moved to Done meanwhile (no board fact seen yet): both are dropped.
+  await setStatus("todo");
+  await x.message({ text: "older" });
+  await queue.idle();
+  await setStatus("done");
+  x.agents.s1.pendingPermissions = [];
+  const backlog = await x.message({ text: "newer" });
+  expect(backlog.structuredContent).toMatchObject({ sent: false, queued: false, dropped: true, sessionId: "s1", reason: "the card moved to Done" });
+  expect(await queue.list()).toEqual([]);
+  expect((await dropped()).at(-1)!.note).toMatch(/older[\s\S]*newer/);
+  expect(x.sent).toEqual([]);
+});
+
 test("a message queued after the ask ended between the read and the write is checked at once (DISPATCHER-SPEC §5.3)", async () => {
   const x = await withSessions();
   const queue = x.server.dispatcherQueue;

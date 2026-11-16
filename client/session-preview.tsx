@@ -63,6 +63,7 @@ import { restoredDraft } from "./session-input";
 import { ComposerBox, useComposerDraft } from "./session-composer";
 import { t, tn } from "../shared/i18n";
 import { QueuedMessages, sameQueued } from "./queued-messages";
+import { bannerRequestId } from "./queued-request";
 import type { QueuedMessageView } from "../shared/dispatcher";
 
 type SessionPreviewProps = Parameters<typeof SessionPreviewView>[0];
@@ -766,7 +767,7 @@ function SessionPreviewView({
       )}
       {active && dispatcherQueued.length > 0 && (
         <View style={{ flexShrink: 0, paddingHorizontal: space[3], paddingTop: space[2] }}>
-          <QueuedMessages taskId={task.id} agentId={sessionId} requestId={requests[0]?.id} messages={dispatcherQueued} disabled={!canWrite || busy} />
+          <QueuedMessages taskId={task.id} agentId={sessionId} requestId={bannerRequestId(requests)} messages={dispatcherQueued} disabled={!canWrite || busy} />
         </View>
       )}
       {active && (

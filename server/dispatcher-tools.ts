@@ -158,7 +158,9 @@ const messageResultSchema = z.object({
   sent: z.boolean(),
   sessionId: z.string(),
   /** Queued while the session waits on the user (§5.3). */
-  queued: z.literal(true).optional(),
+  queued: z.boolean().optional(),
+  dropped: z.literal(true).optional(),
+  reason: z.string().optional(),
   waitingOn: z.enum(["permission", "question", "blocker"]).optional(),
   note: z.string().optional(),
 });
@@ -477,21 +479,32 @@ export class DispatcherTools {
     const queue = this.queue;
     if (!queue) throw new ToolError("PASEO_UNAVAILABLE", "Flowly is still starting; try again in a moment.", true);
     const release = this.reserveMessage(from);
+    let queued: { id: string };
     try {
-      // Waiting: checked right after the write, in the background (§5.3). Not waiting: checked below, now.
-      await queue.enqueue({ taskId: task.id, projectId: task.projectId, agentId, from, text }, waiting ? paseo : undefined);
+      queued = await queue.enqueue({ taskId: task.id, projectId: task.projectId, agentId, from, text });
     } catch (e) {
       release();
       if (e instanceof ToolError) throw e;
       throw new ToolError("QUEUE_FAILED", `Flowly could not queue the message: ${e instanceof Error ? e.message : String(e)}`, true);
     }
-    if (!waiting) {
-      // Free session: the backlog and this message go out now, merged in order, unless the delivery fails again.
-      await queue.check(agentId, paseo).catch((e) => logFailure("Flowly queued dispatcher message not checked:", e, agentId));
-      if (!(await this.queuedFor(agentId))) return { sent: true as const, sessionId: agentId };
+    // Checked right after the write (serialized, §5.3): an ask that ended meanwhile, or a free session with a backlog,
+    // delivers now; a card or session that can't take it any more drops it now. The result says which.
+    await queue.check(agentId, paseo).catch((e) => logFailure("Flowly queued dispatcher message not checked:", e, agentId));
+    const outcome = queue.outcome(queued.id);
+    if (outcome?.kind === "delivered") return { sent: true as const, sessionId: agentId };
+    if (outcome?.kind === "dropped")
       return {
         sent: false as const,
-        queued: true as const,
+        queued: false,
+        dropped: true as const,
+        sessionId: agentId,
+        reason: outcome.reason,
+        note: `Not delivered and not queued: ${outcome.reason}, so Flowly dropped it (and any older queued messages for this session on this card) and recorded that in the card's activity. Don't send it again; tell the user if it still matters.`,
+      };
+    if (!waiting) {
+      return {
+        sent: false as const,
+        queued: true,
         sessionId: agentId,
         note: "Queued, not sent yet: earlier messages to this session are still queued, and Flowly delivers them with yours, in order, at its next try. Don't send it again.",
       };
@@ -499,7 +512,7 @@ export class DispatcherTools {
     const what = waiting === "permission" ? "a permission request" : waiting === "question" ? "a question" : "a blocker";
     return {
       sent: false as const,
-      queued: true as const,
+      queued: true,
       sessionId: agentId,
       waitingOn: waiting,
       note: `Queued, not sent: this card's session waits on the user (${what}). Flowly delivers your message, marked as yours, right after the user resolves it; the user sees it on the ask and can cancel the ask to deliver it at once. Don't answer the ask and don't send this again; tell the user which card waits on them and that your message is queued.`,
@@ -921,7 +934,7 @@ export class DispatcherTools {
     mcp.registerTool(
       "flowly_message_card",
       {
-        description: `Send a plain instruction to a card's session (for example "integrate" or "finish up"), steered into its running turn. Use only for what the user asked or their standing requests cover. Flowly marks it as coming from the dispatcher. It never answers anything: while the session waits on the user (a pending permission, question or blocker that only the user answers), the message is queued instead (queued: true, waitingOn says what) and Flowly delivers it right after the user resolves that; tell the user which card waits and don't send it again. At most ${queuedMessageLimits.perSession} queued per session (QUEUE_FULL: stop, tell the user). Default session: the card's only live one, or its only running one; SESSION_AMBIGUOUS lists them, pass sessionId. NO_LIVE_SESSION, SESSION_NOT_FOUND, SEND_FAILED. At most ${dispatcherMessagesPerHour} per hour, queued ones included (MESSAGE_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
+        description: `Send a plain instruction to a card's session (for example "integrate" or "finish up"), steered into its running turn. Use only for what the user asked or their standing requests cover. Flowly marks it as coming from the dispatcher. It never answers anything: while the session waits on the user (a pending permission, question or blocker that only the user answers), the message is queued instead (queued: true, waitingOn says what) and Flowly delivers it right after the user resolves that; tell the user which card waits and don't send it again. dropped: true (with reason) means it was not delivered and not kept: the card ended or the session is gone; don't resend. At most ${queuedMessageLimits.perSession} queued per session (QUEUE_FULL: stop, tell the user). Default session: the card's only live one, or its only running one; SESSION_AMBIGUOUS lists them, pass sessionId. NO_LIVE_SESSION, SESSION_NOT_FOUND, SEND_FAILED. At most ${dispatcherMessagesPerHour} per hour, queued ones included (MESSAGE_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.messageCard,
         outputSchema: messageResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

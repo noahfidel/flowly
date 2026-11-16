@@ -18,6 +18,20 @@ test("one queued message is delivered with the marker, its time and the re-read 
   expect(text).not.toContain("1. ");
 });
 
+test("the delivery's header is true for a message held behind a backlog as well as one held for an ask (DISPATCHER-SPEC §5.3)", () => {
+  for (const messages of [
+    [{ text: "one", at: "2026-11-16T09:05:00.000Z" }],
+    [
+      { text: "one", at: "2026-11-16T09:05:00.000Z" },
+      { text: "two", at: "2026-11-16T09:06:00.000Z" },
+    ],
+  ]) {
+    const text = queuedDelivery(messages);
+    expect(text).not.toMatch(/while you waited/);
+    expect(text).toMatch(/held/);
+  }
+});
+
 test("a corrupt queue file is kept aside and the queue starts empty (DISPATCHER-SPEC §5.3)", async () => {
   const folder = await mkdtemp(join(tmpdir(), "flowly-queue-"));
   folders.push(folder);

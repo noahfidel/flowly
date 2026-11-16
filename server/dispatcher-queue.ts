@@ -33,6 +33,9 @@ export { dispatcherMessageDroppedAction };
 export const cancelledAskMessage =
   "The user cancelled this request: the card changed while it waited. Read the dispatcher's message that follows, re-read the card with flowly_get_task, and go on from there; ask again only if it still applies.";
 
+/** What happened to one queued message: delivered, or dropped and why. Kept while it is still queued: no entry. */
+export type QueuedOutcome = { kind: "delivered" } | { kind: "dropped"; reason: string };
+
 /** How long a sweep waits while anything is queued: it catches ask ends no hook reported, and dropped sessions. */
 const sweepMs = 60_000;
 
@@ -41,12 +44,13 @@ const shownTime = (at: string) => `${at.slice(0, 16).replace("T", " ")} UTC`;
 
 /** The one message a session gets for its queued messages: one marker, then each in order with its time (§5.3). */
 export function queuedDelivery(messages: readonly Pick<QueuedMessage, "text" | "at">[]): string {
+  // True both for a message held while the session waited on the user and for one held behind older queued ones.
   const head =
     messages.length === 1
-      ? "this message was queued for you while you waited on the user."
-      : `these ${messages.length} messages were queued for you, in order, while you waited on the user.`;
+      ? "this message was held for you until you could take it."
+      : `these ${messages.length} messages were held for you until you could take them; here they are, in order.`;
   return [
-    `${dispatcherMessagePrefix}${head} The card may have changed since you asked; re-read it with flowly_get_task before you go on.`,
+    `${dispatcherMessagePrefix}${head} The card may have changed since they were written; re-read it with flowly_get_task before you go on.`,
     ...messages.map((m, i) => `${messages.length === 1 ? "" : `${i + 1}. `}(${shownTime(m.at)}) ${m.text}`),
   ].join("\n\n");
 }
@@ -166,6 +170,8 @@ export class DispatcherQueue {
   private chain: Promise<unknown> = Promise.resolve();
   /** Ids sent in this daemon run whose removal from the file failed: never sent again. */
   private readonly sent = new Set<string>();
+  /** Recent outcomes by message id, for the tool that queued it (`outcome`); the oldest are forgotten past 1000. */
+  private readonly outcomes = new Map<string, QueuedOutcome>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
   constructor(
@@ -303,6 +309,21 @@ export class DispatcherQueue {
     });
   }
 
+  /** What became of a message this run (taken once), or undefined while it is still queued (§5.3). */
+  outcome(id: string): QueuedOutcome | undefined {
+    const found = this.outcomes.get(id);
+    this.outcomes.delete(id);
+    return found;
+  }
+
+  private record(queued: readonly QueuedMessage[], outcome: QueuedOutcome) {
+    for (const m of queued) this.outcomes.set(m.id, outcome);
+    for (const id of this.outcomes.keys()) {
+      if (this.outcomes.size <= 1000) break;
+      this.outcomes.delete(id);
+    }
+  }
+
   /** Resolves once every check, delivery or cancel started so far has finished. */
   async idle(): Promise<void> {
     await this.chain;
@@ -365,6 +386,7 @@ export class DispatcherQueue {
   private async deliver(queued: QueuedMessage[], paseo: PaseoApi) {
     await paseo.agents.ref(queued[0].agentId).send(queuedDelivery(queued), userSendOptions);
     for (const m of queued) this.sent.add(m.id);
+    this.record(queued, { kind: "delivered" });
     await this.remove(queued).catch((e) => logFailure("Flowly delivered dispatcher message not removed:", e, queued[0].agentId));
   }
 
@@ -389,5 +411,6 @@ export class DispatcherQueue {
           });
       });
     await this.remove(queued);
+    this.record(queued, { kind: "dropped", reason });
   }
 }

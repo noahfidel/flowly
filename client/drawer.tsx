@@ -64,6 +64,7 @@ import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry, type Point } f
 import { openNativeSession, openNativeWorkspace } from "./session-state";
 import { cardQuestions, openReport } from "../shared/progress";
 import { QueuedMessages, queuedFor, sameQueued } from "./queued-messages";
+import { bannerRequestId } from "./queued-request";
 import type { QueuedMessageView } from "../shared/dispatcher";
 import { PendingRequests } from "./session-question";
 import { pendingRequests, type PendingRequest, type PermissionReply } from "../shared/permission-question";
@@ -1342,8 +1343,8 @@ const CardRequests = memo(function CardRequests({
         <Button quiet icon="MessageSquare" onPress={() => onOpen(agentId)}>{t("Open")}</Button>
       </View>
       <PendingRequests requests={requests} disabled={disabled} onRespond={respond} onOpenInPaseo={openNative} />
-      {/* Sits on the session's oldest request: the only one its button denies (DISPATCHER-SPEC §5.3). */}
-      <QueuedMessages taskId={taskId} agentId={agentId} requestId={requests[0]?.id} messages={queued} disabled={disabled} />
+      {/* Denies a request only when it is the session's one pending request (DISPATCHER-SPEC §9.4). */}
+      <QueuedMessages taskId={taskId} agentId={agentId} requestId={bannerRequestId(requests)} messages={queued} disabled={disabled} />
     </View>
   );
 }, (a, b) => {
