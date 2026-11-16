@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Reading a card's session clears it from "N updated" (branch `kanban/opening-a-card-s-session-should-clear-it-4f1551`) — 2026-11-16
+
+- Cause: "N updated" (`updatedQueue`) is the dispatcher change line plus cards with an unread turn. Opening a card's unread session wrote a read receipt, so the green marker and the unread half dropped the card, but its change-line events stayed until an explicit Mark seen, so the chip kept counting it.
+- Fix: `SessionReadStore.mark` reports when a read changed state; `SessionReadService.onRead` then calls `Dispatcher.cardRead(groupId, taskId)` (per-card `markSeen` up to now; skipped for a project without a group or a group without a dispatcher entry; failures logged with `logFailure`, never failing the read). `client/session-reads.ts` invalidates the dispatcher items after `markRead`, so the chip drops the card without waiting for the 4 s poll. It covers every read path (chat preview, drawer, step-through, phone) because they all go through `sessions.mark-read`. Spec: DISPATCHER-SPEC §9.2 ruling 2026-11-16; UI-REFRESH-SPEC chip line.
+- Failing-then-passing tests (786cb09, 2 failed before dd86cdf): `server/dispatcher-items.test.ts` (card leaves the change line, group mark stays, other card stays, new event brings it back, group with no entry untouched), `server/session-reads.test.ts` (hook fires once on a changing read, not on a repeat read, a throwing hook does not fail the read), `client/step-through.test.ts` (queue length equals cards still unread/changed; a pure check, passed before too).
+- Checks on dd86cdf + docs: `npm run typecheck` exit 0; `npm test` exit 0 (222 files passed, 1 skipped; 2599 tests passed, 7 skipped). Unrun: live desktop/phone UI check (installed plugin not updated, per the card); no test of the `index.server.ts` wiring or the client invalidation.
+- No tip, tour, What's new entry or telemetry field (a bug fix).
+
 ## PR review cards move to Done once you approve the PR (branch `kanban/move-pr-review-cards-to-done-once-the-us-d483e3`) — 2026-11-16
 
 - Spec: `docs/LANDED-DONE-SPEC.md` §9 (rulings R9–R13, Noah 2026-11-16) and `docs/PR-REVIEW-CARDS-SPEC.md` §4/§6/§10/§7; AGENTS.md invariant amended. Done on approval (not archived), no automatic reopen, In review only with running sessions skipped, own PRs skipped, gated by the existing *Move cards to Done when their work lands* switch.
