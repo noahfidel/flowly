@@ -1,0 +1,37 @@
+Flowly
+Tooling
+33
+tasks
+· 31 done
+Ideas 21
+Memory 11
+Insights
+Development
+1
+flowly
+Worktree
+Feature
+#ui
+View a card session's subagent sessions from the card chat
+Spec committed; before captures running, coder not yet dispatched
+13m ago
+1
+Acceptance 1/5
+View a card session's subagent sessions from the card chat
+Load earlier
+Approve the local-daemon exception for reading provider subagents (listProviderSubagents / fetchProviderSubagentTimeline, read-only). Build step 2: the Subagents chip also lists Agent-tool subagents with status, and a click opens a read-only transcript inside Flowly on desktop and phone.
+5 tool calls
+Capturing "before" shots in the background while I write the spec.
+3 tool calls
+Writing the spec (SUBAGENTS-SPEC) and the AGENTS.md exception before dispatching the coder.
+1 tool call
+Now the spec edits.
+4 tool calls
+Spec committed (b9ff94d). Waiting for the before captures before dispatching the coder.
+1 tool call
+The spec is committed and the before captures are still running; I'll dispatch the coder when they're done.
+ 
+Opus 5.5
+Medium
+Standard
+Auto mode
