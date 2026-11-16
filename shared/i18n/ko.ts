@@ -1691,5 +1691,8 @@ const catalog: Catalog = {
   "Linear ticket": "Linear 티켓",
   "No Linear ticket": "Linear 티켓 없음",
   "Linear issue linked": "Linear 이슈 연결됨",
+  "Base branch for new worktrees": "새 워크트리의 기준 브랜치",
+  "Remote branches are fetched first. Empty: the main checkout's current branch.": "원격 브랜치는 먼저 가져옵니다. 비워 두면 메인 체크아웃의 현재 브랜치를 사용합니다.",
+  "Not a valid branch name.": "올바른 브랜치 이름이 아닙니다.",
 };
 export default catalog;

@@ -1691,5 +1691,8 @@ const catalog: Catalog = {
   "Linear ticket": "Linear チケット",
   "No Linear ticket": "Linear チケットなし",
   "Linear issue linked": "Linear Issue をリンク済み",
+  "Base branch for new worktrees": "新しいワークツリーのベースブランチ",
+  "Remote branches are fetched first. Empty: the main checkout's current branch.": "リモートブランチは先に取得されます。空欄の場合はメインチェックアウトの現在のブランチです。",
+  "Not a valid branch name.": "有効なブランチ名ではありません。",
 };
 export default catalog;

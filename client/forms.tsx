@@ -1,3 +1,4 @@
+import { baseRefMax, baseRefProblem, baseRefValue } from "../shared/worktree-base";
 import { linearSkipTypesOf, linearSkipTypesValue, linearTeamValue, linearTicketPatch, linearTicketTypeDefault } from "../shared/linear-ticket";
 import { defaultSessionStartText, sessionStartMax, sessionStartValue } from "../shared/session-start";
 import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
@@ -81,6 +82,7 @@ export function useProjectSettings(project: Project, withLanes = false) {
     [agentModel, setAgentModel] = useState<AgentModel | null>(project.agentModel ?? null),
     [deliveryMode, setDeliveryMode] = useState<DeliveryMode | null>(storedDelivery),
     [sessionStart, setSessionStart] = useState(project.sessionStartText ?? ""),
+    [baseRef, setBaseRef] = useState(project.baseRef ?? ""),
     [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
@@ -101,10 +103,12 @@ export function useProjectSettings(project: Project, withLanes = false) {
     // An unknown stored mode shows as Inherit and is left as it is until another mode is chosen.
     ...(deliveryMode !== storedDelivery ? { deliveryMode } : {}),
     ...(sessionStartValue(sessionStart) !== (project.sessionStartText ?? "") ? { sessionStartText: sessionStartValue(sessionStart) } : {}),
+    ...(baseRefValue(baseRef) !== (project.baseRef ?? "") ? { baseRef: baseRefValue(baseRef) } : {}),
   };
   const linksChanged = !!project.links && !sameList(links, storedLinks);
   const dirty = Object.keys(patch).length > 0 || linksChanged;
-  const valid = !!title.trim() && (!project.links || links.length > 0);
+  const baseRefError = baseRefProblem(baseRef);
+  const valid = !!title.trim() && (!project.links || links.length > 0) && !baseRefError;
   /** The saved project, or null when the save failed (the error is in `error`). */
   async function save(): Promise<Project | null> {
     setPending(true);
@@ -123,7 +127,7 @@ export function useProjectSettings(project: Project, withLanes = false) {
   return {
     title, setTitle, description, setDescription, links, setLinkList, autoStatus, setAutoStatus, workpad, setWorkpad,
     workflowInsights, setWorkflowInsights, memory, setMemory, linearTicket, setLinearTicket, linearTeam, setLinearTeam, skipTypes, setSkipTypes,
-    review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode, sessionStart, setSessionStart, lanes, setLanes,
+    review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode, sessionStart, setSessionStart, baseRef, setBaseRef, baseRefError, lanes, setLanes,
     pending, error, dirty, valid, save, reviewPreset,
   };
 }
@@ -194,6 +198,17 @@ export function ProjectSettingsFields({
         multiline
         editable={!s.pending}
       />
+      {!project.links && (
+        <Field
+          title={t("Base branch for new worktrees")}
+          value={s.baseRef}
+          onChange={s.setBaseRef}
+          placeholder="origin/main"
+          maxLength={baseRefMax}
+          editable={!s.pending}
+          hint={s.baseRefError ? t("Not a valid branch name.") : t("Remote branches are fetched first. Empty: the main checkout's current branch.")}
+        />
+      )}
       {folder.data && (
         <View style={{ gap: 4 }}>
           <Label size={font.sm}>{t("Saved in project folder")}</Label>
@@ -987,7 +1002,7 @@ export function TaskForm({
                     title={t("Base ref (optional)")}
                     value={baseRef}
                     onChange={setBase}
-                    placeholder={t("Current branch of the project root")}
+                    placeholder={project.baseRef || t("Current branch of the project root")}
                   />
                   <Field
                     title={t("New branch (optional)")}

@@ -1691,5 +1691,8 @@ const catalog: Catalog = {
   "Linear ticket": "Linear 工單",
   "No Linear ticket": "無 Linear 工單",
   "Linear issue linked": "已連結 Linear 問題",
+  "Base branch for new worktrees": "新工作樹的基準分支",
+  "Remote branches are fetched first. Empty: the main checkout's current branch.": "遠端分支會先擷取。留空：使用主要檢出的目前分支。",
+  "Not a valid branch name.": "不是有效的分支名稱。",
 };
 export default catalog;

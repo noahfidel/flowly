@@ -1691,5 +1691,8 @@ const catalog: Catalog = {
   "Linear ticket": "Тикет Linear",
   "No Linear ticket": "Без тикета Linear",
   "Linear issue linked": "Задача Linear привязана",
+  "Base branch for new worktrees": "Базовая ветка для новых worktree",
+  "Remote branches are fetched first. Empty: the main checkout's current branch.": "Удалённые ветки сначала загружаются. Пусто: текущая ветка основного checkout.",
+  "Not a valid branch name.": "Недопустимое имя ветки.",
 };
 export default catalog;

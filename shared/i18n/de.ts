@@ -1691,5 +1691,8 @@ const catalog: Catalog = {
   "Linear ticket": "Linear-Ticket",
   "No Linear ticket": "Kein Linear-Ticket",
   "Linear issue linked": "Linear-Issue verknüpft",
+  "Base branch for new worktrees": "Basis-Branch für neue Worktrees",
+  "Remote branches are fetched first. Empty: the main checkout's current branch.": "Remote-Branches werden zuerst abgerufen. Leer: der aktuelle Branch des Haupt-Checkouts.",
+  "Not a valid branch name.": "Kein gültiger Branch-Name.",
 };
 export default catalog;
