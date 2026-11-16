@@ -36,10 +36,22 @@ export const TAIL_REASONING_MAX = 2_000;
 const str = (value: unknown) => (typeof value === "string" ? value : undefined);
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
 
-/** The input of a `flowly_message_dispatcher` tool call (its MCP name or the bare one), or null for any other item. */
+/** Whether a tool call's result is an error: MCP's `isError`, or Flowly's `structuredContent.error`. */
+function erroredOutput(output: unknown): boolean {
+  if (!output || typeof output !== "object") return false;
+  const { isError, structuredContent } = output as Record<string, unknown>;
+  return isError === true || (!!structuredContent && typeof structuredContent === "object" && "error" in structuredContent);
+}
+
+/**
+ * The input of a `flowly_message_dispatcher` tool call (its MCP name or the bare one) that went through (sent or queued),
+ * or null for any other item: a running, failed, cancelled or refused call stays a plain tool call (DISPATCHER-SPEC §5.5).
+ */
 function peerCall(raw: Record<string, unknown>): { groupId: string; text: string } | null {
   if (raw.type !== "tool_call" || typeof raw.name !== "string" || !/(^|__)flowly_message_dispatcher$/.test(raw.name)) return null;
+  if (raw.status !== "completed" || (raw.error !== undefined && raw.error !== null)) return null;
   const detail = raw.detail as Record<string, unknown> | null | undefined;
+  if (detail && typeof detail === "object" && erroredOutput(detail.output)) return null;
   const input = (detail && typeof detail === "object" ? detail.input : undefined) ?? raw.input;
   if (!input || typeof input !== "object") return null;
   const { groupId, text } = input as Record<string, unknown>;

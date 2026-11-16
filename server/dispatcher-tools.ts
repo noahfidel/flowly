@@ -675,9 +675,11 @@ export class DispatcherTools {
     await queue.check(target.id, paseo).catch((e) => logFailure("Flowly queued dispatcher peer message not checked:", e, target.id));
     const outcome = queue.outcome(queued.id);
     if (outcome?.kind === "delivered") return { sent: true as const, groupId: target.id, note: peerMessageNote };
-    // The target went down between the read and the check: nothing was delivered, as a refusal.
+    // The target group was deleted, or its dispatcher went down, between the read and the check: nothing was
+    // delivered, so it is refused as the call would have been.
     if (outcome?.kind === "dropped") {
       release();
+      if (outcome.reason === "deleted") throw new ToolError("GROUP_NOT_FOUND", "That board group was just deleted; nothing was sent. Tell the user.");
       throw new ToolError("DISPATCHER_DOWN", `The ${target.name} group has no running dispatcher. Tell the user; only they can start it.`);
     }
     return {

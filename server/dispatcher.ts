@@ -546,6 +546,8 @@ export class Dispatcher {
   /** The one queue for starts and replaces of every group (§0), so the shared workspace is made once. */
   private starts: Promise<unknown> = Promise.resolve();
   private readonly perGroup = new Map<string, GroupDispatcher>();
+  /** Groups whose start or replace is running now (on the start queue), by how many (§5.5: the peer queue keeps their messages). */
+  private readonly running = new Map<string, number>();
   /** One note batcher per group (§0, §7), made on a group's first stop once `batchWith` wired them. */
   private readonly batchers = new Map<string, NoteBatcher>();
   private batching: ((groupId: string) => NoteBatcher) | null = null;
@@ -750,6 +752,25 @@ export class Dispatcher {
    * stored, and a session made for it is archived.
    */
   private async run(paseo: PaseoApi, group: Group, input: { provider: string; modeId?: string; thinking?: string }, replacing?: string) {
+    this.running.set(group.id, (this.running.get(group.id) ?? 0) + 1);
+    try {
+      return await this.runStart(paseo, group, input, replacing);
+    } finally {
+      const left = (this.running.get(group.id) ?? 1) - 1;
+      if (left > 0) this.running.set(group.id, left);
+      else this.running.delete(group.id);
+    }
+  }
+
+  /**
+   * Whether `groupId`'s dispatcher is being started or replaced now: its record or session may name an archived or
+   * not-yet-created session for a moment, so the peer queue keeps that group's messages (§5.5).
+   */
+  starting(groupId: string): boolean {
+    return this.running.has(groupId);
+  }
+
+  private async runStart(paseo: PaseoApi, group: Group, input: { provider: string; modeId?: string; thinking?: string }, replacing?: string) {
     const groupId = group.id;
     const stored = await this.resolvedRecord();
     const current = stored.groups[groupId]?.agentId;

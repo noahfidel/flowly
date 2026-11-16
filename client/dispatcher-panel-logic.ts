@@ -48,7 +48,7 @@ export function mergeTimeline(transcript: readonly TailEntry[], items: readonly 
     if (peer) {
       const from = { id: peer.groupId, title: dispatcherName(peer.groupId, peer.name), event: "message" };
       entries.push({ kind: "entry", key, at: carried, entry: { ...entry, item: { ...entry.item, text: peer.text, from } } });
-    } else if (entry.item.to) {
+    } else if (entry.item.to && entry.item.status === "completed") {
       const to = { ...entry.item.to, title: dispatcherName(entry.item.to.id, entry.item.to.id) };
       entries.push({ kind: "entry", key, at: carried, entry: { ...entry, item: { ...entry.item, to } } });
     } else if (user && text.startsWith(summaryMessagePrefix)) entries.push({ kind: "summary", key, at: carried });

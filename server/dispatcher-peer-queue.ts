@@ -9,7 +9,7 @@ import {
 } from "../shared/dispatcher";
 import { pendingRequests } from "../shared/permission-question";
 import type { Board } from "../shared/model";
-import { isDeadDispatcher, type DispatcherRecord } from "./dispatcher";
+import { guarded, isDeadDispatcher, type DispatcherRecord } from "./dispatcher";
 import { JsonQueueFile } from "./dispatcher-queue";
 import { logFailure } from "./error-report";
 import { ToolError } from "./tool-error";
@@ -22,7 +22,10 @@ import { ToolError } from "./tool-error";
  */
 
 /** What happened to one queued message this run: delivered, or dropped. Still queued: no entry. */
-export type PeerOutcome = { kind: "delivered" } | { kind: "dropped" };
+export type PeerOutcome = { kind: "delivered" } | { kind: "dropped"; reason: PeerDropReason };
+/** Why a group's queue was dropped: the group was deleted, or it has no live dispatcher. */
+export type PeerDropReason = "deleted" | "down";
+const dropText: Record<PeerDropReason, string> = { deleted: "the group was deleted", down: "the group has no live dispatcher" };
 
 const sweepMs = 60_000;
 /** The fixed label of every drop's log line (counts only, never the text). */
@@ -59,6 +62,8 @@ export type PeerQueueDeps = {
   board(): Promise<Pick<Board, "groups">>;
   record(): Promise<DispatcherRecord>;
   sessionOf(agentId: string): Promise<{ groupId: string } | null>;
+  /** Whether the group's dispatcher is being started or replaced now: its messages are kept (§5.5). */
+  starting(groupId: string): boolean;
   /** One check at a time, shared with the card queue's checks (§5.5). */
   serial<T>(job: () => Promise<T>): Promise<T>;
 };
@@ -143,7 +148,7 @@ export class DispatcherPeerQueue {
   groupDeleted(groupId: string): Promise<void> {
     return this.deps.serial(async () => {
       const queued = (await this.list()).filter((m) => m.groupId === groupId);
-      if (queued.length) await this.drop(queued, "the group was deleted");
+      if (queued.length) await this.drop(queued, "deleted");
     });
   }
 
@@ -185,10 +190,17 @@ export class DispatcherPeerQueue {
 
   /** One target group's queue: dropped, kept while its dispatcher waits on the user, or delivered per sender group (inside the chain). */
   private async settle(groupId: string, queued: QueuedPeerMessage[], paseo: PaseoApi, hint: { resolvedRequestId?: string }) {
-    if (!(await this.deps.board()).groups.some((g) => g.id === groupId)) return this.drop(queued, "the group was deleted");
-    const agentId = (await this.deps.record()).groups[groupId]?.agentId;
+    if (!(await this.deps.board()).groups.some((g) => g.id === groupId)) return this.drop(queued, "deleted");
+    // A start or replace of the group in progress: its record may still name the archived session, or already name one
+    // Paseo has not created. Kept; the next check after it delivers to the new session.
+    if (this.deps.starting(groupId)) return;
+    const entry = (await this.deps.record()).groups[groupId];
+    const agentId = entry?.agentId;
     const agent = agentId ? ((await paseo.agents.ref(agentId).refresh())?.agent ?? null) : null;
-    if (!agentId || isDeadDispatcher(agent)) return this.drop(queued, "the group has no live dispatcher");
+    if (this.deps.starting(groupId)) return;
+    if (!entry || !agentId || isDeadDispatcher(agent)) return this.drop(queued, "down");
+    // An unguarded dispatcher gets nothing, as its board notes are held; a Replace delivers to the new session.
+    if (!guarded(entry)) return;
     if (pendingRequests(agent).some((r) => r.id !== hint.resolvedRequestId)) return;
     // Sender groups one after another, oldest first; each one's messages merged in queue order.
     for (const fromGroupId of new Set(queued.map((m) => m.fromGroupId))) {
@@ -218,11 +230,11 @@ export class DispatcherPeerQueue {
   }
 
   /** Removes undeliverable messages: nothing is sent and no card event is recorded; one log line with counts only. */
-  private async drop(queued: QueuedPeerMessage[], reason: string) {
+  private async drop(queued: QueuedPeerMessage[], reason: PeerDropReason) {
     await this.remove(queued);
-    this.record(queued, { kind: "dropped" });
+    this.record(queued, { kind: "dropped", reason });
     const senders = new Set(queued.map((m) => m.fromGroupId)).size;
-    logFailure(droppedLabel, new Error(reason), `${queued.length} messages, ${senders} sender groups`);
+    logFailure(droppedLabel, new Error(dropText[reason]), `${queued.length} messages, ${senders} sender groups`);
   }
 
   private record(queued: readonly QueuedPeerMessage[], outcome: PeerOutcome) {

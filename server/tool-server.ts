@@ -148,6 +148,7 @@ export class ToolServer {
       board: () => store.read(),
       record: () => this.dispatcher.resolvedRecord(),
       sessionOf: (agentId) => this.dispatcher.sessionOf(agentId),
+      starting: (groupId) => this.dispatcher.starting(groupId),
       serial: (job) => cardQueue.serial(job),
     });
     this.dispatcherPeerQueue.api = this.dispatcherQueue.api;

@@ -108,8 +108,9 @@ export function recentSessionOutput(
           ? (typeof from.title === "string" && from.title.trim()) || from.id
           : undefined;
       const to = item.to as { id?: unknown; title?: unknown; text?: unknown } | undefined;
+      // Only a call that went through (sent or queued) is a To row; a failed one stays the plain tool call (§5.5).
       const recipient =
-        sender === undefined && to && typeof to === "object" && typeof to.id === "string" && typeof to.text === "string"
+        sender === undefined && item.status === "completed" && to && typeof to === "object" && typeof to.id === "string" && typeof to.text === "string"
           ? (typeof to.title === "string" && to.title.trim()) || to.id
           : undefined;
       const tool = sender === undefined && recipient === undefined && item.type === "tool_call" && typeof item.name === "string";
