@@ -84,7 +84,7 @@ Behavior:
 
 1. Checks (no workspace is created when one fails): setting on (`AGENT_CARDS_DISABLED`), project live (`ARCHIVED`), lane allowed and enabled (`STATUS_UNAVAILABLE`), tags valid (`TAG_INVALID`), at most 20 new cards per session per hour (`CARD_LIMIT`, counted in memory, reset by a plugin reload; `flowly_start_card` counts against the same limit).
 2. `operationId` = `agent-card:<sha256(caller scope + idempotencyKey)>`, scope = card id or project id plus the agent id. A card with that `operationId` already in the project returns it with `replayed: true`; a different title under the same key is `REQUEST_REUSED`.
-3. The card is created through the same path as the New card form (`BoardService.createTask`, `mode: "directory"`, or `mode: "worktree"` for `workspace: "worktree"`): a new Paseo workspace in the project directory or a new worktree branched off the main checkout's current branch, same position rules.
+3. The card is created through the same path as the New card form (`BoardService.createTask`, `mode: "directory"`, or `mode: "worktree"` for `workspace: "worktree"`): a new Paseo workspace in the project directory or a new worktree branched off the project's base branch, else the main checkout's current branch (START-CARD-SPEC §4.1), same position rules.
 4. Its `created` event has `actor: "agent"` and the session's `agentId`. Tags are recorded `by: "agent"` with the `agentId`.
 5. Card sessions: the new card follows up the session's card (`derived` link, CARD-LINKS-SPEC §3), and the session's card gets an event `card_created` (`actor: "agent"`, note = the new card's title).
 

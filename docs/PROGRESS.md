@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Base branch for new worktrees (branch `kanban/branch-new-card-worktrees-off-a-configur-13f1e4`) — 2026-11-16
+
+- Feature: project setting `baseRef` (project settings → *Base branch for new worktrees*, hidden for linked-root projects). `server/base-ref.ts` `projectWorktreeBase` picks the request's own ref, else the project's, else the main checkout's current branch; a remote-tracking base is fetched first (failure logged, last fetched ref used; a ref that never existed refuses), returned qualified, and `dropUpstream` removes any upstream from the new branch. Used by `flowly_start_card`, `BoardService.createTask` (New task, `flowly_create_card`) and an outside session's idea started as a new workspace; not by Switch to worktree (its copied diff is relative to the main checkout's HEAD). `flowly_start_card` now also stores the branch-off base on the card as `baseRef`, as New task already did, so the auto review diffs from it. START-CARD-SPEC §4.1.
+- Validation: `shared/worktree-base.ts` (`projectEdit` refine and `updateProject`): trimmed, ≤ 200, git ref-name rules, no whitespace or leading `-`.
+- No tour or tip change: a per-project setting for people who already know they want it, found next to the other project settings. No heartbeat field: not a switch or core action worth counting. No What's new entry (the branch does not bump a release).
+- Tests: `server/base-ref.test.ts` (real repo and bare remote), additions in `server/start-card.test.ts`, `server/service.test.ts`, `server/session-insights.test.ts`.
+
 ## Running is always blue, unread always green (branch `kanban/make-the-blue-and-green-status-colors-co-9dca97`) — 2026-11-14
 
 - Cause: the overview bar's running chip used `statusSuccess` and its updated chip used `accent`, the reverse of the cards and sessions. Fix: `client/state-colors.ts` is the one mapping (running = `accent`, unread = `statusSuccess`, needs you = `statusWarning`, error = `statusDanger`) and the board, card, drawer, session and tour code read it; the group switcher's need-you dot is now `statusWarning`. Test: `client/state-colors.test.ts`. UI-REFRESH-SPEC color semantics. No new string, tip, telemetry field or What's new change.
