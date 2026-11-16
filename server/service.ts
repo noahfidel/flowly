@@ -16,7 +16,7 @@ import { BoardStore } from "./store";
 import { checkGroup } from "./tool-error";
 import { readSnapshot, SnapshotInvalidError, type ProjectSnapshot } from "./project-folder";
 import { linkLimits } from "../shared/model";
-import type { ProjectInput, TaskInput, Board, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
+import type { ProjectInput, TaskInput, Board, BranchedFrom, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
 import { groupOfProject } from "../shared/groups";
 import { effectiveRepos, sessionContext } from "../shared/scope";
 import type { DeliveryMode } from "../shared/delivery-mode";
@@ -42,11 +42,15 @@ type RestoreCheck = z.infer<typeof restoreProjectCheckRpc.output>;
 export { resolveWorktreeBaseRef } from "./base-ref";
 export const paseoHome = () =>
   process.env.PASEO_HOME || resolve(homedir(), ".paseo");
+/** An agent's worktree card whose base was already chosen (START-CARD-SPEC §11.3). */
+export type WorktreeBranch = { refName: string; baseRef: string; branchedFrom?: BranchedFrom };
+
 /**
  * Branch for a worktree card created without an explicit name. Derived from the
  * operation ID (not Math.random) so a retried create reuses the same branch and
  * idempotency key instead of provisioning a second worktree.
  */
+
 export function generatedBranchName(title: string, operationId: string) {
   const slug = title
     .normalize("NFKD")
@@ -470,7 +474,11 @@ export class BoardService {
    * leaves the card and the suggestion open (logged). `by`: an agent creates
    * the card (AGENT-CARDS-SPEC §3.3); its activity, tags and follow-up link say so.
    */
-  async createTask(input: TaskInput, paseo: PaseoApi, by?: { agentId: string; groupId?: string }) {
+  /**
+   * `branch`: an agent's worktree card whose base was already chosen (START-CARD-SPEC §11.3): the ref it branches off,
+   * the base the card stores, and the parent it branched from.
+   */
+  async createTask(input: TaskInput, paseo: PaseoApi, by?: { agentId: string; groupId?: string }, branch?: WorktreeBranch) {
     const findingId = input.insightFindingId;
     if (findingId) {
       if (!this.insightFindings) throw new Error("Workflow insights are unavailable.");
@@ -478,14 +486,14 @@ export class BoardService {
       const board = await this.store.read();
       if (!board.tasks.some((t) => t.operationId === input.operationId)) await this.insightFindings.check(input.projectId, findingId);
     }
-    const task = await this.createCard(input, paseo, by);
+    const task = await this.createCard(input, paseo, by, branch);
     if (findingId)
       await this.insightFindings!.accept(input.projectId, findingId, task.id).catch((e) =>
         logFailure("Workflow insights suggestion not marked accepted:", e),
       );
     return task;
   }
-  private createCard(input: TaskInput, paseo: PaseoApi, by?: { agentId: string; groupId?: string }) {
+  private createCard(input: TaskInput, paseo: PaseoApi, by?: { agentId: string; groupId?: string }, branch?: WorktreeBranch) {
     return this.serialize(async () => {
       const board = await this.store.read();
       const previous = board.tasks.find(
@@ -526,6 +534,8 @@ export class BoardService {
       const sourcePath = project.primaryPath;
       let workspaceId = input.workspaceId;
       let baseRef: string | undefined;
+      // What the card stores as its base: the project base also when it branched from its parent (§11.4).
+      let cardBaseRef: string | undefined;
       if (input.mode === "existing") {
         if (!workspaceId) throw new Error("Select a workspace.");
         if (await this.reservedWorkspace(workspaceId)) throw new Error("This is the Flowly dispatcher's workspace; a card can't use it.");
@@ -551,8 +561,9 @@ export class BoardService {
             : undefined;
         baseRef =
           input.mode === "worktree"
-            ? await projectWorktreeBase(sourcePath, project.baseRef, input.baseRef)
+            ? (branch?.refName ?? (await projectWorktreeBase(sourcePath, project.baseRef, input.baseRef)))
             : undefined;
+        cardBaseRef = baseRef && (branch?.baseRef ?? baseRef);
         const intent = createHash("sha256")
           .update(
             JSON.stringify({
@@ -633,7 +644,8 @@ export class BoardService {
             updatedAt: now,
             archivedAt: null,
             ownsWorkspace: input.mode !== "existing",
-            ...(baseRef ? { baseRef } : {}),
+            ...(cardBaseRef ? { baseRef: cardBaseRef } : {}),
+            ...(cardBaseRef && branch?.branchedFrom ? { branchedFrom: branch.branchedFrom } : {}),
             ...(idea ? { origin: { ...(idea.taskId ? { taskId: idea.taskId } : {}), ideaId: idea.id } } : {}),
           };
           current.tasks.push(task);
@@ -651,6 +663,13 @@ export class BoardService {
             this.store.event(current, { taskId: input.followUpOf, actor: "agent", agentId: by.agentId, action: "card_created", note: task.title });
           } else if (input.followUpOf)
             addLink(this.store, current, { kind: "derived", from: task.id, to: input.followUpOf });
+          // Branched from its parent's branch: the parent lands first (START-CARD-SPEC §11.4).
+          if (task.branchedFrom)
+            try {
+              addLink(this.store, current, { kind: "blocks", from: task.branchedFrom.taskId, to: task.id, createdBy: "system" }, { events: false });
+            } catch (e) {
+              logFailure("Flowly follow-up blocks link not added:", e, `card ${task.id} parent ${task.branchedFrom.taskId}`);
+            }
           // In the same write, so the first session's context already lists them.
           for (const t of externals)
             putArtifact(this.store, current, { taskId: task.id, role: "input", kind: "url", target: t.url, title: t.title, createdBy: "human", external: t.external }, now);

@@ -262,6 +262,18 @@ export const reviewSchema = z.preprocess(legacyReview, z.object({
 }));
 export type Review = z.infer<typeof reviewSchema>;
 
+/** Where a follow-up card's new worktree branches from (START-CARD-SPEC §11.1); absent reads as "parent". */
+export const followUpBases = ["parent", "base", "ask"] as const;
+export type FollowUpBase = (typeof followUpBases)[number];
+/** A follow-up branched from its parent's branch (START-CARD-SPEC §11.4). */
+export const branchedFromSchema = z.object({
+  taskId: z.string(),
+  branch: z.string(),
+  commit: z.string(),
+  ahead: z.number().int().nonnegative(),
+});
+export type BranchedFrom = z.infer<typeof branchedFromSchema>;
+
 export const projectSchema = z.object({
   id: z.string(),
   title: z.string().trim().min(1).max(120),
@@ -309,6 +321,8 @@ export const projectSchema = z.object({
   sessionStartText: z.string().max(2000).optional(),
   /** Base branch new worktrees branch off, e.g. `origin/dev` (START-CARD-SPEC §4.1); absent: the main checkout's current branch. */
   baseRef: z.string().optional(),
+  /** Where a follow-up's new worktree branches from (START-CARD-SPEC §11.1); absent reads as "parent". */
+  followUpBase: z.enum(followUpBases).optional(),
 });
 /** Board groups kept at most, and a group name's length (BOARD-GROUPS-SPEC §1). */
 export const groupLimits = { groups: 50, name: 80 } as const;
@@ -394,6 +408,8 @@ export const taskSchema = z.object({
   ownsWorkspace: z.boolean().optional(),
   /** A worktree card's base ref at creation (e.g. `refs/heads/main`), for its own change (GUARDRAILS-SPEC §6.2). Absent on directory, linked and older cards. */
   baseRef: z.string().optional(),
+  /** The parent card whose branch this card's worktree branched from, its tip then and its commits not in the base (START-CARD-SPEC §11.4). */
+  branchedFrom: branchedFromSchema.optional(),
   /** Created from an idea proposed on another card (IDEAS-SPEC §2.2). */
   /** Where the card came from: an idea (and the card it hung on); a project-level idea has no source card (PROJECT-IDEAS-SPEC §2). */
   origin: z.object({ taskId: z.string().optional(), ideaId: z.string() }).optional(),
@@ -822,6 +838,8 @@ export const projectEdit = z.strictObject({
     .max(1000)
     .refine((v) => baseRefProblem(v) === null, { message: "Enter a valid branch name (such as origin/main) or leave it empty." })
     .optional(),
+  /** Where a follow-up branches from (START-CARD-SPEC §11.1); "parent" is stored as absent. */
+  followUpBase: z.enum(followUpBases).optional(),
 });
 /** What a group's defaults edit sends: a value sets a default, null removes it (inherit again). */
 export const groupDefaultsInput = z.strictObject({

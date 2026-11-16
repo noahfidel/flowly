@@ -21,7 +21,10 @@ import {
   type BoardIdentity,
   type CardLinear,
   type CardView,
+  type WorktreeBase,
 } from "../shared/tools";
+import { projectWorktreeBase } from "./base-ref";
+import { baseChoiceProblem, chooseBase, openParents, type BaseChoice } from "./follow-up-base";
 import { ArtifactService, dropArtifact, normalizeTarget, putArtifact, type ArtifactRoots } from "./artifacts";
 import type { ConnectorService } from "./connectors/service";
 import { ExternalError } from "./connectors/http";
@@ -267,6 +270,11 @@ export class AgentCards {
     // A linked-root project has no worktree option (START-CARD-SPEC §7).
     if (input.workspace === "worktree" && project.links?.length)
       throw new ToolError("WORKTREE_UNAVAILABLE", "This project links several repositories and has no worktree option. Create the card without workspace=worktree.");
+    // Where a new worktree branches from (START-CARD-SPEC §11.5); checked before anything is made.
+    if (input.baseRef !== undefined && input.workspace !== "worktree")
+      throw new ToolError("BASE_INVALID", 'baseRef needs workspace "worktree"; a directory workspace has no branch of its own.');
+    const baseProblem = baseChoiceProblem(input.baseRef);
+    if (baseProblem) throw new ToolError("BASE_INVALID", baseProblem);
     if (fromIdea) {
       if (!(await fromIdea.ideasOn()))
         throw new ToolError("IDEAS_DISABLED", "Ideas are turned off in Flowly settings. Create the card without ideaId, or tell the user.");
@@ -280,6 +288,9 @@ export class AgentCards {
     const plan = input.plan ? { ...input.plan, ...(await this.projectPlanTarget(project, input.plan.target)) } : undefined;
     // An issue Linear can't show is refused before anything is made, like the plan (LINEAR-LINK-SPEC §2).
     const linear = input.linear ? await this.readLinear(input.linear) : undefined;
+    // A follow-up of the calling card branches from its branch when that is ahead (§11.3); BASE_CHOICE_NEEDED refuses
+    // before a slot is taken or a workspace made.
+    const chosen = input.workspace === "worktree" ? await this.worktreeBase(caller, board, project, input.baseRef) : undefined;
     const release = this.reserve(caller.agentId, caller.dispatcher);
     let task: Task;
     try {
@@ -301,6 +312,7 @@ export class AgentCards {
         },
         this.api(),
         { agentId: caller.agentId, ...(caller.groupId !== undefined ? { groupId: caller.groupId } : {}) },
+        chosen && { refName: chosen.refName, baseRef: chosen.taskBaseRef, ...(chosen.branchedFrom ? { branchedFrom: chosen.branchedFrom } : {}) },
       );
     } catch (e) {
       release();
@@ -314,7 +326,27 @@ export class AgentCards {
     if (plan) await this.planOnCreate(caller, task.id, plan);
     if (linear) await this.linearOnCreate(caller, task.id, linear);
     const after = await this.store.read();
-    return { card: cardView(after, this.project(after, caller), after.tasks.find((t) => t.id === task.id) ?? task, await this.linearView(after, task.id)), replayed: false };
+    const base: WorktreeBase | undefined = chosen && {
+      ref: chosen.refName,
+      from: chosen.from,
+      ...(chosen.branchedFrom ? { parentTaskId: chosen.branchedFrom.taskId, ahead: chosen.branchedFrom.ahead } : {}),
+    };
+    return {
+      card: cardView(after, this.project(after, caller), after.tasks.find((t) => t.id === task.id) ?? task, await this.linearView(after, task.id)),
+      replayed: false,
+      ...(base ? { base } : {}),
+      ...(chosen?.warnings.length ? { warnings: chosen.warnings } : {}),
+    };
+  }
+  /** Where a new worktree card branches from (START-CARD-SPEC §11.3): its parent is the calling card, when open. */
+  private async worktreeBase(caller: CardCaller, board: Board, project: Project, explicit: string | undefined): Promise<BaseChoice> {
+    const root = project.primaryPath;
+    let resolved: Promise<string> | null = null;
+    const projectBase = () =>
+      (resolved ??= projectWorktreeBase(root, project.baseRef, "").catch((e: unknown) => {
+        throw new ToolError("CARD_CREATE_FAILED", e instanceof Error ? e.message : String(e));
+      }));
+    return chooseBase({ project, root, parents: openParents(board, null, caller.taskId), explicit, projectBase, paseo: this.api() });
   }
   /** A new card's plan target, checked against the project's directories and the extra folders (PLAN_INVALID). */
   private async projectPlanTarget(project: Project, raw: string) {

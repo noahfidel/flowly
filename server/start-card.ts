@@ -2,13 +2,13 @@ import type { PaseoApi } from "@getpaseo/client";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { switchLimits, type Board, type Project, type Task } from "../shared/model";
+import { branchedFromSchema, switchLimits, type Board, type Project, type Task } from "../shared/model";
 import { groupOfProject } from "../shared/groups";
 import { effectiveAgentModel, providerBase, startingAgent, suggestedMode, type AgentModel } from "../shared/agent-defaults";
 import { linearIssueOf } from "../shared/linear-ticket";
 import { absoluteTarget } from "../shared/artifacts";
 import { planApproved, planOf, suggestPlanAwareMode } from "../shared/plans";
-import { startCardInputSchema, type StartCardInput, type StartCardResult, type ToolPreparation } from "../shared/tools";
+import { startCardInputSchema, type StartCardInput, type StartCardResult, type ToolPreparation, type WorktreeBase } from "../shared/tools";
 import type { AgentCards, CardCaller } from "./agent-cards";
 import type { ConnectorService } from "./connectors/service";
 import { logFailure } from "./error-report";
@@ -20,6 +20,8 @@ import { checkGroup, ToolError } from "./tool-error";
 import { moveStartedCard } from "./start-stage";
 import { workspaceSessions } from "./workspace-switch";
 import { cardWorkspaceIds } from "../shared/workspace-switch";
+import { baseChoiceProblem, chooseBase, openParents, rebaseLine } from "./follow-up-base";
+import { addLink } from "./links";
 
 export { startCardInputSchema, startCardResultSchema } from "../shared/tools";
 
@@ -44,7 +46,30 @@ const worktreeRequestSchema = z.object({
     z.object({ kind: z.literal("worktree"), cwd: z.string(), projectId: z.string(), action: z.literal("checkout"), refName: z.string() }),
   ]),
 });
-type WorktreeRequest = z.infer<typeof worktreeRequestSchema>;
+/**
+ * The request as kept per operation: the request itself plus where it branched from (START-CARD-SPEC §11.3), so a
+ * retry with the same key makes the same branch and records the same base. Requests kept before §11 have no `base`.
+ */
+const keptRequestSchema = worktreeRequestSchema.extend({
+  base: z
+    .object({
+      taskBaseRef: z.string(),
+      from: z.enum(["explicit", "parent", "project"]),
+      branchedFrom: branchedFromSchema.optional(),
+      warnings: z.array(z.string()).optional(),
+    })
+    .optional(),
+});
+type WorktreeRequest = z.infer<typeof keptRequestSchema>;
+/** What the result says about a worktree a start made (§11.5). */
+const worktreeBaseOf = (request: WorktreeRequest): WorktreeBase =>
+  request.source.action === "checkout"
+    ? { ref: request.source.refName, from: "checkout" }
+    : {
+        ref: request.source.refName,
+        from: request.base?.from ?? "project",
+        ...(request.base?.branchedFrom ? { parentTaskId: request.base.branchedFrom.taskId, ahead: request.base.branchedFrom.ahead } : {}),
+      };
 type BranchSource = { action: "branch-off"; refName: string; branchName: string } | { action: "checkout"; refName: string };
 type Workspace = { workspaceKind?: string | null; workspaceDirectory?: string | null };
 
@@ -147,6 +172,8 @@ export class CardStarter {
   private async run(caller: CardCaller, input: ReturnType<typeof startCardInputSchema.parse>, paseo: PaseoApi): Promise<StartCardResult> {
     // The user's own Start again is not an agent creating work: no agent-cards switch, no hourly limit.
     if (!caller.human) await this.cards.enabled();
+    const baseProblem = baseChoiceProblem(input.baseRef);
+    if (baseProblem) throw new ToolError("BASE_INVALID", baseProblem);
     const board = await this.store.read();
     const project = board.projects.find((p) => p.id === caller.projectId);
     if (!project) throw new ToolError("NOT_FOUND", "The Flowly project was removed.");
@@ -162,8 +189,12 @@ export class CardStarter {
     const prior = await this.deps.preparedFor(operationId);
     if (prior && prior.taskId === task.id && prior.workspaceId === task.workspaceId) {
       const found = await paseo.agents.ref(prior.agentId).refresh().catch(() => null);
-      if (found?.agent && found.agent.workspaceId === task.workspaceId && !found.agent.archivedAt)
-        return { taskId: task.id, workspaceId: task.workspaceId, agentId: prior.agentId, replayed: true };
+      if (found?.agent && found.agent.workspaceId === task.workspaceId && !found.agent.archivedAt) {
+        // The worktree this operation made, when it made one, is reported again (§11.5).
+        const kept = keptRequestSchema.safeParse(await this.deps.keptWorktree(operationId).catch(() => null));
+        const base = kept.success ? worktreeBaseOf(kept.data) : undefined;
+        return { taskId: task.id, workspaceId: task.workspaceId, agentId: prior.agentId, replayed: true, ...(base ? { base } : {}) };
+      }
     }
     const workspace = await paseo.workspaces.ref(task.workspaceId).refresh().catch(() => null);
     if (!workspace || workspace.archivingAt) throw new ToolError("RESOURCE_UNAVAILABLE", "The card's workspace is unavailable or being archived.");
@@ -197,18 +228,30 @@ export class CardStarter {
       const planTarget = approvedPlan ? (approvedPlan.kind === "file" ? absoluteTarget(approvedPlan.target, workspace.workspaceDirectory || task.sourcePath) : approvedPlan.target) : null;
       let workspaceId = task.workspaceId;
       const warnings: string[] = [];
+      let base: WorktreeBase | undefined;
       // After the limit and the model, so a refused start makes no branch and keeps no request.
       if (move) {
-        const request = await this.worktreeRequest(task, project, board, operationId);
+        const request = await this.worktreeRequest(caller, task, project, board, operationId, input.baseRef, paseo);
         const moved = await this.toWorktree(caller, task, project, workspace, request, operationId, paseo);
         workspaceId = moved.workspaceId;
-        warnings.push(...moved.warnings);
-      }
-      checkGroup((await this.store.read()).projects.find((p) => p.id === project.id), caller.groupId);
-      const agentId = await this.createSession(caller, task, workspaceId, model, input.prompt?.trim() ? input.prompt : defaultPrompt(task, planTarget), operationId, paseo);
+        warnings.push(...(request.base?.warnings ?? []), ...moved.warnings);
+        base = worktreeBaseOf(request);
+        if (request.source.action === "checkout" && input.baseRef !== undefined)
+          warnings.push(`baseRef was ignored: the card's Linear branch ${request.source.refName} was checked out.`);
+      } else if (input.baseRef !== undefined) warnings.push("baseRef was ignored: the card already has its workspace, so no worktree was made.");
+      const after = await this.store.read();
+      checkGroup(after.projects.find((p) => p.id === project.id), caller.groupId);
+      const own = input.prompt?.trim() ? input.prompt : defaultPrompt(task, planTarget);
+      const started = after.tasks.find((t) => t.id === task.id);
+      // A card branched from its parent's branch is told how to land (§11.4), also after a caller's own prompt.
+      const branched = move && started?.branchedFrom && started.workspaceId === workspaceId ? started.branchedFrom : null;
+      const prompt = branched
+        ? `${own}\n\n${rebaseLine(branched, after.tasks.find((t) => t.id === branched.taskId)?.title ?? branched.taskId, started?.baseRef ?? "")}`
+        : own;
+      const agentId = await this.createSession(caller, task, workspaceId, model, prompt, operationId, paseo);
       // Only once the session exists, so a failed start leaves the card where it was.
       await moveStartedCard(this.store, task.id).catch((e) => logFailure("Flowly start_card card not moved out of Backlog:", e, `card ${task.id}`));
-      return { taskId: task.id, workspaceId, agentId, replayed: false, ...(warnings.length ? { warnings } : {}) };
+      return { taskId: task.id, workspaceId, agentId, replayed: false, ...(warnings.length ? { warnings } : {}), ...(base ? { base } : {}) };
     } catch (e) {
       release();
       throw e;
@@ -219,7 +262,15 @@ export class CardStarter {
    * The worktree request (§4.1): the one this operation already sent, else the Linear branch (checked
    * out when it exists locally or only on origin and no worktree has it), else a generated one.
    */
-  private async worktreeRequest(task: Task, project: Project, board: Board, operationId: string): Promise<WorktreeRequest> {
+  private async worktreeRequest(
+    caller: CardCaller,
+    task: Task,
+    project: Project,
+    board: Board,
+    operationId: string,
+    explicit: string | undefined,
+    paseo: PaseoApi,
+  ): Promise<WorktreeRequest> {
     // An unreadable kept request is left on disk and refuses this key; it never becomes a new request.
     const unreadable = (e: unknown) => {
       logFailure("Flowly start_card kept worktree request unreadable:", e, `card ${task.id} operation ${operationId}`);
@@ -232,26 +283,33 @@ export class CardStarter {
       throw unreadable(e);
     }
     if (kept !== null) {
-      const parsed = worktreeRequestSchema.safeParse(kept);
+      const parsed = keptRequestSchema.safeParse(kept);
       if (!parsed.success) throw unreadable(parsed.error);
       return parsed.data;
     }
     const root = project.primaryPath;
-    let base: string;
-    try {
-      base = await projectWorktreeBase(root, project.baseRef, "");
-    } catch (e) {
-      throw new ToolError("NEEDS_WORKTREE", `Flowly cannot make a worktree for this project: ${errorText(e)}`);
-    }
+    // Resolved once, and only when needed: an explicit branch that is not a parent's does not depend on it.
+    let resolved: Promise<string> | null = null;
+    const projectBase = () =>
+      (resolved ??= projectWorktreeBase(root, project.baseRef, "").catch((e: unknown) => {
+        throw new ToolError("NEEDS_WORKTREE", `Flowly cannot make a worktree for this project: ${errorText(e)}`);
+      }));
+    // The root must be able to make a worktree before a Linear branch is tracked (§4.1); an explicit branch that is
+    // not a parent's does not need the project's base.
+    if (!explicit || explicit.trim() === "parent") await projectBase();
     const generated = generatedBranchName(task.title, operationId);
     const wanted = await linearBranchFor(task, board, this.connectors);
-    const branchOff = (branchName: string): BranchSource => ({ action: "branch-off", refName: base, branchName });
-    let source = branchOff(wanted ?? generated);
+    // Where a new branch starts (§11.3), decided once and only for a branch-off; a Linear checkout wins.
+    let choice: Awaited<ReturnType<typeof chooseBase>> | null = null;
+    const decide = async () =>
+      (choice ??= await chooseBase({ project, root, parents: openParents(board, task.id), explicit, human: caller.human, projectBase, paseo }));
+    const branchOff = async (branchName: string): Promise<BranchSource> => ({ action: "branch-off", refName: (await decide()).refName, branchName });
+    let source: BranchSource | null = null;
     if (wanted) {
       const local = await refExists(root, `refs/heads/${wanted}`);
       if (local) {
         const taken = await checkedOutBranches(root).catch(() => null);
-        source = taken && !taken.has(wanted) ? { action: "checkout", refName: wanted } : branchOff(generated);
+        source = taken && !taken.has(wanted) ? { action: "checkout", refName: wanted } : await branchOff(generated);
       } else if (await refExists(root, `refs/remotes/origin/${wanted}`)) {
         // Only on the remote: a local branch tracking it, which nothing has checked out yet.
         try {
@@ -259,14 +317,26 @@ export class CardStarter {
           source = { action: "checkout", refName: wanted };
         } catch (e) {
           logFailure("Flowly start_card tracking branch not made:", e, `card ${task.id}`);
-          source = branchOff(generated);
+          source = await branchOff(generated);
         }
       }
     }
+    source ??= await branchOff(wanted ?? generated);
+    const decided = choice as Awaited<ReturnType<typeof chooseBase>> | null;
     const request: WorktreeRequest = {
       title: task.title,
       idempotencyKey: `flowly-start:${operationId}`,
       source: { kind: "worktree", cwd: root, projectId: project.paseoProjectId, ...source },
+      ...(source.action === "branch-off" && decided
+        ? {
+            base: {
+              taskBaseRef: decided.taskBaseRef,
+              from: decided.from,
+              ...(decided.branchedFrom ? { branchedFrom: decided.branchedFrom } : {}),
+              ...(decided.warnings.length ? { warnings: decided.warnings } : {}),
+            },
+          }
+        : {}),
     };
     await this.deps.keepWorktree(operationId, request);
     return request;
@@ -306,7 +376,8 @@ export class CardStarter {
     const branch = request.source.action === "checkout" ? request.source.refName : request.source.branchName;
     let created: { id: string };
     try {
-      created = await paseo.workspaces.create(request);
+      // Paseo gets the request only; the kept base stays Flowly's (§11.3).
+      created = await paseo.workspaces.create({ title: request.title, idempotencyKey: request.idempotencyKey, source: request.source });
     } catch (e) {
       // Paseo may have made it anyway; the same idempotencyKey sends the same request again.
       logFailure("Flowly start_card worktree not created:", e, `card ${task.id} operation ${operationId}`);
@@ -357,9 +428,20 @@ export class CardStarter {
         ].slice(-switchLimits.previousWorkspaces);
         t.workspaceId = created.id;
         t.ownsWorkspace = true;
-        // Where the card's own change starts, as for a card created in a worktree (GUARDRAILS-SPEC §6.2).
-        if (request.source.action === "branch-off") t.baseRef = request.source.refName;
+        // Where the card lands and its own change starts, as for a card created in a worktree (GUARDRAILS-SPEC §6.2):
+        // the project base, also when it branched from its parent's branch (§11.4).
+        if (request.source.action === "branch-off") t.baseRef = request.base?.taskBaseRef ?? request.source.refName;
         else delete t.baseRef;
+        const branchedFrom = request.source.action === "branch-off" ? request.base?.branchedFrom : undefined;
+        if (branchedFrom) {
+          t.branchedFrom = branchedFrom;
+          // The parent lands first (§11.4); an existing link stays, a cycle adds nothing.
+          try {
+            addLink(this.store, board, { kind: "blocks", from: branchedFrom.taskId, to: t.id, createdBy: "system" }, { events: false });
+          } catch (e) {
+            logFailure("Flowly start_card blocks link not added:", e, `card ${t.id} parent ${branchedFrom.taskId}`);
+          }
+        } else delete t.branchedFrom;
         t.revision++;
         t.updatedAt = now;
         this.store.event(board, {

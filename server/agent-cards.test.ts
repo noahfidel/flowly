@@ -501,3 +501,38 @@ test("a card opts out of the Linear ticket ask at creation and by edit; true and
   expect("linearTicket" in (await taskOf("t"))).toBe(false);
   expect((await x.cards.update(x.board, { taskId: "t", revision: 4, linearTicket: null })).changed).toEqual([]);
 });
+
+test("create_card with workspace=worktree from a card session whose branch is ahead branches from it (START-CARD-SPEC §11.3)", async () => {
+  const x = await setup();
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", ...args]).toString().trim();
+  git(x.a, "init", "-q", "-b", "main");
+  git(x.a, "commit", "-q", "--allow-empty", "-m", "init");
+  const dir = join(x.root, "parent");
+  git(x.a, "worktree", "add", "-q", "-b", "parent-work", dir);
+  git(dir, "commit", "-q", "--allow-empty", "-m", "parent work");
+  const tip = git(dir, "rev-parse", "HEAD");
+  // The calling card "t" works in that worktree.
+  x.setWorkspace({ ...x.workspace(), workspaceDirectory: dir, workspaceKind: "worktree" });
+  const made = await x.cards.create(x.card, { title: "Next step", workspace: "worktree", idempotencyKey: "next" });
+  expect(x.workspaces[0].source).toMatchObject({ kind: "worktree", action: "branch-off", refName: "refs/heads/parent-work" });
+  expect(made.base).toEqual({ ref: "refs/heads/parent-work", from: "parent", parentTaskId: "t", ahead: 1 });
+  const stored = await x.store.read();
+  expect(stored.tasks.find((t) => t.id === made.card.taskId)).toMatchObject({ baseRef: "refs/heads/main", branchedFrom: { taskId: "t", branch: "parent-work", commit: tip, ahead: 1 } });
+  expect(stored.links).toEqual([
+    expect.objectContaining({ kind: "derived", from: made.card.taskId, to: "t" }),
+    expect.objectContaining({ kind: "blocks", from: "t", to: made.card.taskId, createdBy: "system" }),
+  ]);
+  // Ask: refused before anything is made; an explicit base goes through.
+  await x.store.updateProject({ id: "p", revision: stored.projects[0].revision, followUpBase: "ask" });
+  expect(await x.failure(x.cards.create(x.card, { title: "Ask first", workspace: "worktree", idempotencyKey: "ask" }))).toBe("BASE_CHOICE_NEEDED");
+  expect(x.workspaces).toHaveLength(1);
+  const based = await x.cards.create(x.card, { title: "On main", workspace: "worktree", baseRef: "main", idempotencyKey: "main" });
+  expect(based.base).toEqual({ ref: "main", from: "explicit" });
+  // A session outside cards has no parent: the project base.
+  const loose = await x.cards.create(x.board, { title: "Loose", workspace: "worktree", idempotencyKey: "loose" });
+  expect(loose.base).toEqual({ ref: "refs/heads/main", from: "project" });
+  // baseRef needs a worktree, and a valid name.
+  expect(await x.failure(x.cards.create(x.card, { title: "Dir", baseRef: "main", idempotencyKey: "dir" }))).toBe("BASE_INVALID");
+  expect(await x.failure(x.cards.create(x.card, { title: "Bad", workspace: "worktree", baseRef: "a..b", idempotencyKey: "bad" }))).toBe("BASE_INVALID");
+  expect(x.workspaces).toHaveLength(3);
+});

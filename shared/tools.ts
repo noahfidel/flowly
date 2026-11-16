@@ -514,6 +514,16 @@ const linearIssueText =
 /** A card's Linear issue as the card tools show it (LINEAR-LINK-SPEC §4); state is the last known status, "" when unknown. */
 export const cardLinearSchema = z.object({ key: z.string(), url: z.string(), title: z.string(), state: z.string() });
 export type CardLinear = z.infer<typeof cardLinearSchema>;
+/** A tool's choice of where a new worktree branches from (START-CARD-SPEC §11.5): "parent" or a branch. */
+const baseRefField = z.string().trim().min(1).max(200).optional();
+/** Where a new worktree branched from and why (START-CARD-SPEC §11.5); present whenever the call made a worktree. */
+export const worktreeBaseSchema = z.object({
+  ref: z.string(),
+  from: z.enum(["explicit", "parent", "project", "checkout"]),
+  parentTaskId: z.string().optional(),
+  ahead: z.number().int().optional(),
+});
+export type WorktreeBase = z.infer<typeof worktreeBaseSchema>;
 export const createCardInputSchema = z.strictObject({
   title: z.string().trim().min(1).max(200),
   description: z.string().max(20000).default("").describe("The task as the card's agent will read it: goal, context, files, acceptance."),
@@ -524,7 +534,10 @@ export const createCardInputSchema = z.strictObject({
   workspace: z
     .enum(["directory", "worktree"])
     .default("directory")
-    .describe("directory: a workspace in the project folder (default). worktree: a new worktree branched off the main checkout's current branch (START-CARD-SPEC §7)."),
+    .describe("directory: a workspace in the project folder (default). worktree: a new worktree branched off the project's base (its base branch setting, else the main checkout's current branch), or off your card's branch when this card follows it up and that branch is ahead of the base (START-CARD-SPEC §7, §11)."),
+  baseRef: baseRefField.describe(
+    'Only with workspace "worktree", and only when the user chose where to branch from: "parent" (the branch of the card this one follows up) or a branch name such as main or origin/dev. Omit it to let the project\'s follow-up setting decide. BASE_INVALID: not a valid name, or used without workspace "worktree".',
+  ),
   linearTicket: z
     .boolean()
     .nullable()
@@ -576,6 +589,9 @@ export const startCardInputSchema = z.strictObject({
     .max(80)
     .optional()
     .describe("Permission mode id for the session (MODE_UNAVAILABLE lists the provider's ids). Default: the project's New task mode; a card with an approved plan does not start in plan mode."),
+  baseRef: baseRefField.describe(
+    'Where the card\'s new worktree branches from, only when the user chose it: "parent" (the branch of the card it follows up) or a branch name such as main. Omit it: the project\'s follow-up setting decides. Ignored, with a warning, when the card already has its worktree. BASE_CHOICE_NEEDED: ask the user and start again with baseRef; BASE_INVALID: not a valid name.',
+  ),
   idempotencyKey: z
     .string()
     .trim()
@@ -589,6 +605,7 @@ export const startCardResultSchema = z.object({
   agentId: z.string(),
   replayed: z.boolean(),
   warnings: z.array(z.string()).optional(),
+  base: worktreeBaseSchema.optional(),
 });
 export type StartCardInput = z.input<typeof startCardInputSchema>;
 export type StartCardResult = z.infer<typeof startCardResultSchema>;
@@ -655,7 +672,7 @@ export const listCardsResultSchema = z.object({
   truncated: z.boolean(),
 });
 export const getCardResultSchema = z.object({ card: cardViewSchema, editable: z.boolean(), reason: z.string() });
-export const createCardResultSchema = z.object({ card: cardViewSchema, replayed: z.boolean() });
+export const createCardResultSchema = z.object({ card: cardViewSchema, replayed: z.boolean(), base: worktreeBaseSchema.optional(), warnings: z.array(z.string()).optional() });
 export const setPlanResultSchema = z.object({ plan: cardPlanSchema });
 export const clearPlanResultSchema = z.object({ cleared: z.boolean() });
 export const setLinearResultSchema = z.object({ linear: cardLinearSchema });

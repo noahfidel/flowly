@@ -3,7 +3,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dropUpstream, projectWorktreeBase } from "./base-ref";
+import { branchAhead, dropUpstream, projectWorktreeBase, worktreeBranch } from "./base-ref";
+import { changeBase } from "./auto-review";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -139,4 +140,63 @@ test("a short name in the setting that is not a local branch is taken as origin/
   expect(await projectWorktreeBase(x.a, "fresh", "")).toBe("refs/remotes/origin/fresh");
   expect(git(x.a, "rev-parse", "--verify", "refs/remotes/origin/fresh")).toBe(git(x.a, "rev-parse", "main"));
   await expect(projectWorktreeBase(x.a, "nowhere", "")).rejects.toThrow(/base branch nowhere was not found/);
+});
+
+test("a parent's branch is the one checked out in its worktree of the same repository; ahead counts its commits not in the base (START-CARD-SPEC §11.2)", async () => {
+  const x = await setup();
+  const parent = join(x.root, "parent");
+  git(x.a, "worktree", "add", "-q", "-b", "feature/parent", parent);
+  expect(await worktreeBranch(parent, x.a)).toBe("feature/parent");
+  // Not ahead yet, then two commits ahead of main.
+  expect(await branchAhead(x.a, "refs/heads/main", "feature/parent")).toEqual({ ahead: 0, commit: git(x.a, "rev-parse", "main") });
+  git(parent, "commit", "-q", "--allow-empty", "-m", "one");
+  git(parent, "commit", "-q", "--allow-empty", "-m", "two");
+  expect(await branchAhead(x.a, "refs/heads/main", "feature/parent")).toEqual({ ahead: 2, commit: git(parent, "rev-parse", "HEAD") });
+  // Merged into the base: no longer ahead.
+  git(x.a, "merge", "-q", "--ff-only", "feature/parent");
+  expect((await branchAhead(x.a, "refs/heads/main", "feature/parent")).ahead).toBe(0);
+  // A detached HEAD has no branch; the main checkout itself is the same repository.
+  git(parent, "checkout", "-q", "--detach");
+  expect(await worktreeBranch(parent, x.a)).toBeNull();
+  expect(await worktreeBranch(x.a, x.a)).toBe("main");
+  // Another repository has no branch here; a folder git can't read throws.
+  expect(await worktreeBranch(join(x.root, "other"), x.a)).toBeNull();
+  await expect(worktreeBranch(join(x.root, "gone"), x.a)).rejects.toThrow();
+});
+
+test("a follow-up's own change starts at the parent's commit until the parent lands, then at the merge base (START-CARD-SPEC §11.4)", async () => {
+  const x = await setup();
+  const parent = join(x.root, "parent"),
+    child = join(x.root, "child");
+  git(x.a, "worktree", "add", "-q", "-b", "parent", parent);
+  git(parent, "commit", "-q", "--allow-empty", "-m", "parent work");
+  const branchedAt = git(parent, "rev-parse", "HEAD");
+  git(x.a, "worktree", "add", "-q", "-b", "child", child, "parent");
+  git(child, "commit", "-q", "--allow-empty", "-m", "child work");
+  const main = git(x.a, "rev-parse", "main");
+  // Parent not landed: the merge base with main is main's tip, which would count the parent's commit too.
+  expect(await changeBase(child, "refs/heads/main")).toBe(main);
+  expect(await changeBase(child, "refs/heads/main", undefined, branchedAt)).toBe(branchedAt);
+  // A commit the card's HEAD does not contain is ignored: the merge base as before.
+  git(x.a, "commit", "-q", "--allow-empty", "-m", "elsewhere");
+  const foreign = git(x.a, "rev-parse", "HEAD");
+  expect(await changeBase(child, "refs/heads/main", undefined, foreign)).toBe(main);
+  // The parent lands by a merge, then the card merges main in: the merge base again.
+  git(x.a, "merge", "-q", "--no-edit", "parent");
+  git(child, "merge", "-q", "--no-edit", "main");
+  const landed = git(x.a, "rev-parse", "main");
+  expect(await changeBase(child, "refs/heads/main", undefined, branchedAt)).toBe(landed);
+  // A squash-merged parent: its commit never reaches main, so the card's change still starts at it.
+  const parent2 = join(x.root, "parent2"),
+    child2 = join(x.root, "child2");
+  git(x.a, "worktree", "add", "-q", "-b", "parent2", parent2);
+  git(parent2, "commit", "-q", "--allow-empty", "-m", "parent2 work");
+  const branchedAt2 = git(parent2, "rev-parse", "HEAD");
+  git(x.a, "worktree", "add", "-q", "-b", "child2", child2, "parent2");
+  git(child2, "commit", "-q", "--allow-empty", "-m", "child2 work");
+  git(x.a, "merge", "-q", "--squash", "parent2");
+  git(x.a, "commit", "-q", "--allow-empty", "-m", "squashed parent2");
+  git(x.a, "worktree", "remove", "--force", parent2);
+  git(x.a, "branch", "-q", "-D", "parent2");
+  expect(await changeBase(child2, "refs/heads/main", undefined, branchedAt2)).toBe(branchedAt2);
 });

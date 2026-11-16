@@ -39,6 +39,7 @@ import {
   type TaskTagsEdit,
   type TaskPlacement,
   type ProjectEdit,
+  followUpBases,
   type ProjectRemoval,
   type TaskDeletion,
   type IdeaEdit,
@@ -584,6 +585,11 @@ export class BoardStore {
         const ref = baseRefValue(input.baseRef);
         if (ref) p.baseRef = ref;
         else delete p.baseRef;
+      }
+      if (input.followUpBase !== undefined) {
+        if (!followUpBases.includes(input.followUpBase)) throw new Error("Follow-ups branch from parent, base or ask.");
+        if (input.followUpBase === "parent") delete p.followUpBase;
+        else p.followUpBase = input.followUpBase;
       }
       if (input.archived !== undefined)
         p.archivedAt = input.archived ? new Date().toISOString() : null;

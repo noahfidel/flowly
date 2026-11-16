@@ -9,7 +9,7 @@ import { CardStarter } from "./start-card";
 import { ExternalError } from "./connectors/http";
 import { codedError, toolFailure } from "./tool-error";
 import { agentCardLimits } from "../shared/tools";
-import type { Task } from "../shared/model";
+import { projectEdit, type Task } from "../shared/model";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -250,7 +250,8 @@ test("a retried start_card returns the same session", async () => {
   const first = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
   // The response was lost: the same key returns the same workspace and session, nothing new.
   const again = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
-  expect(again).toEqual({ taskId: "c", workspaceId: first.workspaceId, agentId: first.agentId, replayed: true });
+  // The worktree it made is reported again (START-CARD-SPEC §11.5).
+  expect(again).toEqual({ taskId: "c", workspaceId: first.workspaceId, agentId: first.agentId, replayed: true, base: { ref: "refs/heads/main", from: "project" } });
   expect(x.createdWorkspaces).toHaveLength(1);
   expect(x.createdSessions).toHaveLength(1);
   // Another key on a card with a live session is refused, not a second session.
@@ -888,4 +889,171 @@ test("linking after the card started does not rename its branch; it only applies
   expect((await x.store.read()).tasks.find((t) => t.id === made.card.taskId)!.workspaceId).toBe(before);
   expect(await x.failure(x.starter.start(x.caller, { taskId: made.card.taskId, idempotencyKey: "again" }, x.paseo))).toBe("CARD_HAS_SESSION");
   expect((await x.cards.get(x.caller, { taskId: made.card.taskId })).card.linear).toMatchObject({ key: "ZEN-9132" });
+});
+
+/** Where a follow-up branches from (START-CARD-SPEC §11). */
+async function followUps() {
+  const x = await setup();
+  const commit = (dir: string, m: string) => git(dir, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", m);
+  /** A parent card working in a real worktree of the project on `branch`, `commits` commits ahead of main. */
+  const parent = async (id: string, branch: string, commits: number, fields: Partial<Task> = {}) => {
+    const dir = join(x.root, `wt-${id}`);
+    git(x.a, "worktree", "add", "-q", "-b", branch, dir);
+    for (let i = 0; i < commits; i++) commit(dir, `${id} ${i}`);
+    await x.card(id, { status: "development", ...fields }, "worktree");
+    x.workspaces.get(`ws-${id}`)!.workspaceDirectory = dir;
+    return { dir, tip: git(dir, "rev-parse", "HEAD").trim() };
+  };
+  /** `child` follows up `of` (a derived link from the child, CARD-LINKS-SPEC §2). */
+  const follow = (child: string, of: string) =>
+    x.store.mutate((board) => {
+      board.links.push({ id: `l-${child}-${of}`, projectId: "p", kind: "derived", from: child, to: of, createdBy: "human", createdAt: new Date().toISOString() });
+    });
+  const setting = async (followUpBase: "parent" | "base" | "ask") =>
+    x.store.updateProject({ id: "p", revision: (await x.store.read()).projects[0].revision, followUpBase });
+  const read = async (id: string) => (await x.store.read()).tasks.find((t) => t.id === id)!;
+  return { ...x, commit, parent, follow, setting, read };
+}
+
+test("a follow-up whose parent is ahead branches from the parent's branch, keeps the project base and gets a blocks link (§11.3, §11.4)", async () => {
+  const x = await followUps();
+  const { tip } = await x.parent("par", "feature/par", 2);
+  await x.card("c", { ownsWorkspace: true });
+  await x.follow("c", "par");
+  const started = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces[0].source).toMatchObject({ action: "branch-off", refName: "refs/heads/feature/par" });
+  expect(started.base).toEqual({ ref: "refs/heads/feature/par", from: "parent", parentTaskId: "par", ahead: 2 });
+  expect(started.warnings).toBeUndefined();
+  const task = await x.read("c");
+  // Where the card lands, not where it branched (§11.4).
+  expect(task.baseRef).toBe("refs/heads/main");
+  expect(task.branchedFrom).toEqual({ taskId: "par", branch: "feature/par", commit: tip, ahead: 2 });
+  expect((await x.store.read()).links.filter((l) => l.kind === "blocks")).toEqual([expect.objectContaining({ from: "par", to: "c", createdBy: "system" })]);
+  const line = `This card branched from feature/par (card "Card par"), which has 2 commits not in main. Before shipping, rebase onto main once the parent has landed: git rebase --onto main ${tip}.`;
+  expect(x.createdSessions[0].prompt).toBe(`Card c\n\nDo c.\n\n${line}`);
+  // A caller's own prompt gets the line too; an existing blocks link is not doubled.
+  await x.card("d", { ownsWorkspace: true });
+  await x.follow("d", "par");
+  await x.store.mutate((board) => {
+    board.links.push({ id: "pre", projectId: "p", kind: "blocks", from: "par", to: "d", createdBy: "human", createdAt: new Date().toISOString() });
+  });
+  await x.starter.start(x.caller, { taskId: "d", prompt: "Only the tests.", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[1].prompt).toBe(`Only the tests.\n\n${line}`);
+  expect((await x.store.read()).links.filter((l) => l.kind === "blocks" && l.to === "d")).toHaveLength(1);
+});
+
+test("a parent with nothing ahead, or Done, leaves the follow-up on the project base with nothing recorded", async () => {
+  const x = await followUps();
+  await x.parent("merged", "merged", 0);
+  await x.parent("done", "done-branch", 1, { status: "done" });
+  await x.card("c", { ownsWorkspace: true });
+  await x.follow("c", "merged");
+  await x.follow("c", "done");
+  const started = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces[0].source).toMatchObject({ action: "branch-off", refName: "refs/heads/main" });
+  expect(started.base).toEqual({ ref: "refs/heads/main", from: "project" });
+  const task = await x.read("c");
+  expect(task.baseRef).toBe("refs/heads/main");
+  expect(task.branchedFrom).toBeUndefined();
+  expect((await x.store.read()).links.filter((l) => l.kind === "blocks")).toEqual([]);
+  expect(x.createdSessions[0].prompt).toBe("Card c\n\nDo c.");
+});
+
+test("the setting decides: ask refuses before anything is made, base warns; the user's own Start again acts as base (§11.3)", async () => {
+  const x = await followUps();
+  await x.parent("par", "par", 1);
+  await x.card("c", { ownsWorkspace: true });
+  await x.follow("c", "par");
+  await x.setting("ask");
+  const refused = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo).catch((e) => toolFailure(e));
+  expect(refused).toMatchObject({ code: "BASE_CHOICE_NEEDED" });
+  expect((refused as { message: string }).message).toContain('Parent "Card par" (par) has 1 commit not in main. Ask the user where to branch from and pass baseRef ("parent" or a branch).');
+  expect(x.createdWorkspaces).toEqual([]);
+  expect(x.createdSessions).toEqual([]);
+  expect((await x.read("c")).workspaceId).toBe("ws-c");
+  // Start again from the dispatcher chat: the user is the one who would be asked.
+  const user = { agentId: "user", projectId: "p", human: true as const };
+  const again = await x.starter.start(user, { taskId: "c", idempotencyKey: "again" }, x.paseo);
+  expect(again.base).toEqual({ ref: "refs/heads/main", from: "project" });
+  expect(again.warnings).toEqual(['Parent "Card par" has 1 commit not in main; the card branched from main.']);
+  // Setting base: the project base with the same warning.
+  await x.setting("base");
+  await x.card("d", { ownsWorkspace: true });
+  await x.follow("d", "par");
+  const based = await x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces[1].source).toMatchObject({ refName: "refs/heads/main" });
+  expect(based.warnings).toEqual(['Parent "Card par" has 1 commit not in main; the card branched from main.']);
+  expect((await x.read("d")).branchedFrom).toBeUndefined();
+});
+
+test("an explicit baseRef wins over the setting; parent needs exactly one parent; invalid names are refused (§11.5)", async () => {
+  const x = await followUps();
+  const { tip } = await x.parent("par", "par", 1);
+  await x.card("c", { ownsWorkspace: true });
+  await x.follow("c", "par");
+  // A plain branch: the request's own base, stored as the card's base too.
+  const own = await x.starter.start(x.caller, { taskId: "c", baseRef: "main", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces[0].source).toMatchObject({ refName: "main" });
+  expect(own.base).toEqual({ ref: "main", from: "explicit" });
+  expect(await x.read("c")).toMatchObject({ baseRef: "main" });
+  expect((await x.read("c")).branchedFrom).toBeUndefined();
+  // "parent" under setting base: the parent's branch anyway.
+  await x.setting("base");
+  await x.card("d", { ownsWorkspace: true });
+  await x.follow("d", "par");
+  const chosen = await x.starter.start(x.caller, { taskId: "d", baseRef: "parent", idempotencyKey: "go" }, x.paseo);
+  expect(chosen.base).toEqual({ ref: "refs/heads/par", from: "explicit", parentTaskId: "par", ahead: 1 });
+  expect(await x.read("d")).toMatchObject({ baseRef: "refs/heads/main", branchedFrom: { taskId: "par", branch: "par", commit: tip, ahead: 1 } });
+  // A branch that names the parent's counts as branched from it.
+  await x.card("e", { ownsWorkspace: true });
+  await x.follow("e", "par");
+  await x.starter.start(x.caller, { taskId: "e", baseRef: "par", idempotencyKey: "go" }, x.paseo);
+  expect(await x.read("e")).toMatchObject({ baseRef: "refs/heads/main", branchedFrom: { taskId: "par", branch: "par" } });
+  // "parent" without a parent, and a name git would refuse: nothing is made.
+  await x.card("f", { ownsWorkspace: true });
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "f", baseRef: "parent", idempotencyKey: "go" }, x.paseo))).toBe("BASE_CHOICE_NEEDED");
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "f", baseRef: "a..b", idempotencyKey: "go" }, x.paseo))).toBe("BASE_INVALID");
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "f", baseRef: "no-such-branch", idempotencyKey: "go" }, x.paseo))).toBe("BASE_INVALID");
+  expect(x.createdWorkspaces).toHaveLength(3);
+  // A card already in its worktree ignores baseRef with a warning.
+  await x.card("g", {}, "worktree");
+  const ignored = await x.starter.start(x.caller, { taskId: "g", baseRef: "main", idempotencyKey: "go" }, x.paseo);
+  expect(ignored.warnings).toEqual([expect.stringContaining("baseRef was ignored")]);
+  expect(ignored.base).toBeUndefined();
+});
+
+test("two parents ahead need a choice; a retry with the same key makes the same branch (§11.3)", async () => {
+  const x = await followUps();
+  await x.parent("one", "one", 1);
+  await x.parent("two", "two", 2);
+  await x.card("c", { ownsWorkspace: true });
+  await x.follow("c", "one");
+  await x.follow("c", "two");
+  const refused = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo).catch((e) => toolFailure(e));
+  expect(refused).toMatchObject({ code: "BASE_CHOICE_NEEDED" });
+  expect((refused as { message: string }).message).toMatch(/Card one.*Card two/s);
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", baseRef: "parent", idempotencyKey: "go" }, x.paseo))).toBe("BASE_CHOICE_NEEDED");
+  expect(x.createdWorkspaces).toEqual([]);
+  // The response of the create is lost; meanwhile the first parent lands and the second moves on.
+  x.hooks.lostCreates = 1;
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", baseRef: "two", idempotencyKey: "pick" }, x.paseo))).toBe("START_FAILED");
+  const branchedAt = git(x.a, "rev-parse", "two").trim();
+  x.commit(join(x.root, "wt-two"), "more");
+  await x.store.mutate((board) => {
+    board.tasks.find((t) => t.id === "two")!.status = "done";
+  });
+  const retried = await x.starterFor().start(x.caller, { taskId: "c", baseRef: "two", idempotencyKey: "pick" }, x.paseo);
+  expect(x.createdWorkspaces).toHaveLength(1);
+  expect(retried.base).toEqual({ ref: "refs/heads/two", from: "explicit", parentTaskId: "two", ahead: 2 });
+  expect(await x.read("c")).toMatchObject({ baseRef: "refs/heads/main", branchedFrom: { taskId: "two", branch: "two", commit: branchedAt, ahead: 2 } });
+});
+
+test("projects.update stores the follow-up setting, parent as absent, and refuses other values (§11.1)", async () => {
+  const x = await followUps();
+  expect((await x.setting("ask")).followUpBase).toBe("ask");
+  expect((await x.setting("base")).followUpBase).toBe("base");
+  expect("followUpBase" in (await x.setting("parent"))).toBe(false);
+  expect(projectEdit.safeParse({ id: "p", revision: 9, followUpBase: "sometimes" }).success).toBe(false);
+  await expect(x.store.updateProject({ id: "p", revision: 1, followUpBase: "ask" })).rejects.toThrow(/Revision conflict/);
 });

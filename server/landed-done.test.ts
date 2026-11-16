@@ -29,6 +29,7 @@ type CardSpec = {
   prRef?: string;
   outputs?: Output[];
   baseRef?: string;
+  branchedFrom?: Task["branchedFrom"];
   workspaceId?: string;
   archived?: boolean;
 };
@@ -94,6 +95,7 @@ async function fixture(
         archivedAt: c.archived ? stamp : null,
         ...(c.prRef ? { prRef: c.prRef } : {}),
         ...(c.baseRef ? { baseRef: c.baseRef } : {}),
+        ...(c.branchedFrom ? { branchedFrom: c.branchedFrom } : {}),
       } as Task);
       for (const o of c.outputs ?? []) board.artifacts.push(artifact(c.id, o));
     });
@@ -331,6 +333,24 @@ test("a worktree card whose branch has landed on origin/<base> moves to Done; fr
   expect(x.ghCalls.map((c) => c.args)).toContainEqual(["gh", "pr", "list", "--head", "feature", "--state", "all", "--json", "number,state,url,mergedAt,headRefOid,isCrossRepository", "--limit", "5"]);
   expect(x.ghCalls.map((c) => c.cwd)).not.toContain(detached);
   expect(x.ghCalls.map((c) => c.cwd)).toContain(landed);
+});
+
+test("a follow-up branched from its parent lands on its project base like any card (START-CARD-SPEC §11.4)", async () => {
+  const [landed, unpushed] = await Promise.all([repo({ commits: 2, pushed: true }), repo({ commits: 1 })]);
+  // Its base is the project base, not the parent's branch; branchedFrom changes nothing about landing.
+  const from = (id: string) => ({ taskId: `parent-${id}`, branch: "parent", commit: "0123456789abcdef0123456789abcdef01234567", ahead: 1 });
+  const x = await fixture(
+    [
+      { id: "landed", baseRef: "refs/heads/main", branchedFrom: from("landed") },
+      { id: "unpushed", baseRef: "refs/heads/main", branchedFrom: from("unpushed") },
+    ],
+    {
+      where: { "w-landed": { directory: landed, worktree: true }, "w-unpushed": { directory: unpushed, worktree: true } },
+      gh: { feature: "[]" },
+    },
+  );
+  expect(await x.archiver.tick()).toEqual([{ taskId: "landed", done: "landed", base: "main" }]);
+  expect((await x.card("unpushed")).status).toBe("in_review");
 });
 
 test("a worktree card whose branch heads a merged PR moves to Done without the ancestor check", async () => {

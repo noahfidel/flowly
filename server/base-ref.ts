@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 import { baseRefValue } from "../shared/worktree-base";
 import { logFailure } from "./error-report";
@@ -105,3 +106,38 @@ export async function dropUpstream(directory: string | null | undefined, baseRef
     logFailure("Flowly worktree upstream not removed:", e, `${directory} ${upstream}`);
   }
 }
+
+/** The repository's shared git folder, as an absolute real path. */
+async function commonDir(directory: string) {
+  const dir = (await git(directory, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
+  return realpath(dir);
+}
+
+/**
+ * The branch checked out in `directory` when it is a checkout of the repository at `root` (START-CARD-SPEC §11.2):
+ * null on a detached HEAD or in another repository. Throws when git cannot read `directory`.
+ */
+export async function worktreeBranch(directory: string, root: string): Promise<string | null> {
+  const [own, project] = await Promise.all([commonDir(directory), commonDir(root).catch(() => null)]);
+  if (!project || own !== project) return null;
+  const branch = await git(directory, ["symbolic-ref", "--quiet", "--short", "HEAD"]).then(
+    (out) => out.trim(),
+    () => "",
+  );
+  return branch || null;
+}
+
+/** The tip of `refs/heads/<branch>` in `root` and how many of its commits `base` lacks (`git rev-list --count`, §11.2). */
+export async function branchAhead(root: string, base: string, branch: string): Promise<{ ahead: number; commit: string }> {
+  const commit = (await git(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}^{commit}`])).trim();
+  const ahead = Number((await git(root, ["rev-list", "--count", `${base}..${commit}`])).trim());
+  if (!Number.isInteger(ahead)) throw new Error(`git rev-list gave no count for ${branch}`);
+  return { ahead, commit };
+}
+
+/** Whether `ref` resolves to a commit in `root`. */
+export const refResolves = (root: string, ref: string) =>
+  git(root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).then(
+    () => true,
+    () => false,
+  );

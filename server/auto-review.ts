@@ -113,15 +113,27 @@ const diffLimit = 64 * 1024;
 /**
  * Where a worktree card's own change starts (GUARDRAILS-SPEC §6.2): `git merge-base <baseRef> HEAD`. null for a card
  * without a base ref (directory, linked or older cards) or when git cannot resolve it: the caller falls back.
+ * `branchedFrom` (a follow-up's parent commit, START-CARD-SPEC §11.4), when HEAD contains it: that commit, until it is
+ * inside the merge base (the parent landed by a merge or fast-forward, or the card was rebased).
  */
-export async function changeBase(directory: string, baseRef: string | undefined, git: Git = defaultGit): Promise<string | null> {
+export async function changeBase(directory: string, baseRef: string | undefined, git: Git = defaultGit, branchedFrom?: string): Promise<string | null> {
   const ref = baseRef?.trim();
-  if (!ref || ref.startsWith("-")) return null;
-  const sha = await git(directory, ["merge-base", ref, "HEAD"]).then(
-    (s) => s.trim(),
-    () => "",
-  );
-  return shaPattern.test(sha) ? sha : null;
+  const sha = ref && !ref.startsWith("-")
+    ? await git(directory, ["merge-base", ref, "HEAD"]).then(
+        (s) => s.trim(),
+        () => "",
+      )
+    : "";
+  const mergeBase = shaPattern.test(sha) ? sha : null;
+  const parent = branchedFrom?.trim();
+  if (!parent || !shaPattern.test(parent)) return mergeBase;
+  const ancestor = (of: string) =>
+    git(directory, ["merge-base", "--is-ancestor", parent, of]).then(
+      () => true,
+      () => false,
+    );
+  if (!(await ancestor("HEAD"))) return mergeBase;
+  return mergeBase && (await ancestor(mergeBase)) ? mergeBase : parent;
 }
 
 /** Files git does not track and does not ignore (§6.2); `git add -N` is never used, so the index stays as it is. */
@@ -160,20 +172,20 @@ const prefixArgs = (prefix: string) => (prefix ? [`--src-prefix=a/${prefix}`, `-
  * one, uncommitted changes plus the last few commits); with `since` (round ≥ 2, §6.3) only what changed since that
  * commit. Untracked new files follow in every mode. Never fails: an empty diff when git does.
  */
-export async function reviewDiff(directory: string, options: { since?: string; baseRef?: string } = {}, git: Git = defaultGit): Promise<string> {
+export async function reviewDiff(directory: string, options: { since?: string; baseRef?: string; branchedFrom?: string } = {}, git: Git = defaultGit): Promise<string> {
   return cut(await repoDiff(directory, options, git, ""));
 }
 const cut = (text: string) => (text.length > diffLimit ? `${text.slice(0, diffLimit)}\n[diff truncated at 64 KiB]` : text);
 
 /** One repository's part of the review diff; `prefix` (`name/`, or empty) goes before every path it shows. */
-async function repoDiff(directory: string, options: { since?: string; baseRef?: string }, git: Git, prefix: string): Promise<string> {
+async function repoDiff(directory: string, options: { since?: string; baseRef?: string; branchedFrom?: string }, git: Git, prefix: string): Promise<string> {
   const run = (args: string[]) => git(directory, args).catch(() => "");
   const shown = prefixArgs(prefix);
   const { since } = options;
   let text: string;
   if (since && shaPattern.test(since)) text = `# Changes since the previous delivery (git diff ${since})\n${(await run(["diff", since, "--no-color", ...shown])) || "(none)\n"}`;
   else {
-    const base = await changeBase(directory, options.baseRef, git);
+    const base = await changeBase(directory, options.baseRef, git, options.branchedFrom);
     if (base) text = `# Changes on this card's branch (git diff ${base})\n${(await run(["diff", base, "--no-color", ...shown])) || "(none)\n"}`;
     else {
       const [uncommitted, recent] = await Promise.all([run(["diff", "HEAD", "--no-color", ...shown]), run(["log", "-5", "-p", "--no-color", ...shown, "--format=commit %h %s"])]);
@@ -271,9 +283,9 @@ function renamedTo(path: string) {
  * `git diff HEAD --numstat` plus the same last five commits the review's diff reads; untracked new files count too,
  * one file each with their lines. null when git fails.
  */
-export async function reviewShape(directory: string, baseRef?: string, git: Git = defaultGit, prefix = ""): Promise<{ shape: ChangeShape; paths: Set<string> } | null> {
+export async function reviewShape(directory: string, baseRef?: string, git: Git = defaultGit, prefix = "", branchedFrom?: string): Promise<{ shape: ChangeShape; paths: Set<string> } | null> {
   try {
-    const base = await changeBase(directory, baseRef, git);
+    const base = await changeBase(directory, baseRef, git, branchedFrom);
     const tracked = base
       ? [git(directory, ["diff", base, "--numstat"])]
       : [git(directory, ["diff", "HEAD", "--numstat"]), git(directory, ["log", "-5", "--numstat", "--format="])];
@@ -488,9 +500,9 @@ export type AutoReviewDeps = {
   /** The user's messages in the card's sessions (§4.2), for the built-in check; null when unreadable. */
   conversation?: (task: Task, paseo: PaseoApi) => Promise<string[] | null>;
   /** The diff the review session reads; `reviewDiff` by default. */
-  diff?: (directory: string, since?: string, baseRef?: string) => Promise<string>;
+  diff?: (directory: string, since?: string, baseRef?: string, branchedFrom?: string) => Promise<string>;
   /** The delivery's shape; `reviewShape` by default. */
-  shape?: (directory: string, baseRef?: string) => Promise<{ shape: ChangeShape; paths: Set<string> } | null>;
+  shape?: (directory: string, baseRef?: string, branchedFrom?: string) => Promise<{ shape: ChangeShape; paths: Set<string> } | null>;
   /** Whether a cited file exists in the workspace (B1); a file check by default. */
   exists?: (path: string) => Promise<boolean>;
   run?: RunCheck;
@@ -632,7 +644,7 @@ export class AutoReviewService {
       ? null
       : linked.length
         ? await linkedShape(linked, task.baseRef, this.git).catch(() => null)
-        : await (this.deps.shape ?? ((d: string, base?: string) => reviewShape(d, base, this.git)))(where.directory, task.baseRef).catch(() => null);
+        : await (this.deps.shape ?? ((d: string, base?: string, from?: string) => reviewShape(d, base, this.git, "", from)))(where.directory, task.baseRef, task.branchedFrom?.commit).catch(() => null);
     const config = autoReviewOf(project);
     // What is checked is fixed when it starts; editing the guardrails meanwhile does not change this review (§4.3).
     const guard = this.deps.guardrails
@@ -837,10 +849,11 @@ export class AutoReviewService {
       commands: now.items.filter((r) => r.kind === "command").map((r) => `${r.name}: ${r.state}${r.gating ? "" : " (observing)"}`),
       diff: linked.length
         ? await linkedReviewDiff(linked, { since: incremental ? previous!.fingerprint.repos : undefined, baseRef: task.baseRef }, this.git)
-        : await (this.deps.diff ?? ((d: string, since?: string, baseRef?: string) => reviewDiff(d, { since, baseRef }, this.git)))(
+        : await (this.deps.diff ?? ((d: string, since?: string, baseRef?: string, branchedFrom?: string) => reviewDiff(d, { since, baseRef, branchedFrom }, this.git)))(
             where.directory,
             incremental ? previous!.fingerprint.sha : undefined,
             task.baseRef,
+            task.branchedFrom?.commit,
           ),
       ...(incremental ? { incremental: true } : {}),
       parentAgentId: delivery.agentId,
