@@ -1,5 +1,14 @@
 # Implementation progress
 
+## Where a follow-up card branches from (branch `kanban/default-setting-for-where-follow-up-card-0887eb`) — 2026-11-16
+
+- Contract: START-CARD-SPEC §11 (rulings Noah 2026-11-16). `Project.followUpBase` (`parent` default, `base`, `ask`) with *Follow-ups branch from* in project settings (not for linked roots); `Task.branchedFrom`.
+- Server: `server/follow-up-base.ts` (`openParents`, `chooseBase`, `rebaseLine`), git helpers `worktreeBranch` / `branchAhead` / `refResolves` in `server/base-ref.ts`. `flowly_start_card` keeps the decision with the worktree request (`base` in the kept request; Paseo gets only title, key and source), stores the project base as `Task.baseRef`, `branchedFrom` and a system `blocks` link in the move's write, and adds the rebase line to the first message. `flowly_create_card` (worktree) decides with the calling card as parent and passes the choice to `BoardService.createTask`. Both results carry `base`; replays report it again. `changeBase` takes the parent commit (§11.4). Dispatcher charter v4; tool descriptions updated.
+- Decided in implementation: `baseRef: "parent"` and an explicit branch naming a parent's branch report `from: "explicit"` with `parentTaskId`; an explicit branch that does not resolve is `BASE_INVALID`; `baseRef` ignored on a Linear checkout gets a warning too.
+- Tests: `server/start-card.test.ts` (parent ahead, merged, Done, `ask`/`base`, human Start again, explicit wins, `parent` without or with two parents, retry reproduces, `projects.update`), `server/agent-cards.test.ts` (create as follow-up, `ask`, explicit, outside caller, `BASE_INVALID`), `server/base-ref.test.ts` (real repo: branch and ahead, `changeBase` before and after the parent lands, squash), `server/landed-done.test.ts` (a follow-up lands like any card), `server/dispatcher.test.ts` (charter line, v4).
+- Checks: see the card's progress note for the commit they ran on. Unrun: UI not opened in Paseo (installed plugin not reloaded, per the card).
+- No tip, tour or What's new entry: the setting defaults to what the dispatcher was asked to do by hand, and the card line explains itself. No telemetry field.
+
 ## Step-throughs keep their place (branch `kanban/fix-stepping-through-unread-cards-the-n-31f164`) — 2026-11-16
 
 - Audit of both step-throughs (only unread, only need-you, both, other groups, read or answered mid-walk, last card, archived/wrapped-up/Done cards, a card already open, chip count vs walk length, dispatcher waits, phone vs desktop, Previous, a new update mid-walk, repeated press) against DISPATCHER-SPEC §9.2/§9.4.

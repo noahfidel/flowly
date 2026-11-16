@@ -172,3 +172,9 @@ When the branch is made from a parent's branch:
 - `startCardInputSchema` and `createCardInputSchema` gain optional `baseRef` (1–200 characters, trimmed): `"parent"` or a branch (`git check-ref-format` rules as the project setting; `BASE_INVALID` otherwise). On `flowly_start_card` it is ignored with a warning when the card already has its worktree; on `flowly_create_card` it needs `workspace: "worktree"` (`BASE_INVALID` otherwise).
 - `startCardResultSchema` and the create result gain `base?: { ref, from: "explicit" | "parent" | "project" | "checkout", parentTaskId?, ahead? }` whenever a worktree was made: the ref branched off (or the branch checked out), and why.
 - New code `BASE_CHOICE_NEEDED`; nothing is created when it is returned.
+
+### 11.6 Acceptance
+
+- `server/start-card.test.ts`: a parent ahead gives `refName: refs/heads/<branch>`, `Task.baseRef` the project base, `branchedFrom`, a system blocks link and the rebase line (also after an own prompt); a parent not ahead or Done gives the project base and records nothing; `ask` refuses with `BASE_CHOICE_NEEDED` and makes nothing, the user's Start again acts as `base`; `base` warns; an explicit branch wins, `parent` needs exactly one parent, an invalid or unknown name is `BASE_INVALID`; two parents ahead need a choice; a retry with the same key makes the same branch; `projects.update` stores `ask`/`base`, `parent` as absent, refuses other values.
+- `server/agent-cards.test.ts`: `flowly_create_card` with `workspace: "worktree"` from a card whose branch is ahead branches from it, with the same records.
+- `server/base-ref.test.ts` with a real repository: a parent's branch and its ahead count; `changeBase` with `branchedFrom` before and after the parent lands, and after a squash merge.
