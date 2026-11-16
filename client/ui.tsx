@@ -350,6 +350,7 @@ export function Field({
   onSubmit,
   autoFocus,
   secure = false,
+  plain = false,
   maxLength,
 }: {
   title: string;
@@ -357,6 +358,8 @@ export function Field({
   onChange: (text: string) => void;
   /** Hide the typed text (tokens); also turns off autocorrect and capitalization. */
   secure?: boolean;
+  /** Names and paths: no autocorrect or automatic capitalization. */
+  plain?: boolean;
   multiline?: boolean;
   placeholder?: string;
   editable?: boolean;
@@ -386,7 +389,7 @@ export function Field({
         autoFocus={autoFocus}
         placeholder={placeholder}
         {...(maxLength ? { maxLength } : {})}
-        {...(secure ? { secureTextEntry: true, autoCorrect: false, autoCapitalize: "none" as const } : {})}
+        {...(secure ? { secureTextEntry: true, autoCorrect: false, autoCapitalize: "none" as const } : plain ? { autoCorrect: false, autoCapitalize: "none" as const } : {})}
         {...(onSubmit
           ? Platform.OS === "web"
             ? {

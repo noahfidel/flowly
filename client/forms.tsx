@@ -204,6 +204,7 @@ export function ProjectSettingsFields({
           value={s.baseRef}
           onChange={s.setBaseRef}
           placeholder="origin/main"
+          plain
           maxLength={baseRefMax}
           editable={!s.pending}
           hint={s.baseRefError ? t("Not a valid branch name.") : t("Remote branches are fetched first. Empty: the main checkout's current branch.")}
@@ -1002,12 +1003,14 @@ export function TaskForm({
                     title={t("Base ref (optional)")}
                     value={baseRef}
                     onChange={setBase}
+                    plain
                     placeholder={project.baseRef || t("Current branch of the project root")}
                   />
                   <Field
                     title={t("New branch (optional)")}
                     value={branchName}
                     onChange={setBranch}
+                    plain
                     placeholder={t("Leave empty to generate kanban/<title>-xxxxxx")}
                   />
                 </>
