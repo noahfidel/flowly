@@ -41,7 +41,7 @@ A PR review card is never asked for a Linear ticket, even in a project with *Mak
 
 Settings → Workflow → Board → **Make cards for PR review agents**, host scope (`pr-review-cards`, `prReviewCards`), on by default. Off: Flowly does not read agents for this and makes no card. Turning it on does not backfill (§3).
 
-Settings → Workflow → Board → **Archive review cards when the PR closes**, same settings record (`archiveOnClose`), on by default. Off: the check of §10 does nothing.
+Settings → Workflow → Board → **Archive review cards when the PR closes**, same settings record (`archiveOnClose`), on by default. Off: the check of §10 archives no review card. The same check also moves ordinary cards to Done when their work lands, under its own switch (`doneOnLand`, LANDED-DONE-SPEC); it runs when either switch is on.
 
 ## 8. A new review of the same PR reuses its card
 

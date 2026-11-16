@@ -36,7 +36,7 @@ No code of its own: `completeLanes` (COMMITTED-STAGE-SPEC §2) inserts each miss
   - Set the furthest status that is true: committing and integrating in one turn, or committing directly on the main checkout's branch, goes straight to `integrated` without `committed` first. A partial merge stays in Committed.
   - A follow-up that only commits, merges or pushes ends with `committed` or `integrated`, whichever is true.
   - The note says whether the commits were also pushed.
-- The daemon does not check git for this (user decision 2): a shared project-root checkout cannot attribute commits to one card, and the agent knows what it merged.
+- The daemon does not check git for this (user decision 2): a shared project-root checkout cannot attribute commits to one card, and the agent knows what it merged. Ruling, Noah 2026-11-16: one exception. The daemon checks a worktree card's own branch against the remote base branch to move landed work to Done (LANDED-DONE-SPEC R6). It never sets Integrated.
 
 ## 4. Status rules (AUTO-STATUS-SPEC)
 
