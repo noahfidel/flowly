@@ -447,6 +447,11 @@ export default function contribute(host: PluginServerContext) {
   // The group's session in the workspace it lives in, which may be older than the one new sessions start in (§2).
   tails.dispatcher = (groupId) => tools.dispatcher.groupSession(groupId);
   const changes = new ChangeLineCache();
+  // Opening a card's unread session also clears the card from its group's change line, so "N updated" drops it.
+  readService.onRead = async (taskId, projectId) => {
+    const groupId = (await store.read()).projects.find((p) => p.id === projectId)?.groupId;
+    if (groupId) await tools.dispatcher.cardRead(groupId, taskId);
+  };
   // The group's mark and its live projects' cards; the actions of every dispatcher session are left out (§0, §9.2).
   const currentChange = async (groupId: string, read?: { board: Board; record: DispatcherRecord }) => {
     const { board, record } = read ?? { board: await store.read(), record: await tools.dispatcher.resolvedRecord() };

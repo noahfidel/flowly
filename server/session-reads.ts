@@ -90,8 +90,11 @@ export class SessionReadStore {
   mark(
     input: MarkSessionReadInput,
     validate: () => Promise<{ workspaceId: string; token: string | null }>,
+    /** Called once the new state is saved, only when the read changed it (the session was unread). */
+    onChanged?: () => void,
   ): Promise<SessionReadReceipt | null> {
     const parsed = markSessionReadInput.parse(input);
+    let recorded = false;
     return this.update(async (state) => {
       const current = await validate();
       const existing = state.receipts.find(
@@ -104,6 +107,7 @@ export class SessionReadStore {
         // Nothing native to acknowledge: only a manual unread mark can be cleared.
         if (existing?.token !== manualUnreadToken) return { value: existing ?? null, changed: false };
         state.receipts = state.receipts.filter((r) => r !== existing);
+        recorded = true;
         return { value: null, changed: true };
       }
       if (parsed.token && current.token !== parsed.token && parsed.token !== manualUnreadToken)
@@ -124,7 +128,11 @@ export class SessionReadStore {
       };
       state.receipts = state.receipts.filter((r) => r !== existing);
       state.receipts.push(receipt);
+      recorded = true;
       return { value: receipt, changed: true };
+    }).then((value) => {
+      if (recorded) onChanged?.();
+      return value;
     });
   }
 
@@ -220,6 +228,11 @@ export class SessionReadService {
     readonly reads: SessionReadStore,
     readonly native: NativeAttention | null = null,
   ) {}
+  /**
+   * Called after a read that changed state (the session was unread, or manually marked unread), with the card and its
+   * project. A failure is logged and never fails the read.
+   */
+  onRead: ((taskId: string, projectId: string) => Promise<void>) | null = null;
   /** The task must be live and the session must belong to its workspace. */
   private async current(input: { taskId: string; agentId: string }, paseo: PaseoApi) {
     const board = await this.board.read();
@@ -251,7 +264,13 @@ export class SessionReadService {
     };
   }
   async mark(input: MarkSessionReadInput, paseo: PaseoApi) {
-    const receipt = await this.reads.mark(input, () => this.current(input, paseo));
+    let read = false;
+    const receipt = await this.reads.mark(input, () => this.current(input, paseo), () => (read = true));
+    if (read && this.onRead) {
+      const board = await this.board.read();
+      const projectId = board.tasks.find((t) => t.id === input.taskId)?.projectId;
+      if (projectId) await this.onRead(input.taskId, projectId).catch((e) => logFailure("Flowly could not mark a read card seen:", e));
+    }
     // The Flowly receipt is committed; Paseo's own unread flag follows. A failure
     // keeps the receipt and is retried by `syncNative`.
     if (receipt && receipt.token !== manualUnreadToken) await this.clearNative([receipt.agentId]);

@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRpc } from "@getpaseo/plugin/client";
+import { dispatcherItemsKey } from "./queries";
 import { readSessionReceipts, markSessionRead, markSessionUnread } from "../shared/rpc";
 import type { MarkSessionReadInput, MarkSessionUnreadInput } from "../shared/session-attention";
 
@@ -25,6 +26,8 @@ export function useSessionReads(enabled = true) {
       const receipt = await mark(input);
       await query.refetch();
       void refreshBadge();
+      // The card leaves the change line too: refresh "N updated" now instead of on the next poll.
+      void queryClient.invalidateQueries({ queryKey: dispatcherItemsKey });
       return receipt;
     },
     /** Keeps the session unread until it is read again. */

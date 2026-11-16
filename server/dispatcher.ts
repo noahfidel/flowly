@@ -1184,6 +1184,16 @@ export class Dispatcher {
     return seen;
   }
 
+  /**
+   * The user read one of a card's sessions: the card is seen in its group's change line, as its own Mark seen would
+   * mark it, up to now. A group with no entry has no change line and gets none.
+   */
+  async cardRead(groupId: string, taskId: string): Promise<void> {
+    await this.resolvedRecord();
+    if (!(await this.record()).groups[groupId]) return;
+    await this.markSeen(groupId, this.now(), [], taskId);
+  }
+
   /** "What should I do?" (§9.2): only to a group's dispatcher that is up and guarded; always steered, as by the composer (`userSendOptions`). */
   async whatNext(paseo: PaseoApi, groupId: string, text: string, seen?: { revision: number; ids: readonly string[] }): Promise<void> {
     const agentId = await this.reachable(paseo, groupId);
