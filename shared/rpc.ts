@@ -60,6 +60,7 @@ import {
 import { summaryEntrySchema, summaryOverviewSchema } from "./summary";
 import { taskUsageSchema } from "./usage";
 import { TURN_MAX_ENTRIES, tailPageSchema, timelineCursorSchema } from "./session-tail";
+import { providerSubagentSchema } from "./subagents";
 import { digestViewSchema } from "./digest";
 import { memoryInputFields, memoryKeywordsSchema, memoryKinds, memoryTagsSchema } from "./memory";
 import { guardrailEntrySchema, guardrailLimits, guardrailScopeSchema, guardrailStates, guardrailsLedgerSchema, guardrailsViewSchema } from "./guardrails";
@@ -895,6 +896,27 @@ export const sessionTail = defineRpc({
     cursor: timelineCursorSchema.optional(),
     maxEntries: z.number().int().min(1).max(TURN_MAX_ENTRIES).optional(),
   }),
+  output: tailPageSchema,
+});
+/** A card session's provider subagents (SUBAGENTS-SPEC §9.2); `unavailable` when the daemon cannot say. */
+export const providerSubagents = defineRpc({
+  name: "subagents.provider-list",
+  input: z.strictObject({ taskId: z.string().min(1).max(200), agentId: z.string().min(1).max(200) }),
+  output: z.strictObject({ subagents: z.array(providerSubagentSchema), unavailable: z.boolean() }),
+});
+/** One page of a provider subagent's timeline, slim like `sessions.tail` (SUBAGENTS-SPEC §9.2). */
+export const providerSubagentTail = defineRpc({
+  name: "subagents.provider-tail",
+  input: z
+    .strictObject({
+      taskId: z.string().min(1).max(200),
+      agentId: z.string().min(1).max(200),
+      subagentId: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(100),
+      mode: z.enum(["tail", "before", "after"]),
+      cursor: timelineCursorSchema.optional(),
+    })
+    .refine((v) => v.mode === "tail" || !!v.cursor, "A cursor is required to page the timeline."),
   output: tailPageSchema,
 });
 export const archivedSessions = defineRpc({

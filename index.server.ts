@@ -16,6 +16,7 @@ import { WorkspaceSwitchService } from "./server/workspace-switch";
 import { WorkspaceRestoreService } from "./server/workspace-restore";
 import { SessionImageService } from "./server/session-images";
 import { SessionTailService } from "./server/session-tail";
+import { ProviderSubagentService } from "./server/provider-subagents";
 import { ArchivedSessionsService } from "./server/archived-sessions";
 import { ifChanged } from "./server/etag";
 import { BoardDeltas } from "./server/board-delta";
@@ -307,6 +308,9 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.archivedSessions, (input, { paseo }) => archived.list(input.taskId, paseo));
   server.handle(rpc.archivedSessionRefs, (_, { paseo }) => archived.refs(paseo));
   server.handle(rpc.sessionTail, (input, { paseo }) => tails.tail(input, paseo));
+  const providerSubagents = new ProviderSubagentService(store);
+  server.handle(rpc.providerSubagents, (input, { paseo }) => providerSubagents.list(input, paseo));
+  server.handle(rpc.providerSubagentTail, (input, { paseo }) => providerSubagents.tail(input, paseo));
   const wrapups = new WrapupService(store, undefined, (taskId) => summaries.settled(taskId));
   const restores = new WorkspaceRestoreService(store);
   const sessionSettings = new SessionSettingsService(store);
@@ -1183,5 +1187,6 @@ export default function contribute(host: PluginServerContext) {
     unwireQueue();
     queue.stop();
     tools.stop();
+    void providerSubagents.stop();
   };
 }
