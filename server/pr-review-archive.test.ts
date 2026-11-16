@@ -6,6 +6,7 @@ import type { PaseoApi } from "@getpaseo/client";
 import { BoardStore } from "./store";
 import {
   PrReviewArchiver,
+  archiveCandidate,
   archiveFirstDelayMs,
   archiveLookupsPerTick,
   archiveTickMs,
@@ -16,7 +17,6 @@ import {
   type PrTarget,
 } from "./pr-review-archive";
 import { landCandidate } from "./landed-done";
-import { archiveCandidate } from "./pr-review-archive";
 import { refKey } from "./connectors/service";
 import type { Status, Task } from "../shared/model";
 import type { Connection, ExternalRef } from "../shared/connectors";
