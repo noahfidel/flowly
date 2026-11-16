@@ -1,14 +1,29 @@
-/** Stub: the card description clamp is not implemented yet. */
-export const DESCRIPTION_CLAMP_HEIGHT = 0;
+/**
+ * The card drawer's description clamp: a description taller than about six
+ * lines starts collapsed behind Show more (UI-REFRESH-SPEC §4).
+ */
 
-export function clampOverflows(_natural: number, _clampHeight: number): boolean {
-  return false;
+/** The description is SessionMarkdown body text (14 pt, line height 14 * 1.55, client/session-content.tsx). Six lines. */
+export const DESCRIPTION_CLAMP_HEIGHT = Math.ceil(6 * 14 * 1.55);
+
+/** Content a few points over the clamp does not get a toggle. */
+export function clampOverflows(natural: number, clampHeight: number): boolean {
+  return natural > clampHeight + 8;
 }
 
-export function descriptionOpen(_taskId: string): boolean {
-  return false;
+/** Cards whose description the user expanded, kept for the client session (an app restart starts collapsed). */
+const opened = new Map<string, true>();
+
+export function descriptionOpen(taskId: string): boolean {
+  return opened.has(taskId);
 }
 
-export function setDescriptionOpen(_taskId: string, _open: boolean): void {}
+export function setDescriptionOpen(taskId: string, open: boolean): void {
+  if (open) opened.set(taskId, true);
+  else opened.delete(taskId);
+}
 
-export function resetDescriptionOpen(): void {}
+/** Tests only. */
+export function resetDescriptionOpen(): void {
+  opened.clear();
+}

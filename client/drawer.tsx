@@ -72,6 +72,8 @@ import { workspaceSession } from "./session";
 import { TaskProgress } from "./task-progress";
 import { TaskUsage } from "./task-usage";
 import { SessionMarkdown } from "./session-content";
+import { Clamped } from "./content-card";
+import { DESCRIPTION_CLAMP_HEIGHT, descriptionOpen, setDescriptionOpen } from "./description-clamp";
 import { TaskIdeas, type IdeaOther } from "./task-ideas";
 import { LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
@@ -443,6 +445,13 @@ function TaskDrawerView({
     composer.saveDraft(task.id, id, text, expected !== undefined);
   });
   const backToTask = useStableCallback(() => setSelected(""));
+  // The expanded description is kept per card for the client session; the drawer may switch cards without remounting.
+  const [descState, setDescState] = useState({ id: task.id, open: descriptionOpen(task.id) });
+  const descOpen = descState.id === task.id ? descState.open : descriptionOpen(task.id);
+  const changeDescOpen = useStableCallback((open: boolean) => {
+    setDescriptionOpen(task.id, open);
+    setDescState({ id: task.id, open });
+  });
   const openInPaseo = useStableCallback((id: string) => openNativeSession(navigation, id, hostId));
   // A subagent picked from the session view's chip opens here when it is one of this card's sessions.
   const openCardSession = useStableCallback((sessionId: string) => {
@@ -1168,7 +1177,15 @@ function TaskDrawerView({
             )}
             {onOpenTask && <LinkOrigin taskId={task.id} onOpenTask={onOpenTask} />}
             {!!task.description && (
-              <SessionMarkdown text={task.description} />
+              <Clamped
+                key={task.id}
+                background={colors.surface0}
+                clampHeight={DESCRIPTION_CLAMP_HEIGHT}
+                open={descOpen}
+                onOpenChange={changeDescOpen}
+              >
+                <SessionMarkdown text={task.description} />
+              </Clamped>
             )}
             {!!detailState.error && <Notice>{message(detailState.error)}</Notice>}
             {!!detailState.detail && <TaskPlan task={task} active={active} archived={!!task.archivedAt || !!project.archivedAt} />}

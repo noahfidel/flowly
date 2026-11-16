@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Long card descriptions collapse behind Show more (branch `kanban/collapse-and-expand-long-card-descriptio-c263c0`) — 2026-11-16
+
+- The drawer's description (also the phone's full-screen card view) shows about six lines (`DESCRIPTION_CLAMP_HEIGHT` = 131 pt: six 21.7 pt lines of SessionMarkdown body text) with a fade and the existing Show more / Show less; a shorter one shows in full with no toggle. The expanded choice is kept per card in a module-level map for the client session (reopening keeps it, an app restart starts collapsed). Spec: UI-REFRESH-SPEC §4.
+- Files: `client/description-clamp.ts` (clamp height, `clampOverflows`, per-card open state), `client/content-card.tsx` (`Clamped` exported, uses `clampOverflows`, optional controlled `open` / `onOpenChange`; ContentCard unchanged), `client/drawer.tsx`. No new strings.
+- Failing-then-passing tests (3d616a9, 4 failed before): `client/description-clamp.test.ts`.
+- Checks: `npm run typecheck` exit 0; `npm test` exit 0 (223 files passed, 1 skipped; 2606 tests passed, 7 skipped). Unrun: live desktop/phone check (needs the local build installed).
+- No tip, tour, What's new entry or telemetry field.
+
 ## Reading a card's session clears it from "N updated" (branch `kanban/opening-a-card-s-session-should-clear-it-4f1551`) — 2026-11-16
 
 - Cause: "N updated" (`updatedQueue`) is the dispatcher change line plus cards with an unread turn. Opening a card's unread session wrote a read receipt, so the green marker and the unread half dropped the card, but its change-line events stayed until an explicit Mark seen, so the chip kept counting it.

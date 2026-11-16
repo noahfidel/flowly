@@ -27,6 +27,7 @@ Status: authorized by the user's 2026-10-14 request to redesign the whole Kanban
 
 - Header: project breadcrumb (muted) with Edit / Archive / Close (desktop) or Back (compact) icon buttons; title 18/600; property chips for Status (opens the status chooser modal on both layouts, replacing the desktop `SettingsSelect`) and Priority (opens Edit). Errors shown under the header.
 - Body sections with small uppercase-free headers ("Description", "Sessions n", "Activity"): description as readable text; sessions list with "New session" ghost button in the section header; Details & workspace disclosure (unchanged content); Activity as a compact timeline (dot, humanized action, actor, relative time, note).
+- Description: taller than about six lines it starts collapsed with a fade and Show more / Show less (the content-card clamp, `Clamped`); a shorter one shows in full with no toggle. The choice is kept per card for the client session: reopening the card keeps it, an app restart starts collapsed.
 
 ## 5. Session card (row)
 

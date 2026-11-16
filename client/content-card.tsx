@@ -7,6 +7,7 @@ import { Label, font, noFocusRing, radius, space, tint, touch, useTheme } from "
 import { t } from "../shared/i18n";
 import type { Status, Task } from "../shared/model";
 import { StatusIcon } from "./status";
+import { clampOverflows } from "./description-clamp";
 
 /** The bordered surface every content card sits on; the native timeline cards share it. */
 export const cardFrameStyle = (colors: { border: string; surface1: string }) =>
@@ -133,12 +134,14 @@ export const PROGRESS_CLAMP_HEIGHT = 240;
  * bottom-left corner and `footer` on the right of the same row.
  * `background` is the surface the fade blends into.
  */
-function Clamped({
+export function Clamped({
   background,
   footer,
   defaultOpen = false,
   openWhen,
   clampHeight,
+  open: controlledOpen,
+  onOpenChange,
   children,
 }: {
   background: string;
@@ -146,14 +149,18 @@ function Clamped({
   defaultOpen?: boolean;
   openWhen?: unknown;
   clampHeight: number;
+  /** When given, the expanded state lives with the caller (the drawer keeps it per card) and `onOpenChange` reports the toggle. */
+  open?: boolean;
+  onOpenChange?(open: boolean): void;
   children: ReactNode;
 }) {
   const [natural, setNatural] = useState(0);
-  const [open, setOpen] = useState(defaultOpen);
+  const [innerOpen, setOpen] = useState(defaultOpen);
+  const open = controlledOpen ?? innerOpen;
   useEffect(() => {
     if (openWhen) setOpen(true);
   }, [openWhen]);
-  const overflows = natural > clampHeight + 8;
+  const overflows = clampOverflows(natural, clampHeight);
   const target = natural ? (open || !overflows ? natural : clampHeight) : null;
   const height = useMotionHeight(target);
   const fade = useMotionValue(overflows && !open ? 1 : 0);
@@ -178,7 +185,7 @@ function Clamped({
       </Animated.View>
       {/* Footer row: the toggle in the bottom-left corner, `footer` on the right. */}
       <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], minHeight: 24 }}>
-        {overflows && <Toggle open={open} onPress={() => setOpen(!open)} />}
+        {overflows && <Toggle open={open} onPress={() => (controlledOpen === undefined ? setOpen(!open) : onOpenChange?.(!open))} />}
         <View style={{ flex: 1, minWidth: 0, alignItems: "flex-end" }}>{footer}</View>
       </View>
     </View>

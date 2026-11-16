@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DESCRIPTION_CLAMP_HEIGHT, clampOverflows, descriptionOpen, resetDescriptionOpen, setDescriptionOpen } from "./description-clamp";
 
-// SessionMarkdown body text is Inline at size 14; Label's lineHeight is round(size * 1.45).
-const LINE_HEIGHT = Math.round(14 * 1.45);
+// SessionMarkdown body text is 14 pt with lineHeight size * 1.55 (client/session-content.tsx).
+const LINE_HEIGHT = 14 * 1.55;
 
 describe("DESCRIPTION_CLAMP_HEIGHT", () => {
   it("is about six lines of the description text", () => {
