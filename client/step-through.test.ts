@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { Project, Task } from "../shared/model";
 import type { AttentionItem } from "../shared/attention";
 import type { ChatItem } from "../shared/dispatcher";
-import { changeSummary, stableQueue, cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, needsStartAction, dispatcherInView, updatedQueue } from "./step-through";
+import { walkQueue, changeSummary, stableQueue, cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, needsStartAction, dispatcherInView, updatedQueue } from "./step-through";
 import { dispatcherWaits } from "../shared/attention";
 import { otherGroupNeeds } from "./board-groups";
 
@@ -296,4 +296,38 @@ test("after a card's session is read, it leaves the updated count", () => {
   const unreadCard = (id: string) => card(id, "p", 1, [{ key: `u:${id}:1` }]);
   expect(updatedQueue([unreadCard("a"), unreadCard("b")], new Set(), all)).toEqual(["a", "b"]);
   expect(updatedQueue([unreadCard("b")], new Set(["u:a:1"]), all)).toEqual(["b"]);
+});
+
+describe("walkQueue", () => {
+  test("the need-you walk holds its order when a new ask lands on another card", () => {
+    const first = walkQueue(null, "needs", ["a", "b", "c"], "b");
+    expect(first.ids).toEqual(["a", "b", "c"]);
+    const next = walkQueue(first, "needs", ["d", "a", "b", "c"], "b");
+    expect(next.ids).toEqual(["a", "b", "c", "d"]);
+    expect(stepPosition(next.ids, { taskId: "b", index: 1 })).toMatchObject({ index: 1, total: 4, prev: "a", next: "c" });
+  });
+
+  test("an answered card drops out of the need-you walk: Answered with the card that took its place", () => {
+    const walk = walkQueue(null, "needs", ["a", "b", "c", "d"], "b");
+    const after = walkQueue(walk, "needs", ["d", "a", "c"], "b");
+    expect(after.ids).toEqual(["a", "c", "d"]);
+    expect(after.visited.size).toBe(0);
+    const where = stepPosition(after.ids, { taskId: "b", index: 1 });
+    expect(where.index).toBeNull();
+    expect(where.next).toBe("c");
+    expect(stepBarState("needs", where)).toEqual({ where: "answered", next: "pill" });
+  });
+
+  test("the updated walk keeps the shown and visited cards", () => {
+    const first = walkQueue(null, "updated", ["a", "b", "c"], "a");
+    const second = walkQueue(first, "updated", ["b", "c"], "b");
+    expect(second.ids).toEqual(["a", "b", "c"]);
+    const third = walkQueue(second, "updated", ["c", "e"], "c");
+    expect(third.ids).toEqual(["a", "b", "c", "e"]);
+  });
+
+  test("a walk of the other kind starts fresh from the live order", () => {
+    const upd = walkQueue(null, "updated", ["a", "b"], "a");
+    expect(walkQueue(upd, "needs", ["z", "a"], "a").ids).toEqual(["z", "a"]);
+  });
 });

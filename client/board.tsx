@@ -52,7 +52,7 @@ import { DispatcherPanel } from "./dispatcher-panel";
 import { LeftDock } from "./left-dock";
 import { lastCollapsed, rememberCollapsed, shownCollapsed } from "./collapsed-columns";
 import { dockShortcut, escAction, toolbarDockButtons } from "./dock-logic";
-import { cardAsks, changeItem, changeSummary, needsCount, needsQueue, needsStartAction, dispatcherInView, stableQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
+import { cardAsks, changeItem, changeSummary, needsCount, needsQueue, needsStartAction, dispatcherInView, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, walkQueue, type Step, type StepKind, type Walk } from "./step-through";
 import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
@@ -966,19 +966,16 @@ function BoardContent(
   const changed = useMemo(() => changeItem(dispatcherItems.data), [dispatcherItems.data]);
   const updatedIds = useMemo(() => updatedQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const [step, setStep] = useState<(Step & { kind: StepKind }) | null>(null);
-  // The unread walk keeps its own order (stableQueue): the live queue reorders on every poll and drops cards as they are read.
-  const walkRef = useRef<{ kind: StepKind; ids: string[]; visited: Set<string> } | null>(null);
+  // Both walks keep their own order (walkQueue): the live queues reorder on every poll and drop cards as they are read or answered.
+  const walkRef = useRef<Walk | null>(null);
   const stepQueue = useMemo(() => {
-    if (step?.kind !== "updated") {
+    if (!step) {
       walkRef.current = null;
       return needsIds;
     }
-    const prev = walkRef.current?.kind === "updated" ? walkRef.current.ids : [];
-    const visited = walkRef.current?.kind === "updated" ? walkRef.current.visited : new Set<string>();
-    visited.add(step.taskId);
-    const ids = stableQueue(prev, updatedIds, step.taskId, visited);
-    walkRef.current = { kind: "updated", ids, visited };
-    return ids;
+    const walk = walkQueue(walkRef.current, step.kind, step.kind === "updated" ? updatedIds : needsIds, step.taskId);
+    walkRef.current = walk;
+    return walk.ids;
   }, [step?.kind, step?.taskId, updatedIds, needsIds]);
   const stepWhere = step ? stepPosition(stepQueue, step) : null;
   // Remember where the card sits while it is in the queue, to find its neighbours once it drops out.
@@ -993,7 +990,7 @@ function BoardContent(
   // A card of the step-through: its card, and the session that waits there (need-you: the one asking, when only one
   // does; updated: its unread chat, which opening reads).
   const showStepCard = (kind: StepKind, id: string) => {
-    const queue = kind === "updated" ? (step?.kind === "updated" ? stepQueue : updatedIds) : needsIds;
+    const queue = step?.kind === kind ? stepQueue : kind === "updated" ? updatedIds : needsIds;
     setStep({ kind, ...stepAt(queue, id) });
     setMenu(null);
     const item = attentionByTask.get(id);

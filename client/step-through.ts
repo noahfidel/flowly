@@ -151,18 +151,31 @@ export function stepBarState(
 }
 
 /**
- * The order of one unread walk (§9.4). The live queue is recomputed on every poll (newest first, reads drop
- * cards, a new event moves a card to the front), so walking it directly made the neighbours of the card shown jump.
- * The walk keeps its own order instead: cards still in the live queue stay where they were, a card that turned unread
- * meanwhile joins at the end, and the card shown stays until the user leaves it. Cards this walk visited (`visited`)
- * stay too: opening one reads it, so it leaves the live queue, but that is the walk's own doing and Previous must
- * still reach it. A card read elsewhere (never visited here) leaves.
+ * The order of one walk (§9.4; Ruling, Noah 2026-11-16: both walks hold their order). The live queues are recomputed on
+ * every poll (newest first, a new event or ask moves a card to the front, answers and reads drop cards), so walking
+ * them directly made the neighbours of the card shown jump. A walk keeps its own order instead: cards still in the live
+ * queue stay where they were and a card that joins meanwhile goes to the end. For the unread walk the card shown stays
+ * until the user leaves it, and so do the cards this walk visited (`visited`): opening one reads it, so it leaves the
+ * live queue, but that is the walk's own doing and Previous must still reach it. A card read elsewhere (never
+ * visited here) leaves. The need-you walk passes neither: an answered card drops out at once (the bar then says
+ * "Answered").
  */
 export function stableQueue(prev: readonly string[], live: readonly string[], shown: string | null, visited: ReadonlySet<string> = new Set()): string[] {
   const liveSet = new Set(live);
   const kept = prev.filter((id) => liveSet.has(id) || id === shown || visited.has(id));
   const known = new Set(kept);
   return [...kept, ...live.filter((id) => !known.has(id))];
+}
+
+export type Walk = { kind: StepKind; ids: string[]; visited: Set<string> };
+
+/** The next state of the walk on `shown` from the previous one (null or of the other kind: a fresh start from `live`). */
+export function walkQueue(prev: Walk | null, kind: StepKind, live: readonly string[], shown: string): Walk {
+  const same = prev?.kind === kind ? prev : null;
+  if (kind === "needs") return { kind, ids: stableQueue(same?.ids ?? [], live, null), visited: new Set() };
+  const visited = same?.visited ?? new Set<string>();
+  visited.add(shown);
+  return { kind, ids: stableQueue(same?.ids ?? [], live, shown, visited), visited };
 }
 
 /** What changed on a card, in plain words, for the picker (§9.2): "Moved to Committed · New result note". Empty when unknown. */
