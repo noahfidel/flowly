@@ -1,5 +1,13 @@
 # Implementation progress
 
+## PR review cards move to Done once you approve the PR (branch `kanban/move-pr-review-cards-to-done-once-the-us-d483e3`) — 2026-11-16
+
+- Spec: `docs/LANDED-DONE-SPEC.md` §9 (rulings R9–R13, Noah 2026-11-16) and `docs/PR-REVIEW-CARDS-SPEC.md` §4/§6/§10/§7; AGENTS.md invariant amended. Done on approval (not archived), no automatic reopen, In review only with running sessions skipped, own PRs skipped, gated by the existing *Move cards to Done when their work lands* switch.
+- `server/pr-review-archive.ts`: in the same check, a review card whose PR is open is looked up for the signed-in user's reviews (`reviews`: `firstKnownReview(connectorPrReviews, ghPrReviews)`); `approvalOf` takes the latest of the user's APPROVED / CHANGES_REQUESTED / DISMISSED reviews; approved → `moveReviewToDone` (session re-read, card re-checked in the transaction, note "Moved to Done: PR approved (owner/repo#n)", `afterDone`). Review cards are candidates when either switch is on; the archive still runs only with its own switch. One lookup per card, shared 20 cap. Connector: `ConnectorService.githubPullReviews` (stored login from the token test, `GET pulls/<n>` and `pulls/<n>/reviews`); `gh`: `gh api user --jq .login` cached per host, `gh pr view --json author,reviews`.
+- Failing-then-passing tests: `server/pr-review-approval.test.ts` (20 tests; 8 failed before the implementation on missing exports and no move to Done, the "stays" cases passed trivially). `server/pr-review-archive.test.ts` "the setting off does nothing" now turns both switches off (review cards are also looked at with `doneOnLand` on).
+- Checks on 00635ce: `npm run typecheck` exit 0; `npm test` exit 0 (222 files passed, 1 skipped; 2595 tests passed, 7 skipped). Unrun: no live GitHub or installed-plugin check (plugin not updated, per the card).
+- Onboarding/telemetry: no new switch, tip or tour copy (an existing switch's scope grew; its label still fits); no heartbeat field.
+
 ## Move a card to Done when its work lands (branch `kanban/move-a-card-to-done-when-its-pr-merges-e31f26`) — 2026-11-16
 
 - Spec: `docs/LANDED-DONE-SPEC.md` (rulings R1–R8, Noah 2026-11-16). The PR review archive check (`PrReviewArchiver`, `server/pr-review-archive.ts`) now builds one list of review cards (gated by *Archive review cards when the PR closes*) and ordinary cards in In review, Committed or Integrated (gated by the new *Move cards to Done when their work lands*, `doneOnLand` in the `pr-review-cards` record, on by default); one timer, one 20-lookup cap, least recently checked first; it runs when either switch is on.
