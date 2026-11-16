@@ -24,15 +24,21 @@ export function queuedFor(list: readonly QueuedMessageView[] | undefined, taskId
 export const sameQueued = (a: readonly QueuedMessageView[], b: readonly QueuedMessageView[]) =>
   a.length === b.length && a.every((m, i) => m.id === b[i].id);
 
-/** The queued messages and the button that withdraws the ask and delivers them; nothing when none is queued. */
+/**
+ * The queued messages and the button that withdraws the ask and delivers them; nothing when none is queued. The button
+ * denies only `requestId`, the pending request this banner sits on (none on a question or blocker report); the messages
+ * go out once no other request of the session waits on the user (ruling, Noah 2026-11-16).
+ */
 export const QueuedMessages = memo(function QueuedMessages({
   taskId,
   agentId,
+  requestId,
   messages,
   disabled = false,
 }: {
   taskId: string;
   agentId: string;
+  requestId?: string;
   messages: readonly QueuedMessageView[];
   disabled?: boolean;
 }) {
@@ -47,9 +53,12 @@ export const QueuedMessages = memo(function QueuedMessages({
     if (busy) return;
     setBusy(true);
     setError("");
-    void cancel({ taskId, agentId })
+    void cancel(requestId ? { taskId, agentId, requestId } : { taskId, agentId })
       .then(
-        () => toast.show(t("Queued message sent"), { variant: "success" }),
+        (result) =>
+          toast.show(result.delivered ? t("Queued message sent") : t("The message waits for the session's other requests"), {
+            variant: result.delivered ? "success" : "info",
+          }),
         (e) => setError(message(e)),
       )
       .finally(() => {
@@ -83,4 +92,4 @@ export const QueuedMessages = memo(function QueuedMessages({
       {!!error && <Notice>{error}</Notice>}
     </View>
   );
-}, (a, b) => a.taskId === b.taskId && a.agentId === b.agentId && a.disabled === b.disabled && sameQueued(a.messages, b.messages));
+}, (a, b) => a.taskId === b.taskId && a.agentId === b.agentId && a.requestId === b.requestId && a.disabled === b.disabled && sameQueued(a.messages, b.messages));

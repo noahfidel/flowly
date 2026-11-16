@@ -1420,19 +1420,20 @@ test("queued messages are dropped, and the drop is in the card's activity, when 
   expect(await dropped()).toHaveLength(cases.length + 1);
 });
 
-test("Cancel question and re-read card: the user's action denies the pending request and delivers the queue (DISPATCHER-SPEC §5.3)", async () => {
+test("Cancel question and re-read card: the user's action denies the request it sits on and delivers the queue (DISPATCHER-SPEC §5.3)", async () => {
   const x = await withSessions();
   const queue = x.server.dispatcherQueue;
   // Nothing queued: nothing to cancel, and the ask is left alone.
   x.agents.s1.pendingPermissions = [{ id: "req-q", kind: "question", name: "AskUserQuestion", input: {} }];
-  await expect(queue.cancelQuestion({ taskId: "q1", agentId: "s1" }, x.paseo)).rejects.toThrow(/Nothing is queued/);
+  await expect(queue.cancelQuestion({ taskId: "q1", agentId: "s1", requestId: "req-q" }, x.paseo)).rejects.toThrow(/Nothing is queued/);
   expect(x.responded).toEqual([]);
   await x.message({ text: "one" });
   await x.message({ text: "two" });
   // Another card's session is refused.
-  await expect(queue.cancelQuestion({ taskId: "q2", agentId: "s1" }, x.paseo)).rejects.toThrow();
+  await expect(queue.cancelQuestion({ taskId: "q2", agentId: "s1", requestId: "req-q" }, x.paseo)).rejects.toThrow();
   await expect(queue.cancelQuestion({ taskId: "q1", agentId: "s1", extra: 1 }, x.paseo)).rejects.toThrow();
-  expect(await queue.cancelQuestion({ taskId: "q1", agentId: "s1" }, x.paseo)).toEqual({ denied: 1, delivered: 2 });
+  await expect(queue.cancelQuestion({ taskId: "q1", agentId: "s1", requestId: 5 }, x.paseo)).rejects.toThrow();
+  expect(await queue.cancelQuestion({ taskId: "q1", agentId: "s1", requestId: "req-q" }, x.paseo)).toEqual({ denied: 1, delivered: 2 });
   expect(x.responded).toEqual([{ id: "s1", requestId: "req-q", response: { behavior: "deny", message: cancelledAskMessage } }]);
   expect(cancelledAskMessage).toContain("flowly_get_task");
   expect(x.sent).toHaveLength(1);
@@ -1447,6 +1448,71 @@ test("Cancel question and re-read card: the user's action denies the pending req
   expect(await queue.cancelQuestion({ taskId: "q1", agentId: "s1" }, x.paseo)).toEqual({ denied: 0, delivered: 1 });
   expect(x.responded).toHaveLength(1);
   expect(x.sent.map((m) => m.text)).toEqual([expect.stringContaining("one"), expect.stringContaining("three")]);
+});
+
+test("Cancel question denies only the request the user pressed on; the queue waits for the session's other requests (DISPATCHER-SPEC §5.3; ruling, Noah 2026-11-16)", async () => {
+  const x = await withSessions();
+  const queue = x.server.dispatcherQueue;
+  x.agents.s1.pendingPermissions = [
+    { id: "req-a", kind: "question", name: "AskUserQuestion", input: {} },
+    { id: "req-b", kind: "tool", name: "Bash", input: {} },
+  ];
+  await x.message({ text: "scope change" });
+  await queue.idle();
+  // Pressed on req-a: only req-a is denied; req-b still waits on the user, so the message stays queued.
+  expect(await queue.cancelQuestion({ taskId: "q1", agentId: "s1", requestId: "req-a" }, x.paseo)).toEqual({ denied: 1, delivered: 0 });
+  expect(x.responded.map((r) => r.requestId)).toEqual(["req-a"]);
+  expect(x.sent).toEqual([]);
+  expect((await queue.list()).map((m) => m.text)).toEqual(["scope change"]);
+  // A report's banner (no request) while a request is pending denies nothing and keeps the message queued.
+  expect(await queue.cancelQuestion({ taskId: "q1", agentId: "s1" }, x.paseo)).toEqual({ denied: 0, delivered: 0 });
+  // A request that is no longer pending is not denied again; req-b still waits.
+  expect(await queue.cancelQuestion({ taskId: "q1", agentId: "s1", requestId: "req-a" }, x.paseo)).toEqual({ denied: 0, delivered: 0 });
+  expect(x.responded.map((r) => r.requestId)).toEqual(["req-a"]);
+  expect(x.sent).toEqual([]);
+  // The user answers req-b: the message goes out then, as after any answer.
+  await queue.check("s1", x.paseo, { resolvedRequestId: "req-b" });
+  expect(x.sent.map((m) => m.text)).toEqual([expect.stringContaining("scope change")]);
+  expect(x.responded.map((r) => r.requestId)).toEqual(["req-a"]);
+  expect(await queue.list()).toEqual([]);
+});
+
+test("queued messages are dropped, and the drop is in the card's activity, when the card's project is archived (DISPATCHER-SPEC §5.3; ruling, Noah 2026-11-16)", async () => {
+  const x = await withSessions();
+  const queue = x.server.dispatcherQueue;
+  const dropped = async () => (await x.store.read()).events.filter((e) => e.taskId === "q1" && e.action === dispatcherMessageDroppedAction);
+  const archiveQ = (archivedAt: string | null) =>
+    x.store.mutate((board) => {
+      board.projects.find((p) => p.id === "q")!.archivedAt = archivedAt;
+    });
+  x.agents.s1.pendingPermissions = [{ id: "r", kind: "tool", name: "Bash", input: {} }];
+  // Seen by any check (hook or sweep).
+  await x.message({ text: "first" });
+  await queue.idle();
+  await archiveQ(stamp);
+  await queue.check("s1", x.paseo);
+  expect(await queue.list()).toEqual([]);
+  expect((await dropped()).map((e) => e.note)).toEqual([expect.stringMatching(/project was archived[\s\S]*first/)]);
+  // Dropped at once when the project's archive is reported, without waiting for a check.
+  await archiveQ(null);
+  await x.message({ text: "second" });
+  await queue.idle();
+  await archiveQ(stamp);
+  await queue.projectChanged("q");
+  expect(await queue.list()).toEqual([]);
+  expect((await dropped()).at(-1)!.note).toMatch(/project was archived[\s\S]*second/);
+  // Another project's change leaves q's queue alone.
+  await archiveQ(null);
+  await x.message({ text: "third" });
+  await queue.idle();
+  await queue.projectChanged("r");
+  expect((await queue.list()).map((m) => m.text)).toEqual(["third"]);
+  // Cancel question on an archived project's card drops instead of delivering.
+  await archiveQ(stamp);
+  await expect(queue.cancelQuestion({ taskId: "q1", agentId: "s1", requestId: "r" }, x.paseo)).rejects.toThrow(/dropped/);
+  expect(await dropped()).toHaveLength(3);
+  expect(x.sent).toEqual([]);
+  expect(x.responded).toEqual([]);
 });
 
 test("queued messages survive a plugin reload (DISPATCHER-SPEC §5.3)", async () => {

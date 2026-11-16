@@ -97,8 +97,11 @@ export const storedQueueSchema = z.object({ version: z.literal(1), messages: z.a
 /** `asks.queued`: what the asks' banners show (§9.4). */
 export const queuedMessageViewSchema = queuedMessageSchema.pick({ id: true, taskId: true, agentId: true, text: true, at: true });
 export type QueuedMessageView = z.infer<typeof queuedMessageViewSchema>;
-/** `asks.cancel-question`: the user's "Cancel question and re-read card" on one session's ask (§5.3, §9.4). */
-export const cancelQuestionInputSchema = z.strictObject({ taskId: queueId, agentId: queueId });
+/**
+ * `asks.cancel-question`: the user's "Cancel question and re-read card" on one session's ask (§5.3, §9.4).
+ * `requestId` is the pending request the banner sits on, the only one denied; absent on a question or blocker report.
+ */
+export const cancelQuestionInputSchema = z.strictObject({ taskId: queueId, agentId: queueId, requestId: z.string().min(1).max(300).optional() });
 export const cancelQuestionResultSchema = z.strictObject({ denied: z.number().int().min(0), delivered: z.number().int().min(0) });
 /**
  * `flowly_reply_to_agent` (DISPATCHER-SPEC §5.4; ruling, Noah 2026-11-12): the dispatcher answers only an agent whose

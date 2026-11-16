@@ -1342,7 +1342,8 @@ const CardRequests = memo(function CardRequests({
         <Button quiet icon="MessageSquare" onPress={() => onOpen(agentId)}>{t("Open")}</Button>
       </View>
       <PendingRequests requests={requests} disabled={disabled} onRespond={respond} onOpenInPaseo={openNative} />
-      <QueuedMessages taskId={taskId} agentId={agentId} messages={queued} disabled={disabled} />
+      {/* Sits on the session's oldest request: the only one its button denies (DISPATCHER-SPEC §5.3). */}
+      <QueuedMessages taskId={taskId} agentId={agentId} requestId={requests[0]?.id} messages={queued} disabled={disabled} />
     </View>
   );
 }, (a, b) => {

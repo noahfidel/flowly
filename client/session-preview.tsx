@@ -766,7 +766,7 @@ function SessionPreviewView({
       )}
       {active && dispatcherQueued.length > 0 && (
         <View style={{ flexShrink: 0, paddingHorizontal: space[3], paddingTop: space[2] }}>
-          <QueuedMessages taskId={task.id} agentId={sessionId} messages={dispatcherQueued} disabled={!canWrite || busy} />
+          <QueuedMessages taskId={task.id} agentId={sessionId} requestId={requests[0]?.id} messages={dispatcherQueued} disabled={!canWrite || busy} />
         </View>
       )}
       {active && (

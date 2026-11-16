@@ -68,7 +68,7 @@ export const AskRow = memo(function AskRow({ item, focused, onOpenCard, onChange
         {(item.state === "open" || item.state === "session_ended") && <DismissButton item={item} onChanged={onChanged} />}
       </View>
       {!!item.detail && <Label size={font.md} lines={8}>{item.detail}</Label>}
-      {item.state === "open" && !!item.agentId && <QueuedMessages taskId={item.taskId} agentId={item.agentId} messages={queued} />}
+      {item.state === "open" && !!item.agentId && <QueuedMessages taskId={item.taskId} agentId={item.agentId} requestId={item.requestId} messages={queued} />}
       {item.state === "open" ? (
         <AskBody item={item} kind={kind} onOpenCard={onOpenCard} onChanged={onChanged} />
       ) : item.state === "session_ended" ? (

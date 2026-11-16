@@ -12,7 +12,7 @@ import {
   type QueuedMessage,
   type QueuedMessageView,
 } from "../shared/dispatcher";
-import type { Board, Task } from "../shared/model";
+import type { Board, Project, Task } from "../shared/model";
 import { pendingRequests } from "../shared/permission-question";
 import { openReport } from "../shared/progress";
 import type { BusFact } from "./event-bus";
@@ -51,20 +51,24 @@ export function queuedDelivery(messages: readonly Pick<QueuedMessage, "text" | "
   ].join("\n\n");
 }
 
-/** Why the card can no longer take a queued message, or null while it can (§5.3). */
-function cardEnded(task: Task | undefined): string | null {
+/** Why the card can no longer take a queued message, or null while it can (§5.3): it ended, or its project was archived. */
+function cardEnded(board: Pick<Board, "tasks" | "projects">, taskId: string): string | null {
+  const task = board.tasks.find((t) => t.id === taskId);
   if (!task) return "the card was deleted";
   if (task.archivedAt) return "the card was archived";
   if (task.status === "done") return "the card moved to Done";
   if (task.status === "cancelled") return "the card moved to Cancelled";
+  const project: Project | undefined = board.projects.find((p) => p.id === task.projectId);
+  if (project?.archivedAt) return "its project was archived";
   return null;
 }
 
 /** Why a queued message can no longer be delivered, or null while it still can (§5.3). */
-function dropReason(task: Task | undefined, agent: PaseoAgent | null): string | null {
-  const ended = cardEnded(task);
+function dropReason(board: Pick<Board, "tasks" | "projects">, taskId: string, agent: PaseoAgent | null): string | null {
+  const ended = cardEnded(board, taskId);
   if (ended) return ended;
-  if (!agent || agent.archivedAt || agent.workspaceId !== task!.workspaceId) return "its session was archived or is gone";
+  const task: Task = board.tasks.find((t) => t.id === taskId)!;
+  if (!agent || agent.archivedAt || agent.workspaceId !== task.workspaceId) return "its session was archived or is gone";
   return null;
 }
 
@@ -231,9 +235,26 @@ export class DispatcherQueue {
     return this.serial(async () => {
       const queued = (await this.list()).filter((m) => m.taskId === taskId);
       if (!queued.length) return;
-      const task = (await this.store.read()).tasks.find((t) => t.id === taskId);
-      const reason = cardEnded(task);
+      const reason = cardEnded(await this.store.read(), taskId);
       if (reason) await this.drop(queued, reason);
+    });
+  }
+
+  /** A project was edited (`projects.update`): its cards' queues are dropped at once when it was archived. */
+  projectChanged(projectId: string): Promise<void> {
+    return this.serial(async () => {
+      const all = await this.list();
+      if (!all.length) return;
+      const board = await this.store.read();
+      for (const taskId of new Set(all.map((m) => m.taskId))) {
+        if (board.tasks.find((t) => t.id === taskId)?.projectId !== projectId) continue;
+        const reason = cardEnded(board, taskId);
+        if (reason)
+          await this.drop(
+            all.filter((m) => m.taskId === taskId),
+            reason,
+          ).catch((e) => logFailure("Flowly dispatcher queue not updated:", e, taskId));
+      }
     });
   }
 
@@ -251,9 +272,11 @@ export class DispatcherQueue {
   }
 
   /**
-   * `asks.cancel-question`, the user's "Cancel question and re-read card" (§5.3, §9.4): denies the session's pending
-   * requests with `cancelledAskMessage`, then delivers its queue. An open report has no request: the delivery starts
-   * the session's next turn, which closes it. Never called by the dispatcher.
+   * `asks.cancel-question`, the user's "Cancel question and re-read card" (§5.3, §9.4; ruling, Noah 2026-11-16): denies
+   * only the request the banner sits on (`requestId`, when still pending) with `cancelledAskMessage`, then delivers the
+   * queue when no other request of the session is pending; otherwise the queue waits for those, as after an answer.
+   * An open report has no request: the delivery starts the session's next turn, which closes it. Never called by the
+   * dispatcher.
    */
   async cancelQuestion(raw: unknown, paseo: PaseoApi): Promise<{ denied: number; delivered: number }> {
     const input = cancelQuestionInputSchema.parse(raw);
@@ -261,18 +284,20 @@ export class DispatcherQueue {
       const queued = (await this.list()).filter((m) => m.agentId === input.agentId && m.taskId === input.taskId);
       if (!queued.length) throw new Error("Nothing is queued for this session.");
       const board = await this.store.read();
-      const task = board.tasks.find((t) => t.id === input.taskId);
       const agent = (await paseo.agents.ref(input.agentId).refresh())?.agent ?? null;
-      const reason = dropReason(task, agent);
+      const reason = dropReason(board, input.taskId, agent);
       if (reason) {
         await this.drop(queued, reason);
         throw new Error("This session can no longer take the message; it was dropped.");
       }
+      const pending = pendingRequests(agent);
       let denied = 0;
-      for (const request of pendingRequests(agent)) {
-        await paseo.agents.ref(input.agentId).respondToPermission({ requestId: request.id, response: { behavior: "deny", message: cancelledAskMessage } });
+      if (input.requestId && pending.some((r) => r.id === input.requestId)) {
+        await paseo.agents.ref(input.agentId).respondToPermission({ requestId: input.requestId, response: { behavior: "deny", message: cancelledAskMessage } });
         denied++;
       }
+      // Never deny a request the user did not press on: the queue waits for the others to end.
+      if (pending.some((r) => r.id !== input.requestId)) return { denied, delivered: 0 };
       await this.deliver(queued, paseo);
       return { denied, delivered: queued.length };
     });
@@ -321,10 +346,7 @@ export class DispatcherQueue {
     // Messages for another card of the same session (a moved session) are checked on their own card.
     for (const taskId of new Set(queued.map((m) => m.taskId))) {
       const own = queued.filter((m) => m.taskId === taskId);
-      const reason = dropReason(
-        board.tasks.find((t) => t.id === taskId),
-        agent,
-      );
+      const reason = dropReason(board, taskId, agent);
       if (reason) {
         await this.drop(own, reason);
         continue;

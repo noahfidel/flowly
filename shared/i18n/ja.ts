@@ -1697,6 +1697,7 @@ const catalog: Catalog = {
   "Scope changed since this was asked:": "この質問の後で範囲が変わりました:",
   "Cancel question and re-read card": "質問を取り消してカードを読み直す",
   "Queued message sent": "保留中のメッセージを送信しました",
+  "The message waits for the session's other requests": "メッセージはセッションの他のリクエストが終わるまで待機します",
   "Dropped a queued dispatcher message": "保留中のディスパッチャーのメッセージを破棄しました",
 };
 export default catalog;

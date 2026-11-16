@@ -1697,6 +1697,7 @@ const catalog: Catalog = {
   "Scope changed since this was asked:": "提出此問題後範圍已變更：",
   "Cancel question and re-read card": "取消問題並重新讀取卡片",
   "Queued message sent": "已傳送排隊的訊息",
+  "The message waits for the session's other requests": "訊息將等待該工作階段的其他請求結束",
   "Dropped a queued dispatcher message": "捨棄了一則排隊的調度器訊息",
 };
 export default catalog;

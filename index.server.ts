@@ -776,6 +776,9 @@ export default function contribute(host: PluginServerContext) {
       void workflow.backfill(project.id, paseo).catch(() => undefined);
     // Auto review switched on: the check commands join as observing (GUARDRAILS-SPEC §4.5).
     if (!before?.autoReview?.enabled && project.autoReview?.enabled) detectCommands(project.id);
+    // Archived: its cards' queued dispatcher messages are dropped, each in its card's activity (DISPATCHER-SPEC §5.3).
+    if (!before?.archivedAt && project.archivedAt)
+      void queue.projectChanged(project.id).catch((e) => logFailure("Flowly dispatcher queue not updated:", e, project.id));
     return project;
   });
   server.handle(rpc.removeProject, async (input, { paseo }) => {

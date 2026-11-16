@@ -1697,6 +1697,7 @@ const catalog: Catalog = {
   "Scope changed since this was asked:": "O escopo mudou desde esta pergunta:",
   "Cancel question and re-read card": "Cancelar a pergunta e reler o cartão",
   "Queued message sent": "Mensagem na fila enviada",
+  "The message waits for the session's other requests": "A mensagem aguarda as outras solicitações da sessão",
   "Dropped a queued dispatcher message": "Descartou uma mensagem na fila do despachante",
 };
 export default catalog;
