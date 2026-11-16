@@ -56,7 +56,8 @@ export function landCandidate(task: Task, artifacts: readonly Artifact[]): boole
 export function baseBranch(baseRef: string | undefined): string | null {
   const ref = baseRef?.trim() ?? "";
   const name = ref.replace(/^refs\/heads\//, "").replace(/^refs\/remotes\/origin\//, "").replace(/^origin\//, "");
-  return name && !name.startsWith("-") && name !== "HEAD" ? name : null;
+  // A base that is still a full ref (a tag, for example) gets no check (§3.3).
+  return name && !name.startsWith("-") && !name.startsWith("refs/") && name !== "HEAD" ? name : null;
 }
 
 /** A command run in a directory; rejects on a non-zero exit or when it cannot start. */
@@ -73,7 +74,7 @@ export const runGit: GitRun = (cwd, args) =>
     execFile(
       "git",
       [...args],
-      { cwd, timeout: 60_000, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+      { cwd, timeout: 60_000, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_SSH_COMMAND: "ssh -o BatchMode=yes" } },
       (error, stdout) => {
         if (!error) return resolve({ code: 0, stdout: String(stdout) });
         const code = (error as { code?: unknown }).code;
@@ -83,15 +84,24 @@ export const runGit: GitRun = (cwd, args) =>
     ),
   );
 
-/** §3.2: whether a PR whose head is `branch` was merged, through `gh pr list` in the card's directory; null when unreadable. */
+/**
+ * §3.2: whether a merged PR carries exactly this worktree's head commit, through `gh pr list` in the card's directory;
+ * null when unreadable. Branch names are reused, so the name alone never counts: the PR must not be cross-repository
+ * and its `headRefOid` must be `head`.
+ */
 export function ghHeadPrMerged(run: RunIn = runFileIn) {
-  return async (directory: string, branch: string): Promise<{ merged: true; pr: string } | { merged: false } | null> => {
+  return async (directory: string, branch: string, head: string): Promise<{ merged: true; pr: string } | { merged: false } | null> => {
     try {
-      const out = await run("gh", ["pr", "list", "--head", branch, "--state", "all", "--json", "number,state,url,mergedAt", "--limit", "5"], directory);
+      const out = await run(
+        "gh",
+        ["pr", "list", "--head", branch, "--state", "all", "--json", "number,state,url,mergedAt,headRefOid,isCrossRepository", "--limit", "5"],
+        directory,
+      );
       const list = JSON.parse(out) as unknown;
       if (!Array.isArray(list)) return null;
-      for (const item of list as { number?: unknown; state?: unknown; url?: unknown; mergedAt?: unknown }[]) {
+      for (const item of list as { number?: unknown; state?: unknown; url?: unknown; mergedAt?: unknown; headRefOid?: unknown; isCrossRepository?: unknown }[]) {
         if (item?.state !== "MERGED" && !(typeof item?.mergedAt === "string" && item.mergedAt)) continue;
+        if (item.isCrossRepository !== false || typeof item.headRefOid !== "string" || item.headRefOid !== head) continue;
         const url = typeof item.url === "string" ? pullUrl.exec(item.url) : null;
         return { merged: true, pr: url ? `${url[2]}/${url[3]}#${Number(url[4])}`.toLowerCase() : `#${String(item.number)}` };
       }
@@ -110,24 +120,28 @@ export async function checkedOutBranch(git: GitRun, directory: string): Promise<
   return r.stdout.trim() || null;
 }
 
+/** The worktree's HEAD commit. Rejects when git fails. */
+export async function headCommit(git: GitRun, directory: string): Promise<string> {
+  const r = await git(directory, ["rev-parse", "--verify", "HEAD"]);
+  if (r.code !== 0 || !r.stdout.trim()) throw new Error(`git rev-parse exited ${r.code}`);
+  return r.stdout.trim();
+}
+
 /**
- * §3.3, the ancestor check: "landed" when the workspace is clean, the branch moved since it was created, `git fetch
- * origin <base>` works and HEAD is an ancestor of `origin/<base>`. "stays" when one of those is plainly not so (or
- * there is no reflog); "unknown" when git failed.
+ * §3.3, the ancestor check: "landed" when the workspace is clean, the card made a commit of its own (a `commit…`
+ * entry in the branch's reflog; a fast-forward pull or a reset to the base is not one), the fetch of `origin/<base>`
+ * works and HEAD is an ancestor of it. "stays" when one of those is plainly not so (or there is no reflog);
+ * "unknown" when git failed.
  */
 export async function ancestorLanded(git: GitRun, directory: string, branch: string, base: string): Promise<"landed" | "stays" | "unknown"> {
   try {
-    const status = await git(directory, ["status", "--porcelain"]);
+    const status = await git(directory, ["--no-optional-locks", "status", "--porcelain"]);
     if (status.code !== 0) return "unknown";
     if (status.stdout.trim()) return "stays";
-    const reflog = await git(directory, ["reflog", "show", "--format=%H", `refs/heads/${branch}`, "--"]);
+    const reflog = await git(directory, ["reflog", "show", "--format=%gs", `refs/heads/${branch}`, "--"]);
     if (reflog.code !== 0) return "stays";
-    const oldest = reflog.stdout.trim().split("\n").filter(Boolean).at(-1);
-    if (!oldest) return "stays";
-    const head = await git(directory, ["rev-parse", "--verify", "HEAD"]);
-    if (head.code !== 0) return "unknown";
-    if (head.stdout.trim() === oldest.trim()) return "stays";
-    const fetch = await git(directory, ["fetch", "--quiet", "origin", base]);
+    if (!reflog.stdout.split("\n").some((line) => line.startsWith("commit"))) return "stays";
+    const fetch = await git(directory, ["-c", "gc.auto=0", "-c", "maintenance.auto=false", "fetch", "--quiet", "--no-auto-gc", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`]);
     if (fetch.code !== 0) return "unknown";
     const ancestor = await git(directory, ["merge-base", "--is-ancestor", "HEAD", `refs/remotes/origin/${base}`]);
     return ancestor.code === 0 ? "landed" : ancestor.code === 1 ? "stays" : "unknown";
@@ -175,8 +189,14 @@ export async function landing(task: Task, artifacts: readonly Artifact[], paseo:
     return { kind: "unknown" };
   }
   if (!branch) return { kind: "stays" };
-  const head = await ghHeadPrMerged(deps.gh)(where.directory, branch);
-  if (head?.merged) return { kind: "branch-pr", pr: head.pr };
+  let head: string;
+  try {
+    head = await headCommit(deps.git, where.directory);
+  } catch {
+    return { kind: "unknown" };
+  }
+  const headPr = await ghHeadPrMerged(deps.gh)(where.directory, branch, head);
+  if (headPr?.merged) return { kind: "branch-pr", pr: headPr.pr };
   const result = await ancestorLanded(deps.git, where.directory, branch, base);
   return result === "landed" ? { kind: "landed", base } : { kind: result };
 }

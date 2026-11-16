@@ -259,7 +259,9 @@ export class PrReviewArchiver {
   private stillLanding(board: Board, read: Task, pr?: string): Task | null {
     const t = board.tasks.find((x) => x.id === read.id);
     const project = t && board.projects.find((p) => p.id === t.projectId);
-    if (!t || !project || project.archivedAt || t.archivedAt || !landStatuses.includes(t.status) || t.workspaceId !== read.workspaceId || isPrReviewCard(t)) return null;
+    if (!t || !project || project.archivedAt || t.archivedAt || isPrReviewCard(t)) return null;
+    // Any change since the check read it (status, revision, workspace) leaves the card alone (LANDED-DONE-SPEC §4).
+    if (t.status !== read.status || t.revision !== read.revision || !landStatuses.includes(t.status) || t.workspaceId !== read.workspaceId) return null;
     const prs = cardPrOutputs(board.artifacts, t.id).map((p) => p.key);
     if (pr ? prs.length !== 1 || prs[0] !== pr : prs.length !== 0) return null;
     return t;
@@ -270,6 +272,9 @@ export class PrReviewArchiver {
    * the note, then runs what follows any move into Done (§4). Nothing when the card changed since it was read.
    */
   private async moveToDone(read: Task, paseo: PaseoApi, note: string, pr?: string): Promise<boolean> {
+    // The check's snapshot of running sessions can be minutes old: read that one workspace again (R3, §4).
+    const busy = await workspaceBusy(paseo, read.workspaceId).catch(() => true);
+    if (busy) return false;
     const previous = await this.store.transaction<Status | null>((board) => {
       const t = this.stillLanding(board, read, pr);
       if (!t || laneProblem(board.projects.find((p) => p.id === t.projectId), "done")) return { value: null, changed: false };
@@ -299,6 +304,11 @@ export class PrReviewArchiver {
       return { value: true, changed: true };
     });
   }
+}
+
+/** Whether one workspace has a running or starting session now (LANDED-DONE-SPEC §4). */
+async function workspaceBusy(paseo: PaseoApi, workspaceId: string): Promise<boolean> {
+  return (await runningWorkspaces(paseo)).has(workspaceId);
 }
 
 /** Workspaces with a running or starting session: their cards are left alone. */

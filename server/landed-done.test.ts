@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { BoardStore } from "./store";
 import { PrReviewArchiver, archiveLookupsPerTick, type PrState, type PrTarget } from "./pr-review-archive";
-import { cardPrOutputs, ghHeadPrMerged, type RunIn } from "./landed-done";
+import { baseBranch, cardPrOutputs, ghHeadPrMerged, runGit, type GitRun, type RunIn } from "./landed-done";
 import type { Artifact, Status, Task } from "../shared/model";
 
 // Moving a card to Done when its work lands (LANDED-DONE-SPEC). Made-up repositories and PRs only; the git
@@ -166,7 +166,21 @@ async function repo(shape: { commits: number; pushed?: boolean; dirty?: boolean;
   return work;
 }
 
-const merged = (n: number) => JSON.stringify([{ number: n, state: "MERGED", url: `https://github.com/acme/widgets/pull/${n}`, mergedAt: stamp }]);
+const merged = (n: number, headRefOid: string, isCrossRepository = false) =>
+  JSON.stringify([{ number: n, state: "MERGED", url: `https://github.com/acme/widgets/pull/${n}`, mergedAt: stamp, headRefOid, isCrossRepository }]);
+
+/** Moves origin/main on by one commit from another clone, as a teammate's merge would. */
+async function advanceOrigin(work: string) {
+  const origin = sh(work, "remote", "get-url", "origin");
+  const other = await mkdtemp(join(tmpdir(), "flowly-landed-other-"));
+  roots.push(other);
+  sh(other, "clone", "-q", origin, "c");
+  const c = join(other, "c");
+  await writeFile(join(c, "other.txt"), "other\n");
+  sh(c, "add", "other.txt");
+  sh(c, "commit", "-m", "someone else");
+  sh(c, "push", "-q", "origin", "HEAD:main");
+}
 
 test("a card whose single PR output is merged moves to Done with a system note; an open PR changes nothing", async () => {
   const x = await fixture(
@@ -255,7 +269,7 @@ test("a worktree card whose branch has landed on origin/<base> moves to Done; fr
     expect(await x.events(id)).toEqual([]);
   }
   // The head-PR lookup runs in the card's own directory, as an argument array; a detached HEAD skips it.
-  expect(x.ghCalls.map((c) => c.args)).toContainEqual(["gh", "pr", "list", "--head", "feature", "--state", "all", "--json", "number,state,url,mergedAt", "--limit", "5"]);
+  expect(x.ghCalls.map((c) => c.args)).toContainEqual(["gh", "pr", "list", "--head", "feature", "--state", "all", "--json", "number,state,url,mergedAt,headRefOid,isCrossRepository", "--limit", "5"]);
   expect(x.ghCalls.map((c) => c.cwd)).not.toContain(detached);
   expect(x.ghCalls.map((c) => c.cwd)).toContain(landed);
 });
@@ -264,7 +278,7 @@ test("a worktree card whose branch heads a merged PR moves to Done without the a
   const work = await repo({ commits: 1 }); // not on origin/main: only the PR can move it
   const x = await fixture([{ id: "h", status: "integrated", baseRef: "refs/heads/main" }], {
     where: { "w-h": { directory: work, worktree: true } },
-    gh: { feature: merged(12) },
+    gh: { feature: merged(12, sh(work, "rev-parse", "HEAD")) },
   });
   expect(await x.archiver.tick()).toEqual([{ taskId: "h", done: "branch-pr", pr: "acme/widgets#12" }]);
   expect((await x.events("h")).at(-1)).toMatchObject({ actor: "system", from: "integrated", to: "done", note: "Moved to Done: PR merged (acme/widgets#12)" });
@@ -396,9 +410,89 @@ test("the head-PR lookup: merged when any listed PR merged, false for none, null
     if (out instanceof Error) throw out;
     return out;
   };
-  expect(await ghHeadPrMerged(run(merged(3)))("/w", "feature")).toEqual({ merged: true, pr: "acme/widgets#3" });
-  expect(await ghHeadPrMerged(run(JSON.stringify([{ number: 4, state: "OPEN", mergedAt: null }])))("/w", "feature")).toEqual({ merged: false });
-  expect(await ghHeadPrMerged(run("[]"))("/w", "feature")).toEqual({ merged: false });
-  expect(await ghHeadPrMerged(run(new Error("gh missing")))("/w", "feature")).toBeNull();
-  expect(await ghHeadPrMerged(run("not json"))("/w", "feature")).toBeNull();
+  expect(await ghHeadPrMerged(run(merged(3, "abc")))("/w", "feature", "abc")).toEqual({ merged: true, pr: "acme/widgets#3" });
+  // Same branch name, another head commit (a reused name), or a PR from a fork: not this card's PR.
+  expect(await ghHeadPrMerged(run(merged(3, "old")))("/w", "feature", "abc")).toEqual({ merged: false });
+  expect(await ghHeadPrMerged(run(merged(3, "abc", true)))("/w", "feature", "abc")).toEqual({ merged: false });
+  expect(await ghHeadPrMerged(run(JSON.stringify([{ number: 4, state: "OPEN", mergedAt: null, headRefOid: "abc", isCrossRepository: false }])))("/w", "feature", "abc")).toEqual({ merged: false });
+  expect(await ghHeadPrMerged(run("[]"))("/w", "feature", "abc")).toEqual({ merged: false });
+  expect(await ghHeadPrMerged(run(new Error("gh missing")))("/w", "feature", "abc")).toBeNull();
+  expect(await ghHeadPrMerged(run("not json"))("/w", "feature", "abc")).toBeNull();
+});
+
+test("a fresh branch fast-forwarded or reset to a newer origin/<base> made no commit of its own and stays", async () => {
+  const [pulled, reset, own] = await Promise.all([repo({ commits: 0 }), repo({ commits: 0 }), repo({ commits: 1, pushed: true })]);
+  await Promise.all([advanceOrigin(pulled), advanceOrigin(reset)]);
+  sh(pulled, "pull", "-q", "--ff-only", "origin", "main");
+  sh(reset, "fetch", "-q", "origin");
+  sh(reset, "reset", "-q", "--hard", "origin/main");
+  const x = await fixture(
+    [
+      { id: "pulled", baseRef: "refs/heads/main" },
+      { id: "reset", baseRef: "refs/heads/main" },
+      { id: "own", baseRef: "refs/heads/main" },
+    ],
+    {
+      where: { "w-pulled": { directory: pulled, worktree: true }, "w-reset": { directory: reset, worktree: true }, "w-own": { directory: own, worktree: true } },
+      gh: { feature: "[]" },
+    },
+  );
+  expect(await x.archiver.tick()).toEqual([{ taskId: "own", done: "landed", base: "main" }]);
+  expect((await x.card("pulled")).status).toBe("in_review");
+  expect((await x.card("reset")).status).toBe("in_review");
+});
+
+test("a merged PR with the branch's name but another head commit, or from a fork, does not move the card", async () => {
+  const [reused, fork] = await Promise.all([repo({ commits: 1 }), repo({ commits: 1 })]);
+  const x = await fixture(
+    [
+      { id: "reused", baseRef: "refs/heads/main", workspaceId: "w-reused" },
+      { id: "fork", baseRef: "refs/heads/main", workspaceId: "w-fork" },
+    ],
+    { where: { "w-reused": { directory: reused, worktree: true }, "w-fork": { directory: fork, worktree: true } } },
+  );
+  // Both branches are named "feature"; the fake answers per call by the directory it runs in.
+  x.archiver.gh = async (_file, _args, cwd) => (cwd === reused ? merged(30, "0".repeat(40)) : merged(31, sh(fork, "rev-parse", "HEAD"), true));
+  expect(await x.archiver.tick()).toEqual([]);
+  expect((await x.card("reused")).status).toBe("in_review");
+  expect((await x.card("fork")).status).toBe("in_review");
+});
+
+test("a session that starts during the check, or a card edited during its lookup, keeps the card where it is", async () => {
+  const x = await fixture([
+    { id: "started", outputs: [{ url: "https://github.com/acme/widgets/pull/1" }] },
+    { id: "edited", outputs: [{ url: "https://github.com/acme/widgets/pull/2" }] },
+  ]);
+  const archiver = new PrReviewArchiver(x.store, async (pr) => {
+    if (pr.key === "acme/widgets#1") x.running.add("w-started");
+    else
+      await x.store.mutate((b) => {
+        const t = b.tasks.find((t) => t.id === "edited")!;
+        t.title = "Renamed";
+        t.revision++;
+      });
+    return "merged";
+  });
+  archiver.paseo = () => x.paseo;
+  expect(await archiver.tick()).toEqual([]);
+  expect((await x.card("started")).status).toBe("in_review");
+  expect((await x.card("edited")).status).toBe("in_review");
+});
+
+test("the fetch names its refspec and runs without prompts, auto-gc or maintenance; tag bases get no check", async () => {
+  const work = await repo({ commits: 1, pushed: true });
+  const x = await fixture([{ id: "c", baseRef: "refs/heads/main" }], { where: { "w-c": { directory: work, worktree: true } }, gh: { feature: "[]" } });
+  const calls: (readonly string[])[] = [];
+  const recording: GitRun = (cwd, args) => {
+    calls.push(args);
+    return runGit(cwd, args);
+  };
+  x.archiver.git = recording;
+  expect(await x.archiver.tick()).toEqual([{ taskId: "c", done: "landed", base: "main" }]);
+  expect(calls).toContainEqual(["-c", "gc.auto=0", "-c", "maintenance.auto=false", "fetch", "--quiet", "--no-auto-gc", "origin", "+refs/heads/main:refs/remotes/origin/main"]);
+  expect(calls).toContainEqual(["--no-optional-locks", "status", "--porcelain"]);
+  expect(calls).toContainEqual(["reflog", "show", "--format=%gs", "refs/heads/feature", "--"]);
+  expect(baseBranch("refs/heads/dev")).toBe("dev");
+  expect(baseBranch("refs/tags/v1.0")).toBeNull();
+  expect(baseBranch("main")).toBe("main");
 });
