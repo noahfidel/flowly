@@ -382,6 +382,12 @@ export function WorkflowPage() {
           disabled={prReview.busy}
           onChange={(archiveOnClose) => prReview.save({ archiveOnClose })}
         />
+        <SettingSwitch
+          title={t("Move cards to Done when their work lands")}
+          value={prReview.values?.doneOnLand ?? true}
+          disabled={prReview.busy}
+          onChange={(doneOnLand) => prReview.save({ doneOnLand })}
+        />
       </SettingsGroup>
       <SettingsGroup title={t("Moving cards")}>
         <SettingSwitch

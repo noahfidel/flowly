@@ -1446,6 +1446,7 @@ const catalog: Catalog = {
   "Skip the Linear ticket for these card types": "以下卡片類型略過 Linear 工單",
   "Make cards for PR review agents": "為 PR 審查代理建立卡片",
   "Archive review cards when the PR closes": "PR 關閉後封存審查卡片",
+  "Move cards to Done when their work lands": "工作合入後將卡片移到已完成",
   "{lane} is not a lane in {project}.": "{lane} 不是 {project} 中的泳道。",
   "Each project keeps its own order. Open the project to reorder its cards.": "每個專案保留自己的順序。開啟該專案即可調整其卡片的順序。",
   "Import ideas": "匯入想法",

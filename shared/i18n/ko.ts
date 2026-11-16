@@ -1446,6 +1446,7 @@ const catalog: Catalog = {
   "Skip the Linear ticket for these card types": "다음 카드 유형에서는 Linear 티켓 건너뛰기",
   "Make cards for PR review agents": "PR 리뷰 에이전트용 카드 만들기",
   "Archive review cards when the PR closes": "PR이 닫히면 리뷰 카드 보관",
+  "Move cards to Done when their work lands": "작업이 반영되면 카드를 완료로 이동",
   "{lane} is not a lane in {project}.": "{lane}은(는) {project}의 레인이 아닙니다.",
   "Each project keeps its own order. Open the project to reorder its cards.": "각 프로젝트는 자체 순서를 유지합니다. 카드 순서를 바꾸려면 해당 프로젝트를 여세요.",
   "Import ideas": "아이디어 가져오기",

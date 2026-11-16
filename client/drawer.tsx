@@ -1467,6 +1467,7 @@ const activityText: Record<string, string> = localizedLabels({
   release_undone: msg("Undid the release"),
   branch_integrated: msg("Integrated the branch"),
   progress_reported: msg("Reported progress"),
+  note: msg("Note"),
   idea_edited: msg("Edited the idea"),
   idea_removed: msg("Removed the idea"),
   card_created: msg("Created a card"),

@@ -1446,6 +1446,7 @@ const catalog: Catalog = {
   "Skip the Linear ticket for these card types": "Ignorer le ticket Linear pour ces types de carte",
   "Make cards for PR review agents": "Créer des cartes pour les agents de revue de PR",
   "Archive review cards when the PR closes": "Archiver les cartes de revue quand la PR est fermée",
+  "Move cards to Done when their work lands": "Déplacer les cartes vers Terminé quand leur travail est intégré",
   "{lane} is not a lane in {project}.": "{lane} n'est pas un couloir de {project}.",
   "Each project keeps its own order. Open the project to reorder its cards.": "Chaque projet garde son propre ordre. Ouvrez le projet pour réordonner ses cartes.",
   "Import ideas": "Importer des idées",
