@@ -1979,7 +1979,7 @@ test("a message queued after the ask ended between the read and the write is che
 
 const hour = 3_600_000;
 /** A started dispatcher for a new group with no projects: its id, token and client. */
-async function groupDispatcher<X extends Awaited<ReturnType<typeof setup>>>(x: X, name: string) {
+async function groupDispatcher(x: Pick<Awaited<ReturnType<typeof setup>>, "store" | "server" | "paseo" | "agents" | "launched" | "connect">, name: string) {
   const group = await x.store.createGroup({ name });
   const { agentId } = await x.server.dispatcher.start(x.paseo, { groupId: group.id, provider: "claude/claude-sonnet-5-5" });
   x.agents[agentId].currentModeId = "default";
@@ -2028,7 +2028,7 @@ test("flowly_message_dispatcher refuses an unknown group, its own group, a group
   const x = await peers({ guardA: false });
   const agentsBefore = Object.keys(x.agents).length;
   const call = (groupId: string, client = x.a) => client.call("flowly_message_dispatcher", { groupId, text: "hi" });
-  expect(code(await x.a.call("flowly_message_dispatcher", { groupId: x.clients.id, text: "   " }))).toBeDefined();
+  expect((await x.a.call("flowly_message_dispatcher", { groupId: x.clients.id, text: "   " })).isError).toBe(true);
   expect(code(await call("no-such-group"))).toBe("GROUP_NOT_FOUND");
   expect(code(await call(x.groupId))).toBe("DISPATCHER_SELF");
   // The target is unguarded (a v1 record has no guard): refused as dispatcher.send refuses it.

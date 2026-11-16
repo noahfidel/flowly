@@ -43,14 +43,21 @@ import {
   dispatcherRepliesPerAgentPerHour,
   dispatcherRepliesPerHour,
   dispatcherReplyWindowMs,
+  dispatcherPeerChainLimit,
+  dispatcherPeerMessagesPerHour,
+  dispatcherPeerMessagesPerTargetPerHour,
+  peerMessageNote,
+  peerMessagePrefix,
+  queuedPeerMessageLimits,
   userSendOptions,
 } from "../shared/dispatcher";
 import { slimTimeline } from "../shared/session-tail";
 import { pendingRequests } from "../shared/permission-question";
 import { rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
 import { changeIdea } from "./agent-service";
-import { confirmsCards, type Dispatcher } from "./dispatcher";
+import { confirmsCards, guarded, isDeadDispatcher, type Dispatcher } from "./dispatcher";
 import { waitingOn, type DispatcherQueue } from "./dispatcher-queue";
+import type { DispatcherPeerQueue } from "./dispatcher-peer-queue";
 import { addLink, linkNote } from "./links";
 import type { ProjectIdeas } from "./project-ideas";
 import { directory } from "./service";
@@ -101,6 +108,15 @@ export const dispatcherInputs = {
       .max(200)
       .optional()
       .describe("Only when the card has several live sessions (SESSION_AMBIGUOUS lists them): the session to message."),
+  }),
+  messageDispatcher: z.strictObject({
+    groupId: z.string().min(1).max(200).describe("The other board group's id (the group whose dispatcher you write to)."),
+    text: z
+      .string()
+      .trim()
+      .min(1)
+      .max(10000)
+      .describe("Your message, plain text, short and self-contained: the other dispatcher cannot see your chat. Flowly marks it as coming from your group's dispatcher."),
   }),
   replyToAgent: z.strictObject({
     agentId: z.string().min(1).max(200).describe("The id of the agent that wrote to you (the sender of its prompt)."),
@@ -171,6 +187,7 @@ const messageResultSchema = z.object({
 export const replyOnceNote =
   "Delivered. The sender also receives your final turn text from Paseo, so don't repeat or summarise this reply there: end your turn with nothing more to say to it (a bare \"Replied.\" at most).";
 const replyResultSchema = z.object({ sent: z.literal(true), agentId: z.string(), note: z.string() });
+const peerResultSchema = z.object({ sent: z.boolean(), groupId: z.string(), queued: z.literal(true).optional(), note: z.string() });
 /** How far back flowly_reply_to_agent reads the dispatcher's own timeline for a prompt: pages of this size, at most this many (§5.4). */
 const replyScanPage = 200;
 const replyScanPages = 10;
@@ -242,6 +259,12 @@ export class DispatcherTools {
   private messageSlots = new Map<string, number[]>();
   /** The dispatcher's replies to agents in the last hour, per session and per answered agent (§5.4). */
   private replySlots = new Map<string, { to: string; at: number }[]>();
+  /** The dispatcher's messages to other groups' dispatchers in the last hour, per session and per target group (§5.5). */
+  private peerSlots = new Map<string, { to: string; at: number }[]>();
+  /** Messages sent or queued between two groups, either way, since the user last wrote to either; by unordered pair (§5.5). */
+  private peerChains = new Map<string, { groups: [string, string]; count: number }>();
+  /** Messages for other groups' dispatchers that wait on their user (§5.5). */
+  peerQueue?: DispatcherPeerQueue;
   /** The dispatcher's board group calls in the last hour, per session (DISPATCHER-SPEC §5.2). */
   private groupSlots = new Map<string, number[]>();
   /** The board group writes flowly_manage_groups shares with the groups.* RPCs (group-writes.ts, §5.2). */
@@ -549,8 +572,8 @@ export class DispatcherTools {
     const caller = await this.caller(identity);
     await this.cards.enabled();
     const notAllowed = (why: string) => new ToolError("REPLY_NOT_ALLOWED", why);
-    if (input.agentId === caller.agentId || this.dispatcher.allAgentIds().includes(input.agentId))
-      throw notAllowed("That is a Flowly dispatcher session; you can't message it.");
+    const dispatcherSession = "That is a Flowly dispatcher session; you can't reply to it. Message another group's dispatcher with flowly_message_dispatcher.";
+    if (input.agentId === caller.agentId || this.dispatcher.allAgentIds().includes(input.agentId)) throw notAllowed(dispatcherSession);
     if (!(await this.heardFrom(caller.agentId, input.agentId)))
       throw notAllowed(
         "You can only answer an agent that messaged you in the last 24 hours, and this one has not. Don't start conversations with other agents; tell the user instead.",
@@ -558,7 +581,7 @@ export class DispatcherTools {
     const paseo = this.cards.api();
     const target = (await paseo.agents.ref(input.agentId).refresh())?.agent;
     if (!target || target.archivedAt) throw new ToolError("AGENT_NOT_FOUND", "That agent is gone or archived; the reply can't be delivered.");
-    if (await this.dispatcher.owns(target.workspaceId ?? "")) throw notAllowed("That is a Flowly dispatcher session; you can't message it.");
+    if (await this.dispatcher.owns(target.workspaceId ?? "")) throw notAllowed(dispatcherSession);
     if ((await this.store.read()).tasks.some((t) => t.workspaceId === target.workspaceId))
       throw notAllowed("That agent is a card's session. Use flowly_message_card for a card's session, only for what the user asked.");
     // Never sidestep a request: a pending permission or question is the user's.
@@ -575,6 +598,133 @@ export class DispatcherTools {
       throw new ToolError("SEND_FAILED", `Paseo could not deliver the reply: ${e instanceof Error ? e.message : String(e)}`, true);
     }
     return { sent: true as const, agentId: target.id, note: replyOnceNote };
+  }
+
+  /**
+   * A plain message to another board group's dispatcher (DISPATCHER-SPEC §5.5; ruling, Noah 2026-11-16), steered and
+   * marked with the sender's group. The target is the session Flowly's record holds for that group, never one found by
+   * Paseo's labels. While it waits on its user, or older messages from this group still wait for it, the message is
+   * queued (`DispatcherPeerQueue`), never sent. Reaches no card's session and answers nothing.
+   */
+  async messageDispatcher(identity: DispatcherIdentity, raw: unknown) {
+    const input = dispatcherInputs.messageDispatcher.parse(raw);
+    const caller = await this.caller(identity);
+    await this.cards.enabled();
+    const board = await this.store.read();
+    const target = board.groups.find((g) => g.id === input.groupId);
+    if (!target) throw new ToolError("GROUP_NOT_FOUND", "No board group with that id. Ask the user which group they mean.");
+    if (target.id === caller.groupId)
+      throw new ToolError("DISPATCHER_SELF", "That is your own group. flowly_message_dispatcher is for another group's dispatcher.");
+    const sender = board.groups.find((g) => g.id === caller.groupId) ?? { id: caller.groupId, name: caller.groupId };
+    const entry = (await this.dispatcher.resolvedRecord()).groups[target.id];
+    const paseo = this.cards.api();
+    const agent = entry?.agentId ? ((await paseo.agents.ref(entry.agentId).refresh())?.agent ?? null) : null;
+    if (!entry?.agentId || isDeadDispatcher(agent))
+      throw new ToolError("DISPATCHER_DOWN", `The ${target.name} group has no running dispatcher. Tell the user; only they can start it.`);
+    if (!guarded(entry))
+      throw new ToolError(
+        "DISPATCHER_UNGUARDED",
+        `The ${target.name} dispatcher must be replaced before it takes messages; nothing was sent. Tell the user.`,
+      );
+    const releaseChain = this.reserveChain(caller.groupId, target);
+    let releaseSlot: () => void;
+    try {
+      releaseSlot = this.reservePeer(caller.agentId, target.id);
+    } catch (e) {
+      releaseChain();
+      throw e;
+    }
+    const release = () => {
+      releaseSlot();
+      releaseChain();
+    };
+    // Never sidestep a request: while it waits on its user the message is held; behind older ones from this group too.
+    const waits = pendingRequests(agent).length > 0;
+    if (waits || (await this.peerQueue?.waiting(target.id, caller.groupId))) return this.queuePeer(caller, sender, target, input.text, release, paseo);
+    try {
+      await paseo.agents.ref(entry.agentId).send(peerMessagePrefix(sender) + input.text, userSendOptions);
+    } catch (e) {
+      release();
+      throw new ToolError("SEND_FAILED", `Paseo could not deliver the message: ${e instanceof Error ? e.message : String(e)}`, true);
+    }
+    return { sent: true as const, groupId: target.id, note: peerMessageNote };
+  }
+
+  /** Queues a message for another group's dispatcher, then checks that group at once (§5.5). Its slots stay taken. */
+  private async queuePeer(
+    caller: { agentId: string; groupId: string },
+    sender: { id: string; name: string },
+    target: { id: string; name: string },
+    text: string,
+    release: () => void,
+    paseo: PaseoApi,
+  ) {
+    const queue = this.peerQueue;
+    if (!queue) {
+      release();
+      throw new ToolError("PASEO_UNAVAILABLE", "Flowly is still starting; try again in a moment.", true);
+    }
+    let queued: { id: string };
+    try {
+      queued = await queue.enqueue({ groupId: target.id, fromGroupId: sender.id, fromGroupName: sender.name, from: caller.agentId, text }, target.name);
+    } catch (e) {
+      release();
+      if (e instanceof ToolError) throw e;
+      throw new ToolError("QUEUE_FAILED", `Flowly could not queue the message: ${e instanceof Error ? e.message : String(e)}`, true);
+    }
+    await queue.check(target.id, paseo).catch((e) => logFailure("Flowly queued dispatcher peer message not checked:", e, target.id));
+    const outcome = queue.outcome(queued.id);
+    if (outcome?.kind === "delivered") return { sent: true as const, groupId: target.id, note: peerMessageNote };
+    // The target went down between the read and the check: nothing was delivered, as a refusal.
+    if (outcome?.kind === "dropped") {
+      release();
+      throw new ToolError("DISPATCHER_DOWN", `The ${target.name} group has no running dispatcher. Tell the user; only they can start it.`);
+    }
+    return {
+      sent: false as const,
+      queued: true as const,
+      groupId: target.id,
+      note: `Queued, not sent yet: the ${target.name} dispatcher waits on its user (or your earlier messages to it still wait). Flowly delivers it, marked as yours, once that ends. Tell the user the ${target.name} dispatcher is waiting on them. ${peerMessageNote}`,
+    };
+  }
+
+  /** The user wrote to group `groupId`'s dispatcher: every chain that group is in starts again (§5.5). */
+  resetPeerChains(groupId: string) {
+    for (const [key, chain] of this.peerChains) if (chain.groups.includes(groupId)) this.peerChains.delete(key);
+  }
+
+  /** Counts one message between two groups, or DISPATCHER_CHAIN_LIMIT; the returned function takes it back (§5.5). */
+  private reserveChain(from: string, target: { id: string; name: string }) {
+    const groups = [from, target.id].sort() as [string, string];
+    const key = JSON.stringify(groups);
+    const chain = this.peerChains.get(key) ?? { groups, count: 0 };
+    if (chain.count >= dispatcherPeerChainLimit)
+      throw new ToolError(
+        "DISPATCHER_CHAIN_LIMIT",
+        `You and the ${target.name} dispatcher have exchanged ${dispatcherPeerChainLimit} messages without the user; stop and ask the user before messaging it again.`,
+      );
+    chain.count++;
+    this.peerChains.set(key, chain);
+    return () => {
+      const current = this.peerChains.get(key);
+      if (current === chain && chain.count > 0) chain.count--;
+    };
+  }
+
+  /** Takes a slot for a message to group `to`, or DISPATCHER_MESSAGE_LIMIT: per target group and over all, per hour (§5.5). */
+  private reservePeer(agentId: string, to: string) {
+    const now = this.clock();
+    const recent = (this.peerSlots.get(agentId) ?? []).filter((r) => now - r.at < hour);
+    if (recent.filter((r) => r.to === to).length >= dispatcherPeerMessagesPerTargetPerHour)
+      throw new ToolError(
+        "DISPATCHER_MESSAGE_LIMIT",
+        `You already messaged that dispatcher ${dispatcherPeerMessagesPerTargetPerHour} times in the last hour; that looks like two dispatchers looping. Stop and ask the user.`,
+      );
+    if (recent.length >= dispatcherPeerMessagesPerHour)
+      throw new ToolError("DISPATCHER_MESSAGE_LIMIT", `You already messaged other dispatchers ${dispatcherPeerMessagesPerHour} times in the last hour. Stop and ask the user.`);
+    const slot = { to, at: now };
+    this.peerSlots.set(agentId, [...recent, slot]);
+    return () => this.peerSlots.set(agentId, (this.peerSlots.get(agentId) ?? []).filter((r) => r !== slot));
   }
 
   /**
@@ -950,6 +1100,16 @@ export class DispatcherTools {
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },
       (raw) => toolResult(() => this.replyToAgent(identity, raw)),
+    );
+    mcp.registerTool(
+      "flowly_message_dispatcher",
+      {
+        description: `Send a plain message to another board group's dispatcher (groupId: that group's id), steered into its turn and marked as coming from your group's dispatcher. Use it to coordinate between groups when the user asked for it or it follows from their standing requests: ask it to create and start a card in its group, or tell it a PR landed or a card it waits on is done. You never act on another group's projects yourself. Keep it short and self-contained: it cannot see your chat. Its answer, if any, arrives later as a message from it, never as this tool's result; answer a message from another dispatcher with this tool only when it needs one (your final text does not reach it). Never about a card's questions, permission requests or blockers: never ask another dispatcher to answer, approve, deny, dismiss or relay one. queued: true means it waits on its user and gets your message once that ends: tell the user and don't send it again. GROUP_NOT_FOUND, DISPATCHER_SELF (your own group), DISPATCHER_DOWN (no running dispatcher: tell the user, only they can start it), DISPATCHER_UNGUARDED (it must be replaced first: tell the user), QUEUE_FULL (at most ${queuedPeerMessageLimits.perGroup} queued per group), SEND_FAILED. At most ${dispatcherPeerMessagesPerTargetPerHour} per group and ${dispatcherPeerMessagesPerHour} in all per hour (DISPATCHER_MESSAGE_LIMIT), and ${dispatcherPeerChainLimit} between two groups until the user writes to either (DISPATCHER_CHAIN_LIMIT): then stop and ask the user. AGENT_CARDS_DISABLED: the user turned this off.`,
+        inputSchema: dispatcherInputs.messageDispatcher,
+        outputSchema: peerResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      },
+      (raw) => toolResult(() => this.messageDispatcher(identity, raw)),
     );
     mcp.registerTool(
       "flowly_archive_card",

@@ -76,6 +76,7 @@ import { ToolError, toolFailure, toolResult } from "./tool-error";
 import { Dispatcher, dispatcherFolder, dispatcherSummary, type DispatcherMcpServer } from "./dispatcher";
 import { DispatcherTools } from "./dispatcher-tools";
 import { DispatcherQueue, DispatcherQueueFile } from "./dispatcher-queue";
+import { DispatcherPeerQueue, DispatcherPeerQueueFile } from "./dispatcher-peer-queue";
 import type { DispatcherIdentity } from "./tool-context";
 import { cliSource } from "./cli-source";
 import { skillText, workingInstructions } from "./skill-source";
@@ -98,6 +99,8 @@ export class ToolServer {
   readonly dispatcherTools: DispatcherTools;
   /** Dispatcher messages waiting for a session that waits on the user (DISPATCHER-SPEC §5.3). */
   readonly dispatcherQueue: DispatcherQueue;
+  /** Messages for another group's dispatcher that waits on its user (DISPATCHER-SPEC §5.5). */
+  readonly dispatcherPeerQueue: DispatcherPeerQueue;
   private server?: Server;
   private handler?: McpHttpHandler;
   private starting?: Promise<void>;
@@ -139,6 +142,19 @@ export class ToolServer {
       }
     };
     this.dispatcherTools.queue = this.dispatcherQueue;
+    // One check at a time across both queues (§5.5): the peer queue runs its checks on the card queue's chain.
+    const cardQueue = this.dispatcherQueue;
+    this.dispatcherPeerQueue = new DispatcherPeerQueue(new DispatcherPeerQueueFile(store.directory), {
+      board: () => store.read(),
+      record: () => this.dispatcher.resolvedRecord(),
+      sessionOf: (agentId) => this.dispatcher.sessionOf(agentId),
+      serial: (job) => cardQueue.serial(job),
+    });
+    this.dispatcherPeerQueue.api = this.dispatcherQueue.api;
+    this.dispatcherTools.peerQueue = this.dispatcherPeerQueue;
+    this.dispatcher.onUserMessage = (groupId) => this.dispatcherTools.resetPeerChains(groupId);
+    this.dispatcher.onGroupDeleted = (groupId) =>
+      void this.dispatcherPeerQueue.groupDeleted(groupId).catch((e) => logFailure("Flowly dispatcher peer queue not updated:", e, groupId));
   }
   /** The `flowly-dispatcher` MCP server entry for a dispatcher session (DISPATCHER-SPEC §4). */
   private async dispatcherServer(identity: DispatcherIdentity) {
@@ -917,6 +933,7 @@ export class ToolServer {
   async stop() {
     this.stopped = true;
     this.dispatcherQueue.stop();
+    this.dispatcherPeerQueue.stop();
     if (this.starting) await this.starting.catch(() => undefined);
     await this.closeListener();
     await this.store.read().catch(() => undefined);

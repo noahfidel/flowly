@@ -495,6 +495,14 @@ export default function contribute(host: PluginServerContext) {
   server.addHook("agent.turn.after", async (event, { paseo }) => checkQueue(event.agent.id, paseo));
   server.addHook("agent.permission.after", async (event, { paseo }) => checkQueue(event.agent.id, paseo, { resolvedRequestId: event.requestId }));
   server.addHook("agent.archive.after", async (event, { paseo }) => checkQueue(event.agent.id, paseo));
+  // Messages for another group's dispatcher held while it waits on its user (DISPATCHER-SPEC §5.5): checked when that
+  // dispatcher's turn ends or a permission of it is resolved, and by the sweep; dropped when its group or dispatcher is gone.
+  const peerQueue = tools.dispatcherPeerQueue;
+  peerQueue.start();
+  const checkPeers = (agentId: string, paseo: PaseoApi, hint?: { resolvedRequestId?: string }) =>
+    void peerQueue.agentChanged(agentId, paseo, hint).catch((e) => logFailure("Flowly dispatcher peer queue not checked:", e, agentId));
+  server.addHook("agent.turn.after", async (event, { paseo }) => checkPeers(event.agent.id, paseo));
+  server.addHook("agent.permission.after", async (event, { paseo }) => checkPeers(event.agent.id, paseo, { resolvedRequestId: event.requestId }));
   server.handle(rpc.startAgain, async (input, { paseo }) => {
     tools.attach(paseo);
     const task = (await store.read()).tasks.find((t) => t.id === input.taskId);
@@ -1186,6 +1194,7 @@ export default function contribute(host: PluginServerContext) {
     unwireDispatcher();
     unwireQueue();
     queue.stop();
+    peerQueue.stop();
     tools.stop();
     void providerSubagents.stop();
   };

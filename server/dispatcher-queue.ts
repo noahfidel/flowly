@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
+import type { z } from "zod";
 import {
   cancelQuestionInputSchema,
   dispatcherMessageDroppedAction,
@@ -93,26 +94,36 @@ export function waitingOn(
   return null;
 }
 
-/** `<dataDir>/dispatcher-queue.json`: atomic, serialized; a corrupt file is kept aside and the queue starts empty. */
-export class DispatcherQueueFile {
-  private cached: QueuedMessage[] | null = null;
-  private loading: Promise<QueuedMessage[]> | null = null;
+/**
+ * One JSON queue file under the data folder, `{ version: 1, messages }` (DISPATCHER-SPEC §5.3, §5.5): written
+ * atomically (temporary file + rename, mode 0600) and serialized; a missing file is the empty queue; a corrupt file is
+ * kept aside as `<name>.invalid-<epoch ms>` and the queue starts empty; when that rename fails every read and write is
+ * refused and the file left unchanged. `labels` are fixed log labels (`logFailure`).
+ */
+export class JsonQueueFile<T> {
+  private cached: T[] | null = null;
+  private loading: Promise<T[]> | null = null;
   private writes: Promise<unknown> = Promise.resolve();
-  constructor(readonly directory: string) {}
+  constructor(
+    readonly directory: string,
+    private readonly name: string,
+    private readonly schema: z.ZodType<{ version: 1; messages: T[] }>,
+    private readonly labels: { notKept: string; reset: string; refused: string },
+  ) {}
   get path() {
-    return join(this.directory, "dispatcher-queue.json");
+    return join(this.directory, this.name);
   }
 
-  async list(): Promise<QueuedMessage[]> {
+  async list(): Promise<T[]> {
     await this.writes;
     return [...(await this.load())];
   }
 
   /** Applies `change` to the stored list and writes it; returns what `change` returned. */
-  update<T>(change: (messages: QueuedMessage[]) => { messages: QueuedMessage[]; value: T }): Promise<T> {
+  update<V>(change: (messages: T[]) => { messages: T[]; value: V }): Promise<V> {
     const job = this.writes.then(async () => {
       const { messages, value } = change([...(await this.load())]);
-      const stored = storedQueueSchema.parse({ version: 1, messages });
+      const stored = this.schema.parse({ version: 1, messages });
       await mkdir(this.directory, { recursive: true, mode: 0o700 });
       const temporary = `${this.path}.${randomUUID()}.tmp`;
       try {
@@ -128,7 +139,7 @@ export class DispatcherQueueFile {
     return job;
   }
 
-  private load(): Promise<QueuedMessage[]> {
+  private load(): Promise<T[]> {
     if (this.cached) return Promise.resolve(this.cached);
     this.loading ??= this.readFile().finally(() => {
       this.loading = null;
@@ -136,7 +147,7 @@ export class DispatcherQueueFile {
     return this.loading;
   }
 
-  private async readFile(): Promise<QueuedMessage[]> {
+  private async readFile(): Promise<T[]> {
     let text: string;
     try {
       text = await readFile(this.path, "utf8");
@@ -145,7 +156,7 @@ export class DispatcherQueueFile {
       throw e;
     }
     try {
-      return (this.cached = storedQueueSchema.parse(JSON.parse(text)).messages);
+      return (this.cached = this.schema.parse(JSON.parse(text)).messages);
     } catch (e) {
       const kept = `${this.path}.invalid-${Date.now()}`;
       try {
@@ -153,12 +164,23 @@ export class DispatcherQueueFile {
       } catch (error) {
         // Not kept aside: refuse reads and writes rather than overwrite it (AGENTS.md, preserve invalid data). Retried on
         // the next read.
-        logFailure("Flowly dispatcher queue is invalid and could not be kept aside:", error, this.path);
-        throw new Error("The dispatcher queue file is invalid and could not be kept aside; Flowly leaves it unchanged.");
+        logFailure(this.labels.notKept, error, this.path);
+        throw new Error(this.labels.refused);
       }
-      logFailure("Flowly dispatcher queue is invalid; starting empty:", e, kept);
+      logFailure(this.labels.reset, e, kept);
       return (this.cached = []);
     }
+  }
+}
+
+/** `<dataDir>/dispatcher-queue.json`: card messages waiting for their session (§5.3). */
+export class DispatcherQueueFile extends JsonQueueFile<QueuedMessage> {
+  constructor(directory: string) {
+    super(directory, "dispatcher-queue.json", storedQueueSchema, {
+      notKept: "Flowly dispatcher queue is invalid and could not be kept aside:",
+      reset: "Flowly dispatcher queue is invalid; starting empty:",
+      refused: "The dispatcher queue file is invalid and could not be kept aside; Flowly leaves it unchanged.",
+    });
   }
 }
 
@@ -353,7 +375,8 @@ export class DispatcherQueue {
     this.timer.unref?.();
   }
 
-  private serial<T>(job: () => Promise<T>): Promise<T> {
+  /** Runs `job` after every check, delivery or cancel started so far; the peer queue's checks share it (§5.5). */
+  serial<T>(job: () => Promise<T>): Promise<T> {
     const run = this.chain.then(job);
     this.chain = run.catch(() => undefined);
     return run;

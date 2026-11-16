@@ -559,6 +559,10 @@ export class Dispatcher {
   modelSetting: () => Promise<AgentModel | null> = async () => null;
   /** The notes of a batch a group's dispatcher received, and when (the chat's note rows, §9.1). Set by the plugin entry. */
   onSent: ((notes: readonly DispatcherNote[], at: string, to: { groupId: string; agentId: string }) => void) | null = null;
+  /** The user's message reached a group's dispatcher (`dispatcher.send`, `dispatcher.what-next`): resets its peer chains (§5.5). */
+  onUserMessage: ((groupId: string) => void) | null = null;
+  /** A group was deleted: its queued peer messages are dropped (§5.5). */
+  onGroupDeleted: ((groupId: string) => void) | null = null;
   constructor(
     readonly directory: string,
     private readonly deps: DispatcherDeps,
@@ -1107,6 +1111,7 @@ export class Dispatcher {
       // By decision (2026-11-10): the deleted group's held and buffered notes are dropped, not moved with its
       // projects: its delivery is forgotten before `projectMoved` runs, so there is nothing of it left to move.
       this.forgetGroup(group.id);
+      this.onGroupDeleted?.(group.id);
       for (const projectId of deleted.projectIds) await this.projectMoved(projectId, deleted.movedTo);
       return deleted;
     });
@@ -1198,6 +1203,7 @@ export class Dispatcher {
   async whatNext(paseo: PaseoApi, groupId: string, text: string, seen?: { revision: number; ids: readonly string[] }): Promise<void> {
     const agentId = await this.reachable(paseo, groupId);
     await paseo.agents.ref(agentId).send(text, userSendOptions);
+    this.onUserMessage?.(groupId);
     // The cards it asked about are seen, as Mark seen would mark them; only once the question was sent (ruling, §9.2).
     if (seen) await this.markSeen(groupId, seen.revision, seen.ids);
   }
@@ -1206,6 +1212,7 @@ export class Dispatcher {
   async send(paseo: PaseoApi, input: { groupId: string; text: string; images?: OutgoingImage[]; messageId: string }): Promise<{ sent: true }> {
     const agentId = await this.reachable(paseo, input.groupId);
     await paseo.agents.ref(agentId).send(input.text, { ...userSendOptions, ...(input.images?.length ? { images: input.images } : {}), messageId: input.messageId });
+    this.onUserMessage?.(input.groupId);
     return { sent: true };
   }
 
