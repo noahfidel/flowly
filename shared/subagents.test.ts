@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chipSegments, childAgents, parentAgentLabel, sessionTree, subagentBucket, subagentCounts, type SubagentSource } from "./subagents";
+import { chipSegments, childAgents, mergedCounts, parentAgentLabel, providerBucket, providerOrder, providerTitle, sessionTree, subagentBucket, subagentCounts, subagentRows, type ProviderSubagent, type SubagentSource } from "./subagents";
 
 const agent = (over: Partial<SubagentSource> & { id: string }): SubagentSource => ({
   createdAt: "2026-10-19T08:00:00.000Z",
@@ -86,5 +86,70 @@ describe("sessionTree", () => {
     expect(sessionTree([orphan]).map((n) => n.agent.id)).toEqual(["orphan"]);
     const tree = sessionTree([a, b]);
     expect(tree.map((n) => [n.agent.id, n.children.length])).toEqual([["a", 0], ["b", 0]]);
+  });
+});
+
+describe("provider subagents (SUBAGENTS-SPEC §9.3)", () => {
+  const provider = (id: string, over: Partial<ProviderSubagent> = {}): ProviderSubagent => ({
+    id,
+    parentSubagentId: null,
+    provider: "claude",
+    title: "sonnet-coder",
+    description: null,
+    status: "completed",
+    createdAt: "2026-11-16T10:00:00.000Z",
+    updatedAt: "2026-11-16T10:00:00.000Z",
+    subtitle: null,
+    ...over,
+  });
+
+  it("maps provider states to buckets; a provider subagent never needs input", () => {
+    expect(providerBucket("running")).toBe("running");
+    expect(providerBucket("failed")).toBe("failed");
+    expect(providerBucket("completed")).toBe("done");
+    expect(providerBucket("canceled")).toBe("done");
+  });
+
+  it("counts native children and provider subagents together", () => {
+    const counts = mergedCounts(
+      [agent({ id: "n1", status: "running" }), agent({ id: "n2", pendingPermissions: [{}] })],
+      [provider("p1", { status: "running" }), provider("p2", { status: "failed" }), provider("p3"), provider("p4", { status: "canceled" })],
+    );
+    expect(counts).toEqual({ running: 2, needs_input: 1, failed: 1, attention: 0, done: 2 });
+    expect(chipSegments(counts).map((s) => s.bucket)).toEqual(["running", "needs_input", "failed"]);
+  });
+
+  it("orders provider subagents oldest first, a nested one after its parent, indented one step", () => {
+    const list = [
+      provider("late", { createdAt: "2026-11-16T10:05:00.000Z" }),
+      provider("grandchild", { createdAt: "2026-11-16T10:04:00.000Z", parentSubagentId: "child" }),
+      provider("child", { createdAt: "2026-11-16T10:03:00.000Z", parentSubagentId: "first" }),
+      provider("first", { createdAt: "2026-11-16T10:01:00.000Z" }),
+      provider("orphan", { createdAt: "2026-11-16T10:02:00.000Z", parentSubagentId: "missing" }),
+    ];
+    expect(providerOrder(list).map((r) => [r.subagent.id, r.depth])).toEqual([
+      ["first", 0],
+      ["child", 1],
+      ["grandchild", 1],
+      ["orphan", 0],
+      ["late", 0],
+    ]);
+  });
+
+  it("never loses a subagent in a parent cycle", () => {
+    const list = [provider("a", { parentSubagentId: "b" }), provider("b", { parentSubagentId: "a", createdAt: "2026-11-16T10:01:00.000Z" })];
+    expect(providerOrder(list).map((r) => r.subagent.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("lists native children first, then provider subagents", () => {
+    const native = [child("n1", "p")];
+    const rows = subagentRows(native, [provider("x")]);
+    expect(rows.map((r) => (r.kind === "native" ? r.agent.id : r.subagent.id))).toEqual(["n1", "x"]);
+  });
+
+  it("titles a provider subagent by its description, else its type", () => {
+    expect(providerTitle(provider("1", { description: " Fix the chip ", title: "sonnet-coder" }))).toBe("Fix the chip");
+    expect(providerTitle(provider("2", { description: " ", title: "browser-qa" }))).toBe("browser-qa");
+    expect(providerTitle(provider("3", { description: null, title: null }))).toBeNull();
   });
 });
