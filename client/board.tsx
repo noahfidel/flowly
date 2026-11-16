@@ -967,15 +967,17 @@ function BoardContent(
   const updatedIds = useMemo(() => updatedQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const [step, setStep] = useState<(Step & { kind: StepKind }) | null>(null);
   // The unread walk keeps its own order (stableQueue): the live queue reorders on every poll and drops cards as they are read.
-  const walkRef = useRef<{ kind: StepKind; ids: string[] } | null>(null);
+  const walkRef = useRef<{ kind: StepKind; ids: string[]; visited: Set<string> } | null>(null);
   const stepQueue = useMemo(() => {
     if (step?.kind !== "updated") {
       walkRef.current = null;
       return needsIds;
     }
     const prev = walkRef.current?.kind === "updated" ? walkRef.current.ids : [];
-    const ids = stableQueue(prev, updatedIds, step.taskId);
-    walkRef.current = { kind: "updated", ids };
+    const visited = walkRef.current?.kind === "updated" ? walkRef.current.visited : new Set<string>();
+    visited.add(step.taskId);
+    const ids = stableQueue(prev, updatedIds, step.taskId, visited);
+    walkRef.current = { kind: "updated", ids, visited };
     return ids;
   }, [step?.kind, step?.taskId, updatedIds, needsIds]);
   const stepWhere = step ? stepPosition(stepQueue, step) : null;
@@ -991,7 +993,7 @@ function BoardContent(
   // A card of the step-through: its card, and the session that waits there (need-you: the one asking, when only one
   // does; updated: its unread chat, which opening reads).
   const showStepCard = (kind: StepKind, id: string) => {
-    const queue = kind === "updated" ? updatedIds : needsIds;
+    const queue = kind === "updated" ? (step?.kind === "updated" ? stepQueue : updatedIds) : needsIds;
     setStep({ kind, ...stepAt(queue, id) });
     setMenu(null);
     const item = attentionByTask.get(id);

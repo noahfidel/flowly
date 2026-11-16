@@ -154,11 +154,13 @@ export function stepBarState(
  * The order of one unread walk (§9.4). The live queue is recomputed on every poll (newest first, reads drop
  * cards, a new event moves a card to the front), so walking it directly made the neighbours of the card shown jump.
  * The walk keeps its own order instead: cards still in the live queue stay where they were, a card that turned unread
- * meanwhile joins at the end, and the card shown stays until the user leaves it.
+ * meanwhile joins at the end, and the card shown stays until the user leaves it. Cards this walk visited (`visited`)
+ * stay too: opening one reads it, so it leaves the live queue, but that is the walk's own doing and Previous must
+ * still reach it. A card read elsewhere (never visited here) leaves.
  */
-export function stableQueue(prev: readonly string[], live: readonly string[], shown: string | null): string[] {
+export function stableQueue(prev: readonly string[], live: readonly string[], shown: string | null, visited: ReadonlySet<string> = new Set()): string[] {
   const liveSet = new Set(live);
-  const kept = prev.filter((id) => liveSet.has(id) || id === shown);
+  const kept = prev.filter((id) => liveSet.has(id) || id === shown || visited.has(id));
   const known = new Set(kept);
   return [...kept, ...live.filter((id) => !known.has(id))];
 }

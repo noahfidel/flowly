@@ -173,6 +173,25 @@ test("the walk keeps its order: marking or reading cards and new updates never m
   expect(stableQueue(["a", "b", "c"], ["c"], "a")).toEqual(["a", "c"]);
 });
 
+test("the walk keeps the cards it visited, though visiting them reads them", () => {
+  const visited = new Set<string>();
+  // live [a,b,c]; start on a
+  visited.add("a");
+  let walk = stableQueue([], ["a", "b", "c"], "a", visited);
+  expect(walk).toEqual(["a", "b", "c"]);
+  // a is read (leaves the live queue); Next to b
+  visited.add("b");
+  walk = stableQueue(walk, ["b", "c"], "b", visited);
+  expect(walk).toEqual(["a", "b", "c"]);
+  expect(stepPosition(walk, { taskId: "b", index: 1 })).toMatchObject({ index: 1, total: 3, prev: "a", next: "c" });
+  // Previous back to a: b is read meanwhile, a is not live any more
+  walk = stableQueue(walk, ["c"], "a", visited);
+  expect(walk).toEqual(["a", "b", "c"]);
+  expect(stepPosition(walk, { taskId: "a", index: 0 })).toMatchObject({ prev: null, next: "b" });
+  // a card read elsewhere (never visited) still leaves
+  expect(stableQueue(["a", "b", "c"], ["c"], "a", new Set(["a"]))).toEqual(["a", "c"]);
+});
+
 test("a changed card's summary reads in plain words", () => {
   const t = (s: string, v?: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(v?.[k]));
   expect(
