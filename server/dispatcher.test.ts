@@ -1575,9 +1575,21 @@ test("the charter has the rules for messaging another group's dispatcher and is 
   expect(reply).toMatch(/REPLY_NOT_ALLOWED: [^;]*dispatcher/);
   expect(reply).toContain("flowly_message_dispatcher");
   // A charter change a running dispatcher should get raises the version (§3); the guard is unchanged.
-  expect(dispatcherCharterVersion).toBe(3);
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(3);
   expect(dispatcherGuardVersion).toBe(2);
   expect(dispatcherToolNames).toContain("flowly_message_dispatcher");
+});
+
+test("the charter says how a follow-up is created and where it branches from, and is versioned 4 (START-CARD-SPEC §11)", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  const line = charter.split("\n").find((l) => l.includes("BASE_CHOICE_NEEDED"))!;
+  expect(line).toBeDefined();
+  // Linked before the start, so flowly_start_card sees the parent.
+  expect(line).toMatch(/flowly_link_cards[^.]*follow_up[^.]*before[^.]*flowly_start_card/);
+  expect(line).toMatch(/do not ask the user where to branch/i);
+  expect(line).toMatch(/baseRef \("parent" or a branch\) only when the user chose/);
+  expect(line).toMatch(/warning/);
+  expect(dispatcherCharterVersion).toBe(4);
 });
 
 test("the charter says plainly that only the user answers a card's asks", () => {

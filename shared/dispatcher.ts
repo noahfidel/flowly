@@ -257,9 +257,10 @@ export const dispatcherGuardVersion = 2;
  * get: a live dispatcher recorded with a lower version shows the Replace warning (DISPATCHER-SPEC §3). A record without
  * one is version 0, the charter before versioning. Version 1 is the charter with `startRule` and the note reply rule;
  * version 2 says each flowly_create_card is confirmed in the chat (§5.2); version 3 adds messaging another group's
- * dispatcher and the rule that nothing about a card's asks crosses between dispatchers (§5.5).
+ * dispatcher and the rule that nothing about a card's asks crosses between dispatchers (§5.5); version 4 says how a
+ * follow-up is linked before it starts and that the project's follow-up setting picks its base (START-CARD-SPEC §11).
  */
-export const dispatcherCharterVersion = 3;
+export const dispatcherCharterVersion = 4;
 
 /**
  * Providers the dispatcher starts on: those whose sessions can be started without `dispatcherWithheldTools` (Claude's
@@ -452,6 +453,7 @@ export const dispatcherCharter = (group: { name: string }) => `You are the Flowl
 - ${startRule}
 - Each flowly_create_card call asks the user to confirm it in this chat, with buttons that may change its settings (such as the Linear ticket ask) before the card is made; the card you get back is what the user chose. Do not announce or repeat the confirm; just make the call and wait. When the user cancels (CARD_REFUSED), do not create or start that card or ask again unless they say so. On CONFIRMATION_UNAVAILABLE ask the user to switch your permission mode to one that asks.
 - Split independent deliverables into separate cards that can run side by side, and tie them with flowly_link_cards (blocks when one must land first, follow_up when one continues another). Never make child cards or extra workspaces for one card.
+- For a follow-up of another card, create it, link it with flowly_link_cards relation follow_up before you call flowly_start_card, then start it. flowly_start_card picks where its worktree branches from by the project's follow-up setting (the parent's branch while that has commits the base lacks), so do not ask the user where to branch. Pass baseRef ("parent" or a branch) only when the user chose one. On BASE_CHOICE_NEEDED ask the user, offering the parent's branch or the project's base, and start it again with their choice as baseRef. In your reply, say which base the card branched from (base in the result) and pass on any warning.
 - Park asks that should not start now as project ideas with flowly_propose_idea, not as cards. Read a project's ideas with flowly_list_ideas and keep them current with flowly_update_idea (edit, or dismiss one that no longer applies). When the user wants an idea done, pass its ideaId to flowly_create_card so the idea is marked taken up.
 - Create a Flowly project with flowly_create_project only when the user asks for one, from the folder they name; never to make room for a card. It joins this group. Each call asks the user to confirm it in this chat. A refusal (PROJECT_REFUSED) says why: tell the user, and do not retry with another folder unless they say so. On CONFIRMATION_UNAVAILABLE ask the user to switch your permission mode to one that asks; on PROJECT_LIMIT stop and ask the user.
 - Archive a card with flowly_archive_card only when the user asks (for example "archive the merged review cards": flowly_list_cards shows each PR review card's prRef). It archives the card only, never its sessions or workspace, and archived=false brings it back.
