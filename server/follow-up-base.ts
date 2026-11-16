@@ -1,7 +1,7 @@
 import type { PaseoApi } from "@getpaseo/client";
 import { isResolved, linksOf } from "../shared/links";
 import type { Board, BranchedFrom, FollowUpBase, Project, Task } from "../shared/model";
-import { baseRefProblem } from "../shared/worktree-base";
+import { baseRefProblem, shortRef } from "../shared/worktree-base";
 import { branchAhead, projectWorktreeBase, refResolves, remoteBase, worktreeBranch } from "./base-ref";
 import { logFailure } from "./error-report";
 import { ToolError } from "./tool-error";
@@ -15,8 +15,6 @@ import { ToolError } from "./tool-error";
 export const followUpSetting = (project: Pick<Project, "followUpBase">): FollowUpBase =>
   project.followUpBase === "base" || project.followUpBase === "ask" ? project.followUpBase : "parent";
 
-/** A ref as people write it: `main`, `origin/dev`. */
-export const shortRef = (ref: string) => ref.replace(/^refs\/(heads|remotes)\//, "");
 
 const commits = (n: number) => `${n} commit${n === 1 ? "" : "s"}`;
 

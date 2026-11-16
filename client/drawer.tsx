@@ -75,7 +75,7 @@ import { SessionMarkdown } from "./session-content";
 import { Clamped } from "./content-card";
 import { DESCRIPTION_CLAMP_HEIGHT, descriptionOpen, setDescriptionOpen } from "./description-clamp";
 import { TaskIdeas, type IdeaOther } from "./task-ideas";
-import { LinkOrigin, TaskLinks } from "./task-links";
+import { BranchedFrom, LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
 import { TaskPlan } from "./task-plan";
 import { planAwareDefaults } from "./task-plan-logic";
@@ -1187,6 +1187,7 @@ function TaskDrawerView({
               </View>
             )}
             {onOpenTask && <LinkOrigin taskId={task.id} onOpenTask={onOpenTask} />}
+            {onOpenTask && <BranchedFrom task={task} onOpenTask={onOpenTask} />}
             {!!task.description && (
               <Clamped
                 key={task.id}

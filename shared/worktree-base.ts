@@ -3,6 +3,9 @@
  * i18n. Problems are English identities; the client translates them at render.
  */
 
+/** A ref as people write it: `main`, `origin/dev` (START-CARD-SPEC §11). */
+export const shortRef = (ref: string) => ref.replace(/^refs\/(heads|remotes)\//, "");
+
 /** Longest stored base ref. */
 export const baseRefMax = 200;
 

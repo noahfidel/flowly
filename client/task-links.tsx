@@ -16,7 +16,8 @@ import { useTaskDetail, invalidateCardViews } from "./card-detail-query";
 import type { CardReference } from "../shared/card-detail";
 import { TypeIcon } from "./status";
 import { Choices, IconButton, Label, Notice, TextBox, Theme, font, message, radius, space, touch, useTheme, noFocusRing } from "./ui";
-import { t } from "../shared/i18n";
+import { t, tn } from "../shared/i18n";
+import { shortRef } from "../shared/worktree-base";
 
 /**
  * Drawer "Links": cards linked to this one (CARD-LINKS-SPEC §5.2). The header
@@ -184,6 +185,38 @@ export function LinkOrigin({ taskId, onOpenTask }: { taskId: string; onOpenTask(
           {lead}
           <Label size={font.sm} color={colors.accent} selectable={false}>{first.other!.title}</Label>
           {sources.length > 1 ? ` +${sources.length - 1}` : ""}
+        </Label>
+      </Pressable>
+    </View>
+  );
+}
+
+/**
+ * "Branched from <branch> (<parent title>), N commits not in <base>" while the card's worktree branched from its
+ * parent card's branch (START-CARD-SPEC §11.4); pressing it opens the parent.
+ */
+export function BranchedFrom({ task, onOpenTask }: { task: Task; onOpenTask(id: string): void }) {
+  const { detail } = useTaskDetail();
+  const { colors } = useTheme();
+  const from = task.branchedFrom;
+  if (!from) return null;
+  const parent = detail?.relatedTasks.find((x) => x.id === from.taskId);
+  const text = tn(from.ahead, "Branched from {branch} ({title}), {n} commit not in {base}", "Branched from {branch} ({title}), {n} commits not in {base}", {
+    branch: from.branch,
+    title: parent?.title ?? from.taskId,
+    base: shortRef(task.baseRef ?? ""),
+  });
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5] }}>
+      <Icon name="GitBranch" size={13} color={colors.foregroundMuted} />
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel={text}
+        onPress={() => onOpenTask(from.taskId)}
+        style={({ pressed }) => ({ ...noFocusRing, flexShrink: 1, opacity: pressed ? 0.7 : 1 })}
+      >
+        <Label size={font.sm} muted lines={2} selectable={false}>
+          {text}
         </Label>
       </Pressable>
     </View>

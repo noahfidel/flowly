@@ -25,6 +25,7 @@ import {
   type Project,
   type Task,
   type Status,
+  type FollowUpBase,
 } from "../shared/model";
 import { Theme, useTheme, Button, IconButton, Field, Choices, Notice, Label, Row, Actions, Toggle, message, basename, font, radius, space, relativeTime } from "./ui";
 import { priorityLabels } from "./status";
@@ -83,6 +84,7 @@ export function useProjectSettings(project: Project, withLanes = false) {
     [deliveryMode, setDeliveryMode] = useState<DeliveryMode | null>(storedDelivery),
     [sessionStart, setSessionStart] = useState(project.sessionStartText ?? ""),
     [baseRef, setBaseRef] = useState(project.baseRef ?? ""),
+    [followUpBase, setFollowUpBase] = useState<FollowUpBase>(project.followUpBase ?? "parent"),
     [lanes, setLanes] = useState<Lane[]>(() => projectLanes(project)),
     [pending, setPending] = useState(false),
     [error, setError] = useState("");
@@ -104,6 +106,7 @@ export function useProjectSettings(project: Project, withLanes = false) {
     ...(deliveryMode !== storedDelivery ? { deliveryMode } : {}),
     ...(sessionStartValue(sessionStart) !== (project.sessionStartText ?? "") ? { sessionStartText: sessionStartValue(sessionStart) } : {}),
     ...(baseRefValue(baseRef) !== (project.baseRef ?? "") ? { baseRef: baseRefValue(baseRef) } : {}),
+    ...(followUpBase !== (project.followUpBase ?? "parent") ? { followUpBase } : {}),
   };
   const linksChanged = !!project.links && !sameList(links, storedLinks);
   const dirty = Object.keys(patch).length > 0 || linksChanged;
@@ -127,7 +130,7 @@ export function useProjectSettings(project: Project, withLanes = false) {
   return {
     title, setTitle, description, setDescription, links, setLinkList, autoStatus, setAutoStatus, workpad, setWorkpad,
     workflowInsights, setWorkflowInsights, memory, setMemory, linearTicket, setLinearTicket, linearTeam, setLinearTeam, skipTypes, setSkipTypes,
-    review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode, sessionStart, setSessionStart, baseRef, setBaseRef, baseRefError, lanes, setLanes,
+    review, setReview, agentModel, setAgentModel, deliveryMode, setDeliveryMode, sessionStart, setSessionStart, baseRef, setBaseRef, baseRefError, followUpBase, setFollowUpBase, lanes, setLanes,
     pending, error, dirty, valid, save, reviewPreset,
   };
 }
@@ -208,6 +211,19 @@ export function ProjectSettingsFields({
           maxLength={baseRefMax}
           editable={!s.pending}
           hint={s.baseRefError ? t("Not a valid branch name.") : t("Remote branches are fetched first. Empty: the main checkout's current branch.")}
+        />
+      )}
+      {!project.links && (
+        // Where an agent's follow-up card branches from (START-CARD-SPEC §11.1).
+        <Choices
+          title={t("Follow-ups branch from")}
+          value={s.followUpBase}
+          options={[
+            { value: "parent" as const, label: t("Parent's branch when ahead"), disabled: s.pending },
+            { value: "base" as const, label: t("Project base"), disabled: s.pending },
+            { value: "ask" as const, label: t("Ask each time"), disabled: s.pending },
+          ]}
+          onChange={s.setFollowUpBase}
         />
       )}
       {folder.data && (
