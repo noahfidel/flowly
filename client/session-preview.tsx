@@ -1,5 +1,5 @@
 import { perfStart, perfEnd, usePerfRender } from "./perf";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import type { PaseoAgent } from "@getpaseo/client";
 import { Animated, Pressable, View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
@@ -37,7 +37,8 @@ import { newMessageId, rememberSentImages } from "./sent-images";
 import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { useBoardView } from "./board-view";
 import { ComposerChips, useSessionConfig, type ChipMenuId } from "./session-settings";
-import { SubagentsChip } from "./subagents";
+import { SubagentsChip, useProviderSubagents } from "./subagents";
+import { SubagentTranscript } from "./subagent-transcript";
 import { RenameSession } from "./session-rename";
 import {
   openNativeSession,
@@ -114,6 +115,7 @@ function SessionPreviewView({
   cardFinished = false,
   onMoveToDone,
   dispatcherQueued = [],
+  stepBack,
 }: {
   task: Task;
   sessionId: string;
@@ -146,6 +148,11 @@ function SessionPreviewView({
   onMoveToDone?(): void;
   /** Dispatcher messages queued while this session waits on the user (DISPATCHER-SPEC §5.3). */
   dispatcherQueued?: readonly QueuedMessageView[];
+  /**
+   * Set while this view has a level of its own to step back from (a provider subagent's transcript):
+   * Esc and Android Back call it first; it returns whether it took the step.
+   */
+  stepBack?: MutableRefObject<(() => boolean) | null>;
 }) {
   usePerfRender("switch.preview.commit");
   const switchStart = perfStart();
@@ -443,6 +450,30 @@ function SessionPreviewView({
   });
   const tone = state ? sessionTone(colors, state, !!attention?.unread) : colors.foregroundMuted;
   const toggleSubagents = useStableCallback(() => setChipMenu((m) => (m === "subagents" ? null : "subagents")));
+  // Provider subagents (SUBAGENTS-SPEC §9.3): read while this view is shown, never for an archived session.
+  const providerSubagents = useProviderSubagents(task.id, sessionId, visible && settled && belongs && !!active && !active.archivedAt, running);
+  // A provider subagent's read-only transcript, in place of the transcript and message box (§9.4).
+  // The view is keyed by session, so switching session closes it; so does hiding or closing the side bar.
+  const [subagentView, setSubagentView] = useState<string | null>(null);
+  useEffect(() => {
+    if (!visible) setSubagentView(null);
+  }, [visible]);
+  const openProviderSubagent = useStableCallback((subagentId: string) => {
+    setChipMenu(null);
+    setSubagentView(subagentId);
+  });
+  const closeSubagentView = useStableCallback(() => setSubagentView(null));
+  useEffect(() => {
+    if (!stepBack || !subagentView) return;
+    const step = () => {
+      setSubagentView(null);
+      return true;
+    };
+    stepBack.current = step;
+    return () => {
+      if (stepBack.current === step) stepBack.current = null;
+    };
+  }, [stepBack, subagentView]);
   // In the sidebar when the subagent is one of this card's sessions, else in a Paseo agent pane.
   const openSubagent = useStableCallback((agentId: string) => {
     setChipMenu(null);
@@ -796,13 +827,34 @@ function SessionPreviewView({
           {!active.archivedAt && (
             <SubagentsChip
               sessionId={sessionId}
+              provider={providerSubagents}
               open={chipMenu === "subagents"}
               onToggle={toggleSubagents}
               onOpenAgent={onOpenSession || typeof navigation?.openAgent === "function" ? openSubagent : undefined}
+              onOpenProvider={openProviderSubagent}
             />
           )}
           {renderComposer()}
         </Animated.View>
+      )}
+      {!!subagentView && (
+        // Over the session view, which stays mounted beneath it: Back returns to it as it was.
+        <View
+          accessibilityViewIsModal
+          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, backgroundColor: colors.surface0 }}
+        >
+          <Enter distance={18} axis="x" style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
+            <SubagentTranscript
+              key={subagentView}
+              taskId={task.id}
+              agentId={sessionId}
+              subagentId={subagentView}
+              subagent={providerSubagents.find((s) => s.id === subagentView)}
+              visible={visible}
+              onBack={closeSubagentView}
+            />
+          </Enter>
+        </View>
       )}
       {renaming && visible && active && (
         <RenameSession

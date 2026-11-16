@@ -346,9 +346,12 @@ function TaskDrawerView({
     setShowNew(true);
   }, [active, startRequest, startIdea]);
   const consumedEscape = useRef(escapeRequest);
+  // The session view's own level (a provider subagent's transcript, SUBAGENTS-SPEC §9.4) takes Esc and Android Back first.
+  const sessionStepBack = useRef<(() => boolean) | null>(null);
   useEffect(() => {
     if (!active || !escapeRequest || consumedEscape.current === escapeRequest) return;
     consumedEscape.current = escapeRequest;
+    if (selected && sessionStepBack.current?.()) return;
     // Ruling (Noah, 2026-11-10): Esc closes the whole sidebar, even with a session chat open; the chat's Back goes to details.
     onClose();
   }, [active, escapeRequest]);
@@ -989,6 +992,7 @@ function TaskDrawerView({
           cardFinished={task.status === "done" || task.status === "cancelled" || !!task.archivedAt || !!project.archivedAt}
           onMoveToDone={moveToDone}
           dispatcherQueued={queuedFor(queued, task.id, selected)}
+          stepBack={sessionStepBack}
         />
       ) : (
         <>

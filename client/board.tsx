@@ -187,7 +187,7 @@ const tipText: Record<TipId, (compact?: boolean) => string> = {
   "jira-connect": () => t("Work from Jira, Confluence, GitHub, GitLab, Azure DevOps, Linear or Shortcut: connect them in Settings → Connections, then start a card with From… or add items with the Artifacts +. Flowly only reads them."),
   connectors: () => t("The Artifacts + now adds Confluence pages and GitHub or GitLab issues and pull requests too, besides files, links and Jira tickets. Connect services in Settings → Connections."),
   "board-groups": () => t("Projects sit in boards. Each group has its own tab, dispatcher and defaults; add a group from the project switcher."),
-  subagents: () => t("When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one in Paseo."),
+  subagents: () => t("When a session starts subagents, a Subagents chip appears above its message box. Click it to see their status and open one to read its work."),
   "summary-models": () => t("Choose summary models and their fallback order in Settings → Models. The default is Haiku, then Luna."),
   "ai-language": () => t("AI-written text follows Settings → AI features → AI output language. It starts as your interface language."),
   "first-skill-draft": () => t("Insights drafted a skill from your cards. Open Insights to add it to the project."),

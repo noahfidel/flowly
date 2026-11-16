@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRpc } from "@getpaseo/plugin/client";
-import { dispatcherTail, sessionTail } from "../shared/rpc";
+import { dispatcherTail, providerSubagentTail, sessionTail } from "../shared/rpc";
 import { t } from "../shared/i18n";
 import {
   HISTORY_PAGE,
@@ -15,6 +15,7 @@ import {
 } from "../shared/session-tail";
 
 export const transcriptKey = (taskId: string, agentId: string) => ["flowly", "transcript", taskId, agentId] as const;
+const subagentKey = (taskId: string, agentId: string, subagentId: string) => [...transcriptKey(taskId, agentId), "subagent", subagentId] as const;
 
 /**
  * A session's loaded timeline (SESSION-PANE-SPEC §1): the current turn on
@@ -24,6 +25,10 @@ export const transcriptKey = (taskId: string, agentId: string) => ["flowly", "tr
  * earlier running at the same time do not undo each other. A rewritten
  * timeline (new epoch, stale cursor, more new entries than one page) is read
  * again as the current turn.
+ *
+ * A provider subagent of the session (`subagent`, SUBAGENTS-SPEC §9.4) is read with
+ * `subagents.provider-tail`: its newest page first, the same merges, and no stream, so it is
+ * polled every 3 s only while `poll` is on.
  */
 export function useSessionTimeline({
   taskId,
@@ -31,6 +36,8 @@ export function useSessionTimeline({
   enabled,
   streamReady,
   dispatcher = false,
+  subagent = false,
+  poll = false,
 }: {
   taskId: string;
   agentId: string;
@@ -38,19 +45,29 @@ export function useSessionTimeline({
   streamReady: boolean;
   /** A group's dispatcher session, by the group's id: read with `dispatcher.tail` (DISPATCHER-SPEC §9.3); `taskId` then only names the cache. */
   dispatcher?: string | false;
+  /** A provider subagent of `agentId`, by its id: read it instead of the session. */
+  subagent?: string | false;
+  /** A subagent's view polls while it runs (it has no stream). */
+  poll?: boolean;
 }) {
   const readCard = useRpc(sessionTail);
   const readDispatcher = useRpc(dispatcherTail);
+  const readSubagent = useRpc(providerSubagentTail);
   const read = useCallback(
     (input: Parameters<typeof readCard>[0]) => {
+      if (subagent) {
+        const { maxEntries: _, mode = "tail", ...rest } = input;
+        // A subagent has no turns: its newest page stands in for the current turn.
+        return readSubagent({ ...rest, subagentId: subagent, mode: mode === "turn" ? "tail" : mode });
+      }
       if (!dispatcher) return readCard(input);
       const { taskId: _, ...rest } = input;
       return readDispatcher({ ...rest, groupId: dispatcher });
     },
-    [dispatcher, readCard, readDispatcher],
+    [dispatcher, subagent, readCard, readDispatcher, readSubagent],
   );
   const client = useQueryClient();
-  const key = transcriptKey(taskId, agentId);
+  const key = subagent ? subagentKey(taskId, agentId, subagent) : transcriptKey(taskId, agentId);
   const cached = () => client.getQueryData<TimelineWindow>(key);
   const readTurn = async () => {
     const page = await read({ taskId, agentId, limit: HISTORY_PAGE, mode: "turn", maxEntries: TURN_MAX_ENTRIES });
@@ -74,7 +91,7 @@ export function useSessionTimeline({
       return readTurn();
     },
     enabled,
-    refetchInterval: streamReady ? 15000 : 3000,
+    refetchInterval: subagent ? (poll ? 3000 : false) : streamReady ? 15000 : 3000,
   });
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [earlierError, setEarlierError] = useState<unknown>(null);

@@ -1,14 +1,29 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { Animated, Pressable, ScrollView, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { PaseoAgent } from "@getpaseo/client";
+import { useRpc } from "@getpaseo/plugin/client";
+import { useQuery } from "@tanstack/react-query";
 import { Dot, Label, font, noFocusRing, radius, space, touch, useTheme } from "./ui";
 import { stateColors } from "./state-colors";
 import { PulseDot, lerp, useMotionPresence } from "./motion";
 import { useLiveAgents } from "./queries";
 import { sessionState } from "./session-state";
 import { sessionTone } from "./status";
-import { chipSegments, childAgents, subagentBucket, subagentCounts, type SubagentBucket } from "../shared/subagents";
+import {
+  chipSegments,
+  childAgents,
+  mergedCounts,
+  providerTitle,
+  subagentBucket,
+  subagentCounts,
+  subagentRows,
+  type ProviderSubagent,
+  type ProviderSubagentStatus,
+  type SubagentBucket,
+  type SubagentCounts,
+} from "../shared/subagents";
+import { providerSubagents } from "../shared/rpc";
 import { t, tn } from "../shared/i18n";
 
 const segmentText = (bucket: SubagentBucket, n: number) =>
@@ -22,39 +37,81 @@ const segmentText = (bucket: SubagentBucket, n: number) =>
 
 /** "2 working, 1 needs input", else "3 subagents": the chip text, also used by the sidebar's subagent rows. */
 export function subagentSummary(children: readonly Parameters<typeof subagentBucket>[0][]) {
-  const segments = chipSegments(subagentCounts(children));
+  return summaryText(subagentCounts(children), children.length);
+}
+
+function summaryText(counts: SubagentCounts, n: number) {
+  const segments = chipSegments(counts);
   // The total always leads, also while some run or wait: "3 subagents · 2 working, 1 ready to review".
-  const total = tn(children.length, "{n} subagent", "{n} subagents");
+  const total = tn(n, "{n} subagent", "{n} subagents");
   return segments.length ? `${total} · ${segments.map((s) => segmentText(s.bucket, s.count)).join(", ")}` : total;
 }
 
+/** A provider subagent's state, as the list and its transcript header show it. */
+export const providerStateLabel = (status: ProviderSubagentStatus) =>
+  status === "running" ? t("Running") : status === "failed" ? t("Failed") : status === "canceled" ? t("Canceled") : t("Completed");
+
+/** The muted line under a provider subagent's title: its state, then the provider's own subtitle. */
+export const providerDetail = (subagent: ProviderSubagent) =>
+  [providerStateLabel(subagent.status), subagent.subtitle?.trim()].filter(Boolean).join(" · ");
+
+export const providerDisplayTitle = (subagent: ProviderSubagent) => providerTitle(subagent) || t("Untitled agent");
+
+const noProviderSubagents: readonly ProviderSubagent[] = [];
+
 /**
- * The session's Paseo-native child agents as a chip above the message box, with
- * an upward list; a row opens that agent in a Paseo agent pane (SUBAGENTS-SPEC).
- * Reads the shared live agent list: no polling of its own.
+ * A card session's provider subagents (SUBAGENTS-SPEC §9.3): read while `enabled` (the session view
+ * is shown, the session not archived), then every 5 s only while the session or one of them runs.
+ * Unchanged reads keep the same array (the query's structural sharing); none is a shared empty one.
+ */
+export function useProviderSubagents(taskId: string, agentId: string, enabled: boolean, sessionRunning: boolean): readonly ProviderSubagent[] {
+  const read = useRpc(providerSubagents);
+  const query = useQuery({
+    queryKey: ["flowly", "provider-subagents", taskId, agentId],
+    queryFn: () => read({ taskId, agentId }),
+    enabled,
+    retry: false,
+    refetchInterval: (q) => (sessionRunning || q.state.data?.subagents.some((s) => s.status === "running") ? 5000 : false),
+  });
+  return query.data?.subagents.length ? query.data.subagents : noProviderSubagents;
+}
+
+/**
+ * The session's subagents as a chip above the message box, with an upward list
+ * (SUBAGENTS-SPEC): its Paseo-native child agents from the shared live agent
+ * list, then the provider subagents the caller reads (`useProviderSubagents`).
+ * A native row opens that agent in the side bar or a Paseo agent pane; a
+ * provider row opens its read-only transcript (§9.4).
  */
 export const SubagentsChip = memo(function SubagentsChip({
   sessionId,
+  provider,
   open,
   onToggle,
   onOpenAgent,
+  onOpenProvider,
 }: {
   sessionId: string;
+  provider: readonly ProviderSubagent[];
   open: boolean;
   onToggle(): void;
   /** Missing when the host cannot open agent panes. */
   onOpenAgent?: (agentId: string) => void;
+  onOpenProvider(subagentId: string): void;
 }) {
   const { colors } = useTheme();
   const children = useLiveAgents({
     poll: false,
     select: useCallback((agents: PaseoAgent[]) => childAgents(agents, sessionId), [sessionId]),
   }).data;
-  const presence = useMotionPresence(open && children?.length ? true : undefined, open ? "subagents" : "");
-  if (!children?.length) return null;
-  const counts = subagentCounts(children);
+  const native = children ?? noChildren;
+  const total = native.length + provider.length;
+  const rows = useMemo(() => subagentRows(native, provider), [native, provider]);
+  const presence = useMotionPresence(open && total ? true : undefined, open ? "subagents" : "");
+  if (!total) return null;
+  const counts = mergedCounts(native, provider);
   const segments = chipSegments(counts);
-  const summary = subagentSummary(children);
+  const summary = summaryText(counts, total);
   const segmentDot = (bucket: SubagentBucket) =>
     bucket === "running" ? (
       <PulseDot color={stateColors(colors).running} size={7} />
@@ -91,11 +148,15 @@ export const SubagentsChip = memo(function SubagentsChip({
             <Label muted size={font.xs} medium selectable={false}>{t("Subagents")}</Label>
           </View>
           <ScrollView style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled">
-            {children.map((child) => (
-              <SubagentRow key={child.id} agent={child} onOpen={onOpenAgent} />
-            ))}
+            {rows.map((row) =>
+              row.kind === "native" ? (
+                <SubagentRow key={row.agent.id} agent={row.agent} onOpen={onOpenAgent} />
+              ) : (
+                <ProviderRow key={`provider:${row.subagent.id}`} subagent={row.subagent} depth={row.depth} onOpen={onOpenProvider} />
+              ),
+            )}
           </ScrollView>
-          {!onOpenAgent && (
+          {!onOpenAgent && native.length > 0 && (
             <View style={{ paddingHorizontal: space[2] + 2, paddingVertical: space[1.5], borderTopWidth: 1, borderColor: colors.border, marginTop: 4 }}>
               <Label muted size={font.xs}>{t("Open subagents from the Paseo session pane.")}</Label>
             </View>
@@ -127,7 +188,7 @@ export const SubagentsChip = memo(function SubagentsChip({
         <Icon name="Bot" size={14} color={open ? colors.foreground : colors.foregroundMuted} />
         {segments.length > 0 && (
           <Label size={font.sm} color={open ? colors.foreground : colors.foregroundMuted} lines={1} selectable={false}>
-            {tn(children.length, "{n} subagent", "{n} subagents")}
+            {tn(total, "{n} subagent", "{n} subagents")}
           </Label>
         )}
         {segments.length ? (
@@ -186,6 +247,47 @@ function SubagentRow({ agent, onOpen }: { agent: PaseoAgent; onOpen?: (agentId: 
         <Label muted size={font.xs} lines={1} selectable={false}>{detail}</Label>
       </View>
       {onOpen && <Icon name="ArrowUpRight" size={13} color={colors.foregroundMuted} />}
+    </Pressable>
+  );
+}
+
+const noChildren: PaseoAgent[] = [];
+
+/** A provider subagent (§9.3): state dot, title, state · subtitle; nested ones one step in. Opens its transcript. */
+function ProviderRow({ subagent, depth, onOpen }: { subagent: ProviderSubagent; depth: 0 | 1; onOpen(subagentId: string): void }) {
+  const { colors } = useTheme();
+  const running = subagent.status === "running";
+  const tone = sessionTone(colors, { label: subagent.status === "failed" ? "Error" : "Idle", active: running });
+  const title = providerDisplayTitle(subagent);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={t("Open {title}", { title })}
+      onPress={() => onOpen(subagent.id)}
+      style={(s) => {
+        const { pressed, hovered: hover } = s as typeof s & { hovered?: boolean };
+        return {
+          ...noFocusRing,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space[2],
+          minHeight: touch ? 44 : 36,
+          paddingLeft: space[2] + 2 + (depth ? space[4] : 0),
+          paddingRight: space[2] + 2,
+          paddingVertical: 4,
+          borderRadius: radius.md,
+          backgroundColor: hover || pressed ? colors.surface1 : "transparent",
+        };
+      }}
+    >
+      <View style={{ width: 10, alignItems: "center" }}>
+        <PulseDot color={tone} size={8} active={running} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Label size={font.md} lines={1} selectable={false}>{title}</Label>
+        <Label muted size={font.xs} lines={1} selectable={false}>{providerDetail(subagent)}</Label>
+      </View>
+      <Icon name="ChevronRight" size={13} color={colors.foregroundMuted} />
     </Pressable>
   );
 }

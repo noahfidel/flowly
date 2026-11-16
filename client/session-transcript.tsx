@@ -89,6 +89,11 @@ type TranscriptProps = {
   onStreamError(message: string): void;
   /** A group's dispatcher session, by the group's id: read with `dispatcher.tail`; `taskId` then only names the cache. */
   dispatcher?: string | false;
+  /**
+   * A provider subagent of `agentId`, by its id (SUBAGENTS-SPEC §9.4): its timeline instead of the session's,
+   * read-only. Pass `subscribe` false; it is polled while `live`.
+   */
+  subagent?: string | false;
   extra?: TranscriptExtra;
 };
 
@@ -127,6 +132,7 @@ function SessionTranscriptView({
   inset,
   onStreamError,
   dispatcher = false,
+  subagent = false,
   extra,
 }: TranscriptProps) {
   usePerfRender("switch.transcript.commit");
@@ -135,7 +141,7 @@ function SessionTranscriptView({
   const paseo = usePaseo();
   const agent = useMemo(() => paseo.agents.ref(agentId), [paseo, agentId]);
   const [streamReady, setStreamReady] = useState(false);
-  const timeline = useSessionTimeline({ taskId, agentId, enabled, streamReady, dispatcher });
+  const timeline = useSessionTimeline({ taskId, agentId, enabled, streamReady, dispatcher, subagent, poll: !!subagent && live });
   const refetch = timeline.query.refetch;
   const reading = useRef(enabled);
   reading.current = enabled;
