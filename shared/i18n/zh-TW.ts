@@ -2,6 +2,8 @@ import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
   "From {name}": "來自 {name}",
+  "To {name}": "傳給 {name}",
+  "{group} dispatcher": "{group} 調度器",
   "From agent": "來自代理",
   "Command": "命令",
   "Project default model": "專案預設模型",

@@ -16,6 +16,11 @@ export const tailItemSchema = z.object({
   callId: z.string().optional(),
   /** A prompt another agent sent to this session (Paseo's `agent_message` provenance). */
   from: z.object({ id: z.string(), title: z.string().optional(), event: z.string() }).optional(),
+  /**
+   * A dispatcher's `flowly_message_dispatcher` call (DISPATCHER-SPEC §5.5): the target group's id and the text, for the
+   * chat's To row. `title` is the client's display name, never sent by the daemon.
+   */
+  to: z.object({ id: z.string(), title: z.string().optional(), text: z.string() }).optional(),
 });
 export const tailEntrySchema = z.object({
   seqStart: z.number().optional(),
@@ -30,6 +35,16 @@ export const TAIL_REASONING_MAX = 2_000;
 
 const str = (value: unknown) => (typeof value === "string" ? value : undefined);
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
+
+/** The input of a `flowly_message_dispatcher` tool call (its MCP name or the bare one), or null for any other item. */
+function peerCall(raw: Record<string, unknown>): { groupId: string; text: string } | null {
+  if (raw.type !== "tool_call" || typeof raw.name !== "string" || !/(^|__)flowly_message_dispatcher$/.test(raw.name)) return null;
+  const detail = raw.detail as Record<string, unknown> | null | undefined;
+  const input = (detail && typeof detail === "object" ? detail.input : undefined) ?? raw.input;
+  if (!input || typeof input !== "object") return null;
+  const { groupId, text } = input as Record<string, unknown>;
+  return typeof groupId === "string" && typeof text === "string" ? { groupId, text } : null;
+}
 
 export function slimTimeline(
   entries: readonly { seqStart?: unknown; seqEnd?: unknown; timestamp?: unknown; item?: unknown }[],
@@ -55,6 +70,8 @@ export function slimTimeline(
         item.text = clip(said, TAIL_TEXT_MAX);
       }
     }
+    const sentTo = peerCall(raw);
+    if (sentTo) item.to = { id: sentTo.groupId, text: clip(sentTo.text, TAIL_TEXT_MAX) };
     const out: TailEntry = { item };
     if (typeof entry.seqStart === "number") out.seqStart = entry.seqStart;
     if (typeof entry.seqEnd === "number") out.seqEnd = entry.seqEnd;

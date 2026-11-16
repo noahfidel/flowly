@@ -57,6 +57,8 @@ type Props = {
   projectOf?(projectId: string): CardConfirmProject;
   /** Changes when the board's projects change, so an open card confirm refreshes. */
   projectsVersion?: unknown;
+  /** The board's groups: names the other dispatchers in the rows of messages between dispatchers (§5.5). */
+  groups?: readonly { id: string; name: string }[];
   /** Discuss on an idea (§9.5): text for the message box, after what is typed; never sent. A new `key` adds it again. */
   fill?: { text: string; key: number } | null;
   /** The fill with this key is in the box: the board drops it, so a remounted panel does not add it again. */
@@ -75,7 +77,7 @@ type Props = {
   onSession?(agentId: string | null): void;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, resolveCard, cardsVersion, projectOf, projectsVersion, fill, onFilled, focusRequest = 0, onEscape, onBoxFocus, groupId, onOpenInPaseo, onSession }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, resolveCard, cardsVersion, projectOf, projectsVersion, groups, fill, onFilled, focusRequest = 0, onEscape, onBoxFocus, groupId, onOpenInPaseo, onSession }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -174,13 +176,19 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   const nativePrefs = useSettings(nativeSessionSettings);
   const collapseReplies = nativeSessionSettingsValues(nativePrefs.status === "ready" ? nativePrefs.values : {}).dispatcherRepliesCollapsed;
   const cardLinks = useMemo(() => ({ resolve: resolveCard, open: onOpenCard, version: cardsVersion }), [resolveCard, onOpenCard, cardsVersion]);
+  // Group names by id for the From and To rows of messages between dispatchers (§5.5); content-compared.
+  const groupNamesKey = JSON.stringify((groups ?? []).map((g) => [g.id, g.name]));
+  const groupName = useMemo(() => {
+    const names = new Map<string, string>(JSON.parse(groupNamesKey) as [string, string][]);
+    return (id: string) => names.get(id);
+  }, [groupNamesKey]);
   const extra = useMemo<TranscriptExtra>(
     () => ({
-      rows: (entries) => chatRows(entries, chatItems ?? [], { collapseReplies }),
+      rows: (entries) => chatRows(entries, chatItems ?? [], { collapseReplies, groupName }),
       render: renderExtra,
       focus: null,
     }),
-    [chatItems, renderExtra, collapseReplies],
+    [chatItems, renderExtra, collapseReplies, groupName],
   );
 
   // Its permission requests, answered here as in a card's session view (never without the user's choice).

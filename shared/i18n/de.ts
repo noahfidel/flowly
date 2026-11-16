@@ -2,6 +2,8 @@ import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
   "From {name}": "Von {name}",
+  "To {name}": "An {name}",
+  "{group} dispatcher": "Dispatcher von {group}",
   "From agent": "Von Agent",
   "Command": "Befehl",
   "Project default model": "Standardmodell des Projekts",

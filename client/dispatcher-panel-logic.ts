@@ -1,6 +1,6 @@
 import { nextMoveDraft } from "../shared/next-moves";
-import { msg } from "../shared/i18n";
-import { noteMessagePrefix, summaryMessagePrefix, type ChatItem } from "../shared/dispatcher";
+import { msg, t } from "../shared/i18n";
+import { noteMessagePrefix, parsePeerMessage, summaryMessagePrefix, type ChatItem } from "../shared/dispatcher";
 import type { TailEntry } from "../shared/session-tail";
 import { groupTranscript, recentSessionOutput } from "./session-state";
 import type { TranscriptRow } from "./session-transcript";
@@ -24,8 +24,13 @@ const time = (value: string | undefined) => (value ? Date.parse(value) : NaN);
  * need-you and updated step-throughs in the card sidebar, so only notes join the transcript here.
  * The dispatcher's messages after a prompt from another agent (a From row), up to the next user message (a note batch
  * and the board summary included) or From row, are marked `reply`; its messages to the user never are.
+ * A message from another group's dispatcher (a user entry that starts with `peerMessagePrefix`, §5.5) becomes a From
+ * row named "<group> dispatcher" (the board's name for the group, else the one the prefix carries) without the
+ * prefix, and the answers after it are replies; the dispatcher's own flowly_message_dispatcher calls get the target's
+ * name for their To row (the group id when the group is gone).
  */
-export function mergeTimeline(transcript: readonly TailEntry[], items: readonly ChatItem[]): Row[] {
+export function mergeTimeline(transcript: readonly TailEntry[], items: readonly ChatItem[], options: Pick<ChatRowOptions, "groupName"> = {}): Row[] {
+  const dispatcherName = (groupId: string, fallback: string) => t("{group} dispatcher", { group: options.groupName?.(groupId) ?? fallback });
   const firstKnown = transcript.map((e) => time(e.timestamp)).find((t) => Number.isFinite(t));
   let carried = firstKnown ?? -Infinity;
   let answering = false;
@@ -36,10 +41,17 @@ export function mergeTimeline(transcript: readonly TailEntry[], items: readonly 
     const key = `entry-${entry.seqStart ?? index}-${entry.item.type}`;
     const text = entry.item.text ?? "";
     const user = entry.item.type.includes("user");
-    if (user) answering = false;
+    const peer = user ? parsePeerMessage(text) : null;
+    if (user) answering = !!peer;
     else if (entry.item.from) answering = true;
     if (user && text.startsWith(noteMessagePrefix)) return;
-    if (user && text.startsWith(summaryMessagePrefix)) entries.push({ kind: "summary", key, at: carried });
+    if (peer) {
+      const from = { id: peer.groupId, title: dispatcherName(peer.groupId, peer.name), event: "message" };
+      entries.push({ kind: "entry", key, at: carried, entry: { ...entry, item: { ...entry.item, text: peer.text, from } } });
+    } else if (entry.item.to) {
+      const to = { ...entry.item.to, title: dispatcherName(entry.item.to.id, entry.item.to.id) };
+      entries.push({ kind: "entry", key, at: carried, entry: { ...entry, item: { ...entry.item, to } } });
+    } else if (user && text.startsWith(summaryMessagePrefix)) entries.push({ kind: "summary", key, at: carried });
     else if (answering && entry.item.type.includes("assistant")) entries.push({ kind: "entry", key, at: carried, entry, reply: true });
     else entries.push({ kind: "entry", key, at: carried, entry });
   });
@@ -58,8 +70,11 @@ export function mergeTimeline(transcript: readonly TailEntry[], items: readonly 
   return merged;
 }
 
-/** How the chat draws its rows: `collapseReplies` starts the dispatcher's answers to other agents as one line (§9.3). */
-export type ChatRowOptions = { collapseReplies?: boolean };
+/**
+ * How the chat draws its rows: `collapseReplies` starts the dispatcher's answers to other agents as one line (§9.3);
+ * `groupName` names a board group for the rows of messages between dispatchers (§5.5).
+ */
+export type ChatRowOptions = { collapseReplies?: boolean; groupName?(groupId: string): string | undefined };
 type OutputInput = Parameters<typeof recentSessionOutput>[0][number];
 
 /** A dispatcher row on the shared session transcript: the board summary line or one of Flowly's chat items. */
@@ -94,7 +109,7 @@ export function displayRows(rows: readonly Row[], options: ChatRowOptions = {}):
 
 /** The dispatcher chat's rows from the loaded transcript and Flowly's chat items (§9.3). */
 export function chatRows(transcript: readonly TailEntry[], items: readonly ChatItem[], options: ChatRowOptions = {}): TranscriptRow[] {
-  return displayRows(mergeTimeline(transcript, items), options);
+  return displayRows(mergeTimeline(transcript, items, options), options);
 }
 
 /** Whether two chat items render the same (the row's memo comparison). */

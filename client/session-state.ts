@@ -91,6 +91,8 @@ export function recentSessionOutput(
       clientMessageId?: unknown;
       callId?: unknown;
       from?: unknown;
+      /** A dispatcher's message to another group's dispatcher (DISPATCHER-SPEC §5.5): its To row. */
+      to?: unknown;
       /** The dispatcher's answer to another agent, drawn collapsed (DISPATCHER-SPEC §9.3). */
       reply?: unknown;
     };
@@ -105,8 +107,15 @@ export function recentSessionOutput(
         from && typeof from === "object" && typeof from.id === "string"
           ? (typeof from.title === "string" && from.title.trim()) || from.id
           : undefined;
-      const tool = sender === undefined && item.type === "tool_call" && typeof item.name === "string";
-      const text = tool
+      const to = item.to as { id?: unknown; title?: unknown; text?: unknown } | undefined;
+      const recipient =
+        sender === undefined && to && typeof to === "object" && typeof to.id === "string" && typeof to.text === "string"
+          ? (typeof to.title === "string" && to.title.trim()) || to.id
+          : undefined;
+      const tool = sender === undefined && recipient === undefined && item.type === "tool_call" && typeof item.name === "string";
+      const text = recipient !== undefined
+        ? (to!.text as string)
+        : tool
         ? `${item.name} · ${typeof item.status === "string" ? item.status : "activity"}`
         : item.text;
       const messageId =
@@ -120,6 +129,8 @@ export function recentSessionOutput(
       if (typeof text !== "string" || (!text.trim() && !imageOnly)) return [];
       const author = sender !== undefined
         ? msg("From agent")
+        : recipient !== undefined
+        ? msg("Agent")
         : item.type.includes("user")
         ? msg("You")
         : item.type.includes("assistant")
@@ -138,9 +149,10 @@ export function recentSessionOutput(
           key,
           author,
           text,
-          kind: sender !== undefined ? "agent-message" : item.reply === true && item.type.includes("assistant") ? "agent-reply" : tool ? "tool" : item.type,
+          kind: sender !== undefined ? "agent-message" : recipient !== undefined ? "agent-message-to" : item.reply === true && item.type.includes("assistant") ? "agent-reply" : tool ? "tool" : item.type,
           messageId,
-          sender,
+          // The other side of an agent-to-agent row: who wrote (From) or who it went to (To).
+          sender: sender ?? recipient,
         },
       ];
     });

@@ -506,6 +506,7 @@ export const TranscriptEntry = memo(function TranscriptEntry({
     <SessionImage key={image.src} taskId={taskId} agentId={agentId} image={image} maxWidth={entry.author === "You" ? 200 : 360} />
   ));
   if (entry.kind === "agent-message") return <AgentMessageRow sender={entry.sender ?? ""} text={entry.text} />;
+  if (entry.kind === "agent-message-to") return <AgentMessageRow sender={entry.sender ?? ""} text={entry.text} outgoing />;
   if (entry.kind === "agent-reply") return <AgentReplyRow text={text}>{pictures}</AgentReplyRow>;
   if (entry.author === "You" && !text && !pictures.length) return null;
   if (entry.author === "You")
@@ -543,11 +544,14 @@ export const TranscriptEntry = memo(function TranscriptEntry({
   );
 }, (a, b) => a.taskId === b.taskId && a.agentId === b.agentId && sameEntry(a.entry, b.entry));
 
-/** A prompt another agent sent to this session: one muted line, pressed open to its full text. */
-const AgentMessageRow = memo(function AgentMessageRow({ sender, text }: { sender: string; text: string }) {
+/**
+ * A prompt another agent sent to this session (`From`), or the dispatcher's message to another group's dispatcher
+ * (`outgoing`: `To`, DISPATCHER-SPEC §5.5): one muted line, pressed open to its full text.
+ */
+const AgentMessageRow = memo(function AgentMessageRow({ sender, text, outgoing = false }: { sender: string; text: string; outgoing?: boolean }) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
-  const line = `${t("From {name}", { name: sender })} · ${text.trim().split("\n")[0]}`;
+  const line = `${outgoing ? t("To {name}", { name: sender }) : t("From {name}", { name: sender })} · ${text.trim().split("\n")[0]}`;
   return (
     <View style={{ minWidth: 0, gap: space[1] }}>
       <Pressable
