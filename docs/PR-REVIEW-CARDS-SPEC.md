@@ -31,7 +31,7 @@ The card is created through the New card path in *existing workspace* mode: no w
 - Tag: `pr-review`. Priority normal. The activity and tag are attributed to the review agent.
 - Its session is the review agent (the session in the card's workspace), so opening the card opens the review chat.
 
-Flowly never moves the card by itself because of this feature, except when a later review reuses it (§8) or archives it once its PR closes (§10): when the review ends, the card stays where it is until the user moves or closes it. (Auto-status rules apply only to sessions Flowly manages; the review agent is not one.)
+Flowly never moves the card by itself because of this feature, except when a later review reuses it (§8) or archives it once its PR closes (§10), or moves it to Done once the user approves its PR (§10, LANDED-DONE-SPEC §9): when the review ends, the card stays where it is until the user moves or closes it. (Auto-status rules apply only to sessions Flowly manages; the review agent is not one.)
 
 ## 5. Linear ticket
 
@@ -41,7 +41,7 @@ A PR review card is never asked for a Linear ticket, even in a project with *Mak
 
 Settings → Workflow → Board → **Make cards for PR review agents**, host scope (`pr-review-cards`, `prReviewCards`), on by default. Off: Flowly does not read agents for this and makes no card. Turning it on does not backfill (§3).
 
-Settings → Workflow → Board → **Archive review cards when the PR closes**, same settings record (`archiveOnClose`), on by default. Off: the check of §10 archives no review card. The same check also moves ordinary cards to Done when their work lands, under its own switch (`doneOnLand`, LANDED-DONE-SPEC); it runs when either switch is on.
+Settings → Workflow → Board → **Archive review cards when the PR closes**, same settings record (`archiveOnClose`), on by default. Off: the check of §10 archives no review card. The same check also moves ordinary cards to Done when their work lands, under its own switch (`doneOnLand`, LANDED-DONE-SPEC); it runs when either switch is on. `doneOnLand` also gates moving a review card to Done once the user approves its PR (§10, LANDED-DONE-SPEC §9 R13).
 
 ## 8. A new review of the same PR reuses its card
 
@@ -75,6 +75,8 @@ It reads the PR's state: through the user's GitHub connector for github.com when
 
 A merged or closed PR archives the card as the board's Archive does (`archivedAt`, revision, event `archive_changed`), with the activity note "Archived: PR merged" or "Archived: PR closed", attributed to Flowly (`system`). The card is checked again in the same write and left alone if it was archived, moved out of In review, or rebound to another workspace or PR meanwhile. An open PR changes nothing. Only the card is archived: its workspace and sessions are kept, because a PR review card never owns its workspace (§3). A later review of the same PR makes a new card, since archived cards are never reused (§8). The user can unarchive the card as any other.
 
+**Done once you approve** (LANDED-DONE-SPEC §9, rulings R9–R13, Noah 2026-11-16). With *Move cards to Done when their work lands* on, the same check also reads, for a card whose PR is still open, the signed-in GitHub user's own reviews of that PR (connector first, then `gh`). When the latest of the user's `APPROVED`, `CHANGES_REQUESTED` or `DISMISSED` reviews is `APPROVED`, the card moves to Done with the note "Moved to Done: PR approved (`owner/repo#n`)"; it is not archived. The lane, running-session and re-check rules above apply. A PR the user authored is skipped. A card in Done stays there: a dismissed approval or new commits do not bring it back, only a new review agent for the same PR does (§8).
+
 ## 7. Acceptance
 
 - A new agent labelled `pr-review-watch=Zenlytic/zenlytic#9164` in a worktree of a project's repository gets one card in In review, tagged `pr-review`, bound to that workspace; opening it shows the review chat.
@@ -86,3 +88,4 @@ A merged or closed PR archives the card as the board's Archive does (`archivedAt
 - A second review agent for the same PR in a new workspace: no second card; the card is bound to the new workspace, the old one is in its history, it is in In review and has the new title. A re-run of the first agent changes nothing. An archived card is not reused.
 - A PR review card for `owner/repo#n` shows Open PR in the drawer header, opening that pull request; a loose-label card and an ordinary card show none. The description's PR line is a markdown link.
 - Setting on: a PR review card in In review whose PR is merged is archived at the next check with the activity "Archived: PR merged" (closed: "Archived: PR closed"); an open PR, a card in another lane, a card without `prRef` and a card whose workspace has a running session stay. Setting off, or no way to read the PR: nothing is archived, and the failure is logged once.
+- With *Move cards to Done when their work lands* on: a PR review card in In review whose open PR you approved (your latest decisive review is `APPROVED`) moves to Done with "Moved to Done: PR approved (…)"; changes requested, a dismissed approval, only comments, your own PR, or unreadable reviews leave it in In review.

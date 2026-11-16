@@ -99,3 +99,48 @@ One check builds one list: the review-card candidates (PR-REVIEW-CARDS-SPEC §10
 - These cards stay: a card in Todo, Design, Development, Test or Blocked; a card whose workspace has a running session; a card with two distinct PR outputs; a directory card with no PR output; a card where neither source can read the state.
 - With the switch off, no normal card moves, and review cards still archive (and the reverse when only the review switch is off).
 - Review cards and normal cards share one check and one 20-lookup cap.
+
+## 9. PR review cards: Done once the user approves
+
+A PR review card (PR-REVIEW-CARDS-SPEC) is the user reviewing someone else's pull request. Its work is done when the user has approved that PR, not when the PR merges. The same check (§6) therefore also moves such a card to Done once the signed-in GitHub user's own review of the PR stands at *approved*.
+
+### 9.1 Rulings (Noah, 2026-11-16)
+
+- **R9: approval means Done.** An approved review card moves to Done, the same way as §4. It is not archived. The archive rule of PR-REVIEW-CARDS-SPEC §10 stays as it is for review cards still in In review, and a merged or closed PR keeps archiving them.
+- **R10: no automatic reopen.** Once in Done the card stays there, even when new commits are pushed or the approval is dismissed or changed. A later review agent for the same PR still brings the card back (PR-REVIEW-CARDS-SPEC §8).
+- **R11: lanes and sessions.** Only review cards in *In review* (the lane PR-REVIEW-CARDS-SPEC §10 already checks) are looked at, and a card whose workspace has a running or starting session is skipped and looked at again later, as R3.
+- **R12: own PR.** When the signed-in user is the PR's author, the approval check is skipped; the card is left to the archive rule.
+- **R13: setting.** The move is gated by **Move cards to Done when their work lands** (`doneOnLand`, §5); no new switch. *Archive review cards when the PR closes* still gates only the archive.
+
+### 9.2 Which cards
+
+A review card is in the check's list when it meets PR-REVIEW-CARDS-SPEC §10 (stored `prRef`, live, In review, no running session) and either switch is on. It costs one lookup of the shared 20 (§6), whatever sources it tries.
+
+### 9.3 Evidence
+
+First the PR's state is read as before (connector, then `gh pr view`). Merged or closed: the archive rule applies when its switch is on, and nothing else happens. Unknown: nothing happens and it counts as unknown. Open, with `doneOnLand` on: the user's review state is read, with the first source that can tell winning:
+
+1. **The GitHub connector**, for a github.com PR, when a GitHub connection has a working token and a stored login (the `login` its token test read from `/user`): `GET /repos/<owner>/<repo>/pulls/<n>` for the author's login, and `GET /repos/<owner>/<repo>/pulls/<n>/reviews` (`per_page=100`) for the reviews.
+2. **The GitHub CLI**: the signed-in login from `gh api user --jq .login` (with `--hostname <host>` for a non-github.com PR), kept for the rest of the plugin run once read, and `gh pr view <n> --repo <owner/repo> --json author,reviews`. Argument arrays, no shell.
+
+From those, with logins compared without regard to case:
+
+- the author is the signed-in user: **own**, skipped (R12);
+- else, among the signed-in user's reviews whose state is `APPROVED`, `CHANGES_REQUESTED` or `DISMISSED` (a dismissed approval is shown by GitHub as `DISMISSED`), the latest by submission time (equal times: later in the list) decides. `APPROVED` means **approved**. `COMMENTED` and `PENDING` reviews are ignored, as GitHub keeps an approval through later comments;
+- no such review: **not approved**, nothing happens;
+- neither source can tell: unknown.
+
+Any `APPROVED` review submitted under the signed-in account counts, including one an agent posted through the user's own `gh` login.
+
+### 9.4 Moving to Done
+
+As §4: the running sessions of that card's workspace are read again just before writing, and in one store transaction the card is read again. It is left alone if it was archived, its status or revision changed, it left In review, moved to another workspace, stopped being a review card or its `prRef` changed. Otherwise status, revision and a `status_changed` event with `actor: "system"` and the note "Moved to Done: PR approved (`owner/repo#n`)", then the same follow-up as any move into Done (`afterDone`). The card is not archived and the PR's later merge does not archive it (only In review cards are archived).
+
+### 9.5 Acceptance
+
+- With `doneOnLand` on, a review card in In review whose open PR's latest decisive review by the signed-in user is `APPROVED` moves to Done at the next check with "Moved to Done: PR approved (…)".
+- It stays when that latest decisive review is `CHANGES_REQUESTED` or `DISMISSED`, when the user has no decisive review (only comments), when the user is the PR's author, when the card is in another lane or its workspace has a running session, or when neither source can read the reviews.
+- A merged or closed PR still archives the card (with the archive switch on) and is never also moved to Done.
+- With `doneOnLand` off nothing moves to Done; with only `doneOnLand` on, review cards are still looked at for approval but none is archived.
+- A card in Done is not looked at again, so a dismissed approval or new commits never reopen it.
+- Review cards and ordinary cards still share one check and one 20-lookup cap.
