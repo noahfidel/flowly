@@ -179,8 +179,8 @@ export const closedPrNote = (pr: string) => `PR closed without merging: ${pr}`;
 /**
  * Every ~10 minutes, one check over two kinds of card (LANDED-DONE-SPEC §6): archives PR review cards still in
  * In review whose pull request was merged or closed (PR-REVIEW-CARDS-SPEC §10), moves those whose open PR the
- * signed-in user approved to Done (LANDED-DONE-SPEC §9), and moves ordinary cards in In review,
- * Committed or Integrated to Done once their work landed on the base branch (LANDED-DONE-SPEC). Neither touches a
+ * signed-in user approved to Done (LANDED-DONE-SPEC §9), and moves ordinary cards in any open lane
+ * except Todo and Backlog to Done once their work landed on the base branch (LANDED-DONE-SPEC). Neither touches a
  * card's workspace or sessions itself; a move to Done is followed by what follows a person's move (`afterDone`).
  */
 export class PrReviewArchiver {

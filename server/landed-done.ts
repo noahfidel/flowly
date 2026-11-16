@@ -10,8 +10,11 @@ import type { PrState, PrTarget } from "./pr-review-archive";
  * `origin/<base>`. Every git and gh call is an argument array, never a shell, and injectable for tests.
  */
 
-/** The lanes a card is checked in (R2). */
-export const landStatuses: readonly Status[] = ["in_review", "committed", "integrated"];
+/**
+ * The lanes a card is checked in (R2, ruling 2026-11-16, reversing the first R2 that checked only In review,
+ * Committed and Integrated): every open lane. Todo and Backlog have no work to land; Done and Cancelled are finished.
+ */
+export const landStatuses: readonly Status[] = ["design", "development", "test", "blocked", "in_review", "committed", "integrated"];
 
 const pullUrl = /^https?:\/\/([^/\s]+)\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)(?:[/?#].*)?$/i;
 const pullKey = /^([^/\s]+)\/([^/#\s]+)#(\d+)$/;
@@ -42,7 +45,7 @@ export function cardPrOutputs(artifacts: readonly Artifact[], taskId: string): P
 }
 
 /**
- * Whether the check looks at this card at all (§2): a live ordinary card in In review, Committed or Integrated with
+ * Whether the check looks at this card at all (§2): a live ordinary card in a land lane with
  * evidence to check, exactly one PR output or (no PR output) a `baseRef`. Two or more PRs: a person should look.
  * The live project and the running-session rules are the caller's.
  */
