@@ -99,3 +99,26 @@ test("mark as unread never touches Paseo; the sync skips it", async () => {
   expect(fake.clear).not.toHaveBeenCalled();
   expect(fake.close).toHaveBeenCalled();
 });
+
+test("a read that changes state reports the card once; reading again or an unmarked session does not", async () => {
+  const agent = unread("a1");
+  const { service, paseo } = await fixture(agent, fakeNative([agent]).native);
+  const onRead = vi.fn(async () => undefined);
+  service.onRead = onRead;
+  const input = { taskId: "t", agentId: "a1", token: nativeAttentionToken(agent)! };
+  await service.mark(input, paseo);
+  expect(onRead).toHaveBeenCalledTimes(1);
+  expect(onRead).toHaveBeenCalledWith("t", "p");
+  await service.mark(input, paseo);
+  expect(onRead).toHaveBeenCalledTimes(1);
+});
+
+test("a failing onRead hook never fails the read", async () => {
+  const agent = unread("a1");
+  const { service, paseo, reads } = await fixture(agent, fakeNative([agent]).native);
+  service.onRead = async () => {
+    throw new Error("boom");
+  };
+  await expect(service.mark({ taskId: "t", agentId: "a1", token: nativeAttentionToken(agent)! }, paseo)).resolves.toBeTruthy();
+  expect((await reads.read()).receipts).toHaveLength(1);
+});

@@ -293,3 +293,11 @@ describe("N need you from the agent list", () => {
     expect(needsStartAction(waits, stepAt(queue, "b"), "needs", queue, "b", true)).toEqual({ kind: "card", taskId: "b", keep: true });
   });
 });
+
+test("after a card's session is read, the updated count equals the cards still unread or changed", () => {
+  const change = (ids: string[]) => ({ kind: "change", cards: ids.map((id) => ({ taskId: id, projectId: "p" })) }) as unknown as ChangeItem;
+  const unreadCard = (id: string) => card(id, "p", 1, [{ key: `u:${id}:1` }]);
+  // Before: a and b changed (a also unread); the user reads a, so it leaves both sources.
+  expect(updatedQueue(change(["a", "b"]), [unreadCard("a")], new Set(), all)).toEqual(["a", "b"]);
+  expect(updatedQueue(change(["b"]), [], new Set(), all)).toEqual(["b"]);
+});

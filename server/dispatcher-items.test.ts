@@ -348,3 +348,24 @@ test("a card the dispatcher started at the user's request: its start-up is no ne
   // Without the dispatcher's request, the same start-up counts.
   expect(cardsOf(changeLine(b, mark(T0), ["someone-else"]))[0].events).toBe(5);
 });
+
+test("reading a card's session marks only that card seen in its group's change line", async () => {
+  const dir = await directory();
+  const now = { value: T0 + 60_000 };
+  const dispatcher = groupDispatcher(dir, () => now.value);
+  await dispatcher.markSeen("g1", T0);
+  const b = board();
+  b.events.push(event("t1", T0 + 1_000), event("t2", T0 + 2_000));
+  const cards = async () => cardsOf(changeLine(b, seenMark((await dispatcher.record()).groups.g1))).map((c) => c.taskId);
+  expect(await cards()).toEqual(["t2", "t1"]);
+  await dispatcher.cardRead("g1", "t1");
+  expect(await cards()).toEqual(["t2"]);
+  expect((await dispatcher.record()).groups.g1.seenRevision).toBe(T0);
+  // A new event on the card after the read brings it back.
+  b.events.push(event("t1", T0 + 70_000));
+  now.value = T0 + 80_000;
+  expect(await cards()).toEqual(["t1", "t2"]);
+  // A group with no entry gets none.
+  await dispatcher.cardRead("g1-none", "t1").catch(() => undefined);
+  expect(Object.keys((await dispatcher.record()).groups)).toEqual(["g1"]);
+});
