@@ -1,5 +1,16 @@
 # Implementation progress
 
+## One live dispatcher per group (branch `kanban/one-live-dispatcher-per-group-archive-st-cc7cd8`) — 2026-11-17
+
+- Found: d1c2d8fb (Zenlytic group) was in that group's `previousAgentIds`, but Paseo still had it live (idle) for four days next to the current dispatcher. The Tooling dispatcher replaced at the same moment (2026-11-14, after charter versioning) was archived normally. Logs from then are gone. The likely path is a single-agent lookup that returned nothing for the live background session, which `isDeadDispatcher` reads as dead, so no archive. The 16 other "closed" ids the card listed were already archived (Paseo reports an archived session as `closed`).
+- `paseo archive <id>` (CLI 0.13.2) answers "Agent not found" for archived agents, as expected, and also for a live background-workspace agent: its id lookup skips background agents. That is a Paseo CLI bug and Flowly cannot fix it. The MCP `archive_agent` (and the SDK archive Flowly uses) works.
+- One-time cleanup: d1c2d8fb archived with `archive_agent` after checking it had no pending permissions and that all 11 cards it created were Done. One live dispatcher per group remains (0c05baf3 Tooling, 09bac1fc Zenlytic).
+- Contract: DISPATCHER-SPEC §1 (`pendingArchive`), §3 (the sweep after a start, retries, the amended archive paths), §10; AGENTS.md dispatcher invariant amended.
+- Server: `sweepGroup` runs after every successful create in `runStart` (Start and Replace). It uses `liveAgents` from `server/card-chats.ts` and archives only earlier recorded ids that carry this group's dispatcher labels and are no group's current session. Failures are logged and go to `pendingArchive`. `retryPendingArchives` runs from `status()`, on the start queue, throttled by `PENDING_ARCHIVE_RETRY_MS`.
+- Tests: 5 new tests in `server/dispatcher.test.ts`, written failing first (5 failed, 106 passed), then passing (111 passed).
+- Other stored ids: PaseoTray (`tray/Sources/DispatcherStore.swift`) finds dispatchers live by label, keeps the newest live one per group, and keys Quick Ask recents by group id, so it stores no dispatcher id and needs no change. No bot or plugin config and no Claude memory or rule stores a dispatcher id; only history (logs, summaries, notes) mentions old ids.
+- No tip, tour, What's new entry or telemetry field: this is internal behavior.
+
 ## Where a follow-up card branches from (branch `kanban/default-setting-for-where-follow-up-card-0887eb`) — 2026-11-16
 
 - Contract: START-CARD-SPEC §11 (rulings Noah 2026-11-16). `Project.followUpBase` (`parent` default, `base`, `ask`) with *Follow-ups branch from* in project settings (not for linked roots); `Task.branchedFrom`.
