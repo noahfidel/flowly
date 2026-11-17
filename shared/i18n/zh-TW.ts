@@ -1710,5 +1710,6 @@ const catalog: Catalog = {
   "Dropped a queued dispatcher message": "捨棄了一則排隊的調度器訊息",
   "Forward": "前進",
   "Back / forward through what you opened": "在開啟過的內容間返回 / 前進",
+  "Back / forward (Alt+← / Alt+→ on Windows and Linux)": "返回 / 前進(Windows 和 Linux 上為 Alt+← / Alt+→)",
 };
 export default catalog;

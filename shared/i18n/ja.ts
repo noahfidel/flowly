@@ -1710,5 +1710,6 @@ const catalog: Catalog = {
   "Dropped a queued dispatcher message": "保留中のディスパッチャーのメッセージを破棄しました",
   "Forward": "進む",
   "Back / forward through what you opened": "開いたものを戻る / 進む",
+  "Back / forward (Alt+← / Alt+→ on Windows and Linux)": "戻る / 進む (WindowsとLinuxではAlt+← / Alt+→)",
 };
 export default catalog;

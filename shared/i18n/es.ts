@@ -1710,5 +1710,6 @@ const catalog: Catalog = {
   "Dropped a queued dispatcher message": "Descartó un mensaje en cola del despachador",
   "Forward": "Adelante",
   "Back / forward through what you opened": "Atrás / adelante por lo que abriste",
+  "Back / forward (Alt+← / Alt+→ on Windows and Linux)": "Atrás / adelante (Alt+← / Alt+→ en Windows y Linux)",
 };
 export default catalog;

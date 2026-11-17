@@ -53,6 +53,7 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["⇧H", "⇧L"], title: msg("Move the open card to the left / right column") },
   { keys: ["E"], title: msg("Edit the open card") },
   { keys: ["⌘[", "⌘]"], title: msg("Back / forward through what you opened") },
+  { keys: ["⌘⌥←", "⌘⌥→"], title: msg("Back / forward (Alt+← / Alt+→ on Windows and Linux)") },
   { keys: ["←", "→"], title: msg("Previous / next agent question") },
   { keys: ["Esc"], title: msg("Close the dispatcher (when you last used it), then close the card sidebar, then leave a project page") },
   { keys: ["?"], title: msg("Show keyboard shortcuts") },
@@ -93,9 +94,11 @@ export function resolveShortcut(
   enabled: boolean,
 ): ShortcutAction | null {
   if (!enabled || event.repeat || event.isComposing) return null;
-  // ⌘[ / ⌘] (Ctrl on other systems): Back / Forward through what was opened (UI-REFRESH-SPEC §7ae). Other chords stay with the host.
+  // ⌘[ / ⌘] (Ctrl on other systems), ⌘⌥←/→ and Alt+←/→: Back / Forward through what was opened (UI-REFRESH-SPEC §7ae). Ctrl+arrows and Shift chords stay with the host.
   if (!!event.metaKey !== !!event.ctrlKey && !event.altKey && !event.shiftKey && (event.key === "[" || event.key === "]"))
     return event.key === "[" ? "history-back" : "history-forward";
+  if (event.altKey && !event.ctrlKey && !event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight"))
+    return event.key === "ArrowLeft" ? "history-back" : "history-forward";
   if (event.metaKey || event.ctrlKey || event.altKey) return null;
   const key = event.key;
   if (key === "Escape") return "escape";

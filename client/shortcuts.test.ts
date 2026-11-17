@@ -10,6 +10,7 @@ import {
   taskGrid,
   adjacentStatus,
 } from "./shortcuts";
+import { stepQuestion } from "../shared/permission-question";
 
 describe("board shortcut keys", () => {
   test("maps letters case-insensitively and punctuation keys", () => {
@@ -74,6 +75,35 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "[", metaKey: true, repeat: true }, true)).toBeNull();
     expect(resolveShortcut({ key: "]", metaKey: true }, false)).toBeNull();
     expect(shortcutHelp.some((row) => row.keys.join(" ") === "⌘[ ⌘]" && row.title === "Back / forward through what you opened")).toBe(true);
+  });
+  test("⌘⌥←/→ and Alt+←/→ walk back and forward; Ctrl, Shift and bare arrows stay with the host", () => {
+    expect(resolveShortcut({ key: "ArrowLeft", metaKey: true, altKey: true }, true)).toBe("history-back");
+    expect(resolveShortcut({ key: "ArrowRight", metaKey: true, altKey: true }, true)).toBe("history-forward");
+    expect(resolveShortcut({ key: "ArrowLeft", altKey: true }, true)).toBe("history-back");
+    expect(resolveShortcut({ key: "ArrowRight", altKey: true }, true)).toBe("history-forward");
+    expect(resolveShortcut({ key: "ArrowLeft" }, true)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowRight" }, true)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowLeft", ctrlKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowLeft", ctrlKey: true, altKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowRight", shiftKey: true, altKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowLeft", metaKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowLeft", altKey: true, repeat: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowLeft", altKey: true }, false)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowUp", altKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowDown", altKey: true }, true)).toBeNull();
+    expect(shortcutHelp.some((row) => row.keys.join(" ") === "⌘⌥← ⌘⌥→" && row.title === "Back / forward (Alt+← / Alt+→ on Windows and Linux)")).toBe(true);
+  });
+  test("no shortcut collides with the agent-question arrows", () => {
+    const keys = shortcutHelp.flatMap((row) => row.keys);
+    expect(new Set(keys).size).toBe(keys.length);
+    const titles = shortcutHelp.map((row) => row.title);
+    expect(new Set(titles).size).toBe(titles.length);
+    for (const key of ["ArrowLeft", "ArrowRight"]) {
+      expect(stepQuestion({ key, altKey: true }, 1, 3)).toBeNull();
+      expect(stepQuestion({ key, metaKey: true, altKey: true }, 1, 3)).toBeNull();
+    }
+    expect(stepQuestion({ key: "ArrowLeft" }, 1, 3)).toBe(0);
+    expect(stepQuestion({ key: "ArrowRight" }, 1, 3)).toBe(2);
   });
   test("is inert while blocked, repeating or composing", () => {
     expect(resolveShortcut({ key: "n" }, false)).toBeNull();
