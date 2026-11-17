@@ -1709,7 +1709,6 @@ const catalog: Catalog = {
   "The message waits for the session's other requests": "메시지는 세션의 다른 요청이 끝날 때까지 기다립니다",
   "Dropped a queued dispatcher message": "대기 중인 디스패처 메시지를 버림",
   "Forward": "앞으로",
-  "Back / forward through what you opened": "연 항목 사이에서 뒤로 / 앞으로",
   "Back / forward (Alt+← / Alt+→ on Windows and Linux)": "뒤로 / 앞으로 (Windows와 Linux에서는 Alt+← / Alt+→)",
 };
 export default catalog;

@@ -157,6 +157,8 @@ import {
   shortcutsBlocked,
   taskGrid,
   adjacentStatus,
+  historyKeyHint,
+  isApplePlatform,
   type ShortcutAction,
   type BoardIntent,
 } from "./shortcuts";
@@ -172,6 +174,9 @@ import { parentOf } from "../shared/subagents";
 import { reviewLabel } from "./task-review";
 import { visibleReview } from "../shared/auto-review";
 import { planApproved, planOf, withoutPlan } from "../shared/plans";
+
+// Option (⌥) on Apple keyboards, Alt elsewhere; read once, never throws (navigator is feature-detected).
+const appleKeys = isApplePlatform((globalThis as { navigator?: { platform?: string; userAgent?: string } }).navigator);
 
 /** One-time tip texts (ONBOARDING-SPEC §5). */
 const tipText: Record<TipId, (compact?: boolean) => string> = {
@@ -2263,8 +2268,8 @@ function BoardContent(
           >
             {/* Back / Forward through what was opened (UI-REFRESH-SPEC §7ae); the step-through keeps its own Next/Previous. */}
             <View style={{ flexDirection: "row" }}>
-              <IconButton icon="ArrowLeft" label={withKey(t("Back"), "⌘[ · ⌥←")} disabled={!nav.canBack} onPress={nav.back} />
-              <IconButton icon="ArrowRight" label={withKey(t("Forward"), "⌘] · ⌥→")} disabled={!nav.canForward} onPress={nav.forward} />
+              <IconButton icon="ArrowLeft" label={withKey(t("Back"), historyKeyHint("back", appleKeys))} disabled={!nav.canBack} onPress={nav.back} />
+              <IconButton icon="ArrowRight" label={withKey(t("Forward"), historyKeyHint("forward", appleKeys))} disabled={!nav.canForward} onPress={nav.forward} />
             </View>
             {/* board-groups 3/7: group tabs; phones (and a board with no group yet) show the shown group's switcher. */}
             {compact || boardGroups.length === 0 ? (

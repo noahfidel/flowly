@@ -9,6 +9,8 @@ import {
   shortcutHelp,
   taskGrid,
   adjacentStatus,
+  historyKeyHint,
+  isApplePlatform,
 } from "./shortcuts";
 import { stepQuestion } from "../shared/permission-question";
 
@@ -62,19 +64,27 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "ArrowDown" }, true)).toBeNull();
     expect(resolveShortcut({ key: "Enter" }, true)).toBeNull();
   });
-  test("⌘[ / ⌘] (Ctrl on other systems) walk back and forward through what was opened", () => {
-    expect(resolveShortcut({ key: "[", metaKey: true }, true)).toBe("history-back");
-    expect(resolveShortcut({ key: "]", metaKey: true }, true)).toBe("history-forward");
-    expect(resolveShortcut({ key: "[", ctrlKey: true }, true)).toBe("history-back");
-    expect(resolveShortcut({ key: "]", ctrlKey: true }, true)).toBe("history-forward");
-    // Plain brackets, other chords, repeats and blocked boards stay with the host.
-    expect(resolveShortcut({ key: "[" }, true)).toBeNull();
-    expect(resolveShortcut({ key: "[", metaKey: true, altKey: true }, true)).toBeNull();
-    expect(resolveShortcut({ key: "[", metaKey: true, shiftKey: true }, true)).toBeNull();
-    expect(resolveShortcut({ key: "[", metaKey: true, ctrlKey: true }, true)).toBeNull();
-    expect(resolveShortcut({ key: "[", metaKey: true, repeat: true }, true)).toBeNull();
-    expect(resolveShortcut({ key: "]", metaKey: true }, false)).toBeNull();
-    expect(shortcutHelp.some((row) => row.keys.join(" ") === "⌘[ ⌘]" && row.title === "Back / forward through what you opened")).toBe(true);
+  test("⌘[ / ⌘] (and Ctrl+[ / Ctrl+]) stay with the host: they clash with Paseo's own shortcuts", () => {
+    for (const key of ["[", "]"]) {
+      expect(resolveShortcut({ key, metaKey: true }, true)).toBeNull();
+      expect(resolveShortcut({ key, ctrlKey: true }, true)).toBeNull();
+      expect(resolveShortcut({ key }, true)).toBeNull();
+      expect(resolveShortcut({ key, metaKey: true, altKey: true }, true)).toBeNull();
+      expect(resolveShortcut({ key, metaKey: true, shiftKey: true }, true)).toBeNull();
+    }
+    expect(shortcutHelp.some((row) => row.keys.some((k) => k.includes("[") || k.includes("]")))).toBe(false);
+  });
+  test("the Back / Forward button hints name only Option (mac) or Alt (other systems) + arrows", () => {
+    expect(historyKeyHint("back", true)).toBe("⌥←");
+    expect(historyKeyHint("forward", true)).toBe("⌥→");
+    expect(historyKeyHint("back", false)).toBe("Alt+←");
+    expect(historyKeyHint("forward", false)).toBe("Alt+→");
+    expect(isApplePlatform({ platform: "MacIntel" })).toBe(true);
+    expect(isApplePlatform({ platform: "iPad" })).toBe(true);
+    expect(isApplePlatform({ platform: "Win32" })).toBe(false);
+    expect(isApplePlatform({ platform: "Linux x86_64" })).toBe(false);
+    expect(isApplePlatform({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" })).toBe(true);
+    expect(isApplePlatform(undefined)).toBe(true);
   });
   test("⌥←/→ (Alt) walk back and forward; ⌘, Ctrl, Shift and bare arrows stay with the host", () => {
     expect(resolveShortcut({ key: "ArrowLeft", metaKey: true, altKey: true }, true)).toBeNull();

@@ -52,7 +52,6 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["H", "L"], title: msg("Card in left / right column") },
   { keys: ["⇧H", "⇧L"], title: msg("Move the open card to the left / right column") },
   { keys: ["E"], title: msg("Edit the open card") },
-  { keys: ["⌘[", "⌘]"], title: msg("Back / forward through what you opened") },
   { keys: ["⌥←", "⌥→"], title: msg("Back / forward (Alt+← / Alt+→ on Windows and Linux)") },
   { keys: ["←", "→"], title: msg("Previous / next agent question") },
   { keys: ["Esc"], title: msg("Close the dispatcher (when you last used it), then close the card sidebar, then leave a project page") },
@@ -89,14 +88,25 @@ export interface ShortcutKey {
   isComposing?: boolean;
 }
 
+/** Apple keyboards name the key Option (⌥); others say Alt. Unknown platforms keep the mac glyphs the help list uses. */
+export function isApplePlatform(nav: { platform?: string; userAgent?: string } | undefined): boolean {
+  const text = nav?.platform || nav?.userAgent || "";
+  return !text || /Mac|iPhone|iPad|iPod/i.test(text);
+}
+
+/** Key hint for the header Back / Forward buttons (SHORTCUTS-SPEC §2.1). */
+export function historyKeyHint(direction: "back" | "forward", apple: boolean): string {
+  const arrow = direction === "back" ? "←" : "→";
+  return apple ? `⌥${arrow}` : `Alt+${arrow}`;
+}
+
 export function resolveShortcut(
   event: ShortcutKey,
   enabled: boolean,
 ): ShortcutAction | null {
   if (!enabled || event.repeat || event.isComposing) return null;
-  // ⌘[ / ⌘] (Ctrl on other systems) and ⌥←/→ (Alt): Back / Forward through what was opened (UI-REFRESH-SPEC §7ae). Other chords stay with the host.
-  if (!!event.metaKey !== !!event.ctrlKey && !event.altKey && !event.shiftKey && (event.key === "[" || event.key === "]"))
-    return event.key === "[" ? "history-back" : "history-forward";
+  // ⌥←/→ (Alt): Back / Forward through what was opened (UI-REFRESH-SPEC §7ae). Other chords stay with the host;
+  // ⌘[ / ⌘] are Paseo's own shortcuts (user decision 2026-11-16).
   if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight"))
     return event.key === "ArrowLeft" ? "history-back" : "history-forward";
   if (event.metaKey || event.ctrlKey || event.altKey) return null;
