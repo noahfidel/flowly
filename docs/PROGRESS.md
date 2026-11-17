@@ -2049,7 +2049,7 @@ The repeated replay when cards are opened in succession is the visible cost of p
 - Onboarding: no tour copy or tip (familiar browser-style arrows in the header; the help list names the keys). Telemetry: no heartbeat field. What's new: none (not a release).
 
 ## 2026-11-16 Arrow keys for Back and Forward (branch `kanban/arrow-key-shortcuts-for-card-chat-back-a-20c010`)
-- User request: `⌘⌥←` / `⌘⌥→` (mac) and `Alt+←` / `Alt+→` (other systems; `Option+←` / `Option+→` alone on mac) also walk Back / Forward, like `⌘[` / `⌘]`. Ctrl+arrows and Shift chords are not accepted (macOS desktop switch, word move). SHORTCUTS-SPEC §2.1, UI-REFRESH-SPEC §7ae.
+- User request: `⌥←` / `⌥→` (`Alt+←` / `Alt+→` on other systems) also walk Back / Forward, like `⌘[` / `⌘]`. The first version used `⌘⌥←` / `⌘⌥→`; the user found it too hard to press and chose plain Option+arrows (2026-11-16), so `⌘⌥` is no longer accepted. Ctrl+arrows and Shift chords are not accepted (macOS desktop switch, word move). SHORTCUTS-SPEC §2.1, UI-REFRESH-SPEC §7ae.
 - Client: `resolveShortcut` in `client/shortcuts.ts`, a new help row, the header button labels name both combos, the new string is in all nine catalogs. The agent-question `←` / `→` handler (`stepQuestion`) already ignores `Alt`/`Meta`, so the two never both fire (tested).
 - Tests: `client/shortcuts.test.ts` (new combos, rejected chords, unique help keys and titles, no clash with `stepQuestion`). PASS: `npm run typecheck` exit 0; `npm test` exit 0 (226 files passed, 1 skipped; 2698 tests passed, 7 skipped), Node 26.
 - UNRUN: the keys in the real app on desktop. Onboarding: no tour copy or tip (same action as the existing keys; the help list names them). Telemetry: no heartbeat field. What's new: none.

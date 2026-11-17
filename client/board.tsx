@@ -2263,8 +2263,8 @@ function BoardContent(
           >
             {/* Back / Forward through what was opened (UI-REFRESH-SPEC §7ae); the step-through keeps its own Next/Previous. */}
             <View style={{ flexDirection: "row" }}>
-              <IconButton icon="ArrowLeft" label={withKey(t("Back"), "⌘[ · ⌘⌥←")} disabled={!nav.canBack} onPress={nav.back} />
-              <IconButton icon="ArrowRight" label={withKey(t("Forward"), "⌘] · ⌘⌥→")} disabled={!nav.canForward} onPress={nav.forward} />
+              <IconButton icon="ArrowLeft" label={withKey(t("Back"), "⌘[ · ⌥←")} disabled={!nav.canBack} onPress={nav.back} />
+              <IconButton icon="ArrowRight" label={withKey(t("Forward"), "⌘] · ⌥→")} disabled={!nav.canForward} onPress={nav.forward} />
             </View>
             {/* board-groups 3/7: group tabs; phones (and a board with no group yet) show the shown group's switcher. */}
             {compact || boardGroups.length === 0 ? (
