@@ -46,6 +46,7 @@ type Agent = {
   archivedAt: string | null;
   lastUsage?: { contextWindowUsedTokens?: number; contextWindowMaxTokens?: number };
   pendingPermissions?: unknown[];
+  labels?: Record<string, string>;
 };
 
 /** A fake Paseo that records workspace creations, archives, agent creations and sends. */
@@ -59,6 +60,11 @@ function fakePaseo() {
   let createError: Error | null = null;
   let sendError: Error | null = null;
   let agentCreateError: Error | null = null;
+  /** Agents `ref(id).refresh()` misses while `list` still returns them live (a background-workspace lookup miss). */
+  const hidden = new Set<string>();
+  const archiveErrors = new Map<string, Error>();
+  const lists: { filter: unknown }[] = [];
+  let pageSize = 200;
   const paseo = {
     workspaces: {
       create: async (request: Record<string, unknown>) => {
@@ -83,16 +89,26 @@ function fakePaseo() {
             agentCreates.push({ workspaceId: id, options });
             if (agentCreateError) throw agentCreateError;
             const agentId = options.agentId as string;
-            agents.set(agentId, { id: agentId, workspaceId: id, status: "running", archivedAt: null });
+            agents.set(agentId, { id: agentId, workspaceId: id, status: "running", archivedAt: null, labels: options.labels as Record<string, string> | undefined });
             return { id: agentId };
           },
         },
       }),
     },
     agents: {
+      list: async ({ filter, page }: { filter: { includeArchived?: boolean; includeBackground?: boolean }; page: { limit: number; cursor?: string } }) => {
+        lists.push({ filter });
+        const all = [...agents.values()].filter((a) => filter.includeArchived || !a.archivedAt);
+        const start = page.cursor ? Number(page.cursor) : 0;
+        const end = start + Math.min(page.limit, pageSize);
+        return {
+          entries: all.slice(start, end).map((a) => ({ agent: { ...a, labels: { ...(a.labels ?? {}) } }, project: null })),
+          pageInfo: { nextCursor: end < all.length ? String(end) : null, prevCursor: null, hasMore: end < all.length },
+        };
+      },
       ref: (id: string) => ({
         refresh: async () => {
-          const agent = agents.get(id);
+          const agent = hidden.has(id) ? undefined : agents.get(id);
           return agent ? { agent: { ...agent } } : null;
         },
         send: async (text: string, options?: unknown) => {
@@ -100,6 +116,8 @@ function fakePaseo() {
           sends.push({ id, text, options });
         },
         archive: async () => {
+          const failure = archiveErrors.get(id);
+          if (failure) throw failure;
           archived.push(`agent:${id}`);
           const agent = agents.get(id);
           if (agent) agent.archivedAt = "now";
@@ -119,6 +137,10 @@ function fakePaseo() {
     failCreate: (e: Error | null) => (createError = e),
     failAgentCreate: (e: Error | null) => (agentCreateError = e),
     failSend: (e: Error | null) => (sendError = e),
+    hidden,
+    lists,
+    failArchive: (id: string, e: Error | null) => (e ? archiveErrors.set(id, e) : archiveErrors.delete(id)),
+    pageSize: (n: number) => (pageSize = n),
   };
 }
 
@@ -2500,4 +2522,144 @@ test("changing the dispatcher's permission mode from the chat keeps it guarded a
   expect(await readFile(join(x.directory, "dispatcher.json"), "utf8")).toBe(before);
   await x.dispatcher.send(x.paseo, { text: "hi", messageId: "m1" });
   expect(x.sends.map((s) => s.text)).toContain("hi");
+});
+
+/** One live dispatcher per group: the record and agents the sweep tests share (G's stored session `stale`, H's `h-live`). */
+async function leakedDispatchers() {
+  const x = await setup();
+  x.state.board = twoGroupBoard();
+  const entry = (agentId: string, previousAgentIds: string[]) => ({
+    agentId,
+    startedAt: T,
+    workspaceId: "dw-0",
+    previousAgentIds,
+    savedTools: [...dispatcherToolNames],
+    guard: { version: dispatcherGuardVersion, provider: "claude" },
+    charter: dispatcherCharterVersion,
+  });
+  const record = {
+    version: 2,
+    workspaceId: "dw-0",
+    groups: { [G]: entry("stale", ["older", "gone"]), [H]: entry("h-live", ["h-old"]) },
+    previousAgentIds: ["ancient"],
+  };
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify(record));
+  const live = (id: string, labels?: Record<string, string>, workspaceId = "dw-0") => x.agents.set(id, { id, workspaceId, status: "idle", archivedAt: null, ...(labels ? { labels } : {}) });
+  const ofGroup = (groupId: string) => ({ "flowly-dispatcher": "1", "flowly-dispatcher-group": groupId });
+  // G's stored session is live, but Paseo's lookup misses it, so Flowly reads it as dead (the reported leak).
+  live("stale", ofGroup(G));
+  x.hidden.add("stale");
+  live("older", ofGroup(G));
+  live("ancient", ofGroup(G));
+  // An archived earlier one is not listed.
+  x.agents.set("gone", { id: "gone", workspaceId: "dw-0", status: "idle", archivedAt: T, labels: ofGroup(G) });
+  // Never archived: an unrecorded session with the same labels, another group's sessions, a card session.
+  live("rogue", ofGroup(G));
+  live("h-live", ofGroup(H));
+  live("h-old", ofGroup(H));
+  live("card-session", undefined, "w-a");
+  // Every page holds one agent, so the sweep must follow the cursor.
+  x.pageSize(1);
+  return x;
+}
+const liveIds = (x: { agents: Map<string, Agent> }, groupId: string) =>
+  [...x.agents.values()].filter((a) => !a.archivedAt && a.labels?.["flowly-dispatcher-group"] === groupId).map((a) => a.id).sort();
+
+test("a start archives every older recorded dispatcher of its group that Paseo still lists live, and nothing else", async () => {
+  const x = await leakedDispatchers();
+  const { agentId } = await x.hub.start(x.paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
+  expect(x.archived.sort()).toEqual(["agent:ancient", "agent:older", "agent:stale"]);
+  expect(liveIds(x, G)).toEqual(["rogue", agentId].sort());
+  expect(liveIds(x, H)).toEqual(["h-live", "h-old"]);
+  expect(x.agents.get("card-session")!.archivedAt).toBeNull();
+  // The listing covers background workspaces and leaves archived sessions out.
+  expect(x.lists[0].filter).toEqual({ includeArchived: false, includeBackground: true });
+  const record = await readRaw(x);
+  expect(record.groups[G]).toMatchObject({ agentId, previousAgentIds: ["older", "gone", "stale"] });
+  expect(record.groups[G]).not.toHaveProperty("pendingArchive");
+  // No workspace is archived.
+  expect(x.archived.some((a) => !a.startsWith("agent:"))).toBe(false);
+});
+
+test("after Replace no older recorded dispatcher of the group stays live", async () => {
+  const x = await leakedDispatchers();
+  // The stored one is old enough to be replaced, and Paseo finds it.
+  x.hidden.delete("stale");
+  const raw = await readRaw(x);
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ ...raw, groups: { ...raw.groups, [G]: { ...raw.groups[G], charter: 0 } } }));
+  x.hidden.add("older");
+  const { agentId } = await x.hub.replace(x.paseo, { groupId: G, agentId: "stale" });
+  expect(liveIds(x, G)).toEqual(["rogue", agentId].sort());
+  expect(liveIds(x, H)).toEqual(["h-live", "h-old"]);
+  // Replace's own archive still comes first, before the new session.
+  expect(x.archived[0]).toBe("agent:stale");
+});
+
+test("a failed archive of an earlier dispatcher keeps the new one, is logged and retried until Paseo archives it", async () => {
+  let now = Date.parse("2026-11-17T00:00:00.000Z");
+  const x = await leakedDispatchers();
+  // A hub with a clock the test moves.
+  const hub = new Dispatcher(x.directory, { summary: async () => "Board summary", mcp: async () => ({ type: "http", url: "http://127.0.0.1:1/mcp", headers: {} }), board: async () => x.state.board, now: () => now }, x.folder);
+  dispatchers.push(hub);
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  x.failArchive("stale", new Error("Agent not found"));
+  const { agentId } = await hub.start(x.paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
+  expect(x.archived.sort()).toEqual(["agent:ancient", "agent:older"]);
+  let record = await readRaw(x);
+  expect(record.groups[G]).toMatchObject({ agentId, pendingArchive: ["stale"] });
+  expect(errors.mock.calls.some((c) => c[0] === "Flowly dispatcher earlier session not archived:" && String(c[1]).includes("stale"))).toBe(true);
+  // Its notes and changes are still not news: the id stays recorded.
+  expect(hub.allAgentIds()).toContain("stale");
+  // A status read retries; while Paseo still refuses, the id stays.
+  await hub.status(x.paseo, G);
+  await vi.waitFor(() => expect(errors.mock.calls.filter((c) => c[0] === "Flowly dispatcher earlier session not archived:")).toHaveLength(2));
+  await hub.retryPendingArchives(x.paseo, G);
+  expect((await readRaw(x)).groups[G].pendingArchive).toEqual(["stale"]);
+  // Reads within the retry window do not list again.
+  const lists = x.lists.length;
+  await hub.status(x.paseo, G);
+  await hub.retryPendingArchives(x.paseo, G);
+  expect(x.lists.length).toBe(lists);
+  // Once Paseo archives it, the next retry clears it.
+  x.failArchive("stale", null);
+  now += 61_000;
+  await hub.status(x.paseo, G);
+  await vi.waitFor(async () => expect((await readRaw(x)).groups[G]).not.toHaveProperty("pendingArchive"));
+  expect(x.archived).toContain("agent:stale");
+  expect(liveIds(x, G)).toEqual(["rogue", agentId].sort());
+  record = await readRaw(x);
+  expect(record.groups[G].agentId).toBe(agentId);
+});
+
+test("a pending archive Paseo no longer lists live is cleared without archiving; the next start retries the rest", async () => {
+  const x = await leakedDispatchers();
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  x.failArchive("stale", new Error("boom"));
+  x.failArchive("older", new Error("boom"));
+  const first = await x.hub.start(x.paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
+  expect((await readRaw(x)).groups[G].pendingArchive?.sort()).toEqual(["older", "stale"]);
+  // Archived by someone else meanwhile: cleared, not archived again.
+  x.agents.get("older")!.archivedAt = T;
+  // The current one ends; the next start sweeps again and archives the one still pending.
+  x.agents.get(first.agentId)!.archivedAt = T;
+  x.failArchive("stale", null);
+  const archivedBefore = x.archived.length;
+  const second = await x.hub.start(x.paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
+  expect(x.archived.slice(archivedBefore)).toEqual(["agent:stale"]);
+  const record = await readRaw(x);
+  expect(record.groups[G].agentId).toBe(second.agentId);
+  expect(record.groups[G]).not.toHaveProperty("pendingArchive");
+});
+
+test("a listing that fails after a start keeps the new dispatcher and leaves the group's earlier ids to retry", async () => {
+  const x = await leakedDispatchers();
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const paseo = { ...x.paseo, agents: { ...x.paseo.agents, list: async () => { throw new Error("list down"); } } } as unknown as PaseoApi;
+  const { agentId } = await x.hub.start(paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
+  expect(errors.mock.calls.some((c) => c[0] === "Flowly dispatcher earlier sessions not listed:")).toBe(true);
+  expect((await readRaw(x)).groups[G]).toMatchObject({ agentId, pendingArchive: ["older", "gone", "stale"] });
+  // The retry with a working listing archives the live ones and clears the rest.
+  await x.hub.retryPendingArchives(x.paseo, G);
+  expect(liveIds(x, G)).toEqual(["rogue", agentId].sort());
+  expect((await readRaw(x)).groups[G]).not.toHaveProperty("pendingArchive");
 });

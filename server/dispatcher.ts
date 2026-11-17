@@ -33,6 +33,7 @@ import type { Board, Group, GroupRemoval } from "../shared/model";
 import { effectiveDispatcherModel, type AgentModel } from "../shared/agent-defaults";
 import type { OutgoingImage } from "../shared/composer";
 import { createDirectoryWorkspace } from "./background-workspace";
+import { liveAgents } from "./card-chats";
 import { logFailure } from "./error-report";
 import { EventBus, NoteBatcher, isStop, type BusFact } from "./event-bus";
 import type { DispatcherIdentity } from "./tool-context";
@@ -92,6 +93,8 @@ async function projectedPath(path: string): Promise<string | null> {
 export const previousAgentIdLimit = 20;
 /** How many earlier dispatcher session ids the record's global list keeps (§0: overflow and deleted groups' ids). */
 export const globalPreviousAgentIdLimit = 100;
+/** At most one retry of a group's pending archives per this long, from status reads (§3). */
+export const PENDING_ARCHIVE_RETRY_MS = 60_000;
 /** How many cards' own seen marks a group's entry keeps (§9.2). */
 export const seenCardLimit = 200;
 
@@ -125,6 +128,11 @@ const entrySchema = z.strictObject({
    * Absent in entries written before it was kept: those use the record's `workspaceId` (`entryWorkspace`).
    */
   workspaceId: z.string().min(1).optional(),
+  /**
+   * Earlier dispatcher sessions of this group that Paseo still listed live and did not archive when a new one started
+   * (§3): retried at the next start and on a status read, removed once archived or no longer listed live.
+   */
+  pendingArchive: z.array(sessionId).max(previousAgentIdLimit).optional(),
 });
 export type DispatcherEntry = z.infer<typeof entrySchema>;
 /** The single-dispatcher record (v1); still read, never written again. */
@@ -229,7 +237,7 @@ export function recordAgentIds(record: DispatcherRecord): string[] {
   const ids = [...(record.previousAgentIds ?? [])];
   const add = (entry: DispatcherEntry | undefined) => {
     if (!entry) return;
-    ids.push(...(entry.previousAgentIds ?? []));
+    ids.push(...(entry.previousAgentIds ?? []), ...(entry.pendingArchive ?? []));
     if (entry.agentId) ids.push(entry.agentId);
   };
   for (const entry of Object.values(record.groups)) add(entry);
@@ -242,7 +250,7 @@ export function withoutGroup(record: DispatcherRecord, groupId: string): Dispatc
   const entry = record.groups[groupId];
   if (!entry) return record;
   const { [groupId]: _, ...groups } = record.groups;
-  const ids = [...(entry.previousAgentIds ?? []), ...(entry.agentId ? [entry.agentId] : [])];
+  const ids = [...new Set([...(entry.previousAgentIds ?? []), ...(entry.pendingArchive ?? []), ...(entry.agentId ? [entry.agentId] : [])])];
   return { ...record, groups, ...(ids.length ? { previousAgentIds: appendGlobal(record.previousAgentIds, ids) } : {}) };
 }
 
@@ -556,6 +564,8 @@ export class Dispatcher {
    * read on the board again (a restore brought it back) leaves the set (`boardGroup`).
    */
   private readonly forgotten = new Set<string>();
+  /** When each group's pending archives were last retried from a status read (`PENDING_ARCHIVE_RETRY_MS`). */
+  private readonly archiveRetries = new Map<string, number>();
   private disposed = false;
   /** The host's Dispatcher model setting (plan Q6); null falls back to `dispatcherDefaultModel`. Set by the plugin entry. */
   modelSetting: () => Promise<AgentModel | null> = async () => null;
@@ -676,6 +686,9 @@ export class Dispatcher {
     const unguarded = live && !guarded(entry);
     // Its charter is fixed at create too: say so when this build's is newer (§3).
     const outdated = live && oldCharter(entry);
+    // A read is the chance to retry the archive of earlier sessions a start left live (§3), at most once a minute.
+    if (entry.pendingArchive?.length && !this.disposed)
+      void this.retryPendingArchives(paseo, groupId).catch((e) => logFailure("Flowly dispatcher pending archives not retried:", e, groupId));
     // A read that sees it idle is a chance to deliver what is held (§7).
     const group = this.perGroup.get(groupId);
     if (state === "idle" && group?.held.size && !this.disposed) group.kick(paseo);
@@ -698,7 +711,8 @@ export class Dispatcher {
    * Replace dispatcher (§3, ruling Noah 2026-11-09): the user's confirmed click on a group's unguarded dispatcher, or
    * on one that misses this build's tools or started with an older charter. Archives exactly that session (the group's stored one, by the id the user
    * saw), then starts a new guarded one as Start does. Refused for a dispatcher current on guard, tools and charter, or when the
-   * group's stored one is not the id given. With `deleteGroup`, the only ways Flowly archives a dispatcher.
+   * group's stored one is not the id given. With `deleteGroup` and the sweep after every start (`sweepGroup`, which
+   * archives only the group's earlier recorded sessions Paseo still lists live), the only ways Flowly archives a dispatcher.
    */
   replace(paseo: PaseoApi, raw: { groupId: string; agentId: string }): Promise<{ agentId: string }> {
     const { groupId, agentId } = dispatcherReplaceInputSchema.parse(raw);
@@ -749,7 +763,8 @@ export class Dispatcher {
    * server and board summary come first; then the old session is archived (a failed archive starts nothing), and only
    * then is the new session stored and created. A crash or failed save after the archive leaves the record naming the
    * archived session: ended, never a live session Flowly no longer tracks. A group deleted meanwhile gets nothing
-   * stored, and a session made for it is archived.
+   * stored, and a session made for it is archived. Once the new session is created, the group's earlier recorded
+   * sessions Paseo still lists live are archived (`sweepGroup`); that never fails the start.
    */
   private async run(paseo: PaseoApi, group: Group, input: { provider: string; modeId?: string; thinking?: string }, replacing?: string) {
     this.running.set(group.id, (this.running.get(group.id) ?? 0) + 1);
@@ -808,6 +823,8 @@ export class Dispatcher {
       for (const [taskId, held] of covered) if (notes.held.get(taskId) === held) notes.held.delete(taskId);
       await this.create(paseo, { workspaceId, group, agentId, mcp, summary, input, previous, previousGlobal: before.previousAgentIds, replaced: !!replacing });
       await this.lateStart(paseo, groupId, agentId);
+      // One live dispatcher per group (§3): a lookup that missed an earlier session (read as dead) must not leave it live.
+      await this.sweepGroup(paseo, groupId);
     } finally {
       notes.starting = null;
       // Notes held meanwhile go out by the dispatcher's state now (the new one, or the one a refused start kept).
@@ -844,6 +861,76 @@ export class Dispatcher {
     if (!isDeadDispatcher((await paseo.agents.ref(agentId).refresh())?.agent)) throw dispatcherRunning();
   }
 
+  /**
+   * Retries the archive of a group's pending earlier sessions (§3), on the start queue, at most once per
+   * `PENDING_ARCHIVE_RETRY_MS`; nothing when none is pending.
+   */
+  retryPendingArchives(paseo: PaseoApi, groupId: string): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    const at = this.now();
+    const last = this.archiveRetries.get(groupId);
+    if (last !== undefined && at - last < PENDING_ARCHIVE_RETRY_MS) return Promise.resolve();
+    this.archiveRetries.set(groupId, at);
+    return this.queued(async () => {
+      if (this.disposed || !(await this.record()).groups[groupId]?.pendingArchive?.length) return;
+      await this.sweepGroup(paseo, groupId);
+    });
+  }
+
+  /**
+   * One live dispatcher per group (§3): archives every session Paseo lists live (background workspaces included) that
+   * is one of this group's earlier recorded dispatcher sessions (its earlier or pending ids, or the record's global
+   * ones), carries the dispatcher labels of this group, and is no group's current session. Never an unrecorded
+   * session, a card's, another group's or a workspace. Archives that fail are logged and kept in the entry's
+   * `pendingArchive`; a listing that fails keeps the group's earlier ids there. Runs on the start queue; never throws
+   * for Paseo's failures.
+   */
+  private async sweepGroup(paseo: PaseoApi, groupId: string) {
+    const record = await this.record();
+    const entry = record.groups[groupId];
+    if (!entry) return;
+    const current = new Set([...Object.values(record.groups), ...(record.unassigned ? [record.unassigned] : [])].flatMap((e) => (e.agentId ? [e.agentId] : [])));
+    const recorded = new Set([...(entry.previousAgentIds ?? []), ...(entry.pendingArchive ?? []), ...(record.previousAgentIds ?? [])].filter((id) => !current.has(id)));
+    if (!recorded.size) return this.savePending(groupId, []);
+    let live: Awaited<ReturnType<typeof liveAgents>>;
+    try {
+      live = await liveAgents(paseo);
+    } catch (e) {
+      logFailure("Flowly dispatcher earlier sessions not listed:", e, groupId);
+      return this.savePending(groupId, [...(entry.pendingArchive ?? []), ...(entry.previousAgentIds ?? [])]);
+    }
+    const failed: string[] = [];
+    for (const agent of live) {
+      if (!recorded.has(agent.id) || agent.archivedAt) continue;
+      const ref = paseo.agents.ref(agent.id);
+      // The listing carries labels; should one come without them, read the agent itself.
+      const labels = agent.labels ?? (await ref.refresh().catch(() => null))?.agent?.labels;
+      if (labels?.["flowly-dispatcher"] !== "1" || labels["flowly-dispatcher-group"] !== groupId) continue;
+      try {
+        await ref.archive();
+      } catch (e) {
+        logFailure("Flowly dispatcher earlier session not archived:", e, `${agent.id} group ${groupId}`);
+        failed.push(agent.id);
+      }
+    }
+    await this.savePending(groupId, failed);
+  }
+
+  /** Writes the group's `pendingArchive` as `ids` (never its current session; none removes the field), unless unchanged. */
+  private async savePending(groupId: string, ids: readonly string[]) {
+    const pending = (entry: DispatcherEntry) => [...new Set(ids)].filter((id) => id !== entry.agentId).slice(-previousAgentIdLimit);
+    const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
+    const entry = (await this.record()).groups[groupId];
+    if (!entry || same(entry.pendingArchive ?? [], pending(entry))) return;
+    await this.save((r) => {
+      const at = r.groups[groupId];
+      if (!at) return r;
+      const { pendingArchive: _, ...rest } = at;
+      const next = pending(at);
+      return { ...r, groups: { ...r.groups, [groupId]: next.length ? { ...rest, pendingArchive: next } : rest } };
+    });
+  }
+
   /** Replace's archive of exactly that session (unless already dead), before the record changes; a failure starts nothing. */
   private async archiveReplaced(paseo: PaseoApi, agentId: string) {
     const ref = paseo.agents.ref(agentId);
@@ -858,7 +945,8 @@ export class Dispatcher {
   /** Puts the group's earlier entry back (its session, marks and history) after a start that made no session. */
   private restore(groupId: string, workspaceId: string, previous: DispatcherEntry | undefined, previousGlobal: string[] | undefined) {
     return this.save((r) => {
-      const { previousAgentIds: _, savedTools: __, guard: ___, charter: _________, agentId: ____, startedAt: _____, workspaceId: ________, ...marks } = r.groups[groupId] ?? {};
+      const { previousAgentIds: _, savedTools: __, guard: ___, charter: _________, agentId: ____, startedAt: _____, workspaceId: ________, pendingArchive: pendingNow, ...marks } = r.groups[groupId] ?? {};
+      const pending = [...new Set([...(previous?.pendingArchive ?? []), ...(pendingNow ?? [])])].slice(-previousAgentIdLimit);
       const back: DispatcherEntry = {
         ...marks,
         agentId: previous?.agentId ?? null,
@@ -868,6 +956,7 @@ export class Dispatcher {
         ...(previous?.guard ? { guard: previous.guard } : {}),
         ...(previous?.charter !== undefined ? { charter: previous.charter } : {}),
         ...(previous?.previousAgentIds ? { previousAgentIds: previous.previousAgentIds } : {}),
+        ...(pending.length ? { pendingArchive: pending } : {}),
       };
       const { [groupId]: ______, ...others } = r.groups;
       const empty = !back.agentId && !back.startedAt && Object.keys(back).length === 2;
@@ -1298,7 +1387,8 @@ export class Dispatcher {
 
 /**
  * The record with `groupId`'s new session stored (§3): its tool marks replaced, the replaced session's id added to the
- * group's earlier ones (at most `previousAgentIdLimit`; older ones move to the global list), the seen mark kept.
+ * group's earlier ones (at most `previousAgentIdLimit`; older ones move to the global list), the seen mark and the
+ * pending archives kept.
  */
 function withSession(
   record: DispatcherRecord,
