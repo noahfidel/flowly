@@ -1,5 +1,14 @@
 # Implementation progress
 
+## Step-throughs keep their place (branch `kanban/fix-stepping-through-unread-cards-the-n-31f164`) — 2026-11-16
+
+- Audit of both step-throughs (only unread, only need-you, both, other groups, read or answered mid-walk, last card, archived/wrapped-up/Done cards, a card already open, chip count vs walk length, dispatcher waits, phone vs desktop, Previous, a new update mid-walk, repeated press) against DISPATCHER-SPEC §9.2/§9.4.
+- Defect: since 868b909 (reading a session marks its card seen), every card the unread walk visited left the walk once you moved on, so the bar stayed at "1 of N" with N shrinking and ‹ Previous card was always disabled. Fix: the walk keeps the cards it visited (`stableQueue` `visited`, 6e27865).
+- Ruling (Noah, 2026-11-16): the need-you walk holds its order like the unread walk; a card that newly needs you joins at the end, answered cards still drop out with "Answered" / Next card (`walkQueue`, 7278070).
+- By spec, not changed: "N need you" counts asks while its walk counts cards, so a card with three asks reads "3 need you" and "1 of 1".
+- Tests: `client/step-through.test.ts` (failing first: 1, then 4 of 30). Spec: DISPATCHER-SPEC §9.2 (walk order) and §9.4 (need-you order); the UI-REFRESH chip lines are unchanged.
+- No tip, tour, What's new entry or telemetry field (a bug fix).
+
 ## The overview chip counts only unread cards: "N updated" becomes "N unread" (branch `kanban/make-the-updated-chip-count-only-unread-a20fd8`) — 2026-11-16
 
 - Ruling (Noah, 2026-11-16, supersedes the 2026-11-09 "N updated" definitions and the per-card Mark seen button of 2026-11-12): status moves were noisy, so the chip counts only cards with an open unread turn (`updatedQueue(items, resolved, inScope)`, newest first; it respects snooze, wrap-up and the auto-review hold). A landed-done move, a lane move or a note with no unread turn no longer counts; a move that comes with an unread turn still does. "N need you" is unchanged.
