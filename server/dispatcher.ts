@@ -93,8 +93,12 @@ async function projectedPath(path: string): Promise<string | null> {
 export const previousAgentIdLimit = 20;
 /** How many earlier dispatcher session ids the record's global list keeps (§0: overflow and deleted groups' ids). */
 export const globalPreviousAgentIdLimit = 100;
-/** At most one retry of a group's pending archives per this long, from status reads (§3). */
+/**
+ * The first wait before a status read retries a group's pending archives (§3); it doubles after each sweep that leaves
+ * ids pending, up to `PENDING_ARCHIVE_RETRY_MAX_MS`, and resets once none is pending.
+ */
 export const PENDING_ARCHIVE_RETRY_MS = 60_000;
+export const PENDING_ARCHIVE_RETRY_MAX_MS = 3_600_000;
 /** How many cards' own seen marks a group's entry keeps (§9.2). */
 export const seenCardLimit = 200;
 
@@ -564,8 +568,12 @@ export class Dispatcher {
    * read on the board again (a restore brought it back) leaves the set (`boardGroup`).
    */
   private readonly forgotten = new Set<string>();
-  /** When each group's pending archives were last retried from a status read (`PENDING_ARCHIVE_RETRY_MS`). */
-  private readonly archiveRetries = new Map<string, number>();
+  /** Per group with ids pending after its last sweep: the earliest status-read retry and the current interval (§3). */
+  private readonly archiveRetries = new Map<string, { at: number; interval: number }>();
+  /** Groups with a status-read retry queued now, so polls do not pile up retries. */
+  private readonly retrying = new Set<string>();
+  /** The last error message logged per `<group> <session>` archive, so a repeated failure is logged once. */
+  private readonly archiveErrors = new Map<string, string>();
   private disposed = false;
   /** The host's Dispatcher model setting (plan Q6); null falls back to `dispatcherDefaultModel`. Set by the plugin entry. */
   modelSetting: () => Promise<AgentModel | null> = async () => null;
@@ -824,7 +832,8 @@ export class Dispatcher {
       await this.create(paseo, { workspaceId, group, agentId, mcp, summary, input, previous, previousGlobal: before.previousAgentIds, replaced: !!replacing });
       await this.lateStart(paseo, groupId, agentId);
       // One live dispatcher per group (§3): a lookup that missed an earlier session (read as dead) must not leave it live.
-      await this.sweepGroup(paseo, groupId);
+      // Never fails the start: the new session is stored and created (§3).
+      await this.sweepGroup(paseo, groupId).catch((e) => logFailure("Flowly dispatcher sweep failed:", e, groupId));
     } finally {
       notes.starting = null;
       // Notes held meanwhile go out by the dispatcher's state now (the new one, or the one a refused start kept).
@@ -862,19 +871,37 @@ export class Dispatcher {
   }
 
   /**
-   * Retries the archive of a group's pending earlier sessions (§3), on the start queue, at most once per
-   * `PENDING_ARCHIVE_RETRY_MS`; nothing when none is pending.
+   * Retries the archive of a group's pending earlier sessions (§3), on the start queue, once the group's retry interval
+   * since its last sweep has passed (`archiveRetries`; none recorded, as after a plugin load, retries now); nothing
+   * when none is pending. A sweep that fails outright counts as one that left ids pending.
    */
   retryPendingArchives(paseo: PaseoApi, groupId: string): Promise<void> {
-    if (this.disposed) return Promise.resolve();
-    const at = this.now();
-    const last = this.archiveRetries.get(groupId);
-    if (last !== undefined && at - last < PENDING_ARCHIVE_RETRY_MS) return Promise.resolve();
-    this.archiveRetries.set(groupId, at);
+    if (this.disposed || this.retrying.has(groupId)) return Promise.resolve();
+    const due = this.archiveRetries.get(groupId);
+    if (due && this.now() < due.at) return Promise.resolve();
+    this.retrying.add(groupId);
     return this.queued(async () => {
-      if (this.disposed || !(await this.record()).groups[groupId]?.pendingArchive?.length) return;
-      await this.sweepGroup(paseo, groupId);
+      try {
+        if (this.disposed || !(await this.record()).groups[groupId]?.pendingArchive?.length) return;
+        await this.sweepGroup(paseo, groupId).catch((e: unknown) => {
+          this.swept(groupId, true);
+          throw e;
+        });
+      } finally {
+        this.retrying.delete(groupId);
+      }
     });
+  }
+
+  /** After a sweep: ids left pending double the group's retry interval (capped); none resets it. */
+  private swept(groupId: string, pending: boolean) {
+    if (!pending) {
+      this.archiveRetries.delete(groupId);
+      return;
+    }
+    const last = this.archiveRetries.get(groupId);
+    const interval = last ? Math.min(last.interval * 2, PENDING_ARCHIVE_RETRY_MAX_MS) : PENDING_ARCHIVE_RETRY_MS;
+    this.archiveRetries.set(groupId, { at: this.now() + interval, interval });
   }
 
   /**
@@ -891,13 +918,21 @@ export class Dispatcher {
     if (!entry) return;
     const current = new Set([...Object.values(record.groups), ...(record.unassigned ? [record.unassigned] : [])].flatMap((e) => (e.agentId ? [e.agentId] : [])));
     const recorded = new Set([...(entry.previousAgentIds ?? []), ...(entry.pendingArchive ?? []), ...(record.previousAgentIds ?? [])].filter((id) => !current.has(id)));
-    if (!recorded.size) return this.savePending(groupId, []);
+    if (!recorded.size) {
+      this.swept(groupId, false);
+      return this.savePending(groupId, []);
+    }
     let live: Awaited<ReturnType<typeof liveAgents>>;
     try {
       live = await liveAgents(paseo);
     } catch (e) {
       logFailure("Flowly dispatcher earlier sessions not listed:", e, groupId);
-      return this.savePending(groupId, [...(entry.pendingArchive ?? []), ...(entry.previousAgentIds ?? [])]);
+      // The pending ids stay first; the group's earlier ids (newest first kept) only fill the room left under the cap.
+      const kept = [...new Set(entry.pendingArchive ?? [])];
+      const room = Math.max(0, previousAgentIdLimit - kept.length);
+      const added = (entry.previousAgentIds ?? []).filter((id) => !kept.includes(id) && id !== entry.agentId);
+      this.swept(groupId, true);
+      return this.savePending(groupId, [...kept, ...(room ? added.slice(-room) : [])]);
     }
     const failed: string[] = [];
     for (const agent of live) {
@@ -906,19 +941,26 @@ export class Dispatcher {
       // The listing carries labels; should one come without them, read the agent itself.
       const labels = agent.labels ?? (await ref.refresh().catch(() => null))?.agent?.labels;
       if (labels?.["flowly-dispatcher"] !== "1" || labels["flowly-dispatcher-group"] !== groupId) continue;
+      const key = `${groupId} ${agent.id}`;
       try {
         await ref.archive();
+        this.archiveErrors.delete(key);
       } catch (e) {
-        logFailure("Flowly dispatcher earlier session not archived:", e, `${agent.id} group ${groupId}`);
+        // Logged the first time, and again only when the error changes; the id stays pending either way.
+        const message = e instanceof Error ? e.message : String(e);
+        if (this.archiveErrors.get(key) !== message) logFailure("Flowly dispatcher earlier session not archived:", e, `${agent.id} group ${groupId}`);
+        this.archiveErrors.set(key, message);
         failed.push(agent.id);
       }
     }
+    for (const key of this.archiveErrors.keys()) if (key.startsWith(`${groupId} `) && !failed.includes(key.slice(groupId.length + 1))) this.archiveErrors.delete(key);
+    this.swept(groupId, failed.length > 0);
     await this.savePending(groupId, failed);
   }
 
   /** Writes the group's `pendingArchive` as `ids` (never its current session; none removes the field), unless unchanged. */
   private async savePending(groupId: string, ids: readonly string[]) {
-    const pending = (entry: DispatcherEntry) => [...new Set(ids)].filter((id) => id !== entry.agentId).slice(-previousAgentIdLimit);
+    const pending = (entry: DispatcherEntry) => [...new Set(ids)].filter((id) => id !== entry.agentId).slice(0, previousAgentIdLimit);
     const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
     const entry = (await this.record()).groups[groupId];
     if (!entry || same(entry.pendingArchive ?? [], pending(entry))) return;

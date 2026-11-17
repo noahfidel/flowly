@@ -9,7 +9,10 @@ import {
   dispatcherFolder,
   dispatcherSummary,
   globalPreviousAgentIdLimit,
+  PENDING_ARCHIVE_RETRY_MAX_MS,
+  PENDING_ARCHIVE_RETRY_MS,
   previousAgentIdLimit,
+  withoutGroup,
   type DispatcherMcpServer,
   type DispatcherRecord,
   dispatcherState,
@@ -2595,40 +2598,159 @@ test("after Replace no older recorded dispatcher of the group stays live", async
   expect(x.archived[0]).toBe("agent:stale");
 });
 
-test("a failed archive of an earlier dispatcher keeps the new one, is logged and retried until Paseo archives it", async () => {
-  let now = Date.parse("2026-11-17T00:00:00.000Z");
-  const x = await leakedDispatchers();
-  // A hub with a clock the test moves.
-  const hub = new Dispatcher(x.directory, { summary: async () => "Board summary", mcp: async () => ({ type: "http", url: "http://127.0.0.1:1/mcp", headers: {} }), board: async () => x.state.board, now: () => now }, x.folder);
+/** A hub over `x`'s folder with a clock the test moves. */
+function clockedHub(x: Awaited<ReturnType<typeof setup>>, clock: { now: number }) {
+  const hub = new Dispatcher(x.directory, { summary: async () => "Board summary", mcp: async () => ({ type: "http", url: "http://127.0.0.1:1/mcp", headers: {} }), board: async () => x.state.board, now: () => clock.now }, x.folder);
   dispatchers.push(hub);
+  return hub;
+}
+const notArchivedLogs = (errors: { mock: { calls: unknown[][] } }) => errors.mock.calls.filter((c) => c[0] === "Flowly dispatcher earlier session not archived:");
+
+test("a failed archive of an earlier dispatcher keeps the new one, is logged and retried until Paseo archives it", async () => {
+  const clock = { now: Date.parse("2026-11-17T00:00:00.000Z") };
+  const x = await leakedDispatchers();
+  const hub = clockedHub(x, clock);
   const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
   x.failArchive("stale", new Error("Agent not found"));
   const { agentId } = await hub.start(x.paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
   expect(x.archived.sort()).toEqual(["agent:ancient", "agent:older"]);
-  let record = await readRaw(x);
-  expect(record.groups[G]).toMatchObject({ agentId, pendingArchive: ["stale"] });
-  expect(errors.mock.calls.some((c) => c[0] === "Flowly dispatcher earlier session not archived:" && String(c[1]).includes("stale"))).toBe(true);
+  expect((await readRaw(x)).groups[G]).toMatchObject({ agentId, pendingArchive: ["stale"] });
+  expect(notArchivedLogs(errors).some((c) => String(c[1]).includes("stale"))).toBe(true);
   // Its notes and changes are still not news: the id stays recorded.
   expect(hub.allAgentIds()).toContain("stale");
-  // A status read retries; while Paseo still refuses, the id stays.
-  await hub.status(x.paseo, G);
-  await vi.waitFor(() => expect(errors.mock.calls.filter((c) => c[0] === "Flowly dispatcher earlier session not archived:")).toHaveLength(2));
-  await hub.retryPendingArchives(x.paseo, G);
-  expect((await readRaw(x)).groups[G].pendingArchive).toEqual(["stale"]);
-  // Reads within the retry window do not list again.
-  const lists = x.lists.length;
-  await hub.status(x.paseo, G);
-  await hub.retryPendingArchives(x.paseo, G);
-  expect(x.lists.length).toBe(lists);
-  // Once Paseo archives it, the next retry clears it.
+  // Once Paseo archives it, a status read after the retry interval clears it.
   x.failArchive("stale", null);
-  now += 61_000;
+  clock.now += PENDING_ARCHIVE_RETRY_MS;
   await hub.status(x.paseo, G);
   await vi.waitFor(async () => expect((await readRaw(x)).groups[G]).not.toHaveProperty("pendingArchive"));
   expect(x.archived).toContain("agent:stale");
   expect(liveIds(x, G)).toEqual(["rogue", agentId].sort());
-  record = await readRaw(x);
-  expect(record.groups[G].agentId).toBe(agentId);
+  expect((await readRaw(x)).groups[G].agentId).toBe(agentId);
+});
+
+test("pending archives are retried with a doubling interval capped at an hour, logged once per error, and reset once clear", async () => {
+  const clock = { now: Date.parse("2026-11-17T00:00:00.000Z") };
+  const x = await leakedDispatchers();
+  const hub = clockedHub(x, clock);
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  x.failArchive("stale", new Error("Agent not found"));
+  await hub.start(x.paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
+  expect(notArchivedLogs(errors)).toHaveLength(1);
+  const swept = async (advance: number) => {
+    const lists = x.lists.length;
+    clock.now += advance;
+    await hub.retryPendingArchives(x.paseo, G);
+    return x.lists.length > lists;
+  };
+  // The interval starts at PENDING_ARCHIVE_RETRY_MS after the start's sweep and doubles after each sweep that leaves ids pending.
+  let interval = PENDING_ARCHIVE_RETRY_MS;
+  for (let i = 0; i < 10; i++) {
+    expect(await swept(interval - 1), `before ${interval}`).toBe(false);
+    expect(await swept(1), `at ${interval}`).toBe(true);
+    interval = Math.min(interval * 2, PENDING_ARCHIVE_RETRY_MAX_MS);
+  }
+  expect(interval).toBe(PENDING_ARCHIVE_RETRY_MAX_MS);
+  // The same error is logged only once; the id stays pending.
+  expect(notArchivedLogs(errors)).toHaveLength(1);
+  expect((await readRaw(x)).groups[G].pendingArchive).toEqual(["stale"]);
+  // A status read within the interval does not list either.
+  const lists = x.lists.length;
+  await hub.status(x.paseo, G);
+  await hub.retryPendingArchives(x.paseo, G);
+  expect(x.lists.length).toBe(lists);
+  // A changed error is logged again, once.
+  x.failArchive("stale", new Error("timeout"));
+  expect(await swept(PENDING_ARCHIVE_RETRY_MAX_MS)).toBe(true);
+  expect(await swept(PENDING_ARCHIVE_RETRY_MAX_MS)).toBe(true);
+  expect(notArchivedLogs(errors)).toHaveLength(2);
+  expect(String(notArchivedLogs(errors)[1][2])).toBe("timeout");
+  // Cleared: the interval resets, and a later failure starts again at PENDING_ARCHIVE_RETRY_MS and is logged again.
+  x.failArchive("stale", null);
+  expect(await swept(PENDING_ARCHIVE_RETRY_MAX_MS)).toBe(true);
+  expect((await readRaw(x)).groups[G]).not.toHaveProperty("pendingArchive");
+  x.agents.set("older", { id: "older", workspaceId: "dw-0", status: "idle", archivedAt: null, labels: { "flowly-dispatcher": "1", "flowly-dispatcher-group": G } });
+  x.failArchive("older", new Error("timeout"));
+  const current = (await readRaw(x)).groups[G].agentId!;
+  x.agents.get(current)!.archivedAt = T;
+  await hub.start(x.paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
+  expect((await readRaw(x)).groups[G].pendingArchive).toEqual(["older"]);
+  expect(notArchivedLogs(errors)).toHaveLength(3);
+  expect(await swept(PENDING_ARCHIVE_RETRY_MS - 1)).toBe(false);
+  expect(await swept(1)).toBe(true);
+});
+
+test("a record write that fails during the sweep is logged and the start still returns the new session", async () => {
+  const x = await leakedDispatchers();
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  x.failArchive("stale", new Error("Agent not found"));
+  // The data folder turns read-only once the sweep lists, so its pendingArchive write fails.
+  const list = x.paseo.agents.list.bind(x.paseo.agents);
+  const paseo = {
+    ...x.paseo,
+    agents: {
+      ...x.paseo.agents,
+      list: async (...args: Parameters<typeof list>) => {
+        await chmod(x.directory, 0o500);
+        return list(...args);
+      },
+    },
+  } as unknown as PaseoApi;
+  try {
+    const { agentId } = await x.hub.start(paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
+    expect(typeof agentId).toBe("string");
+    expect((await x.hub.resolvedRecord()).groups[G].agentId).toBe(agentId);
+    expect(errors.mock.calls.some((c) => c[0] === "Flowly dispatcher sweep failed:" && c[1] === G)).toBe(true);
+  } finally {
+    await chmod(x.directory, 0o700);
+  }
+});
+
+test("a failed listing keeps every pending id and adds the group's earlier ids only into the room left", async () => {
+  const x = await leakedDispatchers();
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const down = { ...x.paseo, agents: { ...x.paseo.agents, list: async () => { throw new Error("list down"); } } } as unknown as PaseoApi;
+  const raw = await readRaw(x);
+  const seed = async (pendingArchive: string[]) =>
+    writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ ...raw, groups: { ...raw.groups, [G]: { ...raw.groups[G], pendingArchive } } }));
+  // Room for one: the newest earlier id fills it.
+  const nineteen = Array.from({ length: previousAgentIdLimit - 1 }, (_, i) => `p${i}`);
+  await seed(nineteen);
+  const one = clockedHub(x, { now: 0 });
+  await one.retryPendingArchives(down, G);
+  expect((await readRaw(x)).groups[G].pendingArchive).toEqual([...nineteen, "gone"]);
+  // Full: nothing is dropped and nothing added.
+  const twenty = Array.from({ length: previousAgentIdLimit }, (_, i) => `q${i}`);
+  await seed(twenty);
+  const two = clockedHub(x, { now: 0 });
+  await two.retryPendingArchives(down, G);
+  expect((await readRaw(x)).groups[G].pendingArchive).toEqual(twenty);
+});
+
+test("a refused create puts the group's pending archives back with the earlier session", async () => {
+  const x = await leakedDispatchers();
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const raw = await readRaw(x);
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ ...raw, groups: { ...raw.groups, [G]: { ...raw.groups[G], pendingArchive: ["x1"] } } }));
+  x.failAgentCreate(new Error("no"));
+  await expect(x.hub.start(x.paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" })).rejects.toMatchObject({ code: "START_FAILED" });
+  expect((await readRaw(x)).groups[G]).toMatchObject({ agentId: "stale", pendingArchive: ["x1"] });
+});
+
+test("a deleted group's pending archives join the record's global earlier ids", () => {
+  const record: DispatcherRecord = { version: 2, workspaceId: "w", groups: { [G]: { agentId: "cur", startedAt: T, previousAgentIds: ["a"], pendingArchive: ["b"] } }, previousAgentIds: ["z"] };
+  const left = withoutGroup(record, G);
+  expect(left.groups).toEqual({});
+  expect(left.previousAgentIds).toEqual(["z", "a", "b", "cur"]);
+});
+
+test("the sweep never archives another group's current session, even one recorded here with this group's labels", async () => {
+  const x = await leakedDispatchers();
+  const raw = await readRaw(x);
+  // "older" is H's current session now, still labelled for G and in G's earlier ids.
+  await writeFile(join(x.directory, "dispatcher.json"), JSON.stringify({ ...raw, groups: { ...raw.groups, [H]: { ...raw.groups[H], agentId: "older" } } }));
+  await x.hub.start(x.paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
+  expect(x.agents.get("older")!.archivedAt).toBeNull();
+  expect(x.archived.sort()).toEqual(["agent:ancient", "agent:stale"]);
 });
 
 test("a pending archive Paseo no longer lists live is cleared without archiving; the next start retries the rest", async () => {
@@ -2658,8 +2780,9 @@ test("a listing that fails after a start keeps the new dispatcher and leaves the
   const { agentId } = await x.hub.start(paseo, { groupId: G, provider: "claude/claude-sonnet-5-5" });
   expect(errors.mock.calls.some((c) => c[0] === "Flowly dispatcher earlier sessions not listed:")).toBe(true);
   expect((await readRaw(x)).groups[G]).toMatchObject({ agentId, pendingArchive: ["older", "gone", "stale"] });
-  // The retry with a working listing archives the live ones and clears the rest.
-  await x.hub.retryPendingArchives(x.paseo, G);
+  // After a plugin reload (no retry interval in memory) the first retry runs at once; with a working listing it
+  // archives the live ones and clears the rest.
+  await clockedHub(x, { now: Date.now() }).retryPendingArchives(x.paseo, G);
   expect(liveIds(x, G)).toEqual(["rogue", agentId].sort());
   expect((await readRaw(x)).groups[G]).not.toHaveProperty("pendingArchive");
 });
