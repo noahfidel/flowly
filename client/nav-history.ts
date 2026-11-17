@@ -112,6 +112,30 @@ export function navStep(
   return { history: { entries, index }, entry: entries[index] };
 }
 
+/**
+ * Whether an entry can still be opened (§7ae skip rules). A card: it exists, is not archived, is not in Done or
+ * Cancelled, and its project exists and is live. A dispatcher: its group exists. The bare board always. `tasks` null
+ * (no full overview yet: a cold link's board holds only its own card) or no groups known: nothing counts as gone.
+ */
+export function navAlive(index: {
+  tasks: readonly { id: string; projectId: string; status: string; archivedAt?: string | null }[] | null;
+  projects: readonly { id: string; archivedAt?: string | null }[] | null;
+  groups: readonly { id: string }[];
+}): (entry: NavEntry) => boolean {
+  const tasks = index.tasks ? new Map(index.tasks.map((t) => [t.id, t])) : null;
+  const projects = new Map((index.projects ?? []).map((p) => [p.id, p]));
+  const groups = new Set(index.groups.map((g) => g.id));
+  return (entry) => {
+    if (entry.kind === "board") return true;
+    if (entry.kind === "dispatcher") return !groups.size || groups.has(entry.groupId);
+    if (!tasks) return true;
+    const task = tasks.get(entry.taskId);
+    if (!task || task.archivedAt || task.status === "done" || task.status === "cancelled") return false;
+    const project = projects.get(task.projectId);
+    return !!project && !project.archivedAt;
+  };
+}
+
 /** What applying an entry does: an open through the board's normal paths, never a read-state change. */
 export type NavOpenAction =
   | { kind: "open-card"; taskId: string; sessionId: string }

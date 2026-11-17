@@ -3,6 +3,7 @@ import * as navHistory from "./nav-history";
 import {
   canNavStep,
   emptyNavHistory,
+  navAlive,
   navHistoryCap,
   navOpenAction,
   navStep,
@@ -189,5 +190,35 @@ describe("history never touches read state", () => {
 
   test("the module offers nothing that reads or marks", () => {
     expect(Object.keys(navHistory).filter((name) => /read|unread|seen|mark/i.test(name))).toEqual([]);
+  });
+});
+
+describe("which entries are still there", () => {
+  const tasks = [
+    { id: "open", projectId: "p", status: "development", archivedAt: null },
+    { id: "archived", projectId: "p", status: "todo", archivedAt: "2026-11-01" },
+    { id: "done", projectId: "p", status: "done", archivedAt: null },
+    { id: "cancelled", projectId: "p", status: "cancelled", archivedAt: null },
+    { id: "in-old", projectId: "old", status: "todo", archivedAt: null },
+    { id: "orphan", projectId: "missing", status: "todo", archivedAt: null },
+  ];
+  const projects = [{ id: "p", archivedAt: null }, { id: "old", archivedAt: "2026-11-01" }];
+  const isAlive = navAlive({ tasks, projects, groups: [{ id: "g" }] });
+
+  test("a card is there while it exists, is not archived or finished, and its project is live", () => {
+    expect(isAlive(card("open", "s"))).toBe(true);
+    for (const id of ["archived", "done", "cancelled", "in-old", "orphan", "deleted"]) expect(isAlive(card(id))).toBe(false);
+  });
+
+  test("a dispatcher is there while its group exists; the bare board always is", () => {
+    expect(isAlive(dispatcher("g"))).toBe(true);
+    expect(isAlive(dispatcher("removed"))).toBe(false);
+    expect(isAlive(board)).toBe(true);
+  });
+
+  test("before the full overview and the groups are known nothing counts as gone", () => {
+    const unknown = navAlive({ tasks: null, projects: null, groups: [] });
+    expect(unknown(card("deleted"))).toBe(true);
+    expect(unknown(dispatcher("removed"))).toBe(true);
   });
 });
