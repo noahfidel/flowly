@@ -67,7 +67,10 @@ function pruned(history: NavHistory, isAlive: (entry: NavEntry) => boolean) {
   history.entries.forEach((entry) => {
     if (!isAlive(entry)) return void map.push(-1);
     const last = entries[entries.length - 1];
-    if (last && samePlace(last, entry)) return void map.push(entries.length - 1);
+    if (last && samePlace(last, entry)) {
+      entries[entries.length - 1] = entry; // the later entry holds the session shown last
+      return void map.push(entries.length - 1);
+    }
     entries.push(entry);
     map.push(entries.length - 1);
   });

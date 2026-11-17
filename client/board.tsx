@@ -2072,9 +2072,11 @@ function BoardContent(
         setEscapeRequest({ taskId: task.id, key: `escape-${Date.now()}` });
         return true;
       case "history-back":
-        return nav.back();
+        nav.back();
+        return true;
       case "history-forward":
-        return nav.forward();
+        nav.forward();
+        return true;
       case "edit":
         if (!task || task.archivedAt || taskProject?.archivedAt) return false;
         setTaskForm({ task, status: task.status });

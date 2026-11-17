@@ -148,6 +148,15 @@ describe("entries that disappeared", () => {
     expect(step.history.index).toBe(0);
   });
 
+  test("folding two entries for the same place keeps the later session", () => {
+    const h = record(card("a", "s1"), card("b"), card("a", "s2"), card("c"));
+    const step = navStep(h, "back", gone("b"))!;
+    expect(step.entry).toEqual(card("a", "s2"));
+    expect(step.history.entries).toEqual([card("a", "s2"), card("c")]);
+    expect(step.history.index).toBe(0);
+    expect(pruneNavHistory(h, gone("b"))).toEqual({ entries: [card("a", "s2"), card("c")], index: 1 });
+  });
+
   test("pruning keeps the pointer on the place shown, or the nearest older one", () => {
     const h = record(board, card("a"), card("b"), card("c"));
     const atB = navStep(h, "back", alive)!.history;
