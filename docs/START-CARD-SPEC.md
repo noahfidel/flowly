@@ -145,9 +145,9 @@ Rulings (Noah, 2026-11-16): (1) the setting offers *Parent's branch when it is a
 
 Applies only where Flowly makes a new branch (`branch-off`): `flowly_start_card` moving a card to a worktree (§4) and `flowly_create_card` with `workspace: "worktree"` (§7). The checkout of an existing Linear branch (§4.1) is unchanged and wins. Not New task, Switch to worktree or an idea's new workspace. First match wins:
 
-1. **Explicit `baseRef`** in the call (§11.5): `"parent"` uses the one parent's branch (refused with `BASE_CHOICE_NEEDED` when the card has no open parent with a branch, or more than one); any other value is the request's own base (§4.1 rule 1). An explicit base that names a parent's branch counts as branched from that parent (§11.4).
+1. **Explicit `baseRef`** in the call (§11.5): `"parent"` uses the one parent's branch (refused with `BASE_CHOICE_NEEDED` when the card has no open parent with a branch, or more than one); any other value is the request's own base (§4.1 rule 1). An explicit base that names a parent's branch counts as branched from that parent (§11.4). A parent chosen either way that has no commits the base lacks gives the project base, as rule 2, with a warning saying so; one whose branch cannot be compared is refused with `BASE_CHOICE_NEEDED` and is never stored as the card's base.
 2. **No parent ahead:** the project base (§4.1), as before.
-3. **Setting `parent`:** one parent ahead → its branch (`refName: refs/heads/<branch>`). Several parents ahead → `BASE_CHOICE_NEEDED` naming them; the caller passes `baseRef`.
+3. **Setting `parent`:** one parent ahead → its branch (`refName: refs/heads/<branch>`). Several parents ahead → `BASE_CHOICE_NEEDED` naming them; the caller passes `baseRef`. For the user's own Start again several parents ahead act as `base`, with a warning for each, as `ask` does in rule 5.
 4. **Setting `base`:** the project base; the result warns `Parent "<title>" has N commits not in <base>; the card branched from <base>.`
 5. **Setting `ask`:** `BASE_CHOICE_NEEDED` (`Parent "<title>" (<branch>) has N commits not in <base>. Ask the user where to branch from and pass baseRef ("parent" or a branch).`) before anything is made. For the user's own Start again (a human caller) `ask` acts as `base` with the warning: the user is the one who would be asked.
 
@@ -158,10 +158,10 @@ The decision is kept with the worktree request (§4.1), so a retry with the same
 When the branch is made from a parent's branch:
 
 - `Task.baseRef` stays the **project base** (as resolved in §4.1), not the parent's branch: it is where the card lands, and the landed check (LANDED-DONE-SPEC §3.3) and the review diff (GUARDRAILS-SPEC §6.2) read it.
-- `Task.branchedFrom = { taskId, branch, commit, ahead }`: the parent card, its branch, the parent's tip commit the card branched from, and N. Absent otherwise.
+- `Task.branchedFrom = { taskId, branch, commit, ahead }`: the parent card, its branch, the commit the card's worktree branched from (its HEAD read once the worktree exists, so a parent that moved since the decision is not misrecorded; the measured tip when it cannot be read, logged), and N counted from that commit. Absent otherwise.
 - A `blocks` link parent → follow-up (`createdBy: "system"`), unless one already exists or it would close a cycle (then nothing is added and the failure is logged).
 - The card's details show `Branched from <branch> (<parent title>), N commits not in <base>` while `branchedFrom` is set.
-- The session's first message gets one more line (also after a caller's own prompt): `This card branched from <branch> (card "<parent title>"), which has N commits not in <base>. Before shipping, rebase onto <base> once the parent has landed: git rebase --onto <base> <commit>.`
+- The card's first session (whether its worktree was made by this start, an earlier try of it, or `flowly_create_card`) gets one more line in its first message (also after a caller's own prompt): `This card branched from <branch> (card "<parent title>"), which has N commits not in <base>. Before shipping, rebase onto <base> once the parent has landed: git rebase --onto <base> <commit>.`
 
 **The card's own change** (GUARDRAILS-SPEC §6.2 `changeBase`): with `branchedFrom.commit` an ancestor of HEAD, the change base is `merge-base(<baseRef>, HEAD)` when `branchedFrom.commit` is an ancestor of that merge base (the parent landed by a merge or fast-forward, or the card was rebased), else `branchedFrom.commit`. So a review counts only the card's own commits, also after the parent was squash-merged or its branch deleted (the commit stays reachable from the card's HEAD).
 
