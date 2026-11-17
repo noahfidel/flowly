@@ -1,5 +1,13 @@
 # Implementation progress
 
+## The overview chip counts only unread cards: "N updated" becomes "N unread" (branch `kanban/make-the-updated-chip-count-only-unread-a20fd8`) — 2026-11-16
+
+- Ruling (Noah, 2026-11-16, supersedes the 2026-11-09 "N updated" definitions and the per-card Mark seen button of 2026-11-12): status moves were noisy, so the chip counts only cards with an open unread turn (`updatedQueue(items, resolved, inScope)`, newest first; it respects snooze, wrap-up and the auto-review hold). A landed-done move, a lane move or a note with no unread turn no longer counts; a move that comes with an unread turn still does. "N need you" is unchanged.
+- Renamed everywhere user-facing: "{n} unread" chip, "{n} card is unread. Step through it" / "{n} cards are unread. Step through them" label, step bar "Unread", "Snooze in Unread", help row "Step through unread cards", toast "Nothing unread." (old keys removed from all nine catalogs, with "Updates" and "Mark seen").
+- Step bar: **Mark seen** and its plumbing (`afterMarkSeen`, the card/revision props) are gone; the "what changed" line and **Ask dispatcher** stay. Server unchanged: the change line, `dispatcher.mark-seen`, What should I do? and the clearing of a mark when a session is read.
+- Spec: DISPATCHER-SPEC §9.2-§9.4, UI-REFRESH-SPEC, SHORTCUTS-SPEC. Onboarding: no tip text changed; the 1.9.0-era What's new text for "N updated" is left as the old release's text.
+- Checks: pending.
+
 ## Merged cards move to Done from any open lane (branch `kanban/move-merged-cards-to-done-from-any-statu-eaa452`) — 2026-11-16
 
 - Cause: `landStatuses` held only In review, Committed and Integrated (the first R2), so a card left in Development after its PR merged (PR #9229's card) was never a candidate: no move to Done and no dispatcher note.
