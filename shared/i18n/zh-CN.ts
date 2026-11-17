@@ -1703,5 +1703,7 @@ const catalog: Catalog = {
   "Queued message sent": "已发送排队的消息",
   "The message waits for the session's other requests": "消息将等待该会话的其他请求结束",
   "Dropped a queued dispatcher message": "丢弃了一条排队的调度器消息",
+  "Forward": "前进",
+  "Back / forward through what you opened": "在打开过的内容间后退 / 前进",
 };
 export default catalog;

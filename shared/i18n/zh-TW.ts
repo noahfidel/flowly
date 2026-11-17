@@ -1703,5 +1703,7 @@ const catalog: Catalog = {
   "Queued message sent": "已傳送排隊的訊息",
   "The message waits for the session's other requests": "訊息將等待該工作階段的其他請求結束",
   "Dropped a queued dispatcher message": "捨棄了一則排隊的調度器訊息",
+  "Forward": "前進",
+  "Back / forward through what you opened": "在開啟過的內容間返回 / 前進",
 };
 export default catalog;

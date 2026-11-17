@@ -114,6 +114,7 @@ function TaskDrawerView({
   refresh,
   sessionEntry,
   onSessionEntryConsumed,
+  onSessionShown,
   active = true,
   sessionDefaults,
   startRequest,
@@ -157,6 +158,8 @@ function TaskDrawerView({
   refresh(): void;
   sessionEntry?: SessionEntry;
   onSessionEntryConsumed?(requestId: string): void;
+  /** The session shown in the card ("" = its details), for Back/Forward (UI-REFRESH-SPEC §7ae). */
+  onSessionShown?(taskId: string, sessionId: string): void;
   active?: boolean;
   sessionDefaults?: { provider: string; model: string; mode: string } | null;
   /** Changes when the card's action menu asks to start a session. */
@@ -315,6 +318,10 @@ function TaskDrawerView({
   }, [composer.state, task.id]);
   const detailActive = useRef(active && !selected);
   detailActive.current = active && !selected;
+  // Back/Forward records which session the card shows (UI-REFRESH-SPEC §7ae); only the drawer knows it.
+  useEffect(() => {
+    if (active) onSessionShown?.(task.id, selected);
+  }, [active, selected, task.id, onSessionShown]);
   const sessionLocks = useRef(new Set<string>());
   const consumedEntry = useRef<string | undefined>(undefined);
   useEffect(() => {

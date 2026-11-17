@@ -1703,5 +1703,7 @@ const catalog: Catalog = {
   "Queued message sent": "Mensaje en cola enviado",
   "The message waits for the session's other requests": "El mensaje espera a las demás solicitudes de la sesión",
   "Dropped a queued dispatcher message": "Descartó un mensaje en cola del despachador",
+  "Forward": "Adelante",
+  "Back / forward through what you opened": "Atrás / adelante por lo que abriste",
 };
 export default catalog;

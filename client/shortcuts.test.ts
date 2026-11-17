@@ -61,6 +61,20 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "ArrowDown" }, true)).toBeNull();
     expect(resolveShortcut({ key: "Enter" }, true)).toBeNull();
   });
+  test("⌘[ / ⌘] (Ctrl on other systems) walk back and forward through what was opened", () => {
+    expect(resolveShortcut({ key: "[", metaKey: true }, true)).toBe("history-back");
+    expect(resolveShortcut({ key: "]", metaKey: true }, true)).toBe("history-forward");
+    expect(resolveShortcut({ key: "[", ctrlKey: true }, true)).toBe("history-back");
+    expect(resolveShortcut({ key: "]", ctrlKey: true }, true)).toBe("history-forward");
+    // Plain brackets, other chords, repeats and blocked boards stay with the host.
+    expect(resolveShortcut({ key: "[" }, true)).toBeNull();
+    expect(resolveShortcut({ key: "[", metaKey: true, altKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "[", metaKey: true, shiftKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "[", metaKey: true, ctrlKey: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "[", metaKey: true, repeat: true }, true)).toBeNull();
+    expect(resolveShortcut({ key: "]", metaKey: true }, false)).toBeNull();
+    expect(shortcutHelp.some((row) => row.keys.join(" ") === "⌘[ ⌘]" && row.title === "Back / forward through what you opened")).toBe(true);
+  });
   test("is inert while blocked, repeating or composing", () => {
     expect(resolveShortcut({ key: "n" }, false)).toBeNull();
     expect(resolveShortcut({ key: "Escape" }, false)).toBeNull();

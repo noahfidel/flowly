@@ -89,6 +89,8 @@ import { perfConfigure, perfMark, usePerfRender } from "./perf";
 import { laneRows, sameRows, type LaneRow } from "./lane-rows";
 import { LanePager } from "./lane-pager";
 import { useAndroidBack } from "./android-back";
+import { navAlive, navOpenAction, type NavEntry } from "./nav-history";
+import { useNavHistory } from "./use-nav-history";
 import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
 import { openNativeSession, openNativeWorkspace } from "./session-state";
 import { externalError, useConnections } from "./connectors";
@@ -1387,6 +1389,46 @@ function BoardContent(
     dockActive.current = false;
     setDockOpen(false);
   });
+  // Back/Forward (UI-REFRESH-SPEC §7ae): the place shown is the open card, else the dispatcher chat when it shows, else
+  // the bare board; recorded once the overview and settings are read. Every open path (step-through included) records.
+  const navTaskId = task?.id ?? "";
+  const navDockShown = compact ? chat.open : chatOpen;
+  const navLocation = useMemo<NavEntry | null>(
+    () =>
+      !overviewData.data || !view.values ? null
+      : navTaskId ? { kind: "card", taskId: navTaskId }
+      : navDockShown && dispatcherGroupId ? { kind: "dispatcher", groupId: dispatcherGroupId }
+      : { kind: "board" },
+    [!!overviewData.data, !!view.values, navTaskId, navDockShown, dispatcherGroupId],
+  );
+  const navIsAlive = useMemo(
+    () => navAlive({ tasks: overviewData.data?.tasks ?? null, projects: overviewData.data?.projects ?? null, groups: boardGroups }),
+    [overviewData.data?.tasks, overviewData.data?.projects, boardGroups],
+  );
+  // An entry opens through the usual paths, so an open reads what any open reads and nothing is marked unread.
+  const applyNav = useStableCallback((entry: NavEntry) => {
+    const action = navOpenAction(entry);
+    setMenu(null);
+    setDrawerFocus(null);
+    if (action.kind === "open-card") {
+      const target = board?.tasks.find((x) => x.id === action.taskId);
+      openTaskById(action.taskId);
+      if (target) setMobileStatus(target.status);
+      // An empty session returns the card to its details, as a card link does.
+      return setSessionEntry({ taskId: action.taskId, sessionId: action.sessionId, requestId: `history-${Date.now()}` });
+    }
+    if (taskId) setTask("");
+    if (action.kind === "open-dispatcher") {
+      if (action.groupId !== group?.id) chooseGroup(action.groupId);
+      return setDockOpen(true);
+    }
+    if (navDockShown) closeChat();
+  });
+  const nav = useNavHistory({ location: navLocation, isAlive: navIsAlive, apply: applyNav });
+  // Only the open card's drawer reports its session; a closing one's late report is dropped.
+  const navSessionShown = useStableCallback((id: string, sessionId: string) => {
+    if (id === taskId) nav.reportSession(id, sessionId);
+  });
   // The same decision for Esc in the box (composer onEscape) and Esc on the board (runIntent). Modals take Esc themselves,
   // and board shortcuts are off while one is open, so neither path sees one.
   const decideEsc = useStableCallback((boxFocused: boolean, draftEmpty: boolean) =>
@@ -2029,6 +2071,10 @@ function BoardContent(
         if (!task) return false;
         setEscapeRequest({ taskId: task.id, key: `escape-${Date.now()}` });
         return true;
+      case "history-back":
+        return nav.back();
+      case "history-forward":
+        return nav.forward();
       case "edit":
         if (!task || task.archivedAt || taskProject?.archivedAt) return false;
         setTaskForm({ task, status: task.status });
@@ -2174,6 +2220,7 @@ function BoardContent(
           sessionEntry?.taskId === drawer.item.task.id && drawer.active ? sessionEntry : undefined
         }
         onSessionEntryConsumed={sessionEntryConsumed}
+        onSessionShown={navSessionShown}
         attention={drawerSnooze}
         onSnooze={snoozeDrawer}
         onUnsnooze={unsnoozeDrawer}
@@ -2212,6 +2259,11 @@ function BoardContent(
               borderColor: colors.border,
             }}
           >
+            {/* Back / Forward through what was opened (UI-REFRESH-SPEC §7ae); the step-through keeps its own Next/Previous. */}
+            <View style={{ flexDirection: "row" }}>
+              <IconButton icon="ArrowLeft" label={withKey(t("Back"), "⌘[")} disabled={!nav.canBack} onPress={nav.back} />
+              <IconButton icon="ArrowRight" label={withKey(t("Forward"), "⌘]")} disabled={!nav.canForward} onPress={nav.forward} />
+            </View>
             {/* board-groups 3/7: group tabs; phones (and a board with no group yet) show the shown group's switcher. */}
             {compact || boardGroups.length === 0 ? (
               <ProjectSwitcher

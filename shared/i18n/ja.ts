@@ -1703,5 +1703,7 @@ const catalog: Catalog = {
   "Queued message sent": "保留中のメッセージを送信しました",
   "The message waits for the session's other requests": "メッセージはセッションの他のリクエストが終わるまで待機します",
   "Dropped a queued dispatcher message": "保留中のディスパッチャーのメッセージを破棄しました",
+  "Forward": "進む",
+  "Back / forward through what you opened": "開いたものを戻る / 進む",
 };
 export default catalog;
