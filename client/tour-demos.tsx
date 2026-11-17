@@ -146,6 +146,7 @@ export function AttentionDemo() {
                   ) : (
                     <IconButton icon="ChevronRight" label={t("Next card")} disabled={!next} onPress={() => next && setShown(next.id)} />
                   )}
+                  <IconButton icon="X" label={t("Stop stepping through")} onPress={() => setShown(null)} />
                 </View>
                 <View style={{ padding: space[1.5] }}>
                   {index >= 0 ? (

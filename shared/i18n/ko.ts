@@ -1516,6 +1516,7 @@ const catalog: Catalog = {
   "All caught up": "모두 처리함",
   "Previous card": "이전 카드",
   "Next card": "다음 카드",
+  "Stop stepping through": "순서대로 보기 종료",
   "The bell is now the “N need you” chip above the board: it opens each card waiting on you in turn in the card sidebar, with what it asks on top. “N updated” does the same for what is new to read: cards that changed and finished turns you have not opened.": "종은 이제 보드 위의 “N개가 기다림” 칩입니다. 나를 기다리는 카드를 하나씩 카드 사이드바에서, 묻는 내용을 위에 두고 엽니다. “N개 업데이트”는 새로 읽을 것(바뀐 카드와 아직 열지 않은 끝난 턴)에 같은 일을 합니다.",
   "Auto review checked this card after the agent delivered; open it to see each check's result.": "에이전트가 납품한 뒤 Auto review가 이 카드를 검사했습니다. 열어서 각 검사 결과를 확인하세요.",
   "Deliveries are checked before they reach you, and go back to the agent when they fall short.": "납품은 당신에게 오기 전에 검사되고, 기준에 못 미치면 에이전트에게 돌아갑니다.",

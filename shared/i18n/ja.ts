@@ -1516,6 +1516,7 @@ const catalog: Catalog = {
   "All caught up": "すべて対応済み",
   "Previous card": "前のカード",
   "Next card": "次のカード",
+  "Stop stepping through": "順に見るのをやめる",
   "The bell is now the “N need you” chip above the board: it opens each card waiting on you in turn in the card sidebar, with what it asks on top. “N updated” does the same for what is new to read: cards that changed and finished turns you have not opened.": "ベルはボード上の「N 件が対応待ち」チップになりました。あなたを待っているカードを 1 枚ずつカードのサイドバーで、質問を上に表示して開きます。「N 件更新」は新しく読むもの（変わったカードと、まだ開いていない終了したターン）で同じことをします。",
   "Auto review checked this card after the agent delivered; open it to see each check's result.": "エージェントの納品後、Auto review がこのカードをチェックしました。開くと各チェックの結果を確認できます。",
   "Deliveries are checked before they reach you, and go back to the agent when they fall short.": "納品はあなたに届く前にチェックされ、基準に届かなければエージェントに差し戻されます。",

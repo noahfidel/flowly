@@ -1516,6 +1516,7 @@ const catalog: Catalog = {
   "All caught up": "Alles erledigt",
   "Previous card": "Vorherige Karte",
   "Next card": "Nächste Karte",
+  "Stop stepping through": "Durchgehen beenden",
   "The bell is now the “N need you” chip above the board: it opens each card waiting on you in turn in the card sidebar, with what it asks on top. “N updated” does the same for what is new to read: cards that changed and finished turns you have not opened.": "Die Glocke ist jetzt der Chip „N brauchen dich“ über dem Board: Er öffnet jede Karte, die auf dich wartet, nacheinander in der Kartenseitenleiste, mit ihrer Frage oben. „N aktualisiert“ macht dasselbe für alles Neue zum Lesen: geänderte Karten und beendete Durchgänge, die du noch nicht geöffnet hast.",
   "Auto review checked this card after the agent delivered; open it to see each check's result.": "Auto review hat diese Karte nach der Lieferung des Agenten geprüft; öffne sie, um das Ergebnis jeder Prüfung zu sehen.",
   "Deliveries are checked before they reach you, and go back to the agent when they fall short.": "Lieferungen werden geprüft, bevor sie bei dir ankommen, und gehen an den Agenten zurück, wenn sie nicht reichen.",

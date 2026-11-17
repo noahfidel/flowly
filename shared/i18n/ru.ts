@@ -1516,6 +1516,7 @@ const catalog: Catalog = {
   "All caught up": "Всё разобрано",
   "Previous card": "Предыдущая карточка",
   "Next card": "Следующая карточка",
+  "Stop stepping through": "Закончить просмотр по очереди",
   "The bell is now the “N need you” chip above the board: it opens each card waiting on you in turn in the card sidebar, with what it asks on top. “N updated” does the same for what is new to read: cards that changed and finished turns you have not opened.": "Колокольчик стал чипом «Вас ждут N» над доской: он открывает каждую карточку, которая ждёт вас, по очереди в боковой панели карточки, с её вопросом сверху. «Обновлено: N» делает то же для нового для чтения: изменившихся карточек и завершённых ходов, которые вы ещё не открыли.",
   "Auto review checked this card after the agent delivered; open it to see each check's result.": "Auto review проверил эту карточку после сдачи агентом; откройте её, чтобы увидеть результат каждой проверки.",
   "Deliveries are checked before they reach you, and go back to the agent when they fall short.": "Сданная работа проверяется до того, как попадёт к вам, и возвращается агенту, если не дотягивает.",

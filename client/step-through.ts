@@ -139,15 +139,17 @@ export function needsStartAction(
  * The bar's label and next control. In the queue: "i of N" and the › arrow. A card that left the queue stays shown:
  * Need you labels it "Answered" and offers Next card as the primary button; Updates has nothing answered (opening a
  * card reads its unread turn, which drops it mid-flip), so it keeps the plain arrow (Ruling, Noah 2026-11-11). With no
- * card left: "All caught up" and Done.
+ * card left: "All caught up" and Done. Every state has the close X, which only leaves the walk (the card stays open,
+ * nothing is marked read or snoozed); with no other card to walk to ("1 of 1") the arrows are hidden, not disabled.
  */
 export function stepBarState(
   kind: StepKind,
-  position: { index: number | null; next: string | null },
-): { where: "position" | "answered" | "none" | "caught-up"; next: "arrow" | "pill" | "done" } {
-  if (position.index !== null) return { where: "position", next: "arrow" };
-  if (!position.next) return { where: "caught-up", next: "done" };
-  return kind === "needs" ? { where: "answered", next: "pill" } : { where: "none", next: "arrow" };
+  position: { index: number | null; prev: string | null; next: string | null },
+): { where: "position" | "answered" | "none" | "caught-up"; next: "arrow" | "pill" | "done"; arrows: boolean; close: true } {
+  const arrows = !!(position.prev || position.next);
+  if (position.index !== null) return { where: "position", next: "arrow", arrows, close: true };
+  if (!position.next) return { where: "caught-up", next: "done", arrows, close: true };
+  return kind === "needs" ? { where: "answered", next: "pill", arrows, close: true } : { where: "none", next: "arrow", arrows, close: true };
 }
 
 /**

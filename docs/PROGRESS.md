@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Step-through bar always has an X (branch `kanban/unread-step-through-1-of-1-give-a-way-ou-4d0ebf`) — 2026-11-17
+
+- Defect: with one card in a walk ("Unread · 1 of 1", typically after opening the only unread card) the bar showed two disabled arrows and no way out; Done appears only once the card leaves the queue, and the visited card stays in the unread walk (`walkQueue`), so it never did.
+- Fix: `stepBarState` returns `arrows` (false with no previous and no next) and `close` (always); `StepThroughBar` hides the arrows when false and always renders an X ("Stop stepping through") that calls `endStep` (`setStep(null)`: the card stays open, nothing is marked read or snoozed). The tour's need-you demo bar gets the same X. Spec: DISPATCHER-SPEC §9.4 ruling 2026-11-17.
+- Esc unchanged: it already ends the walk by closing the card sidebar (shortcuts help list says so), so no key was added.
+- Tests: `client/step-through.test.ts` (failing first: the new close/arrows test over 1 of 1, 1 of N, i of N, N of N, Answered, caught up, for both kinds).
+- No tip, tour page, What's new entry or telemetry field (a fix to an existing control; the tour demo's bar mirrors it).
+
 ## One live dispatcher per group (branch `kanban/one-live-dispatcher-per-group-archive-st-cc7cd8`) — 2026-11-17
 
 - Found: d1c2d8fb (Zenlytic group) was in that group's `previousAgentIds`, but Paseo still had it live (idle) for four days next to the current dispatcher. The Tooling dispatcher replaced at the same moment (2026-11-14, after charter versioning) was archived normally. Logs from then are gone. The likely path is a single-agent lookup that returned nothing for the live background session, which `isDeadDispatcher` reads as dead, so no archive. The 16 other "closed" ids the card listed were already archived (Paseo reports an archived session as `closed`).

@@ -78,7 +78,7 @@ export function StepThroughBar({
             {where}
           </Label>
         </View>
-        <IconButton icon="ChevronLeft" label={t("Previous card")} disabled={!position.prev} onPress={onPrev} />
+        {bar.arrows && <IconButton icon="ChevronLeft" label={t("Previous card")} disabled={!position.prev} onPress={onPrev} />}
         {bar.next === "pill" ? (
           <Button small primary onPress={onNext}>
             {t("Next card")}
@@ -87,9 +87,11 @@ export function StepThroughBar({
           <Button small onPress={onEnd}>
             {t("Done")}
           </Button>
-        ) : (
+        ) : bar.arrows ? (
           <IconButton icon="ChevronRight" label={t("Next card")} disabled={!position.next} onPress={onNext} />
-        )}
+        ) : null}
+        {/* Always there, always enabled: leaves the walk only; the card stays open and nothing is marked read or snoozed. */}
+        <IconButton icon="X" label={t("Stop stepping through")} onPress={onEnd} />
       </View>
       {kind === "needs" ? (
         asksLoading && !asks.length ? (

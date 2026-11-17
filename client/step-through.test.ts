@@ -150,13 +150,34 @@ test("the bar: in the queue it shows i of N with the arrow; a card that left it 
   const inQueue = { index: 1, total: 3, prev: "a", next: "c" };
   const left = { index: null, total: 2, prev: "a", next: "c" };
   const last = { index: null, total: 1, prev: "a", next: null };
-  expect(stepBarState("needs", inQueue)).toEqual({ where: "position", next: "arrow" });
-  expect(stepBarState("updated", inQueue)).toEqual({ where: "position", next: "arrow" });
-  expect(stepBarState("needs", left)).toEqual({ where: "answered", next: "pill" });
+  expect(stepBarState("needs", inQueue)).toMatchObject({ where: "position", next: "arrow" });
+  expect(stepBarState("updated", inQueue)).toMatchObject({ where: "position", next: "arrow" });
+  expect(stepBarState("needs", left)).toMatchObject({ where: "answered", next: "pill" });
   // Updates has nothing answered: reading a card's unread turn drops it mid-flip, so the plain arrow stays.
-  expect(stepBarState("updated", left)).toEqual({ where: "none", next: "arrow" });
-  expect(stepBarState("needs", last)).toEqual({ where: "caught-up", next: "done" });
-  expect(stepBarState("updated", last)).toEqual({ where: "caught-up", next: "done" });
+  expect(stepBarState("updated", left)).toMatchObject({ where: "none", next: "arrow" });
+  expect(stepBarState("needs", last)).toMatchObject({ where: "caught-up", next: "done" });
+  expect(stepBarState("updated", last)).toMatchObject({ where: "caught-up", next: "done" });
+});
+
+test("the bar always offers a way out: the close X in every state, and no dead arrows when the walk has one card", () => {
+  const states = [
+    { index: 0, total: 1, prev: null, next: null }, // 1 of 1: the user's stuck case
+    { index: 0, total: 3, prev: null, next: "b" }, // 1 of N
+    { index: 1, total: 3, prev: "a", next: "c" }, // i of N
+    { index: 2, total: 3, prev: "b", next: null }, // N of N
+    { index: null, total: 2, prev: "a", next: "c" }, // left the queue, another follows
+    { index: null, total: 1, prev: "a", next: null }, // caught up
+    { index: null, total: 0, prev: null, next: null }, // caught up, nothing else
+  ];
+  for (const kind of ["needs", "updated"] as const) for (const position of states) expect(stepBarState(kind, position).close).toBe(true);
+  // 1 of 1: no other card to walk to, so the arrows are hidden, not shown disabled.
+  for (const kind of ["needs", "updated"] as const) {
+    expect(stepBarState(kind, { index: 0, prev: null, next: null })).toMatchObject({ where: "position", arrows: false, close: true });
+    expect(stepBarState(kind, { index: null, prev: null, next: null })).toMatchObject({ arrows: false, close: true });
+    // Multi-card walks keep their arrows, at either end too.
+    expect(stepBarState(kind, { index: 2, prev: "b", next: null })).toMatchObject({ where: "position", next: "arrow", arrows: true });
+    expect(stepBarState(kind, { index: 0, prev: null, next: "b" })).toMatchObject({ where: "position", next: "arrow", arrows: true });
+  }
 });
 
 test("the walk keeps its order: marking or reading cards and new updates never move the current card's neighbours", () => {
@@ -315,7 +336,7 @@ describe("walkQueue", () => {
     const where = stepPosition(after.ids, { taskId: "b", index: 1 });
     expect(where.index).toBeNull();
     expect(where.next).toBe("c");
-    expect(stepBarState("needs", where)).toEqual({ where: "answered", next: "pill" });
+    expect(stepBarState("needs", where)).toMatchObject({ where: "answered", next: "pill", arrows: true, close: true });
   });
 
   test("the updated walk keeps the shown and visited cards", () => {

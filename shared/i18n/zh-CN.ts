@@ -1516,6 +1516,7 @@ const catalog: Catalog = {
   "All caught up": "全部处理完了",
   "Previous card": "上一张卡片",
   "Next card": "下一张卡片",
+  "Stop stepping through": "停止逐个查看",
   "The bell is now the “N need you” chip above the board: it opens each card waiting on you in turn in the card sidebar, with what it asks on top. “N updated” does the same for what is new to read: cards that changed and finished turns you have not opened.": "铃铛现在是看板上方的“N 个需要你”标签：它在卡片侧栏里逐张打开等你处理的卡片，要问的内容置顶。“N 个更新”对新的可读内容做同样的事：有变化的卡片，以及你还没打开的已结束回合。",
   "Auto review checked this card after the agent delivered; open it to see each check's result.": "Agent 交付后，Auto review 检查了这张卡片；打开它查看每项检查的结果。",
   "Deliveries are checked before they reach you, and go back to the agent when they fall short.": "交付在到你手上之前先经过检查，没达到要求就退回给 agent。",
