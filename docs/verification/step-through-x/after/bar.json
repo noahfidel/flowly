@@ -1,0 +1,26 @@
+{
+  "chip": "1 card is unread. Step through it (U)",
+  "keepLabel": "Open task Step-through bar: always give an X to leave it (fixes \"1 of 1\" with dead arrows). Test. 1 idea. Progress: Shipped to main; after-screenshots pending user go-ahead. Acceptance 4/5. Normal priority, Feature, Workspace: Worktree. 1 running, 0 finished turns, 1 unread sessions, 1 need attention.",
+  "rowText": "Unread | 1 of 1",
+  "panelText": "Unread | 1 of 1 | Ask dispatcher",
+  "row": {
+    "x": 1250.546875,
+    "y": 119,
+    "width": 449.453125,
+    "height": 44
+  },
+  "panel": {
+    "x": 1250.546875,
+    "y": 119,
+    "width": 449.453125,
+    "height": 81
+  },
+  "buttons": [
+    {
+      "label": "Stop stepping through",
+      "text": "",
+      "disabled": false
+    }
+  ],
+  "errors": []
+}
