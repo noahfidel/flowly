@@ -94,7 +94,7 @@ test("snoozing Needs you leaves the card's unread turn in Updates", () => {
   expect(openAskCount(items)).toBe(0);
   expect(needsCount(items, none, all)).toBe(0);
   expect(needsQueue(items, none, all)).toEqual([]);
-  expect(updatedQueue(null, items, none, all)).toEqual(["a"]);
+  expect(updatedQueue(items, none, all)).toEqual(["a"]);
   expect(openInList(item, "needs")).toBe(false);
   expect(openInList(item, "updated")).toBe(true);
   expect(snoozeMenu(item)).toEqual({ needs: false, updated: true, snoozed: true });
@@ -110,7 +110,7 @@ test("snoozing Updates leaves the card's need-you signals", () => {
   expect(item.snoozed).toEqual({ needs: false, updated: true });
   expect(openAskCount(items)).toBe(1);
   expect(needsQueue(items, none, all)).toEqual(["a"]);
-  expect(updatedQueue(null, items, none, all)).toEqual([]);
+  expect(updatedQueue(items, none, all)).toEqual([]);
   expect(snoozeMenu(item)).toEqual({ needs: true, updated: false, snoozed: true });
   expect(asksFrom(b, agents, []).map((a) => [a.kind, a.state])).toEqual([["question_report", "open"], ["unread", "dismissed"]]);
 });
@@ -126,12 +126,12 @@ test("a new key brings back only its own list", () => {
   const asked = item({ events: [...events, question("e9", later, "s2")], attentionDismissals: both }, [...agents, agent("s2", "wa")]);
   expect(asked.snoozed).toEqual({ needs: false, updated: true });
   expect(openAskCount([asked])).toBe(1);
-  expect(updatedQueue(null, [asked], none, all)).toEqual([]);
+  expect(updatedQueue([asked], none, all)).toEqual([]);
   // Another finished turn: Updates comes back, Needs you stays snoozed.
   const turned = item({ events, attentionDismissals: both }, [agent("s1", "wa", finished(later))]);
   expect(turned.snoozed).toEqual({ needs: true, updated: false });
   expect(openAskCount([turned])).toBe(0);
-  expect(updatedQueue(null, [turned], none, all)).toEqual(["a"]);
+  expect(updatedQueue([turned], none, all)).toEqual(["a"]);
 });
 
 test("a new turn, question, request or error brings the card back; fewer signals keep it hidden", () => {

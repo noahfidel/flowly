@@ -128,8 +128,8 @@ describe("scope predicate", () => {
     expect(needsCount(items, none, loadoutScope)).toBe(1);
     expect(needsQueue(items, none, zenScope)).toEqual(["c1"]);
     expect(needsCount(items, none, zenScope)).toBe(1);
-    expect(updatedQueue(null, items, none, loadoutScope)).toEqual(["b1"]);
-    expect(updatedQueue(null, items, none, zenScope)).toEqual([]);
+    expect(updatedQueue(items, none, loadoutScope)).toEqual(["b1"]);
+    expect(updatedQueue(items, none, zenScope)).toEqual([]);
     const emptyScope = boardScope([]);
     expect(needsCount(items, none, emptyScope)).toBe(0);
   });
@@ -165,7 +165,7 @@ describe("scope predicate", () => {
     const more = [...items, item("b2", "b", "permission", "2026-11-10T04:00:00.000Z")];
     expect(needsQueue(more, none, inScope)).toEqual(["b2", "a1"]);
     expect(needsCount(more, none, inScope)).toBe(2);
-    expect(updatedQueue(null, more, none, inScope)).toEqual(["b1"]);
+    expect(updatedQueue(more, none, inScope)).toEqual(["b1"]);
   });
   test("filtered, the overview covers only that project and shows its per-project entries", () => {
     const members = groupMembers(loadout, projects);
@@ -177,7 +177,7 @@ describe("scope predicate", () => {
     const more = [...items, item("b2", "b", "permission", "2026-11-10T04:00:00.000Z")];
     expect(needsQueue(more, none, inScope)).toEqual(["b2"]);
     expect(needsCount(more, none, inScope)).toBe(1);
-    expect(updatedQueue(null, more, none, inScope)).toEqual(["b1"]);
+    expect(updatedQueue(more, none, inScope)).toEqual(["b1"]);
   });
   test("an empty group has no overview", () => {
     expect(overviewScope(undefined, [])).toEqual({ projects: [], perProject: false });

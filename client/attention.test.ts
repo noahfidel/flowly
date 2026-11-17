@@ -118,7 +118,7 @@ test("agent questions flag a card even when read; silent unread turns are annota
   expect(items[0].task.id).toBe("a");
 });
 
-test("a wrapped-up card's unread turn leaves Updates while its asks stay; reopening brings it back", () => {
+test("a wrapped-up card's unread turn leaves Unread while its asks stay; reopening brings it back", () => {
   const ev = (id: string, action: string, extra: Record<string, unknown> = {}) => ({ id, taskId: "a", actor: "human", action, at: now, ...extra });
   const board = (events: ReturnType<typeof ev>[]) => ({ projects: [project("p")], tasks: [task("a", "wa")], events: events as never });
   const wrap = ev("w", "wrapped_up");

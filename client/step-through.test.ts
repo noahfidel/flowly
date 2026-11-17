@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { Project, Task } from "../shared/model";
 import type { AttentionItem } from "../shared/attention";
 import type { ChatItem } from "../shared/dispatcher";
-import { afterMarkSeen, changeSummary, stableQueue, cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, needsStartAction, dispatcherInView, updatedQueue, type ChangeItem } from "./step-through";
+import { changeSummary, stableQueue, cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, needsStartAction, dispatcherInView, updatedQueue } from "./step-through";
 import { dispatcherWaits } from "../shared/attention";
 import { otherGroupNeeds } from "./board-groups";
 
@@ -51,37 +51,22 @@ test("a card whose only open signal is an unread turn is not in the need-you que
   expect(needsQueue(items, new Set(["q:1"]), all)).toEqual([]);
 });
 
-const change = (cards: Array<[string, string]>): ChangeItem => ({
-  id: "change",
-  at: at(100),
-  kind: "change",
-  revision: 3,
-  ids: ["e1"],
-  cards: cards.map(([taskId, projectId]) => ({ taskId, projectId, title: taskId, status: "todo", events: 1 })),
-});
-
-test("the updated queue is the changed cards in scope, kept apart from the need-you queue", () => {
-  const changed = change([["x", "p"], ["y", "q"], ["z", "p"], ["x", "p"]]);
-  expect(updatedQueue(changed, [], new Set(), inP)).toEqual(["x", "z"]);
-  expect(updatedQueue(changed, [], new Set(), all)).toEqual(["x", "y", "z"]);
-  expect(updatedQueue(null, [], new Set(), all)).toEqual([]);
-  // A changed card never adds to the need-you count.
-  expect(needsCount([], new Set(), all)).toBe(0);
-});
-
-test("the updated queue also holds the cards with an unread turn: after the changed cards, newest first, once each (Ruling, Noah 2026-11-09)", () => {
-  const changed = change([["x", "p"], ["z", "p"]]);
+test("the updated queue holds only cards with an open unread turn: a change-line-only card is not in it (Ruling, Noah 2026-11-16)", () => {
   const items = [
     card("old", "p", 1, [{ key: "u:o:1" }]),
     card("new", "p", 9, [{ key: "u:n:1" }]),
-    card("z", "p", 5, [{ key: "u:z:1" }]),
+    card("moved", "p", 5, []),
     card("asks", "p", 7, [{ key: "q:1" }]),
     card("read", "p", 8, [{ key: "u:r:1", dismissed: true }]),
     card("done", "p", 6, [{ key: "u:d:1" }]),
     card("away", "q", 3, [{ key: "u:w:1" }]),
   ];
-  expect(updatedQueue(changed, items, new Set(["u:d:1"]), inP)).toEqual(["x", "z", "new", "old"]);
-  expect(updatedQueue(null, items, new Set(), all)).toEqual(["new", "done", "z", "away", "old"]);
+  expect(updatedQueue(items, new Set(["u:d:1"]), inP)).toEqual(["new", "old"]);
+  expect(updatedQueue(items, new Set(), all)).toEqual(["new", "done", "away", "old"]);
+  expect(updatedQueue([], new Set(), all)).toEqual([]);
+  // Unread turns never add to the need-you side, and a card with only an ask is not unread.
+  expect(needsQueue(items, new Set(), inP)).toEqual(["asks"]);
+  expect(needsCount(items, new Set(), inP)).toBe(1);
 });
 
 test("a step opens the session that waits: for updated the unread one, for need-you the one asking", () => {
@@ -188,12 +173,6 @@ test("the walk keeps its order: marking or reading cards and new updates never m
   expect(stableQueue(["a", "b", "c"], ["c"], "a")).toEqual(["a", "c"]);
 });
 
-test("after Mark seen the walk goes to the next unseen card, or ends when none is left", () => {
-  expect(afterMarkSeen(["a", "b", "c"], "b")).toBe("c");
-  expect(afterMarkSeen(["a", "b", "c"], "c")).toBe("a");
-  expect(afterMarkSeen(["a"], "a")).toBeNull();
-});
-
 test("a changed card's summary reads in plain words", () => {
   const t = (s: string, v?: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(v?.[k]));
   expect(
@@ -294,10 +273,8 @@ describe("N need you from the agent list", () => {
   });
 });
 
-test("after a card's session is read, the updated count equals the cards still unread or changed", () => {
-  const change = (ids: string[]) => ({ kind: "change", cards: ids.map((id) => ({ taskId: id, projectId: "p" })) }) as unknown as ChangeItem;
+test("after a card's session is read, it leaves the updated count", () => {
   const unreadCard = (id: string) => card(id, "p", 1, [{ key: `u:${id}:1` }]);
-  // Before: a and b changed (a also unread); the user reads a, so it leaves both sources.
-  expect(updatedQueue(change(["a", "b"]), [unreadCard("a")], new Set(), all)).toEqual(["a", "b"]);
-  expect(updatedQueue(change(["b"]), [], new Set(), all)).toEqual(["b"]);
+  expect(updatedQueue([unreadCard("a"), unreadCard("b")], new Set(), all)).toEqual(["a", "b"]);
+  expect(updatedQueue([unreadCard("b")], new Set(["u:a:1"]), all)).toEqual(["b"]);
 });

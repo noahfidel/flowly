@@ -39,8 +39,8 @@ export type BoardOverview = ReturnType<typeof boardOverview>;
 
 /**
  * Which chips and dividers the overview row shows (UI-REFRESH-SPEC §7u; Ruling, Noah 2026-11-09): the running chip
- * only while a card runs, one "N need you" chip for every open ask, and "N updated" for the cards that changed since
- * you looked (never part of need-you). A divider follows the count only when something follows, and sits between the
+ * only while a card runs, one "N need you" chip for every open ask, and "N unread" for the cards with an unread turn
+ * (never part of need-you). A divider follows the count only when something follows, and sits between the
  * status chips and Ideas / Memory / Insights only when both show.
  */
 export function overviewRow(

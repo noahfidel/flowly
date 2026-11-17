@@ -31,7 +31,7 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "u", metaKey: true }, true)).toBeNull();
     expect(resolveShortcut({ key: "u" }, false)).toBeNull();
     expect(shortcutHelp.find((row) => row.keys.includes("N"))?.title).toBe("Step through what needs you");
-    expect(shortcutHelp.find((row) => row.keys.includes("U"))?.title).toBe("Step through what's new to read");
+    expect(shortcutHelp.find((row) => row.keys.includes("U"))?.title).toBe("Step through unread cards");
     expect(resolveShortcut({ key: "?", shiftKey: true }, true)).toBe("shortcuts");
     expect(resolveShortcut({ key: "Escape" }, true)).toBe("escape");
     expect(resolveShortcut({ key: "j" }, true)).toBe("next");

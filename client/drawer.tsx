@@ -552,7 +552,7 @@ function TaskDrawerView({
       ? [{ id: "follow-up", label: t("New follow-up task"), icon: "CornerDownRight", disabled: !active || !!task.archivedAt || !!project.archivedAt, onPress: () => onFollowUp(task) }]
       : []),
     ...(attention?.needs && onSnooze ? [{ id: "attention-snooze-needs", label: t("Snooze in Needs you"), icon: "BellOff", onPress: () => onSnooze("needs") }] : []),
-    ...(attention?.updated && onSnooze ? [{ id: "attention-snooze-updated", label: t("Snooze in Updates"), icon: "BellOff", onPress: () => onSnooze("updated") }] : []),
+    ...(attention?.updated && onSnooze ? [{ id: "attention-snooze-updated", label: t("Snooze in Unread"), icon: "BellOff", onPress: () => onSnooze("updated") }] : []),
     ...(attention?.snoozed && onUnsnooze ? [{ id: "attention-unsnooze", label: t("Unsnooze"), icon: "Bell", onPress: onUnsnooze }] : []),
     ...(finished && !wrapped && !task.archivedAt && !project.archivedAt
       ? [{ id: "wrap", label: t("Wrap up…"), icon: "PackageCheck", onPress: () => setShowWrapup(true) }]

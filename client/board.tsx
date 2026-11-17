@@ -52,7 +52,7 @@ import { DispatcherPanel } from "./dispatcher-panel";
 import { LeftDock } from "./left-dock";
 import { lastCollapsed, rememberCollapsed, shownCollapsed } from "./collapsed-columns";
 import { dockShortcut, escAction, toolbarDockButtons } from "./dock-logic";
-import { afterMarkSeen, cardAsks, changeItem, changeSummary, needsCount, needsQueue, needsStartAction, dispatcherInView, stableQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
+import { cardAsks, changeItem, changeSummary, needsCount, needsQueue, needsStartAction, dispatcherInView, stableQueue, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, type Step, type StepKind } from "./step-through";
 import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
@@ -926,8 +926,8 @@ function BoardContent(
   const afterModalClose = useAfterModalClose();
   // The step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). "N need you" (the overview
   // chip, A, a notification's link, the phone's bell) walks the cards with asks that wait on you, newest first, each
-  // card's asks pinned on top; "N updated" walks what is new to read: the cards the dispatcher saw change, then the cards
-  // with an unread turn, each opening its unread chat. The queues follow the board shown (its filtered project, or every
+  // card's asks pinned on top; "N unread" walks the cards with an unread turn
+  // (Ruling, Noah 2026-11-16: a status move alone does not count), each opening its unread chat. The queues follow the board shown (its filtered project, or every
   // live member of the group) and recompute live; closing the card or opening another ends it.
   // The dock shows the dispatcher of the group shown (DISPATCHER-SPEC §9); none until the board's groups are known.
   const dispatcherGroupId = group?.id ?? null;
@@ -964,9 +964,9 @@ function BoardContent(
   );
   const otherNeedTotal = useMemo(() => [...otherNeeds.values()].reduce((n, x) => n + x, 0), [otherNeeds]);
   const changed = useMemo(() => changeItem(dispatcherItems.data), [dispatcherItems.data]);
-  const updatedIds = useMemo(() => updatedQueue(changed, attention, resolvedSignals, stepScope), [changed, attention, resolvedSignals, stepScope]);
+  const updatedIds = useMemo(() => updatedQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const [step, setStep] = useState<(Step & { kind: StepKind }) | null>(null);
-  // The updated walk keeps its own order (stableQueue): the live queue reorders on every poll and drops cards as they are read.
+  // The unread walk keeps its own order (stableQueue): the live queue reorders on every poll and drops cards as they are read.
   const walkRef = useRef<{ kind: StepKind; ids: string[] } | null>(null);
   const stepQueue = useMemo(() => {
     if (step?.kind !== "updated") {
@@ -1030,9 +1030,9 @@ function BoardContent(
       if (!action.keep) showStepCard(kind, action.taskId);
       return;
     }
-    if (!queue.length) return void toast.show(t("Nothing new to read."), { variant: "info" });
+    if (!queue.length) return void toast.show(t("Nothing unread."), { variant: "info" });
     // Pressing the open step-through's own chip keeps its card and place (it would otherwise restart and mark every
-    // chat read); Updates starts on the open card when it counts it, else at its first card.
+    // chat read); Unread starts on the open card when it counts it, else at its first card.
     const target = stepStartTarget(step, step?.kind ?? null, kind, queue, taskId || null);
     if (target && !target.keep) showStepCard(kind, target.taskId);
   });
@@ -1048,13 +1048,6 @@ function BoardContent(
   const stepNext = useStableCallback(() => step && stepWhere?.next && showStepCard(step.kind, stepWhere.next));
   const endStep = useStableCallback(() => setStep(null));
   const changedCard = useMemo(() => (step?.kind === "updated" ? (changed?.cards.find((c) => c.taskId === step.taskId) ?? null) : null), [step?.kind, step?.taskId, changed]);
-  // Mark seen marked the card shown only: the walk goes on to the next unseen card, or ends when none is left (§9.4).
-  const markedSeen = useStableCallback(() => {
-    if (!step) return;
-    const next = afterMarkSeen(stepQueue, step.taskId);
-    if (next) showStepCard(step.kind, next);
-    else endStep();
-  });
   const stepChanged = useStableCallback(() => {
     void queryClient.invalidateQueries({ queryKey: dispatcherItemsKey });
     void queryClient.invalidateQueries({ queryKey: ["flowly", "attention-count"] });
@@ -2141,10 +2134,7 @@ function BoardContent(
           asksLoading={!dispatcherItems.data}
           onOpenCard={openTaskById}
           onChanged={stepChanged}
-          change={changed}
           summary={step.kind === "updated" ? changeSummary(changedCard?.changes, t, (status) => laneName(drawer.item!.project, status as Status)) : ""}
-          changedCard={changedCard}
-          onMarkedSeen={markedSeen}
           onAskedDispatcher={openDock}
           groupId={dispatcherGroupId}
         />

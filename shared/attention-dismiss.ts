@@ -100,7 +100,7 @@ export const askKinds = ["question_report", "blocker_report", "ask_user", "permi
 export type AskKind = (typeof askKinds)[number];
 /**
  * Whether a signal waits on you and counts in "N need you" (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09): questions,
- * blockers, requests and errors do; an unread turn is something new to read and counts in "N updated" instead.
+ * blockers, requests and errors do; an unread turn is something new to read and counts in "N unread" instead.
  */
 export const waitsOnYou = (kind: AskKind): boolean => kind !== "unread";
 export const askStates = ["open", "answered", "session_ended", "dismissed"] as const;

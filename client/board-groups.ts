@@ -39,7 +39,7 @@ export function boardScope(projectIds: readonly string[]): (projectId: string) =
 }
 
 /**
- * What the board's overview bar covers (§3, §4; Ruling, Noah 2026-11-10): the "N need you" / "N updated" counts and
+ * What the board's overview bar covers (§3, §4; Ruling, Noah 2026-11-10): the "N need you" / "N unread" counts and
  * the N/U step-throughs cover the filtered project, else every live member of the group shown; `perProject` says
  * whether the one entry that stays per project (Guardrails, **G**) shows. An empty group covers nothing.
  */

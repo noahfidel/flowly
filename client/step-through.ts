@@ -5,8 +5,8 @@ import type { CardChange, ChatItem } from "../shared/dispatcher";
 
 /**
  * Pure parts of the step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09): "N need you"
- * walks the cards with open asks that wait on you, newest first, with each card's asks pinned on top; "N updated" walks
- * what is new to read: the cards the dispatcher saw change since you looked, then the cards with an unread turn. No React.
+ * walks the cards with open asks that wait on you, newest first, with each card's asks pinned on top; "N unread" walks
+ * the cards with an unread turn, newest first (Ruling, Noah 2026-11-16). No React.
  */
 
 export type AskItem = Extract<ChatItem, { kind: "ask" }>;
@@ -35,18 +35,12 @@ export function needsCount(items: readonly AttentionItem[], resolved: ReadonlySe
 }
 
 /**
- * "N updated", what is new to read, in scope, once each: the cards the dispatcher saw change since you looked, in its
- * order, then the cards with an open unread turn (a finished turn you have not opened), newest first.
+ * "N unread", in scope, once each: the cards with an open unread turn (a finished turn you have not opened), newest
+ * first (Ruling, Noah 2026-11-16). A status move or note without an unread turn does not count; opening a card reads its
+ * turn and drops it. The dispatcher's change line is not part of it.
  */
-export function updatedQueue(
-  change: ChangeItem | null,
-  items: readonly AttentionItem[],
-  resolved: ReadonlySet<string>,
-  inScope: (projectId: string) => boolean,
-): string[] {
-  const changed = (change?.cards ?? []).filter((c) => inScope(c.projectId)).map((c) => c.taskId);
-  const unread = newestFirst(items.filter((item) => inScope(item.task.projectId) && openParts(item, resolved, "updated").length));
-  return [...new Set([...changed, ...unread.map((item) => item.task.id)])];
+export function updatedQueue(items: readonly AttentionItem[], resolved: ReadonlySet<string>, inScope: (projectId: string) => boolean): string[] {
+  return newestFirst(items.filter((item) => inScope(item.task.projectId) && openParts(item, resolved, "updated").length)).map((item) => item.task.id);
 }
 
 /**
@@ -82,7 +76,7 @@ export function stepPosition(queue: readonly string[], step: Step): { index: num
 
 /**
  * A need-you card's asks to pin in its sidebar: open ones newest first, then those whose session ended; not ones just
- * answered here, and no unread turns (they are in "N updated"; Ruling, Noah 2026-11-09).
+ * answered here, and no unread turns (they are in "N unread"; Ruling, Noah 2026-11-09).
  */
 export function cardAsks(items: readonly ChatItem[] | undefined, taskId: string, answered: ReadonlySet<string> = new Set()): AskItem[] {
   const asks = (items ?? []).filter(
@@ -93,7 +87,7 @@ export function cardAsks(items: readonly ChatItem[] | undefined, taskId: string,
 }
 
 /**
- * What a press on a step-through chip (N need you / N updated, the N and U shortcuts, the phone bell) does (Ruling,
+ * What a press on a step-through chip (N need you / N unread, the N and U shortcuts, the phone bell) does (Ruling,
  * Noah 2026-11-09): with that kind already open it keeps the current card and place (`keep`: nothing is reopened;
  * restarting at the first one would silently mark every unread chat read, as each card's chat preview opens).
  * Otherwise it opens the kind's first card, except that Updates starts on the open card when it is in its queue, so its
@@ -157,9 +151,9 @@ export function stepBarState(
 }
 
 /**
- * The order of one updated walk (§9.4). The live queue is recomputed on every poll (newest change first, reads drop
+ * The order of one unread walk (§9.4). The live queue is recomputed on every poll (newest first, reads drop
  * cards, a new event moves a card to the front), so walking it directly made the neighbours of the card shown jump.
- * The walk keeps its own order instead: cards still in the live queue stay where they were, a card that changed
+ * The walk keeps its own order instead: cards still in the live queue stay where they were, a card that turned unread
  * meanwhile joins at the end, and the card shown stays until the user leaves it.
  */
 export function stableQueue(prev: readonly string[], live: readonly string[], shown: string | null): string[] {
@@ -167,14 +161,6 @@ export function stableQueue(prev: readonly string[], live: readonly string[], sh
   const kept = prev.filter((id) => liveSet.has(id) || id === shown);
   const known = new Set(kept);
   return [...kept, ...live.filter((id) => !known.has(id))];
-}
-
-/** The card the walk goes to once `taskId` was marked seen: the next one, else the first one before it; null when it was the only one. */
-export function afterMarkSeen(queue: readonly string[], taskId: string): string | null {
-  const rest = queue.filter((id) => id !== taskId);
-  if (!rest.length) return null;
-  const at = queue.indexOf(taskId);
-  return at >= 0 && at < queue.length - 1 ? queue[at + 1] : rest[0];
 }
 
 /** What changed on a card, in plain words, for the picker (§9.2): "Moved to Committed · New result note". Empty when unknown. */

@@ -40,7 +40,7 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["S"], title: msg("Search") },
   { keys: ["/", "F"], title: msg("Search and filter") },
   { keys: ["N"], title: msg("Step through what needs you") },
-  { keys: ["U"], title: msg("Step through what's new to read") },
+  { keys: ["U"], title: msg("Step through unread cards") },
   { keys: ["I"], title: msg("Project insights") },
   { keys: ["B"], title: msg("Project ideas") },
   { keys: ["G"], title: msg("Guardrails") },
