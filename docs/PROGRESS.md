@@ -6,7 +6,7 @@
 - Renamed everywhere user-facing: "{n} unread" chip, "{n} card is unread. Step through it" / "{n} cards are unread. Step through them" label, step bar "Unread", "Snooze in Unread", help row "Step through unread cards", toast "Nothing unread." (old keys removed from all nine catalogs, with "Updates" and "Mark seen").
 - Step bar: **Mark seen** and its plumbing (`afterMarkSeen`, the card/revision props) are gone; the "what changed" line and **Ask dispatcher** stay. Server unchanged: the change line, `dispatcher.mark-seen`, What should I do? and the clearing of a mark when a session is read.
 - Spec: DISPATCHER-SPEC §9.2-§9.4, UI-REFRESH-SPEC, SHORTCUTS-SPEC. Onboarding: no tip text changed; the 1.9.0-era What's new text for "N updated" is left as the old release's text.
-- Checks: pending.
+- Checks (a123e77, Node 26): new `updatedQueue` tests failed before the change; `npm run typecheck` exit 0; `npm test` exit 0 (225 files passed, 1 skipped; 2652 tests passed, 7 skipped). Unrun: after screenshots (need the plugin installed from main), compact before shot (shot-lib needs the host sidebar), step bar before shot (only real projects on this host).
 
 ## Merged cards move to Done from any open lane (branch `kanban/move-merged-cards-to-done-from-any-statu-eaa452`) — 2026-11-16
 
