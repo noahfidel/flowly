@@ -10,6 +10,7 @@
 - Tests: 5 new tests in `server/dispatcher.test.ts`, written failing first (5 failed, 106 passed), then passing (111 passed).
 - Other stored ids: PaseoTray (`tray/Sources/DispatcherStore.swift`) finds dispatchers live by label, keeps the newest live one per group, and keys Quick Ask recents by group id, so it stores no dispatcher id and needs no change. No bot or plugin config and no Claude memory or rule stores a dispatcher id; only history (logs, summaries, notes) mentions old ids.
 - No tip, tour, What's new entry or telemetry field: this is internal behavior.
+- Review round 1 (opus-reviewer, nothing blocking). Fixed as a new commit: a sweep error (including a failed record write) no longer fails the start; on a listing failure, the ids already pending are kept first; status retries back off from 1 minute up to 1 hour; each id's archive failure is logged once per distinct error; added tests for restore, withoutGroup and the current-session filter. Accepted as a known limit: a build older than this one treats a record with `pendingArchive` as invalid. Rollbacks aren't a supported path, and the field is only written after a failed archive.
 
 ## Where a follow-up card branches from (branch `kanban/default-setting-for-where-follow-up-card-0887eb`) — 2026-11-16
 
