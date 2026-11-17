@@ -147,13 +147,16 @@ test("a parent's branch is the one checked out in its worktree of the same repos
   const parent = join(x.root, "parent");
   git(x.a, "worktree", "add", "-q", "-b", "feature/parent", parent);
   expect(await worktreeBranch(parent, x.a)).toBe("feature/parent");
+  // A tag with the branch's name does not change it (`--short` would print heads/feature/parent).
+  git(x.a, "tag", "feature/parent");
+  expect(await worktreeBranch(parent, x.a)).toBe("feature/parent");
   // Not ahead yet, then two commits ahead of main.
   expect(await branchAhead(x.a, "refs/heads/main", "feature/parent")).toEqual({ ahead: 0, commit: git(x.a, "rev-parse", "main") });
   git(parent, "commit", "-q", "--allow-empty", "-m", "one");
   git(parent, "commit", "-q", "--allow-empty", "-m", "two");
   expect(await branchAhead(x.a, "refs/heads/main", "feature/parent")).toEqual({ ahead: 2, commit: git(parent, "rev-parse", "HEAD") });
   // Merged into the base: no longer ahead.
-  git(x.a, "merge", "-q", "--ff-only", "feature/parent");
+  git(x.a, "merge", "-q", "--ff-only", "refs/heads/feature/parent");
   expect((await branchAhead(x.a, "refs/heads/main", "feature/parent")).ahead).toBe(0);
   // A detached HEAD has no branch; the main checkout itself is the same repository.
   git(parent, "checkout", "-q", "--detach");

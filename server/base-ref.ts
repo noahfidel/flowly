@@ -120,11 +120,12 @@ async function commonDir(directory: string) {
 export async function worktreeBranch(directory: string, root: string): Promise<string | null> {
   const [own, project] = await Promise.all([commonDir(directory), commonDir(root).catch(() => null)]);
   if (!project || own !== project) return null;
-  const branch = await git(directory, ["symbolic-ref", "--quiet", "--short", "HEAD"]).then(
+  // The full name: `--short` prints `heads/x` when a tag `x` exists too.
+  const ref = await git(directory, ["symbolic-ref", "--quiet", "HEAD"]).then(
     (out) => out.trim(),
     () => "",
   );
-  return branch || null;
+  return ref.startsWith("refs/heads/") && ref.length > "refs/heads/".length ? ref.slice("refs/heads/".length) : null;
 }
 
 /** The tip of `refs/heads/<branch>` in `root` and how many of its commits `base` lacks (`git rev-list --count`, §11.2). */
@@ -141,3 +142,28 @@ export const refResolves = (root: string, ref: string) =>
     () => true,
     () => false,
   );
+
+/**
+ * What a new worktree really branched from (START-CARD-SPEC §11.4): its HEAD and how many of its commits `base` lacks,
+ * read once the worktree exists. Throws when git cannot read it.
+ */
+export async function worktreeHead(directory: string, base: string): Promise<{ commit: string; ahead: number }> {
+  const commit = (await git(directory, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+  const ahead = Number((await git(directory, ["rev-list", "--count", `${base}..${commit}`])).trim());
+  if (!/^[0-9a-f]{40,64}$/.test(commit) || !Number.isInteger(ahead)) throw new Error(`git gave no commit or count in ${directory}`);
+  return { commit, ahead };
+}
+
+/**
+ * `branchedFrom` with the commit the worktree in `directory` actually branched from (§11.4): the parent may have moved
+ * between the decision and the create. Keeps the measured values, logged, when the worktree can't be read.
+ */
+export async function actualBranchedFrom<T extends { commit: string; ahead: number }>(directory: string | null | undefined, base: string, measured: T): Promise<T> {
+  try {
+    if (!directory) throw new Error("no worktree directory");
+    return { ...measured, ...(await worktreeHead(directory, base)) };
+  } catch (e) {
+    logFailure("Flowly follow-up worktree head not read; keeping the measured parent commit:", e, `${directory ?? ""} ${measured.commit}`);
+    return measured;
+  }
+}

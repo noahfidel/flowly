@@ -124,17 +124,24 @@ export async function chooseBase(options: {
           : 'The card has no open parent card with a branch, so baseRef "parent" has nothing to branch from. Pass a branch as baseRef, or leave it out for the project\'s base.',
       );
     const base = await options.projectBase();
-    const measured = await measure(root, base, branches[0], warnings);
-    if (!measured) throw new ToolError("BASE_CHOICE_NEEDED", `${warnings.at(-1)} Pass a branch as baseRef, or leave it out for the project's base.`);
-    return fromParent(measured, base, "explicit", warnings);
+    return chosenParent(branches[0], await options.projectBase());
+  }
+  // A parent's branch chosen explicitly (by "parent" or by its name): its branch while it is ahead, else the project
+  // base (rule 1, like rule 2); one that can't be compared is never stored as the card's base.
+  async function chosenParent(parent: ParentBranch, base: string): Promise<BaseChoice> {
+    const measured = await measure(root, base, parent, warnings);
+    if (!measured) throw new ToolError("BASE_CHOICE_NEEDED", `${warnings.at(-1)} Pass another branch as baseRef, or leave it out for the project's base.`);
+    if (measured.ahead > 0) return fromParent(measured, base, "explicit", warnings);
+    return {
+      refName: base,
+      taskBaseRef: base,
+      from: "project",
+      warnings: [...warnings, `Parent "${parent.task.title}" (${parent.branch}) has no commits not in ${shortRef(base)}; the card branched from ${shortRef(base)}.`],
+    };
   }
   if (explicit) {
     const named = branches.find((b) => explicit === b.branch || explicit === `refs/heads/${b.branch}`);
-    if (named) {
-      const base = await options.projectBase();
-      const measured = await measure(root, base, named, warnings);
-      if (measured) return fromParent(measured, base, "explicit", warnings);
-    }
+    if (named) return chosenParent(named, await options.projectBase());
     let ref: string;
     try {
       ref = await projectWorktreeBase(root, project.baseRef, explicit);
@@ -153,11 +160,10 @@ export async function chooseBase(options: {
   }
   if (!ahead.length) return { ...onBase, warnings };
   const setting = followUpSetting(project);
-  if (setting === "parent") {
-    if (ahead.length === 1) return fromParent(ahead[0], base, "parent", warnings);
-    throw choiceNeeded(ahead, base);
-  }
-  if (setting === "ask" && !options.human) throw choiceNeeded(ahead, base);
+  if (setting === "parent" && ahead.length === 1) return fromParent(ahead[0], base, "parent", warnings);
+  // Several parents ahead, or "ask": the caller asks the user. The user's own Start again acts as "base" instead: the
+  // user is the one who would be asked.
+  if (setting !== "base" && !options.human) throw choiceNeeded(ahead, base);
   return {
     ...onBase,
     warnings: [...warnings, ...ahead.map((p) => `Parent "${p.task.title}" has ${commits(p.ahead)} not in ${shortRef(base)}; the card branched from ${shortRef(base)}.`)],

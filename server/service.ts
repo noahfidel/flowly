@@ -34,7 +34,7 @@ import { logFailure } from "./error-report";
 import { ToolError } from "./tool-error";
 import { runPaseo } from "./paseo-cli";
 import { columnEnd } from "../shared/group-order";
-import { dropUpstream, projectWorktreeBase, remoteBase } from "./base-ref";
+import { actualBranchedFrom, dropUpstream, projectWorktreeBase, remoteBase } from "./base-ref";
 
 const execute = promisify(execFile);
 type RemoveResult = z.infer<typeof removeProjectRpc.output>;
@@ -536,6 +536,7 @@ export class BoardService {
       let baseRef: string | undefined;
       // What the card stores as its base: the project base also when it branched from its parent (§11.4).
       let cardBaseRef: string | undefined;
+      let branchedFrom: BranchedFrom | undefined;
       if (input.mode === "existing") {
         if (!workspaceId) throw new Error("Select a workspace.");
         if (await this.reservedWorkspace(workspaceId)) throw new Error("This is the Flowly dispatcher's workspace; a card can't use it.");
@@ -597,6 +598,11 @@ export class BoardService {
                 },
         });
         workspaceId = created.id;
+        // The commit the worktree really branched from: the parent may have moved since the decision (§11.4).
+        if (branch?.branchedFrom) {
+          const made = await paseo.workspaces.ref(created.id).refresh().catch(() => null);
+          branchedFrom = await actualBranchedFrom(made?.workspaceDirectory, branch.baseRef, branch.branchedFrom);
+        }
         // A branch made from a remote base never tracks it (START-CARD-SPEC §4.1).
         if (baseRef && remoteBase(baseRef)) {
           const made = await paseo.workspaces.ref(created.id).refresh().catch((e: unknown) => {
@@ -645,7 +651,7 @@ export class BoardService {
             archivedAt: null,
             ownsWorkspace: input.mode !== "existing",
             ...(cardBaseRef ? { baseRef: cardBaseRef } : {}),
-            ...(cardBaseRef && branch?.branchedFrom ? { branchedFrom: branch.branchedFrom } : {}),
+            ...(cardBaseRef && branchedFrom ? { branchedFrom } : {}),
             ...(idea ? { origin: { ...(idea.taskId ? { taskId: idea.taskId } : {}), ideaId: idea.id } } : {}),
           };
           current.tasks.push(task);

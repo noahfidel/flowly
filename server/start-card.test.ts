@@ -9,6 +9,7 @@ import { CardStarter } from "./start-card";
 import { ExternalError } from "./connectors/http";
 import { codedError, toolFailure } from "./tool-error";
 import { agentCardLimits } from "../shared/tools";
+import { digest } from "./tool-context";
 import { projectEdit, type Task } from "../shared/model";
 
 const roots: string[] = [];
@@ -37,7 +38,8 @@ async function setup() {
   const createdSessions: (Created & { workspaceId: string })[] = [];
   const archived: string[] = [];
   /** onCreate runs after Paseo made a workspace; lostCreates drops that many create responses. */
-  const hooks: { onCreate?: () => unknown; lostCreates: number; archiveFails: boolean } = { lostCreates: 0, archiveFails: false };
+  /** materialize: makes the worktree on disk, as Paseo would (only tests that need a real one set it). */
+  const hooks: { onCreate?: () => unknown; materialize?: (source: Source, directory: string) => void; lostCreates: number; archiveFails: boolean } = { lostCreates: 0, archiveFails: false };
   const space = (id: string, kind = "directory", directory = x.a) =>
     workspaces.set(id, { id, projectId: "native", workspaceDirectory: directory, workspaceKind: kind, archivingAt: null });
   const paseo = {
@@ -80,6 +82,7 @@ async function setup() {
         createdWorkspaces.push(request);
         const id = `created-${createdWorkspaces.length}`;
         space(id, request.source.kind, request.source.kind === "worktree" ? join(x.root, id) : x.a);
+        if (request.source.kind === "worktree") hooks.materialize?.(request.source, join(x.root, id));
         await hooks.onCreate?.();
         if (hooks.lostCreates > 0) {
           hooks.lostCreates--;
@@ -912,6 +915,10 @@ async function followUps() {
   const setting = async (followUpBase: "parent" | "base" | "ask") =>
     x.store.updateProject({ id: "p", revision: (await x.store.read()).projects[0].revision, followUpBase });
   const read = async (id: string) => (await x.store.read()).tasks.find((t) => t.id === id)!;
+  // Paseo's branch-off makes a real worktree, so the recorded commit is the worktree's own HEAD (§11.4).
+  x.hooks.materialize = (source, directory) => {
+    if (source.action === "branch-off") git(x.a, "worktree", "add", "-q", "-b", source.branchName!, directory, source.refName!);
+  };
   return { ...x, commit, parent, follow, setting, read };
 }
 
@@ -1056,4 +1063,120 @@ test("projects.update stores the follow-up setting, parent as absent, and refuse
   expect("followUpBase" in (await x.setting("parent"))).toBe(false);
   expect(projectEdit.safeParse({ id: "p", revision: 9, followUpBase: "sometimes" }).success).toBe(false);
   await expect(x.store.updateProject({ id: "p", revision: 1, followUpBase: "ask" })).rejects.toThrow(/Revision conflict/);
+});
+
+test("the recorded parent commit is the one the worktree really branched from, also when the parent moved meanwhile (§11.4)", async () => {
+  const x = await followUps();
+  const { dir } = await x.parent("par", "par", 1);
+  await x.card("c", { ownsWorkspace: true });
+  await x.follow("c", "par");
+  // The parent commits between the decision and Paseo's create.
+  const make = x.hooks.materialize!;
+  x.hooks.materialize = (source, directory) => {
+    x.commit(dir, "meanwhile");
+    make(source, directory);
+  };
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  const head = git(join(x.root, "created-1"), "rev-parse", "HEAD").trim();
+  expect(head).toBe(git(dir, "rev-parse", "HEAD").trim());
+  expect((await x.read("c")).branchedFrom).toEqual({ taskId: "par", branch: "par", commit: head, ahead: 2 });
+  expect(x.createdSessions[0].prompt).toContain(`git rebase --onto main ${head}.`);
+  // flowly_create_card's worktree too.
+  const made = await x.cards.create({ agentId: "par-agent", projectId: "p", taskId: "par" }, { title: "Made", workspace: "worktree", idempotencyKey: "made" });
+  const madeHead = git(join(x.root, "created-2"), "rev-parse", "HEAD").trim();
+  expect(madeHead).toBe(git(dir, "rev-parse", "HEAD").trim());
+  expect((await x.read(made.card.taskId)).branchedFrom).toEqual({ taskId: "par", branch: "par", commit: madeHead, ahead: 3 });
+});
+
+test("a follow-up made by flowly_create_card, or one whose first start failed after the move, still gets the rebase line (§11.4)", async () => {
+  const x = await followUps();
+  const { tip } = await x.parent("par", "par", 1);
+  // Created from the parent's own session in a worktree, then started: no move, but its first session.
+  const made = await x.cards.create({ agentId: "par-agent", projectId: "p", taskId: "par" }, { title: "Next", workspace: "worktree", idempotencyKey: "next" });
+  expect(made.base).toEqual({ ref: "refs/heads/par", from: "parent", parentTaskId: "par", ahead: 1 });
+  expect((await x.read(made.card.taskId)).branchedFrom).toEqual({ taskId: "par", branch: "par", commit: tip, ahead: 1 });
+  await x.starter.start(x.caller, { taskId: made.card.taskId, idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[0].prompt).toBe(
+    `Next\n\nThis card branched from par (card "Card par"), which has 1 commit not in main. Before shipping, rebase onto main once the parent has landed: git rebase --onto main ${tip}.`,
+  );
+  // A start that moved the card but whose session failed: the retry keeps the line and the base, with no warning.
+  await x.card("c", { ownsWorkspace: true });
+  await x.follow("c", "par");
+  const ref = x.paseo.workspaces.ref;
+  let fail = true;
+  vi.spyOn(x.paseo.workspaces, "ref").mockImplementation(((id: string) => {
+    const real = ref(id);
+    return {
+      ...real,
+      agents: {
+        create: async (options: never) => {
+          if (fail) {
+            fail = false;
+            throw new Error("boom");
+          }
+          return real.agents.create(options);
+        },
+      },
+    };
+  }) as never);
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", baseRef: "parent", idempotencyKey: "go" }, x.paseo))).toBe("START_FAILED");
+  expect((await x.read("c")).workspaceId).not.toBe("ws-c");
+  const retried = await x.starter.start(x.caller, { taskId: "c", baseRef: "parent", idempotencyKey: "go" }, x.paseo);
+  expect(retried.base).toEqual({ ref: "refs/heads/par", from: "explicit", parentTaskId: "par", ahead: 1 });
+  expect(retried.warnings).toBeUndefined();
+  expect(x.createdSessions.at(-1)!.prompt).toContain("This card branched from par");
+});
+
+test("the user's Start again with several parents ahead branches from the base and warns about each (§11.3)", async () => {
+  const x = await followUps();
+  await x.parent("one", "one", 1);
+  await x.parent("two", "two", 2);
+  await x.card("c", { ownsWorkspace: true });
+  await x.follow("c", "one");
+  await x.follow("c", "two");
+  const started = await x.starter.start({ agentId: "user", projectId: "p", human: true }, { taskId: "c", idempotencyKey: "again" }, x.paseo);
+  expect(started.base).toEqual({ ref: "refs/heads/main", from: "project" });
+  expect(started.warnings).toEqual([
+    'Parent "Card one" has 1 commit not in main; the card branched from main.',
+    'Parent "Card two" has 2 commits not in main; the card branched from main.',
+  ]);
+  expect((await x.read("c")).branchedFrom).toBeUndefined();
+});
+
+test("a parent chosen explicitly with nothing ahead gives the project base; one that can't be compared is refused (§11.3)", async () => {
+  const x = await followUps();
+  await x.parent("par", "par", 0);
+  await x.card("c", { ownsWorkspace: true });
+  await x.follow("c", "par");
+  const started = await x.starter.start(x.caller, { taskId: "c", baseRef: "parent", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdWorkspaces[0].source).toMatchObject({ refName: "refs/heads/main" });
+  expect(started.base).toEqual({ ref: "refs/heads/main", from: "project" });
+  expect(started.warnings).toEqual(['Parent "Card par" (par) has no commits not in main; the card branched from main.']);
+  expect((await x.read("c")).branchedFrom).toBeUndefined();
+  expect((await x.store.read()).links.filter((l) => l.kind === "blocks")).toEqual([]);
+  expect(x.createdSessions[0].prompt).toBe("Card c\n\nDo c.");
+  // A parent on a branch with no commit yet: named explicitly, it is refused, never stored as the card's base.
+  const { dir } = await x.parent("unborn", "unborn-base", 0);
+  git(dir, "checkout", "-q", "--orphan", "fresh");
+  await x.card("d", { ownsWorkspace: true });
+  await x.follow("d", "unborn");
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "d", baseRef: "fresh", idempotencyKey: "go" }, x.paseo))).toBe("BASE_CHOICE_NEEDED");
+  expect(x.createdWorkspaces).toHaveLength(1);
+  expect((await x.read("d")).baseRef).toBeUndefined();
+});
+
+test("a worktree request kept before §11 (no base) still parses and starts on its own ref", async () => {
+  const x = await followUps();
+  await x.card("c", { ownsWorkspace: true });
+  const operationId = `start-card:${digest(JSON.stringify(["c", x.caller.agentId, "old"]))}`;
+  await x.secrets.keepStart(operationId, {
+    title: "Card c",
+    idempotencyKey: `flowly-start:${operationId}`,
+    source: { kind: "worktree", cwd: x.a, projectId: "native", action: "branch-off", refName: "refs/heads/main", branchName: "kanban/old-request" },
+  });
+  const started = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "old" }, x.paseo);
+  expect(x.createdWorkspaces[0].source).toEqual({ kind: "worktree", cwd: x.a, projectId: "native", action: "branch-off", refName: "refs/heads/main", branchName: "kanban/old-request" });
+  expect(started.base).toEqual({ ref: "refs/heads/main", from: "project" });
+  expect(await x.read("c")).toMatchObject({ baseRef: "refs/heads/main", workspaceId: "created-1" });
 });

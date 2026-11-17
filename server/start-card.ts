@@ -13,7 +13,7 @@ import type { AgentCards, CardCaller } from "./agent-cards";
 import type { ConnectorService } from "./connectors/service";
 import { logFailure } from "./error-report";
 import { generatedBranchName } from "./service";
-import { dropUpstream, projectWorktreeBase, remoteBase } from "./base-ref";
+import { actualBranchedFrom, dropUpstream, projectWorktreeBase, remoteBase } from "./base-ref";
 import type { BoardStore } from "./store";
 import { digest } from "./tool-context";
 import { checkGroup, ToolError } from "./tool-error";
@@ -238,13 +238,20 @@ export class CardStarter {
         base = worktreeBaseOf(request);
         if (request.source.action === "checkout" && input.baseRef !== undefined)
           warnings.push(`baseRef was ignored: the card's Linear branch ${request.source.refName} was checked out.`);
-      } else if (input.baseRef !== undefined) warnings.push("baseRef was ignored: the card already has its workspace, so no worktree was made.");
+      } else {
+        // A retry after the session failed to start: the card already moved to the worktree this operation made.
+        const kept = keptRequestSchema.safeParse(await this.deps.keptWorktree(operationId).catch(() => null));
+        if (kept.success && workspace.workspaceKind === "worktree") base = worktreeBaseOf(kept.data);
+        else if (input.baseRef !== undefined) warnings.push("baseRef was ignored: the card already has its workspace, so no worktree was made.");
+      }
       const after = await this.store.read();
       checkGroup(after.projects.find((p) => p.id === project.id), caller.groupId);
       const own = input.prompt?.trim() ? input.prompt : defaultPrompt(task, planTarget);
       const started = after.tasks.find((t) => t.id === task.id);
-      // A card branched from its parent's branch is told how to land (§11.4), also after a caller's own prompt.
-      const branched = move && started?.branchedFrom && started.workspaceId === workspaceId ? started.branchedFrom : null;
+      // A card branched from its parent's branch is told how to land (§11.4), also after a caller's own prompt: at its
+      // first session, whether the worktree was made now, by flowly_create_card, or by an earlier try of this start.
+      const firstSession = move || !sessions.length;
+      const branched = firstSession && started?.branchedFrom && started.workspaceId === workspaceId ? started.branchedFrom : null;
       const prompt = branched
         ? `${own}\n\n${rebaseLine(branched, after.tasks.find((t) => t.id === branched.taskId)?.title ?? branched.taskId, started?.baseRef ?? "")}`
         : own;
@@ -395,6 +402,9 @@ export class CardStarter {
       throw new ToolError("START_FAILED", `Paseo returned worktree workspace ${created.id} for this idempotencyKey, but it is archived or gone; the card was not moved. Use a new idempotencyKey.`);
     // A branch made from a remote base never tracks it (§4.1).
     if (request.source.action === "branch-off" && remoteBase(request.source.refName)) await dropUpstream(made.workspaceDirectory, request.source.refName);
+    // The commit the worktree really branched from: the parent may have moved since the decision (§11.4).
+    const measured = request.source.action === "branch-off" ? request.base?.branchedFrom : undefined;
+    const branchedFrom = measured && request.base ? await actualBranchedFrom(made.workspaceDirectory, request.base.taskBaseRef, measured) : undefined;
     // A session started in the directory workspace meanwhile (the drawer's Start session) keeps the card there (§4.2).
     const meanwhile = await workspaceSessions(paseo, old, true).catch((e: unknown) => e);
     if (!Array.isArray(meanwhile)) {
@@ -432,7 +442,6 @@ export class CardStarter {
         // the project base, also when it branched from its parent's branch (§11.4).
         if (request.source.action === "branch-off") t.baseRef = request.base?.taskBaseRef ?? request.source.refName;
         else delete t.baseRef;
-        const branchedFrom = request.source.action === "branch-off" ? request.base?.branchedFrom : undefined;
         if (branchedFrom) {
           t.branchedFrom = branchedFrom;
           // The parent lands first (§11.4); an existing link stays, a cycle adds nothing.
