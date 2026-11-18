@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Board: O opens the open card's active session, R its newest pull request (branch `kanban/board-shortcuts-o-opens-the-open-card-s-d549c5`) — 2026-11-18
+
+- Feature (user-requested): two desktop board shortcuts act on the card open in the sidebar. `O` opens its active session chat (the double click's rule and entry; toast "No session yet." when there is none). `R` opens its newest pull request in the browser (toast "No pull request yet." when there is none). With no card open, or on compact layouts, neither key is consumed. Ruling (Noah, 2026-11-18): `R`, not `G`, because `G` stays Guardrails. Contract: SHORTCUTS-SPEC §2.1.
+- Client: `client/shortcuts.ts` (actions `open-session` / `open-pr`, help rows, pure `cardShortcutApplies`); `newestPrUrl` in `client/quick-links.ts` (first PR chip of `quickLinks`, no second PR rule); `openQuickLink` extracted in `client/quick-links-row.tsx` and shared by the PR chip and `R`; `SessionEntry.toastNone` for `O`, resolved by the drawer's existing active-session effect; board `prRequest` prop consumed once by the drawer after the card detail loads.
+- Tests: `client/shortcuts.test.ts` and `client/quick-links.test.ts` committed failing first, then passing. i18n: four strings in all 9 catalogs.
+- Onboarding: no new tip or tour copy; the `?` help popover lists both keys. What's new: none (not a release).
+
 ## Board: double-click a card to jump into its active session (branch `kanban/board-double-click-a-card-to-jump-into-i-b93db9`) — 2026-11-18
 
 - Feature (user-requested): on the desktop board a mouse double click on a card opens its card home (first click, unchanged and undelayed) and then its active session chat in the drawer. Active session = first of the Quick links order (waiting, running, error, done; newest first). No live session: stays on the card home, no toast. Touch, pen, Enter and phones unchanged. Contract: UI-UX-SPEC §3, DRAWER-SPEC Quick links.
