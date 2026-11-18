@@ -1,5 +1,14 @@
 # Implementation progress
 
+## Board: double-click a card to jump into its active session (branch `kanban/board-double-click-a-card-to-jump-into-i-b93db9`) — 2026-11-18
+
+- Feature (user-requested): on the desktop board a mouse double click on a card opens its card home (first click, unchanged and undelayed) and then its active session chat in the drawer. Active session = first of the Quick links order (waiting, running, error, done; newest first). No live session: stays on the card home, no toast. Touch, pen, Enter and phones unchanged. Contract: UI-UX-SPEC §3, DRAWER-SPEC Quick links.
+- Client: pure `client/double-click.ts` (`isMouseDoubleClick`: `detail === 2` and mouse); `orderQuickSessions` / `activeQuickSession` in `client/quick-links.ts` (the chip sort extracted, not duplicated); `TaskCard`/`LiveTaskCard` `onOpenSession` and a last-pointer ref; board `openCardSession` sets a `SessionEntry` with `active: true` (new optional field); the drawer consumes it once this card's sessions list is known (data or error), picking `activeQuickSession(quickSessions)`. Tip `card-double-click` (9 catalogs).
+- Tests: `client/quick-links.test.ts` and `client/double-click.test.ts` committed failing first, then passing; `client/onboarding-logic.test.ts` extended.
+- Checks: `npm run typecheck` exit 0; `npm test` on Node 20 (no `node:sqlite`): 8 failures, all in `server/sqlite-*`, `server/store-group-*` and `scripts/single-pane-live` (Node 20 lacks `node:sqlite` / `registerHooks`), everything else passed including the i18n catalog checks.
+- Real UI verification: pending (card session).
+- Onboarding: one-time tip, no tour change and no What's new entry (no release). Telemetry: no heartbeat field.
+
 ## Double tap of Ctrl opens the board (branch `kanban/double-tap-ctrl-opens-the-flowly-board-i-0ffd52`) — 2026-11-18
 
 - Feature (user-requested): on the web, two quick taps of Ctrl anywhere in Paseo open the Flowly board. On by default; switch *Double-tap Ctrl to open Flowly* in Settings → General → Keyboard (host setting `shortcuts.doubleTapCtrl`). Contract: SHORTCUTS-SPEC §5; AGENTS.md exception for the window listener.
