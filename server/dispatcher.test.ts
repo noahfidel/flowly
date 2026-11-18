@@ -30,7 +30,7 @@ import type { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
 import { agentFixture } from "./agent-fixture";
 import type { DispatcherIdentity } from "./tool-context";
-import { dispatcherBuiltinTools, dispatcherCharter, dispatcherCharterVersion, dispatcherConfirmedToolNames, dispatcherGuardVersion, dispatcherToolNames, dispatcherWithheldTools, noteReplyRule, startRule, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
+import { dispatcherBuiltinTools, dispatcherCharter, dispatcherCharterVersion, dispatcherConfirmedToolNames, dispatcherGuardVersion, dispatcherToolNames, dispatcherWithheldTools, mergeNotes, noteReplyRule, startRule, userSendOptions, type DispatcherNote } from "../shared/dispatcher";
 import { emptyBoard, type Board, type BoardEvent, type Group } from "../shared/model";
 
 const directories: string[] = [];
@@ -1244,7 +1244,7 @@ test("a marked result is relayed to the live related card only, once (DISPATCHER
   await x.dispatcher.deliver([marked("src", "e1")], x.paseo);
   expect(x.sends).toHaveLength(1);
   const lines = x.sends[0].text.split("\n");
-  expect(lines[2]).toBe('  Relay contract news with flowly_message_card to: "Card live" [live]');
+  expect(lines[2]).toBe('  Relay contract news with flowly_message_card to: "Card live" [live]. The news: "shape changed"');
   expect(lines).toHaveLength(3);
   // The same contract again (same eventId): no relay line.
   vi.advanceTimersByTime(60_000);
@@ -1270,6 +1270,18 @@ test("a note without contract news and a charter 6 dispatcher get no relay line 
   await y.dispatcher.deliver([marked("src", "e9")], y.paseo);
   expect(y.sends[0].text).not.toContain("Relay contract news");
   y.dispatcher.dispose();
+});
+
+test("a question merged after contract news is never what gets relayed (§5.8)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-18T10:00:00.000Z") });
+  const x = await charterDispatcher(dispatcherCharterVersion);
+  relayBoard(x);
+  const merged = mergeNotes(marked("src", "e1"), { ...note("src", "May I delete the old shape?"), kind: "question" });
+  await x.dispatcher.deliver([merged], x.paseo);
+  const relay = x.sends[0].text.split("\n")[2];
+  expect(relay).toMatch(/The news: "shape changed"$/);
+  expect(relay).not.toContain("May I delete");
+  x.dispatcher.dispose();
 });
 
 test("an unreadable agent list sends the batch without relay lines (§5.8)", async () => {
@@ -1701,7 +1713,7 @@ test("the charter asks the user with AskUserQuestion or a confirmed tool, never 
   expect(line).toMatch(/never for a "start" request/);
   expect(line).toMatch(/If AskUserQuestion is refused, ask in one line of text/);
   expect(dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("BASE_CHOICE_NEEDED"))).toMatch(/BASE_CHOICE_NEEDED ask the user with AskUserQuestion/);
-  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(5);
+  expect(dispatcherCharterVersion).toBe(6);
   // The guard stays: an older dispatcher only lacks the tool, the charter's Replace warning covers it (§3).
   expect(dispatcherGuardVersion).toBe(2);
 });

@@ -379,7 +379,7 @@ export function noteMessage(
       const detail = [n.detail, n.later ? `then ${n.later}` : ""].filter(Boolean).map(oneLine).join("; ");
       const line = `- "${oneLine(n.title)}" [${n.taskId}] in project ${n.projectId}: ${n.kind}${detail ? ` — ${detail}` : ""}${n.earlier ? ` (+${n.earlier} earlier)` : ""}`;
       const targets = charter >= relayCharterVersion ? relays?.get(n.taskId) : undefined;
-      return targets?.length ? [line, relayLine(targets)] : [line];
+      return targets?.length && n.contract ? [line, relayLine(targets, n.contract.text)] : [line];
     }),
     ...(charter < batchRulesBelow ? [startRule, noteReplyRule] : []),
   ].join("\n");
@@ -390,7 +390,7 @@ type GroupHub = {
   /** The group's stored entry (after the v1 migration); undefined when it has none. */
   entry(groupId: string): Promise<DispatcherEntry | undefined>;
   now(): number;
-  /** The board, read once per batch that has contract news to relay (§5.7). */
+  /** The board, read once per batch that has contract news to relay (§5.8). */
   board(): Promise<Pick<Board, "links" | "tasks">>;
   /** The batch the group's session received (the chat's note rows, §9.1). */
   sent(groupId: string, agentId: string, notes: readonly DispatcherNote[], at: string): void;
@@ -414,7 +414,7 @@ class GroupDispatcher {
   /** The session id a start has stored but Paseo may not have created yet: notes for it are held, not dropped. */
   starting: string | null = null;
   private deliveries: Promise<unknown> = Promise.resolve();
-  /** Contract news already relayed (event ids, oldest first) and who was relayed to, for the loop guards (§5.7). */
+  /** Contract news already relayed (event ids, oldest first) and who was relayed to, for the loop guards (§5.8). */
   private readonly relayed = new Set<string>();
   private recentRelays: { from: string; to: string; at: number }[] = [];
   disposed = false;
@@ -541,7 +541,7 @@ class GroupDispatcher {
     }
   }
 
-  /** The live related cards to relay each note's contract news to; empty when none, unread, or already relayed (§5.7). */
+  /** The live related cards to relay each note's contract news to; empty when none, unread, or already relayed (§5.8). */
   private async relayTargets(paseo: PaseoApi, notes: readonly DispatcherNote[], charter: number) {
     const relays = new Map<string, Pick<Task, "title" | "id">[]>();
     const fresh = notes.filter((n) => n.contract && !this.relayed.has(n.contract.eventId));
@@ -562,7 +562,7 @@ class GroupDispatcher {
     return relays;
   }
 
-  /** Remembers what a sent batch relayed: the event ids (bounded) and who was relayed to, for the echo guard (§5.7). */
+  /** Remembers what a sent batch relayed: the event ids (bounded) and who was relayed to, for the echo guard (§5.8). */
   private recordRelays(notes: readonly DispatcherNote[], relays: ReadonlyMap<string, readonly Pick<Task, "id">[]>, sentAt: number) {
     this.recentRelays = this.recentRelays.filter((r) => r.at >= sentAt - relayEchoMs);
     for (const n of notes) {

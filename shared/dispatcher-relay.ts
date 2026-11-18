@@ -55,8 +55,16 @@ export function contractRelayTargets(input: {
   return targets;
 }
 
-/** The line under a note that lists the cards to relay to. */
-export function relayLine(targets: readonly Pick<Task, "title" | "id">[]): string {
+/** The longest news text a relay line carries. */
+export const relayTextLimit = 500;
+
+/**
+ * The line under a note that lists the cards to relay to and carries the news itself, so a later question or blocker
+ * merged into the same note is never what gets relayed.
+ */
+export function relayLine(targets: readonly Pick<Task, "title" | "id">[], news: string): string {
   const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
-  return `  Relay contract news with flowly_message_card to: ${targets.map((t) => `"${oneLine(t.title)}" [${t.id}]`).join("; ")}`;
+  const text = oneLine(news);
+  const cut = text.length > relayTextLimit ? `${text.slice(0, relayTextLimit - 1)}…` : text;
+  return `  Relay contract news with flowly_message_card to: ${targets.map((t) => `"${oneLine(t.title)}" [${t.id}]`).join("; ")}. The news: "${cut}"`;
 }

@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Dispatcher relays contract news to related cards (branch `kanban/dispatcher-charter-relay-related-card-co-aa0cb6`) — 2026-11-18
+
+- Feature (user-requested): a card that starts a result, progress or delivery note with `[contract]` has its news relayed by the dispatcher to its live `related` cards with `flowly_message_card` (DISPATCHER-SPEC §5.8, EVENT-BUS-SPEC §2). Flowly computes the targets at note delivery (related links only; not archived, not Done/Cancelled, with a live session; never the source; at most 10) and adds a `Relay contract news…` line, carrying the news text, under the note; the charter (version 6) tells the dispatcher to send exactly those, information only. Questions, blockers and permissions never carry contract news. Caps: one relay per source event (event ids remembered per group), a 30-minute echo guard back to the source, and `flowly_message_card`'s 30 per hour.
+- Code: `shared/dispatcher-relay.ts` (`contractNews`, `contractRelayTargets`, `relayLine`); `contract` on `DispatcherNote` kept across `mergeNotes`; `isStop` and `noteOf` in `server/event-bus.ts`; `noteMessage` relay lines and the per-group relay memory in `server/dispatcher.ts`; `dispatcherCharterVersion` 6 → 7, guard stays 2.
+- Tests: `shared/dispatcher-relay.test.ts`, `server/event-bus.test.ts`, `server/dispatcher.test.ts` (live related sibling only, never finished/sessionless/source, not twice for the same event, echo guard, merged question never relayed, charter 6 and failed reads get no line).
+- Onboarding: no tour, tip or What's new (no UI change, not a release); running dispatchers show the Replace warning. Telemetry: no heartbeat field.
+
 ## Dispatcher: attach files and links to cards (`flowly_add_artifact`) (branch `kanban/give-the-dispatcher-a-tool-to-attach-fil-0bcb89`) — 2026-11-18
 
 - Feature (user-requested): the dispatcher's `flowly_add_artifact { projectId, taskId, target, role, title?, note? }` attaches a file or link to a card of its group as input or output, through the card session's own rules (`AgentCards.addArtifact`: same roots incl. the extra artifact folders, connector recognition, `ARTIFACT_INVALID` messages, re-attach behaviour). Spec: DISPATCHER-SPEC §5.7 (decisions: no confirm, no removal tool for now).

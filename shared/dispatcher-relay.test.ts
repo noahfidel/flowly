@@ -65,5 +65,6 @@ test("at most relayTargetLimit targets", () => {
 });
 
 test("relayLine names each target with its title and id", () => {
-  expect(relayLine([{ id: "a", title: "Card  one\n" }, { id: "b", title: "Two" }])).toBe('  Relay contract news with flowly_message_card to: "Card one" [a]; "Two" [b]');
+  expect(relayLine([{ id: "a", title: "Card  one\n" }, { id: "b", title: "Two" }], "Shape\nv2")).toBe('  Relay contract news with flowly_message_card to: "Card one" [a]; "Two" [b]. The news: "Shape v2"');
+  expect(relayLine([{ id: "a", title: "A" }], "x".repeat(600)).length).toBeLessThan(600);
 });
