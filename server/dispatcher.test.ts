@@ -1645,6 +1645,12 @@ test("the charter reads \"start X\" as create and start a card, never doing the 
   expect(charter).toContain(startRule);
 });
 
+test("the charter names related links for card families and is versioned 6 (DISPATCHER-SPEC §6)", () => {
+  const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.startsWith("- Split independent deliverables"))!;
+  expect(line).toMatch(/blocks when one must land first, follow_up when one continues another, related/);
+  expect(dispatcherCharterVersion).toBe(6);
+});
+
 test("the charter says each card creation is confirmed in the chat and a cancel stops it (DISPATCHER-SPEC §5.2, §6)", () => {
   const charter = dispatcherCharter({ name: "Projects" });
   const line = charter.split("\n").find((l) => l.includes("CARD_REFUSED"))!;

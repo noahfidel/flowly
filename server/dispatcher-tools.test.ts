@@ -23,6 +23,7 @@ import {
   dispatcherRepliesPerHour,
   dispatcherToolNames,
 } from "../shared/dispatcher";
+import { linkLimits } from "../shared/model";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -298,6 +299,53 @@ test("a dispatcher token can write to any live project", async () => {
   // A card id from another project is not reachable through this project.
   expect(code(await d.call("flowly_get_card", { projectId: "q", taskId: "t" }))).toBe("CARD_NOT_FOUND");
   expect(code(await d.call("flowly_link_cards", { projectId: "q", taskId: "q1", relation: "blocks", otherTaskId: "t" }))).toBe("CARD_NOT_FOUND");
+});
+
+test("flowly_link_cards relation=related is symmetric: one link, an identical one either way is created=false (DISPATCHER-SPEC §5)", async () => {
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  const linked = await d.call("flowly_link_cards", { projectId: "q", taskId: "q1", relation: "related", otherTaskId: "q2" });
+  expect(code(linked)).toBeUndefined();
+  expect(linked.structuredContent).toMatchObject({ created: true, link: { kind: "related", from: "q1", to: "q2", createdBy: "system" } });
+  const same = await d.call("flowly_link_cards", { projectId: "q", taskId: "q1", relation: "related", otherTaskId: "q2" });
+  expect(same.structuredContent).toMatchObject({ created: false, link: { id: linked.structuredContent.link.id } });
+  const reversed = await d.call("flowly_link_cards", { projectId: "q", taskId: "q2", relation: "related", otherTaskId: "q1" });
+  expect(reversed.structuredContent).toMatchObject({ created: false, link: { id: linked.structuredContent.link.id } });
+  const board = await x.store.read();
+  expect(board.links.filter((l) => l.kind === "related")).toHaveLength(1);
+  const events = board.events.filter((e) => e.action === "linked");
+  expect(events.map((e) => e.taskId).sort()).toEqual(["q1", "q2"]);
+  expect(events.every((e) => e.actor === "agent" && e.agentId === "disp" && e.note?.startsWith("Related: "))).toBe(true);
+});
+
+test("flowly_link_cards relation=related is refused by the same link rules as the other relations (CARD-LINKS-SPEC §2.3)", async () => {
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  await x.store.mutate((board) => {
+    const base = board.tasks.find((t) => t.id === "q1")!;
+    const copy = (id: string, title: string, archivedAt: string | null = null) => ({ ...base, id, title, archivedAt, workspaceId: `w-${id}`, operationId: `op-${id}` });
+    board.tasks.push(copy("q3", "Archived", stamp), copy("q4", "Busy"));
+  });
+  const link = (taskId: string, otherTaskId: string, relation = "related") => d.call("flowly_link_cards", { projectId: "q", taskId, relation, otherTaskId });
+  // Already linked by another kind, in either direction.
+  expect(code(await link("q1", "q2", "blocks"))).toBeUndefined();
+  expect(code(await link("q1", "q2"))).toBe("LINK_REFUSED");
+  expect(code(await link("q2", "q1"))).toBe("LINK_REFUSED");
+  // Archived card, self link, another project's card.
+  expect(code(await link("q1", "q3"))).toBe("LINK_REFUSED");
+  expect(code(await link("q3", "q1"))).toBe("LINK_REFUSED");
+  expect(code(await link("q4", "q4"))).toBe("LINK_REFUSED");
+  expect(code(await link("q4", "z1"))).toBe("CARD_NOT_FOUND");
+  // Link limit.
+  await x.store.mutate((board) => {
+    for (let i = 0; i < linkLimits.perTask; i++)
+      board.links.push({ id: `fill-${i}`, projectId: "q", kind: "related", from: "q4", to: `ghost-${i}`, createdBy: "human", createdAt: stamp });
+  });
+  const limited = await link("q2", "q4");
+  expect(code(limited)).toBe("LINK_REFUSED");
+  expect(JSON.stringify(limited.content)).toContain(`at most ${linkLimits.perTask} links`);
+  // A related link never forms a cycle; the directed relations still refuse one.
+  expect(code(await link("q2", "q1", "blocks"))).toBe("LINK_REFUSED");
 });
 
 test("an archived project is refused", async () => {
