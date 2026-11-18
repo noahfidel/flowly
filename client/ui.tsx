@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
 import { motionDuration, useMotionValue, lerp } from "./motion";
-import { useShortcutBlock } from "./shortcuts";
+import { useBlurOnUnmount, useShortcutBlock } from "./shortcuts";
 import { composerEnterAction, type ComposerKey } from "./session-input";
 import { formatLocale, t } from "../shared/i18n";
 
@@ -286,6 +286,8 @@ export function TextBox({ value, onChangeText, commitDelay = 0, onFocus, onBlur,
   const native = Platform.OS !== "web";
   const [focused, setFocused] = useState(false);
   useShortcutBlock(focused);
+  // Removed while focused (Esc closing a tag input, a closing picker): the owner still hears the blur.
+  useBlurOnUnmount(focused, onBlur && (() => onBlur(undefined as never)));
   const [shown, setShown] = useState(value);
   const [mount, setMount] = useState(0);
   const committed = useRef(value);

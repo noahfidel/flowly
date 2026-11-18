@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { PluginScreenParams } from "@getpaseo/plugin/client";
 import type { Status, Task } from "../shared/model";
 import { t, msg } from "../shared/i18n";
@@ -221,4 +221,30 @@ export function useShortcutBlock(active: boolean) {
       blockers.delete(token);
     };
   }, [active]);
+}
+
+/**
+ * React ignores DOM events while it commits, so an input it removes while focused (the tag input closed by Esc, the
+ * dispatcher box replaced by its Start view) never reports onBlur, and an owner that tracks focus through onFocus/onBlur
+ * would keep blocking every board shortcut until it unmounts. An input calls this with its focus state: unmounting while
+ * focused sends that missing blur once, to the latest handler (SHORTCUTS-SPEC §2.2).
+ */
+export function useBlurOnUnmount(focused: boolean, onBlur: (() => void) | undefined) {
+  const latest = useRef({ focused, onBlur });
+  latest.current = { focused, onBlur };
+  useEffect(
+    () => () => {
+      if (latest.current.focused) latest.current.onBlur?.();
+    },
+    [],
+  );
+}
+
+/**
+ * After a handled board shortcut, focus moves to the board root before the change renders: the card sidebar is keyed by
+ * card, so Back / Forward and J/K/H/L remount it, and focus held inside it would fall to the page body, outside the board,
+ * where no further shortcut arrives (SHORTCUTS-SPEC §2.2). D focuses the dispatcher's message box instead.
+ */
+export function shortcutRefocusesBoard(action: ShortcutAction) {
+  return action !== "dispatcher";
 }

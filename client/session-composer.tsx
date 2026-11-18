@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, Text as NativeText, View } from "react-native";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { IconButton, Label, font, message, noFocusRing, tint, touch, useTheme, space } from "./ui";
-import { useShortcutBlock } from "./shortcuts";
+import { useBlurOnUnmount, useShortcutBlock } from "./shortcuts";
 import { sendBehaviorText, type SendBehavior } from "./send-queue";
 import { imageInputSupported, listenForImages, pickImageFiles, readImages, type Attachment } from "./web-images";
 import { AttachmentThumb } from "./image-attach";
@@ -180,6 +180,11 @@ export function ComposerBox({
   // Paseo parity: a running session with an empty composer shows Stop.
   const stopMode = !!onStop && running && !draft.trim() && !attachments.length && canWrite && !busy;
   const sendSize = touch ? 34 : 28;
+  // The box can go while its input is focused (the dispatcher's Start view replaces it): the draft owner still hears the blur.
+  useBlurOnUnmount(focused, () => {
+    c.setFocused(false);
+    keyboard.onInputBlur();
+  });
   const inputMax = compact ? 108 : 160;
   const fitInput = (contentHeight: number) => {
     const next = Math.max(inputMin, Math.min(inputMax, Math.ceil(contentHeight)));

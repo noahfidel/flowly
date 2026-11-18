@@ -52,6 +52,9 @@
 
 Blocking is implemented by a reference count inside the plugin (`useShortcutBlock` in `client/shortcuts.ts`): inputs register on `onFocus/onBlur`, all plugin Modals register on `open` through the wrapper in `client/modal.tsx`, and they unregister when the component unmounts. The DOM `activeElement` or `event.target` is not read.
 
+- An input removed while it has focus releases its block. React ignores DOM events while it commits, so such an input never reports `onBlur` (the tag input closed by Esc or Enter, the picker search closing, the dispatcher box replaced by its Start view while the dock stays mounted), and an owner that tracks focus through `onFocus`/`onBlur` would keep every board shortcut off until it unmounts. `TextBox` and the session composer box send that missing blur to their owner when they unmount while focused (`useBlurOnUnmount`).
+- A handled board shortcut moves focus to the board root before its change renders (`shortcutRefocusesBoard`; every action except `D`, which focuses the dispatcher's message box). The card sidebar is keyed by card, so Back / Forward and `J`/`K`/`H`/`L` remount it; focus held inside it would otherwise fall to the page body, outside the board, and the next shortcut would not arrive.
+
 Known limitation: after a host Modal closes, focus may return to the page root, and you need to click the board once more to keep using shortcuts; this is the cost of not using a global listener.
 
 ### 2.3 Discoverability

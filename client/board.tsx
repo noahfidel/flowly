@@ -157,6 +157,7 @@ import {
   resolveShortcut,
   shortcutHelp,
   shortcutsBlocked,
+  shortcutRefocusesBoard,
   taskGrid,
   adjacentStatus,
   historyKeyHint,
@@ -2167,6 +2168,8 @@ function BoardContent(
     if (action && runIntent(action)) {
       e.preventDefault();
       e.stopPropagation();
+      // Before the change renders: a remounted sidebar would drop focus held inside it to the page body (SHORTCUTS-SPEC §2.2).
+      if (shortcutRefocusesBoard(action)) (rootRef.current as unknown as { focus?: () => void } | null)?.focus?.();
     }
   };
   const keyboardProps = shortcutsOn ? { focusable: true, onKeyDown } : {};
