@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { Connection, ExternalRef } from "../shared/connectors";
 import type { Artifact, Task } from "../shared/model";
 import { prReviewOperationId } from "../shared/pr-review";
-import { listPrs, type PrMenuReads } from "./pr-menu";
+import { listPrs, prFetchCap, type PrMenuReads } from "./pr-menu";
 import { refKey, type Summaries } from "./connectors/service";
 
 /** `prs.list` (PR-MENU-SPEC §3.2): rows of the chosen projects, each with the connector badge's state word. */
@@ -18,9 +18,15 @@ const artifact = (taskId: string, target: string, over: Partial<Artifact> = {}):
 const github: Connection = { id: "gh", provider: "github", baseUrl: "https://github.com", name: "GitHub" } as unknown as Connection;
 const gitlab: Connection = { id: "gl", provider: "gitlab", baseUrl: "https://gitlab.com", name: "GitLab" } as unknown as Connection;
 
-function fakeReads(connections: Connection[], states: Record<string, { status: string; stale?: boolean }>, calls: ExternalRef[][] = []): PrMenuReads {
+function fakeReads(
+  connections: Connection[],
+  states: Record<string, { status: string; stale?: boolean }>,
+  calls: ExternalRef[][] = [],
+  cache: Record<string, { status: string; expired: boolean }> = {},
+): PrMenuReads {
   return {
     list: async () => connections,
+    cached: async (refs) => new Map(refs.flatMap((ref) => (cache[ref.key] ? [[refKey(ref), { summary: { status: cache[ref.key].status } as never, expired: cache[ref.key].expired }] as const] : []))),
     locate: async (list) => new Map(list.filter((a) => a.external).map((a) => [a.id, connections.some((c) => c.id === a.external!.connectionId) ? a.external! : null])),
     badges: async (refs) => {
       calls.push([...refs]);
@@ -78,4 +84,26 @@ test("a failing connector read still lists the rows, without states", async () =
   const reads: PrMenuReads = { ...fakeReads([github], {}), badges: async () => { throw new Error("offline"); } };
   const { rows } = await listPrs(board, ["p"], reads, () => {});
   expect(rows.map((r) => [r.number, r.state])).toEqual([["#1", ""]]);
+});
+
+test("a cold cache fetches at most 20 PRs per read; cached ones answer from the cache; the rest show no word this time", async () => {
+  expect(prFetchCap).toBe(20);
+  const tasks = [task("a")];
+  const artifacts = Array.from({ length: 27 }, (_, i) => artifact("a", `https://github.com/o/r/pull/${i + 1}`));
+  const board = { projects: [project("p")], tasks, artifacts };
+  const states = Object.fromEntries(artifacts.map((_, i) => [`o/r#${i + 1}`, { status: "Open" }]));
+  const calls: ExternalRef[][] = [];
+  // #1 is fresh in the cache, #2 is in the cache but older than the badge TTL.
+  const reads = fakeReads([github], states, calls, { "o/r#1": { status: "Merged", expired: false }, "o/r#2": { status: "Closed", expired: true } });
+  const { rows } = await listPrs(board, ["p"], reads);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toHaveLength(20);
+  // Never-fetched PRs go first; the expired one keeps its cached word.
+  expect(calls[0].map((r) => r.key)).not.toContain("o/r#1");
+  expect(calls[0].map((r) => r.key)).not.toContain("o/r#2");
+  const state = Object.fromEntries(rows.map((r) => [r.number, r.state]));
+  expect(state["#1"]).toBe("merged");
+  expect(state["#2"]).toBe("closed");
+  expect(rows.filter((r) => r.state === "open")).toHaveLength(20);
+  expect(rows.filter((r) => r.state === "")).toHaveLength(5);
 });

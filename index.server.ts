@@ -908,7 +908,7 @@ export default function contribute(host: PluginServerContext) {
     };
   });
   // PR-MENU-SPEC §3.2: read only when the menu opens; states from the connector badge cache, never `gh`.
-  server.handle(rpc.listPrs, async (input) => listPrs(await store.read(), input.projectIds, { list: () => connectors.list(), locate: (list) => connectors.locate(list), badges: (refs) => connectors.badges(refs) }));
+  server.handle(rpc.listPrs, async (input) => listPrs(await store.read(), input.projectIds, { list: () => connectors.list(), locate: (list) => connectors.locate(list), cached: (refs) => connectors.cachedBadges(refs), badges: (refs) => connectors.badges(refs) }));
   server.handle(rpc.readExternal, async (input) => {
     const artifact = (await store.read()).artifacts.find((a) => a.id === input.artifactId);
     if (!artifact?.external) throw new Error("This external input no longer exists.");

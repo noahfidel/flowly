@@ -10,10 +10,15 @@ import { logFailure } from "./error-report";
 export type PrMenuReads = {
   list(): Promise<Connection[]>;
   locate(list: readonly { id: string; target: string; external?: ExternalRef }[]): Promise<Map<string, ExternalRef | null>>;
+  /** Cache only, no network; `expired` once older than the badge TTL. */
+  cached(refs: readonly ExternalRef[]): Promise<Map<string, { summary: { status?: string }; expired: boolean }>>;
   badges(refs: readonly ExternalRef[]): Promise<Summaries>;
 };
 
 export type PrMenuRow = BoardPr & { state: PrState };
+
+/** At most this many PRs are fetched per read; GitHub answers one REST call per PR (§3.2). */
+export const prFetchCap = 20;
 
 /** The user's working github.com GitHub connection, as the PR-review archive check picks it (`connectorPrState`). */
 function githubConnection(connections: readonly Connection[]) {
@@ -30,7 +35,9 @@ function githubConnection(connections: readonly Connection[]) {
 /**
  * Rows of the live projects among `projectIds` (unknown and archived ones skipped). A connector-linked artifact reads
  * its own ref, a plain github.com URL or a PR review card's PR the user's GitHub connection; anything else has no state.
- * A stale cache entry still gives its word. A failing connector read leaves every state empty; the rows still list.
+ * A stale cache entry still gives its word. Fresh cache entries answer without a call; of the rest, at most `prFetchCap` are
+ * fetched (never-fetched PRs first, then expired ones), and the others keep their cached word or show none until a later
+ * read. A failing connector read leaves every state empty; the rows still list.
  */
 export async function listPrs(
   board: { projects: readonly Project[]; tasks: readonly Task[]; artifacts: readonly Artifact[] },
@@ -62,12 +69,15 @@ export async function listPrs(
       if (github === null) github = githubConnection(await reads.list());
       if (github) refs.set(i, { connectionId: github.id, provider: github.provider, key, remoteId: "", itemType: "pull" });
     }
-    const found = refs.size ? await reads.badges([...new Map([...refs.values()].map((ref) => [refKey(ref), ref])).values()]) : new Map() as Summaries;
+    const unique = [...new Map([...refs.values()].map((ref) => [refKey(ref), ref])).values()];
+    const cached = unique.length ? await reads.cached(unique) : new Map<string, { summary: { status?: string }; expired: boolean }>();
+    const fetch = [...unique.filter((ref) => !cached.has(refKey(ref))), ...unique.filter((ref) => cached.get(refKey(ref))?.expired)].slice(0, prFetchCap);
+    const found: Summaries = fetch.length ? await reads.badges(fetch) : new Map();
     return {
       rows: rows.map((r, i) => {
         const ref = refs.get(i);
-        const hit = ref ? found.get(refKey(ref)) : undefined;
-        return { ...r, state: prStateOf(hit?.summary.status) };
+        const status = ref ? (found.get(refKey(ref)) ?? cached.get(refKey(ref)))?.summary.status : undefined;
+        return { ...r, state: prStateOf(status) };
       }),
     };
   } catch (error) {
