@@ -1676,6 +1676,9 @@ test("the charter forwards another agent's message only under the forward rule, 
   expect(line).toMatch(/once per message/);
   expect(line).toContain("FORWARD_NOT_ALLOWED");
   expect(line).toContain("FORWARD_LIMIT");
+  // flowly_reply_to_agent refuses card sessions: a card's session hears back only through the final text.
+  expect(line).toMatch(/card's session[^.]*only in your final text/);
+  expect(line).toMatch(/flowly_reply_to_agent only for an agent that is not a card's session/);
   expect(dispatcherCharterVersion).toBe(9);
   expect(dispatcherGuardVersion).toBe(2);
 });
