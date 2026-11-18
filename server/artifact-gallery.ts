@@ -162,6 +162,26 @@ const THUMBNAIL_SHORT_SIDE = 640;
 const THUMBNAIL_MAX_LONG_SIDE = 1600;
 const run = promisify(execFile);
 
+/** Runs jobs with at most `size` at once; the rest wait their turn in order. */
+export function slots(size: number) {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return async <T>(job: () => Promise<T>): Promise<T> => {
+    if (active >= size) await new Promise<void>((resolve) => waiting.push(resolve));
+    else active++;
+    try {
+      return await job();
+    } finally {
+      // Hand the slot straight to the next job, or free it.
+      const next = waiting.shift();
+      if (next) next();
+      else active--;
+    }
+  };
+}
+/** At most 4 `sips` thumbnails are made at once, however many tiles ask. */
+const sipsSlot = slots(4);
+
 async function imageSize(path: string) {
   const { stdout } = await run("sips", ["-g", "pixelWidth", "-g", "pixelHeight", path]);
   const width = Number(stdout.match(/pixelWidth:\s*(\d+)/)?.[1]);
@@ -206,7 +226,11 @@ export async function readGalleryImage(file: GalleryFile, size: "thumb" | "full"
   } catch {
     // Not cached yet.
   }
-  const partial = `${out}.${process.pid}.${Date.now()}.tmp`;
+  return sipsSlot(() => makeThumbnail(file, cacheDir, out, prefix, name));
+}
+
+async function makeThumbnail(file: GalleryFile, cacheDir: string, out: string, prefix: string, name: string) {
+  const partial = `${out}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
   try {
     const dimensions = await imageSize(file.path);
     if (!dimensions) return original(file);

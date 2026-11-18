@@ -5,7 +5,7 @@ import { randomFillSync } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Artifact } from "../shared/model";
-import { galleryImageFile, galleryImages, readGalleryImage } from "./artifact-gallery";
+import { galleryImageFile, galleryImages, readGalleryImage, slots } from "./artifact-gallery";
 import type { ArtifactRoots } from "./artifacts";
 
 const dirs: string[] = [];
@@ -246,3 +246,22 @@ test.runIf(process.platform === "darwin")("macOS: a shot rewritten in place repl
   expect(after).toHaveLength(2);
   expect(after.filter((name) => !first.includes(name))).toHaveLength(1);
 }, 30_000);
+
+test("thumbnail work runs at most N at a time, and a failure frees its slot", async () => {
+  const run = slots(4);
+  let running = 0;
+  let most = 0;
+  const job = (fail: boolean) =>
+    run(async () => {
+      running++;
+      most = Math.max(most, running);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      running--;
+      if (fail) throw new Error("boom");
+      return 1;
+    });
+  const results = await Promise.allSettled(Array.from({ length: 12 }, (_, i) => job(i % 3 === 0)));
+  expect(most).toBe(4);
+  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(8);
+  expect(await job(false)).toBe(1);
+});
