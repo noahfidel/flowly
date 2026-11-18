@@ -41,13 +41,23 @@ export function prSections(rows: readonly PrListRow[], statusOf: (taskId: string
   });
 }
 
-/** `#n` / `!n`, then the artifact title unless it is empty, the URL or only the number; a review row uses the card title (§2.3). */
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * `#n` / `!n`, then the artifact title unless it is empty, the URL or only the number; a review row uses the card title
+ * without its "PR review:" lead (§2.3). The row's own number is dropped from the front only when written as a number
+ * (`#42`, `!7`, `PR #42`, or on a review row `owner/repo#42`) and followed by the end, a separator or a space; a bare
+ * leading number ("2024 roadmap" on #2024) is part of the title and stays.
+ */
 export function prRowTitle(row: PrListRow, cardTitle: string): string {
-  const raw = (row.kind === "review" ? cardTitle : row.title).trim();
-  if (!raw || raw === row.url) return row.number;
-  const digits = row.number.slice(1);
-  // "#42", "PR #42", "MR !7", "#42: …" repeat the number: drop it from the front.
-  const rest = raw.replace(new RegExp(`^(?:(?:PR|MR|Pull request|Merge request)\\s*)?[#!]?${digits}\\b\\s*[:·\\-–—]?\\s*`, "i"), "").trim();
+  let rest = (row.kind === "review" ? cardTitle : row.title).trim();
+  if (!rest || rest === row.url) return row.number;
+  const number = `${escape(row.number)}(?!\\d)(?:\\s*[:·\\-–—]\\s*|\\s+|$)`;
+  if (row.kind === "review") {
+    rest = rest.replace(/^PR review:\s*/i, "");
+    rest = rest.replace(new RegExp(`^[\\w.-]+/[\\w.-]+${number}`), "");
+  }
+  rest = rest.replace(new RegExp(`^(?:(?:PR|MR|Pull request|Merge request)\\s*)?${number}`, "i"), "").trim();
   return rest ? `${row.number} ${rest}` : row.number;
 }
 

@@ -79,3 +79,13 @@ test("the chip's count sums the overview's per-card prs over the live cards of t
   expect(prCount([{ id: "p" }, { id: "q" }], tasks, facts)).toBe(7);
   expect(prCount([], tasks, facts)).toBe(0);
 });
+
+test("row title never repeats the PR, and never drops a bare leading number that is part of the title", () => {
+  expect(prRowTitle(row("t", "#42", 0, { kind: "review" }), "PR review: a/b#42")).toBe("#42");
+  expect(prRowTitle(row("t", "#42", 0, { kind: "review" }), "PR review: a/b#42 tighten auth")).toBe("#42 tighten auth");
+  expect(prRowTitle(row("t", "#42", 0, { kind: "review" }), "PR review: #42")).toBe("#42");
+  expect(prRowTitle(row("t", "#2024", 0, { title: "2024 roadmap" }), "Card")).toBe("#2024 2024 roadmap");
+  expect(prRowTitle(row("t", "#2024", 0, { title: "#2024 — roadmap" }), "Card")).toBe("#2024 roadmap");
+  expect(prRowTitle(row("t", "#42", 0, { title: "#420 other" }), "Card")).toBe("#42 #420 other");
+  expect(prRowTitle(row("t", "!7", 0, { title: "!7 - Fix" }), "Card")).toBe("!7 Fix");
+});
