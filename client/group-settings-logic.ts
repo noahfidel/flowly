@@ -1,9 +1,10 @@
 /** Pure parts of the group settings page and the inherited defaults (BOARD-GROUPS-SPEC §5). No React. */
-import { t } from "../shared/i18n";
+import { t, tn } from "../shared/i18n";
 import { orderedGroups } from "../shared/groups";
 import { projectOrder, type Group, type Project } from "../shared/model";
 import { effectiveDispatcherModel, type AgentModel } from "../shared/agent-defaults";
 import { deliveryModeLabels, resolveDeliveryMode } from "../shared/delivery-mode";
+import { effectiveAutoReview, type ReviewConfig } from "../shared/auto-review";
 
 /** An empty default's label: what it takes from the level above, shown (§5). */
 export const inheritLabel = (value: string) => t("Inherit: {value}", { value });
@@ -25,6 +26,31 @@ export function inheritedDeliveryText(group: Pick<Group, "defaults"> | null | un
 /** What a group's empty dispatcher model inherits: the host setting, else the built-in default (`effectiveDispatcherModel`). */
 export function inheritedDispatcherText(host: AgentModel | null | undefined): string {
   return agentModelText(effectiveDispatcherModel(null, host));
+}
+
+/** An Auto review value in one line: "On, 2 rounds" or "Off". */
+export const autoReviewText = (config: ReviewConfig) => (config.enabled ? tn(config.maxRounds, "On, {n} round", "On, {n} rounds") : t("Off"));
+
+/** What a project without an Auto review override follows: its group's value, else Off (BOARD-GROUPS-SPEC §5). */
+export function inheritedAutoReviewText(group: Pick<Group, "name" | "defaults"> | null | undefined): string {
+  const value = autoReviewText(effectiveAutoReview(null, group));
+  return group ? t("Inherited from {group}: {value}", { group: group.name, value }) : t("Inherited: {value}", { value });
+}
+
+/**
+ * The line shown when moving a project to another group changes its Auto review: only for a project without an
+ * override, and only when the target group's value differs from the current one. Null otherwise.
+ */
+export function autoReviewMoveNote(
+  project: Pick<Project, "autoReview">,
+  from: Pick<Group, "defaults"> | null | undefined,
+  to: Pick<Group, "name" | "defaults">,
+): string | null {
+  if (project.autoReview) return null;
+  const before = effectiveAutoReview(null, from),
+    after = effectiveAutoReview(null, to);
+  if (before.enabled === after.enabled && (!after.enabled || before.maxRounds === after.maxRounds)) return null;
+  return t("Auto review will follow {group}: {value}.", { group: to.name, value: autoReviewText(after) });
 }
 
 /** A group's member projects in board order, archived ones last. */

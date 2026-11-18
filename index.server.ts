@@ -52,6 +52,7 @@ import { summarySettings, summarySettingsValues, summaryModelsOf } from "./share
 import { enabledStatuses, laneEnabled } from "./shared/lanes";
 import { resolveDeliveryMode } from "./shared/delivery-mode";
 import { groupOfProject } from "./shared/groups";
+import { projectAutoReview } from "./shared/auto-review";
 import { FlowLog } from "./server/flow-log";
 import { ProjectFolders, snapshotPath } from "./server/project-folder";
 import { GitStats } from "./server/git-stats";
@@ -707,6 +708,9 @@ export default function contribute(host: PluginServerContext) {
   const detectCommands = (projectId: string) =>
     void guardrails.detect(projectId).catch((e) => logFailure("Flowly guardrail commands not detected:", e, projectId));
   const createProject = projectCreator(service, detectCommands);
+  // Auto review turned on for a project by any write (its override, its group's value, a move to another group): its
+  // check commands join as observing (GUARDRAILS-SPEC §4.5; BOARD-GROUPS-SPEC §5).
+  store.onAutoReviewOn = (projectIds) => projectIds.forEach(detectCommands);
   server.handle(rpc.createProject, (input, { paseo }) =>
     createProject(input, paseo).catch((e: unknown) => {
       throw codedError(e);
@@ -799,8 +803,6 @@ export default function contribute(host: PluginServerContext) {
     // Included again: read its last week once, like turning the switch on (§3.3).
     if (before?.workflowInsights === false && project.workflowInsights !== false && (await workflowValues()).enabled)
       void workflow.backfill(project.id, paseo).catch(() => undefined);
-    // Auto review switched on: the check commands join as observing (GUARDRAILS-SPEC §4.5).
-    if (!before?.autoReview?.enabled && project.autoReview?.enabled) detectCommands(project.id);
     // Archived: its cards' queued dispatcher messages are dropped, each in its card's activity (DISPATCHER-SPEC §5.3).
     if (!before?.archivedAt && project.archivedAt)
       void queue.projectChanged(project.id).catch((e) => logFailure("Flowly dispatcher queue not updated:", e, project.id));
@@ -957,7 +959,9 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.removeProjectCheck, (input, { paseo }) => service.removeCheck(input.id, paseo));
   server.handle(rpc.createLinkedProject, async (input, { paseo }) => {
     const project = await service.createLinked(input, paseo);
-    detectCommands(project.id);
+    // Only when its group has Auto review on (the project inherits it, BOARD-GROUPS-SPEC §5).
+    const board = await store.read().catch(() => null);
+    if (board && projectAutoReview(board, board.projects.find((p) => p.id === project.id) ?? project).enabled) detectCommands(project.id);
     return project;
   });
   server.handle(rpc.setProjectLinks, (input) => service.setLinks(input));
@@ -1154,7 +1158,7 @@ export default function contribute(host: PluginServerContext) {
           archiveOnDelete: wrap.archiveOnDelete,
           workflowInsights: workflowState.enabled,
           summary: summary.summaryEnabled,
-          autoReview: projects.some((p) => !!p.autoReview?.enabled),
+          autoReview: projects.some((p) => projectAutoReview(board, p).enabled),
         },
         projects: projects.length,
         guardrails: await guardrails.store

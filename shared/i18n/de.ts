@@ -1569,7 +1569,7 @@ const catalog: Catalog = {
   "{n} commands observing": {"one":"{n} Befehl in Beobachtung","other":"{n} Befehle in Beobachtung"},
   "Last 14 days": "Letzte 14 Tage",
   "This week:": "Diese Woche:",
-  "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; turn it off per project.": "Lieferungen werden geprüft, bevor sie dich erreichen, und gehen an den Agenten zurück, wenn sie nicht genügen. Jede Prüfung verbraucht Tokens; pro Projekt abschaltbar.",
+  "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; set it per group, and a project can override it.": "Lieferungen werden geprüft, bevor sie dich erreichen, und gehen an den Agenten zurück, wenn sie nicht genügen. Jede Prüfung verbraucht Tokens; lege sie pro Gruppe fest, ein Projekt kann sie überschreiben.",
   "What you send a card back for is checked on the next ones.": "Wofür du eine Karte zurückschickst, wird bei den nächsten geprüft.",
   "You send it back": "Du schickst sie zurück",
   "Say what is wrong, as you would anyway.": "Sag, was falsch ist, wie du es sowieso tun würdest.",
@@ -1731,5 +1731,12 @@ const catalog: Catalog = {
   "Works anywhere in Paseo, even while typing. Turn off if macOS Dictation uses a double press of Control.": "Funktioniert überall in Paseo, auch beim Tippen. Schalte es aus, wenn die macOS-Diktierfunktion zweimaliges Drücken der Control-Taste nutzt.",
   "Open Flowly from anywhere in Paseo (double-tap Ctrl)": "Flowly von überall in Paseo öffnen (Ctrl zweimal tippen)",
   "Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General.": "Tippe irgendwo in Paseo zweimal auf Ctrl, um Flowly zu öffnen. Abschalten unter Einstellungen → Allgemein.",
+  "On, {n} rounds": {"one": "An, {n} Runde", "other": "An, {n} Runden"},
+  "Off": "Aus",
+  "Inherited from {group}: {value}": "Geerbt von {group}: {value}",
+  "Inherited: {value}": "Geerbt: {value}",
+  "Auto review will follow {group}: {value}.": "Automatische Prüfung folgt {group}: {value}.",
+  "Override group Auto review": "Automatische Prüfung der Gruppe überschreiben",
+  "Auto review is set once per group in Group settings; projects follow it unless they override it.": "Die automatische Prüfung wird einmal pro Gruppe in den Gruppeneinstellungen festgelegt; Projekte folgen ihr, sofern sie sie nicht überschreiben.",
 };
 export default catalog;

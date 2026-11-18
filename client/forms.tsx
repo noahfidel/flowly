@@ -42,8 +42,7 @@ import { newMessageId, rememberSentImages } from "./sent-images";
 import { DirectoryChooser } from "./directory-picker";
 import { t, tn } from "../shared/i18n";
 import { tagValues } from "../shared/tags";
-import { autoReviewOf } from "../shared/auto-review";
-import { AutoReviewSection, autoReviewPatch, type ReviewEdit } from "./review-settings";
+import { AutoReviewSection, autoReviewPatch, reviewEditOf, type ReviewEdit } from "./review-settings";
 import { TagEditor } from "./tag-input";
 import { useStableCallback } from "./stable";
 import { ExternalChip, ExternalPicker, connectionsByFamily, familyNames, pickKey, useConnections } from "./connectors";
@@ -53,7 +52,6 @@ import { startStatus } from "./quick-task";
 import type { Attachment } from "./web-images";
 import { connectorFamilies, connectorLimits, familyOf, type ConnectorFamily, type ConnectorProvider, type ExternalSummary } from "../shared/connectors";
 
-const newProjectReview: ReviewEdit = { on: true, rounds: "2" };
 const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 /**
@@ -61,10 +59,11 @@ const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.
  * only what changed (`projects.update`, then the links). The project's revision is the one it opened with, so a
  * stale edit is refused.
  */
-export function useProjectSettings(project: Project, withLanes = false) {
+export function useProjectSettings(project: Project, withLanes = false, group: Group | null = null) {
   const update = useRpc(rpc.updateProject),
     setLinks = useRpc(rpc.setProjectLinks);
-  const stored = autoReviewOf(project);
+  // The project's Auto review override, or what it follows from its group (BOARD-GROUPS-SPEC §5).
+  const stored = reviewEditOf(project, group);
   const storedDelivery = isDeliveryMode(project.deliveryMode) ? project.deliveryMode : null;
   const storedLinks = project.links?.map((l) => l.target) ?? [];
   // Whether What's new's Auto review preset was applied: kept here so collapsing and reopening a section doesn't redo it.
@@ -79,7 +78,7 @@ export function useProjectSettings(project: Project, withLanes = false) {
     [linearTicket, setLinearTicket] = useState(project.linearTicket === true),
     [linearTeam, setLinearTeam] = useState(project.linearTeam ?? ""),
     [skipTypes, setSkipTypes] = useState<TaskType[]>(() => linearSkipTypesValue(linearSkipTypesOf(project))),
-    [review, setReview] = useState<ReviewEdit>({ on: stored.enabled, rounds: String(stored.maxRounds) }),
+    [review, setReview] = useState<ReviewEdit>(stored),
     [agentModel, setAgentModel] = useState<AgentModel | null>(project.agentModel ?? null),
     [deliveryMode, setDeliveryMode] = useState<DeliveryMode | null>(storedDelivery),
     [sessionStart, setSessionStart] = useState(project.sessionStartText ?? ""),
@@ -98,7 +97,8 @@ export function useProjectSettings(project: Project, withLanes = false) {
     ...(linearTicket !== (project.linearTicket === true) ? { linearTicket } : {}),
     ...(linearTeamValue(linearTeam) !== (project.linearTeam ?? "") ? { linearTeam: linearTeamValue(linearTeam) } : {}),
     ...(!sameList(linearSkipTypesValue(skipTypes), linearSkipTypesValue(linearSkipTypesOf(project))) ? { linearSkipTypes: linearSkipTypesValue(skipTypes) } : {}),
-    ...(review.on !== stored.enabled || Number(review.rounds) !== stored.maxRounds ? { autoReview: autoReviewPatch(review) } : {}),
+    // The override switched off sends null (follow the group again); on, its value whenever it differs from the stored one.
+    ...(review.override !== stored.override || (review.override && (review.on !== stored.on || review.rounds !== stored.rounds)) ? { autoReview: autoReviewPatch(review) } : {}),
     // Only while groups are not ready (the project has no group): the per-project lanes path.
     ...(withLanes && JSON.stringify(lanes) !== JSON.stringify(projectLanes(project)) ? { lanes } : {}),
     ...(JSON.stringify(agentModel) !== JSON.stringify(project.agentModel ?? null) ? { agentModel } : {}),
@@ -167,7 +167,7 @@ export function ProjectSettingsFields({
     queryFn: () => readFolder({ id: project.id }),
     staleTime: 0,
   });
-  const reviewSection = <AutoReviewSection project={project} value={s.review} onChange={s.setReview} switchOn={reviewOn} applied={s.reviewPreset} />;
+  const reviewSection = <AutoReviewSection project={project} group={group} value={s.review} onChange={s.setReview} switchOn={reviewOn} applied={s.reviewPreset} />;
   return (
     <>
       {reviewOn && reviewSection}
@@ -284,7 +284,7 @@ export function ProjectForm(props: {
   project?: Project;
   /** The group a new project is created in (BOARD-GROUPS-SPEC §2); the default group when absent. */
   groupId?: string;
-  /** The project's group, for what its empty defaults inherit. */
+  /** The project's group (a new project's: the one it is created in), for what its empty defaults and Auto review inherit. */
   group?: Group | null;
   /** Opened from What's new to turn Auto review on: the section first, its switch on (GUARDRAILS-SPEC §10). */
   reviewOn?: boolean;
@@ -299,7 +299,7 @@ export function ProjectForm(props: {
 }) {
   // The project it opened with, kept while it is open.
   const [project] = useState(props.project);
-  return project ? <EditProjectForm {...props} project={project} /> : <NewProjectForm groupId={props.groupId} onClose={props.onClose} onSaved={props.onSaved} />;
+  return project ? <EditProjectForm {...props} project={project} /> : <NewProjectForm groupId={props.groupId} group={props.group ?? null} onClose={props.onClose} onSaved={props.onSaved} />;
 }
 
 /** Edit project: the project settings fields in a dialog with one Save. */
@@ -323,7 +323,7 @@ function EditProjectForm({
   onSaved: (id: string) => void;
 }) {
   const theme = useTheme();
-  const state = useProjectSettings(project, !!laneCounts);
+  const state = useProjectSettings(project, !!laneCounts, group);
   const [archivedShown, setArchivedShown] = useState(!!showArchived);
   async function save() {
     const saved = await state.save();
@@ -361,10 +361,13 @@ function EditProjectForm({
 /** New project: a directory, several repositories or an existing Paseo project; or a board restored from its folder. */
 function NewProjectForm({
   groupId,
+  group,
   onClose,
   onSaved,
 }: {
   groupId?: string;
+  /** The group it is created in, whose Auto review it follows unless an override is chosen here (BOARD-GROUPS-SPEC §5). */
+  group: Group | null;
   onClose: () => void;
   onSaved: (id: string, restored?: { restored: number; title: string }) => void;
 }) {
@@ -382,8 +385,8 @@ function NewProjectForm({
     [nativeId, setNative] = useState(""),
     [source, setSource] = useState<"directory" | "linked" | "native">("directory"),
     [links, setLinkList] = useState<string[]>([]),
-    // A new project starts with Auto review on (GUARDRAILS-SPEC §8, D1).
-    [review, setReview] = useState<ReviewEdit>(newProjectReview),
+    // A new project follows its group's Auto review (ruling, Noah 2026-11-18); an override is saved only when chosen.
+    [review, setReview] = useState<ReviewEdit>(() => reviewEditOf(null, group)),
     [pending, setPending] = useState(false),
     [error, setError] = useState(""),
     [startEmpty, setStartEmpty] = useState(false);
@@ -416,9 +419,9 @@ function NewProjectForm({
               ...(groupId ? { groupId } : {}),
               ...(source === "native" && nativeId ? { paseoProjectId: nativeId } : {}),
             });
-      // projects.create turns Auto review on with 2 rounds; anything else is saved right after.
+      // projects.create stores no Auto review (the project follows its group); a chosen override is saved right after.
       // The project exists now: a failed follow-up write must not leave the form open for a second Create.
-      if (review.on !== newProjectReview.on || review.rounds !== newProjectReview.rounds)
+      if (review.override)
         await update({ id: result.id, revision: result.revision, autoReview: autoReviewPatch(review) }).catch((e) =>
           toast.error(t("Project created, but Auto review was not saved: {error}", { error: message(e) })),
         );
@@ -516,7 +519,7 @@ function NewProjectForm({
             </View>
           )}
           {source === "linked" && <LinkList links={links} disabled={pending} onChange={setLinkList} />}
-          {!restoring && <AutoReviewSection value={review} onChange={setReview} />}
+          {!restoring && <AutoReviewSection group={group} value={review} onChange={setReview} />}
           {source !== "linked" && (
             <Label muted size={font.sm}>
               {t("To work across several repositories, choose Multiple repositories, or use a common parent directory as the project root.")}</Label>

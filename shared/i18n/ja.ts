@@ -1569,7 +1569,7 @@ const catalog: Catalog = {
   "{n} commands observing": "観察中のコマンド {n} 件",
   "Last 14 days": "過去 14 日間",
   "This week:": "今週：",
-  "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; turn it off per project.": "納品はあなたに届く前にチェックされ、足りなければエージェントに差し戻されます。レビューごとにトークンを使います。プロジェクトごとにオフにできます。",
+  "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; set it per group, and a project can override it.": "納品はあなたに届く前にチェックされ、足りなければエージェントに戻されます。レビューごとにトークンを使います。グループごとに設定し、プロジェクトで上書きできます。",
   "What you send a card back for is checked on the next ones.": "カードを差し戻した理由は、次のカードでチェックされます。",
   "You send it back": "あなたが差し戻す",
   "Say what is wrong, as you would anyway.": "いつもどおり、何が違うかを伝えるだけ。",
@@ -1731,5 +1731,12 @@ const catalog: Catalog = {
   "Works anywhere in Paseo, even while typing. Turn off if macOS Dictation uses a double press of Control.": "Paseo のどこでも、入力中でも動作します。macOS の音声入力に Control キー2回押しを使っている場合はオフにしてください。",
   "Open Flowly from anywhere in Paseo (double-tap Ctrl)": "Paseo のどこからでも Flowly を開く（Ctrl を2回タップ）",
   "Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General.": "Paseo のどこでも Ctrl を2回タップすると Flowly が開きます。設定 → 一般でオフにできます。",
+  "On, {n} rounds": "オン、{n} 回",
+  "Off": "オフ",
+  "Inherited from {group}: {value}": "{group} から継承: {value}",
+  "Inherited: {value}": "継承: {value}",
+  "Auto review will follow {group}: {value}.": "自動レビューは {group} に従います: {value}。",
+  "Override group Auto review": "グループの自動レビューを上書き",
+  "Auto review is set once per group in Group settings; projects follow it unless they override it.": "自動レビューはグループ設定でグループごとに一度設定します。プロジェクトは上書きしない限りそれに従います。",
 };
 export default catalog;

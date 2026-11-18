@@ -1569,7 +1569,7 @@ const catalog: Catalog = {
   "{n} commands observing": {"one":"{n} команда под наблюдением","few":"{n} команды под наблюдением","many":"{n} команд под наблюдением","other":"{n} команды под наблюдением"},
   "Last 14 days": "Последние 14 дней",
   "This week:": "На этой неделе:",
-  "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; turn it off per project.": "Сдачи проверяются до того, как дойдут до вас, и возвращаются агенту, если не дотягивают. Каждая проверка тратит токены; отключается для каждого проекта.",
+  "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; set it per group, and a project can override it.": "Сдачи проверяются до того, как дойдут до вас, и возвращаются агенту, если не дотягивают. Каждая проверка тратит токены; задайте её для группы, а проект может её переопределить.",
   "What you send a card back for is checked on the next ones.": "То, за что вы вернули карточку, проверяется на следующих.",
   "You send it back": "Вы возвращаете",
   "Say what is wrong, as you would anyway.": "Скажите, что не так, как сказали бы всё равно.",
@@ -1731,5 +1731,12 @@ const catalog: Catalog = {
   "Works anywhere in Paseo, even while typing. Turn off if macOS Dictation uses a double press of Control.": "Работает везде в Paseo, даже во время набора текста. Отключите, если Диктовка macOS использует двойное нажатие Control.",
   "Open Flowly from anywhere in Paseo (double-tap Ctrl)": "Открыть Flowly из любого места Paseo (дважды нажмите Ctrl)",
   "Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General.": "Дважды нажмите Ctrl в любом месте Paseo, чтобы открыть Flowly. Отключить можно в Настройки → Основные.",
+  "On, {n} rounds": {"one": "Вкл., {n} круг", "few": "Вкл., {n} круга", "many": "Вкл., {n} кругов", "other": "Вкл., {n} круга"},
+  "Off": "Выкл.",
+  "Inherited from {group}: {value}": "Унаследовано от {group}: {value}",
+  "Inherited: {value}": "Унаследовано: {value}",
+  "Auto review will follow {group}: {value}.": "Автопроверка будет следовать {group}: {value}.",
+  "Override group Auto review": "Переопределить автопроверку группы",
+  "Auto review is set once per group in Group settings; projects follow it unless they override it.": "Автопроверка задаётся один раз для группы в настройках группы; проекты следуют ей, если не переопределяют её.",
 };
 export default catalog;

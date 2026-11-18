@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { PaseoApi } from "@getpaseo/client";
 import type { LocaleCode } from "../shared/i18n";
+import { projectAutoReview } from "../shared/auto-review";
 import type { BoardStore } from "./store";
 import type { FlowLog } from "./flow-log";
 import type { CommandLog } from "./command-log";
@@ -608,7 +609,7 @@ export class WorkflowInsightsService {
     const guardrails = this.guardrails;
     if (!guardrails) return;
     const records = await this.log.read(project.id, now - 30 * DAY_MS).catch(() => []);
-    await guardrails.weekly(project.id, { records, commands: !!project.autoReview?.enabled });
+    await guardrails.weekly(project.id, { records, commands: projectAutoReview(await this.board.read(), project).enabled });
     const summary = await this.summarySettings();
     if (summary.summaryEnabled) return;
     const input = await guardrails.catchUpInput(project.id);

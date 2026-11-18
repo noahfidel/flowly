@@ -1569,7 +1569,7 @@ const catalog: Catalog = {
   "{n} commands observing": "{n} 條命令在觀察中",
   "Last 14 days": "最近 14 天",
   "This week:": "本週：",
-  "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; turn it off per project.": "交付先經過檢查再到你手上，不達標就退回給 agent。每次驗收都消耗 token；可按專案關閉。",
+  "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; set it per group, and a project can override it.": "交付先經過檢查再到你手上，不達標就退回給 agent。每次審查都會消耗 token；按群組設定，專案可以覆寫。",
   "What you send a card back for is checked on the next ones.": "你退卡的理由，會在之後的卡片上被查。",
   "You send it back": "你退回",
   "Say what is wrong, as you would anyway.": "照常說出哪裡不對。",
@@ -1731,5 +1731,12 @@ const catalog: Catalog = {
   "Works anywhere in Paseo, even while typing. Turn off if macOS Dictation uses a double press of Control.": "在 Paseo 任何位置都有效，打字時也一樣。如果 macOS 聽寫使用「按兩下 Control 鍵」，請關閉此項。",
   "Open Flowly from anywhere in Paseo (double-tap Ctrl)": "在 Paseo 任何位置開啟 Flowly（按兩下 Ctrl）",
   "Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General.": "在 Paseo 任何位置按兩下 Ctrl 即可開啟 Flowly。可在 設定 → 一般 中關閉。",
+  "On, {n} rounds": "開啟，{n} 輪",
+  "Off": "關閉",
+  "Inherited from {group}: {value}": "繼承自 {group}：{value}",
+  "Inherited: {value}": "繼承：{value}",
+  "Auto review will follow {group}: {value}.": "自動審查將跟隨 {group}：{value}。",
+  "Override group Auto review": "覆寫群組的自動審查",
+  "Auto review is set once per group in Group settings; projects follow it unless they override it.": "自動審查在群組設定中按群組設定一次；專案會跟隨它，除非自行覆寫。",
 };
 export default catalog;

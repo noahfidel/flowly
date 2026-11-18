@@ -64,6 +64,7 @@ import {
   orderedGroups,
   type LegacyGroup,
 } from "../shared/groups";
+import { collapseGroupAutoReview, projectAutoReview } from "../shared/auto-review";
 import { logFailure } from "./error-report";
 import { ToolError } from "./tool-error";
 
@@ -142,6 +143,11 @@ function logGroupRepair(label: string, repair: { projectIds: string[]; groupIds:
   );
 }
 
+/** Each live project's effective Auto review switch (BOARD-GROUPS-SPEC §5), by id. */
+function autoReviewOn(board: Board): Map<string, boolean> {
+  return new Map(board.projects.filter((p) => !p.archivedAt).map((p) => [p.id, projectAutoReview(board, p).enabled]));
+}
+
 /** Applies a defaults edit: a value sets a default, null removes it; an empty set removes `defaults`. */
 function mergeGroupDefaults(group: Group, input: NonNullable<GroupInput["defaults"]>) {
   const defaults: Record<string, unknown> = { ...group.defaults };
@@ -156,6 +162,12 @@ function mergeGroupDefaults(group: Group, input: NonNullable<GroupInput["default
 
 export class BoardStore {
   private tail: Promise<unknown> = Promise.resolve();
+  /**
+   * Runs after a committed write with the live projects whose effective Auto review it turned on (an override, a
+   * group value or a move; BOARD-GROUPS-SPEC §5): the plugin entry detects their check commands (GUARDRAILS-SPEC
+   * §4.5). New projects are not included; the create path detects them itself.
+   */
+  onAutoReviewOn: ((projectIds: string[]) => void) | null = null;
   /** Events created by the running transaction; appended to the flow log once it commits. */
   private pending: BoardEvent[] = [];
   /** Untrimmed event log for insights (PROJECT-INSIGHTS-SPEC §2). */
@@ -244,7 +256,14 @@ export class BoardStore {
           // Group lanes (§7 step 7): computed once for groups that have none, then mirrored to their members.
           // The migration bumps no group or project revision (§7), even for a live card in a lane the group has off.
           const lanes = syncGroupLanes(board, now, { bumpRevision: false });
-          return { value: migrated ? { ...repair, projectIds: [] } : repair, changed: migrated || repair.changed || order.changed || lanes.changed };
+          // Auto review moves to the groups (§7 step 9), once: each group takes its members' most common value. A board
+          // without projects has nothing to collapse; its first write sets the marker instead (`commit`).
+          const collapsed = !board.autoReviewGroups && board.projects.length > 0;
+          if (collapsed) {
+            collapseGroupAutoReview(board);
+            board.autoReviewGroups = true;
+          }
+          return { value: migrated ? { ...repair, projectIds: [] } : repair, changed: migrated || repair.changed || order.changed || lanes.changed || collapsed };
         }, true);
         // Set inside the queued job, so the next queued read or write already sees it.
         this.groupsReady = true;
@@ -304,6 +323,7 @@ export class BoardStore {
     // The operation works on the group order (placements anchor across a group's projects); stored data always has
     // it after the start migration, so this only matters for data written past the store.
     if (this.groupsReady) syncGroupOrder(board);
+    const reviewBefore = migrating ? null : autoReviewOn(board);
     const result = await operation(board);
     const events = this.pending;
     this.pending = [];
@@ -324,12 +344,20 @@ export class BoardStore {
           console.log(`Flowly board groups: lane ${statuses.join(", ")} re-enabled for group ${groupId} because a live card of one of its projects sits in it.`);
       // New projects joining the default group are the normal path; only a broken group list is worth a log.
       if (!migrating && repair.groupIds.length) logGroupRepair("Flowly board groups repaired on write:", { projectIds: [], groupIds: repair.groupIds });
+      // The start found no projects, so it had nothing to collapse (§7 step 9): every project from now on is stored
+      // the new way, and the collapse must never run on them.
+      if (!migrating) board.autoReviewGroups = true;
       assertGroupInvariants(board);
     }
     board.revision++;
     assertBoardInvariants(board);
     await persistence.save(storageSchema.parse(board));
     this.onCommit?.(events, board);
+    if (reviewBefore && this.onAutoReviewOn) {
+      const after = autoReviewOn(board);
+      const turnedOn = [...after].filter(([id, on]) => on && reviewBefore.get(id) === false).map(([id]) => id);
+      if (turnedOn.length) this.onAutoReviewOn(turnedOn);
+    }
     if (this.flow && events.length)
       void this.flow.append(events, board).catch((e) =>
         logFailure("Kanban flow log append failed:", e),
@@ -565,7 +593,11 @@ export class BoardStore {
         if (team) p.linearTeam = team;
         else delete p.linearTeam;
       }
-      if (input.autoReview !== undefined) p.autoReview = input.autoReview;
+      // The project's override (BOARD-GROUPS-SPEC §2): null removes it, so the group's value applies again.
+      if (input.autoReview !== undefined) {
+        if (input.autoReview) p.autoReview = input.autoReview;
+        else delete p.autoReview;
+      }
       if (input.agentModel !== undefined) {
         if (input.agentModel) p.agentModel = input.agentModel;
         else delete p.agentModel;

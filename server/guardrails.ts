@@ -319,15 +319,18 @@ export class GuardrailsService {
     }
     return out;
   }
-  /** get_task.guardrails (§5.2): commands always; guidelines and this card's items only while Guardrails is on (B4). */
-  async taskContext(task: Task, project: Project, maxRounds: number): Promise<TaskGuardrails> {
+  /**
+   * get_task.guardrails (§5.2): commands always; guidelines and this card's items only while Guardrails is on (B4).
+   * `review`: the project's effective Auto review (its override, else its group's value; BOARD-GROUPS-SPEC §5).
+   */
+  async taskContext(task: Task, project: Project, review: { enabled: boolean; maxRounds: number }): Promise<TaskGuardrails> {
     const state = await this.store.read();
     const own = state.entries.filter((e) => e.projectId === project.id);
     const on = memoryOn(project);
     const shape: CardShape = { type: task.type, size: task.review?.shape?.size };
     return {
-      enabled: !!project.autoReview?.enabled,
-      maxRounds,
+      enabled: review.enabled,
+      maxRounds: review.maxRounds,
       commands: own
         .filter((e): e is GuardrailEntry & { state: "active" | "observing" } => e.kind === "command" && (e.state === "active" || e.state === "observing"))
         .map((e) => ({ id: e.id, name: e.text, argv: e.argv || [], state: e.state })),

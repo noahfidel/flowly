@@ -5,7 +5,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useQueryClient } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import type { Project, Review, ReviewItem, ReviewItemState, Task } from "../shared/model";
-import { autoReviewRuns, outputTail } from "../shared/auto-review";
+import { outputTail } from "../shared/auto-review";
 import { invalidateCardViews } from "./card-detail-query";
 import { IconButton, Label, font, message, noFocusRing, space, useTheme } from "./ui";
 import { t } from "../shared/i18n";
@@ -149,9 +149,9 @@ const ItemRow = memo(function ItemRow({ item }: { item: ReviewItem }) {
   );
 });
 
-/** Whether a person can rerun the card's review now (AUTO-REVIEW-SPEC §9.2). */
-export const canRerun = (task: Task, project: Project, disabled: boolean) =>
-  !!task.review && !disabled && task.status === "in_review" && task.review.state !== "running" && autoReviewRuns(project);
+/** Whether a person can rerun the card's review now (AUTO-REVIEW-SPEC §9.2). `autoReview`: the project's effective switch. */
+export const canRerun = (task: Task, autoReview: boolean, disabled: boolean) =>
+  !!task.review && !disabled && task.status === "in_review" && task.review.state !== "running" && autoReview;
 
 /** Rerun the card's review; failures toast. */
 export function useRerun(taskId: string) {

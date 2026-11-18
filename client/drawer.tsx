@@ -123,6 +123,7 @@ function TaskDrawerView({
   startIdea,
   onAllIdeas,
   guardrails = false,
+  autoReview = false,
   onFilterTag,
   escapeRequest,
   attention,
@@ -172,6 +173,8 @@ function TaskDrawerView({
   onAllIdeas?(taskId: string): void;
   /** Guardrails on (Settings and the project switch): the Workpad shows what this card was sent back for (GUARDRAILS-SPEC §7.1). */
   guardrails?: boolean;
+  /** The project's effective Auto review (BOARD-GROUPS-SPEC §5): the Workpad offers Rerun only while it is on. */
+  autoReview?: boolean;
   /** Adds a tag to the board filter (CARD-TAGS-SPEC §6.3). */
   onFilterTag?(tag: string): void;
   /** Changes on each board Esc shortcut: leave the session preview, else close. */
@@ -866,7 +869,7 @@ function TaskDrawerView({
         );
       case "workpad":
         return (
-          <TaskWorkpad task={task} project={project} guardrails={guardrails} active={active} disabled={!active || !!task.archivedAt || !!project.archivedAt} section={sectionStates.workpad} />
+          <TaskWorkpad task={task} project={project} guardrails={guardrails} autoReview={autoReview} active={active} disabled={!active || !!task.archivedAt || !!project.archivedAt} section={sectionStates.workpad} />
         );
       case "artifacts":
         return (

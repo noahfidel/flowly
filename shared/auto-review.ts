@@ -1,9 +1,11 @@
+import { groupOfProject } from "./groups";
 import { enabledStatuses, laneEnabled } from "./lanes";
 import {
   isWorkStatus,
   legacyStatus,
   workStatuses,
   type BoardEvent,
+  type Group,
   type HistoryStatus,
   type Project,
   type Review,
@@ -32,13 +34,81 @@ export const GOAL_NAME = "Does what you asked";
 export const goalPrompt =
   "The change does what the user asked for this card: its title and description, and what the user said in the card's conversation. A later instruction replaces an earlier one; something the user said to leave for later is not missing. Judge na when the request is too vague to judge. The acceptance list is the agent's own claim: read it as context, not as proof.";
 
-export function autoReviewOf(project: Pick<Project, "autoReview"> | null | undefined): ReviewConfig {
-  const stored = project?.autoReview;
-  return stored ? { enabled: stored.enabled, maxRounds: stored.maxRounds } : defaultAutoReview;
+/** Where a project's effective Auto review comes from: its override, its group's value, or the built-in Off. */
+export type AutoReviewSource = "project" | "group" | "default";
+export type EffectiveAutoReview = ReviewConfig & { source: AutoReviewSource };
+
+/**
+ * A project's Auto review as it applies (BOARD-GROUPS-SPEC §5; ruling, Noah 2026-11-18): its own override, else its
+ * group's value, else Off with 2 rounds. The one reader of the stored values: a delivery starts a review whenever
+ * `enabled` is true (the built-in check always runs, GUARDRAILS-SPEC §6.1). `group`: the project's current group.
+ */
+export function effectiveAutoReview(
+  project: Pick<Project, "autoReview"> | null | undefined,
+  group: Pick<Group, "defaults"> | null | undefined,
+): EffectiveAutoReview {
+  const own = project?.autoReview;
+  if (own) return { enabled: own.enabled, maxRounds: own.maxRounds, source: "project" };
+  const inherited = group?.defaults?.autoReview;
+  if (inherited) return { enabled: inherited.enabled, maxRounds: inherited.maxRounds, source: "group" };
+  return { ...defaultAutoReview, source: "default" };
 }
-export const autoReviewEnabled = (project: Pick<Project, "autoReview"> | null | undefined) => !!project?.autoReview?.enabled;
-/** A delivery starts a review whenever the switch is on: the built-in check always runs (GUARDRAILS-SPEC §6.1). */
-export const autoReviewRuns = autoReviewEnabled;
+
+/** `effectiveAutoReview` with the project's group looked up on the board by its `groupId`. */
+export const projectAutoReview = (board: { groups: readonly Group[] }, project: Pick<Project, "autoReview" | "groupId"> | null | undefined) =>
+  effectiveAutoReview(project, groupOfProject(board, project));
+
+const sameConfig = (a: ReviewConfig, b: ReviewConfig) => a.enabled === b.enabled && a.maxRounds === b.maxRounds;
+/** Keys a stored project value may carry from before guardrails, read by the one-time guardrails migration (§3.6). */
+const legacyKeys = ["rules", "checks", "goal", "guidance"];
+
+/**
+ * The one-time collapse (BOARD-GROUPS-SPEC §7 step 9; ruling, Noah 2026-11-18): each group with members (archived ones
+ * included) takes its members' most common stored value (absent: Off, 2 rounds; enabled and rounds compared as a
+ * pair; a tie goes to Off/2 when it is among the tied values, else to the first in member order). Members with that
+ * value drop their own and inherit; the others keep their old value as an override. A stored value still carrying
+ * rules from before guardrails stays on its project, so the guardrails migration can read them. Groups without
+ * members stay unset. Every project's effective value is the same before and after; no revision changes.
+ * Returns whether anything changed.
+ */
+export function collapseGroupAutoReview(board: { groups: Group[]; projects: Project[] }): boolean {
+  let changed = false;
+  for (const group of board.groups) {
+    const members = board.projects.filter((p) => p.groupId === group.id);
+    if (!members.length) continue;
+    const stored = members.map((p) => effectiveAutoReview(p, null));
+    const tally: { config: ReviewConfig; count: number }[] = [];
+    for (const config of stored) {
+      const found = tally.find((x) => sameConfig(x.config, config));
+      if (found) found.count++;
+      else tally.push({ config: { enabled: config.enabled, maxRounds: config.maxRounds }, count: 1 });
+    }
+    const top = Math.max(...tally.map((x) => x.count));
+    const tied = tally.filter((x) => x.count === top);
+    const chosen = (tied.find((x) => sameConfig(x.config, defaultAutoReview)) ?? tied[0]).config;
+    const current = group.defaults?.autoReview;
+    // A group value already stored (data written past the store) keeps its members' effective values as they are.
+    const value = current ?? chosen;
+    if (!current) {
+      group.defaults = { ...group.defaults, autoReview: { ...value } };
+      changed = true;
+    }
+    members.forEach((p, i) => {
+      const own = stored[i];
+      const legacy = !!p.autoReview && legacyKeys.some((k) => k in (p.autoReview as object));
+      if (sameConfig(own, value)) {
+        if (p.autoReview && !legacy) {
+          delete p.autoReview;
+          changed = true;
+        }
+      } else if (!p.autoReview) {
+        p.autoReview = { enabled: own.enabled, maxRounds: own.maxRounds };
+        changed = true;
+      }
+    });
+  }
+  return changed;
+}
 
 /**
  * Where a failed review sends the card (R1): the work stage it was delivered from when that lane is on,

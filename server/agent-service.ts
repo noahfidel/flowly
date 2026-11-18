@@ -25,7 +25,7 @@ import { projectScripts } from "./workflow-insights";
 import { mergeWorkpad, plansOf, workpadEnabled, workpadNote, workpadOf, workpadUpdatedAction } from "../shared/workpad";
 import { deliveryReminders, outputsReminder, type DeliveryCall } from "./reminders";
 import { DeliveryGate } from "./delivery-gate";
-import { autoReviewOf, autoReviewRuns, reviewContext } from "../shared/auto-review";
+import { projectAutoReview, reviewContext } from "../shared/auto-review";
 import type { DeliveredReview } from "./auto-review";
 import { setupContext, setupIncompleteMessage, setupMissing, setupReminder, type SetupItem } from "../shared/card-setup";
 import {
@@ -447,7 +447,7 @@ export class AgentService {
             : { workpadEnabled: false, workpad: null, plan: [] }),
           ...(this.memory ? { memory: await this.memory.taskContext(r.task, r.project).catch(() => ({ enabled: false, total: 0, entries: [] })) } : {}),
           // What this delivery is checked against (GUARDRAILS-SPEC §5.2); unreadable guardrails leave it out.
-          ...(this.guardrails ? await this.guardrails.taskContext(r.task, r.project, autoReviewOf(r.project).maxRounds).then((guardrails) => ({ guardrails }), () => ({})) : {}),
+          ...(this.guardrails ? await this.guardrails.taskContext(r.task, r.project, projectAutoReview(r.board, r.project)).then((guardrails) => ({ guardrails }), () => ({})) : {}),
           ...(scripts.length ? { projectScripts: scripts } : {}),
           links: linksOf(board, r.task.id)
             .filter((v) => v.other)
@@ -936,7 +936,7 @@ export class AgentService {
               ...(setupGap.length ? { setup: { missing: setupGap } } : {}),
             }));
       // An agent delivery starts the project's automatic review once this write commits (AUTO-REVIEW-SPEC §3.1).
-      if (next === "in_review" && next !== previous && autoReviewRuns(project))
+      if (next === "in_review" && next !== previous && projectAutoReview(board, project).enabled)
         review = { taskId: task.id, projectId: project.id, eventId: event.id, agentId: identity.agentId, from: previous };
       // The suggestion follows the status change or report it rode on, in the same write (NEXT-MOVES-SPEC §8.3).
       if (carried) recordMoves(carried);

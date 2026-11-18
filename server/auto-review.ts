@@ -20,8 +20,7 @@ import {
 import {
   GOAL_ID,
   GOAL_NAME,
-  autoReviewOf,
-  autoReviewRuns,
+  projectAutoReview,
   continuesRound,
   conversationForReview,
   conversationLimits,
@@ -565,7 +564,7 @@ export class AutoReviewService {
     const project = task && board.projects.find((p) => p.id === task.projectId);
     if (!task || !project || task.archivedAt || project.archivedAt) throw new Error("Task is unavailable or archived.");
     if (task.status !== "in_review") throw new Error("Only a card in In review can be reviewed again.");
-    if (!autoReviewRuns(project)) throw new Error("Turn on Auto review in the project settings first.");
+    if (!projectAutoReview(board, project).enabled) throw new Error("Turn on Auto review in the project or group settings first.");
     if (task.review?.state === "running") throw new Error("A review of this card is already running.");
     const delivery = latestDelivery(board, task);
     if (!delivery) throw new Error("No agent delivered this card to In review, so there is no session to send rework to.");
@@ -617,7 +616,7 @@ export class AutoReviewService {
     const board = await this.store.read();
     const task = board.tasks.find((t) => t.id === delivery.taskId);
     const project = task && board.projects.find((p) => p.id === task.projectId);
-    if (!task || !project || task.archivedAt || project.archivedAt || task.status !== "in_review" || !autoReviewRuns(project)) return;
+    if (!task || !project || task.archivedAt || project.archivedAt || task.status !== "in_review" || !projectAutoReview(board, project).enabled) return;
     const where = await this.deps.workspace(task, paseo).catch(() => null);
     let head = where ? await readHead(where.directory, this.git, this.now()) : null;
     // A workspace that is not a Git repository itself reads the repositories in it (a linked root, §6.2).
@@ -645,7 +644,7 @@ export class AutoReviewService {
       : linked.length
         ? await linkedShape(linked, task.baseRef, this.git).catch(() => null)
         : await (this.deps.shape ?? ((d: string, base?: string, from?: string) => reviewShape(d, base, this.git, "", from)))(where.directory, task.baseRef, task.branchedFrom?.commit).catch(() => null);
-    const config = autoReviewOf(project);
+    const config = projectAutoReview(board, project);
     // What is checked is fixed when it starts; editing the guardrails meanwhile does not change this review (§4.3).
     const guard = this.deps.guardrails
       ? await this.deps.guardrails.reviewInput(task, project, measured?.shape.size).catch((e) => {

@@ -156,7 +156,7 @@ function BuiltInPage({ active, outside, onOutside }: { active: boolean; outside:
           <Legend key="i" title={t("Ideas")} text={t("Follow-ups the agent found, yours to decide.")} />,
         ]}
       </Columns>
-      <Legend title={t("Auto review")} text={t("Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; turn it off per project.")} />
+      <Legend title={t("Auto review")} text={t("Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; set it per group, and a project can override it.")} />
       <SummaryModelGroup active={active} bare extra={<AiLanguageRow />} />
       <SettingsGroup
         title={t("Also in sessions outside Flowly")}

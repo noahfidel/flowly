@@ -306,7 +306,10 @@ export const projectSchema = z.object({
   agentModel: agentModelSchema.optional(),
   /** Linked multi-repo project: symlinks the plugin created inside its own root (PROJECT-PICKER-SPEC). */
   links: z.array(z.object({ name: z.string(), target: z.string() })).optional(),
-  /** Automatic review of agent deliveries (AUTO-REVIEW-SPEC, GUARDRAILS-SPEC §8). Absent means off. */
+  /**
+   * Automatic review of agent deliveries (AUTO-REVIEW-SPEC, GUARDRAILS-SPEC §8): the project's override. Absent: its
+   * group's value applies (`effectiveAutoReview`, BOARD-GROUPS-SPEC §5). Never read raw.
+   */
   autoReview: autoReviewSchema.optional(),
   /** The board group it belongs to (BOARD-GROUPS-SPEC §1); every live project has one once groups are migrated. */
   groupId: z.string().optional(),
@@ -331,6 +334,8 @@ export const groupDefaultsSchema = z.object({
   agentModel: agentModelSchema.optional(),
   deliveryMode: z.string().optional(),
   dispatcherModel: agentModelSchema.optional(),
+  /** Auto review for members without an override (BOARD-GROUPS-SPEC §1; ruling, Noah 2026-11-18). Absent means Off, 2 rounds. */
+  autoReview: z.object({ enabled: z.boolean(), maxRounds: reviewMaxRounds }).optional(),
 });
 export type GroupDefaults = z.infer<typeof groupDefaultsSchema>;
 /** A named set of projects, the board's main unit (BOARD-GROUPS-SPEC §1). */
@@ -705,6 +710,11 @@ export const boardSchema = z.object({
   attentionDismissals: z.array(attentionDismissalSchema).max(attentionDismissLimits.records).default([]),
   /** Board groups (BOARD-GROUPS-SPEC §1); absent in files written before them, filled by the one-time migration (§7). */
   groups: z.array(groupSchema).max(groupLimits.groups).default([]),
+  /**
+   * Set once the start collapse of project Auto review values into group values has run (BOARD-GROUPS-SPEC §7 step 9),
+   * or by the first write after a start that found no projects; never cleared, so the collapse never runs twice.
+   */
+  autoReviewGroups: z.literal(true).optional(),
 });
 export const previousBoardSchema = boardSchema.extend({
   version: z.literal(2),
@@ -827,7 +837,8 @@ export const projectEdit = z.strictObject({
   lanes: lanesSchema.optional(),
   /** A model sets the project default; null removes it (the global default applies again). */
   agentModel: agentModelSchema.nullable().optional(),
-  autoReview: autoReviewInput.optional(),
+  /** The project's Auto review override (BOARD-GROUPS-SPEC §2); null removes it (the group's value applies again). */
+  autoReview: autoReviewInput.nullable().optional(),
   /** The project's delivery mode override (BOARD-GROUPS-SPEC §5); null removes it (the group's or host's applies again). */
   deliveryMode: z.enum(deliveryModes).nullable().optional(),
   /** The New session starting text (SESSION-START-TEXT-SPEC); "" removes it (the built-in default applies again). */
@@ -846,6 +857,7 @@ export const groupDefaultsInput = z.strictObject({
   agentModel: agentModelSchema.nullable().optional(),
   deliveryMode: z.enum(deliveryModes).nullable().optional(),
   dispatcherModel: agentModelSchema.nullable().optional(),
+  autoReview: autoReviewInput.nullable().optional(),
 });
 export type GroupDefaultsInput = z.infer<typeof groupDefaultsInput>;
 const groupName = z.string().trim().min(1).max(groupLimits.name);

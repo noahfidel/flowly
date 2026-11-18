@@ -3,7 +3,7 @@ import { View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc";
-import { groupLimits, type Group, type Lane, type Project, type Status } from "../shared/model";
+import { groupLimits, type AutoReviewInput, type Group, type Lane, type Project, type Status } from "../shared/model";
 import { projectLanes } from "../shared/lanes";
 import { laneKey } from "../shared/group-lanes";
 import { laneEdit, laneEditDirty, laneEditSave, laneEditServer, type LaneEditState } from "./group-lanes-logic";
@@ -19,14 +19,15 @@ import { SettingRow, SettingSelect, SettingSwitch, SettingsGroup } from "./setti
 import { Collapse, Disclosure } from "./disclosure";
 import { ModelDefaultGroup } from "./model-default";
 import { ProjectSettingsFields, useProjectSettings } from "./forms";
+import { AutoReviewSection, reviewEditOf } from "./review-settings";
 import { useStableCallback } from "./stable";
-import { currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, afterDiscard, lanesDirtyKey, needsDiscardConfirm, shownGroup, withDirty } from "./group-settings-logic";
+import { autoReviewMoveNote, currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, afterDiscard, lanesDirtyKey, needsDiscardConfirm, shownGroup, withDirty } from "./group-settings-logic";
 
-type GroupDefaultsEdit = { agentModel?: AgentModel | null; deliveryMode?: DeliveryMode | null; dispatcherModel?: AgentModel | null };
+type GroupDefaultsEdit = { agentModel?: AgentModel | null; deliveryMode?: DeliveryMode | null; dispatcherModel?: AgentModel | null; autoReview?: AutoReviewInput | null };
 
 /**
  * Group settings (BOARD-GROUPS-SPEC §5): the group's name, the Default flag, its defaults (new-card model, delivery
- * mode, dispatcher model), its member projects with a move to another group, one section per project, Add group and
+ * mode, dispatcher model, Auto review), its member projects with a move to another group, one section per project, Add group and
  * Delete group…. `groupId` null opens on Add group; a created group opens here. Each project's section also offers
  * Restore (archived projects) and Remove…, which the project switcher had before group tabs (3/7).
  */
@@ -99,9 +100,13 @@ export function GroupSettings({
     onChanged();
   };
   const moveProject = (p: Project, to: string) =>
-    write(async () => {
+    write(async (from) => {
       const live = latestProjects.current.find((x) => x.id === p.id) ?? p;
       await setProjectGroup({ projectId: p.id, revision: currentRevision(live, savedRevisions.current[p.id]), groupId: to });
+      // A project without its own Auto review follows the new group's (BOARD-GROUPS-SPEC §5): say so when that changes it.
+      const target = groups.find((g) => g.id === to);
+      const note = target && autoReviewMoveNote(live, from, target);
+      if (note) toast.show(note);
     });
   // Restore, as the project switcher does: archiving was folded into Remove; older archived projects can still come back.
   const restoreProject = (p: Project) =>
@@ -209,6 +214,15 @@ export function GroupSettings({
                   allowProvider={dispatcherProviderSupported}
                   invalidText={t("The dispatcher runs only on Claude: on other providers Flowly can't keep it from answering cards' questions and permission requests. Choose a Claude model for the dispatcher in Settings → Models.")}
                 />
+                <SettingsGroup>
+                  <View style={{ padding: space[3] }}>
+                    {/* Members without their own value follow it; a group that never set it means Off (ruling, Noah 2026-11-18). */}
+                    <AutoReviewSection
+                      value={reviewEditOf(null, group)}
+                      onChange={(next) => setDefaults({ autoReview: { enabled: next.on, maxRounds: Number(next.rounds) } })}
+                    />
+                  </View>
+                </SettingsGroup>
                 <GroupLanes
                   key={`${group.id}:${discardEpoch}`}
                   group={group}
@@ -546,7 +560,7 @@ function ProjectEditor({
   onRestore(): void;
   onRemove(): void;
 }) {
-  const state = useProjectSettings(project);
+  const state = useProjectSettings(project, false, group);
   // Report unsaved edits to the page; an unmounted editor (moved, reseeded) has none.
   useEffect(() => {
     onDirty(project.id, state.dirty);

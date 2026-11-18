@@ -172,7 +172,7 @@ import { workpadEnabled } from "../shared/workpad";
 import { cardDisplay, cardWorkspace } from "../shared/card-display";
 import { parentOf } from "../shared/subagents";
 import { reviewLabel } from "./task-review";
-import { visibleReview } from "../shared/auto-review";
+import { projectAutoReview, visibleReview } from "../shared/auto-review";
 import { planApproved, planOf, withoutPlan } from "../shared/plans";
 
 // Option (⌥) on Apple keyboards, Alt elsewhere; read once, never throws (navigator is feature-detected).
@@ -2228,6 +2228,7 @@ function BoardContent(
         startIdea={startRequest?.taskId === drawer.item.task.id ? startRequest.idea : undefined}
         onAllIdeas={showCardIdeas}
         guardrails={features.memory && drawer.item.project.memory !== false}
+        autoReview={projectAutoReview({ groups: projected?.groups ?? noGroups }, drawer.item.project).enabled}
         sessionEntry={
           sessionEntry?.taskId === drawer.item.task.id && drawer.active ? sessionEntry : undefined
         }
@@ -3001,7 +3002,8 @@ function BoardContent(
           <ProjectForm
             key={`${projectForm}${reviewOn ? ":review" : ""}`}
             project={projectForm === "edit" ? project : undefined}
-            group={projectForm === "edit" ? groupOf(project) : null}
+            // A new project follows the Auto review of the group it is created in (BOARD-GROUPS-SPEC §5).
+            group={projectForm === "edit" ? groupOf(project) : (group ?? boardGroups.find((g) => g.isDefault) ?? null)}
             reviewOn={projectForm === "edit" && reviewOn}
             // While groups are not ready (the overview lists none) the project keeps its own lane editor (BOARD-GROUPS-SPEC §0).
             laneCounts={projectForm === "edit" && projected && !projected.groups.length ? projectLaneCounts : undefined}

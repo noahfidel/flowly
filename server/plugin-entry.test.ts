@@ -61,7 +61,8 @@ test("the plugin entry gives flowly_create_project the projects.create RPC's own
   let made = 0;
   vi.spyOn(BoardService.prototype, "createProject").mockImplementation(async function (this: BoardService, input) {
     services.push(this);
-    return { id: `made-${++made}`, title: input.title, primaryPath: input.primaryPath } as never;
+    // Auto review on (an override here; a real one follows its group), so the follow-up detects its commands.
+    return { id: `made-${++made}`, title: input.title, primaryPath: input.primaryPath, autoReview: { enabled: true, maxRounds: 2 } } as never;
   });
   const detect = vi.spyOn(GuardrailsService.prototype, "detect").mockResolvedValue({ found: [], added: [] });
   const { host, handlers } = fakeHost();

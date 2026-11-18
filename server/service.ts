@@ -456,8 +456,7 @@ export class BoardService {
           primaryPath,
           repos: [primaryPath],
           ...(links ? { links } : {}),
-          // Auto review is on for new projects (GUARDRAILS-SPEC D1); existing projects keep what they stored.
-          autoReview: { enabled: true, maxRounds: 2 },
+          // No Auto review of its own: a new project follows its group's value (BOARD-GROUPS-SPEC §5; ruling, Noah 2026-11-18).
           revision: 1,
           createdAt: now,
           updatedAt: now,

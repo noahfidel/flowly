@@ -1569,7 +1569,7 @@ const catalog: Catalog = {
   "{n} commands observing": {"one":"{n} comando en observación","other":"{n} comandos en observación"},
   "Last 14 days": "Últimos 14 días",
   "This week:": "Esta semana:",
-  "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; turn it off per project.": "Las entregas se comprueban antes de llegarte y vuelven al agente si se quedan cortas. Cada revisión usa tokens; se desactiva por proyecto.",
+  "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; set it per group, and a project can override it.": "Las entregas se comprueban antes de llegarte y vuelven al agente cuando se quedan cortas. Cada revisión usa tokens; configúrala por grupo, y un proyecto puede anularla.",
   "What you send a card back for is checked on the next ones.": "Lo que motiva que devuelvas una tarjeta se comprueba en las siguientes.",
   "You send it back": "Tú la devuelves",
   "Say what is wrong, as you would anyway.": "Di qué está mal, como harías de todos modos.",
@@ -1731,5 +1731,12 @@ const catalog: Catalog = {
   "Works anywhere in Paseo, even while typing. Turn off if macOS Dictation uses a double press of Control.": "Funciona en cualquier parte de Paseo, incluso mientras escribes. Desactívalo si el Dictado de macOS usa pulsar Control dos veces.",
   "Open Flowly from anywhere in Paseo (double-tap Ctrl)": "Abrir Flowly desde cualquier parte de Paseo (pulsa Ctrl dos veces)",
   "Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General.": "Pulsa Ctrl dos veces en cualquier parte de Paseo para abrir Flowly. Se desactiva en Ajustes → General.",
+  "On, {n} rounds": {"one": "Activada, {n} ronda", "other": "Activada, {n} rondas"},
+  "Off": "Desactivada",
+  "Inherited from {group}: {value}": "Heredado de {group}: {value}",
+  "Inherited: {value}": "Heredado: {value}",
+  "Auto review will follow {group}: {value}.": "La revisión automática seguirá a {group}: {value}.",
+  "Override group Auto review": "Anular la revisión automática del grupo",
+  "Auto review is set once per group in Group settings; projects follow it unless they override it.": "La revisión automática se configura una vez por grupo en Ajustes del grupo; los proyectos la siguen salvo que la anulen.",
 };
 export default catalog;

@@ -24,12 +24,15 @@ export const TaskWorkpad = memo(function TaskWorkpad({
   task,
   project,
   guardrails,
+  autoReview,
   disabled,
   active,
   section,
 }: {
   task: Task;
   project: Project;
+  /** The project's effective Auto review (its override, else its group's value): Rerun shows only while it is on. */
+  autoReview: boolean;
   /** Guardrails on for this project (host and project switch): show this card's items and notes. */
   guardrails: boolean;
   disabled: boolean;
@@ -136,7 +139,7 @@ export const TaskWorkpad = memo(function TaskWorkpad({
           </Group>
         )}
         {!!review && (
-          <Group title={t("Review")} action={canRerun(task, project, disabled) ? <RerunButton taskId={task.id} /> : undefined}>
+          <Group title={t("Review")} action={canRerun(task, autoReview, disabled) ? <RerunButton taskId={task.id} /> : undefined}>
             <ReviewBlock review={review} />
           </Group>
         )}

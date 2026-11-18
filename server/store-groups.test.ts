@@ -220,7 +220,9 @@ describe.each(["json", "sqlite"] as const)("board groups in the store (%s)", (ba
     const model = { provider: "claude", model: "claude-opus-5-5" };
     const renamed = await s.updateGroup({ id: zen.id, revision: zen.revision, name: "Zenlytic", defaults: { agentModel: model, deliveryMode: "ready_pr" } });
     expect(renamed).toMatchObject({ name: "Zenlytic", revision: 2, defaults: { agentModel: model, deliveryMode: "ready_pr" } });
-    const cleared = await s.updateGroup({ id: zen.id, revision: 2, defaults: { agentModel: null, deliveryMode: null } });
+    // The start gave Zen its members' Auto review (Off, 2 rounds; §7 step 9); clearing every default removes `defaults`.
+    expect(zen.defaults).toEqual({ autoReview: { enabled: false, maxRounds: 2 } });
+    const cleared = await s.updateGroup({ id: zen.id, revision: 2, defaults: { agentModel: null, deliveryMode: null, autoReview: null } });
     expect(cleared.defaults).toBeUndefined();
     // A case-only rename of itself is allowed.
     await s.updateGroup({ id: zen.id, revision: 3, name: "ZENLYTIC" });

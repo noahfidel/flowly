@@ -1569,7 +1569,7 @@ const catalog: Catalog = {
   "{n} commands observing": {"one":"{n} commande en observation","other":"{n} commandes en observation"},
   "Last 14 days": "14 derniers jours",
   "This week:": "Cette semaine :",
-  "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; turn it off per project.": "Les livraisons sont vérifiées avant de vous parvenir et retournent à l'agent si elles sont insuffisantes. Chaque revue consomme des tokens ; désactivable par projet.",
+  "Deliveries are checked before they reach you and go back to the agent when they fall short. Each review uses tokens; set it per group, and a project can override it.": "Les livraisons sont vérifiées avant de vous parvenir et renvoyées à l'agent quand elles sont insuffisantes. Chaque revue consomme des tokens ; réglez-la par groupe, un projet peut la remplacer.",
   "What you send a card back for is checked on the next ones.": "Ce pour quoi vous renvoyez une carte est vérifié sur les suivantes.",
   "You send it back": "Vous la renvoyez",
   "Say what is wrong, as you would anyway.": "Dites ce qui ne va pas, comme vous le feriez de toute façon.",
@@ -1731,5 +1731,12 @@ const catalog: Catalog = {
   "Works anywhere in Paseo, even while typing. Turn off if macOS Dictation uses a double press of Control.": "Fonctionne partout dans Paseo, même pendant la saisie. Désactivez-le si la Dictée de macOS utilise une double pression sur Contrôle.",
   "Open Flowly from anywhere in Paseo (double-tap Ctrl)": "Ouvrir Flowly depuis n’importe où dans Paseo (Ctrl deux fois)",
   "Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General.": "Appuyez deux fois sur Ctrl n’importe où dans Paseo pour ouvrir Flowly. Réglages → Général permet de le désactiver.",
+  "On, {n} rounds": {"one": "Activée, {n} tour", "other": "Activée, {n} tours"},
+  "Off": "Désactivée",
+  "Inherited from {group}: {value}": "Hérité de {group} : {value}",
+  "Inherited: {value}": "Hérité : {value}",
+  "Auto review will follow {group}: {value}.": "La revue automatique suivra {group} : {value}.",
+  "Override group Auto review": "Remplacer la revue automatique du groupe",
+  "Auto review is set once per group in Group settings; projects follow it unless they override it.": "La revue automatique se règle une fois par groupe dans les réglages du groupe ; les projets la suivent sauf s'ils la remplacent.",
 };
 export default catalog;
