@@ -91,19 +91,19 @@ Two quick taps of Ctrl anywhere in Paseo open the Flowly board, exactly as the s
 - **Where:** the web client only (Paseo desktop app and browser). iOS and Android have no window keyboard events and install nothing.
 - **A tap** is a Ctrl keydown (`key === "Control"`, no Shift, Alt or Meta held, not a repeat) followed by its Ctrl keyup, with no other keydown in between, the press lasting at most `DOUBLE_TAP_MS` = 300 ms (`client/double-tap.ts`). Holding Ctrl longer is not a tap.
 - **Fires** when the second tap's keydown comes within 300 ms of the first tap's keyup, on the second tap's keyup. After firing the detector starts over: a triple tap opens the board once; a fourth tap pairs with the third.
-- **Resets:** any other keydown (Shift, Alt, Meta, Tab, letters, …), a pointer or mouse down anywhere, and the window losing focus. Repeat keydowns are ignored (they neither count nor reset), but a held Ctrl still fails the 300 ms rule. A Ctrl keydown while Ctrl is thought to be down (its keyup was missed) restarts from that press as a first tap.
+- **Resets:** any other keydown (Shift, Alt, Meta, Tab, letters, …), a pointer or mouse down anywhere, and the window itself losing focus (a `blur` whose target is the window; focus moving between elements does not reset). Repeat keydowns are ignored (they neither count nor reset), but a held Ctrl still fails the 300 ms rule. A Ctrl keydown while Ctrl is thought to be down (its keyup was missed) restarts from that press as a first tap.
 - **Text fields:** it fires even while a text field, the session message box or a terminal has focus. A bare Ctrl tap types nothing there, so nothing is lost; this is what makes it "from anywhere".
 - **Never swallows events:** the listener never calls `preventDefault` or `stopPropagation`. Every key still reaches the host, other plugins and the focused field.
 
 ### 5.2 Install and hosts
 
 - `client/double-tap-install.ts` adds capture-phase `keydown`, `keyup`, `pointerdown`, `mousedown` and `blur` listeners on `window` (AGENTS.md exception). It is feature-detected (`Platform.OS === "web"`, `globalThis.addEventListener`) and never throws.
-- Paseo evaluates the plugin client once per connected host. A `globalThis` slot (`__flowlyDoubleTapCtrl`) holds the one listener and the list of live installs, one per host; a double tap opens the first live install's board. Each host's `contribute` cleanup removes its install; the last one removes the listeners.
+- Paseo evaluates the plugin client once per connected host. A `globalThis` slot (`__flowlyDoubleTapCtrl`) holds the one listener and the list of live installs, one per host. With several hosts, a double tap opens the board through the first host (in install order) whose setting is on, not necessarily the host on show. When no host is known to be on, every host not known to be off is read together and the first that reads on opens. Each host's `contribute` cleanup removes its install; the last one removes the listeners.
 
 ### 5.3 Setting
 
 - Host setting `shortcuts.doubleTapCtrl` (boolean, default `true`), the switch **Double-tap Ctrl to open Flowly** in Settings → General → **Keyboard**, shown only on the web, with the detail *Works anywhere in Paseo, even while typing. Turn off if macOS Dictation uses a double press of Control.*
-- No read at plugin load (cold start, PERFORMANCE-SPEC): each install reads its host's setting about 3 s after load. On a double tap: when the cached value is on, the board opens at once and the value is read again in the background; when it is off or unknown, the setting is read first and the board opens only if it is on. Turning the switch changes the cache at once, then every host's value is read again about 1.5 s later.
+- No read at plugin load (cold start, PERFORMANCE-SPEC): each install reads its host's setting about 3 s after load. On a double tap: when the cached value is on, the board opens at once and the value is read again in the background; when it is off or unknown, the setting is read first and the board opens only if it is on. A failed read keeps the value already known, or falls back to the default (on) when nothing is known yet. Turning the switch changes the cache at once, then every host's value is read again about 1.5 s later.
 - The `Flowly: View board` Command Center title (§2.4) and the help row (§5.4) name the gesture only while it is on; a read that finds it off re-registers the Command Center items with the plain title.
 
 ### 5.4 Discoverability
@@ -113,7 +113,7 @@ Two quick taps of Ctrl anywhere in Paseo open the Flowly board, exactly as the s
 
 ### 5.5 Clashes
 
-- **Workspace Switcher plugin** (Ctrl+Tab and Ctrl+` hold modes): those modes hold Ctrl longer than 300 ms and press another key, so they are never a tap. Nothing is swallowed, so the switcher keeps working. The switcher stops propagation of keys while its modes are open, so this listener may miss the Tab keydown or the Ctrl keyup; the 300 ms press rule still rejects the hold, and a missed keyup is handled by the restart rule.
+- **Workspace Switcher plugin** (Ctrl+Tab and Ctrl+` hold modes): those modes hold Ctrl longer than 300 ms and press another key, so they are never a tap. Nothing is swallowed, so the switcher keeps working. The switcher stops propagation of keys while its modes are open, so this listener may miss the Tab keydown or the Ctrl keyup; the 300 ms press rule still rejects the hold, and a missed keyup is handled by the restart rule. Known rare case: if the switcher swallows a Tab keydown, two very quick Ctrl+Tab presses, each released within 300 ms, can read as a double tap and open Flowly (harmless).
 - **macOS Dictation** can be set to *Press Control Key Twice*; then both Dictation and Flowly react. Turn one of them off.
 - Host shortcuts using Ctrl with another key are combos, never taps.
 

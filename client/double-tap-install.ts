@@ -3,12 +3,13 @@ import { createDoubleTapDetector, type DoubleTapDetector, type TapKeyEvent } fro
 
 /**
  * Double tap of Ctrl opens the board from anywhere in Paseo (SHORTCUTS-SPEC §5). Web only, an AGENTS.md exception:
- * capture-phase keydown/keyup/pointerdown/mousedown/blur listeners on `window`. They never prevent or stop an event,
+ * capture-phase keydown/keyup/pointerdown/mousedown/blur listeners on `window` (blur resets only when the window
+ * itself loses focus). They never prevent or stop an event,
  * so the host and other plugins (the Workspace Switcher's Ctrl+Tab hold) see every key as before.
  *
  * Paseo evaluates the plugin client once per connected host, so each host's `contribute` installs here. One
- * listener per window lives in a `globalThis` slot with the list of live installs; a double tap goes to the first
- * one. The last cleanup removes the listeners.
+ * listener per window lives in a `globalThis` slot with the list of live installs; a double tap opens the board of
+ * the first host whose setting is on (not necessarily the host on show). The last cleanup removes the listeners.
  *
  * It fires while a text field or terminal has focus too: a bare Ctrl tap types nothing there.
  */
@@ -56,11 +57,19 @@ function now() {
   return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
 }
 
-/** Reads one host's setting; a failed read keeps what was known (unknown stays unknown). */
+/**
+ * Reads one host's setting. A failed read leaves the cached value as it was and answers with it, or with the
+ * setting's default (on) when nothing is known yet.
+ */
 function refresh(install: Live): Promise<boolean> {
   if (install.reading) return install.reading;
-  const reading = install
-    .readEnabled()
+  let read: Promise<boolean>;
+  try {
+    read = Promise.resolve(install.readEnabled());
+  } catch (error) {
+    read = Promise.reject(error);
+  }
+  const reading = read
     .then((enabled) => {
       const before = install.enabled;
       install.enabled = enabled;
@@ -73,7 +82,7 @@ function refresh(install: Live): Promise<boolean> {
       }
       return enabled;
     })
-    .catch(() => install.enabled === true)
+    .catch(() => install.enabled ?? true)
     .finally(() => {
       install.reading = null;
     });
@@ -81,25 +90,32 @@ function refresh(install: Live): Promise<boolean> {
   return reading;
 }
 
+function openOn(state: Slot, install: Live) {
+  // The host may have cleaned this install up while its setting was being read.
+  if (!state.installs.includes(install)) return;
+  try {
+    install.open();
+  } catch {
+    // Never throw out of a window listener.
+  }
+}
+
+/**
+ * Opens the board of the first host whose setting is on. With none known to be on, reads every host not known
+ * to be off, together, and opens the first (in install order) that reads on.
+ */
 function openActive(state: Slot) {
-  const active = state.installs[0];
-  if (!active) return;
-  const open = () => {
-    // The host may have cleaned this install up while its setting was being read.
-    if (!state.installs.includes(active)) return;
-    try {
-      active.open();
-    } catch {
-      // Never throw out of a window listener.
-    }
-  };
-  if (active.enabled === true) {
-    open();
-    void refresh(active);
+  const on = state.installs.find((install) => install.enabled === true);
+  if (on) {
+    openOn(state, on);
+    void refresh(on);
     return;
   }
-  void refresh(active).then((enabled) => {
-    if (enabled) open();
+  const candidates = state.installs.filter((install) => install.enabled !== false);
+  if (candidates.length === 0) return;
+  void Promise.all(candidates.map((install) => refresh(install))).then((results) => {
+    const index = results.findIndex((enabled, i) => enabled && state.installs.includes(candidates[i]));
+    if (index >= 0) openOn(state, candidates[index]);
   });
 }
 
@@ -119,13 +135,23 @@ function listen(target: WindowLike, state: Slot): () => void {
     }
   };
   const onReset = () => state.detector.reset();
+  // Every element's blur reaches the window's capture phase; only the window itself losing focus resets.
+  const onBlur = (raw: unknown) => {
+    try {
+      if ((raw as { target?: unknown } | null)?.target === target) state.detector.reset();
+    } catch {
+      // Never throw out of a window listener.
+    }
+  };
   const keys = ["keydown", "keyup"];
-  const resets = ["pointerdown", "mousedown", "blur"];
+  const resets = ["pointerdown", "mousedown"];
   keys.forEach((type) => target.addEventListener(type, onKey, true));
   resets.forEach((type) => target.addEventListener(type, onReset, true));
+  target.addEventListener("blur", onBlur, true);
   return () => {
     keys.forEach((type) => target.removeEventListener(type, onKey, true));
     resets.forEach((type) => target.removeEventListener(type, onReset, true));
+    target.removeEventListener("blur", onBlur, true);
   };
 }
 
