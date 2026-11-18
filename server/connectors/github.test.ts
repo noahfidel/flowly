@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { githubApiRoot, githubSummary } from "./github";
 import { fakeService, fixtures, type Route } from "./fake";
 import { fingerprintChanged } from "./fingerprint";
+import { refKey } from "./service";
 
 const env = fixtures();
 afterEach(() => env.cleanup());
@@ -38,7 +39,7 @@ function github(items: Item[], root = "https://api.github.com") {
     }
     const one = /^\/repos\/([^/]+\/[^/]+)\/(issues|pulls)\/(\d+)(\/comments|\/reviews|\/files)?$/.exec(path);
     if (one) {
-      const found = items.find((x) => x.repo === one[1] && x.number === Number(one[3]));
+      const found = items.find((x) => x.repo.toLowerCase() === one[1]!.toLowerCase() && x.number === Number(one[3]));
       if (!found || (one[2] === "pulls" && !found.pull)) return { status: 404, body: { message: "Not Found" } };
       if (one[4] === "/comments") return { body: (found.comments || []).map((c) => ({ ...c, user: { login: "cy" }, created_at: "2026-10-19T09:00:00Z", updated_at: "2026-10-19T09:00:00Z" })) };
       if (one[4] === "/reviews") return { body: (found.reviews || []).map((r) => ({ ...r, user: { login: "dee" }, submitted_at: "2026-10-19T10:00:00Z" })) };
@@ -159,4 +160,17 @@ describe("GitHub (CONNECTORS-SPEC §6)", () => {
     // Not a backoff: the next request goes out.
     expect((await service.search({ connectionId: c.id, query: "" })).results).toHaveLength(1);
   });
+});
+
+test("a badge read by a key in another case than GitHub's is cached under that key too, so the next read needs no call (PR-MENU-SPEC §3.2)", async () => {
+  const x = await connected([{ repo: "Acme/Web", number: 42, pull: true, title: "Fix" }]);
+  const ref = { connectionId: x.connection.id, provider: "github" as const, key: "acme/web#42", remoteId: "", itemType: "pull" as const };
+  const first = await x.service.badges([ref]);
+  expect(first.get(refKey(ref))?.summary.status).toBe("Open");
+  const calls = x.calls.length;
+  const again = await x.service.badges([ref]);
+  expect(again.get(refKey(ref))).toMatchObject({ stale: false, summary: { status: "Open" } });
+  expect(x.calls.length).toBe(calls);
+  // The cache-only read answers by that key as well.
+  expect((await x.service.cachedBadges([ref])).get(refKey(ref))).toMatchObject({ expired: false, summary: { status: "Open" } });
 });

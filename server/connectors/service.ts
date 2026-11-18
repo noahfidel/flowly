@@ -447,7 +447,12 @@ export class ConnectorService {
         ).catch(() => null);
       if (items && connection) {
         fetched = true;
-        for (const item of items) this.remember(connection, item);
+        for (const item of items) {
+          const entry = this.remember(connection, item);
+          // The service may answer in another case (GitHub's canonical owner/repo): keep it reachable by the requested key too, as detail() does.
+          const own = refKey(item.summary).toLowerCase();
+          for (const ref of list) if (refKey(ref) !== refKey(item.summary) && refKey(ref).toLowerCase() === own) this.cache.set(refKey(ref), entry);
+        }
       }
       for (const ref of list) {
         const hit = this.cache.get(refKey(ref));
@@ -463,6 +468,18 @@ export class ConnectorService {
       if (detail) out.set(k, { summary: detail.summary, fingerprint: detail.fingerprint, stale: detail.stale });
     }
     if (fetched) this.persist();
+    return out;
+  }
+
+  /** Cache-only badge read, no network: each cached ref's summary, `expired` once older than the badge TTL (PR-MENU-SPEC §3.2). */
+  async cachedBadges(refs: readonly ExternalRef[]): Promise<Map<string, { summary: ExternalSummary; expired: boolean }>> {
+    await this.loadCache();
+    const now = this.clock();
+    const out = new Map<string, { summary: ExternalSummary; expired: boolean }>();
+    for (const ref of refs) {
+      const hit = this.cache.get(refKey(ref));
+      if (hit) out.set(refKey(ref), { summary: hit.summary, expired: now - hit.fetchedAt >= BADGE_TTL });
+    }
     return out;
   }
 
