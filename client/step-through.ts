@@ -135,6 +135,14 @@ export function needsStartAction(
   return dispatcherWaits > 0 ? { kind: "dispatcher", shown: true } : null;
 }
 
+/** What switching the board to another group opens (BOARD-GROUPS-SPEC §3): what that group's "N need you" would open first, via needsStartAction with no walk and nothing open. Null when the group is already shown or nothing waits. */
+export function groupSwitchOpen(fromGroupId: string, toGroupId: string, dispatcherWaits: number, queue: readonly string[]): { kind: "dispatcher" } | { kind: "card"; taskId: string } | null {
+  if (fromGroupId === toGroupId) return null;
+  const action = needsStartAction(dispatcherWaits, null, null, queue, null, false);
+  if (!action) return null;
+  return action.kind === "dispatcher" ? { kind: "dispatcher" } : { kind: "card", taskId: action.taskId };
+}
+
 /**
  * The bar's label and next control. In the queue: "i of N" and the › arrow. A card that left the queue stays shown:
  * Need you labels it "Answered" and offers Next card as the primary button; Updates has nothing answered (opening a

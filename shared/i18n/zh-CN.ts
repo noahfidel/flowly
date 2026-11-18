@@ -1743,5 +1743,6 @@ const catalog: Catalog = {
   "Override group Auto review": "覆盖分组的自动审查",
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "自动审查在分组设置中按分组设置一次；项目会跟随它，除非自行覆盖。",
   "Double-click a card to jump straight into its active session.": "双击卡片即可直接进入其活动会话。",
+  "Switching to a group that needs you opens what waits there: its dispatcher chat or its first waiting card.": "切换到需要你处理的分组时，会打开那里等待的内容：其调度器聊天或第一张等待中的卡片。",
 };
 export default catalog;

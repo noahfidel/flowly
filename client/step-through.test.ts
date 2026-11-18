@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { Project, Task } from "../shared/model";
 import type { AttentionItem } from "../shared/attention";
 import type { ChatItem } from "../shared/dispatcher";
-import { walkQueue, changeSummary, stableQueue, cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, needsStartAction, dispatcherInView, updatedQueue } from "./step-through";
+import { walkQueue, changeSummary, stableQueue, cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, needsStartAction, groupSwitchOpen, dispatcherInView, updatedQueue } from "./step-through";
 import { dispatcherWaits } from "../shared/attention";
 import { otherGroupNeeds } from "./board-groups";
 
@@ -350,5 +350,23 @@ describe("walkQueue", () => {
   test("a walk of the other kind starts fresh from the live order", () => {
     const upd = walkQueue(null, "updated", ["a", "b"], "a");
     expect(walkQueue(upd, "needs", ["z", "a"], "a").ids).toEqual(["z", "a"]);
+  });
+});
+
+describe("switching the board to a group", () => {
+  test("the group already shown opens nothing", () => {
+    expect(groupSwitchOpen("a", "a", 2, ["x"])).toBeNull();
+  });
+  test("a group with nothing waiting opens nothing", () => {
+    expect(groupSwitchOpen("a", "b", 0, [])).toBeNull();
+  });
+  test("opens the first card of its need-you queue", () => {
+    expect(groupSwitchOpen("a", "b", 0, ["x", "y"])).toEqual({ kind: "card", taskId: "x" });
+  });
+  test("a waiting dispatcher opens first, even with cards queued", () => {
+    expect(groupSwitchOpen("a", "b", 1, ["x"])).toEqual({ kind: "dispatcher" });
+  });
+  test("a waiting dispatcher with no cards queued opens its chat", () => {
+    expect(groupSwitchOpen("a", "b", 3, [])).toEqual({ kind: "dispatcher" });
   });
 });

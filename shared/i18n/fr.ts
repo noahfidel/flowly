@@ -1743,5 +1743,6 @@ const catalog: Catalog = {
   "Override group Auto review": "Remplacer la revue automatique du groupe",
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "La revue automatique se règle une fois par groupe dans les réglages du groupe ; les projets la suivent sauf s'ils la remplacent.",
   "Double-click a card to jump straight into its active session.": "Double-cliquez sur une carte pour accéder directement à sa session active.",
+  "Switching to a group that needs you opens what waits there: its dispatcher chat or its first waiting card.": "Passer à un groupe qui a besoin de vous ouvre ce qui y attend : le chat de son dispatcheur ou sa première carte en attente.",
 };
 export default catalog;

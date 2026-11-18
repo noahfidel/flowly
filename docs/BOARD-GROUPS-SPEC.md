@@ -284,6 +284,12 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   any other group has one. The accessibility label adds "{n} need you". The sidebar badge (`attention.count`) stays
   global over every group. Search (button, **S**) keeps searching every project and shows each result's project and
   group.
+- **Switching to a group that needs you** (user request 2026-11-18): pressing another group's tab, or its row in the
+  phone/compact project switcher, opens what that group's "N need you" would open first, using the same scope as its
+  tab badge (every live member of the group): its dispatcher chat when its dispatcher waits, else the first card of its
+  need-you walk in the card sidebar, with the step bar. Never for the group already shown, a group with nothing
+  waiting, Back/Forward, a card or link that brings its group, New task from a tab menu, or a new group. The switch and
+  the open are one history entry, so Back returns to the previous place, its group included (UI-REFRESH-SPEC §7ae).
 
 ## 4. The group board
 

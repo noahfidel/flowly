@@ -1743,5 +1743,6 @@ const catalog: Catalog = {
   "Override group Auto review": "Переопределить автопроверку группы",
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "Автопроверка задаётся один раз для группы в настройках группы; проекты следуют ей, если не переопределяют её.",
   "Double-click a card to jump straight into its active session.": "Дважды щёлкните карточку, чтобы сразу перейти в её активную сессию.",
+  "Switching to a group that needs you opens what waits there: its dispatcher chat or its first waiting card.": "При переходе в группу, которой нужно ваше внимание, открывается то, что там ждёт: чат её диспетчера или первая ожидающая карточка.",
 };
 export default catalog;

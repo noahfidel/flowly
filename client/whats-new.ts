@@ -32,6 +32,7 @@ export const whatsNew: WhatsNewRelease[] = [
       { icon: "ListOrdered", text: msg("Lanes belong to the group now: every project in it uses the same lanes, edited once in Group settings.") },
       // BOARD-GROUPS-SPEC §5 (ruling, Noah 2026-11-18): existing values were collapsed into each group at the update.
       { icon: "ShieldCheck", text: msg("Auto review is set once per group in Group settings; projects follow it unless they override it.") },
+      { icon: "BellRing", text: msg("Switching to a group that needs you opens what waits there: its dispatcher chat or its first waiting card.") },
     ],
   },
   {

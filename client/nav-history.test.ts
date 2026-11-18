@@ -231,3 +231,25 @@ describe("which entries are still there", () => {
     expect(unknown(dispatcher("removed"))).toBe(true);
   });
 });
+
+describe("boards of different groups", () => {
+  const boardOf = (groupId: string): NavEntry => ({ kind: "board", groupId });
+
+  test("another group's board is another place; the same group, or one without a group, is the same", () => {
+    const h = record(boardOf("a"));
+    expect(recordLocation(h, boardOf("b")).entries).toEqual([boardOf("a"), boardOf("b")]);
+    expect(recordLocation(h, boardOf("a"))).toBe(h);
+    expect(recordLocation(h, board)).toBe(h);
+  });
+
+  test("an entry opens its group's board", () => {
+    expect(navOpenAction(boardOf("g"))).toEqual({ kind: "show-board", groupId: "g" });
+    expect(navOpenAction(board)).toEqual({ kind: "show-board" });
+  });
+
+  test("Back from a card opened right after a group switch lands on the previous group's board", () => {
+    const h = record(boardOf("a"), card("x"));
+    const step = navStep(h, "back", alive);
+    expect(step?.entry).toEqual(boardOf("a"));
+  });
+});

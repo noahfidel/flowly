@@ -7,7 +7,7 @@
 
 /** A place: a card (and the session shown in it, "" = its details), a group's dispatcher chat, or nothing open. */
 export type NavEntry =
-  | { kind: "board" }
+  | { kind: "board"; groupId?: string }
   | { kind: "card"; taskId: string; sessionId?: string }
   | { kind: "dispatcher"; groupId: string };
 
@@ -22,16 +22,16 @@ export type NavDirection = "back" | "forward";
 export const navHistoryCap = 50;
 export const emptyNavHistory: NavHistory = { entries: [], index: -1 };
 
-/** Same place: the same card (whatever its session), the same group's dispatcher, or both nothing open. */
+/** Same place: the same card (whatever its session), the same group's dispatcher, or both nothing open (boards of two known groups differ). */
 export function samePlace(a: NavEntry, b: NavEntry): boolean {
   if (a.kind === "card") return b.kind === "card" && a.taskId === b.taskId;
   if (a.kind === "dispatcher") return b.kind === "dispatcher" && a.groupId === b.groupId;
-  return b.kind === "board";
+  return b.kind === "board" && (a.groupId === undefined || b.groupId === undefined || a.groupId === b.groupId);
 }
 
 function copy(entry: NavEntry): NavEntry {
   if (entry.kind === "card") return entry.sessionId === undefined ? { kind: "card", taskId: entry.taskId } : { kind: "card", taskId: entry.taskId, sessionId: entry.sessionId };
-  return entry.kind === "dispatcher" ? { kind: "dispatcher", groupId: entry.groupId } : { kind: "board" };
+  return entry.kind === "dispatcher" ? { kind: "dispatcher", groupId: entry.groupId } : entry.groupId === undefined ? { kind: "board" } : { kind: "board", groupId: entry.groupId };
 }
 
 function replaceAt(history: NavHistory, entry: NavEntry): NavHistory {
@@ -143,10 +143,10 @@ export function navAlive(index: {
 export type NavOpenAction =
   | { kind: "open-card"; taskId: string; sessionId: string }
   | { kind: "open-dispatcher"; groupId: string }
-  | { kind: "show-board" };
+  | { kind: "show-board"; groupId?: string };
 
 export function navOpenAction(entry: NavEntry): NavOpenAction {
   if (entry.kind === "card") return { kind: "open-card", taskId: entry.taskId, sessionId: entry.sessionId ?? "" };
   if (entry.kind === "dispatcher") return { kind: "open-dispatcher", groupId: entry.groupId };
-  return { kind: "show-board" };
+  return entry.groupId === undefined ? { kind: "show-board" } : { kind: "show-board", groupId: entry.groupId };
 }

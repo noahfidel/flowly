@@ -52,7 +52,7 @@ import { DispatcherPanel } from "./dispatcher-panel";
 import { LeftDock } from "./left-dock";
 import { lastCollapsed, rememberCollapsed, shownCollapsed } from "./collapsed-columns";
 import { dockShortcut, escAction, toolbarDockButtons } from "./dock-logic";
-import { cardAsks, changeItem, changeSummary, needsCount, needsQueue, needsStartAction, dispatcherInView, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, walkQueue, type Step, type StepKind, type Walk } from "./step-through";
+import { cardAsks, changeItem, changeSummary, needsCount, groupSwitchOpen, needsQueue, needsStartAction, dispatcherInView, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, walkQueue, type Step, type StepKind, type Walk } from "./step-through";
 import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
@@ -1373,6 +1373,17 @@ function BoardContent(
     dockActive.current = true;
     setDockOpen(true);
   });
+  // Switching the board to a group that waits on the user (BOARD-GROUPS-SPEC §3): opens what its "N need you" would open
+  // first. One handler, so one render and one history entry.
+  const switchGroup = useStableCallback((id: string) => {
+    const g = boardGroups.find((x) => x.id === id);
+    const auto = g && projected && agents.data
+      ? groupSwitchOpen(group?.id ?? "", id, dispatcherNeeds.get(id) ?? 0, needsQueue(attention, resolvedSignals, boardScope(groupMembers(g, board?.projects || noProjects).map((p) => p.id))))
+      : null;
+    chooseGroup(id);
+    if (auto?.kind === "dispatcher") openWaitingDispatcher();
+    else if (auto?.kind === "card") showStepCard("needs", auto.taskId);
+  });
   // D / the toolbar button opened the dock: the chat focuses its message box (each request is distinct).
   const [chatFocus, setChatFocus] = useState(0);
   // The dock is the active area (Ruling, Noah 2026-11-09): its box gained focus or the user pressed inside it, and nothing
@@ -1415,7 +1426,7 @@ function BoardContent(
       !overviewData.data || !view.values ? null
       : navTaskId ? { kind: "card", taskId: navTaskId }
       : navDockShown && dispatcherGroupId ? { kind: "dispatcher", groupId: dispatcherGroupId }
-      : { kind: "board" },
+      : { kind: "board", ...(dispatcherGroupId ? { groupId: dispatcherGroupId } : {}) },
     [!!overviewData.data, !!view.values, navTaskId, navDockShown, dispatcherGroupId],
   );
   const navIsAlive = useMemo(
@@ -1434,6 +1445,7 @@ function BoardContent(
       // An empty session returns the card to its details, as a card link does.
       return setSessionEntry({ taskId: action.taskId, sessionId: action.sessionId, requestId: `history-${Date.now()}` });
     }
+    if (action.kind === "show-board" && action.groupId && action.groupId !== group?.id) chooseGroup(action.groupId);
     if (taskId) setTask("");
     if (action.kind === "open-dispatcher") {
       if (action.groupId !== group?.id) chooseGroup(action.groupId);
@@ -2310,7 +2322,7 @@ function BoardContent(
                 groups={boardGroups}
                 activeId={group?.id ?? ""}
                 shortcut={shortcutsOn ? "P" : ""}
-                onSelect={chooseGroup}
+                onSelect={switchGroup}
                 onManage={() => setMenu("projects")}
                 onCreate={() => setProjectForm("new")}
                 menuFor={groupTabMenu}
@@ -2678,8 +2690,8 @@ function BoardContent(
                     }
                     onPress={() => {
                       if (!pressable()) return;
-                      chooseGroup(g.id);
                       setTask("");
+                      switchGroup(g.id);
                       projectMenuClose();
                     }}
                   />

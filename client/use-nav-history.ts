@@ -7,7 +7,7 @@ const applyWindowMs = 1500;
 
 function placeKey(entry: NavEntry | null) {
   if (!entry) return "";
-  return entry.kind === "card" ? `card|${entry.taskId}` : entry.kind === "dispatcher" ? `dispatcher|${entry.groupId}` : "board";
+  return entry.kind === "card" ? `card|${entry.taskId}` : entry.kind === "dispatcher" ? `dispatcher|${entry.groupId}` : `board|${entry.groupId ?? ""}`;
 }
 
 /**

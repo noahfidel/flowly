@@ -1,5 +1,10 @@
 # Implementation progress
 
+## Board: switching to a group that needs you opens what waits there (branch `kanban/board-switching-to-a-group-with-somethin-f1d010`) — 2026-11-18
+
+- Feature (user-requested): a group tab press or a switcher row opens that group's first "N need you" target (dispatcher chat, else the first need-you card with the step bar); never for the group already shown, nothing waiting, Back/Forward, links or New task from a tab menu. Spec: BOARD-GROUPS-SPEC §3, UI-REFRESH-SPEC §7ae.
+- Client: pure `groupSwitchOpen` in `client/step-through.ts`; board `switchGroup` used by the tabs and the switcher rows; board history entries carry their group (`client/nav-history.ts`), so Back returns to the previous group's view. What's new 1.9.0 item (9 catalogs); no tour or tip change.
+
 ## Board: O opens the open card's active session, R its newest pull request (branch `kanban/board-shortcuts-o-opens-the-open-card-s-d549c5`) — 2026-11-18
 
 - Feature (user-requested): two desktop board shortcuts act on the card open in the sidebar. `O` opens its active session chat (the double click's rule and entry; toast "No session yet." when there is none). `R` opens its newest pull request in the browser (toast "No pull request yet." when there is none). With no card open, or on compact layouts, neither key is consumed. Ruling (Noah, 2026-11-18): `R`, not `G`, because `G` stays Guardrails. Contract: SHORTCUTS-SPEC §2.1.

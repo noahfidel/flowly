@@ -1743,5 +1743,6 @@ const catalog: Catalog = {
   "Override group Auto review": "그룹 자동 검토 재정의",
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "자동 검토는 그룹 설정에서 그룹마다 한 번 설정합니다. 프로젝트는 재정의하지 않는 한 이를 따릅니다.",
   "Double-click a card to jump straight into its active session.": "카드를 더블클릭하면 해당 카드의 활성 세션으로 바로 이동합니다.",
+  "Switching to a group that needs you opens what waits there: its dispatcher chat or its first waiting card.": "확인이 필요한 그룹으로 전환하면 그곳에서 기다리는 항목(디스패처 채팅 또는 첫 번째 대기 카드)이 열립니다.",
 };
 export default catalog;
