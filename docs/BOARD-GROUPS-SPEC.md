@@ -126,6 +126,12 @@ exactly one group. Individual projects are no longer top-level navigation.
   preferences (§3, §4).
 - Ruling (Noah, 2026-11-11): after **New project** the board shows the new project's group filtered to the new project
   (§3).
+- Ruling (Noah, 2026-11-18): the project filter is kept **per group**. Opening a card from anywhere (a link, Search, the
+  PR menu, a dispatcher card link, Back/Forward, a step-through, a group switch that opens what waits) selects its
+  group but never changes any group's filter; switching group never clears one, so returning to a group shows its own
+  filter again. Only an action on one project (a Memory search hit, *All ideas* from a card, a new project) sets that
+  project's group's filter, and the Filter chip shows it. This supersedes "the project filter is set to the card's
+  project when the card is not in the group shown" (2026-11-10) and "cleared when the group changes" (§3, §4).
 - Ruling (Noah, 2026-11-18): auto review and its rework limit become a group default that projects inherit and can
   override; this supersedes the 2026-11-10 ruling's listing of auto review as repo-bound (check commands stay per
   project). A group with no value means Off. Migration collapses each group to its members' most common value
@@ -270,11 +276,14 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   falls back to the default group once the board has loaded. The shown group is stored only once both the board and
   the settings have loaded, so a cold start never overwrites the stored group with the default one.
   Opening a card, a session chip, an idea link or a search result selects that card's project's group, always as the
-  explicit choice (so the stored group, read later on a cold start, never replaces it); the project filter is set to
-  the card's project only when the card is not in the group already shown (otherwise the filter is left as it is),
-  and that is this run's filter choice. A card of an archived project leaves the board unfiltered (an archived
-  project is never a member, so its filter is cleared). Saving **New project** selects the new project's group and
-  filters the board to it (ruling above); it waits for the refreshed board when the project is not on it yet.
+  explicit choice (so the stored group, read later on a cold start, never replaces it); no group's project filter
+  changes (ruling 2026-11-18): the card sidebar shows the card whatever the board behind it is filtered to. A Memory
+  search hit and *All ideas* from a card (on a board filtered to another project) set that project's group's filter.
+  Saving **New project** selects the new project's group and filters the board to it (ruling above); it waits for the
+  refreshed board when the project is not on it yet.
+- **The card's workspace panel** (the Flowly panel beside a card's Paseo chat) is a board instance of its own: it reads
+  the saved group and filters but never writes them, in this run or in `board-view`, so opening a card's chat never
+  changes the board's group or filter.
 - **No project at all:** the first-run "No projects yet / Create project" screen shows instead of a board.
 - **Bell, badge, Search** (ruling above): the bell (desktop and phone), the "N need you" / "N updated" counts of a
   board and the `N`/`U` step-throughs use the shown board's scope (`boardScope`): the filtered project, else every
@@ -312,12 +321,13 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   link) keeps ALL-PROJECTS-SPEC §4: grouped by project, no reorder.
 - **Project filter:** a Project chip in the filter bar (with the Type, Priority and Tags filters) lists the group's
   projects. A filtered board shows one project's cards and ideas, in the group's lanes and lane names. The
-  filter is per board instance, kept while the app runs and in the host's `board-view` settings (`lastFilter`: the
-  group and project it was set in), so a restart starts from it; a filter set or cleared in this run wins over the
-  stored one. The stored filter, like the stored group (§3), is per host: every client of the host (desktop, phone)
-  shares it (ruling above). It is cleared (and the cleared value stored) when the project leaves the group, is
-  archived, or the group changes, checked once the board and the settings have loaded (also when the stored filter is
-  read after the board), and counted in "{n} shown".
+  filter is per group (ruling 2026-11-18), kept while the app runs and in the host's `board-view` settings
+  (`projectFilters`: group id → project id), so a restart starts from them; a filter set or cleared in this run wins
+  over the stored one for that group. The legacy single `lastFilter` (group and project) seeds its group when
+  `projectFilters` has no entry for it, and is cleared at the first filter write. The stored filters, like the stored
+  group (§3), are per host: every client of the host (desktop, phone) shares them (ruling above). A group's filter is
+  cleared (and the cleared value stored) when its project leaves the group or is archived, checked for the shown group
+  once the board and the settings have loaded; showing another group never clears it. Counted in "{n} shown".
 - **Overview bar:** shown on every group board with at least one live member, filtered or not. Its task count,
   running chip, "N need you" and "N updated" cover the filtered project, else every live member; the Done count is
   shown when the group's Done lane is on (lanes are the group's, §1). An empty group has no overview bar.

@@ -1,5 +1,17 @@
 # Implementation progress
 
+## Board: project filter changed on its own when a card chat opened (branch `kanban/investigate-board-project-filter-changes-8d21ad`) — 2026-11-18
+
+- Report (user): the board's project filter changed without the user, apparently when a card chat was opened. Cause, from tracing every write of the filter (`setProjectFilter`, `rememberProjectFilter`, `view.update({ lastFilter })`) in `client/board.tsx`:
+  - **Card chat (the surprise):** the Flowly workspace panel beside a card's Paseo chat is a second `BoardScreen` sharing the run module state (`client/project-memory.ts`) and the host `board-view` settings. On mount its `linked` effect ran `focusGroupOf` (for a card in another group: filter set to the card's project, stored), its stale-filter effect cleared a filter of another group (stored), and its group effect stored `lastGroupId`. So opening a card's chat rewrote the main board's filter and group.
+  - **Main board, by the 2026-11-10 rule:** every path that opens a card (`openTaskById`: dispatcher card links, PR menu rows, Running now, Back/Forward, step-through; Search, Linear open, session/notification links, quick-task and form saves, `switchGroup`'s open) set the filter to the card's project when the card was in another group, and any group change then cleared the filter. One visit to another group's card lost the user's filter.
+  - User-caused and kept: the Filters sheet's Project choice and Reset filters; pinned focus (Memory search hit, *All ideas* from a card, New project); clearing a filter whose project left the group or was archived.
+- Fix 1 (`e6f43a5`): the workspace panel never writes the run filter, the stored filter or the stored group (`writeProjectFilter` / `writeViewedGroup`, `BoardInstance`).
+- Fix 2 (`ff8b6e0`, ruling Noah 2026-11-18 asked in the card chat: per-group filter): `board-view.projectFilters` (group → project, legacy `lastFilter` migrated by `storedFilters`), per-group run state, `focusProject` returns a filter only for a pinned focus, the clear effect clears the shown group's entry only. BOARD-GROUPS-SPEC §0, §3, §4 updated.
+- Tests (failing first, then passing): `client/project-memory.test.ts`, `client/board-groups.test.ts` (old cross-group-sets-filter tests rewritten for the ruling), `shared/settings.test.ts`.
+- Onboarding: no tour, tip or What's new (a fix; patch-level). Telemetry: no heartbeat field.
+- Not run: real-UI reproduction and check (open a card's chat with the Flowly panel on a card in another group; filter group A, open a group-B card from Search / PR menu / dispatcher link, go Back: A's filter is still there; restart keeps per-group filters; phone).
+
 ## Dispatcher: flowly_link_cards creates related links (branch `kanban/let-the-dispatcher-s-flowly-link-cards-c-e8ee9a`) — 2026-11-18
 
 - Feature (user-requested): `flowly_link_cards` accepts `relation: "related"` besides `blocks` and `follow_up`, so the dispatcher can tie a family of related but separate cards. It goes through the board's own `addLink` (CARD-LINKS-SPEC §2.3): symmetric, an identical link in either direction returns `created: false`, same refusals (`LINK_REFUSED`: already linked, archived card, self link, link limit; related never forms a cycle), same project-only scope. No model change: `related` links already existed for the board.
