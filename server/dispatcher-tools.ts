@@ -94,8 +94,10 @@ export const dispatcherInputs = {
     projectId,
     taskId: z.string().min(1).max(200).describe("Card id from flowly_list_cards."),
     relation: z
-      .enum(["blocks", "follow_up"])
-      .describe("blocks: taskId must land before otherTaskId. follow_up: otherTaskId continues taskId."),
+      .enum(["blocks", "follow_up", "related"])
+      .describe(
+        "blocks: taskId must land before otherTaskId. follow_up: otherTaskId continues taskId. related: related but separate cards (a family), no order; taskId and otherTaskId are interchangeable.",
+      ),
     otherTaskId: z.string().min(1).max(200).describe("The other card's id, in the same project."),
   }),
   messageCard: z.strictObject({
@@ -1083,7 +1085,7 @@ export class DispatcherTools {
       "flowly_link_cards",
       {
         description:
-          "Tie two cards of the same project: relation=blocks when taskId must land before otherTaskId, relation=follow_up when otherTaskId continues taskId. An identical link is returned with created=false. LINK_REFUSED: the link rules refused it (cycle, already linked, archived card, link limit).",
+          "Tie two cards of the same project: relation=blocks when taskId must land before otherTaskId, relation=follow_up when otherTaskId continues taskId, relation=related for related but separate cards with no order (symmetric: taskId and otherTaskId are interchangeable). An identical link is returned with created=false, for related in either direction. A blocks or follow_up link replaces a related one between the same cards; related is refused when the cards are already linked. LINK_REFUSED: the link rules refused it (cycle, already linked, archived card, link limit).",
         inputSchema: dispatcherInputs.linkCards,
         outputSchema: linkCardsResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },

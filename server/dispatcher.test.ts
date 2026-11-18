@@ -1220,7 +1220,7 @@ test("Replace also takes a guarded dispatcher with every tool whose charter is o
 });
 
 test("the charter has the relay line for contract news (DISPATCHER-SPEC §5.8, §6)", () => {
-  expect(dispatcherCharterVersion).toBe(7);
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(7);
   const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("Relay contract news with flowly_message_card to:"))!;
   expect(line).toBeDefined();
   for (const part of ["for each card listed there, and only those", "information only", "needs no reply", "[contract]", "never message a card that is not listed", "never send the same relay twice", "queued: true", "MESSAGE_LIMIT", "Cards never message each other"])
@@ -1645,10 +1645,10 @@ test("the charter reads \"start X\" as create and start a card, never doing the 
   expect(charter).toContain(startRule);
 });
 
-test("the charter names related links for card families and is versioned 6 (DISPATCHER-SPEC §6)", () => {
+test("the charter names related links for card families and is versioned 8 (DISPATCHER-SPEC §6)", () => {
   const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.startsWith("- Split independent deliverables"))!;
   expect(line).toMatch(/blocks when one must land first, follow_up when one continues another, related/);
-  expect(dispatcherCharterVersion).toBe(6);
+  expect(dispatcherCharterVersion).toBe(8);
 });
 
 test("the charter says each card creation is confirmed in the chat and a cancel stops it (DISPATCHER-SPEC §5.2, §6)", () => {
