@@ -61,7 +61,9 @@ import { WrapupModal } from "./wrapup";
 import { currentWrapup } from "../shared/wrapup-state";
 import { useComposer } from "./composer";
 import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
-import { openNativeSession, openNativeWorkspace } from "./session-state";
+import { openNativeSession, openNativeWorkspace, sessionState } from "./session-state";
+import { QuickLinks } from "./quick-links-row";
+import { quickSessionState, type QuickSession } from "./quick-links";
 import { cardQuestions, openReport } from "../shared/progress";
 import { QueuedMessages, queuedFor, sameQueued } from "./queued-messages";
 import { bannerRequestId } from "./queued-request";
@@ -534,6 +536,22 @@ function TaskDrawerView({
     setError("");
   });
   const archivedSessions = ordered.filter((a) => !!a.archivedAt);
+  // Quick links (DRAWER-SPEC "Quick links"): main live sessions; an open question or blocker on the card counts as waiting.
+  const askingAgents = new Set([...questions.map((q) => q.agentId), ...blockedAgents]);
+  const quickSessions: QuickSession[] = liveTree.map(({ agent: a }) => ({
+    id: a.id,
+    title: a.title || "",
+    createdAt: a.createdAt,
+    state: quickSessionState(sessionState(a, events), askingAgents.has(a.id)),
+  }));
+  // "+N more": open that section and scroll to it, with the same ring as a search hit.
+  const jumpTo = useStableCallback((section: "sessions" | "artifacts") => {
+    focusTimers.current.forEach(clearTimeout);
+    const key = `quick:${section}:${Date.now()}`;
+    setOpened((current) => ({ ...current, [section]: true }));
+    setFocusTarget({ key, target: `section:${section}` });
+    focusTimers.current = [setTimeout(() => setFocusTarget((current) => (current?.key === key ? null : current)), FOCUS_RING_MS + 1200)];
+  });
   const openMenu = useMenuOpener();
   const finished = task.status === "done" || task.status === "cancelled";
   // Wrapped up while kept on the board: its workspace/sessions are archived on
@@ -830,6 +848,8 @@ function TaskDrawerView({
         />
       </View>
       <TaskTags task={task} active={active} readOnly={!!project.archivedAt} onFilterTag={onFilterTag} />
+      {/* PRs, sessions and outputs one click away (DRAWER-SPEC "Quick links"); nothing when there are none. */}
+      <QuickLinks taskId={task.id} sessions={quickSessions} onOpenSession={openSession} onMore={jumpTo} />
       {!!error && <Notice>{error}</Notice>}
     </>
   );
@@ -852,6 +872,7 @@ function TaskDrawerView({
         return (
           <Section
             id={task.id}
+            focusId="sessions"
             title={t("Sessions")}
             count={liveTree.length}
             open={sectionStates.sessions.open}

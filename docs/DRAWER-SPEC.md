@@ -8,6 +8,8 @@ Status: authorized by the user's 2026-10-14 sidebar redesign request. This repla
 
 2026-10-29 Open workspace in the header (user request, card "button to open associated workspace"): replaces §4's "No Open workspace action". See [Open workspace](#open-workspace).
 
+2026-11-18 Quick links under the heading (user request, card "Card home: PR links and sessions one click away at the top"). See [Quick links](#quick-links).
+
 2026-10-29 Worktree / Local in the header row (user request, card "badge for worktree vs local"). See [Workspace kind](#workspace-kind).
 
 2026-10-19 sidebar tweaks (card "UI/UX adjustments"): see [Section order and Artifacts paging](#section-order-and-artifacts-paging) below. Progress → History rows now start at the section's left edge (the `Disclosure` `flush` option) and an opened version's fields line up with its title.
@@ -86,6 +88,20 @@ Status: implemented 2026-10-19 (user choice: automatic by parent, option 1). Car
 2. Under a main session with subagents, one row (`↳`, the Subagents chip's summary such as "2 working, 1 needs input", a chevron) shows or hides them. The rows reveal and hide with the shared measured-height `Collapse` and the chevron turns with the same progress (Motion: Reduce Motion honoured, interruptible). It is folded unless a subagent needs input or failed, or the selected session is one of them; the user's toggle wins until the sidebar closes.
 3. Subagent rows are the normal session rows, indented and slightly shorter; opening, unread state, attention and the menu are unchanged. The section count is the number of main sessions; the collapsed summary (`n running`) still counts every session. Archived sessions use the same grouping.
 4. No data or setting changes. The Subagents chip above the composer opens a subagent in the side bar when it is one of this card's sessions, and falls back to a Paseo agent pane otherwise (SUBAGENTS-SPEC).
+
+## Quick links
+
+Status: implemented 2026-11-18 (user request, card "Card home: PR links and sessions one click away at the top"). The card's PRs, sessions and outputs used to be reachable only by scrolling down to Sessions and Artifacts.
+
+1. **Where.** One wrapped row of chips at the end of the card heading, under the tags (and above the Needs-you banners and the description). On desktop the heading is fixed, so the row never scrolls away; on phones it scrolls with the heading at the top of the content (§5 of Section order). The row renders nothing when it has no chip: no empty row, no placeholder.
+2. **Which chips, in this order** (pure rules: `quickLinks` in `client/quick-links.ts`):
+   - **PRs**: every output artifact that is a pull or merge request (an external ref of item type pull / merge_request, else a GitHub `…/pull/<n>` or GitLab `…/-/merge_requests/<n>` URL), newest first, one per URL, never limited. Text: `#n` (GitHub) or `!n` (GitLab) and its state word from the connector's cached status (Draft, Open, Merged, Closed); with no known status, the number alone. Pressing opens the PR link in the browser.
+   - **Sessions**: the card's main live sessions (not archived; subagents stay under their main session in Sessions), at most 3: waiting first, then running, error, done, newest first within each. Text: the session title, or "Session N" when untitled (N by start order, oldest = 1), and its state: Waiting (a pending permission or question, or an open question or blocker report from that session on the card), Running (running or starting), Error, Done (anything else). Pressing opens that session's chat in the sidebar, as a Sessions row does. More than 3 adds a "+N more" chip.
+   - **Outputs**: the other output artifacts (links and files; inputs and the card's plan are never chips), newest first, at most 3, then "+N more". Pressing opens them as the Artifacts row does: a link in the browser, a file in its preview, a connector item in its preview.
+   - **"+N more"** opens that section (Sessions or Artifacts) for this opening of the sidebar and scrolls to it with the search-hit ring (Focus from search), never changing the stored section defaults.
+3. **Look.** Compact bordered chips (26 pt high, 36 on touch), an icon (PR state icon, chat, file or link), one line of text cut at about 220 pt so a long title never takes the whole row. A waiting session uses the card's Needs-you colour (warning tint background and border, warning text and a question icon), as the Needs-you banner does. Running sessions and open PRs use the running colour on their icon, merged PRs the success colour.
+4. **Access.** Each chip is a Pressable with role link (PRs, plain links) or button, an `accessibilityLabel` with the full text ("Open pull request #12 · Merged: <title>", "Open session <title> · Waiting", "Open output <title>", "Show N more sessions"), Tab/Enter on web, and the accent border while keyboard-focused (the browser outline is off for every Pressable). Paseo's plugin API offers no tooltip primitive, so the full text lives in the label rather than a hover tooltip.
+5. **Shortcuts only.** Sessions and Artifacts keep their full lists, menus and paging unchanged. The quick links reuse the Artifacts section's external-status query (same key, one fetch). The board card tile is unchanged.
 
 ## Open workspace
 

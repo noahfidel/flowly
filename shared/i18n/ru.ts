@@ -1711,5 +1711,18 @@ const catalog: Catalog = {
   "Dropped a queued dispatcher message": "Отбросил сообщение диспетчера из очереди",
   "Forward": "Вперёд",
   "Back / forward (Alt+← / Alt+→ on Windows and Linux)": "Назад / вперёд (Alt+← / Alt+→ в Windows и Linux)",
+  "{number} · Draft": "{number} · Черновик",
+  "{number} · Open": "{number} · Открыт",
+  "{number} · Merged": "{number} · Слит",
+  "{number} · Closed": "{number} · Закрыт",
+  "Waiting": "Ждёт",
+  "Session {n}": "Сессия {n}",
+  "Quick links": "Быстрые ссылки",
+  "+{n} more": {"one": "ещё {n}", "few": "ещё {n}", "many": "ещё {n}", "other": "ещё {n}"},
+  "Show {n} more sessions": {"one": "Показать ещё {n} сессию", "few": "Показать ещё {n} сессии", "many": "Показать ещё {n} сессий", "other": "Показать ещё {n} сессии"},
+  "Show {n} more outputs": {"one": "Показать ещё {n} результат", "few": "Показать ещё {n} результата", "many": "Показать ещё {n} результатов", "other": "Показать ещё {n} результата"},
+  "Open pull request {label}: {title}": "Открыть пул-реквест {label}: {title}",
+  "Open session {label}": "Открыть сессию {label}",
+  "Open output {title}": "Открыть результат {title}",
 };
 export default catalog;

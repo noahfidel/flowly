@@ -39,6 +39,22 @@ export function useArtifactMissing(taskId: string, all: readonly Artifact[]): Re
   return useMemo(() => new Set(status.data?.missing || []), [status.data]);
 }
 
+/**
+ * External statuses for the card's linked items, cached by the daemon (EXTERNAL-TRACKER-SPEC §3.3). The Artifacts
+ * section and the card home's quick links pass the same list, so they share one query.
+ */
+export function useExternalStatuses(taskId: string, list: readonly Artifact[]) {
+  const readExternals = useRpc(rpc.cardExternals);
+  const externalKey = list.filter((a) => a.external).map((a) => a.id).join("|");
+  return useQuery({
+    queryKey: ["flowly", "card-externals", taskId, externalKey],
+    queryFn: () => readExternals({ taskId }),
+    enabled: !!externalKey,
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
 /** Rows shown per group at first, and added by each Show more (CARD-ARTIFACTS-SPEC §5.2). */
 const firstPage: Record<ArtifactRole, number> = { input: pageSize, output: pageSize };
 
@@ -58,7 +74,6 @@ export function TaskArtifacts({ task, active, disabled, section }: { task: Task;
   const [linking, setLinking] = useState<ConnectorFamily | null>(null);
   const connections = useConnections();
   const byFamily = useMemo(() => connectionsByFamily(connections.data?.connections || []), [connections.data]);
-  const readExternals = useRpc(rpc.cardExternals);
   const openMenu = useMenuOpener();
   const openSettings = useSettingsOpener();
   // Per opening of the sidebar: Show more only adds rows, closing and reopening starts over.
@@ -79,15 +94,7 @@ export function TaskArtifacts({ task, active, disabled, section }: { task: Task;
     setLimit((current) => ({ ...current, [target.role]: limitFor(at, current[target.role], pageSize) }));
   }, [focusTarget, list]);
   const missing = useArtifactMissing(task.id, all);
-  // External statuses for the rows, cached by the daemon (EXTERNAL-TRACKER-SPEC §3.3).
-  const externalKey = list.filter((a) => a.external).map((a) => a.id).join("|");
-  const externalStatus = useQuery({
-    queryKey: ["flowly", "card-externals", task.id, externalKey],
-    queryFn: () => readExternals({ taskId: task.id }),
-    enabled: !!externalKey,
-    staleTime: 60_000,
-    retry: false,
-  });
+  const externalStatus = useExternalStatuses(task.id, list);
   const statuses = useMemo(() => {
     const map = new Map((externalStatus.data?.items || []).map((x) => [x.artifactId, x.summary.status || x.summary.container]));
     // A removed connection reads as such instead of a status (EXTERNAL-TRACKER-SPEC §2).

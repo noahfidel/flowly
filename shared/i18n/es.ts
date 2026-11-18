@@ -1711,5 +1711,18 @@ const catalog: Catalog = {
   "Dropped a queued dispatcher message": "Descartó un mensaje en cola del despachador",
   "Forward": "Adelante",
   "Back / forward (Alt+← / Alt+→ on Windows and Linux)": "Atrás / adelante (Alt+← / Alt+→ en Windows y Linux)",
+  "{number} · Draft": "{number} · Borrador",
+  "{number} · Open": "{number} · Abierto",
+  "{number} · Merged": "{number} · Fusionado",
+  "{number} · Closed": "{number} · Cerrado",
+  "Waiting": "Esperando",
+  "Session {n}": "Sesión {n}",
+  "Quick links": "Accesos rápidos",
+  "+{n} more": "+{n} más",
+  "Show {n} more sessions": "Mostrar {n} sesiones más",
+  "Show {n} more outputs": "Mostrar {n} resultados más",
+  "Open pull request {label}: {title}": "Abrir pull request {label}: {title}",
+  "Open session {label}": "Abrir sesión {label}",
+  "Open output {title}": "Abrir resultado {title}",
 };
 export default catalog;

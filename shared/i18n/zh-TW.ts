@@ -1711,5 +1711,18 @@ const catalog: Catalog = {
   "Dropped a queued dispatcher message": "捨棄了一則排隊的調度器訊息",
   "Forward": "前進",
   "Back / forward (Alt+← / Alt+→ on Windows and Linux)": "返回 / 前進(Windows 和 Linux 上為 Alt+← / Alt+→)",
+  "{number} · Draft": "{number} · 草稿",
+  "{number} · Open": "{number} · 開啟",
+  "{number} · Merged": "{number} · 已合併",
+  "{number} · Closed": "{number} · 已關閉",
+  "Waiting": "等待中",
+  "Session {n}": "工作階段 {n}",
+  "Quick links": "快速連結",
+  "+{n} more": "+{n} 個",
+  "Show {n} more sessions": "再顯示 {n} 個工作階段",
+  "Show {n} more outputs": "再顯示 {n} 個產出",
+  "Open pull request {label}: {title}": "開啟拉取請求 {label}：{title}",
+  "Open session {label}": "開啟工作階段 {label}",
+  "Open output {title}": "開啟產出 {title}",
 };
 export default catalog;

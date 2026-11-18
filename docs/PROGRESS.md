@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Card home quick links: PRs, sessions and outputs at the top (branch `kanban/card-home-pr-links-and-sessions-one-clic-28a102`) — 2026-11-18
+
+- User request: PR links and sessions were reachable only by scrolling down to Sessions and Artifacts. A wrapped row of chips now ends the card heading (DRAWER-SPEC "Quick links"): one per PR output (`#n` / `!n` + Draft/Open/Merged/Closed from the cached connector status; opens the link), up to 3 main live sessions (waiting, running, error, done; title or "Session N"; opens the chat, waiting ones in the Needs-you colour), up to 3 other outputs (link or file preview), and "+N more" chips that open and scroll to Sessions or Artifacts with the search-hit ring. No chips, no row. Sections unchanged; the board card tile unchanged.
+- Code: `client/quick-links.ts` (pure rules), `client/quick-links-row.tsx` (chips), `client/drawer.tsx` (row in the heading, `jumpTo`, Sessions `focusId`), `client/task-artifacts.tsx` (`useExternalStatuses` shared with the row, `ArtifactPreview` reused). 13 new strings in all 9 catalogs.
+- Tests: `client/quick-links.test.ts` (failing first: empty row, PR detection, PR and session states, order, PR dedupe and no limit, session and output limits with "+N more"). `npm run typecheck` and `npm test` pass (227 files, 2721 tests).
+- Not run: before/after UI captures (user ruling 2026-11-18: ship to main and install; the user opens a new card if the look needs changes). No tooltip: the plugin API has no tooltip primitive, so the full text is the accessibility label.
+- No tour page, tip, What's new entry (visible where the user already looks) or telemetry field.
+
 ## Step-through bar always has an X (branch `kanban/unread-step-through-1-of-1-give-a-way-ou-4d0ebf`) — 2026-11-17
 
 - Defect: with one card in a walk ("Unread · 1 of 1", typically after opening the only unread card) the bar showed two disabled arrows and no way out; Done appears only once the card leaves the queue, and the visited card stays in the unread walk (`walkQueue`), so it never did.

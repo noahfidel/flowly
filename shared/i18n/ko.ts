@@ -1711,5 +1711,18 @@ const catalog: Catalog = {
   "Dropped a queued dispatcher message": "대기 중인 디스패처 메시지를 버림",
   "Forward": "앞으로",
   "Back / forward (Alt+← / Alt+→ on Windows and Linux)": "뒤로 / 앞으로 (Windows와 Linux에서는 Alt+← / Alt+→)",
+  "{number} · Draft": "{number} · 초안",
+  "{number} · Open": "{number} · 열림",
+  "{number} · Merged": "{number} · 병합됨",
+  "{number} · Closed": "{number} · 닫힘",
+  "Waiting": "대기 중",
+  "Session {n}": "세션 {n}",
+  "Quick links": "빠른 링크",
+  "+{n} more": "+{n}개 더",
+  "Show {n} more sessions": "세션 {n}개 더 보기",
+  "Show {n} more outputs": "산출물 {n}개 더 보기",
+  "Open pull request {label}: {title}": "풀 리퀘스트 {label} 열기: {title}",
+  "Open session {label}": "세션 {label} 열기",
+  "Open output {title}": "산출물 {title} 열기",
 };
 export default catalog;

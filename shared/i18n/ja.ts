@@ -1711,5 +1711,18 @@ const catalog: Catalog = {
   "Dropped a queued dispatcher message": "保留中のディスパッチャーのメッセージを破棄しました",
   "Forward": "進む",
   "Back / forward (Alt+← / Alt+→ on Windows and Linux)": "戻る / 進む (WindowsとLinuxではAlt+← / Alt+→)",
+  "{number} · Draft": "{number} · ドラフト",
+  "{number} · Open": "{number} · オープン",
+  "{number} · Merged": "{number} · マージ済み",
+  "{number} · Closed": "{number} · クローズ",
+  "Waiting": "待機中",
+  "Session {n}": "セッション {n}",
+  "Quick links": "クイックリンク",
+  "+{n} more": "+{n} 件",
+  "Show {n} more sessions": "セッションをさらに {n} 件表示",
+  "Show {n} more outputs": "成果物をさらに {n} 件表示",
+  "Open pull request {label}: {title}": "プルリクエスト {label} を開く: {title}",
+  "Open session {label}": "セッション {label} を開く",
+  "Open output {title}": "成果物 {title} を開く",
 };
 export default catalog;
