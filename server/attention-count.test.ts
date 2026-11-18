@@ -2,7 +2,7 @@ import { expect, test, vi } from "vitest";
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import { boardSchema, type Board } from "../shared/model";
 import { readAttentionCount } from "./attention-count";
-import { attentionFromSources } from "../shared/attention";
+import { attentionFromSources, openAskCount } from "../shared/attention";
 import { readAttentionCount as contract } from "../shared/rpc";
 import { SUMMARIZER_LABELS } from "../shared/summary";
 
@@ -117,4 +117,42 @@ test("the badge adds each pending request of every group's dispatcher, from the 
   // A board without groups (or a dispatcher of a deleted group) adds nothing.
   f.store.read.mockResolvedValue(board());
   expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 1 });
+});
+
+// Paseo's own respondToPermission / onStreamPermissionResolved drops the request from `pendingPermissions` and sets no
+// sticky "permission" attention; the session resumes and ends idle with a "finished" flag. Flowly reads only the live snapshot.
+test("an AskUserQuestion dismissed in the Paseo session leaves Needs you and the badge without a new board read", async () => {
+  const asking = agent("a", {
+    status: "running",
+    pendingPermissions: [{
+      id: "permission-1", provider: "claude", name: "AskUserQuestion", kind: "question",
+      input: { questions: [{ question: "Pick a color", header: "Color", options: [{ label: "Red" }, { label: "Blue" }], multiSelect: false }] },
+    }],
+  });
+  const f = fixture(board(), [asking]);
+  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 1 });
+  const before = attentionFromSources({ board: board(), agents: [asking], receipts: [], readUnavailable: false })!;
+  expect(before).toHaveLength(1);
+  expect(before[0].task.id).toBe("a");
+  expect(before[0].asks).toBe(1);
+  expect(before[0].parts.some((p) => p.kind === "ask_user")).toBe(true);
+  expect(openAskCount(before)).toBe(1);
+
+  // Intermediate: the request is gone and the session runs again, no attention flags.
+  const resumed = agent("a", { status: "running", pendingPermissions: [] });
+  f.list.mockResolvedValue({ entries: [{ agent: resumed }], pageInfo: {} } as never);
+  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 0 });
+
+  // Dismissed in the session: the same board (no events, no dismissal record), the turn ends idle and finished.
+  const dismissed = agent("a", { status: "idle", pendingPermissions: [], ...finished });
+  f.list.mockResolvedValue({ entries: [{ agent: dismissed }], pageInfo: {} } as never);
+  expect(await readAttentionCount(f.store, f.reads, f.paseo)).toEqual({ count: 0 });
+  const after = attentionFromSources({ board: board(), agents: [dismissed], receipts: [], readUnavailable: false })!;
+  const item = after.find((i) => i.task.id === "a");
+  if (item) {
+    expect([item.asks, item.questions, item.permissions]).toEqual([0, 0, 0]);
+    expect(item.parts.some((p) => p.kind === "ask_user" || p.kind === "permission")).toBe(false);
+  }
+  expect(openAskCount(after)).toBe(0);
+  expect(f.store.read).toHaveBeenCalledTimes(3);
 });
