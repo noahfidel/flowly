@@ -125,6 +125,8 @@
 
 2026-10-15 F4 desktop shortcuts: the plugin SDK has no shortcut registration ability and cannot use a global DOM listener, so two paths are used: in-board shortcuts (`onKeyDown` of the RN-Web `View`, effective when focus is in the board) and a global Command Center entry. [incremental spec](SHORTCUTS-SPEC.md) and [verification](verification/shortcuts.md).
 
+2026-11-18 Double tap of Ctrl (web only, on by default, switch in Settings → General → Keyboard): two quick taps of Ctrl anywhere in Paseo open the Flowly board, through one capture-phase window listener that never swallows an event; an AGENTS.md exception to the no-global-listener rule above. [spec §5](SHORTCUTS-SPEC.md).
+
 2026-10-14 v2 roadmap (planning draft, not implemented): benchmarking Multica's human-machine collaboration workflow — the agent switches stages itself, reminds on the card and enters Review when a person is needed, and wraps up automatically once a person confirms. [ROADMAP-V2](ROADMAP-V2.md).
 
 2026-10-14 Phone card Status copy truncation: the compact layout changes to a full status button and an on-demand status popover, keeping CAS/Toast; the wide layout enlarges the available width of the native selector. [incremental spec](DRAWER-SPEC.md) and [code acceptance](verification/status-label.md).

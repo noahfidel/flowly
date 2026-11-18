@@ -1,5 +1,14 @@
 # Implementation progress
 
+## Double tap of Ctrl opens the board (branch `kanban/double-tap-ctrl-opens-the-flowly-board-i-0ffd52`) — 2026-11-18
+
+- Feature (user-requested): on the web, two quick taps of Ctrl anywhere in Paseo open the Flowly board. On by default; switch *Double-tap Ctrl to open Flowly* in Settings → General → Keyboard (host setting `shortcuts.doubleTapCtrl`). Contract: SHORTCUTS-SPEC §5; AGENTS.md exception for the window listener.
+- Client: pure detector `client/double-tap.ts` (`DOUBLE_TAP_MS` 300); `client/double-tap-install.ts` (capture-phase window listeners, one per window across hosts via `__flowlyDoubleTapCtrl`, never prevents or stops an event, setting read ~3 s after load or on first use); `index.client.tsx` installs it and names the gesture in the View board Command Center title while it is on; help row in the board's Keyboard shortcuts popover; one-time tip `double-tap-ctrl`. Server only registers the setting.
+- Tests: `client/double-tap.test.ts` written and committed failing first (module missing), then 17 passing; `client/command-items.test.ts`, `client/shortcuts.test.ts` (key-collision check now dedupes keys within a row, so `Ctrl`, `Ctrl` is one row's key), `client/onboarding-logic.test.ts` extended.
+- Checks (4152035, Node 26; Node 20 lacks `node:sqlite`): `npm run typecheck` exit 0; `npm test` 227 files passed, 1 skipped; 2731 tests passed, 7 skipped; exit 1 only from an unhandled `EPIPE` in `server/workspace-git.ts` while `server/workspace-switch.test.ts` ran (all its tests pass; it passed cleanly on two reruns, unrelated to this change).
+- UNRUN: live app check (double tap in the desktop app from the board, the host sidebar, a message box and a terminal; the switch; the Workspace Switcher's Ctrl+Tab hold not opening the board).
+- Onboarding: a one-time tip (new id, so existing users see it once); no tour change and no What's new entry (no release). Telemetry: no heartbeat field (telemetry is off in this fork).
+
 ## Reconcile Auto review and Ship to main with the user's harness (branch `kanban/reconcile-flowly-auto-review-ship-to-mai-c63d13`) — 2026-11-18
 
 - Ten decisions put to the user; rulings in DELIVERY-MODE-SPEC §7 and AUTO-REVIEW-SPEC D18. Flowly changes only where the user chose Flowly; the rest are proposed rule texts in the card's delivery note (the user's own files).
