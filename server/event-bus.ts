@@ -1,6 +1,7 @@
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
 import { mergeNotes, type DispatcherNote } from "../shared/dispatcher";
 import type { Board, BoardEvent, Status } from "../shared/model";
+import { contractNews } from "../shared/dispatcher-relay";
 import { logFailure } from "./error-report";
 
 /** Event bus and dispatcher note batching (EVENT-BUS-SPEC). */
@@ -83,7 +84,7 @@ export function isStop(fact: BusFact): boolean {
   const { event } = fact;
   if (event.actor === "human") return false;
   if (event.action === "status_changed" && event.rule === "A1r") return false;
-  return isStopEvent(event);
+  return isStopEvent(event) || contractNews(event) !== null;
 }
 
 /** Whether a board event is a stop: a delivery or block, a question, blocker or result, or a failed turn. */
@@ -104,12 +105,14 @@ function noteOf(fact: Extract<BusFact, { kind: "board" }>): DispatcherNote {
         : event.action;
   const move = event.action === "status_changed" && event.to ? `${event.from ?? ""} → ${event.to}`.trim() : "";
   const detail = [move, event.note].filter(Boolean).join(": ");
+  const news = contractNews(event);
   return {
     taskId: event.taskId,
     projectId: fact.projectId,
     title: fact.title ?? event.taskId,
     kind,
     detail,
+    ...(news !== null ? { contract: { eventId: event.id, text: news } } : {}),
     at: event.at,
   };
 }

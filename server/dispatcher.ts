@@ -29,10 +29,12 @@ import {
 } from "../shared/dispatcher";
 import { exportMarkdown } from "../shared/board-export";
 import { dispatcherTarget } from "../shared/groups";
-import type { Board, Group, GroupRemoval } from "../shared/model";
+import type { Board, Group, GroupRemoval, Task } from "../shared/model";
 import { effectiveDispatcherModel, type AgentModel } from "../shared/agent-defaults";
 import type { OutgoingImage } from "../shared/composer";
 import { createDirectoryWorkspace } from "./background-workspace";
+import { contractRelayTargets, relayCharterVersion, relayEchoMs, relayLine, relayedIdLimit } from "../shared/dispatcher-relay";
+import { isSummarizer } from "../shared/summary";
 import { liveAgents } from "./card-chats";
 import { logFailure } from "./error-report";
 import { EventBus, NoteBatcher, isStop, type BusFact } from "./event-bus";
@@ -289,7 +291,7 @@ export type DispatcherDeps = {
   /** The first message: the group's projects with their ids, open cards and ideas (§6). */
   summary: (groupId: string) => Promise<string>;
   /** The board: its groups (each dispatcher's group, the v1 migration, the group delete's checks). */
-  board: () => Promise<Pick<Board, "groups" | "projects" | "tasks">>;
+  board: () => Promise<Pick<Board, "groups" | "projects" | "tasks" | "links">>;
   now?: () => number;
 };
 
@@ -364,13 +366,20 @@ export function dispatcherSummary(board: Board, groupId: string): string {
 const batchRulesBelow = 1;
 
 /** One message for a batch of notes (§7); `charter` is the version of the dispatcher it goes to. */
-export function noteMessage(notes: readonly DispatcherNote[], charter: number): string {
+export function noteMessage(
+  notes: readonly DispatcherNote[],
+  charter: number,
+  /** The cards to relay each note's contract news to, by the note's card (§5.8); used from charter 7. */
+  relays?: ReadonlyMap<string, readonly Pick<Task, "title" | "id">[]>,
+): string {
   const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
   return [
     `${noteMessagePrefix}${notes.length} ${notes.length === 1 ? "card" : "cards"}):`,
-    ...notes.map((n) => {
+    ...notes.flatMap((n) => {
       const detail = [n.detail, n.later ? `then ${n.later}` : ""].filter(Boolean).map(oneLine).join("; ");
-      return `- "${oneLine(n.title)}" [${n.taskId}] in project ${n.projectId}: ${n.kind}${detail ? ` — ${detail}` : ""}${n.earlier ? ` (+${n.earlier} earlier)` : ""}`;
+      const line = `- "${oneLine(n.title)}" [${n.taskId}] in project ${n.projectId}: ${n.kind}${detail ? ` — ${detail}` : ""}${n.earlier ? ` (+${n.earlier} earlier)` : ""}`;
+      const targets = charter >= relayCharterVersion ? relays?.get(n.taskId) : undefined;
+      return targets?.length ? [line, relayLine(targets)] : [line];
     }),
     ...(charter < batchRulesBelow ? [startRule, noteReplyRule] : []),
   ].join("\n");
@@ -381,6 +390,8 @@ type GroupHub = {
   /** The group's stored entry (after the v1 migration); undefined when it has none. */
   entry(groupId: string): Promise<DispatcherEntry | undefined>;
   now(): number;
+  /** The board, read once per batch that has contract news to relay (§5.7). */
+  board(): Promise<Pick<Board, "links" | "tasks">>;
   /** The batch the group's session received (the chat's note rows, §9.1). */
   sent(groupId: string, agentId: string, notes: readonly DispatcherNote[], at: string): void;
 };
@@ -403,6 +414,9 @@ class GroupDispatcher {
   /** The session id a start has stored but Paseo may not have created yet: notes for it are held, not dropped. */
   starting: string | null = null;
   private deliveries: Promise<unknown> = Promise.resolve();
+  /** Contract news already relayed (event ids, oldest first) and who was relayed to, for the loop guards (§5.7). */
+  private readonly relayed = new Set<string>();
+  private recentRelays: { from: string; to: string; at: number }[] = [];
   disposed = false;
   constructor(
     readonly groupId: string,
@@ -510,17 +524,56 @@ class GroupDispatcher {
     this.held.clear();
     this.stopChase();
     let sentAt: number;
+    const charter = charterVersion(entry ?? {});
+    const relays = await this.relayTargets(paseo, notes, charter);
     try {
-      await paseo.agents.ref(agentId).send(noteMessage(notes, charterVersion(entry ?? {})));
+      await paseo.agents.ref(agentId).send(noteMessage(notes, charter, relays));
       sentAt = this.lastSent = this.hub.now();
     } catch (e) {
       logFailure("Flowly dispatcher notes not sent:", e, `${notes.length} notes`);
       return;
     }
+    this.recordRelays(notes, relays, sentAt);
     try {
       this.hub.sent(this.groupId, agentId, notes, new Date(sentAt).toISOString());
     } catch (e) {
       logFailure("Flowly dispatcher chat notes not recorded:", e, `${notes.length} notes`);
+    }
+  }
+
+  /** The live related cards to relay each note's contract news to; empty when none, unread, or already relayed (§5.7). */
+  private async relayTargets(paseo: PaseoApi, notes: readonly DispatcherNote[], charter: number) {
+    const relays = new Map<string, Pick<Task, "title" | "id">[]>();
+    const fresh = notes.filter((n) => n.contract && !this.relayed.has(n.contract.eventId));
+    if (!fresh.length || charter < relayCharterVersion) return relays;
+    try {
+      const board = await this.hub.board();
+      const liveWorkspaceIds = new Set<string>();
+      for (const agent of await liveAgents(paseo)) if (!agent.archivedAt && !isSummarizer(agent) && agent.workspaceId) liveWorkspaceIds.add(agent.workspaceId);
+      const now = this.hub.now();
+      for (const n of fresh) {
+        const targets = contractRelayTargets({ board, sourceTaskId: n.taskId, liveWorkspaceIds, recent: this.recentRelays, now });
+        if (targets.length) relays.set(n.taskId, targets);
+      }
+    } catch (e) {
+      logFailure("Flowly dispatcher contract relay targets unreadable:", e, `${fresh.length} notes`);
+      relays.clear();
+    }
+    return relays;
+  }
+
+  /** Remembers what a sent batch relayed: the event ids (bounded) and who was relayed to, for the echo guard (§5.7). */
+  private recordRelays(notes: readonly DispatcherNote[], relays: ReadonlyMap<string, readonly Pick<Task, "id">[]>, sentAt: number) {
+    this.recentRelays = this.recentRelays.filter((r) => r.at >= sentAt - relayEchoMs);
+    for (const n of notes) {
+      const targets = relays.get(n.taskId);
+      if (!n.contract || !targets?.length) continue;
+      this.relayed.add(n.contract.eventId);
+      for (const target of targets) this.recentRelays.push({ from: n.taskId, to: target.id, at: sentAt });
+    }
+    for (const id of this.relayed) {
+      if (this.relayed.size <= relayedIdLimit) break;
+      this.relayed.delete(id);
     }
   }
 
@@ -1128,6 +1181,7 @@ export class Dispatcher {
       group = new GroupDispatcher(groupId, {
         entry: async (id) => (await this.resolvedRecord()).groups[id],
         now: () => this.now(),
+        board: () => this.deps.board(),
         sent: (id, agentId, notes, at) => this.onSent?.(notes, at, { groupId: id, agentId }),
       });
       if (this.disposed) group.disposed = true;

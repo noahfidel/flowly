@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
 import { BoardStore } from "./store";
 import { EventBus, NoteBatcher, commitHandler, factsFromCommit, isStop, type BusFact } from "./event-bus";
-import type { DispatcherNote } from "../shared/dispatcher";
+import { mergeNotes, type DispatcherNote } from "../shared/dispatcher";
 import { emptyBoard, type Board, type BoardEvent } from "../shared/model";
 
 const now = "2026-11-08T10:00:00.000Z";
@@ -353,5 +353,38 @@ describe("note batching", () => {
     expect(flushed[0][0].detail).toBe("→ cancelled");
     expect(error).toHaveBeenCalled();
     error.mockRestore();
+  });
+});
+
+describe("contract news (DISPATCHER-SPEC §5.8)", () => {
+  const noteFor = (f: BusFact) => {
+    const out: DispatcherNote[] = [];
+    const b = new NoteBatcher({ windowMs: 10_000, maxWaitMs: 60_000, exclude: () => null }, (n) => out.push(...n));
+    b.push([f]);
+    return b.takeProject((f as { projectId: string }).projectId)[0];
+  };
+
+  test("a marked progress report is a stop and its note carries the contract", () => {
+    const f = fact({ action: "progress_reported", reportKind: "progress", note: "[contract] shape is {a}" });
+    expect(isStop(f)).toBe(true);
+    expect(noteFor(f)).toMatchObject({ contract: { eventId: (f as { event: BoardEvent }).event.id, text: "shape is {a}" } });
+    expect(isStop(fact({ action: "progress_reported", reportKind: "progress", note: "plain" }))).toBe(false);
+    expect(isStop(fact({ actor: "human", action: "progress_reported", reportKind: "progress", note: "[contract] x" }))).toBe(false);
+  });
+
+  test("a marked question or blocker has no contract, and a permission fact is a stop without one", () => {
+    for (const reportKind of ["question", "blocker"] as const)
+      expect(noteFor(fact({ action: "progress_reported", reportKind, note: "[contract] x" }))).not.toHaveProperty("contract");
+    expect(isStop({ kind: "permission", agentId: "a", taskId: null, request })).toBe(true);
+  });
+
+  test("mergeNotes keeps an older contract over a later status change", () => {
+    const base = { taskId: "t1", projectId: "p1", title: "T", kind: "progress_reported", detail: "", at: now };
+    const marked: DispatcherNote = { ...base, contract: { eventId: "e1", text: "x" } };
+    const later: DispatcherNote = { ...base, kind: "status_changed", detail: "development → in_review" };
+    expect(mergeNotes(marked, later).contract).toEqual({ eventId: "e1", text: "x" });
+    const q: DispatcherNote = { ...base, kind: "question", contract: undefined };
+    expect(mergeNotes({ ...q, contract: { eventId: "e0", text: "y" } }, { ...later }).contract).toEqual({ eventId: "e0", text: "y" });
+    expect(mergeNotes(marked, { ...later, contract: { eventId: "e2", text: "z" } }).contract).toEqual({ eventId: "e2", text: "z" });
   });
 });

@@ -1219,6 +1219,70 @@ test("Replace also takes a guarded dispatcher with every tool whose charter is o
   await expect(x.dispatcher.replace(x.paseo, { agentId })).rejects.toMatchObject({ code: "DISPATCHER_GUARDED" });
 });
 
+test("the charter has the relay line for contract news (DISPATCHER-SPEC §5.8, §6)", () => {
+  expect(dispatcherCharterVersion).toBe(7);
+  const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("Relay contract news with flowly_message_card to:"))!;
+  expect(line).toBeDefined();
+  for (const part of ["for each card listed there, and only those", "information only", "needs no reply", "[contract]", "never message a card that is not listed", "never send the same relay twice", "queued: true", "MESSAGE_LIMIT", "Cards never message each other"])
+    expect(line.toLowerCase()).toContain(part.toLowerCase());
+});
+
+const relayBoard = (x: Awaited<ReturnType<typeof charterDispatcher>>) => {
+  const b = x.state.board;
+  for (const id of ["src", "live", "done", "idle"]) b.tasks.push({ ...boardTask(id, "p", id === "done" ? "done" : "development"), title: `Card ${id}` });
+  b.links.push(
+    ...["live", "done", "idle", "src"].map((to, i) => ({ id: `l${i}`, projectId: "p", kind: "related", from: "src", to: to === "src" ? "src" : to, createdAt: T }) as Board["links"][number]),
+  );
+  for (const id of ["src", "live", "done"]) x.agents.set(`a-${id}`, { id: `a-${id}`, workspaceId: `w-${id}`, status: "idle", archivedAt: null });
+};
+const marked = (taskId: string, eventId: string, kind = "progress_reported"): DispatcherNote => ({ ...note(taskId, "shape changed"), kind, contract: { eventId, text: "shape changed" } });
+
+test("a marked result is relayed to the live related card only, once (DISPATCHER-SPEC §5.8)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-18T10:00:00.000Z") });
+  const x = await charterDispatcher(dispatcherCharterVersion);
+  relayBoard(x);
+  await x.dispatcher.deliver([marked("src", "e1")], x.paseo);
+  expect(x.sends).toHaveLength(1);
+  const lines = x.sends[0].text.split("\n");
+  expect(lines[2]).toBe('  Relay contract news with flowly_message_card to: "Card live" [live]');
+  expect(lines).toHaveLength(3);
+  // The same contract again (same eventId): no relay line.
+  vi.advanceTimersByTime(60_000);
+  await x.dispatcher.deliver([marked("src", "e1")], x.paseo);
+  expect(x.sends).toHaveLength(2);
+  expect(x.sends[1].text).not.toContain("Relay contract news");
+  // A new eventId is relayed again, but the echo guard keeps the source out of a relay from the target.
+  vi.advanceTimersByTime(60_000);
+  await x.dispatcher.deliver([marked("live", "e2")], x.paseo);
+  expect(x.sends[2].text).not.toContain("Relay contract news");
+  x.dispatcher.dispose();
+});
+
+test("a note without contract news and a charter 6 dispatcher get no relay line (§5.8)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-18T10:00:00.000Z") });
+  const x = await charterDispatcher(dispatcherCharterVersion);
+  relayBoard(x);
+  await x.dispatcher.deliver([note("src", "a question")], x.paseo);
+  expect(x.sends[0].text).not.toContain("Relay contract news");
+  x.dispatcher.dispose();
+  const y = await charterDispatcher(6);
+  relayBoard(y);
+  await y.dispatcher.deliver([marked("src", "e9")], y.paseo);
+  expect(y.sends[0].text).not.toContain("Relay contract news");
+  y.dispatcher.dispose();
+});
+
+test("an unreadable agent list sends the batch without relay lines (§5.8)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-18T10:00:00.000Z") });
+  const x = await charterDispatcher(dispatcherCharterVersion);
+  relayBoard(x);
+  const down = { ...x.paseo, agents: { ...x.paseo.agents, list: async () => { throw new Error("list down"); } } } as unknown as PaseoApi;
+  await x.dispatcher.deliver([marked("src", "e1")], down);
+  expect(x.sends).toHaveLength(1);
+  expect(x.sends[0].text).not.toContain("Relay contract news");
+  x.dispatcher.dispose();
+});
+
 test("note batches carry the start and reply rules only for a dispatcher at charter version 0 (§7)", () => {
   const notes = [note("t1")];
   const lines = noteMessage(notes, 0).split("\n");
@@ -1618,7 +1682,7 @@ test("the charter says how a follow-up is created and where it branches from, an
   expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(4);
 });
 
-test("the charter asks the user with AskUserQuestion or a confirmed tool, never a question in text, and is versioned 5 (ruling, Noah 2026-11-18)", () => {
+test("the charter asks the user with AskUserQuestion or a confirmed tool, never a question in text, and is versioned 5 or later (ruling, Noah 2026-11-18)", () => {
   const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("AskUserQuestion"))!;
   expect(line).toBeDefined();
   // A real ask with buttons, not a text question the user can miss.
@@ -1657,7 +1721,7 @@ test("the charter says flowly_add_artifact attaches references only, preapproved
   expect(dispatcherConfirmedToolNames).not.toContain("flowly_add_artifact" as never);
   // No removal tool for now (§5.7).
   expect(dispatcherToolNames).not.toContain("flowly_remove_artifact" as never);
-  expect(dispatcherCharterVersion).toBe(6);
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(6);
   expect(dispatcherGuardVersion).toBe(2);
 });
 
