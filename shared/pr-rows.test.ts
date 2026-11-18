@@ -119,3 +119,12 @@ test("the overview's prs count per card matches the rows rule", () => {
   const rows = boardPrs(board, ["p"]);
   for (const t of tasks) expect(counts[t.id]).toBe(rows.filter((r) => r.taskId === t.id).length);
 });
+
+test("a malformed card (no operationId, no description) never breaks the overview; it just counts no PRs", () => {
+  const broken = { ...task("b"), operationId: undefined, description: undefined } as unknown as Task;
+  expect(cardPrs(broken, [])).toEqual([]);
+  const project = { id: "p", title: "Project", description: "", paseoProjectId: "n", primaryPath: "/fixture", repos: ["/fixture"], revision: 1, createdAt: at(0), updatedAt: at(0), archivedAt: null };
+  const board = boardSchema.parse({ version: 5, revision: 1, events: [], projects: [project], tasks: [task("a")], artifacts: [artifact("a", "https://github.com/o/r/pull/1")] });
+  const view = boardOverview({ ...board, tasks: [...board.tasks, broken] });
+  expect(view.cards.map((c) => [c.taskId, c.prs])).toEqual([["a", 1], ["b", 0]]);
+});

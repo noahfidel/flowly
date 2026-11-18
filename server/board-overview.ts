@@ -58,11 +58,20 @@ export function boardOverview(board: Board): BoardOverview {
       hasExternal: artifacts.some(a => !!a.external),
       hasWorkpad: !!workpad,
       hasNextMoves: hasOpenNextMoves(own),
-      prs: prMenuCard(task) ? cardPrs(task, artifacts).length : 0,
+      prs: prCountOf(task, artifacts),
       sessions,
     };
   });
   return { version: 1, revision: board.revision, groups: [...board.groups].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt)), projects: board.projects, tasks: board.tasks, links: board.links, attentionDismissals: board.attentionDismissals, cards, projectIdeas: projectIdeaFacts(board) };
+}
+
+/** The card's PRs for the board's pull requests menu (PR-MENU-SPEC §3.1); a malformed card counts none instead of breaking the overview. */
+function prCountOf(task: Board["tasks"][number], artifacts: Board["artifacts"]) {
+  try {
+    return prMenuCard(task) ? cardPrs(task, artifacts).length : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /** Open project-level ideas per project (PROJECT-IDEAS-SPEC §5); a project with none still has an entry. */

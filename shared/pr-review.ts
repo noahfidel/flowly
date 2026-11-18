@@ -10,7 +10,8 @@ const operationPrefix = "pr-review:";
 export const prReviewOperationId = (agentId: string) => `${operationPrefix}${agentId}`;
 
 /** Whether the card was made from a PR review agent; its operation id never changes (§5). */
-export const isPrReviewCard = (task: Pick<Task, "operationId">) => task.operationId.startsWith(operationPrefix);
+// Tolerates a card without an operation id (hand-made or older data): it is simply not a PR review card.
+export const isPrReviewCard = (task: Pick<Task, "operationId">) => typeof task.operationId === "string" && task.operationId.startsWith(operationPrefix);
 
 export type PrRef = { text: string; owner: string; repo: string; number: number } | { text: string; owner?: undefined };
 
@@ -31,7 +32,7 @@ const pullUrl = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/p
 
 /** The first `PR:` line of a description that names a pull request: its key and the URL it carries, if any. */
 function descriptionPr(description: string): { key: string; url: string | null } | null {
-  for (const line of description.split(/\r?\n/)) {
+  for (const line of (description ?? "").split(/\r?\n/)) {
     const m = prLine.exec(line.trimEnd());
     const ref = m ? parsePrReviewLabel(m[1] ?? m[3]) : null;
     const key = ref ? prKey(ref) : null;
