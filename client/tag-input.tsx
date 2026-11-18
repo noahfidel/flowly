@@ -6,6 +6,7 @@ import { normalizeTag, splitTagInput } from "../shared/tags";
 import { tagLimits } from "../shared/model";
 import { AiMark, Label, TextBox, font, noFocusRing, radius, space, tint, touch, useTheme } from "./ui";
 import { useShortcutBlock } from "./shortcuts";
+import { createBlurCloser } from "./tag-input-logic";
 
 type Hoverable = { hovered?: boolean; focused?: boolean; pressed?: boolean };
 /** Chip height; read at render (no module-load work on `./ui`). */
@@ -130,18 +131,20 @@ export const TagEditor = memo(function TagEditor({
     [error, setError] = useState(""),
     [focused, setFocused] = useState(false);
   useShortcutBlock(focused);
-  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
-  useEffect(() => () => {
-    if (blurTimer.current) clearTimeout(blurTimer.current);
-  }, []);
+  const closeRef = useRef(() => undefined as void);
+  // Let a suggestion tap land first; keep typed text instead of losing it. A blur after close does nothing.
+  const [blurCloser] = useState(() => createBlurCloser(() => closeRef.current(), 200, startOpen));
+  useEffect(() => () => blurCloser.closed(), []);
   const full = tags.length >= tagLimits.perTask;
   const close = () => {
+    blurCloser.closed();
     setOpen(false);
     setDraft("");
     setError("");
   };
+  closeRef.current = close;
   const add = (text: string) => {
     const parts = splitTagInput(text);
     if (!parts.length) return;
@@ -191,7 +194,10 @@ export const TagEditor = memo(function TagEditor({
             accessibilityRole="button"
             accessibilityLabel={t("Add a tag")}
             disabled={inert}
-            onPress={() => setOpen(true)}
+            onPress={() => {
+              blurCloser.opened();
+              setOpen(true);
+            }}
             style={(state) => ({
               ...noFocusRing,
               flexDirection: "row",
@@ -241,16 +247,12 @@ export const TagEditor = memo(function TagEditor({
                 }
               : {})}
             onFocus={() => {
-              if (blurTimer.current) clearTimeout(blurTimer.current);
+              blurCloser.cancel();
               setFocused(true);
             }}
             onBlur={() => {
               setFocused(false);
-              // Let a suggestion tap land first; keep typed text instead of losing it.
-              if (blurTimer.current) clearTimeout(blurTimer.current);
-              blurTimer.current = setTimeout(() => {
-                if (!draftRef.current.trim()) close();
-              }, 200);
+              blurCloser.blurred(() => !draftRef.current.trim());
             }}
             style={{
               // Android pads single-line inputs vertically by default, which clips text in a short box.
@@ -289,7 +291,7 @@ export const TagEditor = memo(function TagEditor({
               accessibilityRole="button"
               accessibilityLabel={t("Add tag {tag}", { tag: s })}
               onPress={() => {
-                if (blurTimer.current) clearTimeout(blurTimer.current);
+                blurCloser.cancel();
                 add(s);
               }}
               style={(state) => ({

@@ -96,3 +96,21 @@ test("a handled shortcut hands focus back to the board root, except D which focu
     expect(shortcutRefocusesBoard(action)).toBe(true);
   expect(shortcutRefocusesBoard("dispatcher")).toBe(false);
 });
+
+// Wiring (source level, like focus-ring.test.ts): the hooks above only help where they are called.
+test("TextBox, the composer box and the board key handler use the focus fixes", async () => {
+  const { readFileSync } = await vi.importActual<typeof import("node:fs")>("node:fs");
+  const { join } = await vi.importActual<typeof import("node:path")>("node:path");
+  const read = (file: string) => readFileSync(join(__dirname, file), "utf8");
+  const body = (source: string, start: string) => {
+    const from = source.indexOf(start);
+    expect(from).toBeGreaterThanOrEqual(0);
+    const next = source.indexOf("\nexport function ", from + start.length);
+    return source.slice(from, next === -1 ? undefined : next);
+  };
+  expect(body(read("ui.tsx"), "export function TextBox(")).toMatch(/useBlurOnUnmount\(focused, onBlur/);
+  expect(body(read("session-composer.tsx"), "export function ComposerBox(")).toMatch(/useBlurOnUnmount\(focused, \(\) => \{\s*c\.setFocused\(false\)/);
+  const board = read("board.tsx");
+  const handler = board.slice(board.indexOf("const onKeyDown = (e: WebKeyEvent)"), board.indexOf("const keyboardProps ="));
+  expect(handler).toMatch(/if \(shortcutRefocusesBoard\(action\)\) \(rootRef\.current[^\n]*\.focus\?\.\(\)/);
+});
