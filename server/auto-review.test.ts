@@ -218,6 +218,9 @@ test("a pass on a Ship to main card sends the ship message; any other mode sends
   expect(shipped.tasks[0]).toMatchObject({ status: "in_review", review: { state: "passed" } });
   expect(ship.sent).toEqual([{ agentId: "actor", text: shipMessage }]);
   expect(shipMessage.startsWith("[Flowly auto review")).toBe(true);
+  // Ruling 2026-11-18 (decision 4): the push goes through the user's prompt; a conflict needing a decision is asked.
+  expect(shipMessage).toContain("The push goes through the user's permission prompt");
+  expect(shipMessage).toContain("ask the user with your question tool");
   const branch = await setup({ deliveryMode: "branch" });
   await branch.deliver("development");
   expect(branch.sent).toEqual([]);

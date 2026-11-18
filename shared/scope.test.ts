@@ -54,3 +54,22 @@ test("an unknown stored mode is treated as the default", () => {
   expect(text).toContain(deliveryLine("draft_pr"));
   expect(text).not.toContain("from_the_future");
 });
+
+test("Ship to main: with Auto review on the session waits for the ship message; with it off the session ships after its own checks and review (DELIVERY-MODE-SPEC §4, ruling 2026-11-18)", () => {
+  const paths = [{ repo: "/r", directory: "/r" }];
+  const shipCard = { ...task, deliveryMode: "ship_main" } as Task;
+  const lineFor = (p: Project) => sessionContext(shipCard, p, paths, "/r").split("\n").find((l) => l.startsWith("Delivery:"));
+  const on = lineFor({ ...project, autoReview: { enabled: true, maxRounds: 2 } } as Project);
+  const off = lineFor(project);
+  expect(on).toBe(deliveryLine("ship_main", { autoReview: true }));
+  expect(off).toBe(deliveryLine("ship_main", { autoReview: false }));
+  expect(on).toContain("ship message");
+  expect(off).not.toContain("ship message");
+  expect(off).toContain("in the same turn");
+  for (const line of [on, off]) {
+    expect(line).toContain("flowly_integrate");
+    expect(line).toContain("git push origin main");
+    expect(line).toContain("permission prompt");
+    expect(line).toContain("Never force-push");
+  }
+});

@@ -166,7 +166,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
   expect(skillText).toContain("never bypass the permission prompts for git push or gh pr create; the user answers them");
   expect(skillText).toContain("A session that starts work in a repo without a card attaches to one or creates one before changing files");
   expect(skillText).toContain('flowly_create_card with workspace="worktree"');
-  expect(skillText).toContain("one card = one branch or PR");
+  expect(skillText).toContain("A card is one branch and at most one PR");
   expect(skillText).toContain("flowly_propose_idea");
   // Review round 1: the delivery mode is the standing ask, and every mode has a valid next move and Done condition.
   expect(skillText).toContain("the card's deliveryMode is the user's standing ask to commit, or in draft_pr and ready_pr to commit, push and open the PR at delivery; anything beyond it only when the user asks");

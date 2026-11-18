@@ -13,3 +13,11 @@ test("the installed skill source contains the exact live checklist before detail
   expect(skillText).not.toMatch(/Start of every turn, step \d/);
   expect(await readFile(new URL("../skills/flowly/SKILL.md", import.meta.url), "utf8")).toBe(skillText);
 });
+
+test("the skill lets a related change join the card and names the project base, not the main checkout's branch (rulings 2026-11-18)", () => {
+  expect(skillText).toContain("A card is one branch and at most one PR: a related change that fits the same PR joins the card (widen its title and description to match; ask the user when unclear); only unrelated work becomes a separate card");
+  expect(skillText).not.toContain("Keep one card = one branch or PR; parallel deliverables are separate cards");
+  expect(skillText).not.toContain("a new worktree branched off the main checkout's current branch");
+  expect(skillText).toContain("a new worktree branched off the project's base branch");
+  expect(skillText).toContain("with Auto review off, ship in the same turn once your own checks pass and your review has no open findings");
+});

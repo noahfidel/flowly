@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Reconcile Auto review and Ship to main with the user's harness (branch `kanban/reconcile-flowly-auto-review-ship-to-mai-c63d13`) — 2026-11-18
+
+- Ten decisions put to the user; rulings in DELIVERY-MODE-SPEC §7 and AUTO-REVIEW-SPEC D18. Flowly changes only where the user chose Flowly; the rest are proposed rule texts in the card's delivery note (the user's own files).
+- `deliveryLine(mode, { autoReview })`: Ship to main says to wait for the ship message with Auto review on, and to ship in the same turn after the session's own checks and review with it off (`sessionContext` passes the project's switch). The ship message names the permission prompt and asks a conflict needing a decision through the question tool.
+- Skill text: a related change that fits the same PR joins the card; a new worktree branches off the project's base branch; Ship to main with Auto review off ships in the same turn.
+- Tests (failing first, 3 failed): `shared/scope.test.ts`, `server/auto-review.test.ts`, `server/skill-source.test.ts`.
+- No tip, tour or What's new entry (agent-facing text only); no telemetry field.
+
 ## Card home quick links: PRs, sessions and outputs at the top (branch `kanban/card-home-pr-links-and-sessions-one-clic-28a102`) — 2026-11-18
 
 - User request: PR links and sessions were reachable only by scrolling down to Sessions and Artifacts. A wrapped row of chips now ends the card heading (DRAWER-SPEC "Quick links"): one per PR output (`#n` / `!n` + Draft/Open/Merged/Closed from the cached connector status; opens the link), up to 3 main live sessions (waiting, running, error, done; title or "Session N"; opens the chat, waiting ones in the Needs-you colour), up to 3 other outputs (link or file preview), and "+N more" chips that open and scroll to Sessions or Artifacts with the search-hit ring. No chips, no row. Sections unchanged; the board card tile unchanged.

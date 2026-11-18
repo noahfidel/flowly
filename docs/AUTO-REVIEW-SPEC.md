@@ -474,6 +474,7 @@ The rework hint (§7.1) is at the top of the page; check suggestions and pause s
 | D15 | How existing users encounter it | A What's new 1.8.0 button, using past cards to produce the gate summary and preselected checks (2026-10-28) |
 | D16 | How AI recommends rules | One history analysis: the upgrade button, the settings button and the rework hint enter the same analysis; Insights' periodic run recommends incremental checks (2026-10-28) |
 | D17 | What the user reads once it is on | The drawer centers on the review result, Workpad collapsed by default (2026-10-28) |
+| D18 | Auto review alongside a user's own review harness | The user (Noah) turns Auto review off on their projects and keeps review in their harness; no Auto review code is removed. A Ship to main card with Auto review off is shipped by its session after its own checks and review (DELIVERY-MODE-SPEC §3, §4, ruling 2026-11-18). Rejected: removing Auto review from Flowly (diverges from upstream); running it only for Ship to main cards |
 
 ## 12. Phases
 

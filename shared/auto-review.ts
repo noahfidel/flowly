@@ -214,7 +214,7 @@ export const failureSummary = (review: Pick<Review, "items">) =>
  * the ship step. Agent-facing English; it carries the mark, so it never reads as the user's own words.
  */
 export const shipMessage =
-  "[Flowly auto review · passed] Auto review passed and this card's delivery mode is Ship to main. Ship it now: git fetch, rebase the card's branch onto the latest main, rerun the checks, call flowly_integrate, then git push origin main. Never force-push or push another branch. Stop and report, leaving the card In review, if the rebase conflicts, the checks fail after the rebase, flowly_integrate refuses, or a review finding is open. If the push is rejected, fetch and rebase once more at most, then set integrated and report the push failure.";
+  "[Flowly auto review · passed] Auto review passed and this card's delivery mode is Ship to main. Ship it now: git fetch, rebase the card's branch onto the latest main, rerun the checks, call flowly_integrate, then git push origin main. Never force-push or push another branch. The push goes through the user's permission prompt, which the user answers. If resolving a conflict needs a decision, ask the user with your question tool instead of only reporting a blocker. Stop and report, leaving the card In review, if the rebase conflicts, the checks fail after the rebase, flowly_integrate refuses, or a review finding is open. If the push is rejected, fetch and rebase once more at most, then set integrated and report the push failure.";
 
 /**
  * The marked rework message sent to the delivering session (GUARDRAILS-SPEC §6.5). `words`: the user's own words for

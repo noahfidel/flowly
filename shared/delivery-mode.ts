@@ -51,10 +51,14 @@ export function deliveryModeLocked(task: { status: string; deliveredAt?: string 
   return !!task.deliveredAt || inDeliveryLane(task.status);
 }
 
-const permission ="Pushing and opening the PR still go through the user's permission prompt, which the user answers.";
+const permission = "Pushing and opening the PR still go through the user's permission prompt, which the user answers.";
 
-/** The agent-facing line of a mode, English (§3). */
-export function deliveryLine(mode: DeliveryMode): string {
+/**
+ * The agent-facing line of a mode, English (§3). `autoReview`: whether the card's project has Auto review on; it only
+ * changes Ship to main, where the session either waits for Flowly's ship message (on) or ships in the same turn after
+ * its own checks and review (off, ruling 2026-11-18).
+ */
+export function deliveryLine(mode: DeliveryMode, opts: { autoReview?: boolean } = {}): string {
   switch (mode) {
     case "branch":
       return `Delivery: commit on the card's branch; do not push or open a PR. The user reviews ("blesses") the branch.`;
@@ -63,6 +67,6 @@ export function deliveryLine(mode: DeliveryMode): string {
     case "ready_pr":
       return `Delivery: push the card's branch and open a PR ready for review; register its URL as an output. ${permission} Never mark a PR ready while review notes are open.`;
     case "ship_main":
-      return `Delivery: ship to main only after the card's checks pass and its review has no open findings. Rebase the card's branch onto the latest main (fetch first), rerun the checks, call flowly_integrate, then git push origin main. Never force-push and never push any other branch. ${permission} Stop and report, leaving the card In review, when the rebase conflicts, checks fail after the rebase, flowly_integrate refuses, or a review finding is open; if the push is rejected, set integrated and report it. Do not update the installed plugin.`;
+      return `Delivery: ship to main only after the card's checks pass and its review has no open findings. ${opts.autoReview ? "Deliver to In review first; Auto review checks the card and, when it passes, Flowly sends a ship message that starts the ship step." : "Auto review is off for this project: run the card's checks and your own review, and once they pass with no open findings, ship in the same turn."} Rebase the card's branch onto the latest main (fetch first), rerun the checks, call flowly_integrate, then git push origin main. Never force-push and never push any other branch. ${permission} Stop and report, leaving the card In review, when the rebase conflicts, checks fail after the rebase, flowly_integrate refuses, or a review finding is open; if the push is rejected, set integrated and report it. Do not update the installed plugin.`;
   }
 }
