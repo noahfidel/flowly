@@ -33,6 +33,7 @@ import { ComposerService, ComposerStore } from "./server/composer";
 import { adoptIdea } from "./server/ideas";
 import { createLink, deleteLink } from "./server/links";
 import { ArtifactService } from "./server/artifacts";
+import { cardGallery, cardGalleryImage } from "./server/artifact-gallery";
 import { PlanModeWatcher, PlanService } from "./server/plans";
 import { WorkpadService } from "./server/workpad";
 import { ConnectorService, migrateTicketDirectory, refKey } from "./server/connectors/service";
@@ -942,6 +943,8 @@ export default function contribute(host: PluginServerContext) {
   });
   server.handle(rpc.reviewLedgerCheck, () => ledgers.check());
   server.handle(rpc.previewArtifact, (input, { paseo }) => artifacts.preview(input, paseo));
+  server.handle(rpc.artifactGallery, (input, { paseo }) => cardGallery(artifacts, input, paseo));
+  server.handle(rpc.artifactGalleryImage, (input, { paseo }) => cardGalleryImage(artifacts, input, paseo));
   server.handle(rpc.checkWorkpad, (input) => workpads.check(input));
   server.handle(rpc.deleteTask, async (input, { paseo }) => {
     const archived = input.archive

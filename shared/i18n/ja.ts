@@ -1756,5 +1756,8 @@ const catalog: Catalog = {
   "Could not load pull requests.": "プルリクエストを読み込めませんでした。",
   "No pull requests on this board": "このボードにプルリクエストはありません",
   "Open pull request": "プルリクエストを開く",
+  "Gallery": "ギャラリー",
+  "Previous image": "前の画像",
+  "Next image": "次の画像",
 };
 export default catalog;

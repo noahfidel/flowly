@@ -1756,5 +1756,8 @@ const catalog: Catalog = {
   "Could not load pull requests.": "Pull Requests konnten nicht geladen werden.",
   "No pull requests on this board": "Keine Pull Requests auf diesem Board",
   "Open pull request": "Pull Request öffnen",
+  "Gallery": "Galerie",
+  "Previous image": "Vorheriges Bild",
+  "Next image": "Nächstes Bild",
 };
 export default catalog;

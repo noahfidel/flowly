@@ -46,6 +46,7 @@ const sectionText: Record<AnyDrawerSection, string> = {
   progress: msg("Progress"),
   workpad: msg("Workpad"),
   artifacts: msg("Artifacts"),
+  gallery: msg("Gallery"),
   sessions: msg("Sessions"),
   ideas: msg("Ideas"),
   links: msg("Links"),

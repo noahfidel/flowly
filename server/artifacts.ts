@@ -92,12 +92,12 @@ export async function resolveExtraRoots(folders: readonly string[], home = homed
 }
 
 /** The card's roots as real paths: `roots` resolved now, `resolved` as they are (never resolved again). */
-async function realRoots(where: ArtifactRoots): Promise<string[]> {
+export async function realRoots(where: ArtifactRoots): Promise<string[]> {
   const card = await Promise.all(where.roots.map(real));
   return [...card.filter((r): r is string => !!r), ...(where.resolved ?? [])];
 }
 
-async function withinReal(path: string, roots: readonly string[]) {
+export async function withinReal(path: string, roots: readonly string[]) {
   const target = await real(path);
   return target && roots.some((r) => inside(target, r)) ? target : null;
 }

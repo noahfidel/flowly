@@ -1756,5 +1756,8 @@ const catalog: Catalog = {
   "Could not load pull requests.": "无法加载拉取请求。",
   "No pull requests on this board": "此看板上没有拉取请求",
   "Open pull request": "打开拉取请求",
+  "Gallery": "图库",
+  "Previous image": "上一张图片",
+  "Next image": "下一张图片",
 };
 export default catalog;

@@ -1756,5 +1756,8 @@ const catalog: Catalog = {
   "Could not load pull requests.": "無法載入提取要求。",
   "No pull requests on this board": "此看板上沒有提取要求",
   "Open pull request": "開啟提取要求",
+  "Gallery": "圖庫",
+  "Previous image": "上一張圖片",
+  "Next image": "下一張圖片",
 };
 export default catalog;

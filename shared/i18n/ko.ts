@@ -1756,5 +1756,8 @@ const catalog: Catalog = {
   "Could not load pull requests.": "풀 리퀘스트를 불러올 수 없습니다.",
   "No pull requests on this board": "이 보드에 풀 리퀘스트가 없습니다",
   "Open pull request": "풀 리퀘스트 열기",
+  "Gallery": "갤러리",
+  "Previous image": "이전 이미지",
+  "Next image": "다음 이미지",
 };
 export default catalog;

@@ -214,3 +214,7 @@ User request (via Loadout): the harness attaches files under `~/.claude/plans/<p
 ## 2026-11-10 addition: the card's plan
 
 A card's plan is an artifact with the optional `plan` field (approval, source, `setAt`); at most one per card. It is shown in its own Plan row and left out of the Inputs/Outputs lists and of `get_task.artifacts` (returned as `get_task.plan`); the add/edit form's role choice gains **Plan**. An agent can't remove the plan artifact with `flowly_remove_artifact` (`ARTIFACT_FORBIDDEN`); deleting it as a person empties the slot. Each card's plan-copy folder (`<plugin data>/plans/<taskId>`) is one of its artifact roots. See [CARD-PLAN-SPEC](CARD-PLAN-SPEC.md).
+
+## 2026-11-18 addition: the Gallery
+
+The images reachable from a card's output file artifacts (an image output, or the images directly inside an output folder; never inputs, links, the plan, review ledgers or external items) are shown in a separate **Gallery** sidebar section, with a grid and a full-size viewer, under the same root and realpath checks as the preview (§6.1). Read-only RPCs `artifacts.gallery` and `artifacts.gallery-image`; no change to the artifact data, the agent tools or `get_task`. See [EVIDENCE-GALLERY-SPEC](EVIDENCE-GALLERY-SPEC.md).

@@ -81,6 +81,7 @@ import { DESCRIPTION_CLAMP_HEIGHT, descriptionOpen, setDescriptionOpen } from ".
 import { TaskIdeas, type IdeaOther } from "./task-ideas";
 import { BranchedFrom, LinkOrigin, TaskLinks } from "./task-links";
 import { TaskArtifacts } from "./task-artifacts";
+import { TaskGallery } from "./gallery";
 import { TaskPlan } from "./task-plan";
 import { planAwareDefaults } from "./task-plan-logic";
 import { planApproved, planOf } from "../shared/plans";
@@ -905,6 +906,8 @@ function TaskDrawerView({
         return (
           <TaskArtifacts task={task} active={active} disabled={!active || !!task.archivedAt || !!project.archivedAt} section={sectionStates.artifacts} />
         );
+      case "gallery":
+        return <TaskGallery task={task} active={active} section={sectionStates.gallery} />;
       case "sessions":
         return (
           <Section

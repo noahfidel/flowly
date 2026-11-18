@@ -1756,5 +1756,8 @@ const catalog: Catalog = {
   "Could not load pull requests.": "Не удалось загрузить пулл-реквесты.",
   "No pull requests on this board": "На этой доске нет пулл-реквестов",
   "Open pull request": "Открыть пулл-реквест",
+  "Gallery": "Галерея",
+  "Previous image": "Предыдущее изображение",
+  "Next image": "Следующее изображение",
 };
 export default catalog;

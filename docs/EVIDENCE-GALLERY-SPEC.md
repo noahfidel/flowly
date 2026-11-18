@@ -1,6 +1,6 @@
 # Evidence gallery on cards (EVIDENCE-GALLERY-SPEC)
 
-Status: scoped 2026-11-18, simplified the same day at the user's request ("don't be prescriptive about before/after; the existing gallery plugin's viewing is good, don't over-engineer it"). Decisions ruled 2026-11-18 (§4). Not built. Contract only; progress goes to `docs/PROGRESS.md`.
+Status: scoped 2026-11-18, simplified the same day at the user's request ("don't be prescriptive about before/after; the existing gallery plugin's viewing is good, don't over-engineer it"). Decisions ruled 2026-11-18 (§4). Built 2026-11-18 (card G1). Contract only; progress goes to `docs/PROGRESS.md`.
 
 A card that changes UI ends with screenshots. Today the user sees them in the third-party image gallery panel, which mixes the real files (`1-BEFORE-groups-table.png`) with hash-named copies (`9e342c7f…b3de.png`) that cannot be removed. On the card itself, the shots folder attached as an output opens as a list of file names, with no images.
 
@@ -70,6 +70,10 @@ Nothing new is needed. The harness attaches the folder and already knows its fil
   - The resolved path is realpath'ed, checked against the card's roots, and must be a regular file.
   - The 8 MB limit applies.
   - Thumbnails come from the ported `sips` path, with the original's fallback. Use an argument array, and make the cache folder `0700`.
+  - For an image output (not a folder), `name` may be omitted; when given it must be that file's own name.
+  - An image over 8 MB is left out of the listing as well, so the grid never shows a tile that cannot load.
+  - The thumbnail cache lives in `gallery-thumbnails` under Flowly's data folder, keyed by real path, size and modification time; a thumbnail is written to a temporary name and renamed into place.
+- The listing is read when the sidebar shows the card or its output files change (keyed on the output file artifacts, like the missing-file check, CARD-ARTIFACTS-SPEC §9), never on a timer. Thumbnails are read only for tiles on screen: an open section and the shown page.
 - The client's cache key includes `size` and `mtime`, because shots are rewritten in place.
 - Failures are logged with `logFailure`.
 - There is no change to `board.json`, `flowly_get_task` or any write path.

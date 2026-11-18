@@ -518,6 +518,18 @@ export const previewArtifact = defineRpc({
     z.object({ type: z.literal("unsupported"), size: z.number() }),
   ]),
 });
+/** The card's Gallery images, without bytes (EVIDENCE-GALLERY-SPEC §2.3). */
+export const artifactGallery = defineRpc({
+  name: "artifacts.gallery",
+  input: z.strictObject({ taskId: z.string().min(1) }),
+  output: z.object({ images: z.array(z.object({ artifactId: z.string(), name: z.string(), size: z.number(), mtime: z.number() })) }),
+});
+/** One Gallery image as a `data:` URI; `name` names the image inside a folder artifact (EVIDENCE-GALLERY-SPEC §2.3). */
+export const artifactGalleryImage = defineRpc({
+  name: "artifacts.gallery-image",
+  input: z.strictObject({ artifactId: z.string().min(1), name: z.string().min(1).max(255).optional(), size: z.enum(["thumb", "full"]) }),
+  output: z.object({ dataUri: z.string() }),
+});
 export const deleteTask = defineRpc({
   name: "tasks.delete",
   input: taskDeletion,
