@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Artifact } from "../shared/model";
-import { QUICK_LIMIT, activeQuickSession, prNumberOf, prStateOf, quickLinks, quickSessionState, type QuickSession } from "./quick-links";
+import { QUICK_LIMIT, activeQuickSession, newestPrUrl, prNumberOf, prStateOf, quickLinks, quickSessionState, type QuickSession } from "./quick-links";
 
 /** Card home quick links (DRAWER-SPEC "Quick links"): which chips, their order, limits, states and "+N more". */
 
@@ -139,4 +139,21 @@ test("the active session is the first in the Quick links order, or null", () => 
   const mixed = [session("a", 1, "done"), session("b", 2, "error"), session("c", 3, "running"), session("d", 4, "done"), session("e", 5, "waiting"), session("f", 6, "running")];
   const first = quickLinks({ outputs: [], sessions: mixed }).find((c) => c.kind === "session");
   expect(first?.kind === "session" ? first.id : null).toBe(activeQuickSession(mixed));
+});
+
+test("newestPrUrl: the first PR chip, GitLab recognized, duplicates, inputs and the plan skipped", () => {
+  const first = artifact({ target: "https://github.com/o/r/pull/3" });
+  const older = artifact({ target: "https://github.com/o/r/pull/2" });
+  const mr = artifact({ target: "https://gitlab.com/g/r/-/merge_requests/7" });
+  const input = artifact({ target: "https://github.com/o/r/pull/99", role: "input" });
+  const plan = artifact({ target: "https://github.com/o/r/pull/98", plan: { approvedAt: null, source: "manual" } as Artifact["plan"] });
+  const doc = artifact({ target: "https://example.com/doc" });
+  expect(newestPrUrl([doc, input, plan, first, older])).toBe("https://github.com/o/r/pull/3");
+  expect(newestPrUrl([mr, first])).toBe("https://gitlab.com/g/r/-/merge_requests/7");
+  expect(newestPrUrl([artifact({ target: " https://github.com/o/r/pull/5 " }), artifact({ target: "https://github.com/o/r/pull/5" })])).toBe("https://github.com/o/r/pull/5");
+});
+
+test("newestPrUrl: no PR gives null", () => {
+  expect(newestPrUrl([])).toBeNull();
+  expect(newestPrUrl([artifact({ target: "https://example.com/doc" }), artifact({ target: "./notes.md" }), artifact({ target: "https://github.com/o/r/pull/1", role: "input" })])).toBeNull();
 });

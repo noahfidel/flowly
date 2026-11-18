@@ -11,6 +11,7 @@ import {
   adjacentStatus,
   historyKeyHint,
   isApplePlatform,
+  cardShortcutApplies,
 } from "./shortcuts";
 import { stepQuestion } from "../shared/permission-question";
 
@@ -49,6 +50,29 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "d", metaKey: true }, true)).toBeNull();
     expect(resolveShortcut({ key: "D", shiftKey: true }, true)).toBeNull();
     expect(shortcutHelp.some((row) => row.keys.includes("D") && row.title === "Open the dispatcher and focus its message box")).toBe(true);
+  });
+  test("O opens the open card's session and R its newest pull request; G stays Guardrails", () => {
+    expect(resolveShortcut({ key: "o" }, true)).toBe("open-session");
+    expect(resolveShortcut({ key: "O" }, true)).toBe("open-session");
+    expect(resolveShortcut({ key: "r" }, true)).toBe("open-pr");
+    expect(resolveShortcut({ key: "R" }, true)).toBe("open-pr");
+    expect(resolveShortcut({ key: "g" }, true)).toBe("guardrails");
+    for (const key of ["o", "r"]) {
+      expect(resolveShortcut({ key }, false)).toBeNull();
+      expect(resolveShortcut({ key, metaKey: true }, true)).toBeNull();
+      expect(resolveShortcut({ key, ctrlKey: true }, true)).toBeNull();
+      expect(resolveShortcut({ key, altKey: true }, true)).toBeNull();
+      expect(resolveShortcut({ key: key.toUpperCase(), shiftKey: true }, true)).toBeNull();
+    }
+    expect(shortcutHelp.some((row) => row.keys.includes("O") && row.title === "Open the open card's active session")).toBe(true);
+    expect(shortcutHelp.some((row) => row.keys.includes("R") && row.title === "Open the open card's newest pull request")).toBe(true);
+  });
+  test("O and R apply only on desktop with a card open", () => {
+    expect(cardShortcutApplies(undefined, false)).toBe(false);
+    expect(cardShortcutApplies(null, false)).toBe(false);
+    expect(cardShortcutApplies("", false)).toBe(false);
+    expect(cardShortcutApplies("t1", true)).toBe(false);
+    expect(cardShortcutApplies("t1", false)).toBe(true);
   });
   test("the help lists the double tap of Ctrl as its own, switchable row (SHORTCUTS-SPEC §5)", () => {
     const rows = shortcutHelp.filter((row) => row.doubleTap);
