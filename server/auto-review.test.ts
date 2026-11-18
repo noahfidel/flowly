@@ -98,12 +98,18 @@ async function setup(
     run?: RunCheck;
     /** The card's effective delivery mode (DELIVERY-MODE-SPEC §2); default: branch. */
     deliveryMode?: string;
+    /** No project override: the project inherits this group value (null: a group that never set one). */
+    group?: { enabled: boolean; maxRounds: number } | null;
   } = {},
 ) {
   const x = await agentFixture();
   roots.push(x.root);
   await x.store.mutate((b) => {
-    b.projects[0]!.autoReview = { enabled: true, maxRounds: options.maxRounds ?? 2 };
+    if (options.group === undefined) b.projects[0]!.autoReview = { enabled: true, maxRounds: options.maxRounds ?? 2 };
+    else {
+      b.groups.push({ id: "g", name: "Group", position: 0, isDefault: true, revision: 1, createdAt: stamp, updatedAt: stamp, ...(options.group ? { defaults: { autoReview: options.group } } : {}) });
+      b.projects[0]!.groupId = "g";
+    }
     if (options.lanes) b.projects[0]!.lanes = options.lanes;
     if (options.memory === false) b.projects[0]!.memory = false;
     if (options.baseRef) b.tasks[0]!.baseRef = options.baseRef;
@@ -189,6 +195,22 @@ async function setup(
 }
 
 const card = async (x: { store: { read(): Promise<import("../shared/model").Board> } }) => (await x.store.read()).tasks[0]!;
+
+test("a project without an override is reviewed when its group has Auto review on, and not when the group is off or never set it (ruling, Noah 2026-11-18)", async () => {
+  const on = await setup({ group: { enabled: true, maxRounds: 3 } });
+  const reviewed = await on.deliver("development");
+  expect(reviewed.projects[0]).not.toHaveProperty("autoReview");
+  expect(reviewed.tasks[0]!.review).toMatchObject({ state: "passed", maxRounds: 3 });
+  expect(on.runs).toEqual(["npm test"]);
+  for (const group of [{ enabled: false, maxRounds: 2 }, null]) {
+    const off = await setup({ group });
+    const board = await off.deliver("development");
+    expect(board.tasks[0]).toMatchObject({ status: "in_review" });
+    expect(board.tasks[0]!.review).toBeUndefined();
+    expect(off.runs).toEqual([]);
+    await expect(off.reviews.rerun("t", {} as never)).rejects.toThrow(/Auto review/);
+  }
+});
 
 test("no L1 any more: an unticked acceptance list delivers; a card without one gets SETUP_INCOMPLETE once (GUARDRAILS-SPEC §6.1)", async () => {
   const x = await setup();

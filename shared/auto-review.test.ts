@@ -1,6 +1,6 @@
-import { expect, test } from "vitest";
-import { autoReviewOf, autoReviewRuns, continuesRound, conversationForReview, hasEvidence, joinCommand, reviewContext, reviewProgress, reviewVerdict, reworkMessage, splitCommand, visibleReview } from "./auto-review";
-import { projectSchema, reviewSchema, type BoardEvent, type Review, type ReviewItem } from "./model";
+import { describe, expect, test } from "vitest";
+import { collapseGroupAutoReview, continuesRound, conversationForReview, hasEvidence, joinCommand, reviewContext, reviewProgress, reviewVerdict, reworkMessage, splitCommand, visibleReview, effectiveAutoReview, projectAutoReview } from "./auto-review";
+import { projectSchema, reviewSchema, type BoardEvent, type Group, type Project, type Review, type ReviewItem } from "./model";
 
 const review = (state: Review["state"], extra: Partial<Review> = {}): Review => ({
   trigger: { eventId: "e", agentId: "a", from: "development" },
@@ -55,11 +55,8 @@ const item = (id: string, kind: ReviewItem["kind"], state: ReviewItem["state"], 
 
 test("settings narrow to the switch and the rounds; stored rules, goal and guidance are kept on disk but ignored (GUARDRAILS-SPEC §8)", () => {
   const stored = { enabled: true, maxRounds: 3, rules: [{ id: "a", name: "A", kind: "command", argv: ["x"] }], goal: false, guidance: "g", checks: [] };
-  expect(autoReviewOf({ autoReview: stored })).toEqual({ enabled: true, maxRounds: 3 });
-  expect(autoReviewOf(null)).toEqual({ enabled: false, maxRounds: 2 });
-  // Every delivery is reviewed while the switch is on: the built-in check always runs.
-  expect(autoReviewRuns({ autoReview: { enabled: true, maxRounds: 2 } })).toBe(true);
-  expect(autoReviewRuns({ autoReview: { enabled: false, maxRounds: 2 } })).toBe(false);
+  expect(effectiveAutoReview({ autoReview: stored }, null)).toEqual({ enabled: true, maxRounds: 3, source: "project" });
+  expect(effectiveAutoReview(null, null)).toEqual({ enabled: false, maxRounds: 2, source: "default" });
   // A project saved before guardrails still reads; a reviewDraft is dropped.
   const project = projectSchema.parse({ id: "p", title: "P", description: "", paseoProjectId: "n", primaryPath: "/p", repos: ["/p"], revision: 1, createdAt: "x", updatedAt: "x", archivedAt: null, autoReview: stored, reviewDraft: { rules: [] } });
   expect(project.autoReview?.enabled).toBe(true);
@@ -178,4 +175,121 @@ test("P3: the conversation the built-in check reads drops rework messages and in
   const big = conversationForReview(Array.from({ length: 12 }, (_, i) => ({ at: `t${String(i).padStart(2, "0")}`, text: String(i % 10).repeat(1500) })));
   expect(big.join("").length).toBeLessThanOrEqual(12_000);
   expect(big.at(-1)).toBe("1".repeat(1500));
+});
+
+// ---- Auto review at the board-group level (BOARD-GROUPS-SPEC §1, §5; ruling, Noah 2026-11-18) ----
+
+const at = "2026-11-18T10:00:00.000Z";
+const group = (id: string, autoReview?: { enabled: boolean; maxRounds: number }): Group => ({
+  id,
+  name: id,
+  position: 0,
+  revision: 1,
+  createdAt: at,
+  updatedAt: at,
+  ...(autoReview ? { defaults: { autoReview } } : {}),
+});
+const member = (id: string, groupId: string, autoReview?: Project["autoReview"], extra: Partial<Project> = {}): Project => ({
+  id,
+  title: id,
+  description: "",
+  paseoProjectId: `n-${id}`,
+  primaryPath: `/${id}`,
+  repos: [`/${id}`],
+  revision: 1,
+  createdAt: at,
+  updatedAt: at,
+  archivedAt: null,
+  groupId,
+  ...(autoReview ? { autoReview } : {}),
+  ...extra,
+});
+
+test("effective auto review: the project's override, else its group's value, else Off with 2 rounds", () => {
+  const on = group("on", { enabled: true, maxRounds: 3 });
+  const off = group("off", { enabled: false, maxRounds: 1 });
+  const unset = group("unset");
+  // The group's value applies to a project without an override.
+  expect(effectiveAutoReview({}, on)).toEqual({ enabled: true, maxRounds: 3, source: "group" });
+  expect(effectiveAutoReview({}, off)).toEqual({ enabled: false, maxRounds: 1, source: "group" });
+  // The override wins both ways, rounds included.
+  expect(effectiveAutoReview({ autoReview: { enabled: true, maxRounds: 5 } }, off)).toEqual({ enabled: true, maxRounds: 5, source: "project" });
+  expect(effectiveAutoReview({ autoReview: { enabled: false, maxRounds: 2 } }, on)).toEqual({ enabled: false, maxRounds: 2, source: "project" });
+  expect(effectiveAutoReview({ autoReview: { enabled: true, maxRounds: 0 } }, on)).toEqual({ enabled: true, maxRounds: 0, source: "project" });
+  // A group that never set it means Off.
+  expect(effectiveAutoReview({}, unset)).toEqual({ enabled: false, maxRounds: 2, source: "default" });
+  expect(effectiveAutoReview({}, null)).toEqual({ enabled: false, maxRounds: 2, source: "default" });
+});
+
+test("an inheriting project follows its new group after a move; an override stays", () => {
+  const board = { groups: [group("a", { enabled: true, maxRounds: 2 }), group("b", { enabled: false, maxRounds: 4 })] };
+  const inherits = member("x", "a");
+  const overrides = member("y", "a", { enabled: true, maxRounds: 1 });
+  expect(projectAutoReview(board, inherits)).toMatchObject({ enabled: true, maxRounds: 2, source: "group" });
+  inherits.groupId = "b";
+  overrides.groupId = "b";
+  expect(projectAutoReview(board, inherits)).toMatchObject({ enabled: false, maxRounds: 4, source: "group" });
+  expect(projectAutoReview(board, overrides)).toEqual({ enabled: true, maxRounds: 1, source: "project" });
+  // A project whose group is gone reads the built-in default.
+  expect(projectAutoReview(board, member("z", "gone"))).toMatchObject({ enabled: false, maxRounds: 2, source: "default" });
+});
+
+describe("the one-time collapse into group values (BOARD-GROUPS-SPEC §7)", () => {
+  const effective = (board: { groups: Group[]; projects: Project[] }) => Object.fromEntries(board.projects.map((p) => [p.id, (({ enabled, maxRounds }) => ({ enabled, maxRounds }))(projectAutoReview(board, p))]));
+  const on2 = { enabled: true, maxRounds: 2 };
+
+  test("a group whose members all agree takes their value and every member inherits", () => {
+    const board = { groups: [group("tooling")], projects: ["a", "b", "c", "d", "e", "f"].map((id) => member(id, "tooling", { ...on2 })) };
+    const before = effective(board);
+    expect(collapseGroupAutoReview(board)).toBe(true);
+    expect(board.groups[0]!.defaults?.autoReview).toEqual(on2);
+    for (const p of board.projects) expect(p).not.toHaveProperty("autoReview");
+    expect(effective(board)).toEqual(before);
+  });
+
+  test("a project without a value in an On group keeps Off as its own override", () => {
+    const board = { groups: [group("zen")], projects: [member("infra", "zen", { ...on2 }), member("gitops", "zen", { ...on2 }), member("zenlytic", "zen")] };
+    const before = effective(board);
+    collapseGroupAutoReview(board);
+    expect(board.groups[0]!.defaults?.autoReview).toEqual(on2);
+    expect(board.projects.find((p) => p.id === "infra")).not.toHaveProperty("autoReview");
+    expect(board.projects.find((p) => p.id === "gitops")).not.toHaveProperty("autoReview");
+    expect(board.projects.find((p) => p.id === "zenlytic")!.autoReview).toEqual({ enabled: false, maxRounds: 2 });
+    expect(effective(board)).toEqual(before);
+  });
+
+  test("a tie goes to Off with 2 rounds when tied, else to the first member's value; rounds count as part of the value", () => {
+    const tied = { groups: [group("g")], projects: [member("a", "g", { ...on2 }), member("b", "g")] };
+    const before = effective(tied);
+    collapseGroupAutoReview(tied);
+    expect(tied.groups[0]!.defaults?.autoReview).toEqual({ enabled: false, maxRounds: 2 });
+    expect(tied.projects[0]!.autoReview).toEqual(on2);
+    expect(tied.projects[1]).not.toHaveProperty("autoReview");
+    expect(effective(tied)).toEqual(before);
+    const first = { groups: [group("g")], projects: [member("a", "g", { enabled: true, maxRounds: 3 }), member("b", "g", { ...on2 })] };
+    collapseGroupAutoReview(first);
+    expect(first.groups[0]!.defaults?.autoReview).toEqual({ enabled: true, maxRounds: 3 });
+    expect(first.projects[0]).not.toHaveProperty("autoReview");
+    expect(first.projects[1]!.autoReview).toEqual(on2);
+  });
+
+  test("archived members count; a group without members stays unset; other defaults are kept", () => {
+    const board = {
+      groups: [{ ...group("g"), defaults: { deliveryMode: "draft_pr" } }, group("empty")],
+      projects: [member("a", "g", { ...on2 }, { archivedAt: at }), member("b", "g", { ...on2 }), member("c", "g")],
+    };
+    collapseGroupAutoReview(board);
+    expect(board.groups[0]!.defaults).toEqual({ deliveryMode: "draft_pr", autoReview: on2 });
+    expect(board.groups[1]).not.toHaveProperty("defaults");
+    expect(board.projects[2]!.autoReview).toEqual({ enabled: false, maxRounds: 2 });
+  });
+
+  test("a stored value carrying rules from before guardrails stays on its project, so the guardrails migration still reads them", () => {
+    const legacy = { ...on2, rules: [{ id: "t", name: "Tests", kind: "command", argv: ["npm", "test"] }] };
+    const board = { groups: [group("g")], projects: [member("a", "g", legacy), member("b", "g", { ...on2 })] };
+    collapseGroupAutoReview(board);
+    expect(board.groups[0]!.defaults?.autoReview).toEqual(on2);
+    expect(board.projects[0]!.autoReview).toEqual(legacy);
+    expect(board.projects[1]).not.toHaveProperty("autoReview");
+  });
 });

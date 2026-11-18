@@ -806,6 +806,9 @@ async function withProjects() {
     ({ ...(paseo as object), projects: { list: async () => ({ projects: natives }) } }) as unknown as PaseoApi;
   // The one function the RPC handler and the tool share (index.server.ts).
   const rpcCreate = projectCreator(service, (id) => detected.push(id));
+  // New projects inherit their group's Auto review (ruling, Noah 2026-11-18): with it on, their commands are detected.
+  const fallback = (await x.store.read()).groups[0]!;
+  await x.store.updateGroup({ id: fallback.id, revision: fallback.revision, defaults: { autoReview: { enabled: true, maxRounds: 2 } } });
   x.server.dispatcherTools.createProjectWith = (input, paseo) => {
     passed.push(paseo);
     return rpcCreate(input, withNatives(paseo));
@@ -838,8 +841,9 @@ test("flowly_create_project creates a single-directory project through the proje
     repos: [repo],
     revision: 1,
     archivedAt: null,
-    autoReview: { enabled: true, maxRounds: 2 },
   });
+  // No override: it follows its group (ruling, Noah 2026-11-18).
+  expect(project).not.toHaveProperty("autoReview");
   // It is a live project the dispatcher can read and write in at once.
   expect((await x.d.call("flowly_list_projects", {})).structuredContent.projects).toContainEqual({ projectId, title, rootAvailable: true, openCards: 0 });
   // A given title wins.

@@ -9,6 +9,7 @@ import { BoardService } from "./service";
 import { readDatabaseFile, type StorageOptions } from "./sqlite-storage";
 import { projectRecords } from "./project-folder";
 import { Dispatcher } from "./dispatcher";
+import { projectCreator } from "./project-create";
 import { emptyBoard, groupInput, groupLimits, type Board, type Group, type Project, type Task } from "../shared/model";
 import { groupOrder, type LegacyGroup } from "../shared/groups";
 
@@ -503,5 +504,143 @@ describe("projects.create with a group (BOARD-GROUPS-SPEC §2)", () => {
     const board = await store.read();
     expect(layout(board)).toEqual({ "Projects*": [first.id], Other: [second.id] });
     expect(board.projects).toHaveLength(2);
+  });
+});
+
+describe.each(["json", "sqlite"] as const)("auto review at the group level (%s; BOARD-GROUPS-SPEC §1, §2, §7; ruling, Noah 2026-11-18)", (backend) => {
+  const on2 = { enabled: true, maxRounds: 2 };
+  /** Tooling (all on) and Zen (on, on, none), as the live board stored them before the change. */
+  async function stored() {
+    const d = await directory();
+    await seed(d, [
+      ...["t1", "t2", "t3"].map((id) => project(id, { autoReview: { ...on2 } })),
+      project("infra", { autoReview: { ...on2 } }),
+      project("gitops", { autoReview: { ...on2 } }),
+      project("zenlytic"),
+    ]);
+    const s = open(backend, d);
+    expect(
+      await s.migrateGroups(
+        legacy([
+          { id: "tooling", name: "Tooling", projectIds: ["t1", "t2", "t3"] },
+          { id: "zen", name: "Zen", projectIds: ["infra", "gitops", "zenlytic"] },
+          { id: "empty", name: "Empty", projectIds: [] },
+        ]),
+      ),
+    ).toBe(true);
+    return s;
+  }
+  const own = (board: Board, id: string) => board.projects.find((p) => p.id === id)!.autoReview;
+
+  test("the start collapses each group to its members' most common value, once; effective values stay the same", async () => {
+    const s = await stored();
+    const board = await onDisk(backend, s.directory);
+    expect(byName(board, "Tooling").defaults?.autoReview).toEqual(on2);
+    expect(byName(board, "Zen").defaults?.autoReview).toEqual(on2);
+    expect(byName(board, "Empty").defaults?.autoReview).toBeUndefined();
+    for (const id of ["t1", "t2", "t3", "infra", "gitops"]) expect(own(board, id)).toBeUndefined();
+    expect(own(board, "zenlytic")).toEqual({ enabled: false, maxRounds: 2 });
+    // No revision bumps, like the other §7 steps.
+    expect(board.projects.every((p) => p.revision === 1)).toBe(true);
+    // A second start writes nothing.
+    const before = JSON.stringify(await onDisk(backend, s.directory));
+    const again = await reopen(backend, s);
+    expect(await again.migrateGroups(legacy([]))).toBe(true);
+    expect(JSON.stringify(await onDisk(backend, s.directory))).toBe(before);
+  });
+
+  test("clearing a group's value later is not undone by the next start", async () => {
+    const s = await stored();
+    const zen = byName(await s.read(), "Zen");
+    const cleared = await s.updateGroup({ id: zen.id, revision: zen.revision, defaults: { autoReview: null } });
+    expect(cleared.defaults?.autoReview).toBeUndefined();
+    const again = await reopen(backend, s);
+    await again.migrateGroups(legacy([]));
+    expect(byName(await again.read(), "Zen").defaults?.autoReview).toBeUndefined();
+  });
+
+  test("a board that was empty at the first start never collapses later", async () => {
+    const d = await directory();
+    const s = open(backend, d);
+    await s.migrateGroups(legacy([]));
+    await s.mutate((board) => void board.projects.push(project("first")));
+    const fallback = (await s.read()).groups[0]!;
+    await s.updateGroup({ id: fallback.id, revision: fallback.revision, defaults: { autoReview: { enabled: true, maxRounds: 3 } } });
+    const again = await reopen(backend, s);
+    await again.migrateGroups(legacy([]));
+    const board = await again.read();
+    expect(board.groups[0]!.defaults?.autoReview).toEqual({ enabled: true, maxRounds: 3 });
+    expect(own(board, "first")).toBeUndefined();
+  });
+
+  test("groups.update sets and clears the group value; projects.update with null removes the override", async () => {
+    const s = await stored();
+    let board = await s.read();
+    const tooling = byName(board, "Tooling");
+    const set = await s.updateGroup({ id: tooling.id, revision: tooling.revision, defaults: { autoReview: { enabled: false, maxRounds: 4 } } });
+    expect(set).toMatchObject({ revision: tooling.revision + 1, defaults: { autoReview: { enabled: false, maxRounds: 4 } } });
+    const cleared = await s.updateGroup({ id: tooling.id, revision: set.revision, defaults: { autoReview: null } });
+    expect(cleared.defaults?.autoReview).toBeUndefined();
+    expect(groupInput.safeParse({ name: "X", defaults: { autoReview: { enabled: true, maxRounds: 6 } } }).success).toBe(false);
+    board = await s.read();
+    const zenlytic = board.projects.find((p) => p.id === "zenlytic")!;
+    const saved = await s.updateProject({ id: "zenlytic", revision: zenlytic.revision, autoReview: null });
+    expect(saved).not.toHaveProperty("autoReview");
+    expect(own(await onDisk(backend, s.directory), "zenlytic")).toBeUndefined();
+  });
+
+  test("the store reports projects whose effective value turns on, from a project, group or membership write", async () => {
+    const s = await stored();
+    const turnedOn: string[][] = [];
+    s.onAutoReviewOn = (ids) => turnedOn.push([...ids].sort());
+    let board = await s.read();
+    // Override removed: zenlytic now inherits Zen's On.
+    await s.updateProject({ id: "zenlytic", revision: board.projects.find((p) => p.id === "zenlytic")!.revision, autoReview: null });
+    expect(turnedOn).toEqual([["zenlytic"]]);
+    // Tooling turned off, then on again: its three members turn on.
+    board = await s.read();
+    let tooling = byName(board, "Tooling");
+    tooling = await s.updateGroup({ id: tooling.id, revision: tooling.revision, defaults: { autoReview: { enabled: false, maxRounds: 2 } } });
+    expect(turnedOn).toHaveLength(1);
+    tooling = await s.updateGroup({ id: tooling.id, revision: tooling.revision, defaults: { autoReview: { enabled: true, maxRounds: 2 } } });
+    expect(turnedOn[1]).toEqual(["t1", "t2", "t3"]);
+    // A move from an Off group into an On one.
+    tooling = await s.updateGroup({ id: tooling.id, revision: tooling.revision, defaults: { autoReview: null } });
+    board = await s.read();
+    const t1 = board.projects.find((p) => p.id === "t1")!;
+    await s.setProjectGroup({ projectId: "t1", revision: t1.revision, groupId: byName(board, "Zen").id });
+    expect(turnedOn[2]).toEqual(["t1"]);
+    expect(turnedOn).toHaveLength(3);
+  });
+});
+
+describe("projects.create stores no auto review: the project inherits its group (ruling, Noah 2026-11-18)", () => {
+  test("a new project has no override and reads its group's value", async () => {
+    const root = await directory();
+    const store = open("json", join(root, "data"));
+    await store.migrateGroups(legacy([]));
+    const service = new BoardService(store);
+    await mkdir(join(root, "one"));
+    const paseo = { projects: { list: async () => ({ projects: [{ projectId: "native-one", projectRootPath: join(root, "one"), projectDisplayName: "one" }] }) } } as unknown as PaseoApi;
+    const created = await service.createProject({ title: "One", description: "", primaryPath: join(root, "one"), paseoProjectId: "native-one" }, paseo);
+    expect(created).not.toHaveProperty("autoReview");
+    expect((await store.read()).projects[0]).not.toHaveProperty("autoReview");
+  });
+  test("the create path detects check commands only when the new project's group has Auto review on", async () => {
+    const root = await directory();
+    const store = open("json", join(root, "data"));
+    await store.migrateGroups(legacy([]));
+    const service = new BoardService(store);
+    const natives = ["one", "two"].map((name) => ({ projectId: `native-${name}`, projectRootPath: join(root, name), projectDisplayName: name }));
+    for (const n of natives) await mkdir(n.projectRootPath);
+    const paseo = { projects: { list: async () => ({ projects: natives }) } } as unknown as PaseoApi;
+    const detected: string[] = [];
+    const create = projectCreator(service, (id) => detected.push(id));
+    const first = await create({ title: "One", description: "", primaryPath: natives[0].projectRootPath, paseoProjectId: "native-one" }, paseo);
+    expect(detected).toEqual([]);
+    const on = await store.createGroup({ name: "On", defaults: { autoReview: { enabled: true, maxRounds: 2 } } });
+    const second = await create({ title: "Two", description: "", primaryPath: natives[1].projectRootPath, paseoProjectId: "native-two", groupId: on.id }, paseo);
+    expect(detected).toEqual([second.id]);
+    expect(first.id).not.toBe(second.id);
   });
 });

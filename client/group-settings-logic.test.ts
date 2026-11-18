@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Group, Project } from "../shared/model";
-import { agentModelText, currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, afterDiscard, lanesDirtyKey, needsDiscardConfirm, shownGroup, withDirty } from "./group-settings-logic";
+import { agentModelText, autoReviewMoveNote, autoReviewText, inheritedAutoReviewText, currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, afterDiscard, lanesDirtyKey, needsDiscardConfirm, shownGroup, withDirty } from "./group-settings-logic";
 
 const at = "2026-11-10T00:00:00.000Z";
 const group = (id: string, position: number, defaults?: Group["defaults"]): Group => ({ id, name: id.toUpperCase(), position, revision: 1, createdAt: at, updatedAt: at, ...(defaults ? { defaults } : {}) });
@@ -76,5 +76,28 @@ describe("unsaved edits guard and stale state", () => {
     expect(currentRevision({ revision: 2 }, undefined)).toBe(2);
     expect(currentRevision({ revision: 2 }, 4)).toBe(4);
     expect(currentRevision({ revision: 5 }, 4)).toBe(5);
+  });
+});
+
+describe("auto review at the group level (BOARD-GROUPS-SPEC §5; ruling, Noah 2026-11-18)", () => {
+  const on = group("on", 0, { autoReview: { enabled: true, maxRounds: 2 } });
+  const off = group("off", 1, { autoReview: { enabled: false, maxRounds: 2 } });
+  const unset = group("unset", 2);
+  test("a value in one line", () => {
+    expect(autoReviewText({ enabled: true, maxRounds: 2 })).toBe("On, 2 rounds");
+    expect(autoReviewText({ enabled: true, maxRounds: 1 })).toBe("On, 1 round");
+    expect(autoReviewText({ enabled: false, maxRounds: 3 })).toBe("Off");
+  });
+  test("what a project without an override inherits, with the group's name", () => {
+    expect(inheritedAutoReviewText(on)).toBe("Inherited from ON: On, 2 rounds");
+    expect(inheritedAutoReviewText(unset)).toBe("Inherited from UNSET: Off");
+    expect(inheritedAutoReviewText(null)).toBe("Inherited: Off");
+  });
+  test("a move notes the change only for an inheriting project whose value differs in the target group", () => {
+    const inherits = { autoReview: undefined };
+    expect(autoReviewMoveNote(inherits, on, off)).toBe("Auto review will follow OFF: Off.");
+    expect(autoReviewMoveNote(inherits, off, on)).toBe("Auto review will follow ON: On, 2 rounds.");
+    expect(autoReviewMoveNote(inherits, off, unset)).toBeNull();
+    expect(autoReviewMoveNote({ autoReview: { enabled: true, maxRounds: 2 } }, on, off)).toBeNull();
   });
 });
