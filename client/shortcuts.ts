@@ -56,7 +56,7 @@ export const shortcutHelp: readonly { keys: string[]; title: string; /** Listed 
   { keys: ["E"], title: msg("Edit the open card") },
   { keys: ["O"], title: msg("Open the open card's active session") },
   { keys: ["R"], title: msg("Open the open card's newest pull request") },
-  { keys: ["⌥←", "⌥→"], title: msg("Back / forward (Alt+← / Alt+→ on Windows and Linux)") },
+  { keys: ["⌃[", "⌃]"], title: msg("Back / forward (Alt+← / Alt+→ on Windows and Linux)") },
   { keys: ["←", "→"], title: msg("Previous / next agent question") },
   { keys: ["Esc"], title: msg("Close the dispatcher (when you last used it), then close the card sidebar, then leave a project page") },
   { keys: ["?"], title: msg("Show keyboard shortcuts") },
@@ -95,7 +95,7 @@ export interface ShortcutKey {
   isComposing?: boolean;
 }
 
-/** Apple keyboards name the key Option (⌥); others say Alt. Unknown platforms keep the mac glyphs the help list uses. */
+/** Apple systems use ⌃[ / ⌃] for Back / Forward, others Alt+arrows. Unknown platforms keep the mac glyphs the help list uses. */
 export function isApplePlatform(nav: { platform?: string; userAgent?: string } | undefined): boolean {
   const text = nav?.platform || nav?.userAgent || "";
   return !text || /Mac|iPhone|iPad|iPod/i.test(text);
@@ -103,8 +103,8 @@ export function isApplePlatform(nav: { platform?: string; userAgent?: string } |
 
 /** Key hint for the header Back / Forward buttons (SHORTCUTS-SPEC §2.1). */
 export function historyKeyHint(direction: "back" | "forward", apple: boolean): string {
-  const arrow = direction === "back" ? "←" : "→";
-  return apple ? `⌥${arrow}` : `Alt+${arrow}`;
+  if (apple) return direction === "back" ? "⌃[" : "⌃]";
+  return direction === "back" ? "Alt+←" : "Alt+→";
 }
 
 /** O and R act on the card open in the sidebar, desktop only (SHORTCUTS-SPEC §2.1); otherwise the key is not consumed. */
@@ -115,11 +115,15 @@ export function cardShortcutApplies(openTaskId: string | undefined | null, compa
 export function resolveShortcut(
   event: ShortcutKey,
   enabled: boolean,
+  apple = true,
 ): ShortcutAction | null {
   if (!enabled || event.repeat || event.isComposing) return null;
-  // ⌥←/→ (Alt): Back / Forward through what was opened (UI-REFRESH-SPEC §7ae). Other chords stay with the host;
-  // ⌘[ / ⌘] are Paseo's own shortcuts (user decision 2026-11-16).
-  if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight"))
+  // Back / Forward through what was opened (UI-REFRESH-SPEC §7ae, ruling 2026-11-18): ⌃[ / ⌃] on Apple systems,
+  // Alt+←/→ elsewhere, where Paseo binds Ctrl+[ / Ctrl+] to its previous / next workspace. ⌘[ / ⌘] stay with Paseo.
+  const bare = !event.metaKey && !event.shiftKey;
+  if (apple && bare && event.ctrlKey && !event.altKey && (event.key === "[" || event.key === "]"))
+    return event.key === "[" ? "history-back" : "history-forward";
+  if (!apple && bare && event.altKey && !event.ctrlKey && (event.key === "ArrowLeft" || event.key === "ArrowRight"))
     return event.key === "ArrowLeft" ? "history-back" : "history-forward";
   if (event.metaKey || event.ctrlKey || event.altKey) return null;
   const key = event.key;

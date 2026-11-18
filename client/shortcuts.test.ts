@@ -92,19 +92,45 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "ArrowDown" }, true)).toBeNull();
     expect(resolveShortcut({ key: "Enter" }, true)).toBeNull();
   });
-  test("⌘[ / ⌘] (and Ctrl+[ / Ctrl+]) stay with the host: they clash with Paseo's own shortcuts", () => {
+  test("macOS: ⌃[ / ⌃] walk back and forward; ⌘[ / ⌘] and other chords stay with Paseo (ruling 2026-11-18)", () => {
+    expect(resolveShortcut({ key: "[", ctrlKey: true }, true, true)).toBe("history-back");
+    expect(resolveShortcut({ key: "]", ctrlKey: true }, true, true)).toBe("history-forward");
+    // Platform defaults to Apple, like isApplePlatform(undefined).
+    expect(resolveShortcut({ key: "[", ctrlKey: true }, true)).toBe("history-back");
     for (const key of ["[", "]"]) {
-      expect(resolveShortcut({ key, metaKey: true }, true)).toBeNull();
-      expect(resolveShortcut({ key, ctrlKey: true }, true)).toBeNull();
-      expect(resolveShortcut({ key }, true)).toBeNull();
-      expect(resolveShortcut({ key, metaKey: true, altKey: true }, true)).toBeNull();
-      expect(resolveShortcut({ key, metaKey: true, shiftKey: true }, true)).toBeNull();
+      expect(resolveShortcut({ key, metaKey: true }, true, true)).toBeNull();
+      expect(resolveShortcut({ key }, true, true)).toBeNull();
+      expect(resolveShortcut({ key, ctrlKey: true, shiftKey: true }, true, true)).toBeNull();
+      expect(resolveShortcut({ key, ctrlKey: true, altKey: true }, true, true)).toBeNull();
+      expect(resolveShortcut({ key, ctrlKey: true, metaKey: true }, true, true)).toBeNull();
+      expect(resolveShortcut({ key, ctrlKey: true, repeat: true }, true, true)).toBeNull();
+      expect(resolveShortcut({ key, ctrlKey: true }, false, true)).toBeNull();
     }
-    expect(shortcutHelp.some((row) => row.keys.some((k) => k.includes("[") || k.includes("]")))).toBe(false);
+    // ⌥←/→ no longer navigate on macOS.
+    expect(resolveShortcut({ key: "ArrowLeft", altKey: true }, true, true)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowRight", altKey: true }, true, true)).toBeNull();
+    expect(shortcutHelp.some((row) => row.keys.join(" ") === "⌃[ ⌃]" && row.title === "Back / forward (Alt+← / Alt+→ on Windows and Linux)")).toBe(true);
+    expect(shortcutHelp.some((row) => row.keys.some((k) => k.includes("⌥")))).toBe(false);
   });
-  test("the Back / Forward button hints name only Option (mac) or Alt (other systems) + arrows", () => {
-    expect(historyKeyHint("back", true)).toBe("⌥←");
-    expect(historyKeyHint("forward", true)).toBe("⌥→");
+  test("Windows / Linux: Alt+← / Alt+→ walk back and forward; Ctrl+[ / Ctrl+] stay with Paseo (its previous / next workspace)", () => {
+    expect(resolveShortcut({ key: "ArrowLeft", altKey: true }, true, false)).toBe("history-back");
+    expect(resolveShortcut({ key: "ArrowRight", altKey: true }, true, false)).toBe("history-forward");
+    for (const key of ["[", "]"]) {
+      expect(resolveShortcut({ key, ctrlKey: true }, true, false)).toBeNull();
+      expect(resolveShortcut({ key, metaKey: true }, true, false)).toBeNull();
+    }
+    expect(resolveShortcut({ key: "ArrowLeft", metaKey: true, altKey: true }, true, false)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowLeft" }, true, false)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowLeft", ctrlKey: true }, true, false)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowLeft", ctrlKey: true, altKey: true }, true, false)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowRight", shiftKey: true, altKey: true }, true, false)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowLeft", altKey: true, repeat: true }, true, false)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowLeft", altKey: true }, false, false)).toBeNull();
+    expect(resolveShortcut({ key: "ArrowUp", altKey: true }, true, false)).toBeNull();
+  });
+  test("the Back / Forward button hints name ⌃[ / ⌃] on Apple systems and Alt+arrows elsewhere", () => {
+    expect(historyKeyHint("back", true)).toBe("⌃[");
+    expect(historyKeyHint("forward", true)).toBe("⌃]");
     expect(historyKeyHint("back", false)).toBe("Alt+←");
     expect(historyKeyHint("forward", false)).toBe("Alt+→");
     expect(isApplePlatform({ platform: "MacIntel" })).toBe(true);
@@ -113,23 +139,6 @@ describe("board shortcut keys", () => {
     expect(isApplePlatform({ platform: "Linux x86_64" })).toBe(false);
     expect(isApplePlatform({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" })).toBe(true);
     expect(isApplePlatform(undefined)).toBe(true);
-  });
-  test("⌥←/→ (Alt) walk back and forward; ⌘, Ctrl, Shift and bare arrows stay with the host", () => {
-    expect(resolveShortcut({ key: "ArrowLeft", metaKey: true, altKey: true }, true)).toBeNull();
-    expect(resolveShortcut({ key: "ArrowRight", metaKey: true, altKey: true }, true)).toBeNull();
-    expect(resolveShortcut({ key: "ArrowLeft", altKey: true }, true)).toBe("history-back");
-    expect(resolveShortcut({ key: "ArrowRight", altKey: true }, true)).toBe("history-forward");
-    expect(resolveShortcut({ key: "ArrowLeft" }, true)).toBeNull();
-    expect(resolveShortcut({ key: "ArrowRight" }, true)).toBeNull();
-    expect(resolveShortcut({ key: "ArrowLeft", ctrlKey: true }, true)).toBeNull();
-    expect(resolveShortcut({ key: "ArrowLeft", ctrlKey: true, altKey: true }, true)).toBeNull();
-    expect(resolveShortcut({ key: "ArrowRight", shiftKey: true, altKey: true }, true)).toBeNull();
-    expect(resolveShortcut({ key: "ArrowLeft", metaKey: true }, true)).toBeNull();
-    expect(resolveShortcut({ key: "ArrowLeft", altKey: true, repeat: true }, true)).toBeNull();
-    expect(resolveShortcut({ key: "ArrowLeft", altKey: true }, false)).toBeNull();
-    expect(resolveShortcut({ key: "ArrowUp", altKey: true }, true)).toBeNull();
-    expect(resolveShortcut({ key: "ArrowDown", altKey: true }, true)).toBeNull();
-    expect(shortcutHelp.some((row) => row.keys.join(" ") === "⌥← ⌥→" && row.title === "Back / forward (Alt+← / Alt+→ on Windows and Linux)")).toBe(true);
   });
   test("no shortcut collides with the agent-question arrows", () => {
     // A row may repeat its own key (Ctrl, Ctrl is one double tap); no two rows share one.

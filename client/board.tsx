@@ -178,7 +178,7 @@ import { reviewLabel } from "./task-review";
 import { projectAutoReview, visibleReview } from "../shared/auto-review";
 import { planApproved, planOf, withoutPlan } from "../shared/plans";
 
-// Option (⌥) on Apple keyboards, Alt elsewhere; read once, never throws (navigator is feature-detected).
+// Back / Forward keys: ⌃[ / ⌃] on Apple systems, Alt+arrows elsewhere; read once, never throws (navigator is feature-detected).
 const appleKeys = isApplePlatform((globalThis as { navigator?: { platform?: string; userAgent?: string } }).navigator);
 
 /** One-time tip texts (ONBOARDING-SPEC §5). */
@@ -2152,6 +2152,7 @@ function BoardContent(
     const action = resolveShortcut(
       { ...e, isComposing: e.nativeEvent?.isComposing },
       shortcutsOn && !shortcutsBlocked(),
+      appleKeys,
     );
     if (action && runIntent(action)) {
       e.preventDefault();
