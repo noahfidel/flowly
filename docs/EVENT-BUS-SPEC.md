@@ -24,10 +24,10 @@ A commit publishes its events once, after the write is saved and before storage'
 
 `isStop(fact)` is true for:
 
-- `board`: `status_changed` into `blocked`, `in_review`, `committed`, `integrated`, `done` or `cancelled`; any `status_changed` or `progress_reported` event whose `reportKind` is `question`, `blocker` or `result`; `agent.turn_ended` with outcome `failed`.
+- `board`: `status_changed` into `blocked`, `in_review`, `committed`, `integrated`, `done` or `cancelled`; any `status_changed` or `progress_reported` event whose `reportKind` is `question`, `blocker` or `result`; `agent.turn_ended` with outcome `failed`; an agent's `progress` report whose note starts with the contract marker (`[contract]`, DISPATCHER-SPEC §5.8).
 - `permission`.
 
-False for: events by the user (`actor` human: their own moves are not news to them), A1r restores (`rule` A1r, "No work was reported in that turn; restored"), turn starts, status changes into `design`, `development`, `test` (including the automatic ones), `progress` reports, permission resolutions, every other action (edits, tags, ideas, `agent.permission_requested`). A turn that ends `canceled` is not a stop.
+False for: events by the user (`actor` human: their own moves are not news to them), A1r restores (`rule` A1r, "No work was reported in that turn; restored"), turn starts, status changes into `design`, `development`, `test` (including the automatic ones), `progress` reports without the contract marker, permission resolutions, every other action (edits, tags, ideas, `agent.permission_requested`). A turn that ends `canceled` is not a stop.
 
 ## 3. Note batching
 
