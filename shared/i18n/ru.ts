@@ -1724,5 +1724,6 @@ const catalog: Catalog = {
   "Open pull request {label}: {title}": "Открыть пул-реквест {label}: {title}",
   "Open session {label}": "Открыть сессию {label}",
   "Open output {title}": "Открыть результат {title}",
+  "Open pull request {label}": "Открыть пул-реквест {label}",
 };
 export default catalog;

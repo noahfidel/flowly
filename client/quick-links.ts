@@ -20,8 +20,9 @@ export type QuickChip =
   | { kind: "output"; id: string; title: string; file: boolean; artifact: Artifact }
   | { kind: "more"; section: "sessions" | "artifacts"; count: number };
 
-const githubPull = /^https?:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/(\d{1,9})(?:[/?#]|$)/i;
-const gitlabMerge = /^https?:\/\/[^/]+\/.+?\/-\/merge_requests\/(\d{1,9})(?:[/?#]|$)/i;
+// Plain links: github.com and gitlab.com only; self-hosted PRs are recognized through their connector ref.
+const githubPull = /^https?:\/\/(?:www\.)?github\.com\/[^/]+\/[^/]+\/pull\/(\d{1,9})(?:[/?#]|$)/i;
+const gitlabMerge = /^https?:\/\/(?:www\.)?gitlab\.com\/.+?\/-\/merge_requests\/(\d{1,9})(?:[/?#]|$)/i;
 
 /** "#42" for a GitHub pull request, "!7" for a GitLab merge request; null for anything else. */
 export function prNumberOf(artifact: Pick<Artifact, "kind" | "target" | "external">): string | null {

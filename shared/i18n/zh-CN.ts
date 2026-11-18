@@ -1724,5 +1724,6 @@ const catalog: Catalog = {
   "Open pull request {label}: {title}": "打开拉取请求 {label}：{title}",
   "Open session {label}": "打开会话 {label}",
   "Open output {title}": "打开产出 {title}",
+  "Open pull request {label}": "打开拉取请求 {label}",
 };
 export default catalog;

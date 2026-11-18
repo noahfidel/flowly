@@ -538,11 +538,15 @@ function TaskDrawerView({
   const archivedSessions = ordered.filter((a) => !!a.archivedAt);
   // Quick links (DRAWER-SPEC "Quick links"): main live sessions; an open question or blocker on the card counts as waiting.
   const askingAgents = new Set([...questions.map((q) => q.agentId), ...blockedAgents]);
-  const quickSessions: QuickSession[] = liveTree.map(({ agent: a }) => ({
+  // A subagent waiting on the user marks its main session's chip as waiting.
+  const quickSessions: QuickSession[] = liveTree.map(({ agent: a, children }) => ({
     id: a.id,
     title: a.title || "",
     createdAt: a.createdAt,
-    state: quickSessionState(sessionState(a, events), askingAgents.has(a.id)),
+    state: quickSessionState(
+      sessionState(a, events),
+      askingAgents.has(a.id) || children.some((c) => !c.archivedAt && (askingAgents.has(c.id) || !!sessionState(c, events).waiting)),
+    ),
   }));
   // "+N more": open that section and scroll to it, with the same ring as a search hit.
   const jumpTo = useStableCallback((section: "sessions" | "artifacts") => {

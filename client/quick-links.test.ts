@@ -41,6 +41,8 @@ test("PR numbers come from the external ref, else from a GitHub / GitLab URL; ot
   expect(prNumberOf(artifact({ target: "https://github.com/o/r/issues/3" }))).toBeNull();
   expect(prNumberOf(artifact({ target: "./docs/pull/3" }))).toBeNull();
   expect(prNumberOf(artifact({ target: "https://example.com/report" }))).toBeNull();
+  // Any other host's /pull/ path is a plain link unless a connector ref says it is a PR.
+  expect(prNumberOf(artifact({ target: "https://blog.example.com/a/b/pull/3" }))).toBeNull();
 });
 
 test("PR state words: draft, open, merged, closed; unknown says nothing", () => {

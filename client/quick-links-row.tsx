@@ -104,7 +104,7 @@ function chipText(chip: QuickChip): string {
 function chipLabel(chip: QuickChip, text: string): string {
   switch (chip.kind) {
     case "pr":
-      return t("Open pull request {label}: {title}", { label: text, title: chip.title });
+      return chip.title ? t("Open pull request {label}: {title}", { label: text, title: chip.title }) : t("Open pull request {label}", { label: text });
     case "session":
       return t("Open session {label}", { label: text });
     case "output":
