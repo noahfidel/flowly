@@ -422,3 +422,18 @@ export function modelSettingsValues(values: unknown): ModelSettings {
   const parsed = modelSettings.schema.safeParse(values ?? {});
   return parsed.success ? parsed.data : modelSettings.schema.parse({});
 }
+
+/** Keyboard gestures outside the board (SHORTCUTS-SPEC §5): a double tap of Ctrl opens Flowly, on by default (web only). Host-scoped. */
+export const shortcutSettings = defineSettings({
+  id: "shortcuts",
+  scope: "host",
+  version: 1,
+  schema: z.object({
+    doubleTapCtrl: z.boolean().catch(true).default(true),
+  }),
+});
+export type ShortcutSettings = z.infer<typeof shortcutSettings.schema>;
+export function shortcutSettingsValues(values: unknown): ShortcutSettings {
+  const parsed = shortcutSettings.schema.safeParse(values ?? {});
+  return parsed.success ? parsed.data : shortcutSettings.schema.parse({});
+}

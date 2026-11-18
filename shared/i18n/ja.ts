@@ -1725,5 +1725,11 @@ const catalog: Catalog = {
   "Open session {label}": "セッション {label} を開く",
   "Open output {title}": "成果物 {title} を開く",
   "Open pull request {label}": "プルリクエスト {label} を開く",
+  "Flowly: View board (double-tap Ctrl)": "Flowly：ボードを表示（Ctrl を2回タップ）",
+  "Keyboard": "キーボード",
+  "Double-tap Ctrl to open Flowly": "Ctrl を2回タップして Flowly を開く",
+  "Works anywhere in Paseo, even while typing. Turn off if macOS Dictation uses a double press of Control.": "Paseo のどこでも、入力中でも動作します。macOS の音声入力に Control キー2回押しを使っている場合はオフにしてください。",
+  "Open Flowly from anywhere in Paseo (double-tap Ctrl)": "Paseo のどこからでも Flowly を開く（Ctrl を2回タップ）",
+  "Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General.": "Paseo のどこでも Ctrl を2回タップすると Flowly が開きます。設定 → 一般でオフにできます。",
 };
 export default catalog;

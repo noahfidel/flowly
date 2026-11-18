@@ -106,7 +106,7 @@ import { SettingsOpenerContext } from "./settings-opener";
 import { findingDescription, workflowInsightsSettings, workflowSettingsValues, type Finding } from "../shared/workflow-insights";
 import { WrapupModal } from "./wrapup";
 import { SwitchModal, type SwitchDirection } from "./workspace-switch";
-import { performanceLogOn, performanceSettings, featureSettings, featureSettingsValues, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, wrapupSettings, wrapupSettingsValues } from "../shared/settings";
+import { performanceLogOn, performanceSettings, featureSettings, featureSettingsValues, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, shortcutSettings, shortcutSettingsValues, wrapupSettings, wrapupSettingsValues } from "../shared/settings";
 import { pickOutputSession } from "./card-output";
 import { statusChanges } from "./changes";
 import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuControl, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
@@ -202,6 +202,7 @@ const tipText: Record<TipId, (compact?: boolean) => string> = {
   "quick-task": () => t("New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off."),
   "first-workflow-insight": () => t("Workflow insights found repeated work worth keeping. Open Insights to turn a suggestion into a card."),
   "lane-swipe": () => t("Swipe left or right to switch lanes."),
+  "double-tap-ctrl": () => t("Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General."),
   "card-display": (compact) => compact
     // Compact puts the Sort choices and Card display… in the Filters dialog.
     ? t("Cards too busy? Choose what they show in Settings → Cards, or from Filters → Card display.")
@@ -345,6 +346,9 @@ function BoardContent(
   // Project memory and Insights as a whole (Settings → AI features; ONBOARDING-SETUP-SPEC §6).
   const featurePrefs = useSettings(featureSettings);
   const features = featureSettingsValues(featurePrefs.status === "ready" ? featurePrefs.values : {});
+  // The double tap of Ctrl (web only, on by default; SHORTCUTS-SPEC §5): its help row and tip.
+  const shortcutPrefs = useSettings(shortcutSettings);
+  const doubleTapOn = Platform.OS === "web" && (shortcutPrefs.status !== "ready" || shortcutSettingsValues(shortcutPrefs.values).doubleTapCtrl);
   // Developer timing log (off unless the host setting is on; PERFORMANCE-SPEC §3).
   const perfPrefs = useSettings(performanceSettings);
   const sendPerf = useRpc(rpc.perfReport);
@@ -1792,6 +1796,7 @@ function BoardContent(
           learnedGuideline: !task && !!projectGuardrails?.added,
           laneSwipe: touch && !task && !page && shownStatuses.length > 1 && projectTasks.some((x) => !x.archivedAt),
           cardPlan: !!task && !!currentDetail && planApproved(planOf(currentDetail.artifacts, task.id)),
+          doubleTapCtrl: doubleTapOn && shortcutPrefs.status === "ready" && !compact && !task && projectTasks.some((x) => !x.archivedAt),
         },
         blocked: tipBlocked,
       });
@@ -2829,7 +2834,7 @@ function BoardContent(
               <Label muted size={font.md}>
                 {t("Board shortcuts work on desktop while focus is inside the board: click an empty part of the board or a card first. They pause while typing or while a dialog is open. From anywhere in Paseo, open the Command Center and search “Flowly”.")}</Label>
               <View style={{ gap: space[1] }}>
-                {shortcutHelp.map((item) => (
+                {shortcutHelp.filter((item) => !item.doubleTap || doubleTapOn).map((item) => (
                   <View
                     key={item.title}
                     style={{ flexDirection: "row", alignItems: "center", gap: space[3], minHeight: 32 }}
@@ -2838,8 +2843,8 @@ function BoardContent(
                       <Label size={font.base} selectable={false}>{t(item.title)}</Label>
                     </View>
                     <View style={{ flexDirection: "row", gap: space[1] }}>
-                      {item.keys.map((key) => (
-                        <KeyHint key={key}>{key}</KeyHint>
+                      {item.keys.map((key, index) => (
+                        <KeyHint key={`${index}-${key}`}>{key}</KeyHint>
                       ))}
                     </View>
                   </View>

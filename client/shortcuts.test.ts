@@ -50,6 +50,10 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "D", shiftKey: true }, true)).toBeNull();
     expect(shortcutHelp.some((row) => row.keys.includes("D") && row.title === "Open the dispatcher and focus its message box")).toBe(true);
   });
+  test("the help lists the double tap of Ctrl as its own, switchable row (SHORTCUTS-SPEC §5)", () => {
+    const rows = shortcutHelp.filter((row) => row.doubleTap);
+    expect(rows).toEqual([{ keys: ["Ctrl", "Ctrl"], title: "Open Flowly from anywhere in Paseo (double-tap Ctrl)", doubleTap: true }]);
+  });
   test("leaves host chords, shifted letters and unknown keys alone", () => {
     for (const mod of ["metaKey", "ctrlKey", "altKey"] as const) {
       expect(resolveShortcut({ key: "n", [mod]: true }, true)).toBeNull();
@@ -104,7 +108,8 @@ describe("board shortcut keys", () => {
     expect(shortcutHelp.some((row) => row.keys.join(" ") === "⌥← ⌥→" && row.title === "Back / forward (Alt+← / Alt+→ on Windows and Linux)")).toBe(true);
   });
   test("no shortcut collides with the agent-question arrows", () => {
-    const keys = shortcutHelp.flatMap((row) => row.keys);
+    // A row may repeat its own key (Ctrl, Ctrl is one double tap); no two rows share one.
+    const keys = shortcutHelp.flatMap((row) => [...new Set(row.keys)]);
     expect(new Set(keys).size).toBe(keys.length);
     const titles = shortcutHelp.map((row) => row.title);
     expect(new Set(titles).size).toBe(titles.length);

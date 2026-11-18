@@ -1725,5 +1725,11 @@ const catalog: Catalog = {
   "Open session {label}": "Ouvrir la session {label}",
   "Open output {title}": "Ouvrir le résultat {title}",
   "Open pull request {label}": "Ouvrir la pull request {label}",
+  "Flowly: View board (double-tap Ctrl)": "Flowly : Voir le tableau (Ctrl deux fois)",
+  "Keyboard": "Clavier",
+  "Double-tap Ctrl to open Flowly": "Appuyer deux fois sur Ctrl pour ouvrir Flowly",
+  "Works anywhere in Paseo, even while typing. Turn off if macOS Dictation uses a double press of Control.": "Fonctionne partout dans Paseo, même pendant la saisie. Désactivez-le si la Dictée de macOS utilise une double pression sur Contrôle.",
+  "Open Flowly from anywhere in Paseo (double-tap Ctrl)": "Ouvrir Flowly depuis n’importe où dans Paseo (Ctrl deux fois)",
+  "Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General.": "Appuyez deux fois sur Ctrl n’importe où dans Paseo pour ouvrir Flowly. Réglages → Général permet de le désactiver.",
 };
 export default catalog;

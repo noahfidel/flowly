@@ -35,7 +35,7 @@ export type BoardIntent = Extract<
   "new-task" | "quick-task" | "projects" | "filters" | "attention" | "shortcuts" | "welcome" | "search"
 >;
 
-export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
+export const shortcutHelp: readonly { keys: string[]; title: string; /** Listed only while the double tap of Ctrl is on (SHORTCUTS-SPEC §5). */ doubleTap?: true }[] = [
   { keys: ["T"], title: msg("New task") },
   { keys: ["Q"], title: msg("Quick task") },
   { keys: ["P"], title: msg("Switch project") },
@@ -56,6 +56,7 @@ export const shortcutHelp: readonly { keys: string[]; title: string }[] = [
   { keys: ["←", "→"], title: msg("Previous / next agent question") },
   { keys: ["Esc"], title: msg("Close the dispatcher (when you last used it), then close the card sidebar, then leave a project page") },
   { keys: ["?"], title: msg("Show keyboard shortcuts") },
+  { keys: ["Ctrl", "Ctrl"], title: msg("Open Flowly from anywhere in Paseo (double-tap Ctrl)"), doubleTap: true },
 ];
 
 const letters: Record<string, ShortcutAction> = {

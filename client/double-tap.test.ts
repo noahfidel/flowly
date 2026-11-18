@@ -11,7 +11,7 @@ function run(steps: [TapKeyEvent, number][], windowMs?: number) {
   return steps.filter(([event, now]) => detector.key(event, now)).map(([, now]) => now);
 }
 
-describe("double tap of Ctrl (SHORTCUTS-SPEC §8)", () => {
+describe("double tap of Ctrl (SHORTCUTS-SPEC §5)", () => {
   test("the window is 300 ms", () => {
     expect(DOUBLE_TAP_MS).toBe(300);
   });

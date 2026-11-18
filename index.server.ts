@@ -7,7 +7,7 @@ import { BoardService, dataDirectory, migrateLegacyPluginData, paseoHome } from 
 import { readPaseoVersion } from "./server/paseo-version";
 import { NativeDirectoryPicker, detectNativePicker, listDirectories } from "./server/directories";
 import * as rpc from "./shared/rpc";
-import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, artifactSettings, artifactSettingsValues, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, modelSettingsValues, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues, prReviewSettings, prReviewSettingsValues, deliverySettings, deliverySettingsValues, reviewLedgerSettings, reviewLedgerSettingsValues } from "./shared/settings";
+import { agentHabitsOn, developerSettings, performanceLogOn, performanceSettings, boardViewSettings, ideasSettings, artifactSettings, artifactSettingsValues, languageSettings, languageSettingsValues, aiLanguageSettings, aiLanguageSettingsValues, deviceLanguageSettings, deviceLanguageValue, modelSettings, modelSettingsValues, onboardingSettings, ideasSettingsValues, statusSettings, statusSettingsValues, wrapupSettings, wrapupSettingsValues, nativeSessionSettings, nativeSessionSettingsValues, featureSettings, featureSettingsValues, telemetrySettings, telemetrySettingsValues, prReviewSettings, prReviewSettingsValues, deliverySettings, deliverySettingsValues, reviewLedgerSettings, reviewLedgerSettingsValues, shortcutSettings } from "./shared/settings";
 import { ToolServer } from "./server/tool-server";
 import { openKanbanSession } from "./server/session-open";
 import { SessionReadStore, SessionReadService, daemonNativeAttention } from "./server/session-reads";
@@ -96,6 +96,8 @@ export default function contribute(host: PluginServerContext) {
   const devicePrefs = server.registerSettings(deviceLanguageSettings);
   const modelPrefs = server.registerSettings(modelSettings);
   server.registerSettings(onboardingSettings);
+  // The double tap of Ctrl (SHORTCUTS-SPEC §5); only clients read it.
+  server.registerSettings(shortcutSettings);
   const summaryPrefs = server.registerSettings(summarySettings);
   const wrapupPrefs = server.registerSettings(wrapupSettings);
   const statusPrefs = server.registerSettings(statusSettings);

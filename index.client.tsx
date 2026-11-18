@@ -9,14 +9,21 @@ import { nextRowKind, nextRowSchema, nextRowVersion, summaryRowKind, summaryRowS
 import { SidebarEntry } from "./client/sidebar";
 import { LinearSidebarEntry, linearScreen } from "./client/linear-board";
 import { intentParams } from "./client/shortcuts";
-import { commandItems } from "./client/command-items";
+import { commandItemTitle, commandItems } from "./client/command-items";
+import { installDoubleTapCtrl } from "./client/double-tap-install";
+import { Platform } from "react-native";
+import { settingsRpc } from "@getpaseo/plugin";
+import { shortcutSettings, shortcutSettingsValues } from "./shared/settings";
 import { deviceLocale, setLocale, t } from "./shared/i18n";
 import { loadCatalog } from "./client/catalog";
 import { perfEarly, perfNow } from "./client/perf";
 import { i18nCatalog } from "./shared/rpc";
 
-/** The Command Center entries; their titles follow the device language, so they are built again when its catalog arrives. */
-function registerCommandItems(client: PluginClientContext) {
+/**
+ * The Command Center entries; their titles follow the device language, so they are built again when its catalog
+ * arrives, and View board names the double tap of Ctrl while it is on (SHORTCUTS-SPEC §5).
+ */
+function registerCommandItems(client: PluginClientContext, doubleTap: boolean) {
   const cleanups: (() => void)[] = [];
   // In list order: the host ranks a plugin's items by registration order. forEach, not a for loop: Hermes gives a
   // loop's `const` one binding, so every onSelect would see the last item.
@@ -24,7 +31,7 @@ function registerCommandItems(client: PluginClientContext) {
     cleanups.push(
       client.addCommandCenterItem({
         id: item.id,
-        title: t(item.title),
+        title: t(commandItemTitle(item, doubleTap)),
         icon: item.icon,
         keywords: item.keywords,
         context: "global",
@@ -82,15 +89,30 @@ export default function contribute(client: PluginClientContext) {
     schema: nextRowSchema,
     Component: NativeNextMovesItem,
   });
-  let commandItems = registerCommandItems(client);
+  // The double tap of Ctrl is on by default and only exists on the web; a read that finds it off drops the hint.
+  let doubleTap = Platform.OS === "web";
+  let commandItems = registerCommandItems(client, doubleTap);
   let stopped = false;
   // The bundle carries no translations: ask the daemon for the device language, then rebuild the titles.
   if (device !== "en")
     void loadCatalog((input) => client.rpc(i18nCatalog, input as { locale: Exclude<typeof device, "en"> }), device).then((ok) => {
       if (!ok || stopped) return;
       commandItems();
-      commandItems = registerCommandItems(client);
+      commandItems = registerCommandItems(client, doubleTap);
     });
+  // Double tap of Ctrl opens the board from anywhere in Paseo (web only; SHORTCUTS-SPEC §5). No read at load: the
+  // setting is read about 3 s later, or when the gesture is first used.
+  const stopDoubleTap = installDoubleTapCtrl({
+    open: () => client.openScreen({ screenId: "board" }),
+    readEnabled: () =>
+      client.rpc(settingsRpc(shortcutSettings.id).read, {}).then((read) => shortcutSettingsValues(read.status === "ready" ? read.values : {}).doubleTapCtrl),
+    changed: (enabled) => {
+      if (stopped || enabled === doubleTap) return;
+      doubleTap = enabled;
+      commandItems();
+      commandItems = registerCommandItems(client, doubleTap);
+    },
+  });
   // The Task chip, plus the Ideas chip on Flowly-managed sessions (NATIVE-SESSION-SPEC §7) and, when switched on,
   // on sessions Flowly does not manage (§12).
   const stopChips = registerSessionChips(client, undefined, undefined, { ideas: IdeasPopover, outsideIdeas: OutsideIdeasPopover });
@@ -98,5 +120,6 @@ export default function contribute(client: PluginClientContext) {
   return () => {
     stopped = true;
     stopChips();
+    stopDoubleTap();
   };
 }

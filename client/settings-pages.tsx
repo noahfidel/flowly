@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { Collapse } from "./disclosure";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
@@ -36,7 +36,10 @@ import {
   defaultReviewLedgerFolder,
   reviewLedgerSettings,
   reviewLedgerSettingsValues,
+  shortcutSettings,
+  shortcutSettingsValues,
 } from "../shared/settings";
+import { noteDoubleTapSetting } from "./double-tap-install";
 import { agentModelFromValues, type AgentModel } from "../shared/agent-defaults";
 import { dispatcherDefaultModel, dispatcherProviderSupported } from "../shared/dispatcher";
 import { deviceLocale, formatLocale, getLocale, locales, msg, t, tn } from "../shared/i18n";
@@ -101,6 +104,7 @@ export function GeneralPage({ onTour, onWhatsNew }: { onTour(): void; /** Reopen
       >
         <SendBehaviorRow />
       </SettingsGroup>
+      {Platform.OS === "web" && <KeyboardGroup />}
       <SettingsGroup
         title={t("Welcome tour")}
       >
@@ -139,6 +143,29 @@ export function UsageDataGroup({ bare = false }: { bare?: boolean }) {
         onChange={(enabled) => telemetry.save({ enabled })}
       />
     </SettingsGroup>
+  );
+}
+
+/** The double tap of Ctrl (SHORTCUTS-SPEC §5); the gesture exists only on the web. */
+function KeyboardGroup() {
+  const shortcuts = useStored(useSettings(shortcutSettings), shortcutSettingsValues);
+  return (
+    <>
+      <Problem text={shortcuts.problem} />
+      <SettingsGroup title={t("Keyboard")}>
+        <SettingSwitch
+          title={t("Double-tap Ctrl to open Flowly")}
+          detail={t("Works anywhere in Paseo, even while typing. Turn off if macOS Dictation uses a double press of Control.")}
+          value={shortcuts.values?.doubleTapCtrl ?? true}
+          disabled={shortcuts.busy}
+          onChange={(doubleTapCtrl) => {
+            shortcuts.save({ doubleTapCtrl });
+            // Takes effect at once, not at the next read.
+            noteDoubleTapSetting(doubleTapCtrl);
+          }}
+        />
+      </SettingsGroup>
+    </>
   );
 }
 

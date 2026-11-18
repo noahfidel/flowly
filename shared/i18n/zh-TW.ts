@@ -1725,5 +1725,11 @@ const catalog: Catalog = {
   "Open session {label}": "開啟工作階段 {label}",
   "Open output {title}": "開啟產出 {title}",
   "Open pull request {label}": "開啟拉取請求 {label}",
+  "Flowly: View board (double-tap Ctrl)": "Flowly：檢視看板（按兩下 Ctrl）",
+  "Keyboard": "鍵盤",
+  "Double-tap Ctrl to open Flowly": "按兩下 Ctrl 開啟 Flowly",
+  "Works anywhere in Paseo, even while typing. Turn off if macOS Dictation uses a double press of Control.": "在 Paseo 任何位置都有效，打字時也一樣。如果 macOS 聽寫使用「按兩下 Control 鍵」，請關閉此項。",
+  "Open Flowly from anywhere in Paseo (double-tap Ctrl)": "在 Paseo 任何位置開啟 Flowly（按兩下 Ctrl）",
+  "Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General.": "在 Paseo 任何位置按兩下 Ctrl 即可開啟 Flowly。可在 設定 → 一般 中關閉。",
 };
 export default catalog;

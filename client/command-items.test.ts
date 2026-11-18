@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { commandItems } from "./command-items";
+import { commandItemTitle, commandItems } from "./command-items";
 import { parseBoardIntent, intentParams } from "./shortcuts";
 
 test("Flowly registers exactly View board then Quick task in the Command Center (QUICK-TASK-SPEC §7)", () => {
@@ -17,4 +17,9 @@ test("View board opens the board plainly; Quick task carries its intent", () => 
 
 test("item ids are unique (the host rejects a duplicate)", () => {
   expect(new Set(commandItems.map((item) => item.id)).size).toBe(commandItems.length);
+});
+
+test("View board names the double tap of Ctrl only while it is on (SHORTCUTS-SPEC §5)", () => {
+  expect(commandItems.map((item) => commandItemTitle(item, true))).toEqual(["Flowly: View board (double-tap Ctrl)", "Flowly: Quick task"]);
+  expect(commandItems.map((item) => commandItemTitle(item, false))).toEqual(["Flowly: View board", "Flowly: Quick task"]);
 });
