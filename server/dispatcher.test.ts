@@ -1631,6 +1631,12 @@ test("the charter asks the user with AskUserQuestion or a confirmed tool, never 
   // One ask at a time, and it never reaches a card's asks.
   expect(line).toMatch(/one ask at a time/i);
   expect(line).toMatch(/never answers a card's/);
+  // Never from a note or peer-message turn: a pending question would hold every later note and peer message (§7, §5.5).
+  expect(line).toMatch(/Never ask while answering a Flowly board update or another dispatcher's message/);
+  // Never for a "start" request (startRule wins), and a refused ask falls back to one line of text.
+  expect(line).toMatch(/never for a "start" request/);
+  expect(line).toMatch(/If AskUserQuestion is refused, ask in one line of text/);
+  expect(dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("BASE_CHOICE_NEEDED"))).toMatch(/BASE_CHOICE_NEEDED ask the user with AskUserQuestion/);
   expect(dispatcherCharterVersion).toBe(5);
   // The guard stays: an older dispatcher only lacks the tool, the charter's Replace warning covers it (§3).
   expect(dispatcherGuardVersion).toBe(2);
