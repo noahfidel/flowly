@@ -25,6 +25,7 @@ import type { GalleryImage } from "../shared/gallery";
 import { stepGallery } from "./gallery-logic";
 import { useGalleryImage } from "./gallery-image";
 import { hasWindowButtons, onKeyDown } from "./gallery-web";
+import { useShortcutBlock } from "./shortcuts";
 import { font, message, noFocusRing, radius, space, touch } from "./ui";
 
 type Zone = "top" | "bottom" | "left" | "right";
@@ -161,6 +162,9 @@ export function GalleryViewer({
   onClose: () => void;
 }) {
   const item = items[index];
+  // Board shortcuts (j/k, Shift+H/L, e, Esc…) stay off while the viewer is open, like any plugin modal: the board's
+  // key handler then neither acts on nor stops Esc and the arrows, so they reach the viewer's own listener below.
+  useShortcutBlock(true);
   const { uri, error } = useGalleryImage(item.image, "full", true);
   const hoverable = Platform.OS === "web";
   const compact = touch;
