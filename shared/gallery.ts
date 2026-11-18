@@ -31,7 +31,7 @@ export function isGalleryArtifact(a: Pick<Artifact, "role" | "kind" | "plan" | "
   return a.role === "output" && a.kind === "file" && !a.plan && !a.origin && !a.external;
 }
 
-/** A plain file name: no path separators, no `.`/`..`, no NUL. */
+/** A plain file name: not empty, `.` or `..`, and no `/`, `\\` or NUL (`v1..2.png` is fine). Listed and served names both pass it. */
 export function plainFileName(name: string) {
-  return !!name && name !== "." && name !== ".." && !/[/\\\0]/.test(name) && !name.includes("..");
+  return !!name && name !== "." && name !== ".." && !/[/\\\0]/.test(name);
 }

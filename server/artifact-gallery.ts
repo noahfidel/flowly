@@ -69,7 +69,7 @@ export async function galleryImages(list: readonly Artifact[], where: ArtifactRo
     if (!info.isDirectory()) continue;
     let names: string[];
     try {
-      names = (await readdir(path)).filter(isGalleryImageName).sort(compareNames);
+      names = (await readdir(path)).filter((name) => plainFileName(name) && isGalleryImageName(name)).sort(compareNames);
     } catch (e) {
       logFailure("Gallery folder not read:", e, path);
       continue;

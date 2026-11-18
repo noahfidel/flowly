@@ -206,3 +206,11 @@ test.runIf(process.platform === "darwin")("macOS: a large image gets a smaller s
   // The second read is served from the cache, unchanged.
   expect(await readGalleryImage(file, "thumb", cache)).toBe(thumb);
 }, 20_000);
+
+test("a name with a double dot inside is an ordinary file name: listed and served", async () => {
+  const x = await setup();
+  await writeFile(join(x.ws, "shots", "v1..2.png"), PNG);
+  const folder = artifact("./shots");
+  expect((await galleryImages([folder], x.where)).map((i) => i.name)).toEqual(["v1..2.png"]);
+  expect((await galleryImageFile(folder, "v1..2.png", x.where)).path).toBe(join(x.ws, "shots", "v1..2.png"));
+});
