@@ -335,7 +335,7 @@ project.reviewDraft?: {
 }
 ```
 
-- **Inheritance (ruling, Noah 2026-11-18)**: `project.autoReview` is the project's override; absent, the project follows its group's `defaults.autoReview` (`{ enabled, maxRounds }`, same limits), and a group without one means off with 2 rounds. `projects.update` takes `autoReview: { enabled, maxRounds } | null` (null removes the override); `groups.update` takes `defaults.autoReview` the same way. `projects.create` stores none. A one-time start step collapses the values stored before into the groups (BOARD-GROUPS-SPEC §7 step 9).
+- **Inheritance (ruling, Noah 2026-11-18)**: `project.autoReview` is the project's override; absent, the project follows its group's `defaults.autoReview` (`{ enabled, maxRounds }`, same limits), and a group without one means off with 2 rounds. `projects.update` takes `autoReview: { enabled, maxRounds } | null` (null removes the override); `groups.update` takes `defaults.autoReview` the same way. `projects.create` stores none. A one-time start step collapses the values stored before into the groups (BOARD-GROUPS-SPEC §7 step 9). A project restored from a folder copy written before this change with no value stored gets the override Off, 2 rounds; copies written since restore exactly as saved (ruling, Noah 2026-11-18; PROJECT-FOLDER-SPEC §3).
 - Writing a draft does not change the project revision; changes to `autoReview` (Save, Apply, Add check) change the project revision.
 - **Migration**: a project that has only the P1 `checks` reads them as command checks (`id` generated from the name, a number appended on duplicates), rewritten as `rules` on the next save; invalid old data is kept, not reset.
 

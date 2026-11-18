@@ -130,6 +130,9 @@ exactly one group. Individual projects are no longer top-level navigation.
   override; this supersedes the 2026-11-10 ruling's listing of auto review as repo-bound (check commands stay per
   project). A group with no value means Off. Migration collapses each group to its members' most common value
   (ruling, Noah 2026-11-18). New projects store no value and follow their group (§1, §2, §5, §7 step 9).
+- Ruling (Noah, 2026-11-18): the collapse counts only a group's live members; archived members count only when the
+  group has no live one (§7 step 9). A project restored from a folder copy written before this change, with no
+  value stored, keeps Off as its own override (PROJECT-FOLDER-SPEC §3).
 
 ## 1. Model
 
@@ -491,13 +494,16 @@ next start (the record's session is still v1, the board has groups, so step 4 ru
    members. Each project's own order is unchanged. No revision is bumped; a second start writes nothing. A downgrade
    drops `orderGroupId`; re-upgrading migrates the order again from the then-current positions.
 9. **Auto review collapse** (ruling, Noah 2026-11-18): part of the same start write, once, while `board.autoReviewGroups`
-   is not set and the board has projects. For each group with at least one member (archived ones count), each
-   member's stored value is read as it applied before (absent: Off, 2 rounds); the group's `defaults.autoReview` becomes
-   the most common value (enabled and rounds compared as a pair; a tie goes to Off/2 when it is among the tied values,
-   else to the first in member order). Members whose value equals it drop theirs and inherit; the others keep their
-   value as an override (an absent one in an On group gets `{ enabled: false, maxRounds: 2 }`). A stored value that
-   still carries rules from before guardrails stays on its project, so the guardrails migration can read them.
-   Groups without members stay unset. Every project's effective value is the same before and after; no revision is
+   is not set and the board has projects. For each group with at least one member, each member's stored value is read
+   as it applied before (absent: Off, 2 rounds); the group's `defaults.autoReview` becomes the most common value among
+   its live (non-archived) members, and among all its members only when it has no live one (ruling, Noah 2026-11-18;
+   enabled and rounds compared as a pair; a tie goes to Off/2 when it is among the tied values, else to the first in
+   member order). Members, archived ones included, whose value equals it drop theirs and inherit; the others keep
+   their value as an override (an absent one in an On group gets `{ enabled: false, maxRounds: 2 }`). A group that
+   already has a value keeps it, and its members without a value keep inheriting, so running the step again changes
+   nothing. While the guardrails migration has not run yet (`guardrails.json` does not exist), a stored value that
+   still carries rules from before guardrails stays on its project, so that migration can read them; otherwise only
+   enabled and rounds are compared. Groups without members stay unset. Every project's effective value is the same before and after; no revision is
    bumped. The step then sets `autoReviewGroups`, so it never runs again (a group value cleared later stays cleared).
    A start that finds no projects writes nothing; the first later write sets the marker, since every project from
    then on is stored the new way.

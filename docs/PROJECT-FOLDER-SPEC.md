@@ -25,6 +25,7 @@ The migration only copies. `board.json` stays the source of truth in the plugin 
 
 ```
 { format: "flowly-project", version: 1, savedAt, boardVersion: 4,
+  autoReviewInherits: true, // written since Auto review moved to board groups (§3); absent in older copies
   project,                 // projectSchema record
   tasks, events, ideas,    // all cards of the project (archived included), their events and ideas
   links,                   // links whose both ends are in this project
@@ -57,6 +58,9 @@ Writing:
 3. One board transaction: insert the project (same ID, `primaryPath` = the resolved folder, `paseoProjectId` = the current native ID, `revision` + 1, `archivedAt` kept), its tasks, events, ideas and links. Refuse if the project ID exists. Cards whose workspace ID is bound by another card keep their record but get the placeholder `workspaceId: "unbound-<taskId>"` (unique, resolves to no workspace) and lose `ownsWorkspace`; a clashing `operationId` becomes `restored-<taskId>`; their drawers show the existing *Workspace unavailable* state. Every restored card gets one event `restored` (actor human, note “Restored from project folder”) and its `revision` + 1, so agent tools holding old revisions must re-read. Receipts start empty.
 4. Summaries in the snapshot are merged into `summaries.json` for those task IDs (existing entries win).
 5. Writes the snapshot again from the restored board.
+6. When the restored project's effective Auto review is on, its check commands are detected (GUARDRAILS-SPEC §4.5).
+
+Auto review (ruling, Noah 2026-11-18): the restored project joins the default group (BOARD-GROUPS-SPEC §7 step 6). A copy with `autoReviewInherits: true` restores its Auto review exactly as saved: no value means the project follows its group. A copy without the marker was written before Auto review moved to groups, when no value meant Off; such a project gets the explicit override `{ enabled: false, maxRounds: 2 }`, and a stored value is kept as it is. The marker is a new optional field, not a new `version`, so older readers still accept the file. The startup write (§1.1) rewrites a current copy that lacks the marker once.
 
 Linked projects (`links`): the root directory with its symlinks is restored as it is on disk; recorded links whose symlink no longer exists are dropped from the record.
 
