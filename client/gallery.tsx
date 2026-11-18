@@ -33,14 +33,13 @@ import { Section, ShowMore, pageSize, type SectionState } from "./disclosure";
 import { useReducedMotion } from "./motion";
 import { useStableCallback } from "./stable";
 import { font, noFocusRing, radius, space, useTheme } from "./ui";
-import { galleryArtifactKey, galleryColumns, galleryPageSize, galleryPath, galleryTileSize, showGallery } from "./gallery-logic";
+import { galleryArtifactKey, galleryColumns, galleryItemKey as itemKey, galleryPageSize, galleryPath, gallerySelection, galleryTileSize, keepCardListing, showGallery } from "./gallery-logic";
 import { useGalleryImage } from "./gallery-image";
 import { GalleryViewer, type ViewerItem } from "./gallery-viewer";
 
 /** Shared empty listing, so a card without images never hands a fresh array to memoized children. */
 const NO_IMAGES: readonly GalleryImage[] = [];
 const GAP = space[2];
-const itemKey = (image: GalleryImage) => `${image.artifactId}\u0000${image.name}`;
 
 /**
  * The card's gallery listing (no bytes). Read when the drawer shows the card or its output files change, like the
@@ -52,6 +51,8 @@ function useCardGallery(taskId: string, fileKey: string, active: boolean) {
     queryKey: ["flowly", "artifact-gallery", taskId, fileKey],
     queryFn: () => read({ taskId }),
     enabled: active && !!fileKey,
+    // A changed output list keeps the last listing until the new one arrives, so the section and viewer stay put.
+    placeholderData: keepCardListing(taskId),
     staleTime: 30_000,
     retry: false,
   });
@@ -135,13 +136,17 @@ export function TaskGallery({ task, active, section }: { task: Task; active: boo
     const item = items[index];
     if (item) setSelected(itemKey(item.image));
   });
+  // Track the open image by key so a new listing that adds images does not change what is shown.
+  const selectedIndex = gallerySelection(images, selected);
+  // An image that left the listing closes the viewer for good; it never reopens when the image comes back.
+  useEffect(() => {
+    if (selected !== null && selectedIndex < 0 && !gallery.isPlaceholderData) setSelected(null);
+  }, [selected, selectedIndex, gallery.isPlaceholderData]);
   if (!showGallery(images)) return null;
   const size = galleryTileSize(width, GAP);
   const step = galleryPageSize(pageSize, galleryColumns(width, GAP));
   const limit = pages * step;
   const rest = items.length - limit;
-  // Track the open image by key so a new listing that adds images does not change what is shown.
-  const selectedIndex = selected === null ? -1 : items.findIndex((item) => itemKey(item.image) === selected);
   return (
     <>
       <Section id={task.id} focusId="gallery" title={t("Gallery")} count={items.length} open={section.open} onToggle={section.onToggle}>

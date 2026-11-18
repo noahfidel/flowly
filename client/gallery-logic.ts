@@ -40,3 +40,20 @@ export function galleryTileSize(width: number, gap: number, target = 110) {
 
 /** Tiles per page: the section's page size, rounded up to whole rows. */
 export const galleryPageSize = (pageSize: number, columns: number) => Math.max(1, columns) * Math.ceil(pageSize / Math.max(1, columns));
+
+/** One image's identity in the gallery: its output and its file name. */
+export const galleryItemKey = (image: Pick<GalleryImage, "artifactId" | "name">) => `${image.artifactId}\u0000${image.name}`;
+
+/** Where the open image is in the listing; -1 when none is open or it is gone (then the viewer closes). */
+export function gallerySelection(images: readonly GalleryImage[], selected: string | null) {
+  return selected === null ? -1 : images.findIndex((image) => galleryItemKey(image) === selected);
+}
+
+/**
+ * Placeholder for the listing query: while a changed output key loads, keep this card's last listing (so the
+ * section and an open viewer stay); never carry over another card's (the key's third part is the card id).
+ */
+export function keepCardListing(taskId: string) {
+  return <T>(previous: T | undefined, previousQuery: { queryKey: readonly unknown[] } | undefined): T | undefined =>
+    previousQuery?.queryKey[2] === taskId ? previous : undefined;
+}

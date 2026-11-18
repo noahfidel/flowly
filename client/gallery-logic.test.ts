@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Artifact } from "../shared/model";
-import { galleryArtifactKey, galleryImageKey, galleryPageSize, galleryPath, galleryTileSize, showGallery, stepGallery } from "./gallery-logic";
+import { galleryArtifactKey, galleryImageKey, galleryItemKey, galleryPageSize, galleryPath, gallerySelection, galleryTileSize, keepCardListing, showGallery, stepGallery } from "./gallery-logic";
 
 const art = (id: string, extra: Partial<Artifact> = {}) =>
   ({ id, target: `./${id}`, role: "output", kind: "file", ...extra }) as Artifact;
@@ -50,5 +50,27 @@ describe("viewer stepping", () => {
     expect(stepGallery(2, 1, 3)).toBe(2);
     expect(stepGallery(2, -1, 3)).toBe(1);
     expect(stepGallery(0, 1, 1)).toBe(0);
+  });
+});
+
+describe("listing across output changes", () => {
+  const listing = { images: [{ artifactId: "a", name: "1.png", size: 1, mtime: 1 }] };
+  test("a new output key keeps the same card's last listing while the new one loads, never another card's", () => {
+    const keep = keepCardListing("t1");
+    expect(keep(listing, { queryKey: ["flowly", "artifact-gallery", "t1", "a:./a"] })).toBe(listing);
+    expect(keep(listing, { queryKey: ["flowly", "artifact-gallery", "t2", "a:./a"] })).toBeUndefined();
+    expect(keep(undefined, undefined)).toBeUndefined();
+  });
+
+  test("the open image is found by artifact and name; gone means closed", () => {
+    const images = [
+      { artifactId: "a", name: "1.png", size: 1, mtime: 1 },
+      { artifactId: "a", name: "2.png", size: 1, mtime: 1 },
+    ];
+    expect(gallerySelection(images, galleryItemKey(images[1]))).toBe(1);
+    expect(gallerySelection(images, galleryItemKey({ ...images[1], name: "3.png" }))).toBe(-1);
+    expect(gallerySelection(images, null)).toBe(-1);
+    // The key tells a folder's file from another output with the same name.
+    expect(galleryItemKey(images[0])).not.toBe(galleryItemKey({ ...images[0], artifactId: "b" }));
   });
 });
