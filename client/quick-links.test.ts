@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Artifact } from "../shared/model";
-import { QUICK_LIMIT, prNumberOf, prStateOf, quickLinks, quickSessionState, type QuickSession } from "./quick-links";
+import { QUICK_LIMIT, activeQuickSession, prNumberOf, prStateOf, quickLinks, quickSessionState, type QuickSession } from "./quick-links";
 
 /** Card home quick links (DRAWER-SPEC "Quick links"): which chips, their order, limits, states and "+N more". */
 
@@ -125,4 +125,18 @@ test("a full card: PR, sessions with a waiting one, outputs past the limit", () 
   expect(kinds(chips)).toEqual([`pr:${pr.id}`, "session:b", "session:a", `output:${outs[0].id}`, `output:${outs[2].id}`, `output:${outs[3].id}`, "more:artifacts:1"]);
   expect(chips[0]).toMatchObject({ state: "draft" });
   expect(chips[1]).toMatchObject({ state: "waiting", title: "Review" });
+});
+
+test("the active session is the first in the Quick links order, or null", () => {
+  expect(activeQuickSession([])).toBeNull();
+  // waiting beats running beats done, even when the done one is newer
+  expect(activeQuickSession([session("d", 30, "done"), session("r", 10, "running"), session("w", 5, "waiting")])).toBe("w");
+  expect(activeQuickSession([session("d", 30, "done"), session("r", 10, "running")])).toBe("r");
+  expect(activeQuickSession([session("e", 30, "error"), session("r", 10, "running")])).toBe("r");
+  // among equal states the newest wins
+  expect(activeQuickSession([session("old", 1, "running"), session("new", 9, "running"), session("mid", 5, "running")])).toBe("new");
+  // it is the first session chip of quickLinks
+  const mixed = [session("a", 1, "done"), session("b", 2, "error"), session("c", 3, "running"), session("d", 4, "done"), session("e", 5, "waiting"), session("f", 6, "running")];
+  const first = quickLinks({ outputs: [], sessions: mixed }).find((c) => c.kind === "session");
+  expect(first?.kind === "session" ? first.id : null).toBe(activeQuickSession(mixed));
 });
