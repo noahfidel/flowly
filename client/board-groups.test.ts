@@ -3,7 +3,6 @@ import {
   boardProject,
   boardScope,
   defaultGroup,
-  focusFilter,
   focusProject,
   groupMembers,
   groupOfProject,
@@ -22,7 +21,6 @@ import {
   pageScope,
   addProject,
   pickGroupView,
-  restoredFilter,
   staleGroupChoice,
   validProjectFilter,
 } from "./board-groups";
@@ -322,14 +320,6 @@ describe("review fixes (2026-11-10)", () => {
 });
 
 describe("project filter", () => {
-  // §4: the filter is kept in the board-view settings too; this run's own choice (even "none") wins once made.
-  test("a fresh board takes the stored filter; a filter already set or cleared in this run wins", () => {
-    const stored = { groupId: "g1", projectId: "a" };
-    expect(restoredFilter(undefined, stored)).toEqual(stored);
-    expect(restoredFilter(undefined, null)).toBeNull();
-    expect(restoredFilter({ groupId: "g2", projectId: "b" }, stored)).toEqual({ groupId: "g2", projectId: "b" });
-    expect(restoredFilter(null, stored)).toBeNull();
-  });
   const f = { groupId: "g1", projectId: "a" };
   test("valid while the group is shown and the project is a member", () => {
     expect(validProjectFilter(f, "g1", ["a", "b"])).toBe("a");
@@ -347,11 +337,6 @@ describe("project filter", () => {
     expect(boardProject("zzz", members)).toBeUndefined();
     expect(boardProject("", groupMembers(zen, projects))?.id).toBe("c");
     expect(boardProject("", [])).toBeUndefined();
-  });
-  test("focusing a project in another group filters to it; in the shown group it leaves the filter alone", () => {
-    expect(focusFilter(null, "g1", "g2", "c")).toEqual({ groupId: "g2", projectId: "c" });
-    expect(focusFilter(f, "g1", "g1", "b")).toBe(f);
-    expect(focusFilter(null, "g1", "g1", "b")).toBeNull();
   });
 });
 
@@ -382,24 +367,28 @@ describe("what Insights, Ideas and Memory cover", () => {
   });
 });
 
-// §3: opening a card, link or search hit, and a project just created (ruling, Noah 2026-11-11: the board is filtered
-// to the new project).
+// §3: opening a card, link or search hit never changes a filter (ruling, Noah 2026-11-18: per-group filter); only a
+// pinned focus (Ideas from a card, Memory, a new project) sets the target group's filter.
 describe("focusing a project", () => {
   const shown = (groupId: string, filter: { groupId: string; projectId: string } | null = null, boardProjectId = "") => ({ groupId, filter, boardProjectId });
   test("always names the target group as the explicit choice, so a stored group read later cannot replace it", () => {
     expect(focusProject(groups, projects, shown("g1"), "a", false)).toEqual({ groupId: "g1", filter: null });
   });
-  test("in the shown group the filter is left as it is", () => {
+  test("in the shown group a plain focus leaves every filter alone", () => {
     const f = { groupId: "g1", projectId: "b" };
-    expect(focusProject(groups, projects, shown("g1", f, "b"), "a", false)).toEqual({ groupId: "g1", filter: f });
+    expect(focusProject(groups, projects, shown("g1", f, "b"), "a", false)).toEqual({ groupId: "g1", filter: null });
   });
-  test("pinned (Ideas, Memory, a new project) filters to the project unless the board already shows only it", () => {
+  test("pinned (Ideas, Memory, a new project) sets the target group's filter unless the board already shows only it", () => {
     expect(focusProject(groups, projects, shown("g1"), "a", true)).toEqual({ groupId: "g1", filter: { groupId: "g1", projectId: "a" } });
     const f = { groupId: "g1", projectId: "a" };
-    expect(focusProject(groups, projects, shown("g1", f, "a"), "a", true)).toEqual({ groupId: "g1", filter: f });
+    expect(focusProject(groups, projects, shown("g1", f, "a"), "a", true)).toEqual({ groupId: "g1", filter: null });
   });
-  test("another group's project opens that group filtered to it", () => {
-    expect(focusProject(groups, projects, shown("g1"), "c", false)).toEqual({ groupId: "g2", filter: { groupId: "g2", projectId: "c" } });
+  test("another group's project opens that group and leaves every filter alone", () => {
+    expect(focusProject(groups, projects, shown("g1"), "c", false)).toEqual({ groupId: "g2", filter: null });
+    expect(focusProject(groups, projects, shown("g1", { groupId: "g1", projectId: "a" }, "a"), "c", false)).toEqual({ groupId: "g2", filter: null });
+  });
+  test("pinned in another group sets only that group's filter", () => {
+    expect(focusProject(groups, projects, shown("g1"), "c", true)).toEqual({ groupId: "g2", filter: { groupId: "g2", projectId: "c" } });
   });
   test("no group to open: nothing", () => {
     expect(focusProject([], projects, shown(""), "a", false)).toBeNull();

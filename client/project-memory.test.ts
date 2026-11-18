@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { lastProjectFilter, lastViewedGroupView, lastViewedProject, pickProject, rememberViewedGroupView, rememberViewedProject, writeProjectFilter, writeViewedGroup } from "./project-memory";
+import { lastProjectFilter, lastViewedGroupView, lastViewedProject, pickProject, rememberProjectFilter, rememberViewedGroupView, rememberViewedProject, restoredFilters, writeProjectFilter, writeViewedGroup } from "./project-memory";
 
 const projects = [{ id: "a" }, { id: "b" }, { id: "c" }];
 
@@ -28,22 +28,41 @@ test("the group view last viewed is remembered for this run; an empty value is i
   expect(lastViewedGroupView()).toBe("*group:g2");
 });
 
-test("the board writes the project filter to run state and the store; skips the store when unchanged", () => {
+test("the board writes a group's project filter to run state and the store; skips the store when unchanged", () => {
   const stored: unknown[] = [];
-  const f = { groupId: "g1", projectId: "p1" };
-  writeProjectFilter(f, "board", null, (x) => stored.push(x));
-  expect(lastProjectFilter()).toEqual(f);
-  expect(stored).toEqual([f]);
-  writeProjectFilter(f, "board", { ...f }, (x) => stored.push(x));
+  writeProjectFilter("g1", "p1", "board", {}, (x) => stored.push(x));
+  expect(lastProjectFilter("g1")).toBe("p1");
+  expect(stored).toEqual([{ g1: "p1" }]);
+  writeProjectFilter("g1", "p1", "board", { g1: "p1" }, (x) => stored.push(x));
   expect(stored).toHaveLength(1);
 });
 
+test("run state is per group: clearing one group leaves another's entry", () => {
+  const stored: Record<string, string>[] = [];
+  writeProjectFilter("g2", "p2", "board", { g1: "p1" }, (x) => stored.push(x));
+  expect(stored[0]).toEqual({ g1: "p1", g2: "p2" });
+  writeProjectFilter("g1", null, "board", stored[0], (x) => stored.push(x));
+  expect(stored[1]).toEqual({ g2: "p2" });
+  expect(lastProjectFilter("g1")).toBeNull();
+  expect(lastProjectFilter("g2")).toBe("p2");
+  expect(lastProjectFilter("never-set")).toBeUndefined();
+});
+
+test("the effective filter of a group is this run's value, else the stored one", () => {
+  rememberProjectFilter("g7", null);
+  rememberProjectFilter("g8", "p8");
+  const stored = { g7: "x", g8: "y", g9: "p9" };
+  expect(restoredFilters(stored)).toMatchObject({ g8: "p8", g9: "p9" });
+  expect(restoredFilters(stored).g7).toBeUndefined();
+});
+
 test("the workspace panel never writes the project filter", () => {
-  const before = lastProjectFilter();
+  const before = lastProjectFilter("g1");
   const store = vi.fn();
-  writeProjectFilter({ groupId: "g9", projectId: "p9" }, "panel", null, store);
-  writeProjectFilter(null, "panel", { groupId: "g1", projectId: "p1" }, store);
-  expect(lastProjectFilter()).toEqual(before);
+  writeProjectFilter("g9", "p9", "panel", {}, store);
+  writeProjectFilter("g1", null, "panel", { g1: "p1" }, store);
+  expect(lastProjectFilter("g1")).toEqual(before);
+  expect(lastProjectFilter("g9")).toBeUndefined();
   expect(store).not.toHaveBeenCalled();
 });
 

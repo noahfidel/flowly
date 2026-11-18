@@ -36,7 +36,13 @@ export const boardViewSettings = defineSettings({
     lastAddProjectId: z.string().max(200).catch("").default(""),
     /** The group last viewed on the board (BOARD-GROUPS-SPEC §3); a group that no longer exists opens the default group. */
     lastGroupId: z.string().max(200).catch("").default(""),
-    /** The board's Project filter, with the group it was set in (BOARD-GROUPS-SPEC §4); read through validProjectFilter. */
+    /** The Project filter of each group, by group id (BOARD-GROUPS-SPEC §4, ruling, Noah 2026-11-18); read through validProjectFilter. */
+    projectFilters: z
+      .record(z.string().min(1).max(200), z.string().min(1).max(200))
+      .transform((r) => Object.fromEntries(Object.entries(r).slice(0, 100)))
+      .catch({})
+      .default({}),
+    /** Before per-group filters: the one filter and its group; only read (`storedFilters`) and cleared when `projectFilters` is written. */
     lastFilter: z.object({ groupId: z.string().min(1).max(200), projectId: z.string().min(1).max(200) }).nullable().catch(null).default(null),
     /** Order of cards inside each column. */
     boardSort: z.enum(boardSorts).default("manual"),
@@ -87,6 +93,12 @@ export const boardViewSettings = defineSettings({
 });
 
 export type BoardView = z.infer<typeof boardViewSettings.schema>;
+/** The stored per-group filters; the legacy single `lastFilter` seeds its group when `projectFilters` has no entry for it. */
+export function storedFilters(values: { projectFilters: Record<string, string>; lastFilter: { groupId: string; projectId: string } | null }): Record<string, string> {
+  const { lastFilter } = values;
+  return lastFilter && !(lastFilter.groupId in values.projectFilters) ? { ...values.projectFilters, [lastFilter.groupId]: lastFilter.projectId } : values.projectFilters;
+}
+
 /**
  * Stored values may predate newer fields (the host does not apply schema
  * defaults), so always read through this to get a complete, valid object.

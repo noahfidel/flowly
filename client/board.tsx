@@ -108,7 +108,7 @@ import { SettingsOpenerContext } from "./settings-opener";
 import { findingDescription, workflowInsightsSettings, workflowSettingsValues, type Finding } from "../shared/workflow-insights";
 import { WrapupModal } from "./wrapup";
 import { SwitchModal, type SwitchDirection } from "./workspace-switch";
-import { performanceLogOn, performanceSettings, featureSettings, featureSettingsValues, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, shortcutSettings, shortcutSettingsValues, wrapupSettings, wrapupSettingsValues } from "../shared/settings";
+import { performanceLogOn, performanceSettings, featureSettings, featureSettingsValues, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, shortcutSettings, shortcutSettingsValues, wrapupSettings, wrapupSettingsValues, storedFilters } from "../shared/settings";
 import { pickOutputSession } from "./card-output";
 import { statusChanges } from "./changes";
 import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuControl, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
@@ -133,8 +133,8 @@ import { searchSources as allSearchSources, type SearchCard, type SearchHit, typ
 import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 // board-groups 3/7: group-only navigation (BOARD-GROUPS-SPEC §3).
-import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, writeProjectFilter, type BoardInstance, writeViewedGroup } from "./project-memory";
-import { boardProject, boardScope, defaultGroup, focusFilter, focusProject, mobileLane, groupMembers, groupNewTask, groupOfProject, groupQuickProject, groupViewId, otherGroupNeeds, overviewScope, pageScope, pickGroupView, restoredFilter, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
+import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, restoredFilters, writeProjectFilter, type BoardInstance, writeViewedGroup } from "./project-memory";
+import { boardProject, boardScope, defaultGroup, focusProject, mobileLane, groupMembers, groupNewTask, groupOfProject, groupQuickProject, groupViewId, otherGroupNeeds, overviewScope, pageScope, pickGroupView, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
 import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { GroupTabs, needLabel } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
@@ -643,33 +643,43 @@ function BoardContent(
     () => (group ? groupMembers(group, board?.projects || []) : allLiveProjects),
     [board?.projects, groupKey, allLiveProjects],
   );
-  // The Project filter (BOARD-GROUPS-SPEC §4): one project of the group shown, remembered for this app run and in the
-  // board-view settings (a restart starts from the stored one). It is read through validProjectFilter (the group may
-  // differ or the project have left) and cleared once the group is known.
+  // The Project filter (BOARD-GROUPS-SPEC §4, ruling, Noah 2026-11-18: per-group filter): each group keeps its own,
+  // remembered for this app run and in the board-view settings (a restart starts from the stored ones). The shown
+  // group's is read through validProjectFilter (the project may have left); switching group never changes any.
   // The workspace panel shares module state and board-view settings with the main board but never writes them.
   const instance: BoardInstance = props.workspaceId ? "panel" : "board";
-  const [projectFilter, setProjectFilterState] = useState<ProjectFilter>(() => lastProjectFilter() ?? null);
-  const setProjectFilter = useStableCallback((next: ProjectFilter) => {
-    setProjectFilterState(next);
-    writeProjectFilter(next, instance, view.values?.lastFilter ?? null, (f) => void view.update({ lastFilter: f }));
+  const [filters, setFilters] = useState<Record<string, string>>(() => restoredFilters({}));
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+  const setGroupFilter = useStableCallback((groupId: string, projectId: string | null) => {
+    const base = filtersRef.current;
+    const next = { ...base };
+    if (projectId === null) delete next[groupId];
+    else next[groupId] = projectId;
+    filtersRef.current = next;
+    setFilters(next);
+    // `lastFilter: null` retires the legacy single filter in the same update.
+    writeProjectFilter(groupId, projectId, instance, base, (f) => void view.update({ projectFilters: f, lastFilter: null }));
   });
-  // A fresh run (nothing set in this run yet) takes the stored filter once the settings have loaded.
+  const projectFilter: ProjectFilter = group && filters[group.id] ? { groupId: group.id, projectId: filters[group.id] } : null;
+  // A fresh run takes the stored filters once the settings have loaded (this run's own choices win).
   const filterRestored = useRef(false);
   useEffect(() => {
     if (filterRestored.current || !view.values) return;
     filterRestored.current = true;
-    const start = restoredFilter(lastProjectFilter(), view.values.lastFilter);
-    if (start && JSON.stringify(start) !== JSON.stringify(projectFilter)) {
-      // The panel only reads the saved filter; the main board also remembers it for this run.
-      if (instance === "board") rememberProjectFilter(start);
-      setProjectFilterState(start);
+    const start = restoredFilters(storedFilters(view.values));
+    if (JSON.stringify(start) !== JSON.stringify(filtersRef.current)) {
+      // The panel only reads the saved filters; the main board also remembers them for this run.
+      if (instance === "board") for (const [g, p] of Object.entries(start)) if (lastProjectFilter(g) === undefined) rememberProjectFilter(g, p);
+      setFilters(start);
     }
   }, [!!view.values]);
   const validFilterId = validProjectFilter(projectFilter, group?.id ?? "", liveProjects.map((p) => p.id));
   useEffect(() => {
-    // Only once the stored filter and group are read: before that a stored filter would be cleared against the default
-    // group. `projectFilter` is a dependency: a stale stored filter restored after the overview loaded is cleared too.
-    if (projectFilter && group && overviewData.data && view.values && !validFilterId) setProjectFilter(null);
+    // Only once the stored filters and group are read: before that a stored filter would be cleared against the default
+    // group. Clears the shown group's entry only, when its project left the group or was archived; never because a
+    // different group is shown.
+    if (projectFilter && group && overviewData.data && view.values && !validFilterId) setGroupFilter(group.id, null);
   }, [groupKey, validFilterId, !!overviewData.data, !!view.values, projectFilter?.groupId, projectFilter?.projectId]);
   // `project` is a board's one project: the filtered one, or the only one of a one-project group; none shows every
   // project of the group, each card using its own (projectOf).
@@ -716,9 +726,8 @@ function BoardContent(
     const next = focusProject(boardGroups, board?.projects || [], { groupId: group?.id ?? "", filter: projectFilter, boardProjectId: project?.id ?? "" }, id, pin);
     if (!next) return;
     if (manual && next.groupId !== group?.id) ignoredLink.current = linkKey;
-    // Also when unchanged on a fresh run: the focus is this run's filter choice, so a stored filter restored later
-    // cannot hide the focused card (restoredFilter).
-    if (lastProjectFilter() === undefined || JSON.stringify(next.filter) !== JSON.stringify(projectFilter)) setProjectFilter(next.filter);
+    // Only a pinned focus sets the target group's filter; opening a card leaves every group's filter as it is.
+    if (next.filter) setGroupFilter(next.filter.groupId, next.filter.projectId);
     // Always the explicit choice, also in the group shown: before the settings load the shown group is the default one,
     // and the stored group read then must not take the card's group away (§3).
     setProject(groupViewId(next.groupId));
@@ -2017,7 +2026,7 @@ function BoardContent(
       // Resolved against this tab's group, not the board shown (§4): its filter, else the last quick-task project when a
       // member, else its first member.
       onPress: () => {
-        const next = groupNewTask(g, board?.projects || noProjects, projectFilter, view.values?.lastQuickProjectId ?? "", view.values?.quickTaskDefault ?? true);
+        const next = groupNewTask(g, board?.projects || noProjects, filters[g.id] ? { groupId: g.id, projectId: filters[g.id] } : null, view.values?.lastQuickProjectId ?? "", view.values?.quickTaskDefault ?? true);
         chooseGroup(g.id);
         if (!next) return;
         if (next.kind === "form") setTaskForm({ status: "todo", projectId: next.projectId });
@@ -2761,7 +2770,7 @@ function BoardContent(
                     { value: "", label: t("All") },
                     ...liveProjects.map((p) => ({ value: p.id, label: p.title })),
                   ]}
-                  onChange={(id) => setProjectFilter(id && group ? { groupId: group.id, projectId: id } : null)}
+                  onChange={(id) => group && setGroupFilter(group.id, id || null)}
                 />
               )}
               <Field
@@ -2854,7 +2863,7 @@ function BoardContent(
                   quiet
                   disabled={!filterCount}
                   onPress={() => {
-                    setProjectFilter(null);
+                    if (group) setGroupFilter(group.id, null);
                     setSearch("");
                     setPriority("all");
                     setTaskType("all");

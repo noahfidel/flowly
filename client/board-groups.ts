@@ -113,18 +113,13 @@ export function quickGroupProject<P extends GroupMember>(group: Pick<Group, "id"
   return members.find((p) => p.id === lastQuickProjectId) ?? members[0];
 }
 
-/** The board's Project filter: a project of the group shown (§3); it lives with the group it was set in. */
+/**
+ * The board's Project filter of the group shown: a project of that group (§3). Each group keeps its own (BOARD-GROUPS-SPEC §4,
+ * ruling, Noah 2026-11-18: per-group filter), so another group's filter never applies here.
+ */
 export type ProjectFilter = { groupId: string; projectId: string } | null;
 
 /** The filtered project's id while it applies: cleared ("") when no filter, another group is shown or the project left the group. */
-/**
- * The Project filter a board starts with (§4): the one set or cleared in this app run (`undefined`: none yet), else the
- * one stored in the board-view settings. Always read through `validProjectFilter`: the group or project may be gone.
- */
-export function restoredFilter(run: ProjectFilter | undefined, stored: ProjectFilter): ProjectFilter {
-  return run === undefined ? stored : run;
-}
-
 export function validProjectFilter(filter: ProjectFilter, groupId: string, memberIds: readonly string[]): string {
   return filter && filter.groupId === groupId && memberIds.includes(filter.projectId) ? filter.projectId : "";
 }
@@ -134,17 +129,12 @@ export function boardProject<P extends { id: string }>(filterProjectId: string, 
   return members.find((p) => p.id === filterProjectId) ?? (members.length === 1 ? members[0] : undefined);
 }
 
-/** Focusing a project (card, idea, search hit) in another group filters that group's board to it; in the shown group nothing changes (§3). */
-export function focusFilter(current: ProjectFilter, shownGroupId: string, targetGroupId: string, projectId: string): ProjectFilter {
-  return targetGroupId !== shownGroupId ? { groupId: targetGroupId, projectId } : current;
-}
-
 /**
  * Where focusing a project takes the board (§3): opening a card, a session chip, an idea link or a search hit, and a
  * project just created (pinned; ruling, Noah 2026-11-11). The target group is always returned as the explicit choice,
- * so a stored group read later never replaces it. In the shown group the filter stays, unless `pin` (the board must act
- * on this project: Ideas from a card, Memory, a new project) and the board does not already show only it; another
- * group's project opens that group filtered to it.
+ * so a stored group read later never replaces it. A plain focus never changes a filter (BOARD-GROUPS-SPEC §4, ruling,
+ * Noah 2026-11-18: per-group filter; `filter` null = leave them alone). Only `pin` (the board must act on this project:
+ * Ideas from a card, Memory, a new project) returns the target group's filter, unless the group shown already shows only it.
  */
 export function focusProject<G extends Pick<Group, "id" | "isDefault" | "position">>(
   groups: readonly G[],
@@ -155,8 +145,8 @@ export function focusProject<G extends Pick<Group, "id" | "isDefault" | "positio
 ): { groupId: string; filter: ProjectFilter } | null {
   const target = groups.length ? groupOfProject(groups, projects, projectId) : undefined;
   if (!target) return null;
-  if (target.id !== shown.groupId) return { groupId: target.id, filter: focusFilter(shown.filter, shown.groupId, target.id, projectId) };
-  return { groupId: target.id, filter: pin && shown.boardProjectId !== projectId ? { groupId: target.id, projectId } : shown.filter };
+  const already = target.id === shown.groupId && shown.boardProjectId === projectId;
+  return { groupId: target.id, filter: pin && !already ? { groupId: target.id, projectId } : null };
 }
 
 /**
