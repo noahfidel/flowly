@@ -44,15 +44,17 @@ export type BoardOverview = ReturnType<typeof boardOverview>;
  * status chips and Ideas / Memory / Insights only when both show.
  */
 export function overviewRow(
-  o: { runningTasks: number; needYou: number; updated: number },
+  o: { runningTasks: number; needYou: number; updated: number; prs?: number },
   tools: { ideas: boolean; memory: boolean; insights: boolean },
-): { running: boolean; needYou: boolean; updated: boolean; statusDivider: boolean; toolsDivider: boolean } {
+): { running: boolean; needYou: boolean; updated: boolean; prs?: boolean; statusDivider: boolean; toolsDivider: boolean } {
   const running = o.runningTasks > 0;
   const needYou = o.needYou > 0;
   const updated = o.updated > 0;
-  const status = running || needYou || updated;
+  // "N PRs" (PR-MENU-SPEC §2.1) sits with the status chips, only while the board has PRs.
+  const prs = (o.prs ?? 0) > 0;
+  const status = running || needYou || updated || prs;
   const anyTool = tools.ideas || tools.memory || tools.insights;
-  return { running, needYou, updated, statusDivider: status || anyTool, toolsDivider: status && anyTool };
+  return { running, needYou, updated, ...(o.prs !== undefined ? { prs } : {}), statusDivider: status || anyTool, toolsDivider: status && anyTool };
 }
 
 /** One row of the running list (DISPATCHER-SPEC §9.2a): a card with a working session. */

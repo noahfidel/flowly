@@ -1744,5 +1744,17 @@ const catalog: Catalog = {
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "自動審查在群組設定中按群組設定一次；專案會跟隨它，除非自行覆寫。",
   "Double-click a card to jump straight into its active session.": "按兩下卡片即可直接進入其作用中的工作階段。",
   "Switching to a group that needs you opens what waits there: its dispatcher chat or its first waiting card.": "切換到需要你處理的群組時，會開啟那裡等待的內容：其調度器聊天或第一張等待中的卡片。",
+  "Every pull request on this board, and the card that owns it, is one click away under N PRs.": "此看板上的每個 PR 及其所屬卡片，都可以在「N 個 PR」下一鍵開啟。",
+  "Pull requests": "提取要求",
+  "Every PR on the board in one list, under N PRs above the board; each row opens its card or the PR.": "看板上的所有 PR 集中在一個清單中，位於看板上方的「N 個 PR」；每一列可開啟其卡片或 PR。",
+  "Show {n} pull requests": "顯示 {n} 個提取要求",
+  "{n} PRs": "{n} 個 PR",
+  "Merged or closed": "已合併或已關閉",
+  "Merged": "已合併",
+  "Open card {card}: pull request {number} · {state}": "開啟卡片 {card}：提取要求 {number} · {state}",
+  "Open card {card}: pull request {number}": "開啟卡片 {card}：提取要求 {number}",
+  "Could not load pull requests.": "無法載入提取要求。",
+  "No pull requests on this board": "此看板上沒有提取要求",
+  "Open pull request": "開啟提取要求",
 };
 export default catalog;

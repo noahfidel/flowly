@@ -468,3 +468,19 @@ export function useGuardrailCountsQuery(enabled: boolean) {
     placeholderData: (previous) => previous,
   });
 }
+
+/**
+ * The board's pull requests menu (PR-MENU-SPEC §3.2): read only while the menu is open, once per open, reused for a
+ * minute; never on an interval or on window focus.
+ */
+export function usePrListQuery(projectIds: readonly string[], enabled: boolean) {
+  const read = useRpc(rpc.listPrs);
+  return useQuery({
+    queryKey: ["flowly", "prs", ...projectIds],
+    queryFn: () => read({ projectIds: [...projectIds] }),
+    enabled: enabled && projectIds.length > 0,
+    staleTime: 60_000,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+  });
+}

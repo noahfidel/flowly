@@ -1744,5 +1744,17 @@ const catalog: Catalog = {
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "自動レビューはグループ設定でグループごとに一度設定します。プロジェクトは上書きしない限りそれに従います。",
   "Double-click a card to jump straight into its active session.": "カードをダブルクリックすると、そのアクティブなセッションにすぐ移動できます。",
   "Switching to a group that needs you opens what waits there: its dispatcher chat or its first waiting card.": "あなたの対応待ちがあるグループに切り替えると、そこで待っているもの（そのディスパッチャーのチャット、または最初に待っているカード）が開きます。",
+  "Every pull request on this board, and the card that owns it, is one click away under N PRs.": "このボードのすべての PR と、それを持つカードは、「N 件の PR」からワンクリックで開けます。",
+  "Pull requests": "プルリクエスト",
+  "Every PR on the board in one list, under N PRs above the board; each row opens its card or the PR.": "ボード上のすべての PR を 1 つのリストに。ボード上部の「N 件の PR」から開き、各行でカードまたは PR を開けます。",
+  "Show {n} pull requests": "{n} 件のプルリクエストを表示",
+  "{n} PRs": "{n} 件の PR",
+  "Merged or closed": "マージ済みまたはクローズ済み",
+  "Merged": "マージ済み",
+  "Open card {card}: pull request {number} · {state}": "カード {card} を開く: プルリクエスト {number} · {state}",
+  "Open card {card}: pull request {number}": "カード {card} を開く: プルリクエスト {number}",
+  "Could not load pull requests.": "プルリクエストを読み込めませんでした。",
+  "No pull requests on this board": "このボードにプルリクエストはありません",
+  "Open pull request": "プルリクエストを開く",
 };
 export default catalog;

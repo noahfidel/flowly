@@ -642,9 +642,12 @@ export function Row({
   label,
   menu,
   testID,
+  detailLines = 1,
 }: {
   title: string;
   detail?: string;
+  /** Lines the detail may take before it truncates; 1 by default. */
+  detailLines?: number;
   icon?: string;
   iconColor?: string;
   leading?: ReactNode;
@@ -698,7 +701,7 @@ export function Row({
           {title}
         </Label>
         {!!detail && (
-          <Label muted size={font.sm} lines={1} selectable={false}>
+          <Label muted size={font.sm} lines={detailLines} selectable={false}>
             {detail}
           </Label>
         )}

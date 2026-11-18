@@ -68,6 +68,8 @@ import {
   type SnoozeList,
 } from "./attention";
 import { relativeTime } from "./ui";
+import { PrMenu } from "./pr-menu";
+import { prCount } from "./pr-list";
 import { stateColors } from "./state-colors";
 import { ProjectForm, TaskForm, type TaskSeed } from "./forms";
 import { QuickTaskForm } from "./quick-task-form";
@@ -204,6 +206,7 @@ const tipText: Record<TipId, (compact?: boolean) => string> = {
   "first-workflow-insight": () => t("Workflow insights found repeated work worth keeping. Open Insights to turn a suggestion into a card."),
   "lane-swipe": () => t("Swipe left or right to switch lanes."),
   "card-double-click": () => t("Double-click a card to jump straight into its active session."),
+  "pr-menu": () => t("Every pull request on this board, and the card that owns it, is one click away under N PRs."),
   "double-tap-ctrl": () => t("Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General."),
   "card-display": (compact) => compact
     // Compact puts the Sort choices and Card display… in the Filters dialog.
@@ -376,7 +379,7 @@ function BoardContent(
     [taskType, setTaskTypeState] = useState("all"),
     [tagFilter, setTagFilterState] = useState<string[]>([]),
     [archived, setArchivedState] = useState(false),
-    [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "running" | "shortcuts" | "settings" | null>(null),
+    [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "running" | "prs" | "shortcuts" | "settings" | null>(null),
     // First-run welcome tour (ONBOARDING-SPEC): opened once automatically, or by hand.
     [welcomeOpen, setWelcomeOpen] = useState(false),
     // The tour opened by itself for a new user (ONBOARDING-SETUP-SPEC §4); manual opens are not first runs.
@@ -965,6 +968,9 @@ function BoardContent(
     const next = runningOpen ? runningShown : noRunning;
     setRunningKept((kept) => (sameRunningRows(kept, next) ? kept : next));
   }, [runningOpen, runningShown]);
+  // The pull requests menu (PR-MENU-SPEC): its chip counts the shown projects' PRs from the overview's card facts.
+  const prsShown = useMemo(() => prCount(overviewCover.projects, board?.tasks ?? noTasks, factsByTask), [overviewCover, board?.tasks, factsByTask]);
+  const closeMenu = useStableCallback(() => setMenu(null));
   const needsIds = useMemo(() => needsQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   // Each group's dispatcher's own pending requests, from the same live agent list (§9.4; Ruling, Noah 2026-11-16): they
   // count in that group's need-you numbers, and the shown group's open its chat on N before any card.
@@ -1781,7 +1787,7 @@ function BoardContent(
   const tip = inPanel || !board || page
     ? null
     : !project
-      ? groupBoard ? nextTip({ tipsSeen: onboarding.values?.tipsSeen ?? [], facts: { ...noTipFacts, groupTabs: allLiveProjects.length > 1 }, blocked: tipBlocked }) : null
+      ? groupBoard ? nextTip({ tipsSeen: onboarding.values?.tipsSeen ?? [], facts: { ...noTipFacts, groupTabs: allLiveProjects.length > 1, prMenu: prsShown > 0 }, blocked: tipBlocked }) : null
       : project.archivedAt
         ? null
         : nextTip({
@@ -1818,6 +1824,7 @@ function BoardContent(
           cardPlan: !!task && !!currentDetail && planApproved(planOf(currentDetail.artifacts, task.id)),
           cardDoubleClick: Platform.OS === "web" && !compact && !task && projectTasks.some((x) => !x.archivedAt && !!cardIndex.agentsByWorkspace.get(x.workspaceId)?.length),
           doubleTapCtrl: doubleTapOn && shortcutPrefs.status === "ready" && !compact && !task && projectTasks.some((x) => !x.archivedAt),
+          prMenu: !task && prsShown > 0,
         },
         blocked: tipBlocked,
       });
@@ -2414,6 +2421,12 @@ function BoardContent(
             needYou={needYouCount}
             onNeedYou={startNeeds}
             onRunning={() => setMenu("running")}
+            prs={prsShown}
+            onPrs={() => {
+              setMenu("prs");
+              // Opening the menu shows the pr-menu tip was not needed.
+              if (onboarding.values && !onboarding.values.tipsSeen.includes("pr-menu")) void onboarding.markTipSeen("pr-menu");
+            }}
             updated={updatedIds.length}
             onUpdated={startUpdated}
             updatedShortcut={shortcutsOn ? "U" : ""}
@@ -2953,6 +2966,7 @@ function BoardContent(
             </Theme.Provider>
           </Modal.Content>
         </Modal>
+        <PrMenu open={menu === "prs"} projects={overviewCover.projects} tasks={board?.tasks ?? noTasks} theme={props.theme} onClose={closeMenu} onOpenCard={openTaskById} />
         {/* board-groups 3/7: Add group and Delete group…; Group settings is its own page. */}
         {groupDialog?.kind === "add" && (
           <GroupNameDialog

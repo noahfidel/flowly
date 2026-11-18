@@ -108,3 +108,11 @@ test("running list: the effect cycle reaches a fixed point", () => {
   expect(ended[0].ended).toBe(true);
   expect(settle(ended, [])).toBe(ended);
 });
+
+test("the overview row shows the N PRs chip only when the board has PRs, as a status chip", () => {
+  const none = { ideas: false, memory: false, insights: false };
+  const base = { runningTasks: 0, needYou: 0, updated: 0 };
+  expect(overviewRow({ ...base, prs: 0 }, none)).toMatchObject({ prs: false, statusDivider: false });
+  expect(overviewRow({ ...base, prs: 2 }, none)).toMatchObject({ prs: true, statusDivider: true, toolsDivider: false });
+  expect(overviewRow({ ...base, prs: 2 }, { ...none, ideas: true })).toMatchObject({ prs: true, statusDivider: true, toolsDivider: true });
+});

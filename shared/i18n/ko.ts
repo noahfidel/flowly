@@ -1744,5 +1744,17 @@ const catalog: Catalog = {
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "자동 검토는 그룹 설정에서 그룹마다 한 번 설정합니다. 프로젝트는 재정의하지 않는 한 이를 따릅니다.",
   "Double-click a card to jump straight into its active session.": "카드를 더블클릭하면 해당 카드의 활성 세션으로 바로 이동합니다.",
   "Switching to a group that needs you opens what waits there: its dispatcher chat or its first waiting card.": "확인이 필요한 그룹으로 전환하면 그곳에서 기다리는 항목(디스패처 채팅 또는 첫 번째 대기 카드)이 열립니다.",
+  "Every pull request on this board, and the card that owns it, is one click away under N PRs.": "이 보드의 모든 PR과 그 PR이 속한 카드는 N개의 PR에서 한 번의 클릭으로 열 수 있습니다.",
+  "Pull requests": "풀 리퀘스트",
+  "Every PR on the board in one list, under N PRs above the board; each row opens its card or the PR.": "보드의 모든 PR을 한 목록으로, 보드 위의 N개의 PR에서 볼 수 있습니다. 각 행은 해당 카드나 PR을 엽니다.",
+  "Show {n} pull requests": "풀 리퀘스트 {n}개 보기",
+  "{n} PRs": "PR {n}개",
+  "Merged or closed": "병합됨 또는 닫힘",
+  "Merged": "병합됨",
+  "Open card {card}: pull request {number} · {state}": "카드 {card} 열기: 풀 리퀘스트 {number} · {state}",
+  "Open card {card}: pull request {number}": "카드 {card} 열기: 풀 리퀘스트 {number}",
+  "Could not load pull requests.": "풀 리퀘스트를 불러올 수 없습니다.",
+  "No pull requests on this board": "이 보드에 풀 리퀘스트가 없습니다",
+  "Open pull request": "풀 리퀘스트 열기",
 };
 export default catalog;

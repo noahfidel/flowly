@@ -1744,5 +1744,17 @@ const catalog: Catalog = {
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "A revisão automática é definida uma vez por grupo nas configurações do grupo; os projetos a seguem, a menos que a substituam.",
   "Double-click a card to jump straight into its active session.": "Clique duas vezes em um cartão para ir direto à sua sessão ativa.",
   "Switching to a group that needs you opens what waits there: its dispatcher chat or its first waiting card.": "Ao mudar para um grupo que precisa de você, abre-se o que está esperando lá: o chat do seu despachante ou o primeiro cartão em espera.",
+  "Every pull request on this board, and the card that owns it, is one click away under N PRs.": "Cada PR deste quadro, e o cartão a que pertence, está a um clique em N PRs.",
+  "Pull requests": "Pull requests",
+  "Every PR on the board in one list, under N PRs above the board; each row opens its card or the PR.": "Todos os PRs do quadro em uma lista, em N PRs acima do quadro; cada linha abre seu cartão ou o PR.",
+  "Show {n} pull requests": {"one": "Mostrar {n} pull request", "other": "Mostrar {n} pull requests"},
+  "{n} PRs": {"one": "{n} PR", "other": "{n} PRs"},
+  "Merged or closed": "Mesclados ou fechados",
+  "Merged": "Mesclado",
+  "Open card {card}: pull request {number} · {state}": "Abrir o cartão {card}: pull request {number} · {state}",
+  "Open card {card}: pull request {number}": "Abrir o cartão {card}: pull request {number}",
+  "Could not load pull requests.": "Não foi possível carregar os pull requests.",
+  "No pull requests on this board": "Nenhum pull request neste quadro",
+  "Open pull request": "Abrir pull request",
 };
 export default catalog;

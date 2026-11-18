@@ -1744,5 +1744,17 @@ const catalog: Catalog = {
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "自动审查在分组设置中按分组设置一次；项目会跟随它，除非自行覆盖。",
   "Double-click a card to jump straight into its active session.": "双击卡片即可直接进入其活动会话。",
   "Switching to a group that needs you opens what waits there: its dispatcher chat or its first waiting card.": "切换到需要你处理的分组时，会打开那里等待的内容：其调度器聊天或第一张等待中的卡片。",
+  "Every pull request on this board, and the card that owns it, is one click away under N PRs.": "此看板上的每个 PR 及其所属卡片，都可以在“N 个 PR”下一键打开。",
+  "Pull requests": "拉取请求",
+  "Every PR on the board in one list, under N PRs above the board; each row opens its card or the PR.": "看板上的所有 PR 汇集在一个列表中，位于看板上方的“N 个 PR”；每一行可打开其卡片或 PR。",
+  "Show {n} pull requests": "显示 {n} 个拉取请求",
+  "{n} PRs": "{n} 个 PR",
+  "Merged or closed": "已合并或已关闭",
+  "Merged": "已合并",
+  "Open card {card}: pull request {number} · {state}": "打开卡片 {card}：拉取请求 {number} · {state}",
+  "Open card {card}: pull request {number}": "打开卡片 {card}：拉取请求 {number}",
+  "Could not load pull requests.": "无法加载拉取请求。",
+  "No pull requests on this board": "此看板上没有拉取请求",
+  "Open pull request": "打开拉取请求",
 };
 export default catalog;

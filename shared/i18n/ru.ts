@@ -1744,5 +1744,17 @@ const catalog: Catalog = {
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "Автопроверка задаётся один раз для группы в настройках группы; проекты следуют ей, если не переопределяют её.",
   "Double-click a card to jump straight into its active session.": "Дважды щёлкните карточку, чтобы сразу перейти в её активную сессию.",
   "Switching to a group that needs you opens what waits there: its dispatcher chat or its first waiting card.": "При переходе в группу, которой нужно ваше внимание, открывается то, что там ждёт: чат её диспетчера или первая ожидающая карточка.",
+  "Every pull request on this board, and the card that owns it, is one click away under N PRs.": "Каждый PR на этой доске и карточка, к которой он относится, — в один клик в разделе «N PR».",
+  "Pull requests": "Пулл-реквесты",
+  "Every PR on the board in one list, under N PRs above the board; each row opens its card or the PR.": "Все PR доски в одном списке, в разделе «N PR» над доской; каждая строка открывает свою карточку или PR.",
+  "Show {n} pull requests": {"one": "Показать {n} пулл-реквест", "few": "Показать {n} пулл-реквеста", "many": "Показать {n} пулл-реквестов", "other": "Показать {n} пулл-реквеста"},
+  "{n} PRs": {"one": "{n} PR", "few": "{n} PR", "many": "{n} PR", "other": "{n} PR"},
+  "Merged or closed": "Слитые или закрытые",
+  "Merged": "Слит",
+  "Open card {card}: pull request {number} · {state}": "Открыть карточку {card}: пулл-реквест {number} · {state}",
+  "Open card {card}: pull request {number}": "Открыть карточку {card}: пулл-реквест {number}",
+  "Could not load pull requests.": "Не удалось загрузить пулл-реквесты.",
+  "No pull requests on this board": "На этой доске нет пулл-реквестов",
+  "Open pull request": "Открыть пулл-реквест",
 };
 export default catalog;

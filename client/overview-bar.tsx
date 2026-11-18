@@ -11,12 +11,15 @@ import { t, tn } from "../shared/i18n";
  * Board header summary: how many cards, how many have agents working (only while some do), one "N need you" chip for
  * every open ask that waits on you and "N unread" for the cards with an open unread turn (a status move alone
  * does not count; Ruling, Noah 2026-11-16); each starts a step-through in the card sidebar. No lane chips (Ruling, Noah 2026-11-09).
+ * "N PRs" opens the board's pull requests menu (PR-MENU-SPEC §2.1), only while the shown cards have PRs.
  */
 export function OverviewBar({
   overview,
   needYou,
   onNeedYou,
   onRunning,
+  prs,
+  onPrs,
   updated,
   onUpdated,
   updatedShortcut,
@@ -38,6 +41,9 @@ export function OverviewBar({
   onNeedYou(): void;
   /** Opens the list of running cards (DISPATCHER-SPEC §9.2a). */
   onRunning(): void;
+  /** PRs on the shown board's live cards, merged and closed included (PR-MENU-SPEC §2.1); a press opens the menu. */
+  prs: number;
+  onPrs(): void;
   /** Cards the dispatcher saw change since you looked (§9.2); never part of needYou. */
   updated: number;
   onUpdated(): void;
@@ -62,7 +68,7 @@ export function OverviewBar({
   const { colors } = useTheme();
   const state = stateColors(colors);
   const o = overview;
-  const row = overviewRow({ runningTasks: o.runningTasks, needYou, updated }, { ideas: openIdeas !== null, memory: memoryCount !== null || guardrailCount !== null, insights: !!onInsights });
+  const row = overviewRow({ runningTasks: o.runningTasks, needYou, updated, prs }, { ideas: openIdeas !== null, memory: memoryCount !== null || guardrailCount !== null, insights: !!onInsights });
   return (
     <View style={{ borderBottomWidth: 1, borderColor: colors.border }}>
       <ScrollView
@@ -96,6 +102,11 @@ export function OverviewBar({
         {row.needYou && (
           <Chip label={tn(needYou, "{n} ask waiting on you. Step through it", "{n} asks waiting on you. Step through them")} icon={<Dot size={7} color={state.needsYou} />} onPress={onNeedYou} strong>
             {tn(needYou, "{n} needs you", "{n} need you")}
+          </Chip>
+        )}
+        {row.prs && (
+          <Chip label={tn(prs, "Show {n} pull request", "Show {n} pull requests")} icon={<Icon name="GitPullRequest" size={13} color={colors.foregroundMuted} />} onPress={onPrs}>
+            {tn(prs, "{n} PR", "{n} PRs")}
           </Chip>
         )}
         {row.updated && (
