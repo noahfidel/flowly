@@ -159,6 +159,7 @@ import {
   adjacentStatus,
   historyKeyHint,
   isApplePlatform,
+  cardShortcutApplies,
   type ShortcutAction,
   type BoardIntent,
 } from "./shortcuts";
@@ -389,6 +390,7 @@ function BoardContent(
     // The user just moved a card into Done/Cancelled (drives the wrap-up tip).
     [movedToFinished, setMovedToFinished] = useState(false),
     [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
+    [prRequest, setPrRequest] = useState<{ taskId: string; key: string } | null>(null),
     // Project-level page over the board area: Insights or Ideas (IDEAS-INBOX-SPEC §3.3).
     [page, setPage] = useState<"insights" | "ideas" | "guardrails" | "memory" | "search" | null>(null),
     // The dispatcher chat (DISPATCHER-SPEC §9.3): mounted on first open, then hidden rather than unmounted.
@@ -2099,6 +2101,15 @@ function BoardContent(
         if (!task || task.archivedAt || taskProject?.archivedAt) return false;
         setTaskForm({ task, status: task.status });
         return true;
+      case "open-session":
+        if (!cardShortcutApplies(task?.id, compact) || !task) return false;
+        // The same one-time entry as the double click; the drawer picks the session and toasts when there is none.
+        setSessionEntry({ taskId: task.id, sessionId: "", active: true, toastNone: true, requestId: `key-${Date.now()}` });
+        return true;
+      case "open-pr":
+        if (!cardShortcutApplies(task?.id, compact) || !task) return false;
+        setPrRequest({ taskId: task.id, key: `pr-${Date.now()}` });
+        return true;
       case "move-left":
       case "move-right": {
         if (!task || task.archivedAt || taskProject?.archivedAt || pending) return false;
@@ -2230,6 +2241,7 @@ function BoardContent(
         escapeRequest={
           escapeRequest?.taskId === drawer.item.task.id ? escapeRequest.key : undefined
         }
+        prRequest={prRequest?.taskId === drawer.item.task.id ? prRequest.key : undefined}
         startRequest={
           startRequest?.taskId === drawer.item.task.id ? startRequest.key : undefined
         }

@@ -62,8 +62,10 @@ import { currentWrapup } from "../shared/wrapup-state";
 import { useComposer } from "./composer";
 import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { openNativeSession, openNativeWorkspace, sessionState } from "./session-state";
-import { QuickLinks } from "./quick-links-row";
-import { activeQuickSession, quickSessionState, type QuickSession } from "./quick-links";
+import { artifactsOf } from "../shared/artifacts";
+import { withoutPlan } from "../shared/plans";
+import { QuickLinks, openQuickLink } from "./quick-links-row";
+import { activeQuickSession, newestPrUrl, quickSessionState, type QuickSession } from "./quick-links";
 import { cardQuestions, openReport } from "../shared/progress";
 import { QueuedMessages, queuedFor, sameQueued } from "./queued-messages";
 import { bannerRequestId } from "./queued-request";
@@ -126,6 +128,7 @@ function TaskDrawerView({
   autoReview = false,
   onFilterTag,
   escapeRequest,
+  prRequest,
   attention,
   onSnooze,
   onUnsnooze,
@@ -179,6 +182,8 @@ function TaskDrawerView({
   onFilterTag?(tag: string): void;
   /** Changes on each board Esc shortcut: leave the session preview, else close. */
   escapeRequest?: string;
+  /** Changes on each board R shortcut: open the card's newest pull request once its detail is loaded. */
+  prRequest?: string;
   /**
    * What Snooze offers for the card when it is in Attention (ATTENTION-DISMISS-SPEC, Card menu and Card and sidebar):
    * each list's Snooze while it has an open signal, Unsnooze while any list is snoozed. A stable object (compared by identity).
@@ -367,6 +372,15 @@ function TaskDrawerView({
     // Ruling (Noah, 2026-11-10): Esc closes the whole sidebar, even with a session chat open; the chat's Back goes to details.
     onClose();
   }, [active, escapeRequest]);
+  // Board R: open the newest pull request (the first PR chip) once the card's detail is known; each request is handled once.
+  const consumedPr = useRef(prRequest);
+  useEffect(() => {
+    if (!active || !prRequest || consumedPr.current === prRequest || !detailState.detail) return;
+    consumedPr.current = prRequest;
+    const url = newestPrUrl(withoutPlan(artifactsOf(detailState.detail.artifacts, task.id)).filter((a) => a.role === "output"));
+    if (url) openQuickLink(url, toast);
+    else toast.show(t("No pull request yet."), { variant: "info" });
+  }, [active, prRequest, detailState.detail]);
   const workspace = useQuery({
     queryKey: ["flowly", "workspace", task.workspaceId],
     queryFn: () => paseo.workspaces.ref(task.workspaceId).refresh(),
@@ -564,7 +578,7 @@ function TaskDrawerView({
       setSelected(id);
       setShowNew(false);
       setError("");
-    }
+    } else if (sessions.data && sessionEntry.toastNone) toast.show(t("No session yet."), { variant: "info" });
     onSessionEntryConsumed?.(sessionEntry.requestId);
   }, [active, activeEntryKey, sessionsKnown, quickKey, onSessionEntryConsumed]);
   // "+N more": open that section and scroll to it, with the same ring as a search hit.

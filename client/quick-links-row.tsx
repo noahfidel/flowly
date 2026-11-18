@@ -26,6 +26,11 @@ const sessionStateText: Record<QuickSessionState, string> = {
   done: msg("Done"),
 };
 
+/** Opens a link in the browser; a failure shows a toast. Shared by the PR chip and the R shortcut. */
+export function openQuickLink(url: string, toast: ReturnType<typeof useToast>): void {
+  void openExternalUrl(url).catch(() => toast.show(t("Could not open the link."), { variant: "error" }));
+}
+
 /**
  * Card home quick links (DRAWER-SPEC "Quick links"): the card's PRs, sessions and outputs as one wrapped row of chips
  * under the header, so none needs a scroll down to Sessions or Artifacts. Renders nothing when there is nothing to show.
@@ -52,7 +57,7 @@ export const QuickLinks = memo(
     const prStatus = useMemo(() => new Map((external.data?.items || []).map((x) => [x.artifactId, x.summary.status])), [external.data]);
     const chips = useMemo(() => quickLinks({ outputs: list.filter((a) => a.role === "output"), sessions, prStatus }), [list, sessions, prStatus]);
     if (!chips.length) return null;
-    const openUrl = (url: string) => void openExternalUrl(url).catch(() => toast.show(t("Could not open the link."), { variant: "error" }));
+    const openUrl = (url: string) => openQuickLink(url, toast);
     const press = (chip: QuickChip) => {
       if (chip.kind === "pr") return openUrl(chip.url);
       if (chip.kind === "session") return onOpenSession(chip.id);

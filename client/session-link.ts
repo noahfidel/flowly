@@ -48,6 +48,8 @@ export type SessionEntry = {
   requestId: string;
   /** Open the card's active session (the first Quick links session); `sessionId` is ignored. */
   active?: boolean;
+  /** Shortcut O: toast "No session yet." when the card has no session (the double click stays silent). */
+  toastNone?: boolean;
 };
 export type LinkBoard = Board;
 

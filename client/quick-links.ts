@@ -76,6 +76,12 @@ export function activeQuickSession(sessions: readonly QuickSession[]): string | 
   return orderQuickSessions(sessions)[0]?.id ?? null;
 }
 
+/** The URL of the card's newest pull request (the first PR chip), or null. `outputs` as for quickLinks. */
+export function newestPrUrl(outputs: readonly Artifact[]): string | null {
+  const chip = quickLinks({ outputs, sessions: [] }).find((c) => c.kind === "pr");
+  return chip?.kind === "pr" ? chip.url : null;
+}
+
 /**
  * The chips, in order: every PR output (newest first, one per URL), then up to QUICK_LIMIT sessions
  * (waiting, running, error, done; newest first within each) and "+N more", then up to QUICK_LIMIT other
