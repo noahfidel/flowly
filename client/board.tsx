@@ -202,6 +202,7 @@ const tipText: Record<TipId, (compact?: boolean) => string> = {
   "quick-task": () => t("New task now opens Quick task: say what you want done and press Enter. More options opens the full form; Settings → Workflow turns it off."),
   "first-workflow-insight": () => t("Workflow insights found repeated work worth keeping. Open Insights to turn a suggestion into a card."),
   "lane-swipe": () => t("Swipe left or right to switch lanes."),
+  "card-double-click": () => t("Double-click a card to jump straight into its active session."),
   "double-tap-ctrl": () => t("Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General."),
   "card-display": (compact) => compact
     // Compact puts the Sort choices and Card display… in the Filters dialog.
@@ -1215,6 +1216,11 @@ function BoardContent(
     setDrawerFocus(null);
     setTask(t.id);
   });
+  // A mouse double click on a card: the card home, then its active session once the drawer knows its sessions.
+  const openCardSession = useStableCallback((t: Task) => {
+    openCard(t);
+    setSessionEntry({ taskId: t.id, sessionId: "", active: true, requestId: `dblclick-${Date.now()}` });
+  });
   const openCardActions = useStableCallback((t: Task, at: Point) => openMenu?.(at, t.title, cardMenu(t)));
   const cardMenuFor = useStableCallback((t: Task) => cardMenu(t));
   // Stable drawer callbacks (memoized drawer).
@@ -1796,6 +1802,7 @@ function BoardContent(
           learnedGuideline: !task && !!projectGuardrails?.added,
           laneSwipe: touch && !task && !page && shownStatuses.length > 1 && projectTasks.some((x) => !x.archivedAt),
           cardPlan: !!task && !!currentDetail && planApproved(planOf(currentDetail.artifacts, task.id)),
+          cardDoubleClick: Platform.OS === "web" && !compact && !task && projectTasks.some((x) => !x.archivedAt && !!cardIndex.agentsByWorkspace.get(x.workspaceId)?.length),
           doubleTapCtrl: doubleTapOn && shortcutPrefs.status === "ready" && !compact && !task && projectTasks.some((x) => !x.archivedAt),
         },
         blocked: tipBlocked,
@@ -1846,7 +1853,7 @@ function BoardContent(
   // changes, so opening a card, a menu or a filter does not recompute every
   // card of the lane in the same frame as its animation.
   const cardDerived = useMemo(
-    () => new WeakMap<Task, Omit<LiveTaskCardProps, "selected" | "flash" | "drag" | "dragging" | "disabled" | "display" | "onOpen" | "onActions" | "menuFor">>(),
+    () => new WeakMap<Task, Omit<LiveTaskCardProps, "selected" | "flash" | "drag" | "dragging" | "disabled" | "display" | "onOpen" | "onOpenSession" | "onActions" | "menuFor">>(),
     [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, projectById, allView, waitingIndex, factsByTask, sessionFacts],
   );
   const derivedFor = (t: Task) => {
@@ -1893,6 +1900,7 @@ function BoardContent(
       dragging={dragging}
       disabled={pending || !!projectOf(t)?.archivedAt || !!t.archivedAt}
       onOpen={openCard}
+      onOpenSession={compact ? undefined : openCardSession}
       onActions={openCardActions}
       onOpenWorkspace={canOpenWorkspace ? openCardWorkspace : undefined}
       menuFor={cardMenuFor}

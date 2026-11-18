@@ -12,6 +12,7 @@ import { RunningDots } from "./running-motion";
 import { useCardOutput, type CardOutput, type OutputSession } from "./card-output";
 import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry } from "./context-menu";
 import { shallowEqual } from "./stable";
+import { isMouseDoubleClick } from "./double-click";
 import { t, tn } from "../shared/i18n";
 import type { WorkpadSignal } from "../shared/workpad";
 import { activityLines, defaultCardDisplay, type CardDisplay, type CardWorkspace } from "../shared/card-display";
@@ -32,10 +33,12 @@ export type CardDrag = {
 
 type TaskCardProps = Parameters<typeof TaskCard>[0];
 
-export type LiveTaskCardProps = Omit<TaskCardProps, "output" | "menu" | "onOpen" | "onActions" | "onOpenWorkspace"> & {
+export type LiveTaskCardProps = Omit<TaskCardProps, "output" | "menu" | "onOpen" | "onOpenSession" | "onActions" | "onOpenWorkspace"> & {
   outputSession?: OutputSession | null;
   /** Stable handlers shared by all cards; they receive the card's task (PERFORMANCE-SPEC §3). */
   onOpen(task: Task): void;
+  /** Mouse double click on the card: also open its active session (board, desktop layout only). */
+  onOpenSession?(task: Task): void;
   onActions(task: Task, at: Point): void;
   /** Absent when the host cannot open workspaces; used only while the card's workspace is available. */
   onOpenWorkspace?(task: Task): void;
@@ -62,6 +65,7 @@ function sameLiveCard(a: LiveTaskCardProps, b: LiveTaskCardProps) {
 export const LiveTaskCard = memo(function LiveTaskCard({
   outputSession,
   onOpen: openTask,
+  onOpenSession: openTaskSession,
   onActions: taskActions,
   onOpenWorkspace: openTaskWorkspace,
   menuFor,
@@ -77,6 +81,7 @@ export const LiveTaskCard = memo(function LiveTaskCard({
     [openMenu, menuFor, task],
   );
   const onOpen = useCallback(() => openTask(task), [openTask, task]);
+  const onOpenSession = useCallback(() => openTaskSession?.(task), [openTaskSession, task]);
   const onActions = useCallback((event: GestureResponderEvent) => taskActions(task, eventPoint(event)), [taskActions, task]);
   const onOpenWorkspace = useCallback(() => openTaskWorkspace?.(task), [openTaskWorkspace, task]);
   return (
@@ -85,6 +90,7 @@ export const LiveTaskCard = memo(function LiveTaskCard({
       output={output}
       menu={menu}
       onOpen={onOpen}
+      onOpenSession={openTaskSession ? onOpenSession : undefined}
       onActions={onActions}
       onOpenWorkspace={openTaskWorkspace && props.available ? onOpenWorkspace : undefined}
     />
@@ -120,6 +126,7 @@ export function TaskCard({
   disabled,
   drag,
   onOpen,
+  onOpenSession,
   onActions,
   onOpenWorkspace,
   menu,
@@ -166,6 +173,8 @@ export function TaskCard({
   disabled?: boolean;
   drag?: CardDrag;
   onOpen(): void;
+  /** A mouse double click also opens the card's active session; the first click still opens the card at once. */
+  onOpenSession?(): void;
   /** The press opens the card's menu at the press point. */
   onActions(event: GestureResponderEvent): void;
   /** Shows the Open workspace button under the actions button (CARD-DISPLAY-SPEC §7). */
@@ -194,6 +203,7 @@ export function TaskCard({
   const suppressUntil = useRef(0);
   const activeDrag = useRef(false);
   const mousePress = useRef(false);
+  const lastPointer = useRef<string | null>(null);
   useEffect(
     () => () => {
       if (activeDrag.current) current.current.drag?.cancel();
@@ -251,15 +261,11 @@ export function TaskCard({
       {...(drag && !disabled ? pan.panHandlers : {})}
       onPointerEnter={drag ? () => setHovered(true) : undefined}
       onPointerLeave={drag ? () => setHovered(false) : undefined}
-      onPointerDown={
-        drag
-          ? (e) => {
-              mousePress.current =
-                e.nativeEvent.pointerType === "mouse" &&
-                e.nativeEvent.button === 0;
-            }
-          : undefined
-      }
+      onPointerDown={(e) => {
+        const pointerType = e.nativeEvent.pointerType;
+        lastPointer.current = typeof pointerType === "string" && pointerType ? pointerType : null;
+        if (drag) mousePress.current = pointerType === "mouse" && e.nativeEvent.button === 0;
+      }}
       onPointerUp={
         drag
           ? () => {
@@ -321,8 +327,11 @@ export function TaskCard({
             ? t("Drag this card with the mouse or open task actions to change status.")
             : t("Open details and agent sessions.")
         }
-        onPress={() => {
-          if (Date.now() >= suppressUntil.current) onOpen();
+        onPress={(event) => {
+          if (Date.now() >= suppressUntil.current) {
+            onOpen();
+            if (onOpenSession && isMouseDoubleClick(event?.nativeEvent as { detail?: unknown; pointerType?: unknown } | undefined, lastPointer.current)) onOpenSession();
+          }
         }}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}

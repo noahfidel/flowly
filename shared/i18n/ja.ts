@@ -1738,5 +1738,6 @@ const catalog: Catalog = {
   "Auto review will follow {group}: {value}.": "自動レビューは {group} に従います: {value}。",
   "Override group Auto review": "グループの自動レビューを上書き",
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "自動レビューはグループ設定でグループごとに一度設定します。プロジェクトは上書きしない限りそれに従います。",
+  "Double-click a card to jump straight into its active session.": "カードをダブルクリックすると、そのアクティブなセッションにすぐ移動できます。",
 };
 export default catalog;

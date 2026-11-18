@@ -43,7 +43,12 @@ const linkSchema = z.object({
 });
 export type CardSessionLink = z.infer<typeof linkSchema>;
 /** A one-time drawer entry; an empty `sessionId` opens the card overview. */
-export type SessionEntry = { sessionId: string; requestId: string };
+export type SessionEntry = {
+  sessionId: string;
+  requestId: string;
+  /** Open the card's active session (the first Quick links session); `sessionId` is ignored. */
+  active?: boolean;
+};
 export type LinkBoard = Board;
 
 export function parseSessionLink(

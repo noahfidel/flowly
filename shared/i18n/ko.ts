@@ -1738,5 +1738,6 @@ const catalog: Catalog = {
   "Auto review will follow {group}: {value}.": "자동 검토가 {group}을(를) 따릅니다: {value}.",
   "Override group Auto review": "그룹 자동 검토 재정의",
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "자동 검토는 그룹 설정에서 그룹마다 한 번 설정합니다. 프로젝트는 재정의하지 않는 한 이를 따릅니다.",
+  "Double-click a card to jump straight into its active session.": "카드를 더블클릭하면 해당 카드의 활성 세션으로 바로 이동합니다.",
 };
 export default catalog;

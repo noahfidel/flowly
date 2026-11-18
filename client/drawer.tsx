@@ -63,7 +63,7 @@ import { useComposer } from "./composer";
 import { eventPoint, menuHandlers, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { openNativeSession, openNativeWorkspace, sessionState } from "./session-state";
 import { QuickLinks } from "./quick-links-row";
-import { quickSessionState, type QuickSession } from "./quick-links";
+import { activeQuickSession, quickSessionState, type QuickSession } from "./quick-links";
 import { cardQuestions, openReport } from "../shared/progress";
 import { QueuedMessages, queuedFor, sameQueued } from "./queued-messages";
 import { bannerRequestId } from "./queued-request";
@@ -330,7 +330,7 @@ function TaskDrawerView({
   const sessionLocks = useRef(new Set<string>());
   const consumedEntry = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!active || !sessionEntry) return;
+    if (!active || !sessionEntry || sessionEntry.active) return;
     const key = JSON.stringify([
       task.id,
       sessionEntry.sessionId,
@@ -551,6 +551,22 @@ function TaskDrawerView({
       askingAgents.has(a.id) || children.some((c) => !c.archivedAt && (askingAgents.has(c.id) || !!sessionState(c, events).waiting)),
     ),
   }));
+  // The board's card double click: open the active session (first Quick links chip) once this card's sessions are known.
+  const activeEntryKey = sessionEntry?.active ? JSON.stringify([task.id, sessionEntry.requestId]) : "";
+  const quickKey = quickSessions.map((s) => `${s.id}:${s.state}:${s.createdAt}`).join("|");
+  const sessionsKnown = sessions.data !== undefined || !!sessions.error;
+  useEffect(() => {
+    if (!active || !activeEntryKey || !sessionEntry || !sessionsKnown) return;
+    if (consumedEntry.current === activeEntryKey) return;
+    consumedEntry.current = activeEntryKey;
+    const id = sessions.data ? activeQuickSession(quickSessions) : null;
+    if (id) {
+      setSelected(id);
+      setShowNew(false);
+      setError("");
+    }
+    onSessionEntryConsumed?.(sessionEntry.requestId);
+  }, [active, activeEntryKey, sessionsKnown, quickKey, onSessionEntryConsumed]);
   // "+N more": open that section and scroll to it, with the same ring as a search hit.
   const jumpTo = useStableCallback((section: "sessions" | "artifacts") => {
     focusTimers.current.forEach(clearTimeout);

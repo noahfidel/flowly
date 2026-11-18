@@ -64,6 +64,18 @@ export function quickSessionState(state: { label: string; active: boolean; waiti
 
 const stateRank: Record<QuickSessionState, number> = { waiting: 0, running: 1, error: 2, done: 3 };
 
+/** Sessions in chip order: waiting, running, error, done; newest first within each. */
+export function orderQuickSessions(sessions: readonly QuickSession[]): QuickSession[] {
+  return [...sessions].sort(
+    (a, b) => stateRank[a.state] - stateRank[b.state] || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
+  );
+}
+
+/** The card's active session: the first in the Quick links order (the board's card double click opens it), or null. */
+export function activeQuickSession(sessions: readonly QuickSession[]): string | null {
+  return orderQuickSessions(sessions)[0]?.id ?? null;
+}
+
 /**
  * The chips, in order: every PR output (newest first, one per URL), then up to QUICK_LIMIT sessions
  * (waiting, running, error, done; newest first within each) and "+N more", then up to QUICK_LIMIT other
@@ -97,9 +109,7 @@ export function quickLinks({
   // "Session N" by start order, as the user started them.
   const started = [...sessions].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
   const numberOf = new Map(started.map((s, i) => [s.id, i + 1]));
-  const shown = [...sessions].sort(
-    (a, b) => stateRank[a.state] - stateRank[b.state] || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
-  );
+  const shown = orderQuickSessions(sessions);
   const chips: QuickChip[] = [...prs];
   for (const s of shown.slice(0, QUICK_LIMIT)) chips.push({ kind: "session", id: s.id, title: s.title, number: numberOf.get(s.id)!, state: s.state });
   if (shown.length > QUICK_LIMIT) chips.push({ kind: "more", section: "sessions", count: shown.length - QUICK_LIMIT });

@@ -1738,5 +1738,6 @@ const catalog: Catalog = {
   "Auto review will follow {group}: {value}.": "自動審查將跟隨 {group}：{value}。",
   "Override group Auto review": "覆寫群組的自動審查",
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "自動審查在群組設定中按群組設定一次；專案會跟隨它，除非自行覆寫。",
+  "Double-click a card to jump straight into its active session.": "按兩下卡片即可直接進入其作用中的工作階段。",
 };
 export default catalog;

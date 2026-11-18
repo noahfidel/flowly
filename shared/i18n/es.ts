@@ -1738,5 +1738,6 @@ const catalog: Catalog = {
   "Auto review will follow {group}: {value}.": "La revisión automática seguirá a {group}: {value}.",
   "Override group Auto review": "Anular la revisión automática del grupo",
   "Auto review is set once per group in Group settings; projects follow it unless they override it.": "La revisión automática se configura una vez por grupo en Ajustes del grupo; los proyectos la siguen salvo que la anulen.",
+  "Double-click a card to jump straight into its active session.": "Haz doble clic en una tarjeta para ir directo a su sesión activa.",
 };
 export default catalog;
