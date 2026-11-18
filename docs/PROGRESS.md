@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Dispatcher: flowly_link_cards creates related links (branch `kanban/let-the-dispatcher-s-flowly-link-cards-c-e8ee9a`) — 2026-11-18
+
+- Feature (user-requested): `flowly_link_cards` accepts `relation: "related"` besides `blocks` and `follow_up`, so the dispatcher can tie a family of related but separate cards. It goes through the board's own `addLink` (CARD-LINKS-SPEC §2.3): symmetric, an identical link in either direction returns `created: false`, same refusals (`LINK_REFUSED`: already linked, archived card, self link, link limit; related never forms a cycle), same project-only scope. No model change: `related` links already existed for the board.
+- Server: `server/dispatcher-tools.ts` (input enum and description, tool description). Charter: `shared/dispatcher.ts` split line names `related`; `dispatcherCharterVersion` 7 → 8 (rebased after `flowly_add_artifact` took 6 and the contract-news relay took 7), so running dispatchers show the Replace warning (DISPATCHER-SPEC §3).
+- Tests: two in `server/dispatcher-tools.test.ts` (symmetric create and created=false either way; refusals) and one in `server/dispatcher.test.ts` (charter line, version 8), all failing first, then passing.
+- Open question reported, not built: cross-project related links (the model and `addLink` refuse them; a link carries one `projectId`).
+- Onboarding: no tip or tour change (dispatcher-only agent tool). Telemetry: no heartbeat field.
+
 ## Dispatcher relays contract news to related cards (branch `kanban/dispatcher-charter-relay-related-card-co-aa0cb6`) — 2026-11-18
 
 - Feature (user-requested): a card that starts a result, progress or delivery note with `[contract]` has its news relayed by the dispatcher to its live `related` cards with `flowly_message_card` (DISPATCHER-SPEC §5.8, EVENT-BUS-SPEC §2). Flowly computes the targets at note delivery (related links only; not archived, not Done/Cancelled, with a live session; never the source; at most 10) and adds a `Relay contract news…` line, carrying the news text, under the note; the charter (version 6) tells the dispatcher to send exactly those, information only. Questions, blockers and permissions never carry contract news. Caps: one relay per source event (event ids remembered per group), a 30-minute echo guard back to the source, and `flowly_message_card`'s 30 per hour.
