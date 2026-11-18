@@ -126,6 +126,10 @@ exactly one group. Individual projects are no longer top-level navigation.
   preferences (§3, §4).
 - Ruling (Noah, 2026-11-11): after **New project** the board shows the new project's group filtered to the new project
   (§3).
+- Ruling (Noah, 2026-11-18): auto review and its rework limit become a group default that projects inherit and can
+  override; this supersedes the 2026-11-10 ruling's listing of auto review as repo-bound (check commands stay per
+  project). A group with no value means Off. Migration collapses each group to its members' most common value
+  (ruling, Noah 2026-11-18). New projects store no value and follow their group (§1, §2, §5, §7 step 9).
 
 ## 1. Model
 
@@ -134,7 +138,8 @@ version bump; stored as a `groups` collection of the SQLite store), and `project
 
 ```
 Group { id, name, position, isDefault?: true, defaults?: GroupDefaults, lanes?: Lane[], revision, createdAt, updatedAt }
-GroupDefaults { agentModel?: AgentModel, deliveryMode?: DeliveryMode, dispatcherModel?: DispatcherModel }
+GroupDefaults { agentModel?: AgentModel, deliveryMode?: DeliveryMode, dispatcherModel?: DispatcherModel,
+                autoReview?: { enabled: boolean, maxRounds: 0–5 } }
 Lane { status, enabled, name? }   (the existing lane shape: every built-in status once, at least one enabled)
 ```
 
@@ -184,7 +189,11 @@ Lane { status, enabled, name? }   (the existing lane shape: every built-in statu
   repaired to the default group (logged with `logFailure`). Archived projects keep their `groupId`. A broken stored
   list is repaired the same way: a repeated group id keeps its first group, a repeated name (ignoring case) is
   renamed with " 2", " 3", …. A storage restore moves group revisions past the live ones, as it does for projects.
-- `GroupDefaults` fields are all optional: absent means "inherit" (§5).
+- `GroupDefaults` fields are all optional: absent means "inherit" (§5). An absent `autoReview` means Off with 2
+  rounds for the members that have no override.
+- `project.autoReview` (`{ enabled, maxRounds }`) is the project's Auto review **override**; absent, the project
+  follows its group's `defaults.autoReview` (§5).
+- `board.autoReviewGroups?: true` marks that the Auto review collapse (§7 step 9) has run; never cleared.
 
 ## 2. RPCs
 
@@ -199,7 +208,8 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   default.
 - `groups.update { id, revision, name?, defaults?, isDefault?, lanes? }`: setting `isDefault: true` moves the flag;
   clearing it on the default group is refused (`DEFAULT_REQUIRED`; ruling above for other groups). In `defaults`, a
-  value sets a default and `null` clears it. `lanes` replaces the group's whole lane list (validated as in §1; names
+  value sets a default and `null` clears it; `defaults.autoReview` takes `{ enabled, maxRounds }` (the project's
+  limits) or `null` (back to Off, 2 rounds). `lanes` replaces the group's whole lane list (validated as in §1; names
   trimmed, an empty name dropped) and is mirrored to every member in the same write. Turning off a lane that holds
   live cards of live member projects is refused with `LANE_NOT_EMPTY: Move the cards out of {lane} ({n}) before
   turning it off.` (several lanes: "{lane} ({n}), {lane} ({n}) … turning them off."; `{lane}` is the group's lane
@@ -226,7 +236,14 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   default, a filtered group board or a project board) past the adjacent live card of the card's own project. It then
   places the card through `tasks.place`. Before groups are ready `group` acts as `project`.
 - `projects.create` gains an optional `groupId` (default: the default group); the project form and
-  `flowly_create_project` pass it. The new project gets its group's lanes.
+  `flowly_create_project` pass it. The new project gets its group's lanes. It stores no `autoReview`: it follows its
+  group's (ruling, Noah 2026-11-18).
+- `projects.update` takes `autoReview: { enabled, maxRounds } | null`: a value sets the project's override, `null`
+  removes it so the group's value applies again.
+- After any write that turns a live project's effective Auto review on (its override, its group's value, a move by
+  `projects.set-group`, `set_members` or a group delete, or a create in a group that has it on), the daemon detects
+  its check commands (GUARDRAILS-SPEC §4.5). A move changes no Auto review data: a project without an override follows
+  its new group, an override stays.
 - `projects.update` no longer takes lanes once groups are ready: a `lanes` field is refused with `LANES_IN_GROUP: Lanes
   belong to the project's group. Edit them in Group settings.` and nothing is written. While groups are not ready and the
   board has no stored group (the migration failed) it takes them as before: the lanes of a project turn off only when
@@ -340,10 +357,12 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
 
 - **Group settings page** (from the tab menu's **Group settings**, the switcher's **Group settings** row for the
   shown group and the empty-group hint; replaces Settings → Workflow → Board groups): the group's name, the Default flag, **Defaults** (new-card model, mode and thinking level;
-  delivery mode; dispatcher model), **Lanes** (below), the member projects (move a project to another group; archived ones shown
+  delivery mode; dispatcher model; **Auto review** with its cost line and Max rework rounds, saved at once through
+  `groups.update`), **Lanes** (below), the member projects (move a project to another group; archived ones shown
   muted), then **one section per project** holding that project's settings as the project form has them today
-  (name, root, auto status, workpad, Linear, guardrail commands, auto review and its rework limit, memory,
-  its own model default; no lanes). Name, root and the repo-bound settings stay per project; there is no base branch
+  (name, root, auto status, workpad, Linear, guardrail commands, an Auto review override, memory,
+  its own model default; no lanes). Moving a project without an Auto review override to a group whose value differs
+  shows one toast at the move: "Auto review will follow {group}: {value}." Name, root and the repo-bound settings stay per project; there is no base branch
   or worktree setup stored per project today (the base ref is per card, worktree versus directory is a host
   setting, setup is the repo's `paseo.json`) and none is added here. Each project's section also has **Restore
   {project}** (archived projects only; `projects.update` with `archived: false`) and **Remove “{project}”…**, which
@@ -370,7 +389,12 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   project's `agentModel` wins, then the group's `defaults.agentModel`, then the host's `models.default*`. Delivery
   mode: the card's, then the project's (new optional override), then the group's, then the host's
   `delivery.defaultMode`. Dispatcher model: the group's, then the host's `models.dispatcherModel`, then the built-in default
-  (`effectiveDispatcherModel`, §6). A default left empty reads "Inherit: {value}" with the inherited value shown.
+  (`effectiveDispatcherModel`, §6). Auto review: the project's override, then the group's `defaults.autoReview`, then
+  Off with 2 rounds (`effectiveAutoReview`, `shared/auto-review.ts`; every reader uses it with the project's current
+  group). In the project form (Edit project, its group-settings section, New project) Auto review starts with
+  **Override group Auto review**: off, its detail reads "Inherited from {group}: On, 2 rounds" (or "…: Off"); on, the
+  switch and Max rework rounds are the override; switching it off saves `null`. New project writes an override only
+  when one is chosen. A default left empty reads "Inherit: {value}" with the inherited value shown.
 - Host Settings → Models and Delivery stay as the base and are labelled so; Settings → Workflow loses Board groups
   and *Show All projects tab*.
 - **New task delivery mode:** the New task form shows the mode the chain gives (card, project, group, host) and
@@ -466,6 +490,17 @@ next start (the record's session is still v1, the board has groups, so step 4 ru
    members in chooser order, each with its own cards in its own order (archived cards included), then the archived
    members. Each project's own order is unchanged. No revision is bumped; a second start writes nothing. A downgrade
    drops `orderGroupId`; re-upgrading migrates the order again from the then-current positions.
+9. **Auto review collapse** (ruling, Noah 2026-11-18): part of the same start write, once, while `board.autoReviewGroups`
+   is not set and the board has projects. For each group with at least one member (archived ones count), each
+   member's stored value is read as it applied before (absent: Off, 2 rounds); the group's `defaults.autoReview` becomes
+   the most common value (enabled and rounds compared as a pair; a tie goes to Off/2 when it is among the tied values,
+   else to the first in member order). Members whose value equals it drop theirs and inherit; the others keep their
+   value as an override (an absent one in an On group gets `{ enabled: false, maxRounds: 2 }`). A stored value that
+   still carries rules from before guardrails stays on its project, so the guardrails migration can read them.
+   Groups without members stay unset. Every project's effective value is the same before and after; no revision is
+   bumped. The step then sets `autoReviewGroups`, so it never runs again (a group value cleared later stays cleared).
+   A start that finds no projects writes nothing; the first later write sets the marker, since every project from
+   then on is stored the new way.
 
 ## 8. Acceptance
 
@@ -515,6 +550,15 @@ Unit (server/shared, written with the follow-up cards):
   `server/insights.test.ts`): `pageScope` is the filtered project, else every live member read as the group, else none
   (empty group, group not known); the add project is the last added while offered, else the first; each project's own
   ideas form their own group; the Ideas count sums every member; the group Insights reads sum the members.
+
+- Auto review at the group level (`shared/auto-review.test.ts`, `server/store-groups.test.ts` on JSON and SQLite,
+  `server/auto-review.test.ts`, `client/group-settings-logic.test.ts`): the override wins both ways and with its
+  rounds; a group value applies without one; no group value is Off/2; an inheriting project follows a move, an
+  override stays; the collapse (all-equal group, an absent member in an On group, ties, archived members, an empty
+  group, legacy rules kept) leaves every effective value unchanged, a second start writes nothing and a later clear is
+  not undone; `groups.update` and `projects.update` with values and `null`; `projects.create` stores none and detects
+  commands only in an On group; the store reports projects turned on by a project, group or membership write; a
+  delivery in a project without an override is reviewed in an On group and not in an Off or unset one.
 
 Upkeep (the plan's last task): welcome-tour copy and tips, a What's new entry (All and project tabs and the global
 dispatcher go away for existing users), the telemetry decision, and every new string in all i18n catalogs.

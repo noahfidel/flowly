@@ -179,9 +179,11 @@ Any `failed` → not passed (R1 or R2); otherwise any `unavailable` → Unavaila
 
 ## 6. Configuration
 
+**Where the switch lives (ruling, Noah 2026-11-18).** Auto review and its rework limit are a board-group default (`group.defaults.autoReview`, BOARD-GROUPS-SPEC §5) that each project inherits; a project may store its own value as an override (`project.autoReview`). A project's effective value is its override, else its group's value, else **Off, 2 rounds** (a group that never set it is off). Every reader (the delivery trigger, Rerun, the round limit, `get_task.guardrails`, workflow insights, telemetry) uses the effective value. New projects store no override. The check commands stay per project (they are bound to the repository).
+
 ### 6.1 Turning the switch on and command detection (D13)
 
-- When Auto review is turned on in Edit project and the project has no command checks yet, `reviews.detect-commands` is called to detect check commands from the project root directory, without calling an LLM and without running commands:
+- When a project's effective Auto review turns on (created in a group that has it on, its override turned on, its group's value turned on, or a move into a group that has it on) and the project has no command checks yet, `reviews.detect-commands` is called to detect check commands from the project root directory, without calling an LLM and without running commands:
 
   | Basis | Detection | Ticked by default |
   | --- | --- | --- |
@@ -333,6 +335,7 @@ project.reviewDraft?: {
 }
 ```
 
+- **Inheritance (ruling, Noah 2026-11-18)**: `project.autoReview` is the project's override; absent, the project follows its group's `defaults.autoReview` (`{ enabled, maxRounds }`, same limits), and a group without one means off with 2 rounds. `projects.update` takes `autoReview: { enabled, maxRounds } | null` (null removes the override); `groups.update` takes `defaults.autoReview` the same way. `projects.create` stores none. A one-time start step collapses the values stored before into the groups (BOARD-GROUPS-SPEC §7 step 9).
 - Writing a draft does not change the project revision; changes to `autoReview` (Save, Apply, Add check) change the project revision.
 - **Migration**: a project that has only the P1 `checks` reads them as command checks (`id` generated from the name, a number appended on duplicates), rewritten as `rules` on the next save; invalid old data is kept, not reset.
 
@@ -403,6 +406,8 @@ When the card has a review record and is still within this round:
 - The setup card's drawer shows the project draft (§6.4).
 
 ### 9.3 Project settings (Edit project → Auto review)
+
+Since the 2026-11-18 ruling the section opens with **Override group Auto review**. Off, its detail line shows what the project follows ("Inherited from {group}: On, 2 rounds" or "…: Off") and nothing else of the section is shown; on, the switch and Max rework rounds below are the project's own value, and turning the override off again saves `autoReview: null`. Group settings → Defaults has the same switch, cost line and Max rework rounds for the group's value (BOARD-GROUPS-SPEC §5).
 
 ```
 Auto review                                   [On]
@@ -475,6 +480,7 @@ The rework hint (§7.1) is at the top of the page; check suggestions and pause s
 | D16 | How AI recommends rules | One history analysis: the upgrade button, the settings button and the rework hint enter the same analysis; Insights' periodic run recommends incremental checks (2026-10-28) |
 | D17 | What the user reads once it is on | The drawer centers on the review result, Workpad collapsed by default (2026-10-28) |
 | D18 | Auto review alongside a user's own review harness | The user (Noah) turns Auto review off on their projects and keeps review in their harness; no Auto review code is removed. A Ship to main card with Auto review off is shipped by its session after its own checks and review (DELIVERY-MODE-SPEC §3, §4, ruling 2026-11-18). Rejected: removing Auto review from Flowly (diverges from upstream); running it only for Ship to main cards |
+| D19 | Where the switch and rework limit are set | A board-group default that projects inherit and may override; a group with no value means off; new projects store no value; the stored values were collapsed into each group's most common one (ruling, Noah 2026-11-18). Rejected: per project only (set the same value once per project, new projects always on) |
 
 ## 12. Phases
 
