@@ -755,6 +755,7 @@ export class BoardService {
         isPrReviewCard(task) ? [] : linearTicketLines(project, artifactsOf(board.artifacts, task.id), { title: task.title, canLink: options.artifactsOn ?? true, type: task.type, linearTicket: task.linearTicket }),
         options.deliveryDefault,
         groupOfProject(board, project)?.defaults?.deliveryMode,
+        groupOfProject(board, project),
       ),
       memoryIds: memory.ids,
       directories,

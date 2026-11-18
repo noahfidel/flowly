@@ -55,6 +55,17 @@ test("an unknown stored mode is treated as the default", () => {
   expect(text).not.toContain("from_the_future");
 });
 
+test("Ship to main follows the effective Auto review: the group's value unless the project overrides it (BOARD-GROUPS-SPEC §5, ruling 2026-11-18)", () => {
+  const paths = [{ repo: "/r", directory: "/r" }];
+  const shipCard = { ...task, deliveryMode: "ship_main" } as Task;
+  const on = { defaults: { autoReview: { enabled: true, maxRounds: 2 } } };
+  const lineFor = (p: Project, group?: typeof on) =>
+    sessionContext(shipCard, p, paths, "/r", [], [], "", [], [], undefined, undefined, group).split("\n").find((l) => l.startsWith("Delivery:"));
+  expect(lineFor(project, on)).toBe(deliveryLine("ship_main", { autoReview: true }));
+  expect(lineFor({ ...project, autoReview: { enabled: false, maxRounds: 2 } } as Project, on)).toBe(deliveryLine("ship_main", { autoReview: false }));
+  expect(lineFor(project)).toBe(deliveryLine("ship_main", { autoReview: false }));
+});
+
 test("Ship to main: with Auto review on the session waits for the ship message; with it off the session ships after its own checks and review (DELIVERY-MODE-SPEC §4, ruling 2026-11-18)", () => {
   const paths = [{ repo: "/r", directory: "/r" }];
   const shipCard = { ...task, deliveryMode: "ship_main" } as Task;
