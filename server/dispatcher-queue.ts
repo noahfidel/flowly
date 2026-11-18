@@ -7,6 +7,7 @@ import {
   cancelQuestionInputSchema,
   dispatcherMessageDroppedAction,
   dispatcherMessagePrefix,
+  forwardedText,
   queuedMessageLimits,
   storedQueueSchema,
   userSendOptions,
@@ -40,6 +41,9 @@ export type QueuedOutcome = { kind: "delivered" } | { kind: "dropped"; reason: s
 /** How long a sweep waits while anything is queued: it catches ask ends no hook reported, and dropped sessions. */
 const sweepMs = 60_000;
 
+/** A queued message's own text: a forward fenced under its label (§5.9), else the text as it is. */
+const ownText = (m: Pick<QueuedMessage, "text" | "forward">) => (m.forward ? forwardedText(m.forward, m.text) : m.text);
+
 /** "2026-11-16 09:05 UTC" for an ISO time. */
 const shownTime = (at: string) => `${at.slice(0, 16).replace("T", " ")} UTC`;
 
@@ -53,7 +57,7 @@ export function queuedDelivery(messages: readonly Pick<QueuedMessage, "text" | "
   return [
     `${dispatcherMessagePrefix}${head} The card may have changed since they were written; re-read it with flowly_get_task before you go on.`,
     // A forward keeps its own label (§5.9): another agent's words, not the dispatcher's or the user's.
-    ...messages.map((m, i) => `${messages.length === 1 ? "" : `${i + 1}. `}(${shownTime(m.at)}) ${m.forward ?? ""}${m.text}`),
+    ...messages.map((m, i) => `${messages.length === 1 ? "" : `${i + 1}. `}(${shownTime(m.at)}) ${ownText(m)}`),
   ].join("\n\n");
 }
 
@@ -423,7 +427,7 @@ export class DispatcherQueue {
   /** Removes undeliverable messages, recording them in their card's activity first (a deleted card has none). */
   private async drop(queued: QueuedMessage[], reason: string) {
     const taskId = queued[0].taskId;
-    const note = `Not delivered, ${reason}:\n\n${queued.map((m) => `(${shownTime(m.at)}) ${m.forward ?? ""}${m.text}`).join("\n\n")}`;
+    const note = `Not delivered, ${reason}:\n\n${queued.map((m) => `(${shownTime(m.at)}) ${ownText(m)}`).join("\n\n")}`;
     if ((await this.store.read()).tasks.some((t) => t.id === taskId))
       await this.store.mutate((board) => {
         if (board.tasks.some((t) => t.id === taskId))

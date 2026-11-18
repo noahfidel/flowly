@@ -44,6 +44,7 @@ import {
   dispatcherRepliesPerAgentPerHour,
   dispatcherRepliesPerHour,
   dispatcherReplyWindowMs,
+  forwardedText,
   forwardPrefix,
   dispatcherPeerChainLimit,
   dispatcherPeerMessagesPerHour,
@@ -114,7 +115,12 @@ export const dispatcherInputs = {
       .optional()
       .describe("Only when the card has several live sessions (SESSION_AMBIGUOUS lists them): the session to message."),
     forwardOf: z
-      .strictObject({ agentId: z.string().min(1).max(200).describe("The id of the agent whose message you forward (the sender of its prompt).") })
+      .strictObject({
+        agentId: z
+          .string()
+          .regex(/^[A-Za-z0-9._:-]{1,200}$/, "An agent id: letters, digits and . _ : - only.")
+          .describe("The id of the agent whose message you forward (the sender of its prompt)."),
+      })
       .optional()
       .describe(
         "Only to forward another agent's message to this card under your forward rule: the sender. Flowly labels the text as that agent's, not the user's or yours.",
@@ -257,6 +263,8 @@ const archiveCardResultSchema = z.object({
  * prompt the dispatcher received), the cards the sender's workspace holds, the target card, and when.
  */
 type ForwardRecord = { from: string; source: number; fromTaskIds: readonly string[]; to: string; at: number };
+const dispatcherSender =
+  "That agent is a Flowly dispatcher; you never forward a dispatcher's message to a card. Another dispatcher's messages come through flowly_message_dispatcher: act on them with your own tools, or tell the user.";
 
 /** The tool's input without `projectId`, for the card services' own strict schemas. */
 const rest = <T extends { projectId: string }>({ projectId: _, ...input }: T) => input;
@@ -482,6 +490,8 @@ export class DispatcherTools {
     if (!task || task.archivedAt) throw new ToolError("CARD_NOT_FOUND", `No live card ${input.taskId} in this project. Use ids from flowly_list_cards.`);
     const paseo = this.cards.api();
     // A forward needs a real source: a message from that agent the dispatcher's own session received (§5.9).
+    if (input.forwardOf && (input.forwardOf.agentId === caller.agentId || this.dispatcher.allAgentIds().includes(input.forwardOf.agentId)))
+      throw new ToolError("FORWARD_NOT_ALLOWED", dispatcherSender);
     const source = input.forwardOf ? await this.forwardSource(caller.agentId, input.forwardOf.agentId) : null;
     // The card's sessions are the live ones in its workspace; Flowly's own helper runs are not.
     const live: PaseoAgent[] = [];
@@ -532,7 +542,7 @@ export class DispatcherTools {
     try {
       // Steered, like the dock's chat: a send without it interrupts a turn and answers pending permissions (§5.3).
       // A forward carries its own label, never the plain dispatcher one (§5.9).
-      await paseo.agents.ref(target.id).send((forward?.label ?? dispatcherMessagePrefix) + input.text, userSendOptions);
+      await paseo.agents.ref(target.id).send(forward ? forwardedText(forward.label, input.text) : dispatcherMessagePrefix + input.text, userSendOptions);
     } catch (e) {
       release();
       forward?.release();
@@ -574,6 +584,8 @@ export class DispatcherTools {
         .refresh()
         .then((r) => r?.agent ?? undefined)
         .catch(() => undefined));
+    // A session in a dispatcher workspace is a dispatcher, recorded or not (as §5.4).
+    if (agent?.workspaceId && (await this.dispatcher.owns(agent.workspaceId))) throw notAllowed(dispatcherSender);
     const senderCards = agent?.workspaceId ? board.tasks.filter((t) => t.workspaceId === agent.workspaceId) : [];
     if (target.id === from.agentId || senderCards.some((t) => t.id === task.id))
       throw notAllowed("That message came from that card (the sender is its session); never forward a message back to its sender or its card.");
@@ -664,7 +676,7 @@ export class DispatcherTools {
       queued: true,
       sessionId: agentId,
       waitingOn: waiting,
-      note: `Queued, not sent: this card's session waits on the user (${what}). Flowly delivers your message, marked as yours, right after the user resolves it; the user sees it on the ask and can cancel the ask to deliver it at once. Don't answer the ask and don't send this again; tell the user which card waits on them and that your message is queued.`,
+      note: `Queued, not sent: this card's session waits on the user (${what}). Flowly delivers your message, ${forward ? "marked as the other agent's message (not yours or the user's)" : "marked as yours"}, right after the user resolves it; the user sees it on the ask and can cancel the ask to deliver it at once. Don't answer the ask and don't send this again; tell the user which card waits on them and that your message is queued.`,
     };
   }
 
