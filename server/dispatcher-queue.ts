@@ -44,7 +44,7 @@ const sweepMs = 60_000;
 const shownTime = (at: string) => `${at.slice(0, 16).replace("T", " ")} UTC`;
 
 /** The one message a session gets for its queued messages: one marker, then each in order with its time (§5.3). */
-export function queuedDelivery(messages: readonly Pick<QueuedMessage, "text" | "at">[]): string {
+export function queuedDelivery(messages: readonly Pick<QueuedMessage, "text" | "at" | "forward">[]): string {
   // True both for a message held while the session waited on the user and for one held behind older queued ones.
   const head =
     messages.length === 1
@@ -52,7 +52,8 @@ export function queuedDelivery(messages: readonly Pick<QueuedMessage, "text" | "
       : `these ${messages.length} messages were held for you until you could take them; here they are, in order.`;
   return [
     `${dispatcherMessagePrefix}${head} The card may have changed since they were written; re-read it with flowly_get_task before you go on.`,
-    ...messages.map((m, i) => `${messages.length === 1 ? "" : `${i + 1}. `}(${shownTime(m.at)}) ${m.text}`),
+    // A forward keeps its own label (§5.9): another agent's words, not the dispatcher's or the user's.
+    ...messages.map((m, i) => `${messages.length === 1 ? "" : `${i + 1}. `}(${shownTime(m.at)}) ${m.forward ?? ""}${m.text}`),
   ].join("\n\n");
 }
 
@@ -216,7 +217,7 @@ export class DispatcherQueue {
    * the session is checked right after (serialized), so an ask that ended between the tool's read and this write
    * delivers at once.
    */
-  async enqueue(input: Pick<QueuedMessage, "taskId" | "projectId" | "agentId" | "from" | "text">, paseo?: PaseoApi): Promise<QueuedMessage> {
+  async enqueue(input: Pick<QueuedMessage, "taskId" | "projectId" | "agentId" | "from" | "text" | "forward">, paseo?: PaseoApi): Promise<QueuedMessage> {
     const message: QueuedMessage = { id: randomUUID(), ...input, at: this.now().toISOString() };
     await this.file.update((messages) => {
       const live = messages.filter((m) => !this.sent.has(m.id));
@@ -422,7 +423,7 @@ export class DispatcherQueue {
   /** Removes undeliverable messages, recording them in their card's activity first (a deleted card has none). */
   private async drop(queued: QueuedMessage[], reason: string) {
     const taskId = queued[0].taskId;
-    const note = `Not delivered, ${reason}:\n\n${queued.map((m) => `(${shownTime(m.at)}) ${m.text}`).join("\n\n")}`;
+    const note = `Not delivered, ${reason}:\n\n${queued.map((m) => `(${shownTime(m.at)}) ${m.forward ?? ""}${m.text}`).join("\n\n")}`;
     if ((await this.store.read()).tasks.some((t) => t.id === taskId))
       await this.store.mutate((board) => {
         if (board.tasks.some((t) => t.id === taskId))

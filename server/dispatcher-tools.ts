@@ -40,9 +40,11 @@ import {
   dispatcherMessagePrefix,
   dispatcherMessagesPerHour,
   queuedMessageLimits,
+  dispatcherForwardsPerSenderPerHour,
   dispatcherRepliesPerAgentPerHour,
   dispatcherRepliesPerHour,
   dispatcherReplyWindowMs,
+  forwardPrefix,
   dispatcherPeerChainLimit,
   dispatcherPeerMessagesPerHour,
   dispatcherPeerMessagesPerTargetPerHour,
@@ -51,6 +53,7 @@ import {
   queuedPeerMessageLimits,
   userSendOptions,
 } from "../shared/dispatcher";
+import { relayEchoMs } from "../shared/dispatcher-relay";
 import { slimTimeline } from "../shared/session-tail";
 import { pendingRequests } from "../shared/permission-question";
 import { rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
@@ -110,6 +113,12 @@ export const dispatcherInputs = {
       .max(200)
       .optional()
       .describe("Only when the card has several live sessions (SESSION_AMBIGUOUS lists them): the session to message."),
+    forwardOf: z
+      .strictObject({ agentId: z.string().min(1).max(200).describe("The id of the agent whose message you forward (the sender of its prompt).") })
+      .optional()
+      .describe(
+        "Only to forward another agent's message to this card under your forward rule: the sender. Flowly labels the text as that agent's, not the user's or yours.",
+      ),
   }),
   messageDispatcher: z.strictObject({
     groupId: z.string().min(1).max(200).describe("The other board group's id (the group whose dispatcher you write to)."),
@@ -243,6 +252,12 @@ const archiveCardResultSchema = z.object({
   changed: z.boolean(),
 });
 
+/**
+ * One forward of another agent's message (§5.9): its sender, the source message (the timestamp of the sender's newest
+ * prompt the dispatcher received), the cards the sender's workspace holds, the target card, and when.
+ */
+type ForwardRecord = { from: string; source: number; fromTaskIds: readonly string[]; to: string; at: number };
+
 /** The tool's input without `projectId`, for the card services' own strict schemas. */
 const rest = <T extends { projectId: string }>({ projectId: _, ...input }: T) => input;
 
@@ -287,6 +302,8 @@ export class DispatcherTools {
   private projectSlots = new Map<string, number[]>();
   /** The dispatcher's card messages in the last hour, per session (§5.3). */
   private messageSlots = new Map<string, number[]>();
+  /** The dispatcher's forwards of other agents' messages, per session (§5.9): one per source message and card, loop guard, per-sender cap. */
+  private forwards = new Map<string, ForwardRecord[]>();
   /** The dispatcher's replies to agents in the last hour, per session and per answered agent (§5.4). */
   private replySlots = new Map<string, { to: string; at: number }[]>();
   /** The dispatcher's messages to other groups' dispatchers in the last hour, per session and per target group (§5.5). */
@@ -464,13 +481,18 @@ export class DispatcherTools {
     const task = board.tasks.find((t) => t.id === input.taskId && t.projectId === caller.projectId);
     if (!task || task.archivedAt) throw new ToolError("CARD_NOT_FOUND", `No live card ${input.taskId} in this project. Use ids from flowly_list_cards.`);
     const paseo = this.cards.api();
+    // A forward needs a real source: a message from that agent the dispatcher's own session received (§5.9).
+    const source = input.forwardOf ? await this.forwardSource(caller.agentId, input.forwardOf.agentId) : null;
     // The card's sessions are the live ones in its workspace; Flowly's own helper runs are not.
     const live: PaseoAgent[] = [];
+    let sender: PaseoAgent | undefined;
     let cursor: string | undefined;
     do {
       const page = await paseo.agents.list({ filter: { includeArchived: false }, page: { limit: 200, cursor } });
-      for (const { agent } of page.entries)
+      for (const { agent } of page.entries) {
         if (agent.workspaceId === task.workspaceId && !agent.archivedAt && !isSummarizer(agent)) live.push(agent);
+        if (agent.id === input.forwardOf?.agentId) sender = agent;
+      }
       cursor = page.pageInfo.nextCursor ?? undefined;
     } while (cursor);
     let target: PaseoAgent | undefined;
@@ -488,22 +510,95 @@ export class DispatcherTools {
         throw new ToolError("SESSION_AMBIGUOUS", `The card has ${live.length} live sessions and none is the only running one. Pass sessionId.${this.sessionList(live)}`);
       target = working[0];
     }
+    const forward =
+      input.forwardOf && source !== null
+        ? await this.reserveForward(caller.agentId, { agentId: input.forwardOf.agentId, agent: sender, source }, board, task, target, paseo)
+        : null;
     // Never sidestep a request: while a pending permission or question, or an open question or blocker report, waits on
     // the user, the message is queued and delivered once the user resolved it (ruling, Noah 2026-11-16).
-    const waiting = waitingOn(board, task.id, target);
-    // Older messages still queued for it (an ask that ended without a hook yet, or a failed delivery): this one goes
-    // behind them, merged in order, never ahead.
-    const backlog = !waiting && (await this.queuedFor(target.id));
-    if (waiting || backlog) return this.queueMessage(caller.agentId, task, target.id, input.text, waiting, paseo);
-    const release = this.reserveMessage(caller.agentId);
+    let release: () => void;
+    try {
+      const waiting = waitingOn(board, task.id, target);
+      // Older messages still queued for it (an ask that ended without a hook yet, or a failed delivery): this one goes
+      // behind them, merged in order, never ahead.
+      const backlog = !waiting && (await this.queuedFor(target.id));
+      if (waiting || backlog) return await this.queueMessage(caller.agentId, task, target.id, input.text, waiting, paseo, forward?.label);
+      release = this.reserveMessage(caller.agentId);
+    } catch (e) {
+      // A refused message is no forward either (§5.9).
+      forward?.release();
+      throw e;
+    }
     try {
       // Steered, like the dock's chat: a send without it interrupts a turn and answers pending permissions (§5.3).
-      await paseo.agents.ref(target.id).send(dispatcherMessagePrefix + input.text, userSendOptions);
+      // A forward carries its own label, never the plain dispatcher one (§5.9).
+      await paseo.agents.ref(target.id).send((forward?.label ?? dispatcherMessagePrefix) + input.text, userSendOptions);
     } catch (e) {
       release();
+      forward?.release();
       throw new ToolError("SEND_FAILED", `Paseo could not deliver the message: ${e instanceof Error ? e.message : String(e)}`, true);
     }
     return { sent: true as const, sessionId: target.id };
+  }
+
+  /** The source message of a forward: the newest prompt from `sender` the dispatcher received in the window, else FORWARD_NOT_ALLOWED (§5.9). */
+  private async forwardSource(dispatcherId: string, sender: string) {
+    const source = await this.lastHeardFrom(dispatcherId, sender);
+    if (source === null)
+      throw new ToolError(
+        "FORWARD_NOT_ALLOWED",
+        "You can only forward a message that agent sent you in the last 24 hours, and it has not messaged you. Don't forward anything; tell the user instead.",
+      );
+    return source;
+  }
+
+  /**
+   * Checks and records one forward (§5.9): never back to the sender or its card, once per source message and card, no
+   * loop between two cards within `relayEchoMs`, at most `dispatcherForwardsPerSenderPerHour` per sender. Returns its
+   * label and the function that gives it back (a refused or failed send).
+   */
+  private async reserveForward(
+    dispatcherId: string,
+    from: { agentId: string; agent?: PaseoAgent; source: number },
+    board: Awaited<ReturnType<BoardStore["read"]>>,
+    task: { id: string; title: string },
+    target: PaseoAgent,
+    paseo: PaseoApi,
+  ) {
+    const notAllowed = (why: string) => new ToolError("FORWARD_NOT_ALLOWED", why);
+    // An archived sender is not in the live list: its workspace still tells its card.
+    const agent =
+      from.agent ??
+      (await paseo.agents
+        .ref(from.agentId)
+        .refresh()
+        .then((r) => r?.agent ?? undefined)
+        .catch(() => undefined));
+    const senderCards = agent?.workspaceId ? board.tasks.filter((t) => t.workspaceId === agent.workspaceId) : [];
+    if (target.id === from.agentId || senderCards.some((t) => t.id === task.id))
+      throw notAllowed("That message came from that card (the sender is its session); never forward a message back to its sender or its card.");
+    const now = this.clock();
+    const records = (this.forwards.get(dispatcherId) ?? []).filter((r) => now - r.at < dispatcherReplyWindowMs);
+    if (records.some((r) => r.from === from.agentId && r.source === from.source && r.to === task.id))
+      throw notAllowed("You already forwarded that message to this card; forward a message once.");
+    const fromTaskIds = senderCards.map((t) => t.id);
+    if (records.some((r) => fromTaskIds.includes(r.to) && r.fromTaskIds.includes(task.id) && now - r.at < relayEchoMs))
+      throw notAllowed(
+        "This card's session just had a message forwarded to the sender's card; forwarding back would loop the two cards through you. Don't forward it; tell the user.",
+      );
+    if (records.filter((r) => r.from === from.agentId && now - r.at < hour).length >= dispatcherForwardsPerSenderPerHour)
+      throw new ToolError(
+        "FORWARD_LIMIT",
+        `You already forwarded ${dispatcherForwardsPerSenderPerHour} messages from this agent in the last hour. Stop forwarding its messages and tell the user.`,
+      );
+    const record: ForwardRecord = { from: from.agentId, source: from.source, fromTaskIds, to: task.id, at: now };
+    this.forwards.set(dispatcherId, [...records, record]);
+    // The card title is a label only, and only for a session of a live card (§5.9 item 7).
+    const card = agent && !agent.archivedAt ? senderCards.find(isOpenCard) : undefined;
+    return {
+      label: forwardPrefix({ agentId: from.agentId, cardTitle: card?.title }),
+      release: () => this.forwards.set(dispatcherId, (this.forwards.get(dispatcherId) ?? []).filter((r) => r !== record)),
+    };
   }
 
   /** Whether anything is queued for the session; an unreadable queue counts as empty (it has nothing to deliver). */
@@ -528,13 +623,14 @@ export class DispatcherTools {
     text: string,
     waiting: "permission" | "question" | "blocker" | null,
     paseo: PaseoApi,
+    forward?: string,
   ) {
     const queue = this.queue;
     if (!queue) throw new ToolError("PASEO_UNAVAILABLE", "Flowly is still starting; try again in a moment.", true);
     const release = this.reserveMessage(from);
     let queued: { id: string };
     try {
-      queued = await queue.enqueue({ taskId: task.id, projectId: task.projectId, agentId, from, text });
+      queued = await queue.enqueue({ taskId: task.id, projectId: task.projectId, agentId, from, text, ...(forward ? { forward } : {}) });
     } catch (e) {
       release();
       if (e instanceof ToolError) throw e;
@@ -604,7 +700,7 @@ export class DispatcherTools {
     const notAllowed = (why: string) => new ToolError("REPLY_NOT_ALLOWED", why);
     const dispatcherSession = "That is a Flowly dispatcher session; you can't reply to it. Message another group's dispatcher with flowly_message_dispatcher.";
     if (input.agentId === caller.agentId || this.dispatcher.allAgentIds().includes(input.agentId)) throw notAllowed(dispatcherSession);
-    if (!(await this.heardFrom(caller.agentId, input.agentId)))
+    if ((await this.lastHeardFrom(caller.agentId, input.agentId)) === null)
       throw notAllowed(
         "You can only answer an agent that messaged you in the last 24 hours, and this one has not. Don't start conversations with other agents; tell the user instead.",
       );
@@ -760,10 +856,11 @@ export class DispatcherTools {
   }
 
   /**
-   * Whether `sender`'s prompt (Paseo's `agent_message` provenance) reached the dispatcher's own session within the
-   * window: its timeline read back page by page, newest first, until the window or `replyScanPages` pages.
+   * When `sender`'s newest prompt (Paseo's `agent_message` provenance) reached the dispatcher's own session within the
+   * window (epoch ms), else null: its timeline read back page by page, newest first, until the window or
+   * `replyScanPages` pages. For a forward that time identifies the source message (§5.9).
    */
-  private async heardFrom(dispatcherId: string, sender: string) {
+  private async lastHeardFrom(dispatcherId: string, sender: string): Promise<number | null> {
     const since = this.clock() - dispatcherReplyWindowMs;
     const handle = this.cards.api().agents.ref(dispatcherId);
     let options: Parameters<typeof handle.timeline.refetch>[0] = { direction: "tail", limit: replyScanPage, projection: "projected" };
@@ -771,15 +868,18 @@ export class DispatcherTools {
       const response = await handle.timeline.refetch(options);
       if (response.error) throw new ToolError("TRANSCRIPT_UNAVAILABLE", `Flowly could not read your own conversation: ${response.error}`, true);
       let oldest = Infinity;
+      let newest: number | null = null;
       for (const entry of slimTimeline(response.entries)) {
         const at = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
         if (Number.isFinite(at)) oldest = Math.min(oldest, at);
-        if (entry.item.from?.id === sender && Number.isFinite(at) && at >= since) return true;
+        if (entry.item.from?.id === sender && Number.isFinite(at) && at >= since) newest = Math.max(newest ?? at, at);
       }
-      if (oldest < since || !response.hasOlder || !response.startCursor) return false;
+      // Pages run newest first, so the first page with a match holds the newest one.
+      if (newest !== null) return newest;
+      if (oldest < since || !response.hasOlder || !response.startCursor) return null;
       options = { direction: "before", cursor: response.startCursor, limit: replyScanPage, projection: "projected" };
     }
-    return false;
+    return null;
   }
 
   /** Takes a reply slot for `to`, or REPLY_LIMIT: per answered agent, and over all agents, per hour (§5.4). */
@@ -1116,7 +1216,7 @@ export class DispatcherTools {
     mcp.registerTool(
       "flowly_message_card",
       {
-        description: `Send a plain instruction to a card's session (for example "integrate" or "finish up"), steered into its running turn. Use only for what the user asked or their standing requests cover. Flowly marks it as coming from the dispatcher. It never answers anything: while the session waits on the user (a pending permission, question or blocker that only the user answers), the message is queued instead (queued: true, waitingOn says what) and Flowly delivers it right after the user resolves that; tell the user which card waits and don't send it again. dropped: true (with reason) means it was not delivered and not kept: the card ended or the session is gone; don't resend. At most ${queuedMessageLimits.perSession} queued per session (QUEUE_FULL: stop, tell the user). Default session: the card's only live one, or its only running one; SESSION_AMBIGUOUS lists them, pass sessionId. NO_LIVE_SESSION, SESSION_NOT_FOUND, SEND_FAILED. At most ${dispatcherMessagesPerHour} per hour, queued ones included (MESSAGE_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
+        description: `Send a plain instruction to a card's session (for example "integrate" or "finish up"), steered into its running turn. Use only for what the user asked or their standing requests cover. Flowly marks it as coming from the dispatcher. forwardOf { agentId }: forward another agent's message under your forward rule (it messaged you in the last 24 hours; never to its own card, once per message and card); Flowly labels it as that agent's, not the user's. FORWARD_NOT_ALLOWED says why; at most ${dispatcherForwardsPerSenderPerHour} per sender per hour (FORWARD_LIMIT): don't retry, tell the user. It never answers anything: while the session waits on the user (a pending permission, question or blocker that only the user answers), the message is queued instead (queued: true, waitingOn says what) and Flowly delivers it right after the user resolves that; tell the user which card waits and don't send it again. dropped: true (with reason) means it was not delivered and not kept: the card ended or the session is gone; don't resend. At most ${queuedMessageLimits.perSession} queued per session (QUEUE_FULL: stop, tell the user). Default session: the card's only live one, or its only running one; SESSION_AMBIGUOUS lists them, pass sessionId. NO_LIVE_SESSION, SESSION_NOT_FOUND, SEND_FAILED. At most ${dispatcherMessagesPerHour} per hour, queued ones included (MESSAGE_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.messageCard,
         outputSchema: messageResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
