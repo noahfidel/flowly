@@ -19,7 +19,7 @@ Vocabulary is the Quick links': a card's **PR** is an output artifact that is a 
 
 ## 2. The menu
 
-1. **Chip.** In the overview bar after *N running* and the need-you chips: a `GitPullRequest` icon and *{n} PRs* (`tn`: *1 PR* / *{n} PRs*), where n is the number of distinct PRs (§3.1) on the cards of D1/D2, merged and closed included. Hidden when n is 0. Accessibility label *Show pull requests* (`tn` with the count: *Show 1 pull request* / *Show {n} pull requests*). Pressing it opens the menu.
+1. **Chip.** In the overview bar, first after the status divider, left of *N running*, the need-you and the unread chips (Ruling, Noah 2026-11-18): a `GitPullRequest` icon and *{n} PRs* (`tn`: *1 PR* / *{n} PRs*), where n is the number of distinct PRs (§3.1) on the cards of D1/D2, merged and closed included. Hidden when n is 0. Accessibility label *Show pull requests* (`tn` with the count: *Show 1 pull request* / *Show {n} pull requests*). Pressing it opens the menu.
 2. **Title.** *Pull requests*.
 3. **Row.**
    - Title: `#n` (GitHub) or `!n` (GitLab), then the artifact title when it is set and is not just the number; a PR review card's row uses the card title. A title that is the PR's URL counts as not set. A leading repeat of the row's own number written as a number (`#42`, `!7`, `PR #42`, `#42:`; on a review row also its *PR review:* lead and `owner/repo#42`) is dropped, so the PR never shows twice; a bare leading number that is part of the title (*2024 roadmap* on #2024) stays.

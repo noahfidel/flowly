@@ -90,6 +90,11 @@ export function OverviewBar({
           )}
         </View>
         {row.statusDivider && <Divider />}
+        {row.prs && (
+          <Chip label={tn(prs, "Show {n} pull request", "Show {n} pull requests")} icon={<Icon name="GitPullRequest" size={13} color={colors.foregroundMuted} />} onPress={onPrs}>
+            {tn(prs, "{n} PR", "{n} PRs")}
+          </Chip>
+        )}
         {row.running && (
           <Chip
             label={o.runningSessions > o.runningTasks ? t("{tasks} running ({sessions})", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks"), sessions: tn(o.runningSessions, "{n} session", "{n} sessions") }) : t("{tasks} running", { tasks: tn(o.runningTasks, "{n} task", "{n} tasks") })}
@@ -102,11 +107,6 @@ export function OverviewBar({
         {row.needYou && (
           <Chip label={tn(needYou, "{n} ask waiting on you. Step through it", "{n} asks waiting on you. Step through them")} icon={<Dot size={7} color={state.needsYou} />} onPress={onNeedYou} strong>
             {tn(needYou, "{n} needs you", "{n} need you")}
-          </Chip>
-        )}
-        {row.prs && (
-          <Chip label={tn(prs, "Show {n} pull request", "Show {n} pull requests")} icon={<Icon name="GitPullRequest" size={13} color={colors.foregroundMuted} />} onPress={onPrs}>
-            {tn(prs, "{n} PR", "{n} PRs")}
           </Chip>
         )}
         {row.updated && (
