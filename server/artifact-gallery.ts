@@ -42,6 +42,28 @@ async function imageInfo(path: string) {
   return info && info.isFile() && info.size <= galleryLimits.maxBytes ? info : null;
 }
 
+/** A folder's image names in listing order: plain names with an image extension, numeric-aware. */
+async function folderImageNames(folder: string) {
+  return (await readdir(folder)).filter((name) => plainFileName(name) && isGalleryImageName(name)).sort(compareNames);
+}
+
+/** One folder entry when it is a listable image: inside the roots after resolving symlinks, a regular file, at most 8 MB. */
+async function folderEntry(folder: string, name: string, roots: readonly string[]) {
+  const real = await withinReal(join(folder, name), roots);
+  const file = real ? await imageInfo(real) : null;
+  return real && file ? { name, real, file } : null;
+}
+
+/** How many of `names` are listable images, checked in batches; stops counting at `limit`. */
+async function countImages(folder: string, names: readonly string[], roots: readonly string[], limit: number) {
+  let count = 0;
+  for (let start = 0; start < names.length && count < limit; start += BATCH) {
+    const checked = await Promise.all(names.slice(start, start + BATCH).map((name) => folderEntry(folder, name, roots)));
+    count += checked.filter(Boolean).length;
+  }
+  return count;
+}
+
 /**
  * The card's gallery images (EVIDENCE-GALLERY-SPEC §2.1): output image files, and the images directly inside
  * output folders (top level, numeric-aware name order, at most 200 per folder). Outputs newest first; the same
@@ -69,24 +91,20 @@ export async function galleryImages(list: readonly Artifact[], where: ArtifactRo
     if (!info.isDirectory()) continue;
     let names: string[];
     try {
-      names = (await readdir(path)).filter((name) => plainFileName(name) && isGalleryImageName(name)).sort(compareNames);
+      names = await folderImageNames(path);
     } catch (e) {
       logFailure("Gallery folder not read:", e, path);
       continue;
     }
     let count = 0;
     for (let start = 0; start < names.length && count < galleryLimits.perFolder; start += BATCH) {
-      const checked = await Promise.all(
-        names.slice(start, start + BATCH).map(async (name) => {
-          const real = await withinReal(join(path, name), roots);
-          const file = real ? await imageInfo(real) : null;
-          return real && file ? { name, real, file } : null;
-        }),
-      );
+      const checked = await Promise.all(names.slice(start, start + BATCH).map((name) => folderEntry(path, name, roots)));
       for (const entry of checked) {
-        if (!entry || seen.has(entry.real) || count >= galleryLimits.perFolder) continue;
-        seen.add(entry.real);
+        if (!entry || count >= galleryLimits.perFolder) continue;
+        // The cap counts the folder's own images, so it is the same listing `galleryImageFile` checks against.
         count++;
+        if (seen.has(entry.real)) continue;
+        seen.add(entry.real);
         images.push({ artifactId: artifact.id, name: entry.name, size: entry.file.size, mtime: Math.round(entry.file.mtimeMs) });
       }
     }
@@ -109,10 +127,15 @@ export async function galleryImageFile(artifact: Artifact, name: string | undefi
   let fileName: string;
   if (info.isDirectory()) {
     if (name === undefined || !plainFileName(name)) throw new Error("Name an image in this folder.");
-    if (!(await readdir(base)).includes(name)) throw new Error("This image is not in the folder.");
-    const real = await withinReal(join(base, name), roots);
-    if (!real) throw new Error("This image no longer exists.");
-    path = real;
+    // Only a name in the folder's listing: an image, within its first 200 (EVIDENCE-GALLERY-SPEC §2.3).
+    const names = await folderImageNames(base);
+    const at = names.indexOf(name);
+    if (at < 0) throw new Error("This image is not in the folder.");
+    const entry = await folderEntry(base, name, roots);
+    if (!entry) throw new Error("This image no longer exists.");
+    if (at >= galleryLimits.perFolder && (await countImages(base, names.slice(0, at), roots, galleryLimits.perFolder)) >= galleryLimits.perFolder)
+      throw new Error("This image is not in the folder.");
+    path = entry.real;
     fileName = name;
   } else {
     fileName = basename(target);

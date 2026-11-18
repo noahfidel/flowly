@@ -214,3 +214,16 @@ test("a name with a double dot inside is an ordinary file name: listed and serve
   expect((await galleryImages([folder], x.where)).map((i) => i.name)).toEqual(["v1..2.png"]);
   expect((await galleryImageFile(folder, "v1..2.png", x.where)).path).toBe(join(x.ws, "shots", "v1..2.png"));
 });
+
+test("only names in the capped listing are served: the 201st image of a folder is refused", async () => {
+  const x = await setup();
+  const many = join(x.ws, "many");
+  await mkdir(many);
+  for (let i = 0; i < 205; i++) await writeFile(join(many, `${i}.png`), PNG);
+  // An entry that is not an image does not use up a place in the listing.
+  await mkdir(join(many, "0a.png"));
+  const folder = artifact("./many");
+  expect((await galleryImageFile(folder, "199.png", x.where)).path).toBe(join(many, "199.png"));
+  await expect(galleryImageFile(folder, "200.png", x.where)).rejects.toThrow("not in the folder");
+  await expect(galleryImageFile(folder, "204.png", x.where)).rejects.toThrow("not in the folder");
+});
