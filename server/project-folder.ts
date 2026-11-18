@@ -29,6 +29,8 @@ const snapshotShape = z.object({
   workpads: z.array(z.unknown()).default([]),
   plans: z.array(z.unknown()).default([]),
   summaries: z.array(summaryEntrySchema).default([]),
+  /** Written since Auto review moved to board groups: a project without a value follows its group. Absent: older copy. */
+  autoReviewInherits: z.literal(true).optional(),
 });
 
 export type ProjectSnapshot = {
@@ -42,6 +44,8 @@ export type ProjectSnapshot = {
   workpads: Board["workpads"];
   plans: Board["plans"];
   summaries: SummaryEntry[];
+  /** False for a copy written before Auto review moved to board groups, where no value meant Off (§3). */
+  autoReviewInherits: boolean;
 };
 
 /**
@@ -68,7 +72,7 @@ export function projectRecords(board: Board, projectId: string, summaries: reado
 }
 
 /** Content key for change detection; chooser order is presentation only. */
-function contentKey(records: Omit<ProjectSnapshot, "savedAt">) {
+function contentKey(records: Omit<ProjectSnapshot, "savedAt" | "autoReviewInherits">) {
   const { position: _position, ...project } = records.project;
   const { tasks, events, ideas, links, artifacts, workpads, plans, summaries } = records;
   return JSON.stringify({ project, tasks, events, ideas, links, artifacts, workpads, plans, summaries });
@@ -104,7 +108,7 @@ export async function readSnapshot(root: string): Promise<ProjectSnapshot | null
     const [project] = board.projects;
     if (!project || board.tasks.some((t) => t.projectId !== project.id))
       throw new Error("Cards do not belong to the project.");
-    return { savedAt: raw.savedAt, project, tasks: board.tasks, events: board.events, ideas: board.ideas, links: board.links, artifacts: board.artifacts, workpads: board.workpads, plans: board.plans, summaries: raw.summaries };
+    return { savedAt: raw.savedAt, project, tasks: board.tasks, events: board.events, ideas: board.ideas, links: board.links, artifacts: board.artifacts, workpads: board.workpads, plans: board.plans, summaries: raw.summaries, autoReviewInherits: raw.autoReviewInherits === true };
   } catch (error) {
     throw new SnapshotInvalidError(error instanceof Error ? error.message : String(error));
   }
@@ -171,7 +175,8 @@ export class ProjectFolders {
         const records = projectRecords(board, project.id, summaries)!;
         const path = snapshotPath(project.primaryPath);
         const existing = await readSnapshot(project.primaryPath).catch(() => null);
-        if (existing?.project.id === project.id && contentKey(existing) === contentKey(records)) {
+        // A copy without the Auto review marker is rewritten once, so a later restore reads it the new way.
+        if (existing?.project.id === project.id && existing.autoReviewInherits && contentKey(existing) === contentKey(records)) {
           this.written.set(project.id, contentKey(records));
           this.states.set(project.id, { path, savedAt: existing.savedAt, error: "" });
           projects[project.id] = { path, result: "current" };
@@ -213,7 +218,7 @@ export class ProjectFolders {
       await prepareFolder(root);
       await setAsideForeign(root, project.id, savedAt);
       const temporary = `${path}.${randomUUID()}.tmp`;
-      const body = { format: "flowly-project", version: 1, savedAt, boardVersion: board.version, ...records };
+      const body = { format: "flowly-project", version: 1, savedAt, boardVersion: board.version, autoReviewInherits: true, ...records };
       try {
         await writeFile(temporary, JSON.stringify(body, null, 2), { mode: 0o600 });
         await rename(temporary, path);

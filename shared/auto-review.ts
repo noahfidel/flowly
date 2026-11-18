@@ -63,22 +63,26 @@ const sameConfig = (a: ReviewConfig, b: ReviewConfig) => a.enabled === b.enabled
 const legacyKeys = ["rules", "checks", "goal", "guidance"];
 
 /**
- * The one-time collapse (BOARD-GROUPS-SPEC §7 step 9; ruling, Noah 2026-11-18): each group with members (archived ones
- * included) takes its members' most common stored value (absent: Off, 2 rounds; enabled and rounds compared as a
- * pair; a tie goes to Off/2 when it is among the tied values, else to the first in member order). Members with that
- * value drop their own and inherit; the others keep their old value as an override. A stored value still carrying
- * rules from before guardrails stays on its project, so the guardrails migration can read them. Groups without
- * members stay unset. Every project's effective value is the same before and after; no revision changes.
- * Returns whether anything changed.
+ * The one-time collapse (BOARD-GROUPS-SPEC §7 step 9; rulings, Noah 2026-11-18): each group with members takes its
+ * live members' most common stored value (archived members count only when the group has no live one; absent: Off,
+ * 2 rounds; enabled and rounds compared as a pair; a tie goes to Off/2 when it is among the tied values, else to the
+ * first in member order). Members with that value drop their own and inherit; the others keep their old value as an
+ * override. A group that already has a value keeps it, and its members without a value keep inheriting, so a rerun
+ * changes nothing. `keepLegacy` (the guardrails migration has not run yet): a stored value still carrying rules from
+ * before guardrails stays on its project, so that migration can read them; otherwise only enabled and rounds are
+ * compared. Groups without members stay unset. Every project's effective value is the same before and after; no
+ * revision changes. Returns whether anything changed.
  */
-export function collapseGroupAutoReview(board: { groups: Group[]; projects: Project[] }): boolean {
+export function collapseGroupAutoReview(board: { groups: Group[]; projects: Project[] }, options: { keepLegacy?: boolean } = {}): boolean {
   let changed = false;
   for (const group of board.groups) {
     const members = board.projects.filter((p) => p.groupId === group.id);
     if (!members.length) continue;
     const stored = members.map((p) => effectiveAutoReview(p, null));
+    const live = members.filter((p) => !p.archivedAt);
+    const counted = (live.length ? live : members).map((p) => effectiveAutoReview(p, null));
     const tally: { config: ReviewConfig; count: number }[] = [];
-    for (const config of stored) {
+    for (const config of counted) {
       const found = tally.find((x) => sameConfig(x.config, config));
       if (found) found.count++;
       else tally.push({ config: { enabled: config.enabled, maxRounds: config.maxRounds }, count: 1 });
@@ -95,7 +99,9 @@ export function collapseGroupAutoReview(board: { groups: Group[]; projects: Proj
     }
     members.forEach((p, i) => {
       const own = stored[i];
-      const legacy = !!p.autoReview && legacyKeys.some((k) => k in (p.autoReview as object));
+      // Without a value of its own the member already inherits the group's stored value.
+      if (current && !p.autoReview) return;
+      const legacy = !!options.keepLegacy && !!p.autoReview && legacyKeys.some((k) => k in (p.autoReview as object));
       if (sameConfig(own, value)) {
         if (p.autoReview && !legacy) {
           delete p.autoReview;

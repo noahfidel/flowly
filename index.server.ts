@@ -1,6 +1,7 @@
 import { readCardDetail, readProjectCardIndex, readProjectIdeas } from "./server/card-detail";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import type { PaseoApi } from "@getpaseo/client";
+import { access } from "node:fs/promises";
 import { BoardStore } from "./server/store";
 import { neighborCard } from "./shared/group-order";
 import { BoardService, dataDirectory, migrateLegacyPluginData, paseoHome } from "./server/service";
@@ -24,7 +25,7 @@ import { chipBoard } from "./server/chip-board";
 import { cardBoard } from "./server/card-board";
 import { boardOverview, OverviewDeltas } from "./server/board-overview";
 import { perfLine } from "./shared/perf";
-import { projectCreator } from "./server/project-create";
+import { detectWhenOn, projectCreator } from "./server/project-create";
 import { catalogs } from "./shared/i18n-all";
 import { deviceLocale, type LocaleCode } from "./shared/i18n";
 import { resolveAiLanguage } from "./shared/ai-language";
@@ -69,7 +70,7 @@ import { legacyBoardViewPath, readLegacyBoardGroups } from "./server/legacy-boar
 import { exportMarkdown } from "./shared/board-export";
 import type { MemoryEntry } from "./shared/memory";
 import { MemoryService, setMemoryEverywhere, memoryOn } from "./server/memory";
-import { GuardrailsService } from "./server/guardrails";
+import { GuardrailsService, guardrailsStore } from "./server/guardrails";
 import { guardrailsLedger, sumLedgers } from "./shared/guardrails";
 import { validZone } from "./shared/insights";
 import { SearchService } from "./server/search";
@@ -131,7 +132,11 @@ export default function contribute(host: PluginServerContext) {
   const store = new BoardStore(dataDirectory(), { backend: "sqlite" });
   // Board groups move from the host's board-view setting into the board (BOARD-GROUPS-SPEC §7): queued first, before
   // every other read and write, so no repair fills in groups before the stored ones are migrated.
-  const groupsMigrated = store.migrateGroups(() => readLegacyBoardGroups(legacyBoardViewPath(paseoHome())));
+  // The Auto review collapse (§7 step 9) keeps pre-guardrails rules on their projects only while guardrails.json does
+  // not exist yet, i.e. while the guardrails migration queued below still has to read them.
+  const groupsMigrated = store.migrateGroups(() => readLegacyBoardGroups(legacyBoardViewPath(paseoHome())), {
+    reviewRulesPending: () => access(guardrailsStore(store.directory).path).then(() => false, () => true),
+  });
   // Project guardrails (GUARDRAILS-SPEC): the one-time move from memory.json and the review rules is queued ahead of every read.
   let memoryRunning: () => readonly string[] = () => [];
   const guardrails = new GuardrailsService(store, undefined, undefined, () => memoryRunning());
@@ -265,6 +270,8 @@ export default function contribute(host: PluginServerContext) {
       logFailure("Kanban summaries not restored:", e),
     );
     void insights.reconcile().catch(() => undefined);
+    // A restored project whose effective Auto review is on gets its check commands detected (GUARDRAILS-SPEC §4.5).
+    await detectWhenOn(store, restored.project.id, detectCommands);
     folders.forget(restored.project.id);
     folders.schedule();
     return restored;
@@ -960,8 +967,7 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.createLinkedProject, async (input, { paseo }) => {
     const project = await service.createLinked(input, paseo);
     // Only when its group has Auto review on (the project inherits it, BOARD-GROUPS-SPEC §5).
-    const board = await store.read().catch(() => null);
-    if (board && projectAutoReview(board, board.projects.find((p) => p.id === project.id) ?? project).enabled) detectCommands(project.id);
+    await detectWhenOn(store, project.id, detectCommands, project);
     return project;
   });
   server.handle(rpc.setProjectLinks, (input) => service.setLinks(input));

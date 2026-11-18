@@ -143,9 +143,9 @@ function logGroupRepair(label: string, repair: { projectIds: string[]; groupIds:
   );
 }
 
-/** Each live project's effective Auto review switch (BOARD-GROUPS-SPEC §5), by id. */
+/** Each project's effective Auto review switch (BOARD-GROUPS-SPEC §5), by id; an archived project counts as off. */
 function autoReviewOn(board: Board): Map<string, boolean> {
-  return new Map(board.projects.filter((p) => !p.archivedAt).map((p) => [p.id, projectAutoReview(board, p).enabled]));
+  return new Map(board.projects.map((p) => [p.id, !p.archivedAt && projectAutoReview(board, p).enabled]));
 }
 
 /** Applies a defaults edit: a value sets a default, null removes it; an empty set removes `defaults`. */
@@ -201,6 +201,7 @@ export class BoardStore {
   private groupsReady = false;
   /** Where the migration reads the host's v1 groups; kept to migrate again after a storage restore. */
   private legacyGroups: (() => Promise<LegacyGroup[]>) | null = null;
+  private groupOptions: { reviewRulesPending?: () => Promise<boolean> } = {};
   /** The id the next lazily created default group gets, so a repaired read and the write after it agree. */
   private nextGroupId = randomUUID();
   private readonly takeGroupId = () => {
@@ -242,8 +243,9 @@ export class BoardStore {
    * storage failure (STORAGE_BUSY while the database starts or another process still holds it) is tried again with
    * backoff during this run; any other failure waits for the next start. Resolves to whether groups are ready.
    */
-  migrateGroups(load: () => Promise<LegacyGroup[]>): Promise<boolean> {
+  migrateGroups(load: () => Promise<LegacyGroup[]>, options: { reviewRulesPending?: () => Promise<boolean> } = {}): Promise<boolean> {
     this.legacyGroups = load;
+    this.groupOptions = options;
     return this.queue(async () => {
       try {
         const repair = await this.commit(async (board) => {
@@ -257,10 +259,12 @@ export class BoardStore {
           // The migration bumps no group or project revision (§7), even for a live card in a lane the group has off.
           const lanes = syncGroupLanes(board, now, { bumpRevision: false });
           // Auto review moves to the groups (§7 step 9), once: each group takes its members' most common value. A board
-          // without projects has nothing to collapse; its first write sets the marker instead (`commit`).
+          // without projects has nothing to collapse; its first write sets the marker instead (`commit`). Rules stored
+          // from before guardrails stay on their projects only while the guardrails migration still has to read them.
           const collapsed = !board.autoReviewGroups && board.projects.length > 0;
           if (collapsed) {
-            collapseGroupAutoReview(board);
+            const keepLegacy = (await options.reviewRulesPending?.().catch(() => true)) ?? false;
+            collapseGroupAutoReview(board, { keepLegacy });
             board.autoReviewGroups = true;
           }
           return { value: migrated ? { ...repair, projectIds: [] } : repair, changed: migrated || repair.changed || order.changed || lanes.changed || collapsed };
@@ -286,7 +290,7 @@ export class BoardStore {
     retry.attempt++;
     retry.timer = setTimeout(() => {
       retry.timer = null;
-      if (!retry.closed) void this.migrateGroups(load);
+      if (!retry.closed) void this.migrateGroups(load, this.groupOptions);
     }, delay);
     retry.timer.unref?.();
   }
@@ -390,7 +394,7 @@ export class BoardStore {
       return result;
     });
     // A backup from before groups has none: migrate it as at start (BOARD-GROUPS-SPEC §7), queued right behind the restore.
-    if (this.legacyGroups) void this.migrateGroups(this.legacyGroups);
+    if (this.legacyGroups) void this.migrateGroups(this.legacyGroups, this.groupOptions);
     return restored;
   }
   exportStorage() {
@@ -698,6 +702,9 @@ export class BoardStore {
         updatedAt: now,
       };
       if (!project.repos.includes(at.primaryPath)) project.repos.unshift(at.primaryPath);
+      // A copy written before Auto review moved to groups stored no value for Off; it keeps Off as its own override
+      // instead of inheriting the group (ruling, Noah 2026-11-18). This version's copies restore exactly as saved.
+      if (!snapshot.autoReviewInherits && !project.autoReview) project.autoReview = { enabled: false, maxRounds: 2 };
       const move = (path: string) => (path === source.primaryPath ? at.primaryPath : path);
       let unbound = 0;
       const tasks = snapshot.tasks.map((t) => {

@@ -186,7 +186,7 @@ describe.each(["json", "sqlite"] as const)("board groups in the store (%s)", (ba
     // The folder copy of a project has no group; a restore lands in the default group.
     const records = projectRecords(board, "a")!;
     expect(records.project).not.toHaveProperty("groupId");
-    const snapshot = { ...records, savedAt: at, project: { ...records.project, id: "restored", groupId: "from-another-board" } };
+    const snapshot = { ...records, savedAt: at, autoReviewInherits: true, project: { ...records.project, id: "restored", groupId: "from-another-board" } };
     await s.restoreProject(snapshot, { primaryPath: "/a", paseoProjectId: "native-restored" });
     board = await onDisk(backend, s.directory);
     expect(board.projects.find((p) => p.id === "restored")!.groupId).toBe(fallback.id);
