@@ -14,6 +14,17 @@
 - i18n: 3 new strings (Gallery, Previous image, Next image) in all 9 catalogs; "Open {name}" and "Close" already existed. Onboarding: none, by the explicit choice in EVIDENCE-GALLERY-SPEC §4.3 (no tour line, no tip). What's new: none (not a release). Telemetry: no heartbeat field (read-only view).
 - Checks run (Node 26.5.1, on the committed tree): `npm run typecheck` exit 0; `npm test` exit 0, 236 files passed (1 skipped), 2867 tests passed, 7 skipped. Under the shell's default Node 20 the suite has 7 unrelated failing files (`node:sqlite` missing and the scripts that need it), so the run used Node 26.
 - Not run: plugin install/reload and the real UI on desktop, compact and phone (grid, viewer, arrow keys, Reduce Motion, Tinylink fixture screenshots per §6). These are left to the coordinator or an independent verifier.
+- Fix round (independent review), each its own commit:
+  - Medium: the viewer takes a `useShortcutBlock`, so board shortcuts are off while it is open, and the board's key handler neither acts on Esc nor stops it; Esc reaches the viewer's listener and closes only the viewer (`04401e9`).
+  - Medium: the listing keeps the same card's last listing as placeholder data while a changed output key loads (`keepCardListing`), so the section and an open viewer no longer unmount and reopen. An open image that leaves the listing clears the selection (`gallerySelection`) (`c892203`).
+  - Low: names like `v1..2.png` are listed and served; `plainFileName` refuses only empty, `.`, `..`, `/`, `\` and NUL, and the listing applies the same predicate (`c40ea41`).
+  - Low: a folder image past the first 200 is refused; the image read checks the sorted, capped listing, and the per-folder cap now counts the folder's own images before cross-output dedupe (`e250095`).
+  - Low: writing a thumbnail removes that path's older cache entries (names start with a path hash), and spec §2.3 says so (`5b6305e`).
+  - Low: at most 4 `sips` thumbnails are made at once (`slots(4)`) (`5e97323`).
+  - Accepted, not changed: the gap between the size and root checks and the read, the same as `previewFile`'s. `original()` still refuses bytes over 8 MB after the read.
+  - Tests, each failing first: `server/artifact-gallery.test.ts` (double-dot name; 201st image refused; rewritten shot replaces its thumbnail, macOS; semaphore limit and slot release) and `client/gallery-logic.test.ts` (same-card placeholder only; selection lookup and the vanished image). The shortcut block has no automated test: the repo has no component-rendering tests, and `useShortcutBlock` is the same hook `client/modal.tsx` uses.
+  - Checks (Node 26.5.1, at `04401e9`): `npm run typecheck` exit 0; `npm test` exit 0, 236 files passed (1 skipped), 2873 tests passed, 7 skipped.
+  - Not run: real UI check of Esc and shortcuts with the viewer open (web), and of the viewer staying open across an output change.
 
 ## Board: project filter changed on its own when a card chat opened (branch `kanban/investigate-board-project-filter-changes-8d21ad`) — 2026-11-18
 
