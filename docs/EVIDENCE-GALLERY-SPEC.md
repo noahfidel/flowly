@@ -1,6 +1,6 @@
 # Evidence gallery on cards (EVIDENCE-GALLERY-SPEC)
 
-Status: scoped 2026-11-18, simplified the same day at the user's request ("don't be prescriptive about before/after; the existing gallery plugin's viewing is good, don't over-engineer it"). Not built. Contract only; progress goes to `docs/PROGRESS.md`.
+Status: scoped 2026-11-18, simplified the same day at the user's request ("don't be prescriptive about before/after; the existing gallery plugin's viewing is good, don't over-engineer it"). Decisions ruled 2026-11-18 (§4). Not built. Contract only; progress goes to `docs/PROGRESS.md`.
 
 A card that changes UI ends with screenshots. Today the user sees them in the third-party image gallery panel, which mixes the real files (`1-BEFORE-groups-table.png`) with hash-named copies (`9e342c7f…b3de.png`) that cannot be removed. On the card itself, the shots folder attached as an output opens as a list of file names, with no images.
 
@@ -85,11 +85,13 @@ Nothing new is needed. The harness attaches the folder and already knows its fil
 | A new artifact role or an "evidence" flag plus tool | Shots are already outputs; a derived view needs no new data. |
 | Write a new viewer from scratch | The plugin's viewer is good, MIT and on the same stack. |
 
-## 4. Open decisions (the user's)
+## 4. Decisions
 
-1. **Folder depth.** (a) Only images directly in the folder (recommended: this is today's layout, and it is cheap). (b) Recursive.
-2. **Placement.** (a) Its own movable sidebar section after Artifacts (recommended). (b) Thumbnails inside the Artifacts section.
-3. **Onboarding.** (a) Add a line to the tour's More features list and a one-time tip on the first card that has gallery images (recommended). (b) Add the tour line only.
+Ruled by the user on 2026-11-18. None remain open.
+
+1. **Folder depth: top level only.** The Gallery shows only images directly inside an output folder; subfolders are not read. Recursion was rejected because older plans keep near-copies of the same shots in `before/`, `after/` and `annotated/` subfolders, and because it would need caps to avoid walking large trees.
+2. **Placement: its own section.** Gallery is a separate movable sidebar section after Artifacts (§2.2). It is not a strip inside Artifacts, which already lists specs, PR links, ledgers, handoffs, external items and other files.
+3. **Onboarding: none.** No welcome-tour line and no tip for the Gallery. This is the explicit "neither is warranted" choice that the AGENTS.md onboarding-upkeep rule allows; G1's delivery note says so. Whether to remove the welcome tour altogether is a separate follow-up idea, not part of this spec.
 
 ## 5. Upstream report (separate, not Flowly work)
 
@@ -107,7 +109,7 @@ An optional, lower-priority report to Paseo: put the source file name in the mat
 
 | # | Card | Delivers | Relations |
 | --- | --- | --- | --- |
-| G1 | Card gallery: port paseo-image-gallery's grid and viewer over output artifacts | §2 (RPCs, ported thumbnailer, grid, viewer, section order), i18n, onboarding per §4 Q3, tests, desktop and compact screenshots (shot-lib, Tinylink fixture) | none |
+| G1 | Card gallery: port paseo-image-gallery's grid and viewer over output artifacts | §2 (RPCs, ported thumbnailer, grid, viewer, section order), i18n, no onboarding (§4.3), tests, desktop and compact screenshots (shot-lib, Tinylink fixture) | none |
 | G2 | Upstream report to paseo-image-gallery | §5. Not a Flowly repo change; outward-facing, so only with the user's go-ahead | independent |
 
 ## 7. Tests and docs (for G1)
@@ -126,7 +128,6 @@ An optional, lower-priority report to Paseo: put the source file name in the mat
 - **Docs:**
   - a dated addition to CARD-ARTIFACTS-SPEC pointing here;
   - the DRAWER-SPEC section list and `shared/drawer-sections.ts`;
-  - the ONBOARDING-SPEC tip table;
   - a What's new entry if the release is minor;
   - `docs/PROGRESS.md`.
 - **Telemetry:** no heartbeat field, since this is a read-only view.
