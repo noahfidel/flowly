@@ -169,15 +169,29 @@ async function imageSize(path: string) {
   return width > 0 && height > 0 ? { width, height } : null;
 }
 
+/** Removes the cached thumbnails of earlier versions of the same file (same path prefix, another name). */
+async function pruneOlder(cacheDir: string, prefix: string, keep: string) {
+  try {
+    const stale = (await readdir(cacheDir)).filter((entry) => entry.startsWith(prefix) && entry !== keep && entry.endsWith(".png"));
+    await Promise.all(stale.map((entry) => rm(join(cacheDir, entry), { force: true })));
+  } catch (e) {
+    logFailure("Gallery thumbnail cache not pruned:", e, cacheDir);
+  }
+}
+
 /**
  * The image as a `data:` URI. `thumb`: a copy whose short side is 640 px (long side at most 1600), made with the
- * `sips` tool built into macOS and cached in `cacheDir` (mode 0700) by path, size and modification time. Other
+ * `sips` tool built into macOS and cached in `cacheDir` (mode 0700) by path, size and modification time; writing a
+ * new version's thumbnail removes that path's older ones. Other
  * platforms, images that would not shrink and any failure get the original file.
  */
 export async function readGalleryImage(file: GalleryFile, size: "thumb" | "full", cacheDir: string): Promise<string> {
   if (size === "full" || process.platform !== "darwin") return original(file);
-  const key = createHash("sha1").update(`${file.path}\0${file.size}\0${file.mtime}`).digest("hex");
-  const out = join(cacheDir, `${key}-s${THUMBNAIL_SHORT_SIDE}-l${THUMBNAIL_MAX_LONG_SIDE}.png`);
+  // `<path hash>-<version hash>-…`: a shot rewritten in place gets a new name, and its older entries are found by the prefix.
+  const hash = (text: string) => createHash("sha1").update(text).digest("hex").slice(0, 20);
+  const prefix = `${hash(file.path)}-`;
+  const name = `${prefix}${hash(`${file.size}\0${file.mtime}`)}-s${THUMBNAIL_SHORT_SIDE}-l${THUMBNAIL_MAX_LONG_SIDE}.png`;
+  const out = join(cacheDir, name);
   try {
     await mkdir(cacheDir, { recursive: true, mode: 0o700 });
     await chmod(cacheDir, 0o700);
@@ -202,6 +216,7 @@ export async function readGalleryImage(file: GalleryFile, size: "thumb" | "full"
     if (target >= long) return original(file);
     await run("sips", ["-Z", String(target), "-s", "format", "png", file.path, "--out", partial]);
     await rename(partial, out);
+    await pruneOlder(cacheDir, prefix, name);
     const bytes = await readFile(out);
     // Re-encoding can grow already compact images; then the original is the better thumbnail.
     if (bytes.length >= file.size) return original(file);

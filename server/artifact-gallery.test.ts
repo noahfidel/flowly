@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdir, mkdtemp, readdir, realpath, rm, stat, symlink, truncate, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, realpath, rm, stat, symlink, truncate, utimes, writeFile } from "node:fs/promises";
 import { deflateSync } from "node:zlib";
 import { randomFillSync } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -227,3 +227,22 @@ test("only names in the capped listing are served: the 201st image of a folder i
   await expect(galleryImageFile(folder, "200.png", x.where)).rejects.toThrow("not in the folder");
   await expect(galleryImageFile(folder, "204.png", x.where)).rejects.toThrow("not in the folder");
 });
+
+test.runIf(process.platform === "darwin")("macOS: a shot rewritten in place replaces its old thumbnail in the cache", async () => {
+  const x = await setup();
+  const path = join(x.ws, "shot.png");
+  await writeFile(path, noisyPng(1600, 1200));
+  await writeFile(join(x.ws, "other.png"), noisyPng(1600, 1200));
+  const cache = join(x.root, "cache");
+  await readGalleryImage(await galleryImageFile(artifact("./shot.png"), undefined, x.where), "thumb", cache);
+  await readGalleryImage(await galleryImageFile(artifact("./other.png"), undefined, x.where), "thumb", cache);
+  const first = await readdir(cache);
+  expect(first).toHaveLength(2);
+  // Rewritten in place: new bytes and a later modification time.
+  await writeFile(path, noisyPng(1600, 1000));
+  await utimes(path, new Date(), new Date(Date.now() + 5000));
+  await readGalleryImage(await galleryImageFile(artifact("./shot.png"), undefined, x.where), "thumb", cache);
+  const after = await readdir(cache);
+  expect(after).toHaveLength(2);
+  expect(after.filter((name) => !first.includes(name))).toHaveLength(1);
+}, 30_000);

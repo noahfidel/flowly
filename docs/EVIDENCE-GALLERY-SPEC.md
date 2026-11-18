@@ -72,7 +72,7 @@ Nothing new is needed. The harness attaches the folder and already knows its fil
   - Thumbnails come from the ported `sips` path, with the original's fallback. Use an argument array, and make the cache folder `0700`.
   - For an image output (not a folder), `name` may be omitted; when given it must be that file's own name.
   - An image over 8 MB is left out of the listing as well, so the grid never shows a tile that cannot load.
-  - The thumbnail cache lives in `gallery-thumbnails` under Flowly's data folder, keyed by real path, size and modification time; a thumbnail is written to a temporary name and renamed into place.
+  - The thumbnail cache lives in `gallery-thumbnails` under Flowly's data folder, keyed by real path, size and modification time; a thumbnail is written to a temporary name and renamed into place. Writing a thumbnail removes that path's older cached thumbnails, so a shot rewritten in place leaves no orphan. A thumbnail whose file is deleted and never read again stays; the folder is never swept as a whole.
 - The listing is read when the sidebar shows the card or its output files change (keyed on the output file artifacts, like the missing-file check, CARD-ARTIFACTS-SPEC §9), never on a timer. Thumbnails are read only for tiles on screen: an open section and the shown page.
 - The client's cache key includes `size` and `mtime`, because shots are rewritten in place.
 - Failures are logged with `logFailure`.
