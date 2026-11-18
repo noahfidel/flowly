@@ -273,23 +273,67 @@ describe("the one-time collapse into group values (BOARD-GROUPS-SPEC §7)", () =
     expect(first.projects[1]!.autoReview).toEqual(on2);
   });
 
-  test("archived members count; a group without members stays unset; other defaults are kept", () => {
+  test("only live members count (ruling, Noah 2026-11-18); a group without members stays unset; other defaults are kept", () => {
     const board = {
       groups: [{ ...group("g"), defaults: { deliveryMode: "draft_pr" } }, group("empty")],
-      projects: [member("a", "g", { ...on2 }, { archivedAt: at }), member("b", "g", { ...on2 }), member("c", "g")],
+      projects: [
+        member("a", "g", { ...on2 }, { archivedAt: at }),
+        member("b", "g", { ...on2 }, { archivedAt: at }),
+        member("c", "g", { ...on2 }),
+        member("d", "g"),
+        member("e", "g"),
+      ],
     };
+    const before = effective(board);
     collapseGroupAutoReview(board);
-    expect(board.groups[0]!.defaults).toEqual({ deliveryMode: "draft_pr", autoReview: on2 });
+    // Live: one On, two Off; the two archived On members are not counted.
+    expect(board.groups[0]!.defaults).toEqual({ deliveryMode: "draft_pr", autoReview: { enabled: false, maxRounds: 2 } });
     expect(board.groups[1]).not.toHaveProperty("defaults");
-    expect(board.projects[2]!.autoReview).toEqual({ enabled: false, maxRounds: 2 });
+    expect(board.projects[0]!.autoReview).toEqual(on2);
+    expect(board.projects[1]!.autoReview).toEqual(on2);
+    expect(board.projects[2]!.autoReview).toEqual(on2);
+    expect(board.projects[3]).not.toHaveProperty("autoReview");
+    expect(effective(board)).toEqual(before);
   });
 
-  test("a stored value carrying rules from before guardrails stays on its project, so the guardrails migration still reads them", () => {
+  test("a group with only archived members takes their most common value", () => {
+    const board = { groups: [group("g")], projects: [member("a", "g", { ...on2 }, { archivedAt: at }), member("b", "g", { ...on2 }, { archivedAt: at }), member("c", "g", undefined, { archivedAt: at })] };
+    const before = effective(board);
+    collapseGroupAutoReview(board);
+    expect(board.groups[0]!.defaults?.autoReview).toEqual(on2);
+    expect(board.projects[2]!.autoReview).toEqual({ enabled: false, maxRounds: 2 });
+    expect(effective(board)).toEqual(before);
+  });
+
+  test("a rerun on a collapsed board changes nothing; a member without a value in a group with one keeps inheriting", () => {
+    const board = { groups: [group("zen")], projects: [member("infra", "zen", { ...on2 }), member("gitops", "zen", { ...on2 }), member("zenlytic", "zen")] };
+    collapseGroupAutoReview(board);
+    const once = JSON.parse(JSON.stringify(board));
+    expect(collapseGroupAutoReview(board)).toBe(false);
+    expect(board).toEqual(once);
+    // Inheriting members of a group that already has a value are left alone.
+    const set = { groups: [group("g", { ...on2 })], projects: [member("a", "g"), member("b", "g", { enabled: false, maxRounds: 2 })] };
+    expect(collapseGroupAutoReview(set)).toBe(false);
+    expect(set.projects[0]).not.toHaveProperty("autoReview");
+    expect(set.projects[1]!.autoReview).toEqual({ enabled: false, maxRounds: 2 });
+  });
+
+  test("a stored value carrying rules from before guardrails stays while the guardrails migration is pending", () => {
     const legacy = { ...on2, rules: [{ id: "t", name: "Tests", kind: "command", argv: ["npm", "test"] }] };
     const board = { groups: [group("g")], projects: [member("a", "g", legacy), member("b", "g", { ...on2 })] };
-    collapseGroupAutoReview(board);
+    collapseGroupAutoReview(board, { keepLegacy: true });
     expect(board.groups[0]!.defaults?.autoReview).toEqual(on2);
     expect(board.projects[0]!.autoReview).toEqual(legacy);
     expect(board.projects[1]).not.toHaveProperty("autoReview");
+  });
+
+  test("once guardrails migrated, a legacy value equal to the group's is dropped; a different one stays as the override", () => {
+    const legacy = { ...on2, rules: [{ id: "t", name: "Tests", kind: "command", argv: ["npm", "test"] }] };
+    const other = { enabled: true, maxRounds: 4, checks: [] };
+    const board = { groups: [group("g")], projects: [member("a", "g", legacy), member("b", "g", { ...on2 }), member("c", "g", other)] };
+    collapseGroupAutoReview(board, { keepLegacy: false });
+    expect(board.groups[0]!.defaults?.autoReview).toEqual(on2);
+    expect(board.projects[0]).not.toHaveProperty("autoReview");
+    expect(board.projects[2]!.autoReview).toEqual(other);
   });
 });

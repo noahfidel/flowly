@@ -1,9 +1,11 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoardStore } from "./store";
 import { ProjectFolders, readSnapshot, snapshotPath, SnapshotInvalidError } from "./project-folder";
+import { detectWhenOn } from "./project-create";
+import { projectAutoReview } from "../shared/auto-review";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -95,6 +97,77 @@ test("removing a project keeps its snapshot; restore brings the same records bac
   expect(tasks.map((t) => [t.id, t.workspaceId, t.revision])).toEqual([["t1", "w-t1", 2], ["t2", "w-t2", 2]]);
   expect(board.events.filter((e) => e.taskId === "t1").map((e) => e.action)).toEqual(["created", "restored"]);
   expect(board.links.map((l) => l.id)).toEqual(["l1"]);
+});
+
+describe("Auto review on restore (PROJECT-FOLDER-SPEC; ruling, Noah 2026-11-18)", () => {
+  async function onGroup(store: BoardStore) {
+    await store.migrateGroups(async () => []);
+    const fallback = (await store.read()).groups[0]!;
+    await store.updateGroup({ id: fallback.id, revision: fallback.revision, defaults: { autoReview: { enabled: true, maxRounds: 2 } } });
+  }
+
+  test("this version's copy says the project follows its group; it restores with no value and inherits", async () => {
+    const { store, folders, r1 } = await setup();
+    await onGroup(store);
+    await folders.flush();
+    expect(JSON.parse(await readFile(snapshotPath(r1), "utf8")).autoReviewInherits).toBe(true);
+    const snapshot = (await readSnapshot(r1))!;
+    expect(snapshot.autoReviewInherits).toBe(true);
+    await store.removeProject({ id: "p1", revision: (await store.read()).projects.find((p) => p.id === "p1")!.revision });
+    await store.restoreProject(snapshot, { primaryPath: r1, paseoProjectId: "n1b" });
+    const board = await store.read();
+    const p1 = board.projects.find((p) => p.id === "p1")!;
+    expect(p1).not.toHaveProperty("autoReview");
+    expect(projectAutoReview(board, p1).enabled).toBe(true);
+    // Detection runs for a restored project whose effective value is on.
+    const detected: string[] = [];
+    await detectWhenOn(store, "p1", (id) => detected.push(id));
+    await detectWhenOn(store, "p2", (id) => detected.push(id));
+    expect(detected).toEqual(["p1", "p2"]);
+  });
+
+  test("an older copy with no value restores as an explicit Off override", async () => {
+    const { store, folders, r1 } = await setup();
+    await onGroup(store);
+    await folders.flush();
+    const raw = JSON.parse(await readFile(snapshotPath(r1), "utf8"));
+    delete raw.autoReviewInherits;
+    await writeFile(snapshotPath(r1), JSON.stringify(raw), "utf8");
+    const snapshot = (await readSnapshot(r1))!;
+    expect(snapshot.autoReviewInherits).toBe(false);
+    await store.removeProject({ id: "p1", revision: (await store.read()).projects.find((p) => p.id === "p1")!.revision });
+    await store.restoreProject(snapshot, { primaryPath: r1, paseoProjectId: "n1b" });
+    const board = await store.read();
+    const p1 = board.projects.find((p) => p.id === "p1")!;
+    expect(p1.autoReview).toEqual({ enabled: false, maxRounds: 2 });
+    const detected: string[] = [];
+    await detectWhenOn(store, "p1", (id) => detected.push(id));
+    expect(detected).toEqual([]);
+  });
+
+  test("an older copy with a value restores it as saved", async () => {
+    const { store, folders, r1 } = await setup();
+    await store.updateProject({ id: "p1", revision: 1, autoReview: { enabled: true, maxRounds: 3 } });
+    await folders.flush();
+    const raw = JSON.parse(await readFile(snapshotPath(r1), "utf8"));
+    delete raw.autoReviewInherits;
+    await writeFile(snapshotPath(r1), JSON.stringify(raw), "utf8");
+    const snapshot = (await readSnapshot(r1))!;
+    await store.removeProject({ id: "p1", revision: 2 });
+    await store.restoreProject(snapshot, { primaryPath: r1, paseoProjectId: "n1b" });
+    expect((await store.read()).projects.find((p) => p.id === "p1")!.autoReview).toEqual({ enabled: true, maxRounds: 3 });
+  });
+
+  test("the upgrade migration rewrites a current copy that lacks the marker", async () => {
+    const { store, dir, folders, r1 } = await setup();
+    await folders.flush();
+    const raw = JSON.parse(await readFile(snapshotPath(r1), "utf8"));
+    delete raw.autoReviewInherits;
+    await writeFile(snapshotPath(r1), JSON.stringify(raw), "utf8");
+    const record = await new ProjectFolders(() => store.read(), async () => [], 0).migrate(join(dir, "data"));
+    expect(record.projects.p1.result).toBe("written");
+    expect((await readSnapshot(r1))!.autoReviewInherits).toBe(true);
+  });
 });
 
 test("restore refuses a project or native project already on the board, writing nothing", async () => {

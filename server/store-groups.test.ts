@@ -614,6 +614,32 @@ describe.each(["json", "sqlite"] as const)("auto review at the group level (%s; 
     expect(turnedOn[2]).toEqual(["t1"]);
     expect(turnedOn).toHaveLength(3);
   });
+
+  test("un-archiving a project into an On group reports it", async () => {
+    const s = await stored();
+    let infra = (await s.read()).projects.find((p) => p.id === "infra")!;
+    infra = await s.updateProject({ id: "infra", revision: infra.revision, archived: true });
+    const turnedOn: string[][] = [];
+    s.onAutoReviewOn = (ids) => turnedOn.push([...ids]);
+    await s.updateProject({ id: "infra", revision: infra.revision, archived: false });
+    expect(turnedOn).toEqual([["infra"]]);
+  });
+
+  test("a legacy value equal to its group's stays only while the guardrails migration is pending", async () => {
+    const legacyValue = { ...on2, rules: [{ id: "t", name: "Tests", kind: "command", argv: ["npm", "test"] }] };
+    const groups = [{ id: "g", name: "G", projectIds: ["a", "b"] }];
+    for (const pending of [true, false]) {
+      const d = await directory();
+      await seed(d, [project("a", { autoReview: legacyValue as Project["autoReview"] }), project("b", { autoReview: { ...on2 } })]);
+      const s = open(backend, d);
+      expect(await s.migrateGroups(legacy(groups), { reviewRulesPending: async () => pending })).toBe(true);
+      const board = await onDisk(backend, d);
+      expect(byName(board, "G").defaults?.autoReview).toEqual(on2);
+      if (pending) expect(own(board, "a")).toEqual(legacyValue);
+      else expect(own(board, "a")).toBeUndefined();
+      expect(own(board, "b")).toBeUndefined();
+    }
+  });
 });
 
 describe("projects.create stores no auto review: the project inherits its group (ruling, Noah 2026-11-18)", () => {
