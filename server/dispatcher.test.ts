@@ -1503,7 +1503,8 @@ test("no route to a card's ask: Claude's built-in tools are an allowlist, so its
   const config = x.agentCreates[0].options.config as { options?: { extraArgs?: Record<string, string | null> } };
   // `extraArgs.tools` becomes Claude Code's `--tools`: the built-in tools it starts with; MCP servers are not affected.
   const tools = (config.options?.extraArgs?.tools ?? "").split(",");
-  expect(tools).toEqual(["Read", "Glob", "Grep", "WebSearch", "ToolSearch"]);
+  // AskUserQuestion only asks this chat's user (ruling, Noah 2026-11-18); it answers nothing.
+  expect(tools).toEqual(["Read", "Glob", "Grep", "WebSearch", "ToolSearch", "AskUserQuestion"]);
   expect(tools).toEqual([...dispatcherBuiltinTools]);
   // Claude Code 2.1.319's routes to another session or agent, a shell, a file write or a later turn (the reviewer's probe).
   for (const tool of ["SendMessage", "ListAgents", "Workflow", "RemoteTrigger", "CronCreate", "ScheduleWakeup", "Skill", "Write", "Edit", "NotebookEdit", "Bash", "Task", "Agent", "WebFetch"])
@@ -1614,7 +1615,25 @@ test("the charter says how a follow-up is created and where it branches from, an
   expect(line).toMatch(/do not ask the user where to branch/i);
   expect(line).toMatch(/baseRef \("parent" or a branch\) only when the user chose/);
   expect(line).toMatch(/warning/);
-  expect(dispatcherCharterVersion).toBe(4);
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(4);
+});
+
+test("the charter asks the user with AskUserQuestion or a confirmed tool, never a question in text, and is versioned 5 (ruling, Noah 2026-11-18)", () => {
+  const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("AskUserQuestion"))!;
+  expect(line).toBeDefined();
+  // A real ask with buttons, not a text question the user can miss.
+  expect(line).toMatch(/ask with AskUserQuestion/);
+  expect(line).toMatch(/recommend/);
+  expect(line).toMatch(/never end your turn on a question in text/i);
+  // A yes/no to one confirmed call: make the call, its confirm is the question.
+  expect(line).toMatch(/flowly_create_card[^.]*make that call/);
+  expect(line).toMatch(/confirm is the question/);
+  // One ask at a time, and it never reaches a card's asks.
+  expect(line).toMatch(/one ask at a time/i);
+  expect(line).toMatch(/never answers a card's/);
+  expect(dispatcherCharterVersion).toBe(5);
+  // The guard stays: an older dispatcher only lacks the tool, the charter's Replace warning covers it (§3).
+  expect(dispatcherGuardVersion).toBe(2);
 });
 
 test("the charter says plainly that only the user answers a card's asks", () => {

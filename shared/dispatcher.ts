@@ -241,8 +241,11 @@ export const dispatcherWithheldTools = [
  *   could make requests to local addresses, and is left out).
  * - ToolSearch: loads the schemas of MCP tools Claude Code defers when there are many; without it the dispatcher could
  *   not call its own Flowly tools. It finds only tools the session already has.
+ * - AskUserQuestion (ruling, Noah 2026-11-18): asks this chat's user a question with options, as a pending question
+ *   request the chat shows with buttons (and the user's Notification hook hears). It only asks the user; it answers
+ *   nothing, so it gives no route to a card's asks.
  */
-export const dispatcherBuiltinTools = ["Read", "Glob", "Grep", "WebSearch", "ToolSearch"] as const;
+export const dispatcherBuiltinTools = ["Read", "Glob", "Grep", "WebSearch", "ToolSearch", "AskUserQuestion"] as const;
 
 /**
  * The version of the routes a dispatcher is started without (`dispatcherWithheldTools`, `dispatcherBuiltinTools` and
@@ -258,9 +261,11 @@ export const dispatcherGuardVersion = 2;
  * one is version 0, the charter before versioning. Version 1 is the charter with `startRule` and the note reply rule;
  * version 2 says each flowly_create_card is confirmed in the chat (§5.2); version 3 adds messaging another group's
  * dispatcher and the rule that nothing about a card's asks crosses between dispatchers (§5.5); version 4 says how a
- * follow-up is linked before it starts and that the project's follow-up setting picks its base (START-CARD-SPEC §11).
+ * follow-up is linked before it starts and that the project's follow-up setting picks its base (START-CARD-SPEC §11);
+ * version 5 asks the user with AskUserQuestion or a confirmed tool's confirm, never a question in text (ruling, Noah
+ * 2026-11-18).
  */
-export const dispatcherCharterVersion = 4;
+export const dispatcherCharterVersion = 5;
 
 /**
  * Providers the dispatcher starts on: those whose sessions can be started without `dispatcherWithheldTools` (Claude's
@@ -452,6 +457,7 @@ export const dispatcherCharter = (group: { name: string }) => `You are the Flowl
 - Every repo task is a card: one card is one deliverable, one branch or one PR. When the user asks for work, create the card with flowly_create_card (workspace "worktree" for repo work) and start its session straight away with flowly_start_card; the card's own agent does the work, not you. Write the card description for an agent that cannot see this conversation: goal, context, files, acceptance criteria.
 - ${startRule}
 - Each flowly_create_card call asks the user to confirm it in this chat, with buttons that may change its settings (such as the Linear ticket ask) before the card is made; the card you get back is what the user chose. Do not announce or repeat the confirm; just make the call and wait. When the user cancels (CARD_REFUSED), do not create or start that card or ask again unless they say so. On CONFIRMATION_UNAVAILABLE ask the user to switch your permission mode to one that asks.
+- When the user must decide something (whether to do X, which of two ways), ask with AskUserQuestion: a short question, 2-4 options with your recommendation first, and wait for the answer in this turn. Never end your turn on a question in text ("Want me to…?", "Say yes and I'll…"): the user can miss it and gets no buttons. When the decision is only yes or no to one call of flowly_create_card, flowly_create_project or flowly_manage_groups, make that call instead: its confirm is the question, so do not ask first. When nothing needs deciding now, park it as an idea or give a one-line recommendation instead of asking. One ask at a time: never ask while a confirm or question of yours waits. AskUserQuestion only asks the user in this chat; it never answers a card's questions, permission requests or blockers.
 - Split independent deliverables into separate cards that can run side by side, and tie them with flowly_link_cards (blocks when one must land first, follow_up when one continues another). Never make child cards or extra workspaces for one card.
 - For a follow-up of another card, create it, link it with flowly_link_cards relation follow_up before you call flowly_start_card, then start it. flowly_start_card picks where its worktree branches from by the project's follow-up setting (the parent's branch while that has commits the base lacks), so do not ask the user where to branch. Pass baseRef ("parent" or a branch) only when the user chose one. On BASE_CHOICE_NEEDED ask the user, offering the parent's branch or the project's base, and start it again with their choice as baseRef. In your reply, say which base the card branched from (base in the result) and pass on any warning.
 - Park asks that should not start now as project ideas with flowly_propose_idea, not as cards. Read a project's ideas with flowly_list_ideas and keep them current with flowly_update_idea (edit, or dismiss one that no longer applies). When the user wants an idea done, pass its ideaId to flowly_create_card so the idea is marked taken up.
