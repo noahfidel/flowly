@@ -7,7 +7,7 @@ import { z } from "zod";
 import { isOpenCard } from "../shared/groups";
 import { ideaNewestFirst } from "../shared/ideas";
 import { linkFor } from "../shared/links";
-import { groupLimits, linkSchema, projectInput, tagLimits, type Idea, type Project, type ProjectInput } from "../shared/model";
+import { artifactLimits, artifactRoles, groupLimits, linkSchema, projectInput, tagLimits, type Idea, type Project, type ProjectInput } from "../shared/model";
 import type { GroupWriter } from "./group-writes";
 import { normalizeTag, normalizeTags } from "../shared/tags";
 import {
@@ -128,6 +128,21 @@ export const dispatcherInputs = {
     archived: z.boolean().default(true).describe("true archives the card (default); false brings an archived card back."),
     reason: z.string().trim().min(1).max(500).optional().describe("Why, in a few words; shown in the card's activity."),
   }),
+  addArtifact: z.strictObject({
+    projectId,
+    taskId: z.string().min(1).max(200).describe("Card id from flowly_list_cards."),
+    target: z
+      .string()
+      .trim()
+      .min(1)
+      .max(artifactLimits.target)
+      // Never relative: the dispatcher has no card workspace of its own to resolve it against (§5.7).
+      .refine((t) => isAbsolute(t) || t === "~" || t.startsWith("~/") || /^[a-z][a-z0-9+.-]*:/i.test(t), "Pass an absolute path (or one starting with ~/) or an http(s) link.")
+      .describe("An http(s) link, or the absolute path (or ~/…) of a file or folder inside the card's directories or the extra artifact folders set in Flowly."),
+    role: z.enum(artifactRoles).describe("input: material the card works from (a spec, a charter); output: something it delivered (a ledger, a report, a PR)."),
+    title: z.string().trim().max(artifactLimits.title).optional().describe("Short title; defaults to the file name or link."),
+    note: z.string().trim().max(artifactLimits.note).optional().describe("One line on what it is for."),
+  }),
   createProject: z.strictObject({
     path: z
       .string()
@@ -208,6 +223,19 @@ const listProjectsResultSchema = z.object({
   projects: z.array(z.object({ projectId: z.string(), title: z.string(), rootAvailable: z.boolean(), openCards: z.number().int() })),
 });
 const linkCardsResultSchema = z.object({ link: linkSchema, created: z.boolean() });
+const addArtifactResultSchema = z.object({
+  artifact: z.object({
+    id: z.string(),
+    role: z.enum(artifactRoles),
+    kind: z.enum(["file", "url"]),
+    target: z.string(),
+    title: z.string(),
+    note: z.string(),
+    createdBy: z.enum(["human", "agent"]),
+  }),
+  changed: z.boolean(),
+  notice: z.string().optional(),
+});
 const archiveCardResultSchema = z.object({
   card: z.object({ taskId: z.string(), title: z.string(), status: z.string(), archived: z.boolean(), revision: z.number().int() }),
   changed: z.boolean(),
@@ -1123,6 +1151,17 @@ export class DispatcherTools {
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       },
       (raw) => toolResult(() => this.archiveCard(identity, raw)),
+    );
+    mcp.registerTool(
+      "flowly_add_artifact",
+      {
+        description:
+          "Attach a file or link to a card of a project as an input (material it works from: a spec, a shared charter) or an output (something it delivered: a ledger, a report, a PR), as the card's own session does with its flowly_add_artifact. target is an http(s) link or the absolute path (or ~/…) of a file or folder inside the card's directories or the extra artifact folders set in Flowly. Flowly records a reference only: it never reads, copies or changes the file. The card's session sees it as unread on its next turn. Adding a recorded target again updates the one an agent added (changed=false when nothing changed); one the user added stays as is (notice says so). ARTIFACT_INVALID: missing file, outside those folders, or not an http(s) link. CARD_NOT_FOUND, ARCHIVED (an archived card), ARTIFACTS_DISABLED or AGENT_CARDS_DISABLED (the user turned it off).",
+        inputSchema: dispatcherInputs.addArtifact,
+        outputSchema: addArtifactResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      (raw) => inProject(dispatcherInputs.addArtifact, raw, (c, input) => this.cards.addArtifact(c, input), true),
     );
     // Not preapproved (dispatcherConfirmedToolNames): every call shows a permission prompt the user answers.
     mcp.registerTool(

@@ -176,7 +176,7 @@ export function sameTarget(a: Pick<Artifact, "kind" | "target">, kind: Artifact[
  * An item link or bare key of a configured connection, checked with the
  * service, as an input artifact; null when `target` is not one.
  */
-export async function externalArtifact(connectors: ConnectorService | undefined, target: string) {
+export async function externalArtifact(connectors: Pick<ConnectorService, "recognize"> | undefined, target: string) {
   if (!connectors) return null;
   const found = await connectors.recognize(target);
   if (!found) return null;

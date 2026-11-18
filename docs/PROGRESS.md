@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Dispatcher: attach files and links to cards (`flowly_add_artifact`) (branch `kanban/give-the-dispatcher-a-tool-to-attach-fil-0bcb89`) — 2026-11-18
+
+- Feature (user-requested): the dispatcher's `flowly_add_artifact { projectId, taskId, target, role, title?, note? }` attaches a file or link to a card of its group as input or output, through the card session's own rules (`AgentCards.addArtifact`: same roots incl. the extra artifact folders, connector recognition, `ARTIFACT_INVALID` messages, re-attach behaviour). Spec: DISPATCHER-SPEC §5.7 (decisions: no confirm, no removal tool for now).
+- `shared/dispatcher.ts`: tool added to `dispatcherToolNames` (preapproved), charter line, `dispatcherCharterVersion` 5 → 6; `dispatcherGuardVersion` stays 2. `index.server.ts` wires the *Agent artifacts* switch to the card tools (`tools.cards.artifactsOn`). `externalArtifact` takes only the connector's `recognize`.
+- Tests (failing first, then passing): `server/dispatcher-tools.test.ts` (attach file and link as input/output; identical re-attach and a user's entry; refusals: outside folders, missing file, non-http link, relative path, archived card, unknown card, archived project, both switches, out-of-group; tool list and write-switch list), `server/dispatcher.test.ts` (charter line, version 6).
+- Onboarding: no tour or tip change (an agent tool; the user sees the artifacts on the card as before). Telemetry: no heartbeat field.
+
 ## Board: switching to a group that needs you opens what waits there (branch `kanban/board-switching-to-a-group-with-somethin-f1d010`) — 2026-11-18
 
 - Feature (user-requested): a group tab press or a switcher row opens that group's first "N need you" target (dispatcher chat, else the first need-you card with the step bar); never for the group already shown, nothing waiting, Back/Forward, links or New task from a tab menu. Spec: BOARD-GROUPS-SPEC §3, UI-REFRESH-SPEC §7ae.

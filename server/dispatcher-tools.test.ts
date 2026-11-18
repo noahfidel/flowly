@@ -47,6 +47,7 @@ const dispatcherTools = [
   "flowly_reply_to_agent",
   "flowly_message_dispatcher",
   "flowly_archive_card",
+  "flowly_add_artifact",
   // Not preapproved: the user confirms each call (ruling, Noah 2026-11-10).
   "flowly_create_project",
   "flowly_manage_groups",
@@ -360,6 +361,7 @@ test("the Agents create and edit cards switch turns off every dispatcher write",
     ["flowly_link_cards", { taskId: "q1", relation: "blocks", otherTaskId: "q2" }],
     ["flowly_propose_idea", { title: "Nope", detail: "x", rationale: "y" }],
     ["flowly_archive_card", { taskId: "q1" }],
+    ["flowly_add_artifact", { taskId: "q1", role: "output", target: "https://example.com/x" }],
   ];
   for (const [name, args] of writes) expect(code(await d.call(name, { projectId: "q", ...args })), name).toBe("AGENT_CARDS_DISABLED");
   // Creating a project is a write too, refused before the folder is looked at.
@@ -495,6 +497,109 @@ test("flowly_list_cards shows a PR review card's prRef", async () => {
   const cards = (await d.call("flowly_list_cards", { projectId: "q" })).structuredContent.cards as { taskId: string; prRef?: string }[];
   expect(cards.find((c) => c.taskId === "q2")?.prRef).toBe("acme/widgets#42");
   expect(cards.find((c) => c.taskId === "q1")).not.toHaveProperty("prRef");
+});
+
+/** A shared folder outside every card's directories, set as an extra artifact folder (CARD-PLAN-SPEC §3.1), with one charter file in it. */
+async function sharedFolder<X extends Awaited<ReturnType<typeof setup>>>(x: X) {
+  const shared = join(x.root, "shared-plans");
+  await mkdir(shared);
+  const charter = join(shared, "charter.md");
+  await writeFile(charter, "# Charter\n");
+  x.server.cards.extraArtifactFolders = async () => [shared];
+  return { shared, charter: join(await realpath(shared), "charter.md"), given: charter };
+}
+
+test("flowly_add_artifact attaches a file and a link to a card as input or output, as the card session's tool does (DISPATCHER-SPEC §5.7)", async () => {
+  const x = await setup();
+  const { charter, given } = await sharedFolder(x);
+  const d = await x.connect(x.dispatcherToken);
+  const file = await d.call("flowly_add_artifact", { projectId: "q", taskId: "q1", target: given, role: "input", title: "Family charter" });
+  expect(code(file)).toBeUndefined();
+  expect(file.structuredContent).toMatchObject({
+    artifact: { role: "input", kind: "file", target: charter, title: "Family charter", createdBy: "agent" },
+    changed: true,
+  });
+  const link = await d.call("flowly_add_artifact", { projectId: "q", taskId: "q1", target: "https://example.com/spec", role: "output" });
+  expect(code(link)).toBeUndefined();
+  expect(link.structuredContent).toMatchObject({ artifact: { role: "output", kind: "url", target: "https://example.com/spec" }, changed: true });
+  // A file inside the card's own directories works too.
+  await writeFile(join(x.root, "q", "notes.md"), "notes");
+  expect(code(await d.call("flowly_add_artifact", { projectId: "q", taskId: "q2", target: join(x.root, "q", "notes.md"), role: "output" }))).toBeUndefined();
+  const board = await x.store.read();
+  const mine = board.artifacts.filter((a) => a.taskId === "q1");
+  expect(mine).toHaveLength(2);
+  // Recorded as an agent's, by the dispatcher, so the card's session may remove it (CARD-ARTIFACTS-SPEC §4.1).
+  expect(mine.every((a) => a.createdBy === "agent" && a.agentId === "disp")).toBe(true);
+  expect(board.events.filter((e) => e.taskId === "q1" && e.action === "artifact_added")).toHaveLength(2);
+  expect(board.events.filter((e) => e.action === "artifact_added").every((e) => e.actor === "agent" && e.agentId === "disp")).toBe(true);
+  // The file itself is never changed.
+  expect(await readFile(charter, "utf8")).toBe("# Charter\n");
+});
+
+test("flowly_add_artifact: an identical re-attach returns what exists, unchanged; a user's entry keeps its role (DISPATCHER-SPEC §5.7)", async () => {
+  const x = await setup();
+  const { given } = await sharedFolder(x);
+  const d = await x.connect(x.dispatcherToken);
+  const first = await d.call("flowly_add_artifact", { projectId: "q", taskId: "q1", target: given, role: "input" });
+  const again = await d.call("flowly_add_artifact", { projectId: "q", taskId: "q1", target: given, role: "input" });
+  expect(code(again)).toBeUndefined();
+  expect(again.structuredContent).toMatchObject({ artifact: { id: first.structuredContent.artifact.id }, changed: false });
+  const board = await x.store.read();
+  expect(board.artifacts.filter((a) => a.taskId === "q1")).toHaveLength(1);
+  expect(board.events.filter((e) => e.action === "artifact_added")).toHaveLength(1);
+  // A changed role or title updates the dispatcher's entry in place: changed, still one entry and one added event.
+  const moved = await d.call("flowly_add_artifact", { projectId: "q", taskId: "q1", target: given, role: "output", title: "Charter v2" });
+  expect(moved.structuredContent).toMatchObject({ artifact: { id: first.structuredContent.artifact.id, role: "output", title: "Charter v2" }, changed: true });
+  const after = await x.store.read();
+  expect(after.artifacts.filter((a) => a.taskId === "q1")).toHaveLength(1);
+  expect(after.events.filter((e) => e.action === "artifact_added")).toHaveLength(1);
+  // One the user added stays as they made it, with a notice when the role asked for differs.
+  await x.store.mutate((b) => {
+    b.artifacts.push({ id: "user-1", taskId: "q2", projectId: "q", role: "input", kind: "url", target: "https://example.com/theirs", title: "Theirs", note: "", createdBy: "human", createdAt: stamp, updatedAt: stamp });
+  });
+  const theirs = await d.call("flowly_add_artifact", { projectId: "q", taskId: "q2", target: "https://example.com/theirs", role: "output" });
+  expect(theirs.structuredContent).toMatchObject({ artifact: { id: "user-1", role: "input", createdBy: "human" }, changed: false });
+  expect(theirs.structuredContent.notice).toMatch(/Already added by the user/);
+});
+
+test("flowly_add_artifact refuses a path outside the allowed folders, another group's project and an archived card, writing nothing (DISPATCHER-SPEC §5.7)", async () => {
+  const x = await setup();
+  const { given } = await sharedFolder(x);
+  const outside = join(x.root, "elsewhere.md");
+  await writeFile(outside, "x");
+  const d = await x.connect(x.dispatcherToken);
+  await x.store.mutate((b) => {
+    b.tasks.find((t) => t.id === "q2")!.archivedAt = stamp;
+  });
+  const before = JSON.stringify(await x.store.read());
+  const add = (args: Record<string, unknown>) => d.call("flowly_add_artifact", { projectId: "q", taskId: "q1", role: "input", target: given, ...args });
+  // The card session's own refusals and messages (CARD-ARTIFACTS-SPEC §2.2).
+  const out = await add({ target: outside });
+  expect(code(out)).toBe("ARTIFACT_INVALID");
+  expect(out.structuredContent.error.message).toBe("Files outside this card's directories can't be added.");
+  expect(code(await add({ target: join(x.root, "shared-plans", "nope.md") }))).toBe("ARTIFACT_INVALID");
+  expect(code(await add({ target: "ftp://example.com/x" }))).toBe("ARTIFACT_INVALID");
+  // Never relative: the dispatcher has no card workspace of its own to resolve it against.
+  expect((await add({ target: "charter.md" })).isError).toBe(true);
+  expect((await add({ role: "both" })).isError).toBe(true);
+  // An archived card, an unknown one, an archived project.
+  expect(code(await add({ taskId: "q2" }))).toBe("ARCHIVED");
+  expect(code(await add({ taskId: "nope" }))).toBe("CARD_NOT_FOUND");
+  expect(code(await add({ projectId: "z", taskId: "z1" }))).toBe("PROJECT_ARCHIVED");
+  // The switches: Agents create and edit cards, then Agent artifacts.
+  x.server.cards.on = async () => false;
+  expect(code(await add({}))).toBe("AGENT_CARDS_DISABLED");
+  x.server.cards.on = async () => true;
+  x.server.cards.artifactsOn = async () => false;
+  expect(code(await add({}))).toBe("ARTIFACTS_DISABLED");
+  x.server.cards.artifactsOn = async () => true;
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+  // Another group's project, for a dispatcher of either group.
+  const { a, b } = await twoGroups(x);
+  const moved = JSON.stringify(await x.store.read());
+  expect(code(await b.call("flowly_add_artifact", { projectId: "q", taskId: "q1", role: "input", target: given }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(code(await a.call("flowly_add_artifact", { projectId: "r", taskId: "q1", role: "input", target: given }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(JSON.stringify(await x.store.read())).toBe(moved);
 });
 
 test("a card or board token cannot call dispatcher tools", async () => {

@@ -3,7 +3,7 @@ import type { PaseoApi } from "@getpaseo/client";
 import { laneEnabled, laneName, projectLanes } from "../shared/lanes";
 import { linksOf } from "../shared/links";
 import { changeTags, normalizeTags, tagChangeNote } from "../shared/tags";
-import { tagLimits, type Board, type Project, type Task } from "../shared/model";
+import { tagLimits, type ArtifactRole, type Board, type Project, type Task } from "../shared/model";
 import { isSummarizer } from "../shared/summary";
 import { absoluteTarget } from "../shared/artifacts";
 import { planApproved, planOf } from "../shared/plans";
@@ -25,7 +25,7 @@ import {
 } from "../shared/tools";
 import { projectWorktreeBase } from "./base-ref";
 import { baseChoiceProblem, chooseBase, openParents, type BaseChoice } from "./follow-up-base";
-import { ArtifactService, dropArtifact, normalizeTarget, putArtifact, type ArtifactRoots } from "./artifacts";
+import { ArtifactService, dropArtifact, externalArtifact, normalizeTarget, putArtifact, type ArtifactRoots } from "./artifacts";
 import type { ConnectorService } from "./connectors/service";
 import { ExternalError } from "./connectors/http";
 import { logFailure } from "./error-report";
@@ -61,7 +61,9 @@ export class AgentCards {
   /** The extra artifact folders from Settings, read at each use (CARD-PLAN-SPEC §3.1); set by the plugin entry. */
   extraArtifactFolders: () => Promise<readonly string[]> = async () => [];
   /** Linear issues (LINEAR-LINK-SPEC): read to check a link, and the last known state; set by the plugin entry. */
-  connectors?: Pick<ConnectorService, "recognizeLinear" | "cached">;
+  connectors?: Pick<ConnectorService, "recognizeLinear" | "cached"> & Partial<Pick<ConnectorService, "recognize">>;
+  /** The Agent artifacts setting (CARD-ARTIFACTS-SPEC §4.1), for the dispatcher's flowly_add_artifact; set by the plugin entry. */
+  artifactsOn: () => Promise<boolean> = async () => true;
   /** The board service the New card form uses; set by the plugin entry so creations share its queue. */
   board: BoardService;
   constructor(
@@ -425,6 +427,66 @@ export class AgentCards {
       return { value: undefined, changed: others.length > 0 || changed.changed };
     });
     return { linear: (await this.linearView(await this.store.read(), input.taskId))! };
+  }
+  /**
+   * The dispatcher's flowly_add_artifact (DISPATCHER-SPEC §5.7): a file or link attached to a card of the caller's
+   * project, through the card session's own rules (CARD-ARTIFACTS-SPEC §2.2, §4.1): the same roots (the card's
+   * directories and the extra artifact folders), connector recognition, refusals and re-attach behaviour. It records
+   * a reference only; the file is never read, copied or changed.
+   */
+  async addArtifact(caller: CardCaller, input: { taskId: string; role: ArtifactRole; target: string; title?: string; note?: string }) {
+    await this.enabled();
+    const board = await this.store.read();
+    const task = this.planCard(board, caller, input.taskId);
+    if (!(await this.artifactsOn()))
+      throw new ToolError("ARTIFACTS_DISABLED", "Agent artifacts are turned off in Flowly settings. Tell the user what you would have attached instead.");
+    let found: { kind: "file" | "url"; target: string; external?: Awaited<ReturnType<typeof externalArtifact>> };
+    let where: ArtifactRoots | undefined;
+    try {
+      const connectors = this.connectors;
+      const external = connectors?.recognize ? await externalArtifact({ recognize: (t) => connectors.recognize!(t) }, input.target) : null;
+      if (external) found = { kind: external.kind, target: external.target, external };
+      else {
+        where = await this.artifacts().where(task.id, this.api(), board);
+        found = await normalizeTarget(input.target, where);
+      }
+    } catch (e) {
+      throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
+    }
+    return this.store.transaction((board) => {
+      const task = this.planCard(board, caller, input.taskId);
+      let put;
+      try {
+        put = putArtifact(
+          this.store,
+          board,
+          {
+            taskId: task.id,
+            role: input.role,
+            kind: found.kind,
+            target: found.target,
+            title: input.title || found.external?.title,
+            note: input.note,
+            createdBy: "agent",
+            agentId: caller.agentId,
+            ...(found.external ? { external: found.external.external } : {}),
+            ...(where ? { workspace: where.workspace } : {}),
+          },
+          new Date(this.clock()).toISOString(),
+        );
+      } catch (e) {
+        throw new ToolError("ARTIFACT_INVALID", e instanceof Error ? e.message : String(e));
+      }
+      const a = put.artifact;
+      return {
+        value: {
+          artifact: { id: a.id, role: a.role, kind: a.kind, target: a.target, title: a.title, note: a.note, createdBy: a.createdBy },
+          changed: put.changed,
+          ...(put.notice ? { notice: put.notice } : {}),
+        },
+        changed: put.changed,
+      };
+    });
   }
   /** flowly_clear_linear (LINEAR-LINK-SPEC §3): removes the Linear links agents added; the user's stays. */
   async clearLinear(caller: CardCaller, raw: unknown) {

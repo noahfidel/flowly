@@ -412,6 +412,8 @@ export default function contribute(host: PluginServerContext) {
     const state = await ideasPrefs.read().catch(() => null);
     return ideasSettingsValues(state?.status === "ready" ? state.values : {}).artifacts;
   };
+  // The dispatcher's flowly_add_artifact follows the same Agent artifacts setting (DISPATCHER-SPEC §5.7).
+  tools.cards.artifactsOn = () => tools.agents.artifactsOn();
   // Agents create and edit cards through the New card path, sharing its queue (AGENT-CARDS-SPEC).
   tools.cards.board = service;
   // The dispatcher (DISPATCHER-SPEC): its workspace is never bound to a card, so no card archive path reaches it.

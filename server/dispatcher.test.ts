@@ -1637,8 +1637,27 @@ test("the charter asks the user with AskUserQuestion or a confirmed tool, never 
   expect(line).toMatch(/never for a "start" request/);
   expect(line).toMatch(/If AskUserQuestion is refused, ask in one line of text/);
   expect(dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("BASE_CHOICE_NEEDED"))).toMatch(/BASE_CHOICE_NEEDED ask the user with AskUserQuestion/);
-  expect(dispatcherCharterVersion).toBe(5);
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(5);
   // The guard stays: an older dispatcher only lacks the tool, the charter's Replace warning covers it (§3).
+  expect(dispatcherGuardVersion).toBe(2);
+});
+
+test("the charter says flowly_add_artifact attaches references only, preapproved, and is versioned 6 (DISPATCHER-SPEC §5.7)", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  const line = charter.split("\n").find((l) => l.includes("flowly_add_artifact"))!;
+  expect(line).toBeDefined();
+  expect(line).toMatch(/role input/);
+  expect(line).toMatch(/role output/);
+  expect(line).toMatch(/reference/);
+  expect(line).toMatch(/never reads, copies or changes the file/);
+  expect(line).toContain("ARTIFACT_INVALID");
+  // Hard limit: nothing in the charter says this tool answers, approves or dismisses a card's asks.
+  expect(line).not.toMatch(/answer|approve|dismiss/i);
+  expect(dispatcherToolNames).toContain("flowly_add_artifact");
+  expect(dispatcherConfirmedToolNames).not.toContain("flowly_add_artifact" as never);
+  // No removal tool for now (§5.7).
+  expect(dispatcherToolNames).not.toContain("flowly_remove_artifact" as never);
+  expect(dispatcherCharterVersion).toBe(6);
   expect(dispatcherGuardVersion).toBe(2);
 });
 
