@@ -31,6 +31,31 @@ export function rememberProjectFilter(filter: { groupId: string; projectId: stri
   lastFilter = filter;
 }
 
+/**
+ * The board screen is mounted twice: as the main screen and as a card's workspace panel. Both share the module state
+ * above and the host-stored board-view settings, so only the main board writes them; the panel is a view of its own
+ * card and just reads the saved filter and group.
+ */
+export type BoardInstance = "board" | "panel";
+
+export function writeProjectFilter(
+  next: { groupId: string; projectId: string } | null,
+  instance: BoardInstance,
+  stored: { groupId: string; projectId: string } | null,
+  store: (filter: { groupId: string; projectId: string } | null) => void,
+) {
+  if (instance === "panel") return;
+  rememberProjectFilter(next);
+  if (JSON.stringify(stored) !== JSON.stringify(next)) store(next);
+}
+
+/** `viewId` is the group's `*group:<id>` view id (board-groups `groupViewId`), passed in to keep this file import-free. */
+export function writeViewedGroup(groupId: string, viewId: string, instance: BoardInstance, stored: string, store: (groupId: string) => void) {
+  if (instance === "panel") return;
+  rememberViewedGroupView(viewId);
+  if (stored !== groupId) store(groupId);
+}
+
 /** Explicit choice, else the project last viewed in this run, else the first one. */
 export function pickProject<T extends { id: string }>(projects: readonly T[], chosen: string, viewed: string): T | undefined {
   return projects.find((p) => p.id === chosen) || projects.find((p) => p.id === viewed) || projects[0];

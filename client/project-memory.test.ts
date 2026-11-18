@@ -1,5 +1,5 @@
-import { expect, test } from "vitest";
-import { lastViewedGroupView, lastViewedProject, pickProject, rememberViewedGroupView, rememberViewedProject } from "./project-memory";
+import { expect, test, vi } from "vitest";
+import { lastProjectFilter, lastViewedGroupView, lastViewedProject, pickProject, rememberViewedGroupView, rememberViewedProject, writeProjectFilter, writeViewedGroup } from "./project-memory";
 
 const projects = [{ id: "a" }, { id: "b" }, { id: "c" }];
 
@@ -26,4 +26,36 @@ test("the group view last viewed is remembered for this run; an empty value is i
   rememberViewedGroupView(undefined);
   rememberViewedGroupView("");
   expect(lastViewedGroupView()).toBe("*group:g2");
+});
+
+test("the board writes the project filter to run state and the store; skips the store when unchanged", () => {
+  const stored: unknown[] = [];
+  const f = { groupId: "g1", projectId: "p1" };
+  writeProjectFilter(f, "board", null, (x) => stored.push(x));
+  expect(lastProjectFilter()).toEqual(f);
+  expect(stored).toEqual([f]);
+  writeProjectFilter(f, "board", { ...f }, (x) => stored.push(x));
+  expect(stored).toHaveLength(1);
+});
+
+test("the workspace panel never writes the project filter", () => {
+  const before = lastProjectFilter();
+  const store = vi.fn();
+  writeProjectFilter({ groupId: "g9", projectId: "p9" }, "panel", null, store);
+  writeProjectFilter(null, "panel", { groupId: "g1", projectId: "p1" }, store);
+  expect(lastProjectFilter()).toEqual(before);
+  expect(store).not.toHaveBeenCalled();
+});
+
+test("the board writes the viewed group; the panel never does", () => {
+  const store = vi.fn();
+  writeViewedGroup("g3", "*group:g3", "board", "g2", store);
+  expect(lastViewedGroupView()).toBe("*group:g3");
+  expect(store).toHaveBeenCalledWith("g3");
+  store.mockClear();
+  writeViewedGroup("g3", "*group:g3", "board", "g3", store);
+  expect(store).not.toHaveBeenCalled();
+  writeViewedGroup("g7", "*group:g7", "panel", "g2", store);
+  expect(lastViewedGroupView()).toBe("*group:g3");
+  expect(store).not.toHaveBeenCalled();
 });

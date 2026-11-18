@@ -133,7 +133,7 @@ import { searchSources as allSearchSources, type SearchCard, type SearchHit, typ
 import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 // board-groups 3/7: group-only navigation (BOARD-GROUPS-SPEC §3).
-import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, rememberViewedGroupView } from "./project-memory";
+import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, writeProjectFilter, type BoardInstance, writeViewedGroup } from "./project-memory";
 import { boardProject, boardScope, defaultGroup, focusFilter, focusProject, mobileLane, groupMembers, groupNewTask, groupOfProject, groupQuickProject, groupViewId, otherGroupNeeds, overviewScope, pageScope, pickGroupView, restoredFilter, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
 import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { GroupTabs, needLabel } from "./project-tabs";
@@ -646,11 +646,12 @@ function BoardContent(
   // The Project filter (BOARD-GROUPS-SPEC §4): one project of the group shown, remembered for this app run and in the
   // board-view settings (a restart starts from the stored one). It is read through validProjectFilter (the group may
   // differ or the project have left) and cleared once the group is known.
+  // The workspace panel shares module state and board-view settings with the main board but never writes them.
+  const instance: BoardInstance = props.workspaceId ? "panel" : "board";
   const [projectFilter, setProjectFilterState] = useState<ProjectFilter>(() => lastProjectFilter() ?? null);
   const setProjectFilter = useStableCallback((next: ProjectFilter) => {
-    rememberProjectFilter(next);
     setProjectFilterState(next);
-    if (JSON.stringify(view.values?.lastFilter ?? null) !== JSON.stringify(next)) void view.update({ lastFilter: next });
+    writeProjectFilter(next, instance, view.values?.lastFilter ?? null, (f) => void view.update({ lastFilter: f }));
   });
   // A fresh run (nothing set in this run yet) takes the stored filter once the settings have loaded.
   const filterRestored = useRef(false);
@@ -659,7 +660,8 @@ function BoardContent(
     filterRestored.current = true;
     const start = restoredFilter(lastProjectFilter(), view.values.lastFilter);
     if (start && JSON.stringify(start) !== JSON.stringify(projectFilter)) {
-      rememberProjectFilter(start);
+      // The panel only reads the saved filter; the main board also remembers it for this run.
+      if (instance === "board") rememberProjectFilter(start);
       setProjectFilterState(start);
     }
   }, [!!view.values]);
@@ -682,8 +684,7 @@ function BoardContent(
   // the fallback must not replace a remembered group.
   useEffect(() => {
     if (!overviewData.data || !group || !view.values) return;
-    rememberViewedGroupView(groupViewId(group.id));
-    if (view.values.lastGroupId !== group.id) void view.update({ lastGroupId: group.id });
+    writeViewedGroup(group.id, groupViewId(group.id), instance, view.values.lastGroupId ?? "", (id) => void view.update({ lastGroupId: id }));
   }, [viewKey, !!overviewData.data, !!view.values]);
   // A chosen group that was deleted falls back to the default group once the board has loaded.
   const choiceStale = staleGroupChoice(projectId, boardGroups, !!overviewData.data);
@@ -1699,7 +1700,7 @@ function BoardContent(
   const workflowOn = workflowPrefs.status === "ready" && workflowSettingsValues(workflowPrefs.values).enabled;
   const workflowTipDue = !!project && workflowOn && !!onboarding.values && !(onboarding.values.tipsSeen.includes("first-workflow-insight") && onboarding.values.tipsSeen.includes("first-skill-draft"));
   const workflowView = useWorkflowInsightsQuery(project?.id || "", boardActive && workflowTipDue, false);
-  const inPanel = !!props.workspaceId;
+  const inPanel = instance === "panel";
   const dialogOpen = !!menu || !!projectForm || !!groupSettings || !!taskForm || !!quickTask || !!removing || !!deleting || !!wrapPrompt || !!linking || !!switchRequest || !!groupDialog; // board-groups 3/7: group dialogs
   const welcome = welcomeDecision({
     settingsStatus: onboarding.status,
