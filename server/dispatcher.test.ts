@@ -1645,10 +1645,39 @@ test("the charter reads \"start X\" as create and start a card, never doing the 
   expect(charter).toContain(startRule);
 });
 
-test("the charter names related links for card families and is versioned 8 (DISPATCHER-SPEC §6)", () => {
+test("the charter names related links for card families and is versioned 8 or later (DISPATCHER-SPEC §6)", () => {
   const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.startsWith("- Split independent deliverables"))!;
   expect(line).toMatch(/blocks when one must land first, follow_up when one continues another, related/);
-  expect(dispatcherCharterVersion).toBe(8);
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(8);
+});
+
+test("the charter forwards another agent's message only under the forward rule, never an ask, and is versioned 9 (DISPATCHER-SPEC §5.9)", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  // flowly_message_card's own line allows a forward under that rule.
+  const message = charter.split("\n").find((l) => l.startsWith("- Send a card's session an instruction with flowly_message_card"))!;
+  expect(message).toMatch(/forward/i);
+  const line = charter.split("\n").find((l) => l.includes("forwardOf"))!;
+  expect(line).toBeDefined();
+  // (a) information or a plain work instruction, (b) one live card of this group, (c) says it is the user's wish.
+  expect(line).toMatch(/information or a plain work instruction/);
+  expect(line).toMatch(/one live card of this group/);
+  expect(line).toMatch(/user's wish/);
+  expect(line).toMatch(/as the sender wrote it/);
+  expect(line).toMatch(/never add that the user asked/);
+  // Never ask-like content, secrets or outward actions, never to make one card act on another card's asks.
+  expect(line).toMatch(/Never forward a question, permission request, blocker, approval/);
+  expect(line).toMatch(/answer, approve or dismiss an ask/);
+  expect(line).toMatch(/secrets or credentials/);
+  expect(line).toMatch(/push, merge, open a PR, delete, publish/);
+  expect(line).toMatch(/another card's asks/);
+  // Unsure: one line to the user; never back to the sender; once per message.
+  expect(line).toMatch(/tell the user in one line/);
+  expect(line).toMatch(/[Nn]ever forward back to the sender/);
+  expect(line).toMatch(/once per message/);
+  expect(line).toContain("FORWARD_NOT_ALLOWED");
+  expect(line).toContain("FORWARD_LIMIT");
+  expect(dispatcherCharterVersion).toBe(9);
+  expect(dispatcherGuardVersion).toBe(2);
 });
 
 test("the charter says each card creation is confirmed in the chat and a cancel stops it (DISPATCHER-SPEC §5.2, §6)", () => {
