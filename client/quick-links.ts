@@ -1,4 +1,8 @@
 import type { Artifact } from "../shared/model";
+import { prNumberOf, prStateOf, type PrState } from "../shared/pr-rows";
+
+// PR recognition lives in shared/ so the daemon counts PRs by the same rule (PR-MENU-SPEC §3.1).
+export { prNumberOf, prStateOf, type PrState };
 
 /**
  * Card home quick links (DRAWER-SPEC "Quick links"): one row of chips under the card's header, so its PRs,
@@ -9,7 +13,6 @@ import type { Artifact } from "../shared/model";
 /** Sessions and other outputs shown before a "+N more" chip. PRs are never limited. */
 export const QUICK_LIMIT = 3;
 
-export type PrState = "draft" | "open" | "merged" | "closed" | "";
 export type QuickSessionState = "waiting" | "running" | "error" | "done";
 /** A main, non-archived session of the card. `title` "" shows as "Session N". */
 export type QuickSession = { id: string; title: string; createdAt: string; state: QuickSessionState };
@@ -19,40 +22,6 @@ export type QuickChip =
   | { kind: "session"; id: string; title: string; number: number; state: QuickSessionState }
   | { kind: "output"; id: string; title: string; file: boolean; artifact: Artifact }
   | { kind: "more"; section: "sessions" | "artifacts"; count: number };
-
-// Plain links: github.com and gitlab.com only; self-hosted PRs are recognized through their connector ref.
-const githubPull = /^https?:\/\/(?:www\.)?github\.com\/[^/]+\/[^/]+\/pull\/(\d{1,9})(?:[/?#]|$)/i;
-const gitlabMerge = /^https?:\/\/(?:www\.)?gitlab\.com\/.+?\/-\/merge_requests\/(\d{1,9})(?:[/?#]|$)/i;
-
-/** "#42" for a GitHub pull request, "!7" for a GitLab merge request; null for anything else. */
-export function prNumberOf(artifact: Pick<Artifact, "kind" | "target" | "external">): string | null {
-  const ext = artifact.external;
-  if (ext && (ext.itemType === "pull" || ext.itemType === "merge_request")) {
-    const m = /([#!])(\d+)$/.exec(ext.key);
-    if (m) return `${ext.itemType === "merge_request" ? "!" : "#"}${m[2]}`;
-  }
-  if (artifact.kind !== "url") return null;
-  const pull = githubPull.exec(artifact.target);
-  if (pull) return `#${pull[1]}`;
-  const merge = gitlabMerge.exec(artifact.target);
-  return merge ? `!${merge[1]}` : null;
-}
-
-/** The connector's status word (GitHub/GitLab summaries: Draft, Open, Merged, Closed) as a chip state. */
-export function prStateOf(status: string | undefined): PrState {
-  switch (status) {
-    case "Draft":
-      return "draft";
-    case "Open":
-      return "open";
-    case "Merged":
-      return "merged";
-    case "Closed":
-      return "closed";
-    default:
-      return "";
-  }
-}
 
 /** From `sessionState` (client/session-state.ts) and whether the session has an open question report on the card. */
 export function quickSessionState(state: { label: string; active: boolean; waiting?: boolean }, asks: boolean): QuickSessionState {

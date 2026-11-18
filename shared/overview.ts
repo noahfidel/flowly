@@ -27,6 +27,8 @@ export const cardFactsSchema = z.strictObject({
   hasExternal: z.boolean(),
   hasWorkpad: z.boolean(),
   hasNextMoves: z.boolean(),
+  /** PRs the card adds to the board's pull requests menu (PR-MENU-SPEC §3.1); 0 for archived, Done and Cancelled cards. */
+  prs: z.number().int().nonnegative(),
   sessions: z.array(sessionFactsSchema),
 });
 export type CardFacts = z.infer<typeof cardFactsSchema>;

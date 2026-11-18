@@ -1,0 +1,77 @@
+import { familyOf, type Connection, type ExternalRef } from "../shared/connectors";
+import type { Artifact, Project, Task } from "../shared/model";
+import { boardPrs, githubPrKey, prStateOf, type BoardPr, type PrState } from "../shared/pr-rows";
+import { refKey, type Summaries } from "./connectors/service";
+import { logFailure } from "./error-report";
+
+/** The board's pull requests menu (PR-MENU-SPEC §3.2): the rows of the chosen projects, each with its last known state. */
+
+/** What the list needs of the connector service; the badge cache answers for up to 30 minutes. */
+export type PrMenuReads = {
+  list(): Promise<Connection[]>;
+  locate(list: readonly { id: string; target: string; external?: ExternalRef }[]): Promise<Map<string, ExternalRef | null>>;
+  badges(refs: readonly ExternalRef[]): Promise<Summaries>;
+};
+
+export type PrMenuRow = BoardPr & { state: PrState };
+
+/** The user's working github.com GitHub connection, as the PR-review archive check picks it (`connectorPrState`). */
+function githubConnection(connections: readonly Connection[]) {
+  return connections.find((c) => {
+    if (familyOf(c.provider) !== "github" || c.authFailed) return false;
+    try {
+      return new URL(c.baseUrl).host.toLowerCase() === "github.com";
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Rows of the live projects among `projectIds` (unknown and archived ones skipped). A connector-linked artifact reads
+ * its own ref, a plain github.com URL or a PR review card's PR the user's GitHub connection; anything else has no state.
+ * A stale cache entry still gives its word. A failing connector read leaves every state empty; the rows still list.
+ */
+export async function listPrs(
+  board: { projects: readonly Project[]; tasks: readonly Task[]; artifacts: readonly Artifact[] },
+  projectIds: readonly string[],
+  reads: PrMenuReads,
+  log: typeof logFailure = logFailure,
+): Promise<{ rows: PrMenuRow[] }> {
+  const wanted = new Set(projectIds);
+  const live = board.projects.filter((p) => wanted.has(p.id) && !p.archivedAt).map((p) => p.id);
+  const rows = boardPrs(board, live);
+  if (!rows.length) return { rows: [] };
+  const refs = new Map<number, ExternalRef>();
+  try {
+    const byId = new Map(board.artifacts.map((a) => [a.id, a]));
+    const linked = rows.flatMap((r) => {
+      const a = r.artifactId ? byId.get(r.artifactId) : undefined;
+      return a?.external ? [a] : [];
+    });
+    const located = linked.length ? await reads.locate(linked) : new Map<string, ExternalRef | null>();
+    let github: Connection | undefined | null = null;
+    for (const [i, r] of rows.entries()) {
+      const own = r.artifactId ? located.get(r.artifactId) : undefined;
+      if (own) {
+        refs.set(i, own);
+        continue;
+      }
+      const key = githubPrKey(r.url);
+      if (!key) continue;
+      if (github === null) github = githubConnection(await reads.list());
+      if (github) refs.set(i, { connectionId: github.id, provider: github.provider, key, remoteId: "", itemType: "pull" });
+    }
+    const found = refs.size ? await reads.badges([...new Map([...refs.values()].map((ref) => [refKey(ref), ref])).values()]) : new Map() as Summaries;
+    return {
+      rows: rows.map((r, i) => {
+        const ref = refs.get(i);
+        const hit = ref ? found.get(refKey(ref)) : undefined;
+        return { ...r, state: prStateOf(hit?.summary.status) };
+      }),
+    };
+  } catch (error) {
+    log("Flowly pull request states failed:", error, `${rows.length} rows`);
+    return { rows: rows.map((r) => ({ ...r, state: "" as const })) };
+  }
+}

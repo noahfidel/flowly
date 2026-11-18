@@ -76,6 +76,7 @@ import { validZone } from "./shared/insights";
 import { SearchService } from "./server/search";
 import { QuickTitleService } from "./server/quick-title";
 import { PrReviewCards } from "./server/pr-review-cards";
+import { listPrs } from "./server/pr-menu";
 import { PrReviewArchiver, connectorPrReviews, connectorPrState, firstKnown, firstKnownReview, ghPrReviews, ghPrState } from "./server/pr-review-archive";
 import { ReviewLedgers } from "./server/review-ledgers";
 import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
@@ -906,6 +907,8 @@ export default function contribute(host: PluginServerContext) {
       removed: list.filter((a) => !located.get(a.id)).map((a) => a.id),
     };
   });
+  // PR-MENU-SPEC §3.2: read only when the menu opens; states from the connector badge cache, never `gh`.
+  server.handle(rpc.listPrs, async (input) => listPrs(await store.read(), input.projectIds, { list: () => connectors.list(), locate: (list) => connectors.locate(list), badges: (refs) => connectors.badges(refs) }));
   server.handle(rpc.readExternal, async (input) => {
     const artifact = (await store.read()).artifacts.find((a) => a.id === input.artifactId);
     if (!artifact?.external) throw new Error("This external input no longer exists.");

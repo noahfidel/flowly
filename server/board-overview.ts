@@ -7,6 +7,7 @@ import { workpadSignal } from "../shared/workpad";
 import { hasOpenNextMoves } from "../shared/next-moves";
 import { faceKey, familyOf } from "../shared/connectors";
 import { overviewCollections, overviewKeys, type OverviewCollection, type OverviewPatch } from "../shared/overview";
+import { cardPrs, prMenuCard } from "../shared/pr-rows";
 import { etagOf } from "./etag";
 
 type Board = z.infer<typeof boardSchema>;
@@ -57,6 +58,7 @@ export function boardOverview(board: Board): BoardOverview {
       hasExternal: artifacts.some(a => !!a.external),
       hasWorkpad: !!workpad,
       hasNextMoves: hasOpenNextMoves(own),
+      prs: prMenuCard(task) ? cardPrs(task, artifacts).length : 0,
       sessions,
     };
   });

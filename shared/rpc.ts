@@ -394,6 +394,28 @@ export const searchExternal = defineRpc({
   input: z.strictObject({ connectionId: z.string().min(1), query: z.string().max(500), projectId: z.string().min(1).optional(), all: z.boolean().optional() }),
   output: z.object({ results: z.array(externalSummarySchema) }),
 });
+/** The board's pull requests menu (PR-MENU-SPEC §3.2): the PRs of the shown projects' cards, with their last known state. */
+export const listPrs = defineRpc({
+  name: "prs.list",
+  input: z.strictObject({ projectIds: z.array(z.string().min(1).max(200)).max(20) }),
+  output: z.strictObject({
+    rows: z.array(
+      z.strictObject({
+        taskId: z.string(),
+        projectId: z.string(),
+        artifactId: z.string().optional(),
+        kind: z.enum(["pr", "review"]),
+        url: z.string(),
+        number: z.string(),
+        repo: z.string(),
+        title: z.string(),
+        createdAt: z.string(),
+        state: z.enum(["draft", "open", "merged", "closed", ""]),
+      }),
+    ),
+  }),
+});
+
 /** Current summaries of a card's external inputs (cached up to 30 minutes unless `refresh`). */
 export const cardExternals = defineRpc({
   name: "connectors.card",
