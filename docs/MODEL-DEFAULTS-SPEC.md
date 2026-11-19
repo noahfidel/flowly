@@ -34,6 +34,7 @@ Acceptance (2026-11-10):
 - No default anywhere: `flowly_start_card` refuses with `MODEL_UNAVAILABLE` before creating anything, even when the project's cards have live sessions.
 - A default without reasoning: the session starts with no `thinkingOptionId` (the model's own default), never Extra High by suggestion.
 - A default without mode: Claude starts in `auto`, Codex in `auto-review`; Quick task still starts in `plan` when offered.
+- A default with a mode: every form and `flowly_start_card` start in that mode, Quick task included (ruling, Noah 2026-11-19); a card with an approved plan still never starts in `plan` (START-CARD-SPEC §10).
 - A default model the provider does not offer: the picker shows the provider's default model and the "is not offered" line names the configured one; picking another provider or model hides the line.
 
 ## 3. Data

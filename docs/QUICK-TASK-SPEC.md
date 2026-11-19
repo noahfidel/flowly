@@ -22,10 +22,13 @@ Create task form stays one tap away.
     reasoning, speed, permissions) inline. Defaults are the same as the full form's: the project's default
     model, else its group's, else the global one; with none, the picker starts empty (MODEL-DEFAULTS-SPEC §2). Choosing another
     project resets the agent to that project's defaults.
-    **Permission mode**: `plan` whenever the chosen provider offers a `plan` mode (`quickTaskMode`,
-    `shared/agent-defaults.ts`), instead of the remembered session mode; a provider without one (e.g. Codex)
-    keeps the usual suggestion. Switching project or provider re-applies it; a mode picked in the agent
-    picker wins for that task. Only Quick task: the full form, New session and the rest keep their defaults
+    **Permission mode**: the default's configured mode when it has one, exactly as Start session and
+    `flowly_start_card` use it (ruling, Noah 2026-11-19). With no mode configured, `plan` whenever the chosen
+    provider offers a `plan` mode (`quickTaskMode`, `shared/agent-defaults.ts`); a provider without one (e.g.
+    Codex) keeps the usual suggestion. This plan-first fallback is Quick task's one deliberate difference from
+    Start session (which falls back to `auto`), and the agent chip shows the effective mode before starting.
+    Switching project re-applies the project's default; switching provider clears the mode (mode ids belong to
+    a provider) and re-applies the fallback; a mode picked in the agent picker wins for that task. Only Quick task: the full form, New session and the rest keep their defaults
     (More options… hands the quick task's mode over like the rest of the choice).
   - **Workspace**: *Worktree* (new isolated worktree) or *Directory* (new in directory). Default per §3.
     A project with links (multiple repositories) has no worktree option, as in the full form.

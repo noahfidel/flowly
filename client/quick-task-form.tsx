@@ -24,9 +24,6 @@ import type { TaskSeed } from "./forms";
 /** What More options… hands to the full Create task form (QUICK-TASK-SPEC §1). */
 export type QuickTaskMore = { projectId: string; status: Status; seed: TaskSeed };
 
-/** A Quick task picks its own permission mode (plan when offered, QUICK-TASK-SPEC §1): the remembered one is not carried over. */
-const quickDefaults = (defaults: AgentDefaults): AgentDefaults => (defaults ? { ...defaults, mode: "" } : defaults);
-
 /**
  * Quick task (docs/QUICK-TASK-SPEC.md): one sentence, Enter, and a card with its agent starts. The card is created
  * through the same `tasks.create` call and the session through the same `launchKanbanSession` as the full form.
@@ -85,7 +82,7 @@ export function QuickTaskForm({
   const shownProjects = narrowed.length ? narrowed : quickGroupProjects(undefined, projects);
   const project = shownProjects.find((p) => p.id === projectId) ?? shownProjects[0];
   const mode = project ? quickMode(project, modeChoice ?? view.values?.quickTaskMode ?? "worktree") : "directory";
-  const choice = useAgentChoice({ enabled: !!project, cwd: project?.primaryPath, defaults: project ? quickDefaults(agentDefaultsFor(project)) : null, planFirst: true });
+  const choice = useAgentChoice({ enabled: !!project, cwd: project?.primaryPath, defaults: project ? agentDefaultsFor(project) : null, planFirst: true });
   const attachments = useImageAttachments();
   const [firstMessageId] = useState(newMessageId);
   const [operationId] = useState(() => `card-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -95,7 +92,7 @@ export function QuickTaskForm({
     const next = projects.find((p) => p.id === id);
     setProjectId(id);
     // The agent follows the new project's defaults (QUICK-TASK-SPEC §1).
-    if (next) choice.reset(quickDefaults(agentDefaultsFor(next)));
+    if (next) choice.reset(agentDefaultsFor(next));
   };
   const chooseGroup = (id: string) => {
     setOpen(null);
@@ -107,7 +104,7 @@ export function QuickTaskForm({
     const next = quickGroupProject(nextGroup, projects, view.values?.lastQuickProjectId ?? "");
     if (!next) return;
     setProjectId(next.id);
-    choice.reset(quickDefaults(agentDefaultsFor(next)));
+    choice.reset(agentDefaultsFor(next));
   };
   const items = externals.map((x) => x.item);
   const firstText = quickPrompt(text, items);

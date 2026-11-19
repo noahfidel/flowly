@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { ideaQuickSeed, ideaQuickText, quickCard, quickCreateInput, quickMode, quickMoreSeed, quickProject, quickProjects, quickPrompt, startStatus } from "./quick-task";
 import { ideaDescription } from "../shared/ideas";
@@ -164,5 +166,13 @@ describe("a Quick task seeded from an idea (QUICK-TASK-SPEC §10)", () => {
       startAgent: true,
       mode: "worktree",
     });
+  });
+});
+
+describe("Quick task agent defaults (QUICK-TASK-SPEC §1, ruling 2026-11-19)", () => {
+  test("seeds the picker with the project's New task default as is, so a configured mode is kept like Start session", () => {
+    const source = readFileSync(join(__dirname, "quick-task-form.tsx"), "utf8");
+    expect(source).toContain("defaults: project ? agentDefaultsFor(project) : null, planFirst: true");
+    expect(source).not.toMatch(/mode:\s*""/);
   });
 });

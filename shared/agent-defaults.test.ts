@@ -132,6 +132,13 @@ describe("quickTaskMode", () => {
     expect(quickTaskMode({ provider: "claude", modeIds: ["plan", "auto"], explicit: "auto" })).toBe("auto");
     expect(quickTaskMode({ provider: "claude", modeIds: ["plan"], explicit: "" })).toBe("");
   });
+  it("uses a configured default mode like Start session does, and plan only when none is set (ruling 2026-11-19)", () => {
+    const modeIds = ["default", "acceptEdits", "plan", "auto"];
+    const configured = pickerSeed(startingAgent({ provider: "claude", model: "claude-opus-5-5", mode: "acceptEdits" }));
+    expect(quickTaskMode({ provider: "claude", modeIds, explicit: configured.mode })).toBe("acceptEdits");
+    const unset = pickerSeed(startingAgent({ provider: "claude", model: "claude-opus-5-5" }));
+    expect(quickTaskMode({ provider: "claude", modeIds, explicit: unset.mode })).toBe("plan");
+  });
 });
 
 describe("pickModel (a default the provider no longer offers)", () => {

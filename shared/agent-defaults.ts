@@ -95,9 +95,10 @@ export function suggestedMode(provider: string, remembered?: string): string {
 }
 
 /**
- * Permission mode of a Quick task (QUICK-TASK-SPEC §1): `plan` whenever the
- * provider offers it, else the usual suggestion. An explicit pick (including
- * "" for the provider default) always wins. `provider` is the base provider.
+ * Permission mode of a Quick task (QUICK-TASK-SPEC §1): the configured default
+ * mode or a pick (`explicit`, including "" for the provider default) always wins,
+ * as in Start session; with neither, `plan` whenever the provider offers it,
+ * else the usual suggestion. `provider` is the base provider.
  */
 export function quickTaskMode({ provider, modeIds, explicit }: { provider: string; modeIds?: readonly string[]; explicit?: string }): string {
   if (explicit !== undefined) return explicit;
