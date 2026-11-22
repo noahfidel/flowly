@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { taskCardLabel } from "./card-label";
+import { showsSubagents, taskCardLabel } from "./card-label";
 
 const base = {
   title: "Add rate limiting to POST /shorten",
@@ -60,4 +60,19 @@ test("empty signals stay out of the label; present ones appear in order", () => 
 test("priority and type ride in one comma-joined segment", () => {
   const label = taskCardLabel({ ...base, priority: "urgent", type: "bugfix" });
   expect(label).toContain("Urgent priority, Bug fix");
+});
+
+test("the label names working subagents exactly when the card's signals show them (SUBAGENTS-SPEC §10)", () => {
+  const idle = { total: 1, running: 0, starting: 0, finished: 0, unread: 0, attention: 0, permissions: 0, questions: 0, errors: 0, unknownRead: 0 };
+  const card = { ...base, subagents: 2, available: true, running: 0, sessions: 1 };
+  expect(taskCardLabel({ ...card, summary: idle })).toContain("2 subagents working.");
+  // Last known state still shows them, and so does the count-only fallback.
+  expect(taskCardLabel({ ...card, summaryState: "stale", summary: idle })).toContain("2 subagents working.");
+  expect(taskCardLabel({ ...card, summary: undefined })).toContain("2 subagents working.");
+  // Not while loading, unavailable, with the workspace gone, or with a session running.
+  expect(taskCardLabel({ ...card, summaryState: "loading", summary: idle })).not.toContain("subagent");
+  expect(taskCardLabel({ ...card, summaryState: "unavailable" })).not.toContain("subagent");
+  expect(taskCardLabel({ ...card, available: false, summary: idle })).not.toContain("subagent");
+  expect(taskCardLabel({ ...card, summary: { ...idle, running: 1 } })).not.toContain("subagent");
+  expect(showsSubagents({ subagents: 0, available: true, summaryState: "ready", summary: idle, running: 0, sessions: 1 })).toBe(false);
 });

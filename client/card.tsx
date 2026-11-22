@@ -16,7 +16,7 @@ import { isMouseDoubleClick } from "./double-click";
 import { t, tn } from "../shared/i18n";
 import type { WorkpadSignal } from "../shared/workpad";
 import { activityLines, defaultCardDisplay, type CardDisplay, type CardWorkspace } from "../shared/card-display";
-import { taskCardLabel, workpadText } from "./card-label";
+import { showsSubagents, taskCardLabel, workpadText } from "./card-label";
 import { BrandIcon } from "./brand-icons";
 import { reviewing, visibleReview } from "../shared/auto-review";
 import { Collapse } from "./disclosure";
@@ -323,6 +323,9 @@ export function TaskCard({
           summaryState,
           summary,
           subagents,
+          available,
+          running,
+          sessions,
           output: output ?? null,
           outputTime,
         })}
@@ -646,7 +649,7 @@ function CardSignals({
           />,
         );
       // Only subagents work: the card still runs (SUBAGENTS-SPEC §10; the Subagents chip shows which).
-      else if (subagents)
+      else if (showsSubagents({ subagents, available, summaryState, summary, running, sessions }))
         items.push(<Signal key="run" pulse color={stateColors(colors).running} text={tn(subagents, "{n} subagent working", "{n} subagents working")} />);
       // A session with an open question is already shown as "Needs you".
       const unread = Math.max(0, summary.unread - questions - summary.questions);
@@ -662,7 +665,7 @@ function CardSignals({
       <Signal
         key="fallback"
         icon="MessageSquare"
-        text={running ? t("{running}/{sessions} running", { running, sessions }) : subagents ? tn(subagents, "{n} subagent working", "{n} subagents working") : `${sessions}`}
+        text={running ? t("{running}/{sessions} running", { running, sessions }) : showsSubagents({ subagents, available, summaryState, running, sessions }) ? tn(subagents, "{n} subagent working", "{n} subagents working") : `${sessions}`}
       />,
     );
   const review = visibleReview(task);

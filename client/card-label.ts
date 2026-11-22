@@ -5,6 +5,24 @@ import type { WorkpadSignal } from "../shared/workpad";
 import type { SessionAttentionSummary } from "../shared/session-attention";
 import type { CardOutput } from "./card-output";
 
+/**
+ * Whether the card's signals show "N subagents working" (SUBAGENTS-SPEC §10): only subagents work and the card
+ * shows session state at all (workspace there, state ready or last known, or the count-only fallback). The
+ * accessible name follows the same rule.
+ */
+export function showsSubagents(c: {
+  subagents: number;
+  available: boolean;
+  summaryState: "ready" | "loading" | "stale" | "unavailable";
+  summary?: SessionAttentionSummary;
+  running: number;
+  sessions: number;
+}): boolean {
+  if (!c.subagents || !c.available || c.summaryState === "loading" || c.summaryState === "unavailable") return false;
+  if (c.summary) return !c.summary.running && !c.summary.starting;
+  return c.sessions > 0 && !c.running;
+}
+
 /** The card's workpad signal: only `Acceptance n/m` (GUARDRAILS-SPEC §7.1). */
 export function workpadText(signal: WorkpadSignal) {
   return signal.kind === "acceptance" ? t("Acceptance {done}/{total}", { done: signal.done, total: signal.total }) : "";
@@ -36,8 +54,11 @@ export function taskCardLabel(card: {
   legacy: boolean;
   summaryState: "ready" | "loading" | "stale" | "unavailable";
   summary?: SessionAttentionSummary;
-  /** Running subagents of the card's sessions (SUBAGENTS-SPEC §10). */
+  /** Running subagents of the card's sessions (SUBAGENTS-SPEC §10), with what decides whether the card shows them. */
   subagents?: number;
+  available?: boolean;
+  running?: number;
+  sessions?: number;
   output: CardOutput | null;
   outputTime: string;
 }): string {
@@ -56,7 +77,9 @@ export function taskCardLabel(card: {
     summaryState === "ready" && summary
       ? t("{running} running, {finished} finished turns, {unread} unread sessions, {attention} need attention", { running: summary.running, finished: summary.finished, unread: summary.unread, attention: summary.attention })
       : "",
-    summaryState === "ready" && card.subagents ? tn(card.subagents, "{n} subagent working", "{n} subagents working") : "",
+    card.subagents &&
+    showsSubagents({ subagents: card.subagents, available: card.available ?? true, summaryState, summary, running: card.running ?? 0, sessions: card.sessions ?? 0 })
+      ? tn(card.subagents, "{n} subagent working", "{n} subagents working") : "",
     output ? t(outputTime ? "Latest agent output {time}: {text}" : "Latest agent output: {text}", { time: outputTime ?? "", text: output.text.length > 80 ? output.text.slice(0, 80) + "…" : output.text }) : "",
   ]
     .filter(Boolean)
