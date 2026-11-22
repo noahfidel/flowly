@@ -2962,3 +2962,63 @@ test("flowly_search_cards searches the group's live projects only (§5.10)", asy
   expect(await hits(a, { projectId: "q" })).toEqual(["q/q1"]);
   expect(code(await a.call("flowly_search_cards", { query: "zebra", projectId: "z" }))).toBe("PROJECT_ARCHIVED");
 });
+
+test("flowly_get_card_activity caps stages and artifacts, clips artifact text, and spends one budget with acceptance and artifacts first (§5.10)", async () => {
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  const at = (n: number) => new Date(Date.parse(stamp) + n * 1000).toISOString();
+  await x.store.mutate((board) => {
+    for (let i = 0; i < 55; i++) board.events.push({ id: `s${i}`, taskId: "q1", actor: "human", action: "status_changed", from: "todo", to: "development", at: at(i) });
+    for (let i = 0; i < 55; i++)
+      board.artifacts.push({
+        id: `a${i}`,
+        taskId: "q1",
+        projectId: "q",
+        role: "output",
+        kind: "url",
+        target: i === 54 ? `https://example.com/${"t".repeat(400)}` : `https://example.com/${i}`,
+        title: `Art ${i}`,
+        note: i === 54 ? "n".repeat(500) : "",
+        createdBy: "agent",
+        createdAt: at(i),
+        updatedAt: at(i),
+      });
+    // Notes that would fit alone, but not next to 50 artifacts' text and a long acceptance list.
+    for (let i = 0; i < 20; i++)
+      board.events.push({ id: `n${i}`, taskId: "q1", actor: "agent", action: "progress_reported", agentId: "s1", reportKind: "progress", note: `${i}`.padEnd(1500, "x"), at: at(100 + i) });
+    board.workpads = [
+      ...(board.workpads ?? []),
+      { taskId: "q1", projectId: "q", revision: 1, setAt: at(1), updatedAt: at(1), updatedBy: "agent", acceptance: [1, 2, 3, 4, 5].map((n) => ({ id: `a${n}`, text: "y".repeat(300), done: false, by: "agent", at: at(1) })) } as never,
+    ];
+  });
+  const out = (await d.call("flowly_get_card_activity", { projectId: "q", taskId: "q1" })).structuredContent;
+  expect(out.stages).toHaveLength(50);
+  expect(out.stagesTruncated).toBe(true);
+  expect(out.artifacts).toHaveLength(50);
+  expect(out.artifactsTruncated).toBe(true);
+  expect(out.artifacts[0]).toMatchObject({ id: "a54", textTruncated: true });
+  expect(out.artifacts[0].target).toHaveLength(300);
+  expect(out.artifacts[0].note).toHaveLength(300);
+  expect(out.artifacts[1].textTruncated).toBe(false);
+  expect(out.workpad.acceptance).toHaveLength(5);
+  // The whole response's text stays inside the budget; the notes give way, oldest first.
+  const spent = out.workpad.acceptance.reduce((n: number, a: { text: string }) => n + a.text.length, 0) + out.artifacts.reduce((n: number, a: { title: string; target: string; note: string }) => n + a.title.length + a.target.length + a.note.length, 0) + out.notes.reduce((n: number, v: { text: string }) => n + v.text.length, 0);
+  expect(spent).toBeLessThanOrEqual(24000);
+  expect(out.notes.length).toBeLessThan(20);
+  expect(out.notesTruncated).toBe(true);
+  expect(out.notes[0].text.startsWith("19")).toBe(true);
+});
+
+test("flowly_get_card_activity gives a null workpad when the project's workpad is off (§5.10)", async () => {
+  const x = await setup();
+  await x.store.mutate((board) => {
+    board.projects.find((p) => p.id === "q")!.workpad = false;
+    board.workpads = [
+      ...(board.workpads ?? []),
+      { taskId: "q1", projectId: "q", revision: 1, setAt: stamp, updatedAt: stamp, updatedBy: "agent", acceptance: [{ id: "a1", text: "Hidden", done: false, by: "agent", at: stamp }] } as never,
+    ];
+  });
+  const d = await x.connect(x.dispatcherToken);
+  const out = (await d.call("flowly_get_card_activity", { projectId: "q", taskId: "q1", include: ["workpad"] })).structuredContent;
+  expect(out.workpad).toBeNull();
+});

@@ -348,12 +348,17 @@ export class SearchService {
   }
 
   /** flowly_search_cards (DISPATCHER-SPEC §5.10): the dispatcher's live projects, without project memory. */
-  async forDispatcher(projectIds: ReadonlySet<string>, input: { query: string; sources?: readonly SearchSource[]; limit: number }) {
+  async forDispatcher(groupId: string, projectIds: ReadonlySet<string>, input: { query: string; sources?: readonly SearchSource[]; limit: number }) {
     const { index, summaries } = await this.load();
     const base = (input.sources?.length ? input.sources : agentSearchSources).filter((s) => s !== "memory");
     const sources = await this.allowed(base, agentSearchSources);
-    const found = sources.length && projectIds.size
-      ? runSearch(index, { query: input.query, projectIds, sources, limit: input.limit, memoryLimit: 0 })
+    // Live projects of the group in the index this search uses, whatever the caller read a moment earlier.
+    const scope = new Set([...projectIds].filter((id) => {
+      const project = index.projects.get(id);
+      return !!project && !project.archivedAt && project.groupId === groupId;
+    }));
+    const found = sources.length && scope.size
+      ? runSearch(index, { query: input.query, projectIds: scope, sources, limit: input.limit, memoryLimit: 0 })
       : { cards: [], memory: [], truncated: false };
     const latest = new Map<string, SummaryEntry>();
     for (const s of summaries) {

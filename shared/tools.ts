@@ -305,7 +305,7 @@ export const agentSearchResultSchema = z.object({
   truncated: z.boolean(),
 });
 /** flowly_get_card_activity (DISPATCHER-SPEC §5.10): what a card did, read-only. */
-export const cardActivityLimits = { notesDefault: 20, notesMax: 50, list: 50, noteText: 2000, totalText: 24000 } as const;
+export const cardActivityLimits = { notesDefault: 20, notesMax: 50, list: 50, noteText: 2000, artifactText: 300, totalText: 24000 } as const;
 export const cardActivityParts = ["notes", "stages", "workpad", "artifacts"] as const;
 export const cardActivityInputSchema = z.strictObject({
   taskId: z.string().min(1).max(200).describe("Card id from flowly_list_cards."),
@@ -340,6 +340,7 @@ export const cardActivityResultSchema = z.object({
         target: z.string(),
         title: z.string(),
         note: z.string(),
+        textTruncated: z.boolean(),
         createdBy: z.string(),
         external: z.object({ provider: z.string(), key: z.string(), itemType: z.string() }).optional(),
       }),
