@@ -332,10 +332,12 @@ export default function contribute(host: PluginServerContext) {
   const liveCardWorkspaces = async () => new Set((await store.read()).tasks.filter((t) => !t.archivedAt).map((t) => t.workspaceId));
   const subagentActivity = new SubagentActivity({
     lister: providerSubagents,
-    isCardSession: async (agentId) => {
-      if (!activityPaseo) return false;
+    cardSession: async (agentId) => {
+      if (!activityPaseo) return "gone";
       const agent = (await activityPaseo.agents.ref(agentId).refresh())?.agent;
-      return !!agent && !agent.archivedAt && !!agent.workspaceId && (await liveCardWorkspaces()).has(agent.workspaceId);
+      if (!agent || agent.archivedAt || !agent.workspaceId || !(await liveCardWorkspaces()).has(agent.workspaceId)) return "gone";
+      // Closed or errored: nothing of it is working any more.
+      return agent.status === "idle" ? "idle" : agent.status === "running" || agent.status === "initializing" ? "busy" : "gone";
     },
     idleCardSessions: async () => {
       if (!activityPaseo) return [];

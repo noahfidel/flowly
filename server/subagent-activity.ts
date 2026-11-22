@@ -9,8 +9,12 @@ export interface SubagentLister {
 
 export interface SubagentActivityDeps {
   lister: SubagentLister;
-  /** Still a live (non-archived) session in a live card's workspace; false drops it. */
-  isCardSession(agentId: string): Promise<boolean>;
+  /**
+   * The session's state before each read: `idle` (a live idle session in a live card's workspace) is read; `busy`
+   * (running or starting: a snapshot taken just as its turn ended, since a real turn start drops it) is tried again;
+   * `gone` (archived, missing, closed, errored or no longer a card's) drops it.
+   */
+  cardSession(agentId: string): Promise<"idle" | "busy" | "gone">;
   /** The idle card sessions to read once when the plugin starts (SUBAGENTS-SPEC §10.3). */
   idleCardSessions(): Promise<readonly string[]>;
 }
@@ -27,6 +31,8 @@ export type SubagentActivityView = {
 export const ACTIVITY_POLL_MS = 5_000;
 /** A failed read is tried again after 5 s, then 10, 20, 40, and at most every 60 s. */
 export const ACTIVITY_RETRY_MAX_MS = 60_000;
+/** A session with no known count is given up after this many failed reads in a row. */
+export const ACTIVITY_GIVE_UP_FAILURES = 5;
 
 type Entry = {
   timer: ReturnType<typeof setTimeout> | null;
@@ -160,7 +166,9 @@ export class SubagentActivity {
     entry.dirty = false;
     let answer: { running: Pick<ProviderSubagent, "status" | "createdAt">[] } | "gone" | "unsupported" | "failed";
     try {
-      if (!(await this.deps.isCardSession(id))) answer = "gone";
+      const state = await this.deps.cardSession(id);
+      if (state === "gone") answer = "gone";
+      else if (state === "busy") answer = "failed";
       else {
         // Failures are the lister's to report.
         const result = await this.deps.lister.listFor(id);
@@ -179,6 +187,8 @@ export class SubagentActivity {
     if (answer === "failed") {
       // Timeout, lost connection, daemon error: keep the last count and try again, backing off.
       entry.failures++;
+      // Never read successfully: give up after a few tries rather than retry every minute for good.
+      if (!this.counts.has(id) && entry.failures >= ACTIVITY_GIVE_UP_FAILURES) return this.forget(id);
       if (entry.dirty) entry.dirty = false;
       return this.schedule(id, entry, Math.min(this.pollMs * 2 ** (entry.failures - 1), ACTIVITY_RETRY_MAX_MS));
     }

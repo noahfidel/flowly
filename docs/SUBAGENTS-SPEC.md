@@ -133,7 +133,8 @@ Card: "Check whether a card counts as running while subagents run". Claude Code'
 ### 10.3 Failure
 
 - An older Paseo (no `providerSubagents` feature) gives empty data and the session is not read again until its next turn end: the card counts only its sessions and native children, as before.
-- A failed read (request timeout, lost connection, unreachable daemon, a daemon error answer) keeps the session's last count and tries again after 5 s, then 10, 20, 40 and at most every 60 s; the first good answer resets the backoff. Only a good answer with nothing running, an older Paseo, or the session no longer being a live card session ends the tracking.
+- A failed read (request timeout, lost connection, unreachable daemon, a daemon error answer) keeps the session's last count and tries again after 5 s, then 10, 20, 40 and at most every 60 s; the first good answer resets the backoff. Only a good answer with nothing running, an older Paseo, or the session no longer being a live card session ends the tracking. A session whose reads never succeeded (no known count) is given up after 5 failed reads in a row.
+- Before each read the session is checked: archived, missing, closed, errored or out of a live card's workspace ends the tracking (its count goes, even while reads fail); `running` or `initializing` (a snapshot taken just as its turn ended; a real turn start already ended the tracking) is tried again like a failed read.
 - Expected failures are not logged (§9.2's rules); unexpected ones go through `logFailure` with a fixed label.
 - A session dropped while its read runs (turn start, archive) ignores that read's answer. Plugin stop clears every timer.
 

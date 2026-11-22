@@ -19,7 +19,7 @@ function setup(lists: Record<string, ReturnType<typeof sub>[]>, options: { unava
   const cards = options.cards ?? new Set(Object.keys(lists));
   const activity = new SubagentActivity({
     lister,
-    isCardSession: async (id) => cards.has(id),
+    cardSession: async (id) => (cards.has(id) ? "idle" : "gone"),
     idleCardSessions: async () => options.idle ?? [],
   });
   return { activity, calls, lister, cards };
@@ -89,7 +89,7 @@ test("an older Paseo (unsupported) gives empty data, quietly, and is not read ag
   vi.useFakeTimers();
   const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
   const lister: SubagentLister = { listFor: vi.fn(async () => ({ subagents: [], unavailable: true, unsupported: true })) };
-  const activity = new SubagentActivity({ lister, isCardSession: async () => true, idleCardSessions: async () => [] });
+  const activity = new SubagentActivity({ lister, cardSession: async () => "idle" as const, idleCardSessions: async () => [] });
   activity.turnEnded("s");
   await activity.idle();
   await vi.advanceTimersByTimeAsync(120_000);
@@ -110,7 +110,7 @@ test("a failed read keeps the last count and retries with a backoff (5, 10, 20, 
       return fail ? { subagents: [], unavailable: true } : { subagents: [sub("running")], unavailable: false };
     },
   };
-  const activity = new SubagentActivity({ lister, isCardSession: async () => true, idleCardSessions: async () => [] });
+  const activity = new SubagentActivity({ lister, cardSession: async () => "idle" as const, idleCardSessions: async () => [] });
   activity.turnEnded("s");
   await activity.idle();
   expect(activity.read().running).toEqual({ s: 1 });
@@ -144,7 +144,7 @@ test("a turn end during a read marks it dirty: one more read follows, so a subag
       return answer;
     },
   };
-  const activity = new SubagentActivity({ lister, isCardSession: async () => true, idleCardSessions: async () => [] });
+  const activity = new SubagentActivity({ lister, cardSession: async () => "idle" as const, idleCardSessions: async () => [] });
   activity.turnEnded("s");
   await vi.advanceTimersByTimeAsync(0);
   expect(calls).toEqual(["s"]);
@@ -172,7 +172,7 @@ test("an enqueue right after a drain ends is still read (no lost wakeup)", async
         return { subagents: id === "b" ? [sub("running")] : [], unavailable: false };
       },
     };
-    activity = new SubagentActivity({ lister, isCardSession: async () => true, idleCardSessions: async () => [] });
+    activity = new SubagentActivity({ lister, cardSession: async () => "idle" as const, idleCardSessions: async () => [] });
     activity.turnEnded("a");
     await new Promise((r) => setTimeout(r, 5));
     await activity.idle();
@@ -195,7 +195,7 @@ test("the start sweep reads each idle card session once, one at a time, and only
     },
   };
   const idle = vi.fn(async () => ["a", "b", "c"]);
-  const activity = new SubagentActivity({ lister, isCardSession: async () => true, idleCardSessions: idle });
+  const activity = new SubagentActivity({ lister, cardSession: async () => "idle" as const, idleCardSessions: idle });
   await activity.sweep();
   await activity.sweep();
   await activity.idle();
@@ -205,4 +205,52 @@ test("the start sweep reads each idle card session once, one at a time, and only
   activity.stop();
   await vi.advanceTimersByTimeAsync(20_000);
   expect(vi.getTimerCount()).toBe(0);
+});
+
+test("a session that closes while its count is known is dropped on its next read, even when reads fail", async () => {
+  vi.useFakeTimers();
+  let state: "idle" | "busy" | "gone" = "idle";
+  let fail = false;
+  const lister: SubagentLister = {
+    listFor: vi.fn(async () => (fail ? { subagents: [], unavailable: true } : { subagents: [sub("running")], unavailable: false })),
+  };
+  const activity = new SubagentActivity({ lister, cardSession: async () => state, idleCardSessions: async () => [] });
+  activity.turnEnded("s");
+  await activity.idle();
+  expect(activity.read().running).toEqual({ s: 1 });
+  fail = true;
+  state = "gone"; // closed or errored: the check says gone
+  await vi.advanceTimersByTimeAsync(5_000);
+  await activity.idle();
+  expect(activity.read().running).toEqual({});
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(lister.listFor).toHaveBeenCalledTimes(1);
+});
+
+test("a busy snapshot (turn just ended) is tried again, not dropped", async () => {
+  vi.useFakeTimers();
+  let state: "idle" | "busy" | "gone" = "busy";
+  const lister: SubagentLister = { listFor: vi.fn(async () => ({ subagents: [sub("running")], unavailable: false })) };
+  const activity = new SubagentActivity({ lister, cardSession: async () => state, idleCardSessions: async () => [] });
+  activity.turnEnded("s");
+  await activity.idle();
+  expect(lister.listFor).not.toHaveBeenCalled();
+  state = "idle";
+  await vi.advanceTimersByTimeAsync(5_000);
+  await activity.idle();
+  expect(activity.read().running).toEqual({ s: 1 });
+});
+
+test("a session never read successfully is given up after 5 failed reads", async () => {
+  vi.useFakeTimers();
+  const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const lister: SubagentLister = { listFor: vi.fn(async () => ({ subagents: [], unavailable: true })) };
+  const activity = new SubagentActivity({ lister, cardSession: async () => "idle", idleCardSessions: async () => [] });
+  activity.turnEnded("s");
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  await activity.idle();
+  expect(lister.listFor).toHaveBeenCalledTimes(5);
+  expect(vi.getTimerCount()).toBe(0);
+  expect(activity.read().revision).toBe(0);
+  expect(log).not.toHaveBeenCalled();
 });
