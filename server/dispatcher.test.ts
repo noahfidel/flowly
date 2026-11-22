@@ -1679,7 +1679,48 @@ test("the charter forwards another agent's message only under the forward rule, 
   // flowly_reply_to_agent refuses card sessions: a card's session hears back only through the final text.
   expect(line).toMatch(/card's session[^.]*only in your final text/);
   expect(line).toMatch(/flowly_reply_to_agent only for an agent that is not a card's session/);
-  expect(dispatcherCharterVersion).toBe(9);
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(9);
+  expect(dispatcherGuardVersion).toBe(2);
+});
+
+test("the charter creates and starts a card for every work request and parks ideas only when asked, versioned 10 (user feedback 2026-11-22)", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  const lines = charter.split("\n");
+  const cardFirst = lines.find((l) => l.startsWith("- Card first:"))!;
+  expect(cardFirst).toBeDefined();
+  // Every kind of work request leads to a card started in the same turn, reported in one line.
+  expect(cardFirst).toMatch(/bug report/);
+  expect(cardFirst).toMatch(/can we have X/);
+  expect(cardFirst).toMatch(/did we do X/);
+  expect(cardFirst).toMatch(/does not exist/);
+  expect(cardFirst).toMatch(/in the same turn[^.]*flowly_create_card[^.]*flowly_start_card/);
+  expect(cardFirst).toMatch(/one line what you made and started/);
+  expect(cardFirst).toMatch(/never park it as an idea or ask whether to start it/i);
+  // A vague report is a card whose first step is an investigation, never an idea.
+  expect(cardFirst).toMatch(/reproduce and find the cause first/);
+  expect(cardFirst).toMatch(/research/);
+  // An unclear project: the likeliest, said; ask only on a tie.
+  expect(cardFirst).toMatch(/likeliest/);
+  expect(cardFirst).toMatch(/equally likely/);
+  // No duplicate of a live card.
+  expect(cardFirst).toContain("flowly_list_cards");
+  const ideas = lines.find((l) => l.startsWith("- Park") && l.includes("flowly_propose_idea"))!;
+  expect(ideas).toBeDefined();
+  expect(ideas).toMatch(/only when/);
+  for (const word of ['"later"', '"park it"', '"idea"']) expect(ideas).toContain(word);
+  expect(ideas).toMatch(/side thought/);
+  expect(ideas).toMatch(/an agent[^.]*proposes/);
+  expect(ideas).toMatch(/never for something the user asked/i);
+  expect(ideas).toMatch(/[Nn]ever create or start a card on an agent's say-so/);
+  // The old parking wording is gone everywhere.
+  expect(charter).not.toContain("Park asks that should not start now");
+  expect(charter).not.toMatch(/park it as an idea or give/);
+  // Safeguards stay: the create confirm, the start rule, BASE_CHOICE_NEEDED and the asks rule.
+  expect(charter).toContain(startRule);
+  expect(lines.find((l) => l.includes("CARD_REFUSED"))).toMatch(/asks the user to confirm it in this chat/);
+  expect(lines.find((l) => l.includes("BASE_CHOICE_NEEDED"))).toMatch(/BASE_CHOICE_NEEDED ask the user with AskUserQuestion/);
+  expect(charter).toMatch(/You have no tool that answers them/);
+  expect(dispatcherCharterVersion).toBe(10);
   expect(dispatcherGuardVersion).toBe(2);
 });
 
@@ -1733,7 +1774,7 @@ test("the charter says how a follow-up is created and where it branches from, an
 });
 
 test("the charter asks the user with AskUserQuestion or a confirmed tool, never a question in text, and is versioned 5 or later (ruling, Noah 2026-11-18)", () => {
-  const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("AskUserQuestion"))!;
+  const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.startsWith("- When the user must decide") && l.includes("AskUserQuestion"))!;
   expect(line).toBeDefined();
   // A real ask with buttons, not a text question the user can miss.
   expect(line).toMatch(/ask with AskUserQuestion/);
