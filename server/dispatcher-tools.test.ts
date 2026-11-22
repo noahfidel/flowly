@@ -37,6 +37,8 @@ const dispatcherTools = [
   "flowly_list_projects",
   "flowly_list_cards",
   "flowly_get_card",
+  "flowly_get_card_activity",
+  "flowly_search_cards",
   "flowly_create_card",
   "flowly_update_card",
   "flowly_set_linear",
@@ -2787,4 +2789,176 @@ test("a message dropped right after it was queued is refused as DISPATCHER_DOWN,
   expect(x.server.dispatcherTools["peerSlots"].get("disp") ?? []).toEqual([]);
   expect(chain()).toBe(0);
   expect(x.sent).toEqual([]);
+});
+
+/** flowly_get_card_activity and flowly_search_cards (DISPATCHER-SPEC §5.10). */
+async function activityBoard(x: Awaited<ReturnType<typeof setup>>) {
+  const at = (n: number) => new Date(Date.parse(stamp) + n * 1000).toISOString();
+  await x.store.mutate((board) => {
+    const ev = (id: string, n: number, e: Partial<(typeof board.events)[number]>) => board.events.push({ id, taskId: "q1", actor: "agent", action: "progress_reported", agentId: "s1", at: at(n), ...e });
+    ev("e1", 1, { action: "status_changed", actor: "system", from: "todo", to: "development", note: "Session started" });
+    ev("e2", 2, { note: "Plan agreed", reportKind: "progress" });
+    ev("e3", 3, { note: "Checks pass", reportKind: "result" });
+    ev("e4", 4, { action: "status_changed", from: "development", to: "in_review", note: "Delivered the change" });
+    ev("e5", 5, { action: "status_changed", actor: "human", from: "in_review", to: "development", note: "Ruling: keep it small" });
+    ev("e6", 6, { note: "Which base?", reportKind: "question" });
+    board.workpads = [
+      ...(board.workpads ?? []),
+      {
+        taskId: "q1",
+        projectId: "q",
+        revision: 1,
+        setAt: at(1),
+        updatedAt: at(6),
+        updatedBy: "agent",
+        acceptance: [
+          { id: "a1", text: "It works", done: true, by: "agent", at: at(2) },
+          { id: "a2", text: "Docs", done: false, by: "human", at: at(2) },
+        ],
+      } as never,
+    ];
+    const art = (id: string, n: number, extra: object = {}) => ({
+      id,
+      taskId: "q1",
+      projectId: "q",
+      role: "output" as const,
+      kind: "file" as const,
+      target: "/secret/path/report.md",
+      title: `Art ${id}`,
+      note: "n",
+      createdBy: "agent" as const,
+      createdAt: at(n),
+      updatedAt: at(n),
+      ...extra,
+    });
+    board.artifacts.push(
+      art("x1", 1),
+      art("x2", 2, { kind: "url", target: "https://example.com/pr/1", external: { connectionId: "c", provider: "github", key: "o/r#1", remoteId: "1", itemType: "pull" } }),
+      art("xp", 3, { plan: { approvedAt: null, source: "manual", setAt: at(3) } }),
+    );
+  });
+}
+
+test("flowly_get_card_activity reads a card's notes, stages, acceptance list and artifacts, newest first (§5.10)", async () => {
+  const x = await setup();
+  await activityBoard(x);
+  const d = await x.connect(x.dispatcherToken);
+  const before = JSON.stringify(await x.store.read());
+  const r = await d.call("flowly_get_card_activity", { projectId: "q", taskId: "q1" });
+  expect(code(r)).toBeUndefined();
+  // Reads change nothing.
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+  const out = r.structuredContent;
+  expect(out.card).toEqual({ taskId: "q1", title: "Card q1", status: "todo" });
+  // Flowly's own "Session started" line is not a note; the human's ruling is.
+  expect(out.notes.map((n: { text: string }) => n.text)).toEqual(["Which base?", "Ruling: keep it small", "Delivered the change", "Checks pass", "Plan agreed"]);
+  expect(out.notes.map((n: { kind: string }) => n.kind)).toEqual(["question", "progress", "delivery", "result", "progress"]);
+  expect(out.notes[0]).toMatchObject({ actor: "agent", open: true, textTruncated: false });
+  expect(out.notes[1]).toMatchObject({ actor: "human", to: "development" });
+  expect(out.notes[2]).toMatchObject({ to: "in_review" });
+  expect(out.notes[3].open).toBeUndefined();
+  expect(out.notesTruncated).toBe(false);
+  expect(out.historyTrimmed).toBe(false);
+  expect(out.stages.map((s: { to: string }) => s.to)).toEqual(["development", "in_review", "development"]);
+  expect(out.stages[2]).toMatchObject({ actor: "system", from: "todo" });
+  expect(out.workpad).toEqual({ acceptance: [{ text: "It works", done: true, by: "agent" }, { text: "Docs", done: false, by: "human" }] });
+  // Newest first, the plan left out, no path on disk, the connector item named but not opened.
+  expect(out.artifacts.map((a: { id: string }) => a.id)).toEqual(["x2", "x1"]);
+  expect(out.artifacts[0].external).toEqual({ provider: "github", key: "o/r#1", itemType: "pull" });
+  expect(JSON.stringify(out)).not.toContain("absolutePath");
+  // A later turn start closes the question.
+  await x.store.mutate((board) => {
+    board.events.push({ id: "e7", taskId: "q1", actor: "agent", action: "agent.turn_started", agentId: "s1", at: new Date(Date.parse(stamp) + 7000).toISOString() });
+  });
+  const later = await d.call("flowly_get_card_activity", { projectId: "q", taskId: "q1", include: ["notes"] });
+  expect(later.structuredContent.notes[0].open).toBe(false);
+  // include keeps only the parts asked for.
+  expect(Object.keys(later.structuredContent).sort()).toEqual(["card", "historyTrimmed", "notes", "notesTruncated"]);
+});
+
+test("flowly_get_card_activity caps notes by count, by text and in total, and says when history was trimmed (§5.10)", async () => {
+  const x = await setup();
+  const d = await x.connect(x.dispatcherToken);
+  await x.store.mutate((board) => {
+    for (let i = 0; i < 30; i++)
+      board.events.push({ id: `n${i}`, taskId: "q1", actor: "agent", action: "progress_reported", agentId: "s1", reportKind: "progress", note: `note ${i}`, at: new Date(Date.parse(stamp) + i * 1000).toISOString() });
+  });
+  const few = (await d.call("flowly_get_card_activity", { projectId: "q", taskId: "q1", include: ["notes"], limit: 3 })).structuredContent;
+  expect(few.notes.map((n: { text: string }) => n.text)).toEqual(["note 29", "note 28", "note 27"]);
+  expect(few.notesTruncated).toBe(true);
+  expect((await d.call("flowly_get_card_activity", { projectId: "q", taskId: "q1", limit: 51 })).isError).toBe(true);
+  // Default limit 20 of 30.
+  expect((await d.call("flowly_get_card_activity", { projectId: "q", taskId: "q1" })).structuredContent.notes).toHaveLength(20);
+  // A long note is clipped and marked; many long notes fit the total by dropping the oldest.
+  await x.store.mutate((board) => {
+    board.events = board.events.filter((e) => !e.id.startsWith("n"));
+    for (let i = 0; i < 20; i++)
+      board.events.push({ id: `L${i}`, taskId: "q1", actor: "agent", action: "progress_reported", agentId: "s1", reportKind: "progress", note: `${i}`.padEnd(5000, "x"), at: new Date(Date.parse(stamp) + i * 1000).toISOString() });
+  });
+  const long = (await d.call("flowly_get_card_activity", { projectId: "q", taskId: "q1", include: ["notes"] })).structuredContent;
+  expect(long.notes[0].text).toHaveLength(2000);
+  expect(long.notes[0].textTruncated).toBe(true);
+  expect(long.notes.length).toBe(12);
+  expect(long.notes[0].text.startsWith("19")).toBe(true);
+  expect(long.notesTruncated).toBe(true);
+  // At the store's per-card event cap older notes are gone.
+  await x.store.mutate((board) => {
+    board.events = board.events.filter((e) => !e.id.startsWith("L"));
+    for (let i = 0; i < 100; i++) board.events.push({ id: `c${i}`, taskId: "q2", actor: "agent", action: "agent.turn_started", agentId: "s1", at: stamp });
+  });
+  expect((await d.call("flowly_get_card_activity", { projectId: "q", taskId: "q2", include: ["notes"] })).structuredContent.historyTrimmed).toBe(true);
+});
+
+test("flowly_get_card_activity is scoped to the group's live projects and the project's own cards (§5.10)", async () => {
+  const x = await setup();
+  await x.store.mutate((board) => {
+    board.tasks.push({ ...board.tasks.find((t) => t.id === "q1")!, id: "g1", projectId: "gone", workspaceId: "w-g1", sourcePath: board.projects.find((p) => p.id === "gone")!.primaryPath, operationId: "op-g1" });
+  });
+  const d = await x.connect(x.dispatcherToken);
+  // A card of another project, an unknown project, an archived one.
+  expect(code(await d.call("flowly_get_card_activity", { projectId: "p", taskId: "q1" }))).toBe("CARD_NOT_FOUND");
+  expect(code(await d.call("flowly_get_card_activity", { projectId: "q", taskId: "nope" }))).toBe("CARD_NOT_FOUND");
+  expect(code(await d.call("flowly_get_card_activity", { projectId: "nope", taskId: "q1" }))).toBe("NOT_FOUND");
+  expect(code(await d.call("flowly_get_card_activity", { projectId: "z", taskId: "z1" }))).toBe("PROJECT_ARCHIVED");
+  // A project whose folder is missing can still be read.
+  expect(code(await d.call("flowly_get_card_activity", { projectId: "gone", taskId: "g1" }))).toBeUndefined();
+  // Another group's project, for each group's dispatcher.
+  const { a, b } = await twoGroups(x);
+  const before = JSON.stringify(await x.store.read());
+  expect(code(await b.call("flowly_get_card_activity", { projectId: "q", taskId: "q1" }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(code(await a.call("flowly_get_card_activity", { projectId: "r", taskId: "q1" }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(code(await b.call("flowly_search_cards", { query: "card", projectId: "q" }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(code(await a.call("flowly_search_cards", { query: "card", projectId: "r" }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect(JSON.stringify(await x.store.read())).toBe(before);
+});
+
+test("flowly_search_cards searches the group's live projects only (§5.10)", async () => {
+  const x = await setup();
+  await x.store.mutate((board) => {
+    const base = board.tasks.find((t) => t.id === "q1")!;
+    board.tasks.find((t) => t.id === "q1")!.title = "Zebra in q";
+    board.tasks.push({ ...base, id: "r1", projectId: "r", workspaceId: "w-r1", operationId: "op-r1", title: "Zebra in r" });
+    board.tasks.push({ ...base, id: "p9", projectId: "p", workspaceId: "w-p9", sourcePath: board.projects.find((p) => p.id === "p")!.primaryPath, operationId: "op-p9", title: "Zebra in p" });
+    board.tasks.find((t) => t.id === "z1")!.title = "Zebra in archived";
+  });
+  const { SearchService } = await import("./search");
+  x.server.dispatcherTools.search = new SearchService({
+    board: () => x.store.read(),
+    summaries: { path: x.root + "/no-summaries.json", read: async () => [] },
+    memory: { path: x.root + "/no-memory.json", read: async () => [] },
+    memoryOn: () => true,
+    ideasOn: async () => true,
+    artifactsOn: async () => true,
+  });
+  const { a, b } = await twoGroups(x);
+  const hits = async (c: typeof a, input: object) => {
+    const r = await c.call("flowly_search_cards", { query: "zebra", ...input });
+    expect(code(r)).toBeUndefined();
+    return r.structuredContent.cards.map((c: { projectId: string; taskId: string }) => `${c.projectId}/${c.taskId}`).sort();
+  };
+  // Group A: its projects p and q; not r (group B), not the archived z.
+  expect(await hits(a, {})).toEqual(["p/p9", "q/q1"]);
+  expect(await hits(b, {})).toEqual(["r/r1"]);
+  expect(await hits(a, { projectId: "q" })).toEqual(["q/q1"]);
+  expect(code(await a.call("flowly_search_cards", { query: "zebra", projectId: "z" }))).toBe("PROJECT_ARCHIVED");
 });

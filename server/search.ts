@@ -347,6 +347,42 @@ export class SearchService {
     return { ...found, partial };
   }
 
+  /** flowly_search_cards (DISPATCHER-SPEC §5.10): the dispatcher's live projects, without project memory. */
+  async forDispatcher(projectIds: ReadonlySet<string>, input: { query: string; sources?: readonly SearchSource[]; limit: number }) {
+    const { index, summaries } = await this.load();
+    const base = (input.sources?.length ? input.sources : agentSearchSources).filter((s) => s !== "memory");
+    const sources = await this.allowed(base, agentSearchSources);
+    const found = sources.length && projectIds.size
+      ? runSearch(index, { query: input.query, projectIds, sources, limit: input.limit, memoryLimit: 0 })
+      : { cards: [], memory: [], truncated: false };
+    const latest = new Map<string, SummaryEntry>();
+    for (const s of summaries) {
+      const seen = latest.get(s.taskId);
+      if (!seen || s.at >= seen.at) latest.set(s.taskId, s);
+    }
+    const tasks = new Map(index.cards.map((c) => [c.task.id, c.task]));
+    return {
+      cards: found.cards.map((c) => {
+        const task = tasks.get(c.taskId)!;
+        const s = latest.get(c.taskId);
+        const summary = s ? clip([s.state, s.recap].filter((v) => v.trim()).join("\n"), searchLimits.agentSummary) : "";
+        return {
+          projectId: task.projectId,
+          taskId: c.taskId,
+          title: c.title,
+          status: c.status,
+          ...(c.type ? { type: c.type } : {}),
+          tags: tagValues(task),
+          archived: c.archived,
+          updatedAt: c.updatedAt,
+          ...(summary ? { summary } : {}),
+          hits: c.hits.map((h) => ({ source: h.source, snippet: h.snippet })),
+        };
+      }),
+      truncated: found.truncated,
+    };
+  }
+
   /** flowly_search (§6): the caller's project, without its own card or project memory. */
   async forAgent(project: Project, taskId: string, input: { query: string; sources?: readonly SearchSource[]; limit: number }) {
     const { index, summaries } = await this.load();

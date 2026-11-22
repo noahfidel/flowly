@@ -608,6 +608,7 @@ export default function contribute(host: PluginServerContext) {
     artifactsOn: () => tools.agents.artifactsOn(),
   });
   tools.agents.search = search;
+  tools.dispatcherTools.search = search;
   server.handle(rpc.searchQuery, (input) => search.query(input));
   void tools
     .start()

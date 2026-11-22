@@ -304,6 +304,58 @@ export const agentSearchResultSchema = z.object({
   ),
   truncated: z.boolean(),
 });
+/** flowly_get_card_activity (DISPATCHER-SPEC §5.10): what a card did, read-only. */
+export const cardActivityLimits = { notesDefault: 20, notesMax: 50, list: 50, noteText: 2000, totalText: 24000 } as const;
+export const cardActivityParts = ["notes", "stages", "workpad", "artifacts"] as const;
+export const cardActivityInputSchema = z.strictObject({
+  taskId: z.string().min(1).max(200).describe("Card id from flowly_list_cards."),
+  include: z.array(z.enum(cardActivityParts)).max(cardActivityParts.length).optional().describe("Only these parts; all when omitted."),
+  limit: z.number().int().min(1).max(cardActivityLimits.notesMax).default(cardActivityLimits.notesDefault).describe("How many of the newest notes."),
+});
+export const cardActivityResultSchema = z.object({
+  card: z.object({ taskId: z.string(), title: z.string(), status: z.string() }),
+  notes: z
+    .array(
+      z.object({
+        at: z.string(),
+        kind: z.enum(["progress", "result", "question", "blocker", "delivery"]),
+        actor: z.enum(["human", "agent"]),
+        to: z.string().optional(),
+        text: z.string(),
+        textTruncated: z.boolean(),
+        open: z.boolean().optional(),
+      }),
+    )
+    .optional(),
+  notesTruncated: z.boolean().optional(),
+  stages: z.array(z.object({ at: z.string(), from: z.string().optional(), to: z.string().optional(), actor: z.enum(["human", "agent", "system"]), rule: z.string().optional() })).optional(),
+  stagesTruncated: z.boolean().optional(),
+  workpad: z.object({ acceptance: z.array(z.object({ text: z.string(), done: z.boolean(), by: z.string() })) }).nullable().optional(),
+  artifacts: z
+    .array(
+      z.object({
+        id: z.string(),
+        role: z.string(),
+        kind: z.string(),
+        target: z.string(),
+        title: z.string(),
+        note: z.string(),
+        createdBy: z.string(),
+        external: z.object({ provider: z.string(), key: z.string(), itemType: z.string() }).optional(),
+      }),
+    )
+    .optional(),
+  artifactsTruncated: z.boolean().optional(),
+  historyTrimmed: z.boolean(),
+});
+/** flowly_search_cards (DISPATCHER-SPEC §5.10): flowly_search over the dispatcher's group. */
+export const dispatcherSearchInputSchema = agentSearchInputSchema.extend({
+  projectId: z.string().min(1).max(200).optional().describe("Only this project (from flowly_list_projects); omitted, every live project of your group."),
+});
+export const dispatcherSearchResultSchema = z.object({
+  cards: z.array(agentSearchResultSchema.shape.cards.element.extend({ projectId: z.string() })),
+  truncated: z.boolean(),
+});
 /** flowly_set_tags (CARD-TAGS-SPEC §4.1): tag this card with modules and directions. */
 export const tagsInputSchema = z.strictObject({
   expectedRevision: revisionSchema,

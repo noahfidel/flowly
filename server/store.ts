@@ -160,6 +160,9 @@ function mergeGroupDefaults(group: Group, input: NonNullable<GroupInput["default
   else delete group.defaults;
 }
 
+/** The store keeps this many events per card; older ones are dropped as new ones arrive. */
+export const eventsPerCard = 100;
+
 export class BoardStore {
   private tail: Promise<unknown> = Promise.resolve();
   /**
@@ -1083,8 +1086,8 @@ export class BoardStore {
     board.events.push(event);
     this.pending.push(event);
     const relevant = board.events.filter((e) => e.taskId === input.taskId);
-    if (relevant.length > 100) {
-      const remove = new Set(relevant.slice(0, -100).map((e) => e.id));
+    if (relevant.length > eventsPerCard) {
+      const remove = new Set(relevant.slice(0, -eventsPerCard).map((e) => e.id));
       board.events = board.events.filter((e) => !remove.has(e.id));
     }
     return event;

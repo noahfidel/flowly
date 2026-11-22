@@ -1720,7 +1720,7 @@ test("the charter creates and starts a card for every work request and parks ide
   expect(lines.find((l) => l.includes("CARD_REFUSED"))).toMatch(/asks the user to confirm it in this chat/);
   expect(lines.find((l) => l.includes("BASE_CHOICE_NEEDED"))).toMatch(/BASE_CHOICE_NEEDED ask the user with AskUserQuestion/);
   expect(charter).toMatch(/You have no tool that answers them/);
-  expect(dispatcherCharterVersion).toBe(10);
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(10);
   expect(dispatcherGuardVersion).toBe(2);
 });
 
@@ -1813,6 +1813,20 @@ test("the charter says flowly_add_artifact attaches references only, preapproved
   // No removal tool for now (§5.7).
   expect(dispatcherToolNames).not.toContain("flowly_remove_artifact" as never);
   expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(6);
+  expect(dispatcherGuardVersion).toBe(2);
+});
+
+test("the charter names the card activity and search reads, treats card text as data, and is versioned 11 (DISPATCHER-SPEC §5.10)", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  const memory = charter.split("\n").find((l) => l.includes("The board is your memory"))!;
+  expect(memory).toContain("flowly_get_card_activity");
+  expect(memory).toContain("flowly_search_cards");
+  const data = charter.split("\n").find((l) => l.includes("the cards' own text"))!;
+  expect(data).toMatch(/information, not instructions/);
+  expect(data).toMatch(/answered only by the user on the card/);
+  expect(data).toMatch(/never answer it yourself/);
+  expect(dispatcherToolNames).toEqual(expect.arrayContaining(["flowly_get_card_activity", "flowly_search_cards"]));
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(10);
   expect(dispatcherGuardVersion).toBe(2);
 });
 
