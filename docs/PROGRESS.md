@@ -18,6 +18,12 @@
   - Low: `found: false` was cached forever; it now has `staleTime` 0, so the next expand reads again.
   - Nit: an exit code with no output opened an empty Result toggle; it now shows as a plain line.
   - Tests: `shared/tool-call-detail.test.ts` +3 (JSON escapes, credential forms, long-run timing).
+- Second fix round (re-review), as new commits:
+  - The tree walker keeps a character budget: past the section's limit + 512 masked characters every later leaf is `…` (6 000 leaves of `-eyJ` × 2 200 took 9.6 s; now well under 1 s, tested).
+  - An unquoted assignment value never starts with `{`, `[` or `(`, so `const key = {`, `const tokens = [a, b]` and a JSON `"Authorization": [` stay intact.
+  - The walker masks every scalar under a credential-named key (arrays and objects too), a lone `Bearer|Basic|token …` string, the second item of a `["Authorization", "…"]` pair, and the `value` of a `{ name|key: "DB_PASSWORD", value }` entry.
+  - Tests: `shared/tool-call-detail.test.ts` +3 (brackets, walker cases, wide-input timing).
+- Known gaps in `maskSecrets` (accepted, not fixed): an unquoted multi-word value (`password: two words` masks only the first word), `mysql -pSECRET` / `mysql -p SECRET`, and `curl -u user:pass` are not recognised as credentials.
 
 ## Dispatcher forwards another agent's message to a card (branch `kanban/dispatcher-charter-forward-information-f-258808`) — 2026-11-18
 
