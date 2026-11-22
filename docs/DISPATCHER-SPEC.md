@@ -408,6 +408,7 @@ The dispatcher's chat sits next to the board (single-pane spec, "Design details"
 - The overview's "N running" chip (§9.2's row) is a button. Press opens **Running now**, a modal (a bottom sheet on phones, like the lane picker) listing the cards in the board's scope (as the "N unread" scope: the filtered project, else the group's live projects) that have a working session (`running` or `initializing`, live agents, archived cards excluded). Each row: card title, `project · lane`, and how long ago the card's earliest working turn started (`activeTurn.startedAt`; blank when Paseo gives none). Press closes the list and opens the card (`openTaskById`). Nothing running: "Nothing is running".
 - Order: earliest run first, ties by card id (`runningRows`, `client/overview.ts`), so a start or stop moves no other row. While the list is open `mergeRunning` keeps the shown rows in place: a card whose sessions stopped stays, greyed with "Finished", until the list closes (it can run again and revert); newly started cards append at the end. Closing resets the list.
 - It reads the same live agent list as the chip (no extra poll or RPC) and changes no unread, "N need you" or "N unread" rule (§9.2, §9.4).
+- Since 2026-11-22 a card also counts as running, in the chip and in this list, while its subagents run with its sessions idle (`since`: the earliest of them); what counts and where the provider subagent counts come from (`subagents.activity`, polled with the board) is in SUBAGENTS-SPEC §10.
 
 ### 9.3 Panel
 

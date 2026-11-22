@@ -44,6 +44,7 @@ Nothing the user sees changes, except that it is faster:
 - Drawer sessions: live sessions come from the shared live agent list, filtered by workspace (`select`, so other workspaces' updates do not re-render the drawer). Archived sessions are read every 30 s, after any session action, and as soon as a session leaves the live list. Workspace availability and task context poll every 10 s instead of 3 s/5 s.
 - Session preview: the agent query is keyed by session (shared with other views, normal cache time) and seeded from the live agent list. The transcript query starts in parallel and uses `sessions.tail`. Stream events refresh only the transcript, coalesced at 400 ms. Polling falls back to 15 s while the stream is ready. Tool health and access state are read only while the Kanban tools section is open.
 - Card output: the latest-output line uses `sessions.tail` with a short limit, and cached outputs live for 5 minutes.
+- Subagent activity (2026-11-22, SUBAGENTS-SPEC §10): `subagents.activity` is an etag read every 5 s, only while the board is shown (the board's auxiliary gate); the daemon re-reads a card session's provider subagents every 5 s only while one of them runs, one read at a time, so an idle board costs one tiny unchanged answer per poll.
 - Session images: native skips `Image.getSize` (a second decode of the same data URI); `onLoad` reports the size.
 
 ### Client rendering

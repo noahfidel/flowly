@@ -1,5 +1,14 @@
 # Implementation progress
 
+## A card counts as running while its subagents run (branch `kanban/check-whether-a-card-counts-as-running-w-b2ca08`) — 2026-11-22
+
+- Feature (user-approved 2026-11-22, SUBAGENTS-SPEC §10): a card whose sessions are idle but whose subagents run shows the same running state as a running session (edge, signal `{n} subagents working`, overview running chip, running list). Counts: running provider subagents of the card's sessions, and active Paseo child agents of its sessions in another workspace (a child in the card's own workspace counts once, as a session).
+- Code: `shared/card-running.ts` (`cardActivity`, `cardActivities`, `isAgentActive`) used by the card, its accessible name, `boardOverview` and `runningRows`; `server/subagent-activity.ts` (reads at a card session's turn end and once at plugin start, every 5 s while a subagent runs, one read at a time, dropped on turn start, archive or gone); `ProviderSubagentService.listFor` (the list without the card check); RPC `subagents.activity` (etag, cached per revision); `useSubagentActivity` polls every 5 s with the board's auxiliary gate.
+- Tests: `shared/card-running.test.ts` (6), `server/subagent-activity.test.ts` (6), one more in `client/overview.test.ts`.
+- i18n: 1 new plural string in all 9 catalogs. Onboarding: no tour, tip or What's new (the running state is existing UI). Telemetry: no heartbeat field.
+- Checks (Node 26.5.1, at `b0247f9`): `npm run typecheck` exit 0; `npm test` exit 0, 240 files passed (1 skipped), 2912 tests passed, 7 skipped. One earlier full run had one failure that did not repeat on rerun.
+- Not run: plugin install/reload and a live card with a background Agent-tool subagent or a helper-workspace child; phone UI.
+
 ## Board: PR chip says "yours" again — 2026-11-23
 
 - Change (D22, user request 2026-11-23, PR-MENU-SPEC): after the person icon the PR chip reads "3 yours" instead of the bare number: [PR icon] 8 PRs [person icon] 3 yours. `prChipText` returns `mine` as that text; label, hover hint and the 0 case are unchanged.
