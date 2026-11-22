@@ -117,14 +117,15 @@ export class ProviderSubagentService {
 
   async list(input: { taskId: string; agentId: string }, paseo: PaseoApi): Promise<{ subagents: ProviderSubagent[]; unavailable: boolean }> {
     await this.check(input, paseo);
-    return this.listFor(input.agentId);
+    const { subagents, unavailable } = await this.listFor(input.agentId);
+    return { subagents, unavailable };
   }
 
   /**
    * The list without the card check, for callers that already know the session is a card's (the board-wide
    * running check, SUBAGENTS-SPEC §10). Same connection, feature gate and failure rules as `list`.
    */
-  async listFor(agentId: string): Promise<{ subagents: ProviderSubagent[]; unavailable: boolean }> {
+  async listFor(agentId: string): Promise<{ subagents: ProviderSubagent[]; unavailable: boolean; unsupported?: boolean }> {
     try {
       const response = await this.use("providerSubagents", (client) => client.listProviderSubagents(agentId, { timeout: REQUEST_TIMEOUT_MS }));
       const subagents = (response.subagents ?? [])
@@ -135,7 +136,7 @@ export class ProviderSubagentService {
     } catch (e) {
       // The chip then shows native children only; nothing extra on screen.
       if (!unavailable(e) && !plain(e)) logFailure("Flowly could not list provider subagents:", e);
-      return { subagents: [], unavailable: true };
+      return { subagents: [], unavailable: true, ...(e instanceof ProviderSubagentsUnsupported ? { unsupported: true } : {}) };
     }
   }
 

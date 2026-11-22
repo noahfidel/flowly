@@ -340,7 +340,8 @@ export default function contribute(host: PluginServerContext) {
     idleCardSessions: async () => {
       if (!activityPaseo) return [];
       const [agents, workspaces] = await Promise.all([listAttentionAgents(activityPaseo), liveCardWorkspaces()]);
-      return agents.filter((a) => !!a.workspaceId && workspaces.has(a.workspaceId) && a.status !== "running" && a.status !== "initializing").map((a) => a.id);
+      // Idle only: a running session shows itself, and a closed or errored one has no subagents left working.
+      return agents.filter((a) => !!a.workspaceId && workspaces.has(a.workspaceId) && a.status === "idle").map((a) => a.id);
     },
   });
   let activityTag: { revision: number; etag: string } | null = null;
