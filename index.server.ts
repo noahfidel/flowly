@@ -910,7 +910,7 @@ export default function contribute(host: PluginServerContext) {
       removed: list.filter((a) => !located.get(a.id)).map((a) => a.id),
     };
   });
-  // PR-MENU-SPEC §3.2: read only when the menu opens; states from the connector badge cache, never `gh`.
+  // PR-MENU-SPEC §3.2: read only when the menu opens; states from the connector badge cache, else `gh` for github.com PRs no connection reads.
   const ghPrCache = new GhPrCache();
   server.handle(rpc.listPrs, async (input) => listPrs(await store.read(), input.projectIds, { list: () => connectors.list(), locate: (list) => connectors.locate(list), cached: (refs) => connectors.cachedBadges(refs), badges: (refs) => connectors.badges(refs), gh: ghPrMenuState(), ghCache: ghPrCache }));
   server.handle(rpc.hidePr, (input) => store.hidePr(input));
