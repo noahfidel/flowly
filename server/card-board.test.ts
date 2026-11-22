@@ -10,6 +10,7 @@ function fixture() {
   return boardSchema.parse({ version: 5, revision: 4, projects: [project], tasks: [task, { ...task, id: "related", workspaceId: "w2" }, { ...task, id: "unrelated", workspaceId: "w3", description: "irrelevant".repeat(2000) }],
     links: [{ id: "l", projectId: "p", kind: "related", from: "t", to: "related", createdBy: "human", createdAt: at }],
     events: [{ id: "e", taskId: "t", actor: "human", action: "created", at, note: "keep history" }, { id: "other", taskId: "unrelated", actor: "human", action: "created", at }],
+    hiddenPrs: [{ taskId: "t", url: "https://github.com/o/r/pull/1", hiddenAt: at }, { taskId: "unrelated", url: "https://github.com/o/r/pull/2", hiddenAt: at }],
     attentionDismissals: [{ taskId: "t", updated: { signals: ["u:read"], snoozedAt: at } }, { taskId: "unrelated", updated: { signals: ["u:read"], snoozedAt: at } }],
   });
 }
@@ -22,6 +23,7 @@ test("fresh card view preserves details, history and direct links without unrela
   expect(card.links).toEqual(board.links);
   expect(card.events).toEqual([board.events[0]]);
   expect(card.attentionDismissals).toEqual([board.attentionDismissals[0]]);
+  expect(card.hiddenPrs).toEqual([board.hiddenPrs[0]]);
   expect(card.revision).toBe(board.revision);
   expect(board).toEqual(original);
   expect(JSON.stringify(card).length).toBeLessThan(JSON.stringify(board).length / 10);

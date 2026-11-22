@@ -25,5 +25,6 @@ export function cardBoard(board: Board, input: { taskId: string; workspaceId: st
     workpads: board.workpads.filter(w => w.taskId === task.id),
     plans: board.plans.filter(p => p.taskId === task.id),
     attentionDismissals: board.attentionDismissals.filter(a => a.taskId === task.id),
+    hiddenPrs: board.hiddenPrs.filter(h => h.taskId === task.id),
   };
 }

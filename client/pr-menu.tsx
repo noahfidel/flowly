@@ -89,23 +89,31 @@ export function PrMenu({
     if (!open) setView("main");
   }, [open]);
   const showHidden = view === "hidden" && hiddenList.length > 0;
+  // Once nothing is hidden the view starts over, so a later hide does not jump to the Hidden view.
+  useEffect(() => {
+    if (hiddenList.length === 0) setView((v) => (v === "main" ? v : "main"));
+  }, [hiddenList.length]);
   const toast = useToast();
   const queryClient = useQueryClient();
   const hideRpc = useRpc(rpc.hidePr),
     restoreRpc = useRpc(rpc.restorePr);
   const busy = useRef(false);
+  const [toggling, setToggling] = useState(false);
   const setHidden = useStableCallback(async (row: ShownRow, hide: boolean) => {
     if (busy.current) return;
     busy.current = true;
+    setToggling(true);
     try {
       await (hide ? hideRpc : restoreRpc)({ taskId: row.taskId, url: row.url });
-      await queryClient.invalidateQueries({ queryKey: ["flowly", "prs"] });
-      onChanged();
       if (hide) toast.show(t("Hidden from the pull requests list"), { variant: "success" });
+      onChanged();
+      // The list refetches in the background; the buttons are free again once the RPC has answered.
+      void queryClient.invalidateQueries({ queryKey: ["flowly", "prs"] });
     } catch {
       toast.show(hide ? t("Could not hide the pull request.") : t("Could not show the pull request again."), { variant: "error" });
     } finally {
       busy.current = false;
+      setToggling(false);
     }
   });
   return (
@@ -129,7 +137,7 @@ export function PrMenu({
             <View style={{ gap: space[1] }}>
               <Label muted size={font.sm} medium selectable={false}>{t("Hidden ({n})", { n: hiddenList.length })}</Label>
               {hiddenList.map((row) => (
-                <PrRow key={row.key} row={row} onClose={onClose} onOpenCard={onOpenCard} onToggle={setHidden} />
+                <PrRow key={row.key} row={row} onClose={onClose} onOpenCard={onOpenCard} onToggle={setHidden} disabled={toggling} />
               ))}
               <View style={{ alignItems: "flex-start", paddingTop: space[1] }}>
                 <Button quiet small onPress={() => setView("main")}>{t("Back")}</Button>
@@ -146,7 +154,7 @@ export function PrMenu({
                 <View key={section.id} style={{ gap: space[1] }}>
                   <Label muted size={font.sm} medium selectable={false}>{t(sectionTitles[section.id])}</Label>
                   {section.rows.map((row) => (
-                    <PrRow key={row.key} row={row} onClose={onClose} onOpenCard={onOpenCard} onToggle={setHidden} />
+                    <PrRow key={row.key} row={row} onClose={onClose} onOpenCard={onOpenCard} onToggle={setHidden} disabled={toggling} />
                   ))}
                 </View>
               ))}
@@ -163,7 +171,7 @@ export function PrMenu({
   );
 }
 
-const PrRow = memo(function PrRow({ row, onClose, onOpenCard, onToggle }: { row: ShownRow; onClose(): void; onOpenCard(taskId: string): void; onToggle(row: ShownRow, hide: boolean): void }) {
+const PrRow = memo(function PrRow({ row, onClose, onOpenCard, onToggle, disabled }: { disabled: boolean; row: ShownRow; onClose(): void; onOpenCard(taskId: string): void; onToggle(row: ShownRow, hide: boolean): void }) {
   const { colors } = useTheme();
   const toast = useToast();
   const tones = stateColors(colors);
@@ -187,6 +195,7 @@ const PrRow = memo(function PrRow({ row, onClose, onOpenCard, onToggle }: { row:
             icon={row.hidden ? "Eye" : "EyeOff"}
             label={row.hidden ? t("Show in list again") : t("Hide from this list")}
             size={touch ? 36 : undefined}
+            disabled={disabled}
             onPress={() => onToggle(row, !row.hidden)}
           />
           <IconButton

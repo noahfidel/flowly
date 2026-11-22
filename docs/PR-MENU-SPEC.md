@@ -61,6 +61,7 @@ Computed on the daemon from the stored board (artifacts are not in the board ove
 ### 3.3 Hidden PRs
 
 - Storage: the board array `hiddenPrs: [{ taskId, url, hiddenAt }]` (`shared/hidden-prs.ts`, `shared/model.ts`), default `[]` so older boards load; at most 2000 entries, and hiding when full drops the oldest. Saved with the board (the sqlite store keeps it as its own collection). The key is `taskId` plus the trimmed URL, the URL a `cardPrs` row carries (for a PR review card, `prReviewCardUrl`).
+- Past 2000 entries the oldest hidden entry is dropped, so that PR shows in the menu again.
 - RPC `prs.hide { taskId, url }` → the entry, and `prs.restore { taskId, url }` → `{ taskId, url }`. Both strict, run in a store transaction, reject a missing card (hide also an archived card or project), and are idempotent (a repeat changes nothing and writes nothing). Display preference: no board revision, no Activity.
 - Deleting a card or removing its project drops its entries. Archiving or finishing a card keeps them; a card left in the menu's scope shows them in the Hidden view again.
 - Count: the overview's `prs` / `prsHidden` per card come from the same rows rule (`server/board-overview.ts`), so the badge equals the main view's rows.

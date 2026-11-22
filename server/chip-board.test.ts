@@ -16,6 +16,7 @@ function board(events: BoardEvent[] = []) {
     projects: [{ id: "p", title: "P", description: "long project description", paseoProjectId: "n", primaryPath: "/fixture", repos: ["/fixture"], revision: 1, createdAt: at, updatedAt: at, archivedAt: null }],
     tasks: [{ id: "t", projectId: "p", workspaceId: "w", sourcePath: "/fixture", repoPaths: ["/fixture"], title: "T", description: "long task description", status: "todo", priority: "normal", position: 0, revision: 1, operationId: "o", createdAt: at, updatedAt: at, archivedAt: null }],
     events, ideas: [], links: [], artifacts: [], workpads: [], plans: [], attentionDismissals: [],
+    hiddenPrs: [{ taskId: "t", url: "https://github.com/o/r/pull/1", hiddenAt: at }],
   });
 }
 
@@ -26,6 +27,7 @@ test("the chip projection is schema-valid, read-only, and excludes history/descr
   expect(readChipBoardChanged.output.parse({ etag: "e", value: view }).value).toEqual(view);
   expect(view.events.map(e => e.id)).toEqual(["latest", "started-b"]);
   expect(view.events.every(e => !e.note)).toBe(true);
+  expect(view.hiddenPrs).toEqual([]);
   expect(view.tasks[0]).toEqual({ ...source.tasks[0], description: "" });
   expect(view.projects[0]).toEqual({ ...source.projects[0], description: "" });
   expect(source).toEqual(original);
