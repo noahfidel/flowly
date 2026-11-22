@@ -1,6 +1,13 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Tool call details": "工具呼叫詳情",
+  "In a card's chat, expand a tool step to see its arguments; its result sits under its own toggle.": "在卡片的聊天中展開工具步驟即可查看其參數；結果在單獨的摺疊開關下。",
+  "Arguments": "參數",
+  "This tool call's arguments aren't in the transcript.": "此工具呼叫的參數不在記錄中。",
+  "Couldn't load this tool call.": "無法載入此工具呼叫。",
+  "This tool call is no longer in the session's timeline.": "此工具呼叫已不在工作階段的時間軸中。",
+  "Clipped. Open the session in Paseo for the full text.": "已截斷。在 Paseo 中開啟工作階段查看全文。",
   "From {name}": "來自 {name}",
   "To {name}": "傳給 {name}",
   "{group} dispatcher": "{group} 調度器",

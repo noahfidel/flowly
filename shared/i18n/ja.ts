@@ -1,6 +1,13 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Tool call details": "ツール呼び出しの詳細",
+  "In a card's chat, expand a tool step to see its arguments; its result sits under its own toggle.": "カードのチャットでツールのステップを展開すると引数が表示されます。結果は専用のトグルの下にあります。",
+  "Arguments": "引数",
+  "This tool call's arguments aren't in the transcript.": "このツール呼び出しの引数はトランスクリプトにありません。",
+  "Couldn't load this tool call.": "このツール呼び出しを読み込めませんでした。",
+  "This tool call is no longer in the session's timeline.": "このツール呼び出しはもうセッションのタイムラインにありません。",
+  "Clipped. Open the session in Paseo for the full text.": "省略されています。全文は Paseo でセッションを開いて確認してください。",
   "From {name}": "{name} から",
   "To {name}": "{name} へ",
   "{group} dispatcher": "{group} のディスパッチャー",

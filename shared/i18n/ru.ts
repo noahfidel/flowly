@@ -1,6 +1,13 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Tool call details": "Подробности вызовов инструментов",
+  "In a card's chat, expand a tool step to see its arguments; its result sits under its own toggle.": "В чате карточки разверните шаг инструмента, чтобы увидеть его аргументы; результат скрыт под отдельным переключателем.",
+  "Arguments": "Аргументы",
+  "This tool call's arguments aren't in the transcript.": "Аргументов этого вызова инструмента нет в журнале.",
+  "Couldn't load this tool call.": "Не удалось загрузить этот вызов инструмента.",
+  "This tool call is no longer in the session's timeline.": "Этого вызова инструмента больше нет в журнале сессии.",
+  "Clipped. Open the session in Paseo for the full text.": "Обрезано. Откройте сессию в Paseo, чтобы увидеть полный текст.",
   "From {name}": "От {name}",
   "To {name}": "Кому: {name}",
   "{group} dispatcher": "Диспетчер группы {group}",

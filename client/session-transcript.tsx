@@ -2,7 +2,9 @@ import { perfStart, perfEnd, usePerfRender } from "./perf";
 import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactElement, type ReactNode, type Ref } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, View, type ListRenderItemInfo } from "react-native";
 import { FlatList, Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
-import { usePaseo } from "@getpaseo/plugin/client";
+import { usePaseo, useRpc } from "@getpaseo/plugin/client";
+import { sessionToolCall } from "../shared/rpc";
+import { ToolStep, type ToolCallLoader } from "./tool-step";
 import { Label, Notice, font, message, noFocusRing, radius, space, touch, useTheme, verticalContent, verticalScroll, type Tone } from "./ui";
 import { stateColors } from "./state-colors";
 import { activitySummary, groupTranscript, lastOutputRow, pendingEchoes, recentSessionOutput, type SentEcho, type TranscriptBlock } from "./session-state";
@@ -197,6 +199,22 @@ function SessionTranscriptView({
     [loaded?.entries, waiting],
   );
   const output = useMemo(() => recentSessionOutput(entries), [entries]);
+  // A card session's tool steps load their details on expand (SESSION-PANE-SPEC §1.3); the dispatcher's and a
+  // subagent's timelines are not card sessions, so their steps stay plain.
+  const readToolCall = useRpc(sessionToolCall);
+  const epoch = useRef<string | undefined>(undefined);
+  epoch.current = loaded?.epoch;
+  const toolCalls = useMemo(
+    (): ToolCallLoader | undefined =>
+      dispatcher || subagent
+        ? undefined
+        : {
+            scope: `${taskId}:${agentId}`,
+            load: (callId, seq) =>
+              readToolCall({ taskId, agentId, callId, ...(seq !== undefined && epoch.current ? { seq, epoch: epoch.current } : {}) }),
+          },
+    [dispatcher, subagent, taskId, agentId, readToolCall],
+  );
   const blocks = useMemo((): readonly TranscriptRow[] => (extra ? extra.rows(entries) : groupTranscript(output)), [extra, entries, output]);
   const data = useMemo(() => (virtualized ? [...blocks].reverse() : blocks), [blocks]);
   const tail = useSessionFollowTail(virtualized);
@@ -262,11 +280,11 @@ function SessionTranscriptView({
       block.kind === "extra" ? (
         (extra?.render(block) ?? null)
       ) : block.kind === "activity" ? (
-        <ActivityBlock block={block} live={live && block.key === lastKey} />
+        <ActivityBlock block={block} live={live && block.key === lastKey} toolCalls={toolCalls} />
       ) : (
         <TranscriptEntry entry={block.entry} taskId={taskId} agentId={agentId} />
       ),
-    [live, lastKey, taskId, agentId, extra],
+    [live, lastKey, taskId, agentId, extra, toolCalls],
   );
   const renderItem = useCallback(({ item }: ListRenderItemInfo<TranscriptRow>) => renderBlock(item), [renderBlock]);
 
@@ -483,7 +501,16 @@ function LoadEarlier({ loading, onPress }: { loading: boolean; onPress(): void }
 
 type OutputEntry = ReturnType<typeof recentSessionOutput>[number];
 const sameEntry = (a: OutputEntry, b: OutputEntry) =>
-  a === b || (a.key === b.key && a.text === b.text && a.author === b.author && a.kind === b.kind && a.messageId === b.messageId && a.sender === b.sender);
+  a === b ||
+  (a.key === b.key &&
+    a.text === b.text &&
+    a.author === b.author &&
+    a.kind === b.kind &&
+    a.messageId === b.messageId &&
+    a.sender === b.sender &&
+    a.callId === b.callId &&
+    a.seq === b.seq &&
+    a.status === b.status);
 
 /** One transcript entry: your message as a bubble, the agent's reply as markdown. Also the welcome tour's sample session. */
 export const TranscriptEntry = memo(function TranscriptEntry({
@@ -609,9 +636,20 @@ const AgentReplyRow = memo(function AgentReplyRow({ text, children }: { text: st
 /**
  * Consecutive thinking and tool calls, collapsed by default to one summary
  * line. Expanded, each step shows a short preview (thinking is clipped; the
- * full transcript lives in Paseo).
+ * full transcript lives in Paseo). With `toolCalls` (a card session's chat),
+ * each tool step expands on its own to its arguments and result
+ * (SESSION-PANE-SPEC §1.3); without it (the dispatcher chat, a subagent, the
+ * tour) steps stay one plain line.
  */
-export const ActivityBlock = memo(function ActivityBlock({ block, live }: { block: Extract<TranscriptBlock, { kind: "activity" }>; live: boolean }) {
+export const ActivityBlock = memo(function ActivityBlock({
+  block,
+  live,
+  toolCalls,
+}: {
+  block: Extract<TranscriptBlock, { kind: "activity" }>;
+  live: boolean;
+  toolCalls?: ToolCallLoader;
+}) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
   const turn = useMotionValue(open ? 1 : 0, motionDuration.feedback);
@@ -662,7 +700,9 @@ export const ActivityBlock = memo(function ActivityBlock({ block, live }: { bloc
       <Collapse open={open} id="activity">
         <View style={{ marginTop: space[1], marginLeft: 5, paddingLeft: space[3], borderLeftWidth: 1, borderColor: colors.border, gap: space[1.5] }}>
           {block.items.map((item) =>
-            item.author === "Tool" ? (
+            item.author === "Tool" && toolCalls && item.callId ? (
+              <ToolStep key={item.key} text={item.text} callId={item.callId} seq={item.seq} status={item.status} loader={toolCalls} />
+            ) : item.author === "Tool" ? (
               <View key={item.key} accessibilityLabel={t("Tool")} style={{ flexDirection: "row", alignItems: "center", gap: space[2], minWidth: 0 }}>
                 <Icon name="Wrench" size={12} color={colors.foregroundMuted} />
                 <View style={{ flex: 1, minWidth: 0 }}>
@@ -686,6 +726,7 @@ export const ActivityBlock = memo(function ActivityBlock({ block, live }: { bloc
   );
 }, (a, b) =>
   a.live === b.live &&
+  a.toolCalls === b.toolCalls &&
   a.block.key === b.block.key &&
   a.block.items.length === b.block.items.length &&
   a.block.items.every((item, i) => sameEntry(item, b.block.items[i])));

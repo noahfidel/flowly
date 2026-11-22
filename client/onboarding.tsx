@@ -436,6 +436,7 @@ function MoreFeatures() {
     { icon: "Bot", title: t("Dispatcher"), text: t("One agent for all your projects, in a chat next to the board. It hears when cards stop, makes and starts cards for what you ask, and tells you what needs you.") },
     { icon: "BookMarked", title: t("Memory"), text: t("Agents remember the project's decisions, pitfalls and conventions; new sessions see them. Open Memory to pin, edit or archive them.") },
     { icon: "Search", title: t("Search"), text: t("Search past cards, summaries, notes and deliverables.") },
+    { icon: "Wrench", title: t("Tool call details"), text: t("In a card's chat, expand a tool step to see its arguments; its result sits under its own toggle.") },
     { icon: "SquarePlus", title: t("Cards from your agents"), text: t("Ask an agent to create or edit cards. New cards land in Backlog or Todo; you start them.") },
     { icon: "Tags", title: t("Tags"), text: t("Tag cards by module or direction. Agents tag their own cards too; filter and search by #tag.") },
     { icon: "GitBranch", title: t("Switch to a worktree"), text: t("When local work gets tangled with other cards, move the card to its own worktree: every uncommitted change is copied, its session keeps only the card's changes, and Release takes them out of the main checkout.") },

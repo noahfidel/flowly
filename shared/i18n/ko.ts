@@ -1,6 +1,13 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Tool call details": "도구 호출 세부 정보",
+  "In a card's chat, expand a tool step to see its arguments; its result sits under its own toggle.": "카드 채팅에서 도구 단계를 펼치면 인수가 보입니다. 결과는 별도의 토글 아래에 있습니다.",
+  "Arguments": "인수",
+  "This tool call's arguments aren't in the transcript.": "이 도구 호출의 인수가 기록에 없습니다.",
+  "Couldn't load this tool call.": "이 도구 호출을 불러오지 못했습니다.",
+  "This tool call is no longer in the session's timeline.": "이 도구 호출은 더 이상 세션 타임라인에 없습니다.",
+  "Clipped. Open the session in Paseo for the full text.": "잘렸습니다. 전체 텍스트는 Paseo에서 세션을 열어 확인하세요.",
   "From {name}": "{name}에게서",
   "To {name}": "{name}에게",
   "{group} dispatcher": "{group} 디스패처",

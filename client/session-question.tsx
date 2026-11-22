@@ -1,5 +1,5 @@
 import { memo, useRef, useState, type ReactNode } from "react";
-import { Platform, Pressable, ScrollView, View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import {
   allAnswered,
@@ -25,6 +25,7 @@ import { useShortcutBlock } from "./shortcuts";
 import { Enter } from "./motion";
 import { SessionMarkdown } from "./session-content";
 import { composerEnterAction, type ComposerKey } from "./session-input";
+import { DetailBox as Scroller, Code, EditLines, PathLine } from "./detail-block";
 import { t } from "../shared/i18n";
 
 /** RN-Web forwards React keyboard events on View; React Native's types omit them. */
@@ -435,27 +436,8 @@ function Approval({
   );
 }
 
-/** Long details scroll inside their own block, so the actions below stay in reach. */
-function Scroller({ children }: { children: ReactNode }) {
-  const { colors } = useTheme();
-  return (
-    <ScrollView
-      nestedScrollEnabled
-      style={{ maxHeight: 240, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface0 }}
-      contentContainerStyle={{ padding: space[2], gap: space[1.5] }}
-    >
-      {children}
-    </ScrollView>
-  );
-}
-
-const Code = ({ children, color }: { children: string; color?: string }) => (
-  <Label mono size={font.sm} color={color}>{children}</Label>
-);
-
 /** What the approval asks to do: the command, the edit, the plan or the raw input. */
 function DetailBlock({ detail }: { detail: ApprovalDetail }) {
-  const { colors } = useTheme();
   const [open, setOpen] = useState(false);
   switch (detail.kind) {
     case "command":
@@ -467,20 +449,15 @@ function DetailBlock({ detail }: { detail: ApprovalDetail }) {
     case "write":
       return (
         <Scroller>
-          <Label muted size={font.xs} mono>{detail.path}</Label>
+          <PathLine>{detail.path}</PathLine>
           <Code>{detail.content}</Code>
         </Scroller>
       );
     case "edits":
       return (
         <Scroller>
-          <Label muted size={font.xs} mono>{detail.path}</Label>
-          {detail.edits.map((edit, i) => (
-            <View key={`${i}`} style={{ gap: space[1] }}>
-              {!!edit.old && <Code color={colors.statusDanger}>{`\u2212 ${edit.old}`}</Code>}
-              {!!edit.new && <Code color={colors.statusSuccess}>{`+ ${edit.new}`}</Code>}
-            </View>
-          ))}
+          <PathLine>{detail.path}</PathLine>
+          <EditLines edits={detail.edits} />
         </Scroller>
       );
     case "plan":

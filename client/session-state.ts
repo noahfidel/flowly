@@ -154,6 +154,14 @@ export function recentSessionOutput(
           messageId,
           // The other side of an agent-to-agent row: who wrote (From) or who it went to (To).
           sender: sender ?? recipient,
+          // A tool step's call, place and status: its details load on expand (`sessions.tool-call`, SESSION-PANE-SPEC §1.3).
+          ...(tool
+            ? {
+                ...(typeof item.callId === "string" ? { callId: item.callId } : {}),
+                ...(typeof entry.seqStart === "number" ? { seq: entry.seqStart } : {}),
+                ...(typeof item.status === "string" ? { status: item.status } : {}),
+              }
+            : {}),
         },
       ];
     });

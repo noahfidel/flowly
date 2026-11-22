@@ -124,6 +124,20 @@ test("a sent message keeps its row key from the local echo to the session's own 
   expect(keys).toEqual(["1-assistant_message", "x-user", "3-user_message"]);
 });
 
+test("tool steps carry their call id, place and status; other entries do not", () => {
+  const output = recentSessionOutput([
+    { seqStart: 7, item: { type: "tool_call", name: "Bash", status: "running", callId: "call-1" } },
+    { seqStart: 8, item: { type: "assistant_message", text: "Done", callId: "x" } },
+    { item: { type: "tool_call", name: "Read" } },
+  ]);
+  expect(output[0]).toMatchObject({ author: "Tool", text: "Bash · running", callId: "call-1", seq: 7, status: "running" });
+  expect(output[1]).not.toHaveProperty("callId");
+  expect(output[1]).not.toHaveProperty("seq");
+  expect(output[2]).toMatchObject({ author: "Tool", text: "Read · activity" });
+  expect(output[2]).not.toHaveProperty("callId");
+  expect(output[2]).not.toHaveProperty("status");
+});
+
 test("consecutive thinking and tool calls merge into one activity block", () => {
   const entry = (key: string, author: string) => ({ key, author, text: key, kind: author, messageId: undefined, sender: undefined });
   const blocks = groupTranscript([

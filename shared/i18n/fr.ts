@@ -1,6 +1,13 @@
 import type { Catalog } from "../i18n";
 
 const catalog: Catalog = {
+  "Tool call details": "Détails des appels d'outils",
+  "In a card's chat, expand a tool step to see its arguments; its result sits under its own toggle.": "Dans le chat d'une carte, déplie une étape d'outil pour voir ses arguments ; son résultat est sous son propre bouton.",
+  "Arguments": "Arguments",
+  "This tool call's arguments aren't in the transcript.": "Les arguments de cet appel d'outil ne figurent pas dans la transcription.",
+  "Couldn't load this tool call.": "Impossible de charger cet appel d'outil.",
+  "This tool call is no longer in the session's timeline.": "Cet appel d'outil n'est plus dans l'historique de la session.",
+  "Clipped. Open the session in Paseo for the full text.": "Tronqué. Ouvre la session dans Paseo pour voir le texte complet.",
   "From {name}": "De {name}",
   "To {name}": "À {name}",
   "{group} dispatcher": "Répartiteur de {group}",
