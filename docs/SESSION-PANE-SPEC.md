@@ -39,6 +39,18 @@ The SDK's `agent.timeline.refetch` (`@getpaseo/client` 0.11.x, protocol `fetch_a
 - Older pages are immutable and not polled. Only the live end refreshes (see §3).
 - An `epoch` change, `reset` or `gap` drops the loaded pages and reloads the current turn (the timeline was rewritten, e.g. by compaction or a reload).
 
+#### Tool call details (user request 2026-11-18; rulings 2026-11-22)
+
+- In a **card session's** chat, each tool step inside an expanded activity block is a button with a chevron, collapsed by default. Expanding it shows the call's **arguments**; the call's **result** sits under its own **Result** toggle, collapsed by default (ruling 2026-11-22: arguments and result). Each step expands on its own; there is no "Expand all" (ruling 2026-11-22).
+- Details are loaded on the first expand with `sessions.tool-call` (§1.4), never carried by `sessions.tail` (PERFORMANCE-SPEC §3). While loading the step shows a spinner with "Loading…"; a failed read shows "Couldn't load this tool call."; a call no longer in the timeline (rewritten since it was shown) shows "This tool call is no longer in the session's timeline."
+- Loaded details are cached per session, call and status: a call expanded while running is read again when its status changes (its previous details stay shown until the new ones arrive). Collapsing and expanding again does not read again.
+- Arguments: a muted line for the file a read/edit/write works on (or a command's directory, a search tool, a subagent's type), then the input as plain monospace text in a bordered block: a command, a query, a URL and prompt, a file's new content, a unified diff, or the raw input as indented JSON (MCP tools and other unknown kinds). An edit with replaced/new text is drawn `−`/`+` like an approval's edit. A call without any recorded input says "This tool call's arguments aren't in the transcript." instead.
+- Result: the command output, file content, search matches, fetched text, subagent log, or an MCP result's `content[].text` lines joined (its structured content or the raw JSON when it has no text). A shell call's exit code shows on the Result toggle (`· Exit <code>`, in the danger color when non-zero); an MCP result with `isError` is drawn in the danger color. A failed call's error message shows under the arguments in the danger color.
+- Long text: arguments and result each show at most 12 lines / 1 500 characters (each side of an edit 6 lines / 750) with **Show more** / **Show less**. Text the daemon clipped adds "Clipped. Open the session in Paseo for the full text."
+- All tool content renders as plain text, never markdown or HTML.
+- Phones use the same component: the step row and the Result toggle are at least 32 pt tall with a little extra hit slop; no new gestures and no nested scroller (the blocks grow, Show more clips them); expand/collapse uses the shared native-driver `Collapse`.
+- The dispatcher chat, a provider subagent's transcript and the welcome tour keep plain tool steps (their timelines are not a card session's, so `sessions.tool-call` cannot read them).
+
 ### 1.4 Data contract
 
 `sessions.tail` gains optional fields (existing callers, e.g. card output, keep working):
@@ -57,6 +69,25 @@ output: { entries: TailEntry[] (+ seqEnd),
 - A slim entry may carry `from { id, title?, event }` with the sent text: a prompt another agent sent to the session (Paseo's `agent_message` tool call). The transcript shows it as its own `From <agent title>` row (the id when untitled), outside activity blocks: one muted line with the first line of the text, press to expand the full text.
 - Membership check unchanged (session must be in the card's workspace).
 - Errors stay English daemon errors. A stale cursor (`staleCursor`) returns `reset: true` and the client reloads.
+
+`sessions.tool-call` reads one tool call's details when its step is expanded (§1.3):
+
+```
+input:  { taskId, agentId, callId (≤ 500),
+          seq?: number, epoch?: string }      // the step's seqStart and the loaded window's epoch
+output: { found: boolean,
+          label?: string,                     // file path, cwd, search tool, subagent type (≤ 300)
+          args?: string, edits?: { old?, new? }[],
+          argsTruncated?: true, argsMissing?: true,
+          result?: string, resultTruncated?: true, resultError?: true,
+          exitCode?: number | null, error?: string }
+```
+
+- Same membership check as `sessions.tail`: the card must exist and the session must be in its workspace, otherwise the call fails (English error).
+- With `seq` and `epoch` the daemon reads 4 projected entries `after` `seq − 1` and picks the `tool_call` with that `callId`; when it is not there (or without a place) it searches the newest 100 entries. A stale cursor, a reset or another epoch returns `{ found: false }`, as does a call in neither read.
+- The view is built by `toolCallView` (`shared/tool-call-detail.ts`) from Paseo's `ToolCallDetail` kinds (shell, read, edit, write, search, fetch, worktree_setup, sub_agent, plain_text, plan, unknown). `argsMissing` is set when there is no label, arguments or edits.
+- Limits: arguments at most 8 000 characters (an edit's sides share that budget), result and error at most 4 000; clipped text ends in `…` and sets the matching `…Truncated` flag.
+- Masking: every string is passed through `maskSecrets` (`shared/secrets.ts`) before it leaves the daemon: `Authorization:` header values, credentials in URLs, `NAME=value` and quoted `"name": "value"` (value ≥ 8 characters) for credential-like names (`…TOKEN`, `…KEY`, `…SECRET`, `…PASSWORD`, `…PASSWD`, `…AUTH`), and known token shapes (JWTs, `ghp_`/`gho_`/…, `github_pat_`, `glpat-`, `npm_`, `sk-`, `xox…-`, `AKIA…`) become `<secret>`. Paths and emails are not rewritten. The token patterns are shared with the workflow-insights redaction and the memory secret check.
 
 ### 1.5 Alternatives considered
 

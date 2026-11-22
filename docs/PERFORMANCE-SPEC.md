@@ -35,6 +35,7 @@ Nothing the user sees changes, except that it is faster:
 
 - `board.read-changed` `{ etag? } → { etag, board? }`: the board view with a content hash; the board is omitted when the hash matches. `summaries.read-changed` and `resources.read-changed` do the same. The original RPCs stay for other callers.
 - `sessions.tail` `{ taskId, agentId, limit } → { entries }`: a session's projected timeline tail, reduced to what the UI shows (`seqStart`, item type, text, tool name/status, message/call IDs). Text is clipped (agent and user messages at 12 000 characters, reasoning at 2 000). The session must belong to the card's workspace, like `sessions.image`.
+- The tail stays slim when tool steps show details (2026-11-22): a tool call's arguments and result are read one call at a time with `sessions.tool-call`, only when the user expands that step (SESSION-PANE-SPEC §1.3–1.4). The daemon reads 4 entries at the step's place and returns masked text clipped to 8 000 (arguments) and 4 000 (result) characters, cached on the client per call and status; nothing is polled.
 
 ### Client data
 

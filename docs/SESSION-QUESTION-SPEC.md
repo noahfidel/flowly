@@ -47,6 +47,7 @@ Status: implemented 2026-10-18 (card "Question capability integration"). User re
 
 - `shared/permission-question.ts`: pure parsing, draft transitions (choose / type other), answered checks, answer and dismiss replies, `pendingRequests`, `asksQuestion`, `approvalDetail` (what an approval asks to do, §2). Unit tests in `shared/permission-question.test.ts`.
 - `client/session-question.tsx`: `PendingRequests` (memoized; RN primitives, `TextBox` for typed answers, shortcut block while focused).
+- `client/detail-block.tsx`: the bordered detail block, monospace text, path line and `−`/`+` edit lines an approval's details use (§2). The chat's expanded tool steps (SESSION-PANE-SPEC §1.3) use the same pieces, with the block growing instead of scrolling; the approval's behavior is unchanged.
 - `client/session-preview.tsx`: renders it above the composer and owns the respond action.
 - `client/drawer.tsx`: `CardRequests` renders it per session in the Needs-you area (§2.1) with its own respond action.
 - `client/session-state.ts`, `shared/session-attention.ts`, `client/attention.ts`, `client/card.tsx`: labels and counts above.
