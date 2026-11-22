@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { boardSchema, type Artifact, type Task } from "./model";
 import { prReviewOperationId } from "./pr-review";
-import { boardPrs, cardPrs, githubPrKey, prMenuCard, prRepoOf } from "./pr-rows";
+import { boardPrs, cardPrs, githubPrKey, prMenuCard, prRepoOf, splitHiddenPrs } from "./pr-rows";
 import { boardOverview } from "../server/board-overview";
 
 /** The pull requests menu's rows (PR-MENU-SPEC §3.1): which PRs each card contributes. */
@@ -127,4 +127,33 @@ test("a malformed card (no operationId, no description) never breaks the overvie
   const board = boardSchema.parse({ version: 5, revision: 1, events: [], projects: [project], tasks: [task("a")], artifacts: [artifact("a", "https://github.com/o/r/pull/1")] });
   const view = boardOverview({ ...board, tasks: [...board.tasks, broken] });
   expect(view.cards.map((c) => [c.taskId, c.prs])).toEqual([["a", 1], ["b", 0]]);
+});
+
+test("hidden PRs (per card and trimmed URL) leave the visible count; a new PR on the card and the same URL on another card still show", () => {
+  const project = { id: "p", title: "Project", description: "", paseoProjectId: "n", primaryPath: "/fixture", repos: ["/fixture"], revision: 1, createdAt: at(0), updatedAt: at(0), archivedAt: null };
+  const tasks = [task("a"), task("b"), review("r", "acme/web#5")];
+  const one = "https://github.com/o/r/pull/1";
+  const artifacts = [artifact("a", one), artifact("a", "https://github.com/o/r/pull/2"), artifact("b", one)];
+  const hiddenPrs = [
+    { taskId: "a", url: one, hiddenAt: at(0) },
+    { taskId: "r", url: "https://github.com/acme/web/pull/5", hiddenAt: at(0) },
+  ];
+  const board = boardSchema.parse({ version: 5, revision: 1, events: [], projects: [project], tasks, artifacts, hiddenPrs });
+  const facts = Object.fromEntries(boardOverview(board).cards.map((c) => [c.taskId, [c.prs, c.prsHidden]]));
+  expect(facts).toEqual({ a: [1, 1], b: [1, 0], r: [0, 1] });
+  const rows = boardPrs(board, ["p"]);
+  expect(rows.filter((r) => r.hidden).map((r) => `${r.taskId}${r.number}`)).toEqual(["a#1", "r#5"]);
+  const { visible, hidden } = splitHiddenPrs(rows);
+  expect(visible.map((r) => `${r.taskId}${r.number}`)).toEqual(["a#2", "b#1"]);
+  expect(hidden).toHaveLength(2);
+  // A new PR on a card with a hidden one shows.
+  const more = boardSchema.parse({ ...board, artifacts: [...artifacts, artifact("a", "https://github.com/o/r/pull/9")] });
+  expect(boardOverview(more).cards.find((c) => c.taskId === "a")).toMatchObject({ prs: 2, prsHidden: 1 });
+});
+
+test("a board without hiddenPrs reads as none hidden", () => {
+  const project = { id: "p", title: "Project", description: "", paseoProjectId: "n", primaryPath: "/fixture", repos: ["/fixture"], revision: 1, createdAt: at(0), updatedAt: at(0), archivedAt: null };
+  const board = boardSchema.parse({ version: 5, revision: 1, events: [], projects: [project], tasks: [task("a")], artifacts: [artifact("a", "https://github.com/o/r/pull/1")] });
+  expect(board.hiddenPrs).toEqual([]);
+  expect(boardPrs(board, ["p"]).map((r) => r.hidden)).toEqual([false]);
 });

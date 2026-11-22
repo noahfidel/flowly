@@ -1,4 +1,5 @@
 import type { Artifact, Task } from "./model";
+import { hiddenPrKeys, prHiddenKey } from "./hidden-prs";
 import { prReviewCardUrl } from "./pr-review";
 
 /**
@@ -116,11 +117,20 @@ export function cardPrs(task: Pick<Task, "id" | "title" | "description" | "prRef
   return rows;
 }
 
-export type BoardPr = CardPr & { taskId: string; projectId: string };
+export type BoardPr = CardPr & { taskId: string; projectId: string; hidden: boolean };
+
+/** Whether the user hid this PR of this card from the menu (PR-MENU-SPEC D11). */
+export const prIsHidden = (hidden: ReadonlySet<string>, taskId: string, url: string) => hidden.has(prHiddenKey(taskId, url));
+
+/** Splits rows into the ones the menu shows and the hidden ones, order kept. */
+export function splitHiddenPrs<T extends { hidden: boolean }>(rows: readonly T[]): { visible: T[]; hidden: T[] } {
+  return { visible: rows.filter((r) => !r.hidden), hidden: rows.filter((r) => r.hidden) };
+}
 
 /** Every PR row of the D2 cards in the given projects, in board card order. */
-export function boardPrs(board: { tasks: readonly Task[]; artifacts: readonly Artifact[] }, projectIds: Iterable<string>): BoardPr[] {
+export function boardPrs(board: { tasks: readonly Task[]; artifacts: readonly Artifact[]; hiddenPrs?: readonly { taskId: string; url: string }[] }, projectIds: Iterable<string>): BoardPr[] {
   const ids = new Set(projectIds);
+  const hidden = hiddenPrKeys(board.hiddenPrs);
   const byTask = new Map<string, Artifact[]>();
   for (const a of board.artifacts) {
     const list = byTask.get(a.taskId);
@@ -129,7 +139,7 @@ export function boardPrs(board: { tasks: readonly Task[]; artifacts: readonly Ar
   }
   return board.tasks.flatMap((task) =>
     ids.has(task.projectId) && prMenuCard(task)
-      ? cardPrs(task, byTask.get(task.id) ?? []).map((row) => ({ ...row, taskId: task.id, projectId: task.projectId }))
+      ? cardPrs(task, byTask.get(task.id) ?? []).map((row) => ({ ...row, taskId: task.id, projectId: task.projectId, hidden: prIsHidden(hidden, task.id, row.url) }))
       : [],
   );
 }

@@ -7,7 +7,8 @@ import { workpadSignal } from "../shared/workpad";
 import { hasOpenNextMoves } from "../shared/next-moves";
 import { faceKey, familyOf } from "../shared/connectors";
 import { overviewCollections, overviewKeys, type OverviewCollection, type OverviewPatch } from "../shared/overview";
-import { cardPrs, prMenuCard } from "../shared/pr-rows";
+import { hiddenPrKeys } from "../shared/hidden-prs";
+import { cardPrs, prIsHidden, prMenuCard } from "../shared/pr-rows";
 import { etagOf } from "./etag";
 
 type Board = z.infer<typeof boardSchema>;
@@ -20,6 +21,7 @@ export function boardOverview(board: Board): BoardOverview {
     if (list) list.push(e); else events.set(e.taskId, [e]);
   }
   const workpads = new Map(board.workpads.map(w => [w.taskId, w]));
+  const hiddenPrs = hiddenPrKeys(board.hiddenPrs);
   const cards = board.tasks.map(task => {
     const own = events.get(task.id) || [];
     const actors = [...new Set(own.flatMap(e => e.agentId ? [e.agentId] : []))];
@@ -58,7 +60,7 @@ export function boardOverview(board: Board): BoardOverview {
       hasExternal: artifacts.some(a => !!a.external),
       hasWorkpad: !!workpad,
       hasNextMoves: hasOpenNextMoves(own),
-      prs: prCountOf(task, artifacts),
+      ...prCountsOf(task, artifacts, hiddenPrs),
       sessions,
     };
   });
@@ -66,11 +68,13 @@ export function boardOverview(board: Board): BoardOverview {
 }
 
 /** The card's PRs for the board's pull requests menu (PR-MENU-SPEC §3.1); a malformed card counts none instead of breaking the overview. */
-function prCountOf(task: Board["tasks"][number], artifacts: Board["artifacts"]) {
+function prCountsOf(task: Board["tasks"][number], artifacts: Board["artifacts"], hiddenPrs: ReadonlySet<string>) {
   try {
-    return prMenuCard(task) ? cardPrs(task, artifacts).length : 0;
+    const rows = prMenuCard(task) ? cardPrs(task, artifacts) : [];
+    const hidden = rows.filter((r) => prIsHidden(hiddenPrs, task.id, r.url)).length;
+    return { prs: rows.length - hidden, prsHidden: hidden };
   } catch {
-    return 0;
+    return { prs: 0, prsHidden: 0 };
   }
 }
 

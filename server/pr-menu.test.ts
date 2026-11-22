@@ -107,3 +107,41 @@ test("a cold cache fetches at most 20 PRs per read; cached ones answer from the 
   expect(rows.filter((r) => r.state === "open")).toHaveLength(20);
   expect(rows.filter((r) => r.state === "")).toHaveLength(5);
 });
+
+test("hidden: the flag is set per card and URL; a hidden PR is never fetched and keeps a cached word", async () => {
+  const hiddenOne = artifact("a", "https://github.com/o/r/pull/1");
+  const shownOne = artifact("a", "https://github.com/o/r/pull/2");
+  const other = artifact("b", "https://github.com/o/r/pull/1");
+  const board = {
+    projects: [project("p")],
+    tasks: [task("a"), task("b")],
+    artifacts: [hiddenOne, shownOne, other],
+    hiddenPrs: [{ taskId: "a", url: ` ${hiddenOne.target}`, hiddenAt: at(0) }],
+  };
+  const calls: ExternalRef[][] = [];
+  const reads = fakeReads([github], { "o/r#1": { status: "Open" }, "o/r#2": { status: "Open" } }, calls);
+  const { rows } = await listPrs(board, ["p"], reads);
+  expect(rows.map((r) => `${r.taskId}${r.number}:${r.hidden}`).sort()).toEqual(["a#1:true", "a#2:false", "b#1:false"]);
+  // o/r#1 is fetched once, for card b; o/r#2 once.
+  expect(calls.flat().map((r) => r.key).sort()).toEqual(["o/r#1", "o/r#2"]);
+
+  // Only hidden PRs: no network call, the cache word still shows.
+  const onlyHidden = { ...board, tasks: [task("a")], artifacts: [hiddenOne] };
+  const none: ExternalRef[][] = [];
+  const cached = fakeReads([github], { "o/r#1": { status: "Open" } }, none, { "o/r#1": { status: "Merged", expired: true } });
+  const result = await listPrs(onlyHidden, ["p"], cached);
+  expect(none).toHaveLength(0);
+  expect(result.rows).toMatchObject([{ hidden: true, state: "merged" }]);
+  const empty = await listPrs(onlyHidden, ["p"], fakeReads([github], {}, none));
+  expect(none).toHaveLength(0);
+  expect(empty.rows).toMatchObject([{ hidden: true, state: "" }]);
+});
+
+test("hidden: a hidden PR that has merged stays hidden", async () => {
+  const a = artifact("a", "https://github.com/o/r/pull/1");
+  const board = { projects: [project("p")], tasks: [task("a")], artifacts: [a], hiddenPrs: [{ taskId: "a", url: a.target, hiddenAt: at(0) }] };
+  const open = await listPrs(board, ["p"], fakeReads([github], {}, [], { "o/r#1": { status: "Open", expired: false } }));
+  const merged = await listPrs(board, ["p"], fakeReads([github], {}, [], { "o/r#1": { status: "Merged", expired: false } }));
+  expect(open.rows[0]).toMatchObject({ hidden: true, state: "open" });
+  expect(merged.rows[0]).toMatchObject({ hidden: true, state: "merged" });
+});

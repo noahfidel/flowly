@@ -4,6 +4,7 @@ import { connectorLimits, externalRefSchema, itemTypeSchema } from "./connectors
 import { z } from "zod";
 import { deliveryModes } from "./delivery-mode";
 import { attentionDismissLimits, attentionDismissalSchema } from "./attention-dismiss";
+import { hiddenPrLimits, hiddenPrSchema } from "./hidden-prs";
 import { baseRefProblem } from "./worktree-base";
 
 export const statuses = [
@@ -708,6 +709,8 @@ export const boardSchema = z.object({
   plans: z.array(planSnapshotSchema).default([]),
   /** Cards snoozed in Attention, per list (ATTENTION-DISMISS-SPEC, Data); absent in older files, legacy records migrated on read. */
   attentionDismissals: z.array(attentionDismissalSchema).max(attentionDismissLimits.records).default([]),
+  /** PRs the user hid from the pull requests menu (PR-MENU-SPEC D11); absent in older files. */
+  hiddenPrs: z.array(hiddenPrSchema).max(hiddenPrLimits.records).default([]),
   /** Board groups (BOARD-GROUPS-SPEC §1); absent in files written before them, filled by the one-time migration (§7). */
   groups: z.array(groupSchema).max(groupLimits.groups).default([]),
   /**
@@ -776,6 +779,7 @@ export const emptyBoard = (): Board => ({
   workpads: [],
   plans: [],
   attentionDismissals: [],
+  hiddenPrs: [],
   groups: [],
   agentReceipts: [],
 });

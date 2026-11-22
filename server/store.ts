@@ -22,6 +22,7 @@ import {
   type AttentionDismissInput,
   type AttentionRestoreInput,
 } from "../shared/attention-dismiss";
+import { hiddenPrLimits, hidePrInput, restorePrInput, type HidePrInput, type RestorePrInput } from "../shared/hidden-prs";
 import type { FlowLog } from "./flow-log";
 import { linearSkipTypesValue, linearTeamValue } from "../shared/linear-ticket";
 import { sessionStartValue } from "../shared/session-start";
@@ -675,6 +676,7 @@ export class BoardStore {
       board.workpads = board.workpads.filter((w) => !taskIds.has(w.taskId));
       board.plans = board.plans.filter((p) => !taskIds.has(p.taskId));
       board.attentionDismissals = board.attentionDismissals.filter((d) => !taskIds.has(d.taskId));
+      board.hiddenPrs = board.hiddenPrs.filter((h) => !taskIds.has(h.taskId));
       return { id: project.id, removedTasks: taskIds.size, backup };
     });
   }
@@ -788,6 +790,7 @@ export class BoardStore {
       board.workpads = board.workpads.filter((w) => w.taskId !== task.id);
       board.plans = board.plans.filter((p) => p.taskId !== task.id);
       board.attentionDismissals = board.attentionDismissals.filter((d) => d.taskId !== task.id);
+      board.hiddenPrs = board.hiddenPrs.filter((h) => h.taskId !== task.id);
       return { id: task.id, backup };
     });
   }
@@ -849,6 +852,34 @@ export class BoardStore {
       const before = board.attentionDismissals.length;
       board.attentionDismissals = board.attentionDismissals.filter((d) => d.taskId !== input.taskId);
       return { value: { taskId: input.taskId }, changed: board.attentionDismissals.length !== before };
+    });
+  }
+  /**
+   * Hides a PR of a card from the board's pull requests menu (PR-MENU-SPEC D11): one entry per card and trimmed URL, the
+   * PR stays linked. A display preference: no revision, no Activity. Repeats change nothing; a full list drops its oldest entry.
+   */
+  hidePr(raw: HidePrInput) {
+    return this.transaction((board) => {
+      const input = hidePrInput.parse(raw);
+      const task = board.tasks.find((t) => t.id === input.taskId);
+      const project = task && board.projects.find((p) => p.id === task.projectId);
+      if (!task) throw new Error("Task not found.");
+      if (task.archivedAt || !project || project.archivedAt) throw new Error("The card or its project is archived.");
+      const current = board.hiddenPrs.find((h) => h.taskId === task.id && h.url === input.url);
+      if (current) return { value: current, changed: false };
+      const entry = { taskId: task.id, url: input.url, hiddenAt: new Date().toISOString() };
+      board.hiddenPrs = [...board.hiddenPrs, entry].slice(-hiddenPrLimits.records);
+      return { value: entry, changed: true };
+    });
+  }
+  /** Shows a hidden PR in the menu again (PR-MENU-SPEC D14); idempotent. */
+  restorePr(raw: RestorePrInput) {
+    return this.transaction((board) => {
+      const input = restorePrInput.parse(raw);
+      if (!board.tasks.some((t) => t.id === input.taskId)) throw new Error("Task not found.");
+      const before = board.hiddenPrs.length;
+      board.hiddenPrs = board.hiddenPrs.filter((h) => !(h.taskId === input.taskId && h.url === input.url));
+      return { value: { taskId: input.taskId, url: input.url }, changed: board.hiddenPrs.length !== before };
     });
   }
   /** Dismisses or restores an idea; accepted ideas are final (IDEAS-SPEC §7, IDEAS-INBOX-SPEC §2.2, PROJECT-IDEAS-SPEC §3). */

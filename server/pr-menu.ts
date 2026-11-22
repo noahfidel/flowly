@@ -40,7 +40,7 @@ function githubConnection(connections: readonly Connection[]) {
  * read. A failing connector read leaves every state empty; the rows still list.
  */
 export async function listPrs(
-  board: { projects: readonly Project[]; tasks: readonly Task[]; artifacts: readonly Artifact[] },
+  board: { projects: readonly Project[]; tasks: readonly Task[]; artifacts: readonly Artifact[]; hiddenPrs?: readonly { taskId: string; url: string }[] },
   projectIds: readonly string[],
   reads: PrMenuReads,
   log: typeof logFailure = logFailure,
@@ -71,7 +71,10 @@ export async function listPrs(
     }
     const unique = [...new Map([...refs.values()].map((ref) => [refKey(ref), ref])).values()];
     const cached = unique.length ? await reads.cached(unique) : new Map<string, { summary: { status?: string }; expired: boolean }>();
-    const fetch = [...unique.filter((ref) => !cached.has(refKey(ref))), ...unique.filter((ref) => cached.get(refKey(ref))?.expired)].slice(0, prFetchCap);
+    // Hidden PRs never use the fetch budget: they read the cache only, unless a visible row names the same PR (PR-MENU-SPEC D14).
+    const visibleKeys = new Set([...refs].filter(([i]) => !rows[i].hidden).map(([, ref]) => refKey(ref)));
+    const candidates = unique.filter((ref) => visibleKeys.has(refKey(ref)));
+    const fetch = [...candidates.filter((ref) => !cached.has(refKey(ref))), ...candidates.filter((ref) => cached.get(refKey(ref))?.expired)].slice(0, prFetchCap);
     const found: Summaries = fetch.length ? await reads.badges(fetch) : new Map();
     return {
       rows: rows.map((r, i) => {

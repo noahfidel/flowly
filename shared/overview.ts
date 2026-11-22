@@ -29,6 +29,8 @@ export const cardFactsSchema = z.strictObject({
   hasNextMoves: z.boolean(),
   /** PRs the card adds to the board's pull requests menu (PR-MENU-SPEC §3.1); 0 for archived, Done and Cancelled cards. */
   prs: z.number().int().nonnegative(),
+  /** PRs of the card the user hid from the menu (PR-MENU-SPEC D11, D12); not part of `prs`. */
+  prsHidden: z.number().int().nonnegative().default(0),
   sessions: z.array(sessionFactsSchema),
 });
 export type CardFacts = z.infer<typeof cardFactsSchema>;

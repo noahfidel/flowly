@@ -24,6 +24,7 @@ function board(status: Status, extra: { autoStatus?: boolean; archived?: boolean
     artifacts: [],
     workpads: [],
     attentionDismissals: [],
+    hiddenPrs: [],
     plans: [],
     groups: [],
     agentReceipts: [],

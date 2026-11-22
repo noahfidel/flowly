@@ -1,3 +1,4 @@
+import { hiddenPrSchema, hidePrInput, restorePrInput } from "./hidden-prs";
 import { cardDetailSchema, projectCardIndexSchema, projectIdeasSchema } from "./card-detail";
 import { attentionDismissInput, attentionDismissalSchema, attentionRestoreInput } from "./attention-dismiss";
 import { defineRpc } from "@getpaseo/plugin";
@@ -411,9 +412,23 @@ export const listPrs = defineRpc({
         title: z.string(),
         createdAt: z.string(),
         state: z.enum(["draft", "open", "merged", "closed", ""]),
+        hidden: z.boolean(),
       }),
     ),
   }),
+});
+
+/** Hide a PR from the pull requests menu: per card and URL, idempotent (PR-MENU-SPEC D11, §3.3). */
+export const hidePr = defineRpc({
+  name: "prs.hide",
+  input: hidePrInput,
+  output: hiddenPrSchema,
+});
+/** Show a hidden PR in the menu again (PR-MENU-SPEC D14). */
+export const restorePr = defineRpc({
+  name: "prs.restore",
+  input: restorePrInput,
+  output: z.strictObject({ taskId: z.string(), url: z.string() }),
 });
 
 /** Current summaries of a card's external inputs (cached up to 30 minutes unless `refresh`). */
