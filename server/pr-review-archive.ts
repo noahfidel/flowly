@@ -121,8 +121,8 @@ export function connectorPrReviews(connectors: ConnectorReads): ReviewLookup {
   return async (pr) => (pr.host || !connectors.githubPullReviews ? null : connectors.githubPullReviews(pr.key));
 }
 
-type Run = (file: string, args: readonly string[]) => Promise<string>;
-const runFile: Run = (file, args) =>
+export type Run = (file: string, args: readonly string[]) => Promise<string>;
+export const runFile: Run = (file, args) =>
   new Promise((resolve, reject) =>
     execFile(file, [...args], { timeout: 20_000, maxBuffer: 256 * 1024 }, (error, stdout) => (error ? reject(error) : resolve(String(stdout)))),
   );

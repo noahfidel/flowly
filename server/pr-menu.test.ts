@@ -2,7 +2,8 @@ import { expect, test } from "vitest";
 import type { Connection, ExternalRef } from "../shared/connectors";
 import type { Artifact, Task } from "../shared/model";
 import { prReviewOperationId } from "../shared/pr-review";
-import { listPrs, prFetchCap, type PrMenuReads } from "./pr-menu";
+import { prSections } from "../client/pr-list";
+import { GhPrCache, ghPrMenuState, listPrs, prFetchCap, type PrMenuReads } from "./pr-menu";
 import { refKey, type Summaries } from "./connectors/service";
 
 /** `prs.list` (PR-MENU-SPEC §3.2): rows of the chosen projects, each with the connector badge's state word. */
@@ -144,4 +145,108 @@ test("hidden: a hidden PR that has merged stays hidden", async () => {
   const merged = await listPrs(board, ["p"], fakeReads([github], {}, [], { "o/r#1": { status: "Merged", expired: false } }));
   expect(open.rows[0]).toMatchObject({ hidden: true, state: "open" });
   expect(merged.rows[0]).toMatchObject({ hidden: true, state: "merged" });
+});
+
+/** The `gh` fallback (PR-MENU-SPEC §3.2): github.com PRs no GitHub connection reads. */
+const ghSetup = (words: Record<string, "merged" | "open" | "closed" | "draft" | null | "throw"> = {}) => {
+  const asked: string[] = [];
+  const cache = { now: 0 };
+  const ghCache = new GhPrCache(() => cache.now);
+  const gh: NonNullable<PrMenuReads["gh"]> = async (pr) => {
+    asked.push(`${pr.repo}#${pr.number}`);
+    const word = words[`${pr.repo}#${pr.number}`] ?? "open";
+    if (word === "throw") throw new Error("gh missing");
+    return word;
+  };
+  return { asked, clock: cache, ghCache, gh };
+};
+const plainBoard = (count = 1, over: object = {}) => ({
+  projects: [project("p")],
+  tasks: [task("a")],
+  artifacts: Array.from({ length: count }, (_, i) => artifact("a", `https://github.com/o/r/pull/${i + 1}`)),
+  ...over,
+});
+
+test("gh: with no GitHub connection a merged PR reads merged and lands in the Merged or closed section", async () => {
+  const g = ghSetup({ "o/r#1": "merged" });
+  const { rows } = await listPrs(plainBoard(), ["p"], { ...fakeReads([], {}), gh: g.gh, ghCache: g.ghCache });
+  expect(rows.map((r) => r.state)).toEqual(["merged"]);
+  expect(prSections(rows, () => "development").map((s) => s.id)).toEqual(["closed"]);
+});
+
+test("gh: a fresh cache entry answers without a call; an expired one calls again and a failed call keeps the old word", async () => {
+  const g = ghSetup();
+  const reads = { ...fakeReads([], {}), gh: g.gh, ghCache: g.ghCache };
+  g.ghCache.set("O/R#1", "merged");
+  g.clock.now = 29 * 60_000;
+  expect((await listPrs(plainBoard(), ["p"], reads)).rows[0].state).toBe("merged");
+  expect(g.asked).toEqual([]);
+  g.clock.now = 31 * 60_000;
+  const failing = ghSetup({ "o/r#1": "throw" });
+  failing.ghCache.set("o/r#1", "merged");
+  failing.clock.now = 31 * 60_000;
+  const logged: unknown[][] = [];
+  const stale = await listPrs(plainBoard(), ["p"], { ...fakeReads([], {}), gh: failing.gh, ghCache: failing.ghCache }, (...a: unknown[]) => void logged.push(a));
+  expect(failing.asked).toEqual(["o/r#1"]);
+  expect(stale.rows[0].state).toBe("merged");
+  expect(logged).toHaveLength(1);
+  expect((await listPrs(plainBoard(), ["p"], reads)).rows[0].state).toBe("open");
+  expect(g.asked).toEqual(["o/r#1"]);
+});
+
+test("gh: shares the 20-per-read cap with connector fetches, connector first", async () => {
+  const linked = Array.from({ length: 15 }, (_, i) =>
+    artifact("a", `https://gitlab.com/g/r/-/merge_requests/${i + 1}`, { external: { connectionId: "gl", provider: "gitlab", key: `g/r!${i + 1}`, remoteId: "", itemType: "merge_request" } as Artifact["external"] }),
+  );
+  const plain = Array.from({ length: 10 }, (_, i) => artifact("a", `https://github.com/o/r/pull/${i + 1}`));
+  const board = { projects: [project("p")], tasks: [task("a")], artifacts: [...linked, ...plain] };
+  const g = ghSetup();
+  const calls: ExternalRef[][] = [];
+  await listPrs(board, ["p"], { ...fakeReads([gitlab], {}, calls), gh: g.gh, ghCache: g.ghCache });
+  expect(calls[0]).toHaveLength(15);
+  expect(g.asked).toHaveLength(5);
+});
+
+test("gh: hidden rows never call gh but show a cached word", async () => {
+  const a = artifact("a", "https://github.com/o/r/pull/1");
+  const board = { ...plainBoard(0), artifacts: [a], hiddenPrs: [{ taskId: "a", url: a.target, hiddenAt: at(0) }] };
+  const g = ghSetup();
+  const cold = await listPrs(board, ["p"], { ...fakeReads([], {}), gh: g.gh, ghCache: g.ghCache });
+  expect(cold.rows[0]).toMatchObject({ hidden: true, state: "" });
+  g.ghCache.set("o/r#1", "closed");
+  g.clock.now = 60 * 60_000;
+  const warm = await listPrs(board, ["p"], { ...fakeReads([], {}), gh: g.gh, ghCache: g.ghCache });
+  expect(warm.rows[0]).toMatchObject({ hidden: true, state: "closed" });
+  expect(g.asked).toEqual([]);
+});
+
+test("gh: never called when a working github.com GitHub connection reads the PR", async () => {
+  const g = ghSetup();
+  const { rows } = await listPrs(plainBoard(), ["p"], { ...fakeReads([github], { "o/r#1": { status: "Merged" } }), gh: g.gh, ghCache: g.ghCache });
+  expect(rows[0].state).toBe("merged");
+  expect(g.asked).toEqual([]);
+});
+
+test("gh: a throwing gh gives no state, caches nothing, logs once, and leaves connector states alone", async () => {
+  const linked = artifact("a", "https://gitlab.com/g/r/-/merge_requests/1", { external: { connectionId: "gl", provider: "gitlab", key: "g/r!1", remoteId: "", itemType: "merge_request" } as Artifact["external"] });
+  const board = { projects: [project("p")], tasks: [task("a")], artifacts: [linked, artifact("a", "https://github.com/o/r/pull/1"), artifact("a", "https://github.com/o/r/pull/2")] };
+  const g = ghSetup({ "o/r#1": "throw", "o/r#2": "throw" });
+  const logged: unknown[][] = [];
+  const { rows } = await listPrs(board, ["p"], { ...fakeReads([gitlab], { "g/r!1": { status: "Merged" } }), gh: g.gh, ghCache: g.ghCache }, (...a: unknown[]) => void logged.push(a));
+  expect(rows.map((r) => r.state).sort()).toEqual(["", "", "merged"]);
+  expect(g.ghCache.get("o/r#1")).toBeUndefined();
+  expect(logged).toHaveLength(1);
+  expect(logged[0][0]).toBe("Flowly gh pull request states failed:");
+});
+
+test("ghPrMenuState: maps gh's answer and passes an argument array", async () => {
+  const seen: (readonly string[])[] = [];
+  const answer = async (json: string) => ghPrMenuState(async (file, args) => { expect(file).toBe("gh"); seen.push(args); return json; })({ repo: "o/r", number: 7 });
+  expect(await answer('{"state":"MERGED","isDraft":false,"mergedAt":"2026-11-20T10:00:00Z"}')).toBe("merged");
+  expect(await answer('{"state":"CLOSED","isDraft":false,"mergedAt":"2026-11-20T10:00:00Z"}')).toBe("merged");
+  expect(await answer('{"state":"CLOSED","isDraft":false,"mergedAt":null}')).toBe("closed");
+  expect(await answer('{"state":"OPEN","isDraft":true,"mergedAt":null}')).toBe("draft");
+  expect(await answer('{"state":"OPEN","isDraft":false,"mergedAt":null}')).toBe("open");
+  expect(await answer('{"state":"WAT"}')).toBeNull();
+  expect(seen[0]).toEqual(["pr", "view", "7", "--repo", "o/r", "--json", "state,isDraft,mergedAt"]);
 });

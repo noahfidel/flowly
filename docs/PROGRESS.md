@@ -2292,3 +2292,9 @@ The repeated replay when cards are opened in succession is the visible cost of p
 - Rebased onto the card-first charter v10 (`edbfcca`), so this change is charter version 11.
 - Checks after the rebase (Node 26, as sqlite and the live scripts need `node:sqlite`): `npm run typecheck` exit 0; `npm test` exit 0 (238 files passed, 1 skipped; 2907 passed, 7 skipped).
 - Onboarding: no tour or tip change (no UI). Telemetry: no heartbeat field. Strings: none. UNRUN: a live dispatcher chat check (the installed plugin is updated from main only).
+
+## 2026-11-22 PR menu reads PR state through gh when no GitHub connector can (branch `kanban/merged-pr-9306-still-shows-in-the-pull-r-233ea3`)
+- Report: merged PR Zenlytic/zenlytic#9306 was listed under Open on the Zenlytic board. Cause: the machine had only a Linear connector, so `prs.list` had no state for github.com PRs, and D5 puts an unknown state in Open. The fetch cap and the badge cache were not involved. The card stayed out of Done because it has two PR outputs (LANDED-DONE §3.1).
+- Change (ruling, user, 2026-11-22; PR-MENU-SPEC §3.2): with no working github.com GitHub connection, `listPrs` reads the PR through `gh pr view --json state,isDraft,mergedAt` (`ghPrMenuState`, `runFile` now exported from `server/pr-review-archive.ts`). Shared 20-per-read cap with connector fetches (connector first), 4 at a time, `GhPrCache` in daemon memory for 30 minutes, a failure caches nothing and logs once per read, hidden rows read the cache only. `index.server.ts` keeps one cache for the plugin's life.
+- Tests (written first): `server/pr-menu.test.ts` (merged row and its Merged or closed section, fresh and expired cache, failed refresh keeps the word, shared cap, hidden rows, connection present, throwing gh, `ghPrMenuState` mapping). Typecheck and `npm test` on Node 26.
+- No UI strings, onboarding, What's new or telemetry change.
