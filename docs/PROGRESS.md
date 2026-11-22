@@ -11,6 +11,13 @@
 - Onboarding: a **Tool call details** line under More features (ONBOARDING-SPEC updated). No one-time tip: the chevron on each step shows the affordance where it is used. What's new: none (not a release). Telemetry: no heartbeat field (a read-only view).
 - Checks (Node 26.5.1, at `4b61fda`): `npm run typecheck` exit 0; `npx vitest run --testTimeout=15000 --exclude 'docs/verification/**' --exclude '.claude/**' --maxWorkers=3` exit 0, 239 files passed (1 skipped), 2911 tests passed, 7 skipped.
 - Not run: plugin install/reload and the real UI on desktop, compact and phone (expanding a step, Result toggle, Show more, a running call finishing while open).
+- Fix round (independent review of `ae4f4c1..c052ba5`), as new commits:
+  - Medium: a token right after a JSON escape (`\n`, `\t`, `\uXXXX`) slipped past `\b`. Raw inputs and outputs are now masked leaf by leaf (values and keys) before JSON, and the masker's token boundary accepts a non-alphanumeric character or a JSON escape (no lookbehind).
+  - Medium: more credential forms are masked by `maskSecrets` only (`redact()` and `containsSecret()` unchanged beyond the first round): bare `PASSWORD=`/`TOKEN=`, JSON `password`/`token`/`secret`/`key`, `"Authorization": "Bearer …"`, `x-api-key`, unquoted YAML, quoted values with spaces or under 8 characters, and URL credentials of any scheme. A credential-named key's value in a raw input is replaced whatever it holds.
+  - Low: masking ran over the whole text before clipping, and the old assignment pattern was super-linear (200 KB of `aKEY` ≈ 8 s). Text is now cut to limit + 512 before masking, and every masker pattern is linear (boundary-anchored or bounded); a test masks 200 KB runs in well under 1 s.
+  - Low: `found: false` was cached forever; it now has `staleTime` 0, so the next expand reads again.
+  - Nit: an exit code with no output opened an empty Result toggle; it now shows as a plain line.
+  - Tests: `shared/tool-call-detail.test.ts` +3 (JSON escapes, credential forms, long-run timing).
 
 ## Dispatcher forwards another agent's message to a card (branch `kanban/dispatcher-charter-forward-information-f-258808`) — 2026-11-18
 
