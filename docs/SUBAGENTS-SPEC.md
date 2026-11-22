@@ -113,7 +113,7 @@ Card: "View a card session's subagent sessions from the card chat". The coders a
 Card: "Check whether a card counts as running while subagents run". Claude Code's Agent tool can start a subagent in the background and end the parent's turn; Paseo then reports the parent `idle` and the card looked idle while its work went on.
 
 - Ruling (Noah, 2026-11-22): a card whose subagents run shows the **same running state** as a card with a running session: the blue running edge, the card's running signal, the overview's "N running" chip and a row in the running list (DISPATCHER-SPEC §9.2a). No separate "waiting" state; the Subagents chip (§4, §9.3) already shows how many and which.
-- Ruling (Noah, 2026-11-22): what counts: (a) provider subagents (§9) of the card's sessions with status `running`; (b) Paseo child agents (`paseo.parent-agent-id` = one of the card's sessions) that are `running` or `initializing`, not archived, and live in a **different** workspace than the card (helper workspaces). A child in the card's own workspace is one of the card's sessions already and counts once, as a session.
+- Ruling (Noah, 2026-11-22): what counts: (a) provider subagents (§9) of the card's sessions with status `running`; (b) Paseo child agents (`paseo.parent-agent-id` = one of the card's sessions) that are `running` or `initializing`, not archived, and live in a **different** workspace than the card (helper workspaces). A child in the card's own workspace is one of the card's sessions already and counts once, as a session. A child that lives in another card's workspace counts for both cards on purpose: it is that card's session, and it runs work the starting card asked for.
 - Ruling (Noah, 2026-11-22): the data comes from polling idle card sessions over the existing short-lived local connection (§9.2); no long-lived subscription.
 
 ### 10.1 What counts as running
@@ -125,14 +125,16 @@ Card: "Check whether a card counts as running while subagents run". Claude Code'
 ### 10.2 Data
 
 - Daemon: `server/subagent-activity.ts` reads a card session's provider subagents with the same list call, connection, feature gate and 5-minute unsupported memory as §9.2 (`ProviderSubagentService.listFor`, which skips only the card check of `list`). A card session is a non-archived session in a live card's workspace.
-- When: once when a card session's turn ends (the `agent.turn.after` hook), and once per plugin start for every idle card session (on the first `subagents.activity` read, which brings the Paseo handle). While any of the session's provider subagents is `running` it is read again every 5 s. It stops being read when none runs, when the session starts a turn (its own state then shows), or when it is archived, gone or no longer in a live card's workspace. Reads run one at a time.
+- When: once when a card session's turn ends (the `agent.turn.after` hook), and once per plugin start for every idle card session (status `idle`; closed and errored sessions are skipped), on the first `subagents.activity` read, which brings the Paseo handle. A turn end that arrives while that session's read runs asks for one more read right after it, since the running read may predate the new subagent. While any of the session's provider subagents is `running` it is read again every 5 s. It stops being read when none runs, when the session starts a turn (its own state then shows), or when it is archived, gone or no longer in a live card's workspace. Reads run one at a time.
 - Native children (ruling b) need no daemon read: the board's live agent list has them.
 - RPC `subagents.activity` `{ etag? }` → `{ etag, value?: { revision, running: Record<agentId, count>, since: Record<agentId, iso> } }`, sessions with none running left out. The revision changes only when the content changes, and an unchanged poll carries no value.
 - Client: `useSubagentActivity` (`client/queries.ts`) reads it every 5 s only while the board is shown (the board's auxiliary reads gate, PERFORMANCE-SPEC).
 
 ### 10.3 Failure
 
-- An older Paseo (no `providerSubagents` feature) or an unreachable daemon gives empty data: the card counts only its sessions and native children, as before. These failures are not logged (§9.2's rules); unexpected ones go through `logFailure` with a fixed label.
+- An older Paseo (no `providerSubagents` feature) gives empty data and the session is not read again until its next turn end: the card counts only its sessions and native children, as before.
+- A failed read (request timeout, lost connection, unreachable daemon, a daemon error answer) keeps the session's last count and tries again after 5 s, then 10, 20, 40 and at most every 60 s; the first good answer resets the backoff. Only a good answer with nothing running, an older Paseo, or the session no longer being a live card session ends the tracking.
+- Expected failures are not logged (§9.2's rules); unexpected ones go through `logFailure` with a fixed label.
 - A session dropped while its read runs (turn start, archive) ignores that read's answer. Plugin stop clears every timer.
 
 ### 10.4 Acceptance
@@ -140,5 +142,5 @@ Card: "Check whether a card counts as running while subagents run". Claude Code'
 1. A card whose session's turn ended while an Agent-tool subagent still runs shows the running edge, `1 subagent working`, the overview's running chip and a running-list row, until the subagent finishes (within about 5 s).
 2. A child agent in a helper workspace started by a card session makes that card run; a child in the card's own workspace is counted once.
 3. Archived children and sessions never count; a starting session or child counts.
-4. With an older Paseo or the daemon unreachable nothing breaks and nothing is logged.
+4. With an older Paseo or the daemon unreachable nothing breaks and nothing is logged; a running card keeps its count through a failed read.
 5. Every new string is in all catalogs; `npm run typecheck` and `npm test` pass.
