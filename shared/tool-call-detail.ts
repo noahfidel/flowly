@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { clip } from "./session-tail";
-import { maskSecrets } from "./secrets";
+import { isCredentialName, maskSecrets } from "./secrets";
 
 /**
  * One tool call's arguments and result, loaded on demand when the user expands
@@ -45,12 +45,41 @@ const lines = (...parts: (string | undefined | false)[]) => {
   return kept.length ? kept.join("\n") : undefined;
 };
 
-/** A value as readable text: strings as they are, anything else as indented JSON. */
+/** A string leaf is cut to this length before it is masked (it is clipped again with the whole text). */
+const LEAF_MAX = TOOL_ARGS_MAX + 512;
+/** At most this many values of a raw input or output are walked; the rest is left out. */
+const TREE_MAX_NODES = 5_000;
+const TREE_MAX_DEPTH = 24;
+
+/**
+ * A raw input or output with every string leaf and key masked before it becomes JSON, so a token after an
+ * escaped newline cannot slip past the text masker, and a credential-named key's value (`"password"`,
+ * `"x-api-key"`, `"Authorization"`) becomes `<secret>` whatever it holds.
+ */
+function maskTree(value: unknown): unknown {
+  let nodes = 0;
+  const walk = (node: unknown, depth: number): unknown => {
+    if (++nodes > TREE_MAX_NODES || depth > TREE_MAX_DEPTH) return "…";
+    if (typeof node === "string") return maskSecrets(node.length > LEAF_MAX ? clip(node, LEAF_MAX) : node);
+    if (!node || typeof node !== "object") return node;
+    if (Array.isArray(node)) return node.map((item) => walk(item, depth + 1));
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(node as Record<string, unknown>)) {
+      const name = maskSecrets(key.length > 300 ? clip(key, 300) : key);
+      out[name] =
+        isCredentialName(key) && ((typeof item === "string" && item.length > 0) || typeof item === "number") ? "<secret>" : walk(item, depth + 1);
+    }
+    return out;
+  };
+  return walk(value, 0);
+}
+
+/** A value as readable text: strings as they are, anything else as indented JSON with its leaves masked. */
 function asText(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value === "string") return value || undefined;
   try {
-    const json = JSON.stringify(value, null, 2);
+    const json = JSON.stringify(maskTree(value), null, 2);
     return json === "{}" || json === "[]" ? undefined : json;
   } catch {
     return String(value);
@@ -150,10 +179,15 @@ function sections(detail: Record<string, unknown> | undefined, rawInput: unknown
   }
 }
 
+/** Room kept past the limit before masking, so a credential that crosses the limit is still whole when masked. */
+const MASK_MARGIN = 512;
+
+/** Cut to `max` + margin, mask, then clip to `max`: masking never runs over more than that, however long the text. */
 function clipped(text: string | undefined, max: number): { text?: string; truncated: boolean } {
   if (text === undefined) return { truncated: false };
-  const masked = maskSecrets(text);
-  return masked.length > max ? { text: clip(masked, max), truncated: true } : { text: masked, truncated: false };
+  const cut = text.length > max + MASK_MARGIN;
+  const masked = maskSecrets(cut ? text.slice(0, max + MASK_MARGIN) : text);
+  return cut || masked.length > max ? { text: clip(masked, max), truncated: true } : { text: masked, truncated: false };
 }
 
 /**
@@ -166,7 +200,7 @@ export function toolCallView(raw: unknown): ToolCallDetail {
   const detail = item.detail && typeof item.detail === "object" ? (item.detail as Record<string, unknown>) : undefined;
   const parts = sections(detail, item.input);
   const out: ToolCallDetail = { found: true };
-  if (parts.label) out.label = clip(maskSecrets(parts.label), 300);
+  if (parts.label) out.label = clipped(parts.label, 300).text;
   let truncated = false;
   if (parts.edits) {
     // One budget for both sides of the edits, so an edit is clipped like any other arguments.
@@ -188,7 +222,7 @@ export function toolCallView(raw: unknown): ToolCallDetail {
   if (parts.resultError) out.resultError = true;
   if (parts.exitCode !== undefined) out.exitCode = parts.exitCode;
   const error = errorText(item.error);
-  if (error) out.error = clip(maskSecrets(error), TOOL_RESULT_MAX);
+  if (error) out.error = clipped(error, TOOL_RESULT_MAX).text;
   return out;
 }
 

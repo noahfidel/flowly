@@ -96,6 +96,54 @@ test("credentials are masked in every section", () => {
   expect(maskSecrets("AKIAABCDEFGHIJKLMNOP and glpat-abcdefghijklmnop12 and someone@example.com")).toBe("<secret> and <secret> and someone@example.com");
 });
 
+test("a token after a JSON escape is masked, in raw input and in text", () => {
+  const view = toolCallView(
+    call({ type: "unknown", input: { content: "line1\nghp_ABCDEFGHIJKLMNOPQRSTUV", note: "x\tAKIAABCDEFGHIJKLMNOP" }, output: { log: "a\r\nsk-abcdefghijklmnopqrstuv" } }),
+  );
+  expect(view.args).not.toMatch(/ghp_|AKIA/);
+  expect(view.args).toContain('"content": "line1\\n<secret>"');
+  expect(view.args).toContain('"note": "x\\t<secret>"');
+  expect(view.result).not.toContain("sk-");
+  // Already-escaped text (a JSON string inside a string) is caught by the text masker.
+  expect(maskSecrets('{"content":"line1\\nghp_ABCDEFGHIJKLMNOPQRSTUV"}')).toBe('{"content":"line1\\n<secret>"}');
+  expect(maskSecrets('"a\\tAKIAABCDEFGHIJKLMNOP"')).toBe('"a\\t<secret>"');
+  expect(maskSecrets('"\\u0041ghp_ABCDEFGHIJKLMNOPQRSTUV"')).toBe('"\\u0041<secret>"');
+});
+
+test("credential-named values are masked in every common form", () => {
+  expect(maskSecrets("PASSWORD=hunter2 TOKEN=abc next")).toBe("PASSWORD=<secret> TOKEN=<secret> next");
+  expect(maskSecrets('{"password":"p","token":"t","secret":"s","key":"k","name":"n"}')).toBe(
+    '{"password":"<secret>","token":"<secret>","secret":"<secret>","key":"<secret>","name":"n"}',
+  );
+  expect(maskSecrets('{"headers":{"Authorization":"Bearer abcdefghijkl"}}')).toBe('{"headers":{"Authorization":"<secret>"}}');
+  expect(maskSecrets('{"x-api-key":"abcdef"}')).toBe('{"x-api-key":"<secret>"}');
+  expect(maskSecrets("api_key: abcdefghijklmnop12")).toBe("api_key: <secret>");
+  expect(maskSecrets('{"API_KEY":"has a space in it","DB_PASSWORD":"short7"}')).toBe('{"API_KEY":"<secret>","DB_PASSWORD":"<secret>"}');
+  expect(maskSecrets("postgres://user:pa55word@host:5432/db and redis://:pw@cache")).toBe("postgres://<secret>@host:5432/db and redis://<secret>@cache");
+  // Not a credential: left alone; an empty value stays empty; comparisons are not assignments.
+  expect(maskSecrets('{"name":"n","author":"Noah","password":""} if (token === x)')).toBe('{"name":"n","author":"Noah","password":""} if (token === x)');
+  // Raw input: a credential-named key's value is replaced whatever it holds; keys are masked too.
+  const view = toolCallView(
+    call({ type: "unknown", input: { headers: { Authorization: "Bearer abc def", "x-api-key": "k1" }, password: "a b", pin: 12, ghp_ABCDEFGHIJKLMNOPQRSTUV: 1 }, output: null }),
+  );
+  expect(JSON.parse(view.args!)).toEqual({ headers: { Authorization: "<secret>", "x-api-key": "<secret>" }, password: "<secret>", pin: 12, "<secret>": 1 });
+});
+
+test("masking stays fast on long word runs", () => {
+  const long = "aKEY".repeat(50_000);
+  let start = Date.now();
+  expect(maskSecrets(long)).toBe(long);
+  expect(maskSecrets(`${long}=v`)).toBe(`${long}=<secret>`);
+  expect(maskSecrets("-eyJ".repeat(50_000)).length).toBeGreaterThan(0);
+  expect(maskSecrets("https".repeat(40_000)).length).toBe(200_000);
+  expect(Date.now() - start).toBeLessThan(1000);
+  start = Date.now();
+  const view = toolCallView(call({ type: "shell", command: long, output: long }));
+  expect(view.argsTruncated).toBe(true);
+  expect(view.resultTruncated).toBe(true);
+  expect(Date.now() - start).toBeLessThan(1000);
+});
+
 test("long arguments and results are clipped with a flag", () => {
   const view = toolCallView(call({ type: "shell", command: "a".repeat(TOOL_ARGS_MAX + 50), output: "b".repeat(TOOL_RESULT_MAX + 50) }));
   expect(view.args).toHaveLength(TOOL_ARGS_MAX);
