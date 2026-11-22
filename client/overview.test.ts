@@ -116,3 +116,10 @@ test("the overview row shows the N PRs chip only when the board has PRs, as a st
   expect(overviewRow({ ...base, prs: 2 }, none)).toMatchObject({ prs: true, statusDivider: true, toolsDivider: false });
   expect(overviewRow({ ...base, prs: 2 }, { ...none, ideas: true })).toMatchObject({ prs: true, statusDivider: true, toolsDivider: true });
 });
+
+test("the N PRs chip stays while every PR is hidden, so the Hidden view is reachable", () => {
+  const none = { ideas: false, memory: false, insights: false };
+  const base = { runningTasks: 0, needYou: 0, updated: 0 };
+  expect(overviewRow({ ...base, prs: 0, prsHidden: 2 }, none)).toMatchObject({ prs: true, statusDivider: true });
+  expect(overviewRow({ ...base, prs: 0, prsHidden: 0 }, none)).toMatchObject({ prs: false, statusDivider: false });
+});

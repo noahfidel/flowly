@@ -8,16 +8,24 @@ export type PrListRow = z.infer<typeof listPrs.output>["rows"][number];
 export type PrSectionId = "open" | "reviewing" | "closed";
 export type PrSection = { id: PrSectionId; rows: PrListRow[] };
 
-/** The chip's count (§2.1): the overview's per-card `prs` over the live cards of the projects the board shows. */
+/**
+ * The chip's counts (§2.1, D12): the overview's per-card `prs` (visible) and `prsHidden` over the live cards of the
+ * projects the board shows.
+ */
 export function prCount(
   projects: readonly { id: string }[],
   tasks: readonly { id: string; projectId: string; archivedAt: string | null }[],
-  facts: ReadonlyMap<string, { prs: number }>,
-): number {
+  facts: ReadonlyMap<string, { prs: number; prsHidden?: number }>,
+): { shown: number; hidden: number } {
   const ids = new Set(projects.map((p) => p.id));
-  let n = 0;
-  for (const t of tasks) if (!t.archivedAt && ids.has(t.projectId)) n += facts.get(t.id)?.prs ?? 0;
-  return n;
+  let shown = 0,
+    hidden = 0;
+  for (const t of tasks)
+    if (!t.archivedAt && ids.has(t.projectId)) {
+      shown += facts.get(t.id)?.prs ?? 0;
+      hidden += facts.get(t.id)?.prsHidden ?? 0;
+    }
+  return { shown, hidden };
 }
 
 // Board lane order, furthest along first (D5); a card no longer on the board sorts last.
@@ -26,8 +34,14 @@ const rankOf = (status: Status | undefined) => (status ? laneRank[status] ?? 9 :
 const sectionOf = (r: PrListRow): PrSectionId => (r.kind === "review" ? "reviewing" : r.state === "merged" || r.state === "closed" ? "closed" : "open");
 const sectionOrder: PrSectionId[] = ["open", "reviewing", "closed"];
 
-/** Open (Open, Draft or unknown), Reviewing (PR review cards), Merged or closed; each only with rows (D5). */
-export function prSections(rows: readonly PrListRow[], statusOf: (taskId: string) => Status | undefined): PrSection[] {
+/** The hidden view's rows (D14): the hidden ones, newest PR first. */
+export function hiddenPrRows(rows: readonly PrListRow[]): PrListRow[] {
+  return rows.filter((r) => r.hidden).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.taskId.localeCompare(b.taskId) || a.url.localeCompare(b.url));
+}
+
+/** Open (Open, Draft or unknown), Reviewing (PR review cards), Merged or closed; each only with rows, hidden ones left out (D5, D14). */
+export function prSections(allRows: readonly PrListRow[], statusOf: (taskId: string) => Status | undefined): PrSection[] {
+  const rows = allRows.filter((r) => !r.hidden);
   const sorted = [...rows].sort(
     (a, b) =>
       rankOf(statusOf(a.taskId)) - rankOf(statusOf(b.taskId)) ||

@@ -19,6 +19,7 @@ export function OverviewBar({
   onNeedYou,
   onRunning,
   prs,
+  prsHidden,
   onPrs,
   updated,
   onUpdated,
@@ -43,6 +44,8 @@ export function OverviewBar({
   onRunning(): void;
   /** PRs on the shown board's live cards, merged and closed included (PR-MENU-SPEC §2.1); a press opens the menu. */
   prs: number;
+  /** PRs the user hid from the menu (PR-MENU-SPEC D12); with none shown, they keep the chip visible. */
+  prsHidden: number;
   onPrs(): void;
   /** Cards the dispatcher saw change since you looked (§9.2); never part of needYou. */
   updated: number;
@@ -68,7 +71,7 @@ export function OverviewBar({
   const { colors } = useTheme();
   const state = stateColors(colors);
   const o = overview;
-  const row = overviewRow({ runningTasks: o.runningTasks, needYou, updated, prs }, { ideas: openIdeas !== null, memory: memoryCount !== null || guardrailCount !== null, insights: !!onInsights });
+  const row = overviewRow({ runningTasks: o.runningTasks, needYou, updated, prs, prsHidden }, { ideas: openIdeas !== null, memory: memoryCount !== null || guardrailCount !== null, insights: !!onInsights });
   return (
     <View style={{ borderBottomWidth: 1, borderColor: colors.border }}>
       <ScrollView

@@ -1,17 +1,21 @@
-import { memo, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
+import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
+import { useQueryClient } from "@tanstack/react-query";
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { Project, Task } from "../shared/model";
 import type { PrState } from "../shared/pr-rows";
 import { laneName } from "../shared/lanes";
+import * as rpc from "../shared/rpc";
 import { msg, t } from "../shared/i18n";
 import { Modal } from "./modal";
 import { Button, IconButton, Label, Row, Theme, font, space, touch, useTheme } from "./ui";
 import { stateColors } from "./state-colors";
 import { openQuickLink } from "./quick-links-row";
 import { usePrListQuery } from "./queries";
-import { prRowDetail, prRowTitle, prSections, type PrListRow, type PrSectionId } from "./pr-list";
+import { hiddenPrRows, prRowDetail, prRowTitle, prSections, type PrListRow, type PrSectionId } from "./pr-list";
+import { useStableCallback } from "./stable";
 
 /** At most this many projects per read (PR-MENU-SPEC §3.2). */
 const maxProjects = 20;
@@ -19,7 +23,7 @@ const noRows: PrListRow[] = [];
 const sectionTitles: Record<PrSectionId, string> = { open: msg("Open"), reviewing: msg("Reviewing"), closed: msg("Merged or closed") };
 const stateWords: Record<Exclude<PrState, "">, string> = { draft: msg("Draft"), open: msg("Open"), merged: msg("Merged"), closed: msg("Closed") };
 
-type ShownRow = { key: string; taskId: string; url: string; state: PrState; title: string; detail: string; label: string };
+type ShownRow = { hidden: boolean; key: string; taskId: string; url: string; state: PrState; title: string; detail: string; label: string };
 
 /**
  * The board's pull requests menu (PR-MENU-SPEC §2): the PRs of the cards in the projects the board shows, in three
@@ -33,6 +37,7 @@ export function PrMenu({
   theme,
   onClose,
   onOpenCard,
+  onChanged,
 }: {
   open: boolean;
   /** The projects the board shows now (its filtered project, else every live member of the group shown). */
@@ -41,6 +46,8 @@ export function PrMenu({
   theme: PluginTheme;
   onClose(): void;
   onOpenCard(taskId: string): void;
+  /** After a PR was hidden or shown again: refresh the board overview, whose card facts carry the chip's count. */
+  onChanged(): void;
 }) {
   const ids = useMemo(() => projects.slice(0, maxProjects).map((p) => p.id), [projects]);
   const query = usePrListQuery(ids, open);
@@ -48,32 +55,59 @@ export function PrMenu({
   // Read when the list arrives or the menu opens, not on every overview poll.
   const board = useRef({ tasks, projects });
   board.current = { tasks, projects };
-  const sections = useMemo(() => {
+  const { sections, hiddenList } = useMemo(() => {
     const byTask = new Map(board.current.tasks.map((x) => [x.id, x]));
     const byProject = new Map(board.current.projects.map((p) => [p.id, p]));
     const several = board.current.projects.length > 1;
-    return prSections(rows, (id) => byTask.get(id)?.status).map((section) => ({
-      id: section.id,
-      rows: section.rows.map((r): ShownRow => {
-        const card = byTask.get(r.taskId);
-        const project = byProject.get(r.projectId);
-        const cardTitle = card?.title ?? "";
-        const title = prRowTitle(r, cardTitle);
-        const word = r.state ? t(stateWords[r.state]) : "";
-        return {
-          key: `${r.taskId}|${r.artifactId ?? r.kind}|${r.url}`,
-          taskId: r.taskId,
-          url: r.url,
-          state: r.state,
-          title,
-          detail: prRowDetail(r, { card: cardTitle, lane: card ? laneName(project, card.status) : "", project: several ? project?.title : undefined }),
-          label: word
-            ? t("Open card {card}: pull request {number} · {state}", { card: cardTitle, number: r.number, state: word })
-            : t("Open card {card}: pull request {number}", { card: cardTitle, number: r.number }),
-        };
-      }),
-    }));
+    const shown = (r: PrListRow): ShownRow => {
+      const card = byTask.get(r.taskId);
+      const project = byProject.get(r.projectId);
+      const cardTitle = card?.title ?? "";
+      const title = prRowTitle(r, cardTitle);
+      const word = r.state ? t(stateWords[r.state]) : "";
+      return {
+        hidden: r.hidden,
+        key: `${r.taskId}|${r.artifactId ?? r.kind}|${r.url}`,
+        taskId: r.taskId,
+        url: r.url,
+        state: r.state,
+        title,
+        detail: prRowDetail(r, { card: cardTitle, lane: card ? laneName(project, card.status) : "", project: several ? project?.title : undefined }),
+        label: word
+          ? t("Open card {card}: pull request {number} · {state}", { card: cardTitle, number: r.number, state: word })
+          : t("Open card {card}: pull request {number}", { card: cardTitle, number: r.number }),
+      };
+    };
+    return {
+      sections: prSections(rows, (id) => byTask.get(id)?.status).map((section) => ({ id: section.id, rows: section.rows.map(shown) })),
+      hiddenList: hiddenPrRows(rows).map(shown),
+    };
   }, [rows, open]);
+  // The Hidden view (D14); it falls back to the main list once nothing is hidden, and starts over on every open.
+  const [view, setView] = useState<"main" | "hidden">("main");
+  useEffect(() => {
+    if (!open) setView("main");
+  }, [open]);
+  const showHidden = view === "hidden" && hiddenList.length > 0;
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const hideRpc = useRpc(rpc.hidePr),
+    restoreRpc = useRpc(rpc.restorePr);
+  const busy = useRef(false);
+  const setHidden = useStableCallback(async (row: ShownRow, hide: boolean) => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      await (hide ? hideRpc : restoreRpc)({ taskId: row.taskId, url: row.url });
+      await queryClient.invalidateQueries({ queryKey: ["flowly", "prs"] });
+      onChanged();
+      if (hide) toast.show(t("Hidden from the pull requests list"), { variant: "success" });
+    } catch {
+      toast.show(hide ? t("Could not hide the pull request.") : t("Could not show the pull request again."), { variant: "error" });
+    } finally {
+      busy.current = false;
+    }
+  });
   return (
     <Modal
       open={open}
@@ -91,17 +125,37 @@ export function PrMenu({
             </View>
           ) : !query.data ? (
             <Label muted size={font.md} selectable={false}>{t("Loading…")}</Label>
-          ) : sections.length === 0 ? (
-            <Label muted size={font.md} selectable={false}>{t("No pull requests on this board")}</Label>
-          ) : (
-            sections.map((section) => (
-              <View key={section.id} style={{ gap: space[1] }}>
-                <Label muted size={font.sm} medium selectable={false}>{t(sectionTitles[section.id])}</Label>
-                {section.rows.map((row) => (
-                  <PrRow key={row.key} row={row} onClose={onClose} onOpenCard={onOpenCard} />
-                ))}
+          ) : showHidden ? (
+            <View style={{ gap: space[1] }}>
+              <Label muted size={font.sm} medium selectable={false}>{t("Hidden ({n})", { n: hiddenList.length })}</Label>
+              {hiddenList.map((row) => (
+                <PrRow key={row.key} row={row} onClose={onClose} onOpenCard={onOpenCard} onToggle={setHidden} />
+              ))}
+              <View style={{ alignItems: "flex-start", paddingTop: space[1] }}>
+                <Button quiet small onPress={() => setView("main")}>{t("Back")}</Button>
               </View>
-            ))
+            </View>
+          ) : (
+            <>
+              {sections.length === 0 && (
+                <Label muted size={font.md} selectable={false}>
+                  {hiddenList.length > 0 ? t("All pull requests on this board are hidden.") : t("No pull requests on this board")}
+                </Label>
+              )}
+              {sections.map((section) => (
+                <View key={section.id} style={{ gap: space[1] }}>
+                  <Label muted size={font.sm} medium selectable={false}>{t(sectionTitles[section.id])}</Label>
+                  {section.rows.map((row) => (
+                    <PrRow key={row.key} row={row} onClose={onClose} onOpenCard={onOpenCard} onToggle={setHidden} />
+                  ))}
+                </View>
+              ))}
+              {hiddenList.length > 0 && (
+                <View style={{ alignItems: "flex-start", paddingTop: space[1] }}>
+                  <Button quiet small onPress={() => setView("hidden")}>{t("Hidden ({n})", { n: hiddenList.length })}</Button>
+                </View>
+              )}
+            </>
           )}
         </Theme.Provider>
       </Modal.Content>
@@ -109,7 +163,7 @@ export function PrMenu({
   );
 }
 
-const PrRow = memo(function PrRow({ row, onClose, onOpenCard }: { row: ShownRow; onClose(): void; onOpenCard(taskId: string): void }) {
+const PrRow = memo(function PrRow({ row, onClose, onOpenCard, onToggle }: { row: ShownRow; onClose(): void; onOpenCard(taskId: string): void; onToggle(row: ShownRow, hide: boolean): void }) {
   const { colors } = useTheme();
   const toast = useToast();
   const tones = stateColors(colors);
@@ -129,6 +183,12 @@ const PrRow = memo(function PrRow({ row, onClose, onOpenCard }: { row: ShownRow;
               {t(stateWords[row.state])}
             </Label>
           )}
+          <IconButton
+            icon={row.hidden ? "Eye" : "EyeOff"}
+            label={row.hidden ? t("Show in list again") : t("Hide from this list")}
+            size={touch ? 36 : undefined}
+            onPress={() => onToggle(row, !row.hidden)}
+          />
           <IconButton
             icon="ArrowUpRight"
             label={t("Open pull request")}

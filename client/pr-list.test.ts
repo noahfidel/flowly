@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Status } from "../shared/model";
-import { prCount, prRowTitle, prRowDetail, prSections, type PrListRow } from "./pr-list";
+import { hiddenPrRows, prCount, prRowTitle, prRowDetail, prSections, type PrListRow } from "./pr-list";
 
 /** The pull requests menu (PR-MENU-SPEC §1 D5, §2.3): sections, their order and each row's text. */
 
@@ -16,6 +16,7 @@ const row = (taskId: string, number: string, s: number, over: Partial<PrListRow>
   title: "",
   createdAt: at(s),
   state: "open",
+  hidden: false,
   ...over,
 });
 const lanes: Record<string, Status> = { dev: "development", review: "in_review", done: "integrated", todo: "todo", blocked: "blocked", design: "design" };
@@ -74,10 +75,10 @@ test("the chip's count sums the overview's per-card prs over the live cards of t
     { id: "c", projectId: "p", archivedAt: at(1) },
     { id: "d", projectId: "p", archivedAt: null },
   ];
-  const facts = new Map([["a", { prs: 2 }], ["b", { prs: 5 }], ["c", { prs: 1 }]]);
-  expect(prCount([{ id: "p" }], tasks, facts)).toBe(2);
-  expect(prCount([{ id: "p" }, { id: "q" }], tasks, facts)).toBe(7);
-  expect(prCount([], tasks, facts)).toBe(0);
+  const facts = new Map([["a", { prs: 2, prsHidden: 1 }], ["b", { prs: 5, prsHidden: 0 }], ["c", { prs: 1 }]]);
+  expect(prCount([{ id: "p" }], tasks, facts)).toEqual({ shown: 2, hidden: 1 });
+  expect(prCount([{ id: "p" }, { id: "q" }], tasks, facts)).toEqual({ shown: 7, hidden: 1 });
+  expect(prCount([], tasks, facts)).toEqual({ shown: 0, hidden: 0 });
 });
 
 test("row title never repeats the PR, and never drops a bare leading number that is part of the title", () => {
@@ -88,4 +89,11 @@ test("row title never repeats the PR, and never drops a bare leading number that
   expect(prRowTitle(row("t", "#2024", 0, { title: "#2024 — roadmap" }), "Card")).toBe("#2024 roadmap");
   expect(prRowTitle(row("t", "#42", 0, { title: "#420 other" }), "Card")).toBe("#42 #420 other");
   expect(prRowTitle(row("t", "!7", 0, { title: "!7 - Fix" }), "Card")).toBe("!7 Fix");
+});
+
+test("hidden PRs leave the sections; the hidden view lists them, newest first", () => {
+  const rows = [row("dev", "#1", 1), row("dev", "#2", 2, { hidden: true }), row("review", "#3", 3, { hidden: true, state: "merged" }), row("todo", "#4", 4, { kind: "review", hidden: true })];
+  expect(ids(prSections(rows, statusOf))).toEqual(["open: dev#1"]);
+  expect(hiddenPrRows(rows).map((r) => `${r.taskId}${r.number}`)).toEqual(["todo#4", "review#3", "dev#2"]);
+  expect(hiddenPrRows([rows[0]])).toEqual([]);
 });

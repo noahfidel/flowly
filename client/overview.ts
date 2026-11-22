@@ -44,14 +44,14 @@ export type BoardOverview = ReturnType<typeof boardOverview>;
  * status chips and Ideas / Memory / Insights only when both show.
  */
 export function overviewRow(
-  o: { runningTasks: number; needYou: number; updated: number; prs?: number },
+  o: { runningTasks: number; needYou: number; updated: number; prs?: number; prsHidden?: number },
   tools: { ideas: boolean; memory: boolean; insights: boolean },
 ): { running: boolean; needYou: boolean; updated: boolean; prs?: boolean; statusDivider: boolean; toolsDivider: boolean } {
   const running = o.runningTasks > 0;
   const needYou = o.needYou > 0;
   const updated = o.updated > 0;
-  // "N PRs" (PR-MENU-SPEC §2.1) sits with the status chips, only while the board has PRs.
-  const prs = (o.prs ?? 0) > 0;
+  // "N PRs" (PR-MENU-SPEC §2.1) sits with the status chips, only while the board has PRs; hidden ones keep it so the Hidden view stays reachable (D12).
+  const prs = (o.prs ?? 0) + (o.prsHidden ?? 0) > 0;
   const status = running || needYou || updated || prs;
   const anyTool = tools.ideas || tools.memory || tools.insights;
   return { running, needYou, updated, ...(o.prs !== undefined ? { prs } : {}), statusDivider: status || anyTool, toolsDivider: status && anyTool };

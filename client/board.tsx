@@ -980,7 +980,9 @@ function BoardContent(
     setRunningKept((kept) => (sameRunningRows(kept, next) ? kept : next));
   }, [runningOpen, runningShown]);
   // The pull requests menu (PR-MENU-SPEC): its chip counts the shown projects' PRs from the overview's card facts.
-  const prsShown = useMemo(() => prCount(overviewCover.projects, board?.tasks ?? noTasks, factsByTask), [overviewCover, board?.tasks, factsByTask]);
+  const prCounts = useMemo(() => prCount(overviewCover.projects, board?.tasks ?? noTasks, factsByTask), [overviewCover, board?.tasks, factsByTask]);
+  // The chip stays while only hidden PRs remain, so the Hidden view is reachable (D12).
+  const prChip = prCounts.shown + prCounts.hidden > 0;
   const closeMenu = useStableCallback(() => setMenu(null));
   const needsIds = useMemo(() => needsQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   // Each group's dispatcher's own pending requests, from the same live agent list (§9.4; Ruling, Noah 2026-11-16): they
@@ -1798,7 +1800,7 @@ function BoardContent(
   const tip = inPanel || !board || page
     ? null
     : !project
-      ? groupBoard ? nextTip({ tipsSeen: onboarding.values?.tipsSeen ?? [], facts: { ...noTipFacts, groupTabs: allLiveProjects.length > 1, prMenu: prsShown > 0 }, blocked: tipBlocked }) : null
+      ? groupBoard ? nextTip({ tipsSeen: onboarding.values?.tipsSeen ?? [], facts: { ...noTipFacts, groupTabs: allLiveProjects.length > 1, prMenu: prChip }, blocked: tipBlocked }) : null
       : project.archivedAt
         ? null
         : nextTip({
@@ -1835,7 +1837,7 @@ function BoardContent(
           cardPlan: !!task && !!currentDetail && planApproved(planOf(currentDetail.artifacts, task.id)),
           cardDoubleClick: Platform.OS === "web" && !compact && !task && projectTasks.some((x) => !x.archivedAt && !!cardIndex.agentsByWorkspace.get(x.workspaceId)?.length),
           doubleTapCtrl: doubleTapOn && shortcutPrefs.status === "ready" && !compact && !task && projectTasks.some((x) => !x.archivedAt),
-          prMenu: !task && prsShown > 0,
+          prMenu: !task && prChip,
         },
         blocked: tipBlocked,
       });
@@ -2435,7 +2437,8 @@ function BoardContent(
             needYou={needYouCount}
             onNeedYou={startNeeds}
             onRunning={() => setMenu("running")}
-            prs={prsShown}
+            prs={prCounts.shown}
+            prsHidden={prCounts.hidden}
             onPrs={() => {
               setMenu("prs");
               // Opening the menu shows the pr-menu tip was not needed.
@@ -2980,7 +2983,7 @@ function BoardContent(
             </Theme.Provider>
           </Modal.Content>
         </Modal>
-        <PrMenu open={menu === "prs"} projects={overviewCover.projects} tasks={board?.tasks ?? noTasks} theme={props.theme} onClose={closeMenu} onOpenCard={openTaskById} />
+        <PrMenu open={menu === "prs"} projects={overviewCover.projects} tasks={board?.tasks ?? noTasks} theme={props.theme} onClose={closeMenu} onOpenCard={openTaskById} onChanged={refresh} />
         {/* board-groups 3/7: Add group and Delete group…; Group settings is its own page. */}
         {groupDialog?.kind === "add" && (
           <GroupNameDialog
