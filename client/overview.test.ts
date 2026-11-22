@@ -123,3 +123,22 @@ test("the N PRs chip stays while every PR is hidden, so the Hidden view is reach
   expect(overviewRow({ ...base, prs: 0, prsHidden: 2 }, none)).toMatchObject({ prs: true, statusDivider: true });
   expect(overviewRow({ ...base, prs: 0, prsHidden: 0 }, none)).toMatchObject({ prs: false, statusDivider: false });
 });
+
+test("a card whose only work is its subagents counts as running and is in the running list (SUBAGENTS-SPEC §10)", () => {
+  const tasks = [task("a", "development"), task("b", "development"), task("c", "development")];
+  const agents = [
+    { id: "sa", workspaceId: "w-a", status: "idle" },
+    { id: "sb", workspaceId: "w-b", status: "idle" },
+    { id: "helper", workspaceId: "w-helper", status: "running", labels: { "paseo.parent-agent-id": "sb" }, createdAt: "2026-11-22T10:02:00Z" },
+    { id: "sc", workspaceId: "w-c", status: "running", activeTurn: { startedAt: "2026-11-22T10:03:00Z" } },
+  ];
+  const provider = { running: { sa: 1 }, since: { sa: "2026-11-22T10:01:00Z" } };
+  expect(boardOverview([project], tasks, agents, [], provider)).toMatchObject({ runningTasks: 3, runningSessions: 1 });
+  expect(boardOverview([project], tasks, agents, [])).toMatchObject({ runningTasks: 2, runningSessions: 1 });
+  const rows = runningRows([project], tasks, agents, provider);
+  expect(rows.map((r) => [r.taskId, r.since])).toEqual([
+    ["a", "2026-11-22T10:01:00Z"],
+    ["b", "2026-11-22T10:02:00Z"],
+    ["c", "2026-11-22T10:03:00Z"],
+  ]);
+});

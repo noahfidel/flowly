@@ -1774,5 +1774,6 @@ const catalog: Catalog = {
   "Gallery": "Галерея",
   "Previous image": "Предыдущее изображение",
   "Next image": "Следующее изображение",
+  "{n} subagents working": {"one": "{n} субагент работает", "few": "{n} субагента работают", "many": "{n} субагентов работают", "other": "{n} субагента работают"},
 };
 export default catalog;

@@ -19,7 +19,9 @@ import { SessionImageService } from "./server/session-images";
 import { SessionTailService } from "./server/session-tail";
 import { ProviderSubagentService } from "./server/provider-subagents";
 import { ArchivedSessionsService } from "./server/archived-sessions";
-import { ifChanged } from "./server/etag";
+import { etagOf, ifChanged } from "./server/etag";
+import { SubagentActivity } from "./server/subagent-activity";
+import { listAttentionAgents } from "./server/attention-count";
 import { BoardDeltas } from "./server/board-delta";
 import { chipBoard } from "./server/chip-board";
 import { cardBoard } from "./server/card-board";
@@ -324,6 +326,31 @@ export default function contribute(host: PluginServerContext) {
   const providerSubagents = new ProviderSubagentService(store);
   server.handle(rpc.providerSubagents, (input, { paseo }) => providerSubagents.list(input, paseo));
   server.handle(rpc.providerSubagentTail, (input, { paseo }) => providerSubagents.tail(input, paseo));
+  // A card counts as running while its sessions' subagents run (SUBAGENTS-SPEC §10): read on idle, over the same
+  // short-lived connection. The latest Paseo handle answers the card-session checks.
+  let activityPaseo: PaseoApi | null = null;
+  const liveCardWorkspaces = async () => new Set((await store.read()).tasks.filter((t) => !t.archivedAt).map((t) => t.workspaceId));
+  const subagentActivity = new SubagentActivity({
+    lister: providerSubagents,
+    isCardSession: async (agentId) => {
+      if (!activityPaseo) return false;
+      const agent = (await activityPaseo.agents.ref(agentId).refresh())?.agent;
+      return !!agent && !agent.archivedAt && !!agent.workspaceId && (await liveCardWorkspaces()).has(agent.workspaceId);
+    },
+    idleCardSessions: async () => {
+      if (!activityPaseo) return [];
+      const [agents, workspaces] = await Promise.all([listAttentionAgents(activityPaseo), liveCardWorkspaces()]);
+      return agents.filter((a) => !!a.workspaceId && workspaces.has(a.workspaceId) && a.status !== "running" && a.status !== "initializing").map((a) => a.id);
+    },
+  });
+  let activityTag: { revision: number; etag: string } | null = null;
+  server.handle(rpc.subagentActivity, (input, { paseo }) => {
+    activityPaseo = paseo;
+    void subagentActivity.sweep();
+    const view = subagentActivity.read();
+    if (activityTag?.revision !== view.revision) activityTag = { revision: view.revision, etag: etagOf(view) };
+    return activityTag.etag === input.etag ? { etag: activityTag.etag } : { etag: activityTag.etag, value: view };
+  });
   const wrapups = new WrapupService(store, undefined, (taskId) => summaries.settled(taskId));
   const restores = new WorkspaceRestoreService(store);
   const sessionSettings = new SessionSettingsService(store);
@@ -1110,6 +1137,21 @@ export default function contribute(host: PluginServerContext) {
   server.addHook("agent.turn.after", async (event, { paseo }) => {
     if (event.outcome.kind !== "failed") await composer.drain(event.agent.id, paseo).catch(() => undefined);
   });
+  // Subagent activity (SUBAGENTS-SPEC §10): a turn start makes the session's own state show; a card session's
+  // turn end reads its subagents. Never blocks the hook.
+  server.addHook("agent.turn.before", async (event) => {
+    subagentActivity.turnStarted(event.agent.id);
+  });
+  server.addHook("agent.turn.after", async (event, { paseo }) => {
+    activityPaseo = paseo;
+    const workspaceId = event.agent.workspaceId;
+    if (!workspaceId) return;
+    void liveCardWorkspaces()
+      .then((workspaces) => {
+        if (workspaces.has(workspaceId)) subagentActivity.turnEnded(event.agent.id);
+      })
+      .catch((e) => logFailure("Flowly subagent activity not checked:", e, event.agent.id));
+  });
   // Shell calls of any card-workspace session (WORKFLOW-INSIGHTS-SPEC §3.1); after the hook, never blocking it.
   server.addHook("agent.turn.after", async (event, { paseo }) => {
     void turnTimeline(paseo, event.agent.id)
@@ -1224,6 +1266,7 @@ export default function contribute(host: PluginServerContext) {
     queue.stop();
     peerQueue.stop();
     tools.stop();
+    subagentActivity.stop();
     void providerSubagents.stop();
   };
 }

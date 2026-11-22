@@ -987,6 +987,20 @@ export const providerSubagentTail = defineRpc({
     .refine((v) => v.mode === "tail" || !!v.cursor, "A cursor is required to page the timeline."),
   output: tailPageSchema,
 });
+/**
+ * Running provider subagents of idle card sessions, board-wide, so a card counts as running while they work
+ * (SUBAGENTS-SPEC §10). An etag read: unchanged polls carry no value.
+ */
+export const subagentActivitySchema = z.strictObject({
+  revision: z.number().int().nonnegative(),
+  running: z.record(z.string(), z.number().int().positive()),
+  since: z.record(z.string(), z.string().max(64)),
+});
+export const subagentActivity = defineRpc({
+  name: "subagents.activity",
+  input: etagInput,
+  output: z.object({ etag: z.string(), value: subagentActivitySchema.optional() }),
+});
 export const archivedSessions = defineRpc({
   name: "sessions.archived",
   input: z.strictObject({ taskId: z.string().min(1).max(200) }),

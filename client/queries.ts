@@ -484,3 +484,21 @@ export function usePrListQuery(projectIds: readonly string[], enabled: boolean) 
     refetchOnWindowFocus: false,
   });
 }
+
+/**
+ * Running provider subagents of idle card sessions (SUBAGENTS-SPEC §10), so a card counts as running while they work.
+ * Read every 5 s only while the board is shown; an etag read, so an unchanged poll carries no value.
+ */
+export const subagentActivityKey = ["flowly", "subagent-activity"] as const;
+export function useSubagentActivity(enabled: boolean) {
+  const read = useRpc(rpc.subagentActivity);
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: subagentActivityKey,
+    queryFn: () => readChanged(client, subagentActivityKey, (etag) => read(etag ? { etag } : {})),
+    enabled,
+    staleTime: 0,
+    refetchInterval: enabled ? 5_000 : false,
+    placeholderData: (previous) => previous,
+  });
+}

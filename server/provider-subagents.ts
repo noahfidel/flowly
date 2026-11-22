@@ -117,8 +117,16 @@ export class ProviderSubagentService {
 
   async list(input: { taskId: string; agentId: string }, paseo: PaseoApi): Promise<{ subagents: ProviderSubagent[]; unavailable: boolean }> {
     await this.check(input, paseo);
+    return this.listFor(input.agentId);
+  }
+
+  /**
+   * The list without the card check, for callers that already know the session is a card's (the board-wide
+   * running check, SUBAGENTS-SPEC §10). Same connection, feature gate and failure rules as `list`.
+   */
+  async listFor(agentId: string): Promise<{ subagents: ProviderSubagent[]; unavailable: boolean }> {
     try {
-      const response = await this.use("providerSubagents", (client) => client.listProviderSubagents(input.agentId, { timeout: REQUEST_TIMEOUT_MS }));
+      const response = await this.use("providerSubagents", (client) => client.listProviderSubagents(agentId, { timeout: REQUEST_TIMEOUT_MS }));
       const subagents = (response.subagents ?? [])
         .map(providerDescriptor)
         .filter((s): s is ProviderSubagent => !!s)

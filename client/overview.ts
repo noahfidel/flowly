@@ -1,8 +1,9 @@
 import type { Project, Task } from "../shared/model";
 import { laneEnabled } from "../shared/lanes";
 import type { AttentionItem } from "./attention";
+import { cardActivities, type ProviderRunning, type RunningAgent } from "../shared/card-running";
 
-type Agent = { workspaceId?: string | null; status: string; archivedAt?: string | null; activeTurn?: { startedAt?: string | null } | null };
+type Agent = RunningAgent;
 
 /**
  * The board's at-a-glance state for its header, over the projects it shows (a group board unfiltered: every live
@@ -14,21 +15,21 @@ export function boardOverview(
   tasks: readonly Task[],
   agents: readonly Agent[],
   attention: readonly AttentionItem[],
+  provider?: ProviderRunning,
 ) {
   const ids = new Set(projects.map((p) => p.id));
   const live = tasks.filter((t) => !t.archivedAt && ids.has(t.projectId));
   const workspaces = new Set(live.map((t) => t.workspaceId));
-  const running = agents.filter(
-    (a) => !a.archivedAt && !!a.workspaceId && workspaces.has(a.workspaceId) && (a.status === "running" || a.status === "initializing"),
-  );
+  // A card runs while a session or one of its subagents runs (SUBAGENTS-SPEC §10).
+  const activity = [...cardActivities(workspaces, agents, provider).values()];
   const mine = attention.filter((i) => ids.has(i.project.id) && !i.task.archivedAt);
   const doneIn = new Set(projects.filter((p) => laneEnabled(p, "done")).map((p) => p.id));
   return {
     total: live.length,
     done: doneIn.size ? live.filter((t) => t.status === "done" && doneIn.has(t.projectId)).length : null,
-    /** Cards with at least one session working, and the number of such sessions. */
-    runningTasks: new Set(running.map((a) => a.workspaceId)).size,
-    runningSessions: running.length,
+    /** Cards with a session or a subagent working (SUBAGENTS-SPEC §10), and the number of working sessions. */
+    runningTasks: activity.filter((a) => a.running).length,
+    runningSessions: activity.reduce((n, a) => n + a.sessions + a.starting, 0),
     /** Cards waiting on you: an open agent question or a permission request. */
     needsYou: mine.filter((i) => i.questions || i.permissions).length,
     unread: mine.filter((i) => i.unread && !i.questions && !i.permissions).length,
@@ -57,7 +58,7 @@ export function overviewRow(
   return { running, needYou, updated, ...(o.prs !== undefined ? { prs } : {}), statusDivider: status || anyTool, toolsDivider: status && anyTool };
 }
 
-/** One row of the running list (DISPATCHER-SPEC §9.2a): a card with a working session. */
+/** One row of the running list (DISPATCHER-SPEC §9.2a): a card with a working session or subagent (SUBAGENTS-SPEC §10). */
 export type RunningRow = {
   taskId: string;
   title: string;
@@ -69,18 +70,19 @@ export type RunningRow = {
   ended: boolean;
 };
 
-const isWorking = (a: Agent) => !a.archivedAt && !!a.workspaceId && (a.status === "running" || a.status === "initializing");
-
-/** Cards (live, in the shown projects) with a working session, oldest run first, ties by id, so a start or stop moves no other row. */
-export function runningRows(projects: readonly Pick<Project, "id">[], tasks: readonly Task[], agents: readonly Agent[]): RunningRow[] {
+/** Cards (live, in the shown projects) with a working session or subagent, oldest run first, ties by id, so a start or stop moves no other row. */
+export function runningRows(
+  projects: readonly Pick<Project, "id">[],
+  tasks: readonly Task[],
+  agents: readonly Agent[],
+  provider?: ProviderRunning,
+): RunningRow[] {
   const ids = new Set(projects.map((p) => p.id));
   const since = new Map<string, string | null>();
-  for (const a of agents) {
-    if (!isWorking(a)) continue;
-    const at = a.activeTurn?.startedAt ?? null;
-    const known = since.get(a.workspaceId!);
-    since.set(a.workspaceId!, known === undefined ? at : known && at && known < at ? known : (at ?? known));
-  }
+  const workspaces = new Set(tasks.filter((t) => !t.archivedAt && ids.has(t.projectId)).map((t) => t.workspaceId));
+  cardActivities(workspaces, agents, provider).forEach((a, workspaceId) => {
+    if (a.running) since.set(workspaceId, a.since);
+  });
   const seen = new Set<string>();
   const rows: RunningRow[] = [];
   for (const t of tasks) {

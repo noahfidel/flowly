@@ -1774,5 +1774,6 @@ const catalog: Catalog = {
   "Gallery": "ギャラリー",
   "Previous image": "前の画像",
   "Next image": "次の画像",
+  "{n} subagents working": "サブエージェント {n} 件が作業中",
 };
 export default catalog;

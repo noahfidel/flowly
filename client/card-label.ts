@@ -36,6 +36,8 @@ export function taskCardLabel(card: {
   legacy: boolean;
   summaryState: "ready" | "loading" | "stale" | "unavailable";
   summary?: SessionAttentionSummary;
+  /** Running subagents of the card's sessions (SUBAGENTS-SPEC §10). */
+  subagents?: number;
   output: CardOutput | null;
   outputTime: string;
 }): string {
@@ -54,6 +56,7 @@ export function taskCardLabel(card: {
     summaryState === "ready" && summary
       ? t("{running} running, {finished} finished turns, {unread} unread sessions, {attention} need attention", { running: summary.running, finished: summary.finished, unread: summary.unread, attention: summary.attention })
       : "",
+    summaryState === "ready" && card.subagents ? tn(card.subagents, "{n} subagent working", "{n} subagents working") : "",
     output ? t(outputTime ? "Latest agent output {time}: {text}" : "Latest agent output: {text}", { time: outputTime ?? "", text: output.text.length > 80 ? output.text.slice(0, 80) + "…" : output.text }) : "",
   ]
     .filter(Boolean)

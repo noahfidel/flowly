@@ -106,6 +106,7 @@ export function TaskCard({
   lane,
   wrapped = false,
   running,
+  subagents = 0,
   sessions,
   summary,
   summaryState = "ready",
@@ -142,6 +143,8 @@ export function TaskCard({
   /** Done/Cancelled and wrapped up: its workspace is archived on purpose, not missing. */
   wrapped?: boolean;
   running: number;
+  /** Running subagents of the card's sessions (SUBAGENTS-SPEC §10): the card runs while they work. */
+  subagents?: number;
   sessions: number;
   summary?: SessionAttentionSummary;
   summaryState?: "ready" | "loading" | "stale" | "unavailable";
@@ -254,8 +257,9 @@ export function TaskCard({
   const actionSize = touch ? 40 : 26;
   const accent = display.priority ? priorityAccent(colors, task.priority) : null;
   const lines = activityLines(display.activity, !!progress?.state, !!output);
-  // A session is working: the card edge carries a slow marquee (MOTION-SPEC, running state).
-  const live = running > 0 || !!(signals?.running || signals?.starting);
+  // A session or one of its subagents is working: the card edge carries a slow marquee (MOTION-SPEC, running state;
+  // SUBAGENTS-SPEC §10).
+  const live = running > 0 || subagents > 0 || !!(signals?.running || signals?.starting);
   return (
     <Animated.View
       {...(drag && !disabled ? pan.panHandlers : {})}
@@ -318,6 +322,7 @@ export function TaskCard({
           legacy,
           summaryState,
           summary,
+          subagents,
           output: output ?? null,
           outputTime,
         })}
@@ -362,6 +367,7 @@ export function TaskCard({
           summary={signals}
           summaryState={summaryState}
           running={running}
+          subagents={subagents}
           sessions={sessions}
           questions={questions}
           ideas={ideas}
@@ -584,6 +590,7 @@ function CardSignals({
   summary,
   summaryState,
   running,
+  subagents,
   sessions,
   questions,
   ideas,
@@ -599,6 +606,7 @@ function CardSignals({
   summary?: SessionAttentionSummary;
   summaryState: "ready" | "loading" | "stale" | "unavailable";
   running: number;
+  subagents: number;
   sessions: number;
   questions: number;
   ideas: number;
@@ -637,6 +645,9 @@ function CardSignals({
             text={summary.starting && !summary.running ? t("{n} starting", { n: summary.starting }) : t("{n} running", { n: summary.running + summary.starting })}
           />,
         );
+      // Only subagents work: the card still runs (SUBAGENTS-SPEC §10; the Subagents chip shows which).
+      else if (subagents)
+        items.push(<Signal key="run" pulse color={stateColors(colors).running} text={tn(subagents, "{n} subagent working", "{n} subagents working")} />);
       // A session with an open question is already shown as "Needs you".
       const unread = Math.max(0, summary.unread - questions - summary.questions);
       if (unread)
@@ -647,7 +658,13 @@ function CardSignals({
         items.push(<Signal key="stale" icon="Clock" text={t("Last known")} />);
     }
   } else if (sessions && display.sessions)
-    items.push(<Signal key="fallback" icon="MessageSquare" text={running ? t("{running}/{sessions} running", { running, sessions }) : `${sessions}`} />);
+    items.push(
+      <Signal
+        key="fallback"
+        icon="MessageSquare"
+        text={running ? t("{running}/{sessions} running", { running, sessions }) : subagents ? tn(subagents, "{n} subagent working", "{n} subagents working") : `${sessions}`}
+      />,
+    );
   const review = visibleReview(task);
   // A running review has its own strip under the card.
   if (review && review.state !== "running")

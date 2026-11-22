@@ -82,7 +82,8 @@ import { waitingOn } from "../shared/links";
 import { LinkPicker } from "./task-links";
 import { TaskDrawer } from "./drawer";
 import { DeleteTaskDialog } from "./task-delete";
-import { useDispatcherItemsQuery, useOverviewQuery, useLiveAgents, useGuardrailCountsQuery, useResolvedAsksQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
+import { useDispatcherItemsQuery, useOverviewQuery, useLiveAgents, useGuardrailCountsQuery, useResolvedAsksQuery, useResourcesQuery, useSubagentActivity, useWorkflowInsightsQuery } from "./queries";
+import { cardActivities, type CardActivity, type ProviderRunning } from "../shared/card-running";
 import { groupOpenIdeaCount } from "./overview-query";
 import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
@@ -246,6 +247,8 @@ const noRunning: RunningRow[] = [];
 const noIds: string[] = [];
 const noAgents: PaseoAgent[] = [];
 const noTurnFacts: ReadonlyMap<string, { latestTurn?: { action: string; at: string } }> = new Map();
+const noProviderRunning: ProviderRunning = { running: {} };
+const noActivity: ReadonlyMap<string, CardActivity> = new Map();
 
 // Module scope: a remounted board must not reopen a modal for a token it already handled.
 const appliedAttentionTokens = new Set<string>();
@@ -560,6 +563,9 @@ function BoardContent(
   const { query: readState, receipts } = useSessionReads(auxiliaryActive);
   const resources = useResourcesQuery({ refetchInterval: 15000, enabled: auxiliaryActive });
   const agents = useLiveAgents({ enabled: auxiliaryActive });
+  // Running subagents of idle card sessions: a card runs while they work (SUBAGENTS-SPEC §10).
+  const subagentActivity = useSubagentActivity(auxiliaryActive);
+  const providerRunning = subagentActivity.data ?? noProviderRunning;
   const width = drawerWidth(preferredShare * (surfaceWidth || 1000), surfaceWidth || 1000);
   // While the drawer is being dragged the board keeps one width, the widest it can have (the
   // drawer overlays it), so columns neither reflow nor leave a blank gap when the drawer narrows.
@@ -971,7 +977,12 @@ function BoardContent(
   const overviewCover = useMemo(() => overviewScope(project, liveProjects), [project, liveProjects]);
   const stepScope = useMemo(() => boardScope(overviewCover.projects.map((p) => p.id)), [overviewCover]);
   // The running list (DISPATCHER-SPEC §9.2a): rows stay in place while it is open; stopped ones grey out until it closes.
-  const runningNow = useMemo(() => runningRows(overviewCover.projects, board?.tasks ?? [], agents.data ?? []), [overviewCover, board?.tasks, agents.data]);
+  const runningNow = useMemo(() => runningRows(overviewCover.projects, board?.tasks ?? noTasks, agents.data ?? noAgents, providerRunning), [overviewCover, board?.tasks, agents.data, providerRunning]);
+  // What runs on each card (SUBAGENTS-SPEC §10): its sessions' turns and its subagents, one pass for every card.
+  const activityByWorkspace = useMemo(
+    () => (board ? cardActivities(new Set(board.tasks.map((t) => t.workspaceId)), agents.data ?? noAgents, providerRunning) : noActivity),
+    [board?.tasks, agents.data, providerRunning],
+  );
   const [runningKept, setRunningKept] = useState<RunningRow[]>(noRunning);
   const runningOpen = menu === "running";
   const runningShown = useMemo(() => (runningOpen ? mergeRunning(runningKept, runningNow) : noRunning), [runningOpen, runningKept, runningNow]);
@@ -1879,7 +1890,7 @@ function BoardContent(
   // card of the lane in the same frame as its animation.
   const cardDerived = useMemo(
     () => new WeakMap<Task, Omit<LiveTaskCardProps, "selected" | "flash" | "drag" | "dragging" | "disabled" | "display" | "onOpen" | "onOpenSession" | "onActions" | "menuFor">>(),
-    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, projectById, allView, waitingIndex, factsByTask, sessionFacts],
+    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, projectById, allView, waitingIndex, factsByTask, sessionFacts, activityByWorkspace],
   );
   const derivedFor = (t: Task) => {
     let derived = cardDerived.get(t);
@@ -1894,7 +1905,8 @@ function BoardContent(
       available: cardIndex.workspaceIds.has(t.workspaceId),
       workspace: cardIndex.workspaceKinds.get(t.workspaceId) ?? null,
       wrapped: (t.status === "done" || t.status === "cancelled") && !!facts?.wrapped,
-      running: sessions.filter((a) => a.status === "running").length,
+      running: activityByWorkspace.get(t.workspaceId)?.sessions ?? 0,
+      subagents: activityByWorkspace.get(t.workspaceId)?.subagents ?? 0,
       sessions: sessions.length,
       summary: sessionAttentionSummaryFromTurns(sessions, t, receipts, sessionFacts.get(t.id) || noTurnFacts),
       summaryState,
@@ -2417,7 +2429,7 @@ function BoardContent(
         {board && overviewCover.projects.length > 0 && (
           <View {...covered}>
           <OverviewBar
-            overview={boardOverview(overviewCover.projects, board.tasks, agents.data || [], attention)}
+            overview={boardOverview(overviewCover.projects, board.tasks, agents.data || noAgents, attention, providerRunning)}
             needYou={needYouCount}
             onNeedYou={startNeeds}
             onRunning={() => setMenu("running")}
