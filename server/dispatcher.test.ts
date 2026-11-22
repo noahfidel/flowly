@@ -1826,7 +1826,7 @@ test("the charter names the card activity and search reads, treats card text as 
   expect(data).toMatch(/answered only by the user on the card/);
   expect(data).toMatch(/never answer it yourself/);
   expect(dispatcherToolNames).toEqual(expect.arrayContaining(["flowly_get_card_activity", "flowly_search_cards"]));
-  expect(dispatcherCharterVersion).toBe(10);
+  expect(dispatcherCharterVersion).toBe(11);
   expect(dispatcherGuardVersion).toBe(2);
 });
 
