@@ -2,6 +2,7 @@ import { z } from "zod";
 import { firstObject } from "./summary";
 import { outputLanguageRule } from "./ai-language";
 import type { LocaleCode } from "./i18n";
+import { AUTH_HEADER, TOKEN_SHAPES } from "./secrets";
 
 /** Project memory (PROJECT-MEMORY-SPEC): user-confirmed knowledge shared across a project's cards. */
 
@@ -120,11 +121,13 @@ export const titleKey = (title: string) => title.trim().toLowerCase();
  * workflow-insights redaction, plus common token prefixes; a long run of
  * characters counts unless it is a hex commit id.
  */
+const memoryHeader = new RegExp(`${AUTH_HEADER}\\S{8,}`, "i");
+const memoryTokens = new RegExp(`\\b(?:${TOKEN_SHAPES})`);
+
 export function containsSecret(value: string): boolean {
-  if (/(Authorization:\s*(?:Bearer|Basic|token))\s+\S{8,}/i.test(value)) return true;
+  if (memoryHeader.test(value)) return true;
   if (/\b[A-Za-z_][A-Za-z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD)[A-Za-z0-9_]*\s*[=:]\s*["']?[^\s"'<>]{8,}/i.test(value)) return true;
-  if (/\b(?:eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_.-]+|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{16,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})/.test(value))
-    return true;
+  if (memoryTokens.test(value)) return true;
   for (const run of value.match(/[A-Za-z0-9_+=-]{40,}/g) || []) if (!/^[0-9a-f]+$/i.test(run) && /\d/.test(run) && /[A-Za-z]/.test(run)) return true;
   return false;
 }

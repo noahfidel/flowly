@@ -4,6 +4,7 @@ import { firstObject } from "./summary";
 import { dayKey } from "./insights";
 import { outputLanguageRule } from "./ai-language";
 import type { LocaleCode } from "./i18n";
+import { AUTH_HEADER, SECRET_NAME, TOKEN_SHAPES } from "./secrets";
 
 /**
  * Workflow insights (WORKFLOW-INSIGHTS-SPEC): a log of the shell commands agents
@@ -102,6 +103,10 @@ export type CommandRecord = z.infer<typeof commandRecordSchema>;
 
 export type RedactContext = { repo: string; home: string };
 
+const redactHeader = new RegExp(`${AUTH_HEADER}\\S+`, "gi");
+const redactAssignment = new RegExp(`\\b(${SECRET_NAME})=("[^"]*"|'[^']*'|\\S+)`, "gi");
+const redactTokens = new RegExp(`\\b(${TOKEN_SHAPES})`, "g");
+
 /** Secrets, credentials and personal paths never reach the log or the model (§3.2). */
 export function redact(text: string, ctx: RedactContext): string {
   let s = text;
@@ -110,9 +115,9 @@ export function redact(text: string, ctx: RedactContext): string {
   return s
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "<email>")
     .replace(/(https?:\/\/)[^@\s/]+@/g, "$1<cred>@")
-    .replace(/(Authorization:\s*(?:Bearer|Basic|token))\s+\S+/gi, "$1 <secret>")
-    .replace(/\b([A-Za-z_][A-Za-z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|AUTH)[A-Za-z0-9_]*)=("[^"]*"|'[^']*'|\S+)/gi, "$1=<v>")
-    .replace(/\b(eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_.-]+|gh[pousr]_[A-Za-z0-9]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[abprs]-[A-Za-z0-9-]{10,})/g, "<secret>")
+    .replace(redactHeader, "$1 <secret>")
+    .replace(redactAssignment, "$1=<v>")
+    .replace(redactTokens, "<secret>")
     // No "/": long slash-separated paths are context, not secrets.
     .replace(/[A-Za-z0-9_+=-]{40,}/g, "<secret>")
     // No lookbehind: the client loads this module too, and older Hermes rejects it.
