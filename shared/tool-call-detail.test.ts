@@ -129,6 +129,59 @@ test("credential-named values are masked in every common form", () => {
   expect(JSON.parse(view.args!)).toEqual({ headers: { Authorization: "<secret>", "x-api-key": "<secret>" }, password: "<secret>", pin: 12, "<secret>": 1 });
 });
 
+test("brackets after an assignment are structure, not a value", () => {
+  expect(maskSecrets("const key = {\n  a: 1,\n};")).toBe("const key = {\n  a: 1,\n};");
+  expect(maskSecrets("const tokens = [a, b];")).toBe("const tokens = [a, b];");
+  expect(maskSecrets("const auth = (x) => x;")).toBe("const auth = (x) => x;");
+  // The second pass over JSON keeps an array under a credential key intact (the walker masked its leaves).
+  const view = toolCallView(call({ type: "unknown", input: { Authorization: ["Bearer abcdefgh", "x"] }, output: null }));
+  expect(JSON.parse(view.args!)).toEqual({ Authorization: ["<secret>", "<secret>"] });
+});
+
+test("the walker masks credential subtrees, lone schemes, header pairs and name/value entries", () => {
+  const view = toolCallView(
+    call({
+      type: "unknown",
+      input: {
+        Authorization: { scheme: "Bearer", parts: ["abc", 12], ok: true, none: "" },
+        header: "Bearer abcdefghijk",
+        basic: "basic dXNlcjpwYXNz",
+        pairs: [["Authorization", "Bearer abc"], ["Accept", "json"]],
+        env: [
+          { name: "DB_PASSWORD", value: "hunter2" },
+          { name: "PATH", value: "/usr/bin" },
+          { key: "API_TOKEN", value: ["t1"] },
+        ],
+        note: "use a bearer token",
+      },
+      output: null,
+    }),
+  );
+  expect(JSON.parse(view.args!)).toEqual({
+    Authorization: { scheme: "<secret>", parts: ["<secret>", "<secret>"], ok: true, none: "" },
+    header: "<secret>",
+    basic: "<secret>",
+    pairs: [["Authorization", "<secret>"], ["Accept", "json"]],
+    env: [
+      { name: "DB_PASSWORD", value: "<secret>" },
+      { name: "PATH", value: "/usr/bin" },
+      { key: "<secret>", value: ["<secret>"] },
+    ],
+    // Only a string that starts with a scheme is masked whole ("token budget" would be, by design).
+    note: "use a bearer token",
+  });
+});
+
+test("masking a wide raw input stops at the shown length", () => {
+  const input = Object.fromEntries(Array.from({ length: 6_000 }, (_, i) => [`k${i}`, "-eyJ".repeat(2_200)]));
+  const start = Date.now();
+  const view = toolCallView(call({ type: "unknown", input, output: input }));
+  expect(Date.now() - start).toBeLessThan(1000);
+  expect(view.argsTruncated).toBe(true);
+  expect(view.resultTruncated).toBe(true);
+  expect(view.args!.length).toBe(TOOL_ARGS_MAX);
+});
+
 test("masking stays fast on long word runs", () => {
   const long = "aKEY".repeat(50_000);
   let start = Date.now();

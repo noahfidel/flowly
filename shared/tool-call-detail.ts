@@ -51,35 +51,75 @@ const LEAF_MAX = TOOL_ARGS_MAX + 512;
 const TREE_MAX_NODES = 5_000;
 const TREE_MAX_DEPTH = 24;
 
+/** A string that is an auth header value on its own: `Bearer …`, `Basic …`, `token …`. */
+const schemeValue = /^(?:Bearer|Basic|token)\s+\S/i;
+const SECRET = "<secret>";
+
 /**
  * A raw input or output with every string leaf and key masked before it becomes JSON, so a token after an
- * escaped newline cannot slip past the text masker, and a credential-named key's value (`"password"`,
- * `"x-api-key"`, `"Authorization"`) becomes `<secret>` whatever it holds.
+ * escaped newline cannot slip past the text masker. Whatever sits under a credential-named key (`"password"`,
+ * `"x-api-key"`, `"Authorization"`), including every leaf of an array or object there, becomes `<secret>`; so do
+ * a lone `Bearer …` string, the second item of a `["Authorization", "…"]` pair, and the `value` of a
+ * `{ name|key: "DB_PASSWORD", value: "…" }` entry.
+ *
+ * `budget` caps the masked characters: once the leaves masked so far pass it (the text is clipped below it
+ * anyway), every later leaf is `…`, so a wide input costs no more to mask than the text that is shown.
  */
-function maskTree(value: unknown): unknown {
+function maskTree(value: unknown, budget: number): unknown {
   let nodes = 0;
-  const walk = (node: unknown, depth: number): unknown => {
-    if (++nodes > TREE_MAX_NODES || depth > TREE_MAX_DEPTH) return "…";
-    if (typeof node === "string") return maskSecrets(node.length > LEAF_MAX ? clip(node, LEAF_MAX) : node);
-    if (!node || typeof node !== "object") return node;
-    if (Array.isArray(node)) return node.map((item) => walk(item, depth + 1));
-    const out: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(node as Record<string, unknown>)) {
-      const name = maskSecrets(key.length > 300 ? clip(key, 300) : key);
-      out[name] =
-        isCredentialName(key) && ((typeof item === "string" && item.length > 0) || typeof item === "number") ? "<secret>" : walk(item, depth + 1);
+  let used = 0;
+  const spent = () => ++nodes > TREE_MAX_NODES || used >= budget;
+  const leaf = (text: string) => {
+    const cut = Math.min(LEAF_MAX, budget - used);
+    const masked = schemeValue.test(text) ? SECRET : maskSecrets(text.length > cut ? clip(text, cut) : text);
+    used += masked.length;
+    return masked;
+  };
+  const key = (name: string) => {
+    const masked = maskSecrets(name.length > 300 ? clip(name, 300) : name);
+    used += masked.length;
+    return masked;
+  };
+  /** Every scalar of a credential's subtree is `<secret>`; empty strings, booleans and null stay. */
+  const secret = (node: unknown, depth: number): unknown => {
+    if (spent() || depth > TREE_MAX_DEPTH) return "…";
+    if ((typeof node === "string" && node.length > 0) || typeof node === "number") {
+      used += SECRET.length;
+      return SECRET;
     }
+    if (!node || typeof node !== "object") return node;
+    if (Array.isArray(node)) return node.map((item) => secret(item, depth + 1));
+    const out: Record<string, unknown> = {};
+    for (const [name, item] of Object.entries(node as Record<string, unknown>)) out[key(name)] = secret(item, depth + 1);
+    return out;
+  };
+  const credentialString = (item: unknown) => typeof item === "string" && isCredentialName(item);
+  const walk = (node: unknown, depth: number): unknown => {
+    if (spent() || depth > TREE_MAX_DEPTH) return "…";
+    if (typeof node === "string") return leaf(node);
+    if (!node || typeof node !== "object") return node;
+    if (Array.isArray(node)) {
+      // A header pair: ["Authorization", "Bearer …"].
+      if (node.length === 2 && credentialString(node[0])) return [walk(node[0], depth + 1), secret(node[1], depth + 1)];
+      return node.map((item) => walk(item, depth + 1));
+    }
+    const record = node as Record<string, unknown>;
+    // A name/value entry: { name: "DB_PASSWORD", value: "…" } (or `key`).
+    const named = "value" in record && (credentialString(record.name) || credentialString(record.key));
+    const out: Record<string, unknown> = {};
+    for (const [name, item] of Object.entries(record))
+      out[key(name)] = isCredentialName(name) || (named && name === "value") ? secret(item, depth + 1) : walk(item, depth + 1);
     return out;
   };
   return walk(value, 0);
 }
 
-/** A value as readable text: strings as they are, anything else as indented JSON with its leaves masked. */
-function asText(value: unknown): string | undefined {
+/** A value as readable text: strings as they are, anything else as indented JSON with its leaves masked (up to `max` + margin characters). */
+function asText(value: unknown, max = TOOL_ARGS_MAX): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value === "string") return value || undefined;
   try {
-    const json = JSON.stringify(maskTree(value), null, 2);
+    const json = JSON.stringify(maskTree(value, max + MASK_MARGIN), null, 2);
     return json === "{}" || json === "[]" ? undefined : json;
   } catch {
     return String(value);
@@ -95,17 +135,17 @@ function outputText(output: unknown): string | undefined {
         part && typeof part === "object" && typeof (part as Record<string, unknown>).text === "string" ? [(part as { text: string }).text] : [],
       );
       if (texts.length) return texts.join("\n");
-      if (structuredContent !== undefined) return asText(structuredContent);
+      if (structuredContent !== undefined) return asText(structuredContent, TOOL_RESULT_MAX);
     }
   }
-  return asText(output);
+  return asText(output, TOOL_RESULT_MAX);
 }
 
 function errorText(error: unknown): string | undefined {
   if (error === undefined || error === null) return undefined;
   if (typeof error === "string") return error || undefined;
   if (typeof error === "object" && typeof (error as Record<string, unknown>).message === "string") return (error as { message: string }).message;
-  return asText(error);
+  return asText(error, TOOL_RESULT_MAX);
 }
 
 type Sections = { label?: string; args?: string; edits?: { old?: string; new?: string }[]; result?: string; resultError?: boolean; exitCode?: number | null };

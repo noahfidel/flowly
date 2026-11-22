@@ -37,7 +37,9 @@ const urlCredentials = /(^|[^A-Za-z0-9+.-])([a-z][a-z0-9+.-]*:\/\/)[^@\s/]+@/gi;
  * `name=value`, `name: value`, `"name": "value"` (JSON, YAML, shell, env). The value is a quoted string (any
  * content, one line) or an unquoted run; whether the name is a credential's is decided in the replacer.
  */
-const assignment = /(^|[^A-Za-z0-9_-])([A-Za-z0-9_-]+)(["']?[ \t]*[=:][ \t]*)("[^"\n]*"|'[^'\n]*'|[^\s"',;}\]=][^\s"',;}\]]*)/g;
+// An unquoted value never starts with `{`, `[` or `(`: `const key = {`, `tokens = [a, b]` and a JSON `"Authorization": [`
+// are structure, not a value.
+const assignment = /(^|[^A-Za-z0-9_-])([A-Za-z0-9_-]+)(["']?[ \t]*[=:][ \t]*)("[^"\n]*"|'[^'\n]*'|[^\s"',;}\]={[(][^\s"',;}\]]*)/g;
 /*
  * A token after a non-alphanumeric character or a JSON escape (`\n`, `\t`, `A`), which a `\b` would miss.
  * The shapes' open-ended runs are bounded here, so text like `-eyJ-eyJ-eyJ…` cannot make every start scan to the end.
