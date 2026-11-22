@@ -34,7 +34,7 @@ export const TAIL_TEXT_MAX = 12_000;
 export const TAIL_REASONING_MAX = 2_000;
 
 const str = (value: unknown) => (typeof value === "string" ? value : undefined);
-const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
+export const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
 
 /** Whether a tool call's result is an error: MCP's `isError`, or Flowly's `structuredContent.error`. */
 function erroredOutput(output: unknown): boolean {

@@ -61,6 +61,7 @@ import {
 import { summaryEntrySchema, summaryOverviewSchema } from "./summary";
 import { taskUsageSchema } from "./usage";
 import { TURN_MAX_ENTRIES, tailPageSchema, timelineCursorSchema } from "./session-tail";
+import { toolCallDetailSchema } from "./tool-call-detail";
 import { providerSubagentSchema } from "./subagents";
 import { digestViewSchema } from "./digest";
 import { memoryInputFields, memoryKeywordsSchema, memoryKinds, memoryTagsSchema } from "./memory";
@@ -946,6 +947,22 @@ export const sessionTail = defineRpc({
     maxEntries: z.number().int().min(1).max(TURN_MAX_ENTRIES).optional(),
   }),
   output: tailPageSchema,
+});
+/**
+ * One tool call's arguments and result, read when the user expands its step (SESSION-PANE-SPEC §1.3): masked and
+ * clipped, never part of `sessions.tail`. `seq`/`epoch` are the step's place in the loaded timeline; without them,
+ * or when the call is not there, the newest page is searched. `found: false` when the call is no longer there.
+ */
+export const sessionToolCall = defineRpc({
+  name: "sessions.tool-call",
+  input: z.strictObject({
+    taskId: z.string().min(1).max(200),
+    agentId: z.string().min(1).max(200),
+    callId: z.string().min(1).max(500),
+    seq: z.number().int().optional(),
+    epoch: z.string().min(1).max(200).optional(),
+  }),
+  output: toolCallDetailSchema,
 });
 /** A card session's provider subagents (SUBAGENTS-SPEC §9.2); `unavailable` when the daemon cannot say. */
 export const providerSubagents = defineRpc({

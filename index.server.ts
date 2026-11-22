@@ -320,6 +320,7 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.archivedSessions, (input, { paseo }) => archived.list(input.taskId, paseo));
   server.handle(rpc.archivedSessionRefs, (_, { paseo }) => archived.refs(paseo));
   server.handle(rpc.sessionTail, (input, { paseo }) => tails.tail(input, paseo));
+  server.handle(rpc.sessionToolCall, (input, { paseo }) => tails.toolCall(input, paseo));
   const providerSubagents = new ProviderSubagentService(store);
   server.handle(rpc.providerSubagents, (input, { paseo }) => providerSubagents.list(input, paseo));
   server.handle(rpc.providerSubagentTail, (input, { paseo }) => providerSubagents.tail(input, paseo));

@@ -167,3 +167,46 @@ test("before and after read one page next to the cursor; a stale cursor asks for
   const stale = await pagingSetup((async () => ({ agent: { id: "a", workspaceId: "w" }, epoch: "e2", entries: [], staleCursor: true })) as never);
   await expect(stale.service.tail({ taskId: "t", agentId: "a", limit: 5, mode: "after", cursor: { epoch: "e1", seq: 3 } }, stale.paseo)).resolves.toEqual({ entries: [], epoch: "e2", reset: true });
 });
+
+/** A timeline of tool calls `c1`…`cN` at seqs 1…N, each a shell command; `workspace` is the agent's. */
+function callTimeline(count: number, workspace = "w", epoch = "e1") {
+  const all = Array.from({ length: count }, (_, i) => ({
+    seqStart: i + 1,
+    seqEnd: i + 1,
+    item: { type: "tool_call", callId: `c${i + 1}`, name: "Bash", status: "completed", detail: { type: "shell", command: `echo ${i + 1}`, output: `${i + 1}` } },
+  }));
+  return async (options: { direction: string; limit: number; cursor?: { epoch: string; seq: number } }) => {
+    const base = { agent: { id: "a", workspaceId: workspace }, epoch };
+    if (options.cursor && options.cursor.epoch !== epoch) return { ...base, entries: [], staleCursor: true };
+    if (options.direction === "tail") return { ...base, entries: all.slice(-options.limit) };
+    return { ...base, entries: all.filter((e) => e.seqEnd > options.cursor!.seq).slice(0, options.limit) };
+  };
+}
+
+test("toolCall reads one call's details at its place in the timeline", async () => {
+  const x = await pagingSetup(callTimeline(300) as never);
+  await expect(x.service.toolCall({ taskId: "t", agentId: "a", callId: "c42", seq: 42, epoch: "e1" }, x.paseo)).resolves.toEqual({
+    found: true,
+    args: "echo 42",
+    result: "42",
+  });
+  expect(x.calls).toEqual([{ direction: "after", cursor: { epoch: "e1", seq: 41 }, limit: 4, projection: "projected" }]);
+});
+
+test("toolCall falls back to the newest page and says when the call is gone", async () => {
+  const x = await pagingSetup(callTimeline(300) as never);
+  // Without a place: the newest page.
+  await expect(x.service.toolCall({ taskId: "t", agentId: "a", callId: "c290" }, x.paseo)).resolves.toMatchObject({ found: true, args: "echo 290" });
+  // A wrong place: the newest page is searched too.
+  await expect(x.service.toolCall({ taskId: "t", agentId: "a", callId: "c299", seq: 10, epoch: "e1" }, x.paseo)).resolves.toMatchObject({ found: true, args: "echo 299" });
+  await expect(x.service.toolCall({ taskId: "t", agentId: "a", callId: "nope", seq: 10, epoch: "e1" }, x.paseo)).resolves.toEqual({ found: false });
+  await expect(x.service.toolCall({ taskId: "t", agentId: "a", callId: "c5" }, x.paseo)).resolves.toEqual({ found: false });
+  // A rewritten timeline (another epoch).
+  await expect(x.service.toolCall({ taskId: "t", agentId: "a", callId: "c42", seq: 42, epoch: "old" }, x.paseo)).resolves.toEqual({ found: false });
+});
+
+test("toolCall refuses sessions of another workspace and unknown cards", async () => {
+  const x = await pagingSetup(callTimeline(10, "other") as never);
+  await expect(x.service.toolCall({ taskId: "t", agentId: "a", callId: "c1", seq: 1, epoch: "e1" }, x.paseo)).rejects.toThrow(/different workspace/);
+  await expect(x.service.toolCall({ taskId: "missing", agentId: "a", callId: "c1" }, x.paseo)).rejects.toThrow(/Task not found/);
+});
