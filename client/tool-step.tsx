@@ -48,7 +48,8 @@ export const ToolStep = memo(function ToolStep({
     queryKey: toolCallKey(loader.scope, callId, status ?? ""),
     queryFn: () => loader.load(callId, seq),
     enabled: open,
-    staleTime: Infinity,
+    // A call that was not found (timeline rewritten, or not reached yet) is read again on the next expand.
+    staleTime: (q) => (q.state.data?.found === false ? 0 : Infinity),
     // A finished call's details replace the running ones without a loading flash.
     placeholderData: keepPreviousData,
     retry: false,
@@ -151,6 +152,14 @@ function ResultSection({ detail }: { detail: ToolCallDetail }) {
   const result = detail.result !== undefined ? (more ? { text: detail.result, truncated: false } : previewText(detail.result, PREVIEW_LINES, PREVIEW_CHARS)) : undefined;
   const exit = detail.exitCode !== undefined && detail.exitCode !== null ? t("Exit {code}", { code: detail.exitCode }) : undefined;
   const failed = detail.resultError || (detail.exitCode !== undefined && detail.exitCode !== null && detail.exitCode !== 0);
+  // Only an exit code, no output: shown on its own line, with nothing to expand.
+  if (result === undefined)
+    return (
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], minHeight: touch ? 32 : 22 }}>
+        <Label muted size={font.xs} medium selectable={false}>{t("Result")}</Label>
+        {!!exit && <Label size={font.xs} color={failed ? colors.statusDanger : colors.foregroundMuted} selectable={false}>{`· ${exit}`}</Label>}
+      </View>
+    );
   return (
     <View style={{ gap: space[1], minWidth: 0 }}>
       <Pressable
@@ -168,19 +177,17 @@ function ResultSection({ detail }: { detail: ToolCallDetail }) {
         )}
       </Pressable>
       <Collapse open={open} id="result">
-        {result !== undefined && (
-          <View style={{ gap: space[1], minWidth: 0 }}>
-            <DetailBox scroll={false}>
-              <Code color={detail.resultError ? colors.statusDanger : undefined}>{result.text}</Code>
-            </DetailBox>
-            {(more || result.truncated) && (
-              <View style={{ alignSelf: "flex-start" }}>
-                <Toggle open={more} onPress={() => setMore(!more)} />
-              </View>
-            )}
-            {detail.resultTruncated && <ClippedNote />}
-          </View>
-        )}
+        <View style={{ gap: space[1], minWidth: 0 }}>
+          <DetailBox scroll={false}>
+            <Code color={detail.resultError ? colors.statusDanger : undefined}>{result.text}</Code>
+          </DetailBox>
+          {(more || result.truncated) && (
+            <View style={{ alignSelf: "flex-start" }}>
+              <Toggle open={more} onPress={() => setMore(!more)} />
+            </View>
+          )}
+          {detail.resultTruncated && <ClippedNote />}
+        </View>
       </Collapse>
     </View>
   );
