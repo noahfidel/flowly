@@ -114,3 +114,13 @@ export function mineNote(allRows: readonly PrListRow[]): "none" | "noLogin" | nu
   const own = rows.filter((r) => r.kind !== "review");
   return own.length && own.every((r) => r.mine === null) ? "noLogin" : "none";
 }
+
+/**
+ * Whether the list read (`prs.list`) runs, and whether its arrival refreshes the overview (PR-MENU-SPEC D23): while the
+ * menu is open, or while the board shows a visible PR, so the chip's yours count shows without opening the menu. Every
+ * arrival refreshes the overview, because that read is what fills the daemon's "yours" index (D20).
+ */
+export function prListRead(input: { open: boolean; prs: number }): { enabled: boolean; refreshOnArrival: boolean } {
+  const enabled = input.open || input.prs > 0;
+  return { enabled, refreshOnArrival: enabled };
+}

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Status } from "../shared/model";
-import { hiddenPrRows, isOwnPr, mineNote, prChipText, prCount, prRowTitle, prRowDetail, prSections, type PrListRow } from "./pr-list";
+import { hiddenPrRows, isOwnPr, mineNote, prChipText, prCount, prListRead, prRowTitle, prRowDetail, prSections, type PrListRow } from "./pr-list";
 
 /** The pull requests menu (PR-MENU-SPEC §1 D5, §2.3): sections, their order and each row's text. */
 
@@ -139,4 +139,11 @@ test("the chip shows the yours count after a person icon only when it is above 0
   expect(prChipText(1, 1)).toEqual({ text: "1 PR", mine: "1 yours", label: "Show 1 pull request, 1 yours", tooltip: "Show 1 pull request, 1 yours" });
   expect(prChipText(8, 0)).toEqual({ text: "8 PRs", mine: null, label: "Show 8 pull requests", tooltip: null });
   expect(prChipText(1, 0)).toEqual({ text: "1 PR", mine: null, label: "Show 1 pull request", tooltip: null });
+});
+
+/** D23: the board reads the list on load when it shows a visible PR, so the chip's yours part needs no menu open. */
+test("prListRead reads while closed only when the board shows a visible PR", () => {
+  expect(prListRead({ open: false, prs: 3 })).toEqual({ enabled: true, refreshOnArrival: true });
+  expect(prListRead({ open: false, prs: 0 })).toEqual({ enabled: false, refreshOnArrival: false });
+  expect(prListRead({ open: true, prs: 0 })).toEqual({ enabled: true, refreshOnArrival: true });
 });

@@ -15,6 +15,11 @@
 - Checks (Node 26.5.1, at `b0247f9`): `npm run typecheck` exit 0; `npm test` exit 0, 240 files passed (1 skipped), 2912 tests passed, 7 skipped. One earlier full run had one failure that did not repeat on rerun.
 - Not run: plugin install/reload and a live card with a background Agent-tool subagent or a helper-workspace child; phone UI.
 
+## Board: PR chip shows yours without opening the menu — 2026-11-23
+
+- Fix (D23, user ruling 2026-11-23, PR-MENU-SPEC): the chip's yours count appeared only after the PR menu had been opened, because only the menu's `prs.list` read fills the daemon's yours index. The board now runs that read once on load while it shows a visible PR (`warm` prop on `PrMenu`, `prListRead` in `client/pr-list.ts`) and refreshes the overview when it arrives. Client only; no server change.
+- Tests/i18n: `client/pr-list.test.ts` covers `prListRead`. No new strings. Onboarding, What's new, telemetry: none.
+
 ## Board: PR chip says "yours" again — 2026-11-23
 
 - Change (D22, user request 2026-11-23, PR-MENU-SPEC): after the person icon the PR chip reads "3 yours" instead of the bare number: [PR icon] 8 PRs [person icon] 3 yours. `prChipText` returns `mine` as that text; label, hover hint and the 0 case are unchanged.

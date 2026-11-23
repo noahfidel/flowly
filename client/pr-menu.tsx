@@ -15,7 +15,7 @@ import { Button, IconButton, Label, Row, Theme, Toggle, font, noFocusRing, space
 import { stateColors } from "./state-colors";
 import { openQuickLink } from "./quick-links-row";
 import { usePrListQuery } from "./queries";
-import { hiddenPrRows, isOwnPr, mineNote, prRowDetail, prRowTitle, prSections, type PrListRow, type PrSectionId } from "./pr-list";
+import { hiddenPrRows, isOwnPr, mineNote, prListRead, prRowDetail, prRowTitle, prSections, type PrListRow, type PrSectionId } from "./pr-list";
 import { useStableCallback } from "./stable";
 import { useBoardView } from "./board-view";
 
@@ -29,11 +29,12 @@ type ShownRow = { hidden: boolean; key: string; taskId: string; url: string; sta
 
 /**
  * The board's pull requests menu (PR-MENU-SPEC §2): the PRs of the cards in the projects the board shows, in three
- * sections. A row opens its card; its trailing button opens the PR in the browser. Read when it opens (§3.2); the
+ * sections. A row opens its card; its trailing button opens the PR in the browser. Read when it opens, or on load while a PR is shown (§3.2, D23); the
  * rows keep the cards' titles and lanes from that moment, so nothing moves while it is open.
  */
 export function PrMenu({
   open,
+  warm,
   projects,
   tasks,
   theme,
@@ -43,6 +44,8 @@ export function PrMenu({
   onListed,
 }: {
   open: boolean;
+  /** The board shows a visible PR: read the list once on load so the chip's yours count shows without opening the menu (D23). */
+  warm: boolean;
   /** The projects the board shows now (its filtered project, else every live member of the group shown). */
   projects: readonly Project[];
   tasks: readonly Task[];
@@ -55,7 +58,8 @@ export function PrMenu({
   onListed(): void;
 }) {
   const ids = useMemo(() => projects.slice(0, maxProjects).map((p) => p.id), [projects]);
-  const query = usePrListQuery(ids, open);
+  const read = prListRead({ open, prs: warm ? 1 : 0 });
+  const query = usePrListQuery(ids, read.enabled);
   const rows = query.data?.rows ?? noRows;
   // Read when the list arrives or the menu opens, not on every overview poll.
   const board = useRef({ tasks, projects });
@@ -65,10 +69,10 @@ export function PrMenu({
   const changed = useStableCallback(() => onListed());
   const refreshed = useRef(0);
   useEffect(() => {
-    if (!open || !listedAt || refreshed.current === listedAt) return;
+    if (!read.refreshOnArrival || !listedAt || refreshed.current === listedAt) return;
     refreshed.current = listedAt;
     changed();
-  }, [open, listedAt, changed]);
+  }, [read.refreshOnArrival, listedAt, changed]);
   const view = useBoardView();
   const mine = view.values?.prMine ?? false;
   const { sections, hiddenList, note } = useMemo(() => {

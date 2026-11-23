@@ -2980,7 +2980,7 @@ function BoardContent(
             </Theme.Provider>
           </Modal.Content>
         </Modal>
-        <PrMenu open={menu === "prs"} projects={overviewCover.projects} tasks={board?.tasks ?? noTasks} theme={props.theme} onClose={closeMenu} onOpenCard={openTaskById} onChanged={refresh} onListed={() => void overviewData.refetch()} />
+        <PrMenu open={menu === "prs"} warm={prCounts.shown > 0} projects={overviewCover.projects} tasks={board?.tasks ?? noTasks} theme={props.theme} onClose={closeMenu} onOpenCard={openTaskById} onChanged={refresh} onListed={() => void overviewData.refetch()} />
         {/* board-groups 3/7: Add group and Delete group…; Group settings is its own page. */}
         {groupDialog?.kind === "add" && (
           <GroupNameDialog
