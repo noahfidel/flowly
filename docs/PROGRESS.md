@@ -1,5 +1,10 @@
 # Implementation progress
 
+## Card chat: a tool step's result opens with its arguments — 2026-11-22
+
+- Change (user request, ruling 2026-11-22 in SESSION-PANE-SPEC §1.3): the separate, collapsed Result toggle is gone. Expanding a step shows its arguments and result together, with the Result heading (and `· Exit <code>`) under the arguments and one Show more / Show less at the end of the step. Result preview is 6 lines / 750 characters; arguments stay 12 / 1 500, edit sides 6 / 750.
+- Shared: `toolStepPreview` and the preview limits moved to `shared/tool-call-detail.ts` (tests: result cut and `canToggle`, plus an MCP and shell result masking test). Client: `ResultSection` in `client/tool-step.tsx` has no state of its own. i18n: no new or unused strings.
+
 ## Card chat: tool steps expand to their arguments and result (branch `kanban/show-tool-call-arguments-in-the-card-ses-9eb758`) — 2026-11-22
 
 - Feature (user request 2026-11-18; rulings 2026-11-22: arguments and result, no Expand all): in a card session's chat each tool step in an expanded activity block expands on its own to its arguments; the result sits under its own collapsed Result toggle (SESSION-PANE-SPEC §1.3). Dispatcher chat, provider subagent transcripts and the tour keep plain steps.
