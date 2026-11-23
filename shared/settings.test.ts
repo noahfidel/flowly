@@ -75,9 +75,13 @@ test("card display options default to auto and all shown; a bad value does not r
   expect(boardViewValues({ drawerShare: 0.62 }).drawerShare).toBe(0.62);
   // The Linear board's layout and scope (LINEAR-BOARD-SPEC §4): an unknown layout falls back to auto.
   expect(boardViewValues({ linearLayout: "grid", linearScope: "team-1" })).toMatchObject({ linearLayout: "auto", linearScope: "team-1", linearHidden: [] });
-  // Hidden status columns; an unknown column drops the list back to none hidden.
+  // Hidden status lanes; a malformed list drops back to none hidden.
   expect(boardViewValues({ linearHidden: ["completed", "canceled"] }).linearHidden).toEqual(["completed", "canceled"]);
-  expect(boardViewValues({ linearHidden: ["done"] }).linearHidden).toEqual([]);
+  // Lane keys are lowercased state names; legacy values stay harmless.
+  expect(boardViewValues({ linearHidden: ["in review", "awaiting deploy", "started"] }).linearHidden).toEqual(["in review", "awaiting deploy", "started"]);
+  expect(boardViewValues({ linearHidden: [""] }).linearHidden).toEqual([""]);
+  expect(boardViewValues({ linearHidden: [1] }).linearHidden).toEqual([]);
+  expect(boardViewValues({ linearHidden: ["x".repeat(101)] }).linearHidden).toEqual([]);
   expect(boardViewValues({ boardSort: "priority", drawerShare: 1.5 })).toMatchObject({ boardSort: "priority", drawerShare: 0 });
   expect(boardViewValues({ drawerWidth: 1290 })).not.toHaveProperty("drawerWidth");
   expect(boardViewValues({ drawerOpen: { workpad: "no" } })).toMatchObject({ memoryKind: "all", memorySort: "newest", memoryLayout: "list" });

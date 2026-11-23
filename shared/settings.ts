@@ -5,7 +5,6 @@ import { priorities, statusSchema, statuses, taskTypes } from "./model";
 import { languageChoices, localeCodes } from "./i18n";
 import { aiLanguageChoices } from "./ai-language";
 import { cardActivityModes } from "./card-display";
-import { linearColumns } from "./linear-board";
 import { defaultDeliveryMode, deliveryModes } from "./delivery-mode";
 import { agentModelSchema } from "./agent-defaults";
 import { memoryKinds } from "./memory";
@@ -76,8 +75,8 @@ export const boardViewSettings = defineSettings({
     /** The Linear board's scope: "me" (Assigned to me) or a team id. */
     linearScope: z.string().max(200).catch("me").default("me"),
     prMine: z.boolean().catch(false).default(false),
-    /** Status columns the Linear board's filter hides. */
-    linearHidden: z.array(z.enum(linearColumns)).max(5).catch([]).default([]),
+    /** Status lanes the Linear board's filter hides: lowercased state names (older stored state types match nothing). */
+    linearHidden: z.array(z.string().max(100)).max(100).catch([]).default([]),
     /** Card sidebar width as last dragged, as a share of the Flowly area; 0 = never dragged, opens at half (UI-UX-SPEC, drawer width). */
     drawerShare: z.number().min(0).max(1).catch(0).default(0),
     /** The dispatcher chat minimized on desktop; it starts open (DISPATCHER-SPEC §9.3). */

@@ -1434,6 +1434,7 @@ const catalog: Catalog = {
   "Assigned to me": "나에게 할당됨",
   "Scope: {scope}": "범위: {scope}",
   "No issues in this view.": "이 보기에 이슈가 없습니다.",
+  "No state": "상태 없음",
   "Showing the {n} most recently updated issues.": "최근 업데이트된 이슈 {n}개를 표시합니다.",
   "Start card": "카드 시작",
   "Preview {key}: {title}": "{key} 미리보기: {title}",

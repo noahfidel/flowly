@@ -935,7 +935,7 @@ export default function contribute(host: PluginServerContext) {
     const since = input.recentDays ? new Date(Date.now() - input.recentDays * 86_400_000).toISOString() : undefined;
     const [found, data] = await Promise.all([connectors.linearBoard({ connectionId: input.connectionId, teamId: input.teamId, since }), store.read()]);
     const cards = linearCardsByKey(data.tasks, data.artifacts);
-    return { truncated: found.truncated, issues: found.issues.map((issue) => ({ ...issue, card: cards.get(issue.key.toUpperCase()) ?? null })) };
+    return { truncated: found.truncated, states: found.states, issues: found.issues.map((issue) => ({ ...issue, card: cards.get(issue.key.toUpperCase()) ?? null })) };
   });
   server.handle(rpc.linearTeams, (input) => connectors.linearTeams(input));
   server.handle(rpc.createArtifact, (input, { paseo }) => artifacts.create(input, paseo));

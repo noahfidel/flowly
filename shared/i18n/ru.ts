@@ -1434,6 +1434,7 @@ const catalog: Catalog = {
   "Assigned to me": "Назначенные мне",
   "Scope: {scope}": "Область: {scope}",
   "No issues in this view.": "В этом представлении нет задач.",
+  "No state": "Без статуса",
   "Showing the {n} most recently updated issues.": "Показаны {n} недавно обновлённых задач.",
   "Start card": "Начать карточку",
   "Preview {key}: {title}": "Просмотр {key}: {title}",

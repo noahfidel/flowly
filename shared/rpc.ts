@@ -50,7 +50,7 @@ import {
 } from "./model";
 import { healthSchema, preparationSchema, projectIdeaInputSchema, startCardResultSchema } from "./tools";
 import { connectionInput, connectionSchema, externalSummarySchema, itemTypeSchema } from "./connectors";
-import { linearBoardRowSchema, linearTeamSchema } from "./linear-board";
+import { linearBoardRowSchema, linearStateSchema, linearTeamSchema } from "./linear-board";
 import { composerStateSchema, composerTarget, maxImages, outgoingImageSchema, queuedMessageSchema } from "./composer";
 import {
   sessionReadStateSchema,
@@ -459,7 +459,7 @@ export const readExternalItem = defineRpc({
 export const linearBoard = defineRpc({
   name: "connectors.linear-board",
   input: z.strictObject({ connectionId: z.string().min(1), teamId: z.string().min(1).max(200).optional(), recentDays: z.number().int().min(0).max(365) }),
-  output: z.object({ issues: z.array(linearBoardRowSchema), truncated: z.boolean() }),
+  output: z.object({ issues: z.array(linearBoardRowSchema), states: z.array(linearStateSchema), truncated: z.boolean() }),
 });
 export const linearTeams = defineRpc({
   name: "connectors.linear-teams",

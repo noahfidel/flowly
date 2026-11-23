@@ -1434,6 +1434,7 @@ const catalog: Catalog = {
   "Assigned to me": "分配给我",
   "Scope: {scope}": "范围：{scope}",
   "No issues in this view.": "此视图中没有 issue。",
+  "No state": "无状态",
   "Showing the {n} most recently updated issues.": "显示最近更新的 {n} 个 issue。",
   "Start card": "开始卡片",
   "Preview {key}: {title}": "预览 {key}：{title}",

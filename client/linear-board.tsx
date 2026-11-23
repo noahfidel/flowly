@@ -6,7 +6,7 @@ import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { familyOf } from "../shared/connectors";
-import { groupIssues, linearColumns, visibleGroups, type LinearBoardRow, type LinearColumn } from "../shared/linear-board";
+import { buildLanes, visibleGroups, type LinearBoardRow, type LinearLane, type LinearState } from "../shared/linear-board";
 import { LocaleRoot } from "./i18n";
 import { MotionProvider } from "./motion";
 import { useBoardView } from "./board-view";
@@ -16,22 +16,14 @@ import { linearOpenParams, linearStartParams } from "./linear-start";
 import { isCompactLayout } from "./geometry";
 import { useStableCallback, useStableTheme } from "./stable";
 import { Badge, Button, Choices, IconButton, Label, Notice, Row, Theme, font, noFocusRing, radius, space, useTheme } from "./ui";
-import { msg, t } from "../shared/i18n";
+import { t } from "../shared/i18n";
 
 /**
- * The Linear board in Paseo's main bar (LINEAR-BOARD-SPEC): the user's Linear issues by state type,
+ * The Linear board in Paseo's main bar (LINEAR-BOARD-SPEC): the user's Linear issues by workflow state,
  * as columns or one list, with Start card / Open card into Flowly. Nothing here writes to Linear.
  */
 
 type OpenScreen = (input: PluginOpenScreenInput) => void;
-
-const columnTitles: Record<LinearColumn, string> = {
-  backlog: msg("Backlog"),
-  unstarted: msg("Todo"),
-  started: msg("In progress"),
-  completed: msg("Done"),
-  canceled: msg("Canceled"),
-};
 
 const requestId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const isLinear = (provider: string) => familyOf(provider as Parameters<typeof familyOf>[0]) === "linear";
@@ -98,8 +90,8 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
     refetchOnWindowFocus: false,
     retry: false,
   });
-  const hidden = view.values?.linearHidden || noColumns;
-  const allGroups = useMemo(() => groupIssues(board.data?.issues || []), [board.data]);
+  const hidden = view.values?.linearHidden || noLanes;
+  const allGroups = useMemo(() => buildLanes(board.data?.states || noStates, board.data?.issues || noIssues), [board.data]);
   // Settings are parsed again on every render: compare the hidden list by content.
   const hiddenKey = hidden.join(",");
   const groups = useMemo(() => visibleGroups(allGroups, hidden), [allGroups, hiddenKey]);
@@ -127,8 +119,7 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
   const chooseConnection = (id: string) => {
     if (view.values && id !== remembered) void view.update({ lastConnections: { ...view.values.lastConnections, linear: id } });
   };
-  const toggleColumn = (column: LinearColumn) =>
-    void view.update({ linearHidden: hidden.includes(column) ? hidden.filter((c) => c !== column) : [...hidden, column] });
+  const toggleLane = (key: string) => void view.update({ linearHidden: hidden.includes(key) ? hidden.filter((k) => k !== key) : [...hidden, key] });
   const refresh = () => {
     void board.refetch();
     void teams.refetch();
@@ -178,8 +169,8 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
         </View>
       )}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[1.5] }}>
-        {linearColumns.map((column) => (
-          <FilterChip key={column} column={column} on={!hidden.includes(column)} onToggle={toggleColumn} />
+        {allGroups.map((lane) => (
+          <FilterChip key={lane.key} lane={lane.key} title={laneTitle(lane)} on={!hidden.includes(lane.key)} onToggle={toggleLane} />
         ))}
       </View>
       {board.isPending ? (
@@ -191,10 +182,10 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
       ) : layout === "board" ? (
         <ScrollView horizontal contentContainerStyle={{ gap: space[3], alignItems: "flex-start" }}>
           {groups.map((g) => (
-            <View key={g.column} style={{ width: 272, gap: space[2] }}>
-              <ColumnHeader column={g.column} count={g.issues.length} />
+            <View key={g.key} style={{ width: 272, gap: space[2] }}>
+              <LaneHeader title={laneTitle(g)} count={g.issues.length} />
               {g.issues.map((issue) => (
-                <IssueCard key={issue.key} issue={issue} column={g.column} onPress={preview} onAct={act} />
+                <IssueCard key={issue.key} issue={issue} onPress={preview} onAct={act} />
               ))}
             </View>
           ))}
@@ -202,10 +193,10 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
       ) : (
         <View style={{ gap: space[3] }}>
           {groups.map((g) => (
-            <View key={g.column} style={{ gap: space[1] }}>
-              <ColumnHeader column={g.column} count={g.issues.length} />
+            <View key={g.key} style={{ gap: space[1] }}>
+              <LaneHeader title={laneTitle(g)} count={g.issues.length} />
               {g.issues.map((issue) => (
-                <IssueCard key={issue.key} issue={issue} column={g.column} onPress={preview} onAct={act} />
+                <IssueCard key={issue.key} issue={issue} onPress={preview} onAct={act} />
               ))}
             </View>
           ))}
@@ -237,17 +228,22 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
   );
 }
 
-const noColumns: readonly LinearColumn[] = [];
+const noLanes: readonly string[] = [];
+const noStates: readonly LinearState[] = [];
+const noIssues: readonly LinearBoardRow[] = [];
 
-/** A status filter chip: pressed shows or hides its column (LINEAR-BOARD-SPEC §4). */
-function FilterChip({ column, on, onToggle }: { column: LinearColumn; on: boolean; onToggle(column: LinearColumn): void }) {
+/** Linear's own state name; a state with no name shows "No state". */
+const laneTitle = (lane: Pick<LinearLane, "title">) => lane.title || t("No state");
+
+/** A status filter chip: pressed shows or hides its lane (LINEAR-BOARD-SPEC §4). */
+function FilterChip({ lane, title, on, onToggle }: { lane: string; title: string; on: boolean; onToggle(lane: string): void }) {
   const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="checkbox"
       accessibilityState={{ checked: on }}
-      accessibilityLabel={t(columnTitles[column])}
-      onPress={() => onToggle(column)}
+      accessibilityLabel={title}
+      onPress={() => onToggle(lane)}
       style={[
         noFocusRing,
         {
@@ -260,7 +256,7 @@ function FilterChip({ column, on, onToggle }: { column: LinearColumn; on: boolea
         },
       ]}
     >
-      <Label size={font.sm} muted={!on} selectable={false}>{t(columnTitles[column])}</Label>
+      <Label size={font.sm} muted={!on} selectable={false}>{title}</Label>
     </Pressable>
   );
 }
@@ -269,29 +265,26 @@ function Page({ children }: { children: ReactNode }) {
   return <View style={{ padding: space[4], gap: space[3] }}>{children}</View>;
 }
 
-function ColumnHeader({ column, count }: { column: LinearColumn; count: number }) {
+function LaneHeader({ title, count }: { title: string; count: number }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], paddingHorizontal: space[1] }}>
-      <Label bold size={font.sm} selectable={false}>{t(columnTitles[column])}</Label>
+      <Label bold size={font.sm} selectable={false}>{title}</Label>
       <Label muted size={font.sm} selectable={false}>{String(count)}</Label>
     </View>
   );
 }
 
-/** One issue: key, state when it is a custom one, title, priority, assignee, and the card marker. */
+/** One issue: key, title, priority, assignee, and the card marker. */
 const IssueCard = memo(function IssueCard({
   issue,
-  column,
   onPress,
   onAct,
 }: {
   issue: LinearBoardRow;
-  column: LinearColumn;
   onPress(issue: LinearBoardRow): void;
   onAct(issue: LinearBoardRow): void;
 }) {
   const { colors } = useTheme();
-  const customState = issue.stateName && issue.stateName.toLowerCase() !== columnTitles[column].toLowerCase() ? issue.stateName : "";
   return (
     <View
       style={{
@@ -312,7 +305,6 @@ const IssueCard = memo(function IssueCard({
       >
         <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5] }}>
           <Label muted medium size={font.sm} selectable={false}>{issue.key}</Label>
-          {!!customState && <Label muted size={font.sm} lines={1} selectable={false}>{customState}</Label>}
         </View>
         <Label size={font.md} lines={2} selectable={false}>{issue.title}</Label>
         {(!!issue.priorityLabel || !!issue.assignee || !!issue.card) && (

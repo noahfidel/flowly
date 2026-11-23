@@ -1434,6 +1434,7 @@ const catalog: Catalog = {
   "Assigned to me": "自分に割り当て",
   "Scope: {scope}": "範囲: {scope}",
   "No issues in this view.": "このビューに issue はありません。",
+  "No state": "ステータスなし",
   "Showing the {n} most recently updated issues.": "最近更新された {n} 件の issue を表示しています。",
   "Start card": "カードを開始",
   "Preview {key}: {title}": "{key} のプレビュー: {title}",

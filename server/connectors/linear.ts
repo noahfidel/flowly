@@ -3,7 +3,7 @@ import { classifyQuery, connectorLimits, issueKey, linearItemUrl, type ExternalS
 import { ExternalError, ReadOnlyHttp, cut, mapLimit, retryAfter, type Fetch, type StoredConnection } from "./http";
 import { withDiscussion } from "./fingerprint";
 import type { ConnectorAdapter, Fetched, ItemRef } from "./types";
-import type { LinearIssueRow, LinearTeam } from "../../shared/linear-board";
+import type { LinearIssueRow, LinearState, LinearTeam } from "../../shared/linear-board";
 
 /**
  * Linear issues (CONNECTORS-SPEC §14): linear.app only, GraphQL, personal API key.
@@ -51,8 +51,9 @@ const batchQuery = (count: number) =>
   `query Batch(${Array.from({ length: count }, (_, i) => `$k${i}: String!`).join(", ")}) { ${Array.from({ length: count }, (_, i) => `i${i}: issue(id: $k${i}) { ${summaryFields} }`).join(" ")} }`;
 
 /** The Linear board (LINEAR-BOARD-SPEC §3.1): a scope's issues page by page, and the teams the key sees. */
-const rowFields = "id identifier title url updatedAt priority priorityLabel state { name type position } assignee { name displayName } team { key name }";
+const rowFields = "id identifier title url updatedAt priority priorityLabel state { id name type position } assignee { name displayName } team { id key name }";
 const scopeQuery = `query Scope($filter: IssueFilter, $first: Int, $after: String) { issues(filter: $filter, first: $first, after: $after, orderBy: updatedAt) { nodes { ${rowFields} } pageInfo { hasNextPage endCursor } } }`;
+const statesQuery = "query States($filter: WorkflowStateFilter, $first: Int) { workflowStates(filter: $filter, first: $first) { nodes { id name type position team { id } } } }";
 const teamsQuery = "query Teams($first: Int) { teams(first: $first) { nodes { id key name } } }";
 
 /** Seconds to wait: Retry-After, else the request window's reset (UTC epoch milliseconds). */
@@ -180,11 +181,11 @@ export const titleFilter = (words: string) => ({
 /** My issues or a team's; finished ones only when updated after `since` (LINEAR-BOARD-SPEC §3.1). */
 export function scopeFilter(scope: { teamId?: string }, since: string | undefined) {
   const part = scope.teamId ? { team: { id: { eq: scope.teamId } } } : { assignee: { isMe: { eq: true } } };
-  const recent = since ? [{ or: [{ state: { type: { nin: ["completed", "canceled"] } } }, { updatedAt: { gt: since } }] }] : [];
+  const recent = since ? [{ or: [{ state: { type: { nin: ["completed", "canceled", "duplicate"] } } }, { updatedAt: { gt: since } }] }] : [];
   return { and: [part, ...recent] };
 }
 
-type BoardIssue = LinearIssue & { priority?: number | null; state?: { name?: string; type?: string; position?: number } | null };
+type BoardIssue = LinearIssue & { priority?: number | null; state?: { id?: string; name?: string; type?: string; position?: number } | null; team?: { id?: string; key?: string; name?: string } | null };
 
 function issueRow(connection: Pick<StoredConnection, "id" | "baseUrl">, issue: BoardIssue): LinearIssueRow {
   const summary = linearSummary(connection, issue);
@@ -200,6 +201,8 @@ function issueRow(connection: Pick<StoredConnection, "id" | "baseUrl">, issue: B
     stateName: summary.status,
     stateType: text(issue.state?.type).toLowerCase(),
     statePosition: Number.isFinite(issue.state?.position) ? Number(issue.state?.position) : 0,
+    stateId: text(issue.state?.id),
+    teamId: text(issue.team?.id),
     assignee: summary.assignee,
     teamKey: text(issue.team?.key),
     teamName: summary.container,
@@ -212,7 +215,7 @@ export async function listScope(
   fetchImpl: Fetch,
   scope: { teamId?: string },
   { since, pageSize = 50, maxPages = 4 }: { since?: string; pageSize?: number; maxPages?: number } = {},
-): Promise<{ issues: LinearIssueRow[]; truncated: boolean }> {
+): Promise<{ issues: LinearIssueRow[]; states: LinearState[]; truncated: boolean }> {
   const filter = scopeFilter(scope, since);
   const seen = new Set<string>();
   const issues: LinearIssueRow[] = [];
@@ -229,10 +232,22 @@ export async function listScope(
       issues.push(row);
     }
     const info = reply.data.issues.pageInfo;
-    if (!info?.hasNextPage || !info.endCursor) return { issues, truncated: false };
+    if (!info?.hasNextPage || !info.endCursor) return { issues, states: await scopeStates(connection, fetchImpl, scope, issues), truncated: false };
     after = info.endCursor;
   }
-  return { issues, truncated: true };
+  return { issues, states: await scopeStates(connection, fetchImpl, scope, issues), truncated: true };
+}
+
+/** The workflow states of a team, or of the teams of the loaded issues for Assigned to me (none without issues). */
+async function scopeStates(connection: StoredConnection, fetchImpl: Fetch, scope: { teamId?: string }, issues: readonly LinearIssueRow[]): Promise<LinearState[]> {
+  const teamIds = scope.teamId ? [scope.teamId] : [...new Set(issues.map((i) => i.teamId).filter(Boolean))];
+  if (!teamIds.length) return [];
+  type States = { workflowStates?: { nodes?: { id?: string; name?: string; type?: string; position?: number; team?: { id?: string } | null }[] } | null };
+  const { data, errors, headers } = await graphql<States>(connection, fetchImpl, statesQuery, { filter: { team: { id: { in: teamIds } } }, first: 250 });
+  if (!data?.workflowStates) throw errors.length ? graphqlError(errors, headers) : new ExternalError("EXTERNAL_INVALID", "Linear rejected the request.");
+  return (data.workflowStates.nodes || [])
+    .filter((s) => s?.id)
+    .map((s) => ({ id: text(s.id), name: text(s.name), type: text(s.type).toLowerCase(), position: Number.isFinite(s.position) ? Number(s.position) : 0, teamId: text(s.team?.id) }));
 }
 
 /** The teams this key can see, by name. */

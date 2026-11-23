@@ -1434,6 +1434,7 @@ const catalog: Catalog = {
   "Assigned to me": "Asignadas a mí",
   "Scope: {scope}": "Ámbito: {scope}",
   "No issues in this view.": "No hay issues en esta vista.",
+  "No state": "Sin estado",
   "Showing the {n} most recently updated issues.": "Se muestran las {n} issues actualizadas más recientemente.",
   "Start card": "Iniciar tarjeta",
   "Preview {key}: {title}": "Vista previa de {key}: {title}",

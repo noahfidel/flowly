@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { columnOf, groupIssues, linearCardsByKey, visibleGroups, type LinearIssueRow } from "./linear-board";
+import { buildLanes, linearCardsByKey, visibleGroups, type LinearIssueRow, type LinearState } from "./linear-board";
 
 const row = (key: string, stateType: string, extra: Partial<LinearIssueRow> = {}): LinearIssueRow => ({
   key,
@@ -11,6 +11,8 @@ const row = (key: string, stateType: string, extra: Partial<LinearIssueRow> = {}
   priorityLabel: "",
   stateName: stateType,
   stateType,
+  stateId: `s-${stateType}`,
+  teamId: "zen",
   statePosition: 0,
   assignee: "",
   teamKey: key.split("-")[0]!,
@@ -18,50 +20,76 @@ const row = (key: string, stateType: string, extra: Partial<LinearIssueRow> = {}
   ...extra,
 });
 
-describe("Linear board columns (LINEAR-BOARD-SPEC §4)", () => {
-  test("state types map to the five columns; triage and unknown types count as Backlog", () => {
-    expect(["triage", "backlog", "unstarted", "started", "completed", "canceled", "cancelled", "Started", "weird", ""].map(columnOf)).toEqual([
-      "backlog",
-      "backlog",
-      "unstarted",
-      "started",
-      "completed",
-      "canceled",
-      "canceled",
-      "started",
-      "backlog",
-      "backlog",
-    ]);
+const state = (name: string, type: string, position: number, teamId = "zen"): LinearState => ({ id: `${teamId}-${name}`, name, type, position, teamId });
+const zen = [
+  state("Done", "completed", 1),
+  state("Deployed", "started", 4),
+  state("Triage", "triage", 0),
+  state("In Review", "started", 2),
+  state("Backlog", "backlog", 1),
+  state("Duplicate", "duplicate", 0),
+  state("To Do", "unstarted", 0),
+  state("Awaiting Deploy", "started", 3),
+  state("In Progress", "started", 1),
+  state("Canceled", "canceled", 0),
+];
+
+describe("Linear board lanes (LINEAR-BOARD-SPEC §4)", () => {
+  test("one lane per workflow state in Linear's order, empty ones included", () => {
+    const lanes = buildLanes(zen, []);
+    expect(lanes.map((l) => l.title)).toEqual(["Triage", "Backlog", "To Do", "In Progress", "In Review", "Awaiting Deploy", "Deployed", "Done", "Canceled", "Duplicate"]);
+    expect(lanes.map((l) => l.key)).toEqual(["triage", "backlog", "to do", "in progress", "in review", "awaiting deploy", "deployed", "done", "canceled", "duplicate"]);
+    expect(lanes.every((l) => l.issues.length === 0)).toBe(true);
   });
 
-  test("custom state names land in the column of their type, every column is present, ordered by priority then update", () => {
-    const groups = groupIssues([
-      row("ENG-1", "started", { stateName: "In Review", priority: 3 }),
-      row("ENG-2", "started", { stateName: "QA", priority: 1 }),
-      row("ENG-3", "started", { stateName: "In Progress", priority: 0, updated: "2026-11-03T00:00:00.000Z" }),
-      row("ENG-4", "started", { stateName: "In Progress", priority: 3, updated: "2026-11-02T00:00:00.000Z" }),
-      row("ENG-5", "completed", { stateName: "Shipped" }),
-      row("ENG-6", "triage", { stateName: "Triage" }),
+  test("issues land in the lane of their state name, ordered by priority then update", () => {
+    const lanes = buildLanes(zen, [
+      row("ZEN-1", "started", { stateName: "In Review", priority: 3 }),
+      row("ZEN-2", "started", { stateName: "In Review", priority: 1 }),
+      row("ZEN-3", "started", { stateName: "Deployed", updated: "2026-11-03T00:00:00.000Z" }),
+      row("ZEN-4", "started", { stateName: "Deployed", priority: 3, updated: "2026-11-02T00:00:00.000Z" }),
+      row("ZEN-5", "duplicate", { stateName: "Duplicate" }),
+      row("ZEN-6", "triage", { stateName: "Triage" }),
     ]);
-    expect(groups.map((g) => [g.column, g.issues.map((i) => i.key)])).toEqual([
-      ["backlog", ["ENG-6"]],
-      ["unstarted", []],
-      ["started", ["ENG-2", "ENG-4", "ENG-1", "ENG-3"]],
-      ["completed", ["ENG-5"]],
-      ["canceled", []],
+    const by = Object.fromEntries(lanes.map((l) => [l.title, l.issues.map((i) => i.key)]));
+    expect(by["In Review"]).toEqual(["ZEN-2", "ZEN-1"]);
+    expect(by["Deployed"]).toEqual(["ZEN-4", "ZEN-3"]);
+    expect(by["Duplicate"]).toEqual(["ZEN-5"]);
+    expect(by["Triage"]).toEqual(["ZEN-6"]);
+    expect(by["Backlog"]).toEqual([]);
+  });
+
+  test("Assigned to me merges the states of several teams by name, case-insensitively", () => {
+    const cho = [state("backlog ", "backlog", 0, "cho"), state("To Do", "unstarted", 0, "cho"), state("In Progress", "started", 1, "cho"), state("In Review", "started", 2, "cho"), state("Blocked", "started", 3, "cho"), state("Done", "completed", 1, "cho"), state("Canceled", "canceled", 0, "cho"), state("Duplicate", "duplicate", 0, "cho")];
+    const lanes = buildLanes([...zen, ...cho], [row("CHO-1", "started", { stateName: "BLOCKED", statePosition: 3 }), row("ZEN-1", "backlog", { stateName: "Backlog", statePosition: 1 })]);
+    expect(lanes.map((l) => l.title)).toEqual(["Triage", "Backlog", "To Do", "In Progress", "In Review", "Awaiting Deploy", "Blocked", "Deployed", "Done", "Canceled", "Duplicate"]);
+    expect(lanes.find((l) => l.key === "blocked")!.issues.map((i) => i.key)).toEqual(["CHO-1"]);
+    expect(lanes.find((l) => l.key === "backlog")!.issues.map((i) => i.key)).toEqual(["ZEN-1"]);
+  });
+
+  test("an issue in a state the list lacks gets a lane from its own fields and is never dropped", () => {
+    const lanes = buildLanes(zen, [
+      row("ZEN-1", "started", { stateName: "QA", statePosition: 2.5 }),
+      row("ZEN-2", "weird", { stateName: "Odd" }),
     ]);
+    expect(lanes.map((l) => l.title)).toEqual(["Triage", "Backlog", "To Do", "In Progress", "In Review", "QA", "Awaiting Deploy", "Deployed", "Done", "Canceled", "Duplicate", "Odd"]);
+    expect(lanes.find((l) => l.key === "qa")!.issues.map((i) => i.key)).toEqual(["ZEN-1"]);
+    expect(lanes.at(-1)!.issues.map((i) => i.key)).toEqual(["ZEN-2"]);
+    // With no states at all, the issues alone make the lanes.
+    expect(buildLanes([], [row("ZEN-3", "completed", { stateName: "Done" })]).map((l) => [l.key, l.issues.length])).toEqual([["done", 1]]);
+  });
+
+  test("an empty state name goes to a lane with the empty key", () => {
+    const lanes = buildLanes([], [row("ZEN-1", "started", { stateName: "" })]);
+    expect(lanes.map((l) => [l.key, l.title, l.issues.length])).toEqual([["", "", 1]]);
   });
 });
 
 describe("status filter (LINEAR-BOARD-SPEC §4)", () => {
-  test("hidden columns drop out in order; the rest keep their issues", () => {
-    const groups = groupIssues([row("ENG-1", "started"), row("ENG-2", "completed"), row("ENG-3", "canceled")]);
-    expect(visibleGroups(groups, ["completed", "canceled"]).map((g) => [g.column, g.issues.length])).toEqual([
-      ["backlog", 0],
-      ["unstarted", 0],
-      ["started", 1],
-    ]);
-    expect(visibleGroups(groups, [])).toHaveLength(5);
+  test("hidden lanes drop out by key, in order; the rest keep their issues", () => {
+    const lanes = buildLanes(zen, [row("ZEN-1", "started", { stateName: "In Progress" })]);
+    expect(visibleGroups(lanes, ["done", "canceled", "duplicate", "triage"]).map((l) => l.title)).toEqual(["Backlog", "To Do", "In Progress", "In Review", "Awaiting Deploy", "Deployed"]);
+    expect(visibleGroups(lanes, [])).toHaveLength(10);
   });
 });
 

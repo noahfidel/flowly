@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** The Linear board (LINEAR-BOARD-SPEC): issue rows, columns by state type, and the "already has a card" marker. */
+/** The Linear board (LINEAR-BOARD-SPEC): issue rows, one lane per workflow state, and the "already has a card" marker. */
 
 export const linearCardSchema = z.object({ taskId: z.string(), projectId: z.string(), workspaceId: z.string(), title: z.string() });
 export type LinearCard = z.infer<typeof linearCardSchema>;
@@ -19,6 +19,9 @@ export const linearIssueRowSchema = z.object({
   /** Linear's workflow state type, lowercased: triage, backlog, unstarted, started, completed, canceled. */
   stateType: z.string(),
   statePosition: z.number(),
+  /** The workflow state's and the team's ids ("" when Linear gave none). */
+  stateId: z.string(),
+  teamId: z.string(),
   assignee: z.string(),
   teamKey: z.string(),
   teamName: z.string(),
@@ -29,29 +32,51 @@ export type LinearBoardRow = z.infer<typeof linearBoardRowSchema>;
 export const linearTeamSchema = z.object({ id: z.string(), key: z.string(), name: z.string() });
 export type LinearTeam = z.infer<typeof linearTeamSchema>;
 
-export const linearColumns = ["backlog", "unstarted", "started", "completed", "canceled"] as const;
-export type LinearColumn = (typeof linearColumns)[number];
+/** A workflow state of a team (LINEAR-BOARD-SPEC §3.1). */
+export const linearStateSchema = z.object({ id: z.string(), name: z.string(), type: z.string(), position: z.number(), teamId: z.string() });
+export type LinearState = z.infer<typeof linearStateSchema>;
 
-/** The column of a state type; triage and unknown types count as Backlog. */
-export function columnOf(stateType: string): LinearColumn {
-  const type = stateType.toLowerCase();
-  if (type === "cancelled") return "canceled";
-  return (linearColumns as readonly string[]).includes(type) ? (type as LinearColumn) : "backlog";
-}
+/** One board lane: the issues in the states of one name. `key` is the lowercased trimmed name ("" for none). */
+export type LinearLane<T extends LinearIssueRow = LinearIssueRow> = { key: string; title: string; type: string; issues: T[] };
+
+/** Linear's board order of state types; an unknown type goes last. */
+const typeRank = (type: string) => {
+  const rank = ["triage", "backlog", "unstarted", "started", "completed", "canceled", "duplicate"].indexOf(type === "cancelled" ? "canceled" : type);
+  return rank < 0 ? 7 : rank;
+};
+const laneKey = (name: string) => name.trim().toLowerCase();
 
 /** Urgent first, no priority last; then most recently updated. */
 const byPriority = (a: LinearIssueRow, b: LinearIssueRow) => (a.priority || 5) - (b.priority || 5) || b.updated.localeCompare(a.updated);
 
-/** Every column in order, each with its issues sorted. */
-export function groupIssues<T extends LinearIssueRow>(issues: readonly T[]): { column: LinearColumn; issues: T[] }[] {
-  const groups = new Map<LinearColumn, T[]>(linearColumns.map((c) => [c, []]));
-  for (const issue of issues) groups.get(columnOf(issue.stateType))!.push(issue);
-  return linearColumns.map((column) => ({ column, issues: groups.get(column)!.sort(byPriority) }));
+/**
+ * One lane per state name, merged across teams (LINEAR-BOARD-SPEC §4): Linear's order (type rank, then lowest
+ * position, then name), every state present even when empty, and an issue whose state is not in `states` makes
+ * a lane from its own fields so it is never dropped. The title is Linear's own spelling; "" has no title.
+ */
+export function buildLanes<T extends LinearIssueRow>(states: readonly LinearState[], issues: readonly T[]): LinearLane<T>[] {
+  const lanes = new Map<string, LinearLane<T> & { position: number }>();
+  const add = (name: string, type: string, position: number) => {
+    const key = laneKey(name);
+    const type_ = type.toLowerCase();
+    const lane = lanes.get(key);
+    if (!lane) lanes.set(key, { key, title: name.trim(), type: type_, issues: [], position });
+    else if (typeRank(type_) < typeRank(lane.type) || (typeRank(type_) === typeRank(lane.type) && position < lane.position)) {
+      lane.type = type_;
+      lane.position = position;
+    }
+  };
+  for (const s of states) add(s.name, s.type, s.position);
+  for (const issue of issues) add(issue.stateName, issue.stateType, issue.statePosition);
+  for (const issue of issues) lanes.get(laneKey(issue.stateName))!.issues.push(issue);
+  return [...lanes.values()]
+    .sort((a, b) => typeRank(a.type) - typeRank(b.type) || a.position - b.position || a.title.localeCompare(b.title))
+    .map(({ position: _position, ...lane }) => ({ ...lane, issues: lane.issues.sort(byPriority) }));
 }
 
-/** The columns the status filter leaves shown, in order. */
-export function visibleGroups<G extends { column: LinearColumn }>(groups: readonly G[], hidden: readonly LinearColumn[]): G[] {
-  return groups.filter((g) => !hidden.includes(g.column));
+/** The lanes the status filter leaves shown, in order. */
+export function visibleGroups<G extends { key: string }>(groups: readonly G[], hidden: readonly string[]): G[] {
+  return groups.filter((g) => !hidden.includes(g.key));
 }
 
 type MarkerTask = { id: string; projectId: string; workspaceId: string; title: string; archivedAt: string | null; updatedAt: string };
