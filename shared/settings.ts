@@ -141,6 +141,14 @@ export function groupFilterOf(values: BoardView, groupId: string): GroupFilter {
   );
 }
 
+/**
+ * A group's filters after a card link opens one of its cards: search, priority, type and tags cleared so the card shows;
+ * show-archived turned on when the card or its project is archived, else the group's own value.
+ */
+export function linkedCardFilter(current: GroupFilter, cardArchived: boolean): GroupFilter {
+  return { search: "", priority: "all", type: "all", tags: [], archived: current.archived || cardArchived };
+}
+
 /** A group's collapsed lanes: its own entry, else the global set saved before per-group lanes (the seed). */
 export function groupCollapsedOf(values: BoardView, groupId: string): BoardView["collapsedColumns"] {
   return values.groupCollapsed[groupId] ?? values.collapsedColumns;

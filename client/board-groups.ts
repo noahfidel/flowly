@@ -26,6 +26,17 @@ export function groupMembers<P extends Pick<Project, "id" | "archivedAt" | "posi
   return includedProjects(projects).filter((p) => p.groupId === group.id);
 }
 
+/**
+ * The group whose filters a card link resets (BOARD-GROUPS-SPEC §3): the linked card's project's group once the groups
+ * are known, else the group the project names; null while the settings (the group's saved filters) are not loaded or no
+ * group can be told yet, so the reset waits instead of landing on another group or overriding a saved value.
+ */
+export function linkFilterGroup<G extends Pick<Group, "id" | "isDefault" | "position">>(project: Pick<Project, "id" | "groupId">, groups: readonly G[], settingsLoaded: boolean): string | null {
+  if (!settingsLoaded) return null;
+  if (groups.length) return groupOfProject(groups, [project], project.id)?.id ?? null;
+  return project.groupId || null;
+}
+
 /** The group a project belongs to, archived or not; a project with none (or an unknown one) is in the default group. */
 export function groupOfProject<G extends Pick<Group, "id" | "isDefault" | "position">>(groups: readonly G[], projects: readonly Pick<Project, "id" | "groupId">[], projectId: string): G | undefined {
   const groupId = projects.find((p) => p.id === projectId)?.groupId;

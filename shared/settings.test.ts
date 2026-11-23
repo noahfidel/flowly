@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { statuses } from "./model";
-import { boardViewSettings, boardViewValues, groupCollapsedOf, groupFilterOf, statusSettingsValues, storedFilters, withGroupEntry } from "./settings";
+import { boardViewSettings, boardViewValues, groupCollapsedOf, groupFilterOf, linkedCardFilter, statusSettingsValues, storedFilters, withGroupEntry } from "./settings";
 
 test("older stored settings get defaults for newer fields; invalid values fall back", () => {
   expect(boardViewValues({ lastQuickProjectId: "p" })).toEqual({ sendBehavior: "steer", startAgentOnCreate: true, quickTaskDefault: true, quickTaskAiTitle: true, quickTaskMode: "worktree", lastQuickProjectId: "p", lastAddProjectId: "", lastGroupId: "", lastFilter: null, projectFilters: {}, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, groupFilters: {}, groupCollapsed: {}, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, linearLayout: "auto", linearScope: "me", linearHidden: [], prMine: false, memoryKind: "all", memorySort: "newest", memoryLayout: "list", drawerShare: 0, chatMinimized: false, chatExpanded: false, chatWidth: 0 });
@@ -163,6 +163,13 @@ test("a group with no entry starts from the global filters and collapsed lanes s
   expect(groupFilterOf(values, "g1")).toEqual({ search: "mine", priority: "all", type: "all", tags: [], archived: false });
   expect(groupCollapsedOf(values, "g2")).toEqual(["blocked"]);
   expect(groupCollapsedOf(values, "g1")).toEqual(["done"]);
+});
+
+test("a card link clears search, priority, type and tags; show-archived turns on only for an archived card or project", () => {
+  const saved = { search: "x", priority: "high" as const, type: "bugfix" as const, tags: ["t"], archived: true };
+  expect(linkedCardFilter(saved, false)).toEqual({ search: "", priority: "all", type: "all", tags: [], archived: true });
+  expect(linkedCardFilter({ ...saved, archived: false }, false).archived).toBe(false);
+  expect(linkedCardFilter({ ...saved, archived: false }, true).archived).toBe(true);
 });
 
 test("writing one group's entry keeps the others, drops deleted groups and keeps the cap", () => {

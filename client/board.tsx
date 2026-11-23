@@ -110,7 +110,7 @@ import { SettingsOpenerContext } from "./settings-opener";
 import { findingDescription, workflowInsightsSettings, workflowSettingsValues, type Finding } from "../shared/workflow-insights";
 import { WrapupModal } from "./wrapup";
 import { SwitchModal, type SwitchDirection } from "./workspace-switch";
-import { performanceLogOn, performanceSettings, featureSettings, featureSettingsValues, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, shortcutSettings, shortcutSettingsValues, wrapupSettings, wrapupSettingsValues, storedFilters, groupCollapsedOf, groupFilterOf, withGroupEntry, type GroupFilter } from "../shared/settings";
+import { performanceLogOn, performanceSettings, featureSettings, featureSettingsValues, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, shortcutSettings, shortcutSettingsValues, wrapupSettings, wrapupSettingsValues, storedFilters, groupCollapsedOf, groupFilterOf, linkedCardFilter, withGroupEntry, type GroupFilter } from "../shared/settings";
 import { pickOutputSession } from "./card-output";
 import { statusChanges } from "./changes";
 import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuControl, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
@@ -136,7 +136,7 @@ import { GuardrailsPage } from "./guardrails";
 import { MemoryPage, type MemoryPrefs } from "./memory";
 // board-groups 3/7: group-only navigation (BOARD-GROUPS-SPEC §3).
 import { lastProjectFilter, lastViewedGroupView, rememberProjectFilter, restoredFilters, writeProjectFilter, type BoardInstance, writeViewedGroup } from "./project-memory";
-import { boardProject, boardScope, defaultGroup, focusProject, mobileLane, groupMembers, groupNewTask, groupOfProject, groupQuickProject, groupViewId, otherGroupNeeds, overviewScope, pageScope, pickGroupView, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
+import { boardProject, boardScope, defaultGroup, focusProject, mobileLane, groupMembers, groupNewTask, groupOfProject, groupQuickProject, groupViewId, linkFilterGroup, otherGroupNeeds, overviewScope, pageScope, pickGroupView, staleGroupChoice, validProjectFilter, type ProjectFilter } from "./board-groups";
 import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { GroupTabs, needLabel } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
@@ -490,15 +490,9 @@ function BoardContent(
     // Native detail is complete for this card; no background full-board catch-up.
     focusGroupOf(target.project.id, false); // board-groups 3/7: the card's group
     setTaskState(target.task.id);
-    // The card's group's filters, so the card shows on its board (the group shown while groups are unknown).
-    const linkGroupId = (projected?.groups.length ? groupOf(target.project)?.id : undefined) ?? group?.id ?? "";
-    writeGroupFilter(linkGroupId, {
-      search: "",
-      priority: "all",
-      type: "all",
-      tags: [],
-      archived: filterOf(linkGroupId).archived || !!target.project.archivedAt || !!target.task.archivedAt,
-    });
+    // The card's group's filters, so the card shows on its board; waits for the groups and the saved filters.
+    pendingLinkFilter.current = { project: { id: target.project.id, groupId: target.project.groupId }, archived: !!target.project.archivedAt || !!target.task.archivedAt };
+    applyLinkFilter();
     setMobileStatus(target.task.status);
     setError("");
     // The chip opens the card's overview, not the session it was tapped in:
@@ -633,6 +627,17 @@ function BoardContent(
     if (delay) searchSave.current = { timer: setTimeout(() => flushSearchSave(), delay), id };
     else saveGroupFilter(id);
   });
+  // A card link's filter reset (see the link effect), applied once its group and the saved filters are known.
+  const pendingLinkFilter = useRef<{ project: Pick<Project, "id" | "groupId">; archived: boolean } | null>(null);
+  const applyLinkFilter = useStableCallback(() => {
+    const pending = pendingLinkFilter.current;
+    if (!pending) return;
+    const id = linkFilterGroup(pending.project, serverGroups, !!view.values);
+    if (!id) return;
+    pendingLinkFilter.current = null;
+    writeGroupFilter(id, linkedCardFilter(filterOf(id), pending.archived));
+  });
+  useEffect(() => applyLinkFilter(), [serverGroupIds, !!view.values]);
   const shownFilter = ownFilters[shownGroupId] ?? (view.values ? groupFilterOf(view.values, shownGroupId) : noGroupFilter);
   const { search, priority, tags: tagFilter, archived } = shownFilter;
   const taskType = shownFilter.type;

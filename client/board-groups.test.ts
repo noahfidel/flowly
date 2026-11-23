@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  linkFilterGroup,
   boardProject,
   boardScope,
   defaultGroup,
@@ -410,5 +411,23 @@ describe("New task from a group's tab", () => {
   test("an empty group falls back to All's rule (the form needs a project too)", () => {
     expect(groupNewTask(empty, projects, null, "c", false)).toEqual({ kind: "form", projectId: "c" });
     expect(groupNewTask(empty, [], null, "", true)).toBeNull();
+  });
+});
+
+describe("the group a card link resets filters in (BOARD-GROUPS-SPEC §3)", () => {
+  const groups = [{ id: "g1", isDefault: true as const, position: 0 }, { id: "g2", position: 1 }];
+  test("the card's project's group, never the group shown", () => {
+    expect(linkFilterGroup({ id: "p", groupId: "g2" }, groups, true)).toBe("g2");
+    // A project naming no group, or a deleted one, is in the default group.
+    expect(linkFilterGroup({ id: "p" }, groups, true)).toBe("g1");
+    expect(linkFilterGroup({ id: "p", groupId: "gone" }, groups, true)).toBe("g1");
+  });
+  test("groups not known yet (a cold link, a phone with the overview paused): the group the project names", () => {
+    expect(linkFilterGroup({ id: "p", groupId: "g2" }, [], true)).toBe("g2");
+    expect(linkFilterGroup({ id: "p" }, [], true)).toBeNull();
+  });
+  test("waits for the saved filters, so a saved show-archived is not overridden", () => {
+    expect(linkFilterGroup({ id: "p", groupId: "g2" }, groups, false)).toBeNull();
+    expect(linkFilterGroup({ id: "p", groupId: "g2" }, [], false)).toBeNull();
   });
 });
