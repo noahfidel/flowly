@@ -3,7 +3,7 @@ import type { Connection, ExternalRef } from "../shared/connectors";
 import type { Artifact, Task } from "../shared/model";
 import { prReviewOperationId } from "../shared/pr-review";
 import { prSections } from "../client/pr-list";
-import { GhPrCache, ghPrMenuState, listPrs, prFetchCap, type PrMenuReads } from "./pr-menu";
+import { GhPrCache, ghPrMenuState, ghViewerLogin, listPrs, prFetchCap, type PrMenuReads } from "./pr-menu";
 import { refKey, type Summaries } from "./connectors/service";
 
 /** `prs.list` (PR-MENU-SPEC §3.2): rows of the chosen projects, each with the connector badge's state word. */
@@ -21,20 +21,22 @@ const gitlab: Connection = { id: "gl", provider: "gitlab", baseUrl: "https://git
 
 function fakeReads(
   connections: Connection[],
-  states: Record<string, { status: string; stale?: boolean }>,
+  states: Record<string, { status: string; stale?: boolean; author?: string }>,
   calls: ExternalRef[][] = [],
-  cache: Record<string, { status: string; expired: boolean }> = {},
+  cache: Record<string, { status: string; expired: boolean; author?: string }> = {},
+  viewers: Record<string, string> = {},
 ): PrMenuReads {
   return {
     list: async () => connections,
-    cached: async (refs) => new Map(refs.flatMap((ref) => (cache[ref.key] ? [[refKey(ref), { summary: { status: cache[ref.key].status } as never, expired: cache[ref.key].expired }] as const] : []))),
+    viewers: async () => new Map(Object.entries(viewers)),
+    cached: async (refs) => new Map(refs.flatMap((ref) => (cache[ref.key] ? [[refKey(ref), { summary: { status: cache[ref.key].status, author: cache[ref.key].author } as never, expired: cache[ref.key].expired }] as const] : []))),
     locate: async (list) => new Map(list.filter((a) => a.external).map((a) => [a.id, connections.some((c) => c.id === a.external!.connectionId) ? a.external! : null])),
     badges: async (refs) => {
       calls.push([...refs]);
       const out: Summaries = new Map();
       for (const ref of refs) {
         const hit = states[ref.key];
-        if (hit) out.set(refKey(ref), { summary: { status: hit.status } as never, fingerprint: "", stale: !!hit.stale });
+        if (hit) out.set(refKey(ref), { summary: { status: hit.status, author: hit.author } as never, fingerprint: "", stale: !!hit.stale });
       }
       return out;
     },
@@ -148,7 +150,7 @@ test("hidden: a hidden PR that has merged stays hidden", async () => {
 });
 
 /** The `gh` fallback (PR-MENU-SPEC §3.2): github.com PRs no GitHub connection reads. */
-const ghSetup = (words: Record<string, "merged" | "open" | "closed" | "draft" | null | "throw"> = {}) => {
+const ghSetup = (words: Record<string, "merged" | "open" | "closed" | "draft" | null | "throw"> = {}, authors: Record<string, string> = {}) => {
   const asked: string[] = [];
   const cache = { now: 0 };
   const ghCache = new GhPrCache(() => cache.now);
@@ -156,7 +158,7 @@ const ghSetup = (words: Record<string, "merged" | "open" | "closed" | "draft" | 
     asked.push(`${pr.repo}#${pr.number}`);
     const word = words[`${pr.repo}#${pr.number}`] ?? "open";
     if (word === "throw") throw new Error("gh missing");
-    return word;
+    return word ? { state: word, author: authors[`${pr.repo}#${pr.number}`] ?? "" } : null;
   };
   return { asked, clock: cache, ghCache, gh };
 };
@@ -242,11 +244,105 @@ test("gh: a throwing gh gives no state, caches nothing, logs once, and leaves co
 test("ghPrMenuState: maps gh's answer and passes an argument array", async () => {
   const seen: (readonly string[])[] = [];
   const answer = async (json: string) => ghPrMenuState(async (file, args) => { expect(file).toBe("gh"); seen.push(args); return json; })({ repo: "o/r", number: 7 });
-  expect(await answer('{"state":"MERGED","isDraft":false,"mergedAt":"2026-11-20T10:00:00Z"}')).toBe("merged");
-  expect(await answer('{"state":"CLOSED","isDraft":false,"mergedAt":"2026-11-20T10:00:00Z"}')).toBe("merged");
-  expect(await answer('{"state":"CLOSED","isDraft":false,"mergedAt":null}')).toBe("closed");
-  expect(await answer('{"state":"OPEN","isDraft":true,"mergedAt":null}')).toBe("draft");
-  expect(await answer('{"state":"OPEN","isDraft":false,"mergedAt":null}')).toBe("open");
+  expect(await answer('{"state":"MERGED","isDraft":false,"mergedAt":"2026-11-20T10:00:00Z"}')).toEqual({ state: "merged", author: "" });
+  expect(await answer('{"state":"CLOSED","isDraft":false,"mergedAt":"2026-11-20T10:00:00Z"}')).toMatchObject({ state: "merged" });
+  expect(await answer('{"state":"CLOSED","isDraft":false,"mergedAt":null}')).toMatchObject({ state: "closed" });
+  expect(await answer('{"state":"OPEN","isDraft":true,"mergedAt":null}')).toMatchObject({ state: "draft" });
+  expect(await answer('{"state":"OPEN","isDraft":false,"mergedAt":null,"author":{"login":"ada"}}')).toEqual({ state: "open", author: "ada" });
   expect(await answer('{"state":"WAT"}')).toBeNull();
-  expect(seen[0]).toEqual(["pr", "view", "7", "--repo", "o/r", "--json", "state,isDraft,mergedAt"]);
+  expect(seen[0]).toEqual(["pr", "view", "7", "--repo", "o/r", "--json", "state,isDraft,mergedAt,author"]);
+});
+
+/** "My PRs" (PR-MENU-SPEC D16): `mine` compares the PR's author with the login of the connection or gh that read it. */
+const ghRead = (viewer: string | null | "throw", authors: Record<string, string> = {}) => {
+  const g = ghSetup({}, authors);
+  const viewerCalls = { n: 0 };
+  const ghViewer = async () => {
+    viewerCalls.n++;
+    if (viewer === "throw") throw new Error("gh not signed in");
+    return viewer;
+  };
+  return { ...g, viewerCalls, ghViewer };
+};
+
+test("mine: connector row compares the author with the connection's stored login, ignoring case; unknown login or author is null", async () => {
+  const board = {
+    projects: [project("p")],
+    tasks: [task("a")],
+    artifacts: [artifact("a", "https://github.com/o/r/pull/1"), artifact("a", "https://github.com/o/r/pull/2"), artifact("a", "https://github.com/o/r/pull/3")],
+  };
+  const states = { "o/r#1": { status: "Open", author: "Ada" }, "o/r#2": { status: "Open", author: "bob" }, "o/r#3": { status: "Open" } };
+  const rows = (await listPrs(board, ["p"], fakeReads([github], states, [], {}, { gh: "ADA" }))).rows;
+  const byNumber = (list: typeof rows) => Object.fromEntries(list.map((r) => [r.number, r.mine]));
+  expect(byNumber(rows)).toEqual({ "#1": true, "#2": false, "#3": null });
+  const noLogin = (await listPrs(board, ["p"], fakeReads([github], states))).rows;
+  expect(byNumber(noLogin)).toEqual({ "#1": null, "#2": null, "#3": null });
+});
+
+test("mine: a cache entry from before authors existed is null, and a review row by someone else is false", async () => {
+  const reviewCard = task("r", { operationId: prReviewOperationId("x"), prRef: "acme/api#7", status: "in_review" });
+  const board = { projects: [project("p")], tasks: [task("a"), reviewCard], artifacts: [artifact("a", "https://github.com/o/r/pull/1")] };
+  const cache = { "o/r#1": { status: "Open", expired: false } };
+  const viewers = { gh: "ada" };
+  const { rows } = await listPrs(board, ["p"], fakeReads([github], { "acme/api#7": { status: "Open", author: "zed" } }, [], cache, viewers));
+  expect(Object.fromEntries(rows.map((r) => [r.number, r.mine]))).toEqual({ "#1": null, "#7": false });
+});
+
+test("mine: the failing connector path gives null", async () => {
+  const reads = { ...fakeReads([github], {}), list: async () => { throw new Error("down"); } };
+  const { rows } = await listPrs(plainBoard(), ["p"], reads, () => undefined);
+  expect(rows.map((r) => r.mine)).toEqual([null]);
+});
+
+test("mine: gh row compares gh's author with the gh viewer, ignoring case", async () => {
+  const g = ghRead("Ada", { "o/r#1": "ada", "o/r#2": "bob" });
+  const { rows } = await listPrs(plainBoard(2), ["p"], { ...fakeReads([], {}), gh: g.gh, ghCache: g.ghCache, ghViewer: g.ghViewer });
+  expect(Object.fromEntries(rows.map((r) => [r.number, r.mine]))).toEqual({ "#1": true, "#2": false });
+  expect(g.viewerCalls.n).toBe(1);
+});
+
+test("mine: a failing gh viewer gives null, keeps the states and logs once", async () => {
+  const g = ghRead("throw", { "o/r#1": "ada", "o/r#2": "bob" });
+  const logged: unknown[][] = [];
+  const { rows } = await listPrs(plainBoard(2), ["p"], { ...fakeReads([], {}), gh: g.gh, ghCache: g.ghCache, ghViewer: g.ghViewer }, (...a: unknown[]) => void logged.push(a));
+  expect(rows.map((r) => [r.state, r.mine])).toEqual([["open", null], ["open", null]]);
+  expect(logged).toHaveLength(1);
+});
+
+test("mine: no gh viewer is read without a gh row, or when every gh row is hidden", async () => {
+  const g = ghRead("ada", { "o/r#1": "ada" });
+  await listPrs(plainBoard(1), ["p"], { ...fakeReads([github], { "o/r#1": { status: "Open" } }), gh: g.gh, ghCache: g.ghCache, ghViewer: g.ghViewer });
+  const a = artifact("a", "https://github.com/o/r/pull/1");
+  const hidden = { ...plainBoard(0), artifacts: [a], hiddenPrs: [{ taskId: "a", url: a.target, hiddenAt: at(0) }] };
+  const { rows } = await listPrs(hidden, ["p"], { ...fakeReads([], {}), gh: g.gh, ghCache: g.ghCache, ghViewer: g.ghViewer });
+  expect(rows[0].mine).toBeNull();
+  expect(g.viewerCalls.n).toBe(0);
+});
+
+test("mine: an old gh cache entry without an author is null", async () => {
+  const g = ghRead("ada");
+  g.ghCache.set("o/r#1", "open");
+  const { rows } = await listPrs(plainBoard(), ["p"], { ...fakeReads([], {}), gh: g.gh, ghCache: g.ghCache, ghViewer: g.ghViewer });
+  expect(rows[0]).toMatchObject({ state: "open", mine: null });
+});
+
+test("ghViewerLogin: asks gh api user with an argument array, caches 30 minutes on success and nothing on failure", async () => {
+  const seen: (readonly string[])[] = [];
+  const clock = { now: 0 };
+  let fail = true;
+  const read = ghViewerLogin(async (file, args) => {
+    expect(file).toBe("gh");
+    seen.push(args);
+    if (fail) throw new Error("not signed in");
+    return "ada\n";
+  }, () => clock.now);
+  await expect(read()).rejects.toThrow();
+  fail = false;
+  expect(await read()).toBe("ada");
+  expect(await read()).toBe("ada");
+  expect(seen).toHaveLength(2);
+  expect(seen[1]).toEqual(["api", "user", "--jq", ".login"]);
+  clock.now = 31 * 60_000;
+  expect(await read()).toBe("ada");
+  expect(seen).toHaveLength(3);
 });

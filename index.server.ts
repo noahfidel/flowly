@@ -77,7 +77,7 @@ import { validZone } from "./shared/insights";
 import { SearchService } from "./server/search";
 import { QuickTitleService } from "./server/quick-title";
 import { PrReviewCards } from "./server/pr-review-cards";
-import { GhPrCache, ghPrMenuState, listPrs } from "./server/pr-menu";
+import { GhPrCache, ghPrMenuState, ghViewerLogin, listPrs } from "./server/pr-menu";
 import { PrReviewArchiver, connectorPrReviews, connectorPrState, firstKnown, firstKnownReview, ghPrReviews, ghPrState } from "./server/pr-review-archive";
 import { ReviewLedgers } from "./server/review-ledgers";
 import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
@@ -912,7 +912,8 @@ export default function contribute(host: PluginServerContext) {
   });
   // PR-MENU-SPEC §3.2: read only when the menu opens; states from the connector badge cache, else `gh` for github.com PRs no connection reads.
   const ghPrCache = new GhPrCache();
-  server.handle(rpc.listPrs, async (input) => listPrs(await store.read(), input.projectIds, { list: () => connectors.list(), locate: (list) => connectors.locate(list), cached: (refs) => connectors.cachedBadges(refs), badges: (refs) => connectors.badges(refs), gh: ghPrMenuState(), ghCache: ghPrCache }));
+  const ghViewer = ghViewerLogin();
+  server.handle(rpc.listPrs, async (input) => listPrs(await store.read(), input.projectIds, { list: () => connectors.list(), viewers: () => connectors.viewerLogins(), locate: (list) => connectors.locate(list), cached: (refs) => connectors.cachedBadges(refs), badges: (refs) => connectors.badges(refs), gh: ghPrMenuState(), ghCache: ghPrCache, ghViewer: ghViewer }));
   server.handle(rpc.hidePr, (input) => store.hidePr(input));
   server.handle(rpc.restorePr, (input) => store.restorePr(input));
   server.handle(rpc.readExternal, async (input) => {

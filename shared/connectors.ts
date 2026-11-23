@@ -107,6 +107,8 @@ export const externalSummarySchema = z.object({
   updated: z.string(),
   /** Linear's suggested git branch for the issue (START-CARD-SPEC §6); other providers leave it out. */
   branchName: z.string().optional(),
+  /** Login of the item's author (GitHub issues and pull requests); the pull requests menu's "My PRs" reads it. */
+  author: z.string().optional(),
 });
 export type ExternalSummary = z.infer<typeof externalSummarySchema>;
 

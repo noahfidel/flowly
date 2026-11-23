@@ -108,6 +108,7 @@ export function githubSummary(connection: Pick<StoredConnection, "id" | "baseUrl
     type: itemType === "pull" ? "Pull request" : "Issue",
     priority: "",
     assignee: (issue.assignees || []).map((a) => a.login).filter(Boolean).join(", "),
+    author: issue.user?.login || "",
     container: splitRepoKey(key)?.repo || "",
     updated: issue.updated_at || "",
   };

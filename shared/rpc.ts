@@ -414,6 +414,8 @@ export const listPrs = defineRpc({
         createdAt: z.string(),
         state: z.enum(["draft", "open", "merged", "closed", ""]),
         hidden: z.boolean(),
+        /** The PR is the signed-in user's own (author = viewer login); null when either is unknown. */
+        mine: z.boolean().nullable(),
       }),
     ),
   }),

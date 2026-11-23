@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Status } from "../shared/model";
-import { hiddenPrRows, prCount, prRowTitle, prRowDetail, prSections, type PrListRow } from "./pr-list";
+import { hiddenPrRows, mineNote, prCount, prRowTitle, prRowDetail, prSections, type PrListRow } from "./pr-list";
 
 /** The pull requests menu (PR-MENU-SPEC §1 D5, §2.3): sections, their order and each row's text. */
 
@@ -17,6 +17,7 @@ const row = (taskId: string, number: string, s: number, over: Partial<PrListRow>
   createdAt: at(s),
   state: "open",
   hidden: false,
+  mine: null,
   ...over,
 });
 const lanes: Record<string, Status> = { dev: "development", review: "in_review", done: "integrated", todo: "todo", blocked: "blocked", design: "design" };
@@ -96,4 +97,33 @@ test("hidden PRs leave the sections; the hidden view lists them, newest first", 
   expect(ids(prSections(rows, statusOf))).toEqual(["open: dev#1"]);
   expect(hiddenPrRows(rows).map((r) => `${r.taskId}${r.number}`)).toEqual(["todo#4", "review#3", "dev#2"]);
   expect(hiddenPrRows([rows[0]])).toEqual([]);
+});
+
+test("My PRs on: only own PRs in Open and Merged or closed, review rows dropped, unknown author in its own last section", () => {
+  const rows = [
+    row("dev", "#1", 1, { mine: true }),
+    row("dev", "#2", 2, { mine: false }),
+    row("dev", "#3", 3, { mine: null }),
+    row("review", "#4", 4, { mine: true, state: "merged" }),
+    row("done", "#5", 5, { mine: null, state: "closed" }),
+    row("todo", "#6", 6, { kind: "review", artifactId: undefined, mine: true }),
+    row("dev", "#7", 7, { mine: true, hidden: true }),
+  ];
+  expect(ids(prSections(rows, statusOf, { mine: true }))).toEqual(["open: dev#1", "closed: review#4", "unknown: done#5 dev#3"]);
+  expect(ids(prSections(rows, statusOf, { mine: false }))).toEqual(ids(prSections(rows, statusOf)));
+  expect(ids(prSections(rows, statusOf))).toEqual(["open: dev#3 dev#2 dev#1", "reviewing: todo#6", "closed: done#5 review#4"]);
+});
+
+test("My PRs note: none known to be yours, or no login known at all", () => {
+  const mineRow = row("dev", "#1", 1, { mine: true });
+  const other = row("dev", "#2", 2, { mine: false });
+  const unknown = row("dev", "#3", 3, { mine: null });
+  const review = row("todo", "#4", 4, { kind: "review", artifactId: undefined, mine: false });
+  expect(mineNote([mineRow, other])).toBeNull();
+  expect(mineNote([other])).toBe("none");
+  expect(mineNote([other, unknown])).toBe("none");
+  expect(mineNote([unknown, review])).toBe("noLogin");
+  expect(mineNote([review])).toBe("none");
+  expect(mineNote([unknown, row("dev", "#5", 5, { mine: true, hidden: true })])).toBe("noLogin");
+  expect(mineNote([])).toBeNull();
 });

@@ -183,6 +183,11 @@ export class ConnectorService {
     return (await this.connections.all()).map(publicConnection);
   }
 
+  /** The stored login of each working GitHub-family connection, by connection id; no network. */
+  async viewerLogins(): Promise<Map<string, string>> {
+    return new Map((await this.connections.all()).filter((c) => familyOf(c.provider) === "github" && !c.authFailed && !!c.login).map((c) => [c.id, c.login]));
+  }
+
   /**
    * The signed-in GitHub user's login, the PR's author and its reviews, for a github.com PR (`owner/repo#n`), through a
    * GitHub connection with a working token and a stored login; null when none can tell (LANDED-DONE-SPEC §9.3).

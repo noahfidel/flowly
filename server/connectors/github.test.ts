@@ -127,6 +127,12 @@ describe("GitHub (CONNECTORS-SPEC §6)", () => {
     expect(summary).toMatchObject({ key: "acme/web#7", container: "acme/web", url: "https://ghe-proxy.example.com/acme/web/issues/7" });
   });
 
+  test("the summary carries the author's login, empty when GitHub names none", () => {
+    const base = { id: "c", baseUrl: "https://github.com" };
+    expect(githubSummary(base, { id: 1, number: 7, title: "T", html_url: "https://github.com/acme/web/pull/7", user: { login: "ada" }, pull_request: {} })).toMatchObject({ author: "ada" });
+    expect(githubSummary(base, { id: 1, number: 7, title: "T", html_url: "https://github.com/acme/web/pull/7" })).toMatchObject({ author: "" });
+  });
+
   test("a rate-limit 403 waits instead of marking the token refused; other 403s are not found", async () => {
     let mode: "ok" | "limited" | "forbidden" = "ok";
     const fake = github([{ repo: "acme/web", number: 1, title: "A" }]);

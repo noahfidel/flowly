@@ -75,6 +75,7 @@ export const boardViewSettings = defineSettings({
     linearLayout: z.enum(["auto", "board", "list"]).catch("auto").default("auto"),
     /** The Linear board's scope: "me" (Assigned to me) or a team id. */
     linearScope: z.string().max(200).catch("me").default("me"),
+    prMine: z.boolean().catch(false).default(false),
     /** Status columns the Linear board's filter hides. */
     linearHidden: z.array(z.enum(linearColumns)).max(5).catch([]).default([]),
     /** Card sidebar width as last dragged, as a share of the Flowly area; 0 = never dragged, opens at half (UI-UX-SPEC, drawer width). */

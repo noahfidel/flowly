@@ -10,17 +10,18 @@ import { laneName } from "../shared/lanes";
 import * as rpc from "../shared/rpc";
 import { msg, t } from "../shared/i18n";
 import { Modal } from "./modal";
-import { Button, IconButton, Label, Row, Theme, font, space, touch, useTheme } from "./ui";
+import { Button, IconButton, Label, Row, Theme, Toggle, font, space, touch, useTheme } from "./ui";
 import { stateColors } from "./state-colors";
 import { openQuickLink } from "./quick-links-row";
 import { usePrListQuery } from "./queries";
-import { hiddenPrRows, prRowDetail, prRowTitle, prSections, type PrListRow, type PrSectionId } from "./pr-list";
+import { hiddenPrRows, mineNote, prRowDetail, prRowTitle, prSections, type PrListRow, type PrSectionId } from "./pr-list";
 import { useStableCallback } from "./stable";
+import { useBoardView } from "./board-view";
 
 /** At most this many projects per read (PR-MENU-SPEC §3.2). */
 const maxProjects = 20;
 const noRows: PrListRow[] = [];
-const sectionTitles: Record<PrSectionId, string> = { open: msg("Open"), reviewing: msg("Reviewing"), closed: msg("Merged or closed") };
+const sectionTitles: Record<PrSectionId, string> = { open: msg("Open"), reviewing: msg("Reviewing"), closed: msg("Merged or closed"), unknown: msg("Author not known") };
 const stateWords: Record<Exclude<PrState, "">, string> = { draft: msg("Draft"), open: msg("Open"), merged: msg("Merged"), closed: msg("Closed") };
 
 type ShownRow = { hidden: boolean; key: string; taskId: string; url: string; state: PrState; title: string; detail: string; label: string };
@@ -55,7 +56,9 @@ export function PrMenu({
   // Read when the list arrives or the menu opens, not on every overview poll.
   const board = useRef({ tasks, projects });
   board.current = { tasks, projects };
-  const { sections, hiddenList } = useMemo(() => {
+  const view = useBoardView();
+  const mine = view.values?.prMine ?? false;
+  const { sections, hiddenList, note } = useMemo(() => {
     const byTask = new Map(board.current.tasks.map((x) => [x.id, x]));
     const byProject = new Map(board.current.projects.map((p) => [p.id, p]));
     const several = board.current.projects.length > 1;
@@ -79,16 +82,17 @@ export function PrMenu({
       };
     };
     return {
-      sections: prSections(rows, (id) => byTask.get(id)?.status).map((section) => ({ id: section.id, rows: section.rows.map(shown) })),
+      sections: prSections(rows, (id) => byTask.get(id)?.status, { mine }).map((section) => ({ id: section.id, rows: section.rows.map(shown) })),
       hiddenList: hiddenPrRows(rows).map(shown),
+      note: mine ? mineNote(rows) : null,
     };
-  }, [rows, open]);
+  }, [rows, open, mine]);
   // The Hidden view (D14); it falls back to the main list once nothing is hidden, and starts over on every open.
-  const [view, setView] = useState<"main" | "hidden">("main");
+  const [page, setView] = useState<"main" | "hidden">("main");
   useEffect(() => {
     if (!open) setView("main");
   }, [open]);
-  const showHidden = view === "hidden" && hiddenList.length > 0;
+  const showHidden = page === "hidden" && hiddenList.length > 0;
   // Once nothing is hidden the view starts over, so a later hide does not jump to the Hidden view.
   useEffect(() => {
     if (hiddenList.length === 0) setView((v) => (v === "main" ? v : "main"));
@@ -145,7 +149,16 @@ export function PrMenu({
             </View>
           ) : (
             <>
-              {sections.length === 0 && (
+              <Toggle title={t("My PRs")} value={mine} onChange={(next) => void view.update({ prMine: next })} />
+              {note === "none" && (
+                <Label muted size={font.md} selectable={false}>{t("None of these pull requests is known to be yours.")}</Label>
+              )}
+              {note === "noLogin" && (
+                <Label muted size={font.md} selectable={false}>
+                  {t("Flowly can't tell which pull requests are yours: connect GitHub in Settings → Connectors, or sign in to the gh CLI.")}
+                </Label>
+              )}
+              {sections.length === 0 && !note && (
                 <Label muted size={font.md} selectable={false}>
                   {hiddenList.length > 0 ? t("All pull requests on this board are hidden.") : t("No pull requests on this board")}
                 </Label>
