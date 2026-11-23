@@ -2254,6 +2254,8 @@ function BoardContent(
   // then runs the Esc chain; Back and Forward pass through. Focus goes to the board root first (a Back into another chat
   // takes it again once that chat renders).
   const cardBoxEscapeRun = useStableCallback((draftEmpty: boolean) => {
+    // The user is in a card chat, not the dock: a stale dock-active mark must not turn Esc into "close the dock".
+    dockActive.current = false;
     (rootRef.current as unknown as { focus?: () => void } | null)?.focus?.();
     if (cardBoxEscape(draftEmpty) === "chain") runIntent("escape");
   });

@@ -269,8 +269,16 @@ export function ComposerBox({
           returnKeyType="send"
           onKeyPress={(event) => {
             if (Platform.OS !== "web") return;
-            if (onShortcutKey?.(event.nativeEvent as ComposerKey)) return event.preventDefault();
-            if (onEscape && (event.nativeEvent as ComposerKey).key === "Escape") return onEscape();
+            // Handled keys never reach the board root's own key handler (SHORTCUTS-SPEC §2.2).
+            const handled = () => {
+              event.preventDefault();
+              (event as { stopPropagation?(): void }).stopPropagation?.();
+            };
+            if (onShortcutKey?.(event.nativeEvent as ComposerKey)) return handled();
+            if (onEscape && (event.nativeEvent as ComposerKey).key === "Escape") {
+              handled();
+              return onEscape();
+            }
             const action = composerEnterAction(event.nativeEvent as ComposerKey);
             if (action === "native") return;
             event.preventDefault();
