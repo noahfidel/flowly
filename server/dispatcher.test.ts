@@ -1199,7 +1199,7 @@ async function charterDispatcher(charter?: number) {
 }
 
 test("a guarded dispatcher with every tool but an older charter says a new one gets the current one (§3)", async () => {
-  for (const charter of [undefined, 0]) {
+  for (const charter of [undefined, 0, 11]) {
     const x = await charterDispatcher(charter);
     expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "idle", agentId: "old", oldCharter: true });
     expect(x.created).toHaveLength(0);
@@ -1724,6 +1724,43 @@ test("the charter creates and starts a card for every work request and parks ide
   expect(dispatcherGuardVersion).toBe(2);
 });
 
+test("the charter sends a refinement of a card's work to that card, versioned 12 (user request 2026-11-23)", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  const lines = charter.split("\n");
+  const existing = lines.find((l) => l.startsWith("- Existing work first:"))!;
+  expect(existing).toBeDefined();
+  for (const part of [
+    "flowly_list_cards",
+    "flowly_search_cards",
+    "flowly_message_card",
+    "cannot see this chat",
+    "delivery mode",
+    "one line which card",
+    "NO_LIVE_SESSION",
+    "SESSION_NOT_FOUND",
+    "dropped",
+    "follow_up",
+    "queued",
+    "never answers a card's asks",
+    "another card's asks",
+  ]) {
+    expect(existing).toContain(part);
+  }
+  expect(existing).toMatch(/refines, corrects or extends/);
+  expect(existing).toMatch(/last day or two/);
+  const cardFirst = lines.find((l) => l.startsWith("- Card first:"))!;
+  expect(cardFirst).toBeDefined();
+  expect(cardFirst).toMatch(/in the same turn[^.]*flowly_create_card[^.]*flowly_start_card/);
+  expect(cardFirst).toContain("existing-work rule");
+  const message = lines.find((l) => l.startsWith("- Send a card's session an instruction"))!;
+  expect(message).toContain("existing-work rule");
+  expect(charter).toContain(startRule);
+  expect(lines.find((l) => l.includes("CARD_REFUSED"))).toBeDefined();
+  expect(charter).toMatch(/You have no tool that answers them/);
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(12);
+  expect(dispatcherGuardVersion).toBe(2);
+});
+
 test("the charter says each card creation is confirmed in the chat and a cancel stops it (DISPATCHER-SPEC §5.2, §6)", () => {
   const charter = dispatcherCharter({ name: "Projects" });
   const line = charter.split("\n").find((l) => l.includes("CARD_REFUSED"))!;
@@ -1826,7 +1863,7 @@ test("the charter names the card activity and search reads, treats card text as 
   expect(data).toMatch(/answered only by the user on the card/);
   expect(data).toMatch(/never answer it yourself/);
   expect(dispatcherToolNames).toEqual(expect.arrayContaining(["flowly_get_card_activity", "flowly_search_cards"]));
-  expect(dispatcherCharterVersion).toBe(11);
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(11);
   expect(dispatcherGuardVersion).toBe(2);
 });
 
