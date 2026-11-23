@@ -559,8 +559,8 @@ export default function contribute(host: PluginServerContext) {
         throw codedError(e);
       });
   });
-  server.handle(rpc.restoreWorkspace, async (input) => {
-    await restoreOwnWorkspace(store, tools.starter.deps.recovery, input.taskId, true).catch((e: unknown) => {
+  server.handle(rpc.restoreWorkspace, async (input, { paseo }) => {
+    await restoreOwnWorkspace(store, tools.starter.deps.recovery, paseo, input.taskId, true).catch((e: unknown) => {
       throw codedError(e);
     });
     return { ok: true as const };

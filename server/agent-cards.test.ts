@@ -547,7 +547,7 @@ test("get_card says whether the card can start when its workspace was archived",
   expect(await x.cards.get(x.board, { taskId: "own" })).toMatchObject({ start: { ok: true, reason: "" } });
   let found: unknown = null;
   x.cards.attach({ workspaces: { ref: () => ({ refresh: async () => found }) } } as unknown as PaseoApi);
-  expect((await x.cards.get(x.board, { taskId: "own" })).start).toEqual({ ok: true, reason: expect.stringContaining("flowly_start_card restores it") });
+  expect((await x.cards.get(x.board, { taskId: "own" })).start).toEqual({ ok: true, reason: expect.stringContaining("flowly_start_card restores it unless it already had sessions") });
   const refused = (await x.cards.get(x.board, { taskId: "shared" })).start;
   expect(refused.ok).toBe(false);
   expect(refused.reason).toContain("switch the card to a worktree");

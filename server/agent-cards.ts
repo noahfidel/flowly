@@ -255,7 +255,7 @@ export class AgentCards {
     if (workspace) return { ok: true, reason: "" };
     const rule = archivedWorkspaceStart(task);
     return rule.restorable
-      ? { ok: true, reason: "The card's workspace was archived outside Flowly; flowly_start_card restores it." }
+      ? { ok: true, reason: "The card's workspace was archived outside Flowly; flowly_start_card restores it unless it already had sessions." }
       : { ok: false, reason: `${rule.reason} Ask the user to switch the card to a worktree.` };
   }
   /**

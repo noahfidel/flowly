@@ -22,6 +22,7 @@ import { workspaceSessions } from "./workspace-switch";
 import { cardWorkspaceIds } from "../shared/workspace-switch";
 import { baseChoiceProblem, chooseBase, openParents, rebaseLine } from "./follow-up-base";
 import { addLink } from "./links";
+import { isSummarizer } from "../shared/summary";
 import { archivedWorkspaceStart } from "../shared/archived-start";
 import type { WorkspaceRecovery } from "./workspace-restore";
 
@@ -129,9 +130,29 @@ export async function linearBranchFor(task: Task, board: Board, connectors: Pick
  * never switched, and the workspace never had a session. Used by the start and by the drawer's Start (`tasks.restore-workspace`).
  * Refuses with WORKSPACE_ARCHIVED, saying why.
  */
-export async function restoreOwnWorkspace(store: BoardStore, recovery: WorkspaceRecovery, taskId: string, human: boolean): Promise<void> {
-  const task = (await store.read()).tasks.find((t) => t.id === taskId);
+export function restoreOwnWorkspace(store: BoardStore, recovery: WorkspaceRecovery, paseo: PaseoApi, taskId: string, human: boolean): Promise<{ restored: boolean }> {
+  // One restore per card at a time: a second call waits, then finds the workspace present and records nothing.
+  const run = (restoring.get(taskId) ?? Promise.resolve()).catch(() => undefined).then(() => restoreOnce(store, recovery, paseo, taskId, human));
+  const tail = run.catch(() => undefined);
+  restoring.set(taskId, tail);
+  void tail.then(() => {
+    if (restoring.get(taskId) === tail) restoring.delete(taskId);
+  });
+  return run;
+}
+const restoring = new Map<string, Promise<unknown>>();
+
+async function restoreOnce(store: BoardStore, recovery: WorkspaceRecovery, paseo: PaseoApi, taskId: string, human: boolean): Promise<{ restored: boolean }> {
+  const board = await store.read();
+  const task = board.tasks.find((t) => t.id === taskId);
   if (!task || task.archivedAt) throw new ToolError("NOT_FOUND", "No live card with that id.");
+  if (finished(task.status)) throw new ToolError("CARD_FINISHED", "The card is Done or Cancelled; only the user reopens it.");
+  const project = board.projects.find((p) => p.id === task.projectId);
+  if (!project) throw new ToolError("NOT_FOUND", "The Flowly project was removed.");
+  if (project.archivedAt) throw new ToolError("PROJECT_ARCHIVED", "The Flowly project is archived.");
+  const present = await paseo.workspaces.ref(task.workspaceId).refresh().catch(() => null);
+  if (present?.archivingAt) throw new ToolError("RESOURCE_UNAVAILABLE", "The card's workspace is being archived.");
+  if (present) return { restored: false };
   const rule = archivedWorkspaceStart(task);
   if (!rule.restorable)
     throw new ToolError("WORKSPACE_ARCHIVED", `${rule.reason} ${human ? "Use Switch to worktree on the card, then start again." : "Ask the user to switch the card to a worktree, then start it."}`);
@@ -147,7 +168,7 @@ export async function restoreOwnWorkspace(store: BoardStore, recovery: Workspace
     if (state.kind !== "recoverable")
       throw new ToolError("WORKSPACE_ARCHIVED", `The card's workspace is archived and Paseo cannot restore it: ${state.message || state.reason}`);
     // Never used: a workspace that had sessions keeps its history where it is.
-    if ((await conn.archivedSessions(task.workspaceId)).length)
+    if ((await conn.archivedSessions(task.workspaceId)).some((session) => !isSummarizer(session)))
       throw new ToolError(
         "WORKSPACE_ARCHIVED",
         `The card's workspace was archived outside Flowly and it already had sessions, so Flowly does not restore it. ${human ? "Use Switch to worktree on the card, then start again." : "Ask the user to switch the card to a worktree, then start it."}`,
@@ -166,6 +187,7 @@ export async function restoreOwnWorkspace(store: BoardStore, recovery: Workspace
         store.event(board, { taskId: task.id, actor: "system", action: "workspace_restored", note: "Archived outside Flowly; restored for the card's start." });
     })
     .catch((e) => logFailure("Flowly start_card restore event not recorded:", e, `card ${task.id}`));
+  return { restored: true };
 }
 
 export type StarterDeps = {
@@ -247,7 +269,7 @@ export class CardStarter {
     let workspace = await paseo.workspaces.ref(task.workspaceId).refresh().catch(() => null);
     if (workspace?.archivingAt) throw new ToolError("RESOURCE_UNAVAILABLE", "The card's workspace is being archived.");
     if (!workspace) {
-      await restoreOwnWorkspace(this.store, this.deps.recovery, task.id, !!caller.human);
+      await restoreOwnWorkspace(this.store, this.deps.recovery, paseo, task.id, !!caller.human);
       workspace = await paseo.workspaces.ref(task.workspaceId).refresh().catch(() => null);
       if (!workspace || workspace.archivingAt) throw new ToolError("RESOURCE_UNAVAILABLE", "The card's workspace is unavailable or being archived.");
     }

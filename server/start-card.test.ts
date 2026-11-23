@@ -1292,7 +1292,7 @@ test("restoreOwnWorkspace (the drawer's Start) restores an eligible card and ref
   await x.card("shared", { ownsWorkspace: false });
   await x.card("used", { ownsWorkspace: true });
   for (const id of ["own", "shared", "used"]) x.workspaces.delete(`ws-${id}`);
-  const run = (id: string) => restoreOwnWorkspace(x.store, x.recovery, id, true);
+  const run = (id: string) => restoreOwnWorkspace(x.store, x.recovery, x.paseo, id, true);
   await run("own");
   expect(x.recover.restores).toEqual(["ws-own"]);
   expect((await x.store.read()).events.filter((e) => e.taskId === "own" && e.action === "workspace_restored")).toHaveLength(1);
@@ -1301,4 +1301,53 @@ test("restoreOwnWorkspace (the drawer's Start) restores an eligible card and ref
   expect(await x.failure(run("used"))).toBe("WORKSPACE_ARCHIVED");
   expect(x.recover.restores).toEqual(["ws-own"]);
   expect(await x.failure(run("nope"))).toBe("NOT_FOUND");
+});
+
+test("restoreOwnWorkspace refuses a finished card and leaves a live workspace alone", async () => {
+  const x = await setup();
+  await x.card("done", { ownsWorkspace: true, status: "done" });
+  await x.card("live", { ownsWorkspace: true });
+  x.workspaces.delete("ws-done");
+  const run = (id: string) => restoreOwnWorkspace(x.store, x.recovery, x.paseo, id, true);
+  expect(await x.failure(run("done"))).toBe("CARD_FINISHED");
+  expect(await run("live")).toEqual({ restored: false });
+  expect(x.recover.connects).toBe(0);
+  expect(x.recover.restores).toEqual([]);
+  expect((await x.store.read()).events.filter((e) => e.action === "workspace_restored")).toEqual([]);
+  x.workspaces.get("ws-live")!.archivingAt = new Date().toISOString();
+  expect(await x.failure(run("live"))).toBe("RESOURCE_UNAVAILABLE");
+});
+
+test("restoreOwnWorkspace refuses a card of an archived project", async () => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true });
+  x.workspaces.delete("ws-c");
+  await x.store.mutate((board) => {
+    board.projects[0].archivedAt = new Date().toISOString();
+  });
+  expect(await x.failure(restoreOwnWorkspace(x.store, x.recovery, x.paseo, "c", true))).toBe("PROJECT_ARCHIVED");
+  expect(x.recover.connects).toBe(0);
+});
+
+test("two concurrent restores make one restore and one event", async () => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true });
+  x.workspaces.delete("ws-c");
+  const run = () => restoreOwnWorkspace(x.store, x.recovery, x.paseo, "c", true);
+  const results = await Promise.all([run(), run()]);
+  expect(results.map((r) => r.restored).sort()).toEqual([false, true]);
+  expect(x.recover.restores).toEqual(["ws-c"]);
+  expect((await x.store.read()).events.filter((e) => e.action === "workspace_restored")).toHaveLength(1);
+});
+
+test("a restore that throws is WORKSPACE_ARCHIVED and closes the connection; summarizer sessions do not count", async () => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true });
+  x.workspaces.delete("ws-c");
+  x.recover.restoreFails = true;
+  expect(await x.failure(restoreOwnWorkspace(x.store, x.recovery, x.paseo, "c", true))).toBe("WORKSPACE_ARCHIVED");
+  expect(x.recover.closes).toBe(1);
+  x.recover.restoreFails = false;
+  x.recover.archivedSessions = [{ id: "sum", archivedAt: new Date().toISOString(), labels: { flowly: "summarizer" } }];
+  expect(await restoreOwnWorkspace(x.store, x.recovery, x.paseo, "c", true)).toEqual({ restored: true });
 });
