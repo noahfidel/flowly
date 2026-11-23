@@ -52,7 +52,13 @@
 - Daemon: new read-only `query States` (`workflowStates`, `first: 250`) through `graphql()`, one request per board read (none without issues); rows gain `stateId` and `teamId`; `connectors.linear-board` returns `states`. Shared: `buildLanes` replaces `columnOf`/`groupIssues`; an issue whose state is not in the list makes a lane from its own fields. `linearHidden` now holds lane keys (lowercased state names); older stored state types simply stop matching.
 - i18n: added "No state" to every catalog; no strings became unused. Onboarding: no tour or tip change (an existing feature fixed). Telemetry: no field. No screenshots (ruling).
 
-## Card chat: a tool step's result opens with its arguments — 2026-11-22
+## Linear board: search box — 2026-11-23
+
+- Change (user request 2026-11-23): an inline search box under the Linear board's toolbar filters the loaded issues live by key, title, assignee, state, team and priority (case-insensitive, every word must match), after the status chips; lanes with no match drop out while searching. Labels and project are not loaded, so not matched. Spec: LINEAR-BOARD-SPEC §4, §6, §7.
+- Shared: `issueMatches`, `searchLanes`, `linearSearchKey` in `shared/linear-board.ts`; new board-view setting `linearSearch` (per `<connectionId>:<scope>`, 100 entries, 500 ms save). No keyboard shortcut (the Linear screen has no key handler).
+- i18n: six new strings in every catalog. Onboarding: no tour or tip change (small addition to an existing screen). Telemetry: no field. Tests: `shared/linear-board.test.ts`, `shared/settings.test.ts`. Not run: screenshots and live plugin check.
+
+ with its arguments — 2026-11-22
 
 - Change (user request, ruling 2026-11-22 in SESSION-PANE-SPEC §1.3): the separate, collapsed Result toggle is gone. Expanding a step shows its arguments and result together, with the Result heading (and `· Exit <code>`) under the arguments and one Show more / Show less at the end of the step. Result preview is 6 lines / 750 characters; arguments stay 12 / 1 500, edit sides 6 / 750.
 - Shared: `toolStepPreview` and the preview limits moved to `shared/tool-call-detail.ts` (tests: result cut and `canToggle`, plus an MCP and shell result masking test). Client: `ResultSection` in `client/tool-step.tsx` has no state of its own. i18n: no new or unused strings.

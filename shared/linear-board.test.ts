@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildLanes, linearCardsByKey, visibleGroups, type LinearIssueRow, type LinearState } from "./linear-board";
+import { buildLanes, issueMatches, linearCardsByKey, linearSearchKey, searchLanes, visibleGroups, type LinearIssueRow, type LinearState } from "./linear-board";
 
 const row = (key: string, stateType: string, extra: Partial<LinearIssueRow> = {}): LinearIssueRow => ({
   key,
@@ -111,5 +111,33 @@ describe("already has a card (LINEAR-BOARD-SPEC §3.3)", () => {
       ],
     );
     expect([...cards]).toEqual([["ENG-1", { taskId: "b", projectId: "p-b", workspaceId: "w-b", title: "Card b" }]]);
+  });
+});
+
+describe("search (LINEAR-BOARD-SPEC §4)", () => {
+  const a = row("ZEN-9132", "started", { title: "Fix deploy", assignee: "Ada Lovelace", stateName: "In Progress", teamKey: "ZEN", teamName: "Zenlytic", priorityLabel: "Urgent" });
+  const b = row("ZEN-1", "started", { title: "Fix build", stateName: "In Progress", teamKey: "ZEN", teamName: "Zenlytic" });
+  test("matches key (case-insensitive), title, assignee, state, team and priority", () => {
+    for (const q of ["zen-9132", "ZEN-9132", "deploy", "lovelace", "in progress", "zenlytic", "urgent"]) expect(issueMatches(a, q), q).toBe(true);
+    expect(issueMatches(a, "nothing")).toBe(false);
+  });
+  test("words are AND-ed; a blank query matches everything", () => {
+    expect(issueMatches(a, "zen deploy")).toBe(true);
+    expect(issueMatches(b, "zen deploy")).toBe(false);
+    expect(issueMatches(b, "")).toBe(true);
+    expect(issueMatches(b, "   ")).toBe(true);
+  });
+  const lanes = buildLanes(zen, [a, b, row("ZEN-2", "unstarted", { title: "Other", stateName: "To Do" })]);
+  test("a blank query returns the lanes unchanged, empty lanes kept", () => {
+    expect(searchLanes(lanes, "  ")).toBe(lanes);
+  });
+  test("a query filters each lane in order and drops lanes left empty", () => {
+    const found = searchLanes(lanes, "fix");
+    expect(found.map((l) => l.title)).toEqual(["In Progress"]);
+    expect(found[0].issues.map((i) => i.key)).toEqual(lanes.find((l) => l.title === "In Progress")!.issues.filter((i) => i.title.includes("Fix")).map((i) => i.key));
+    expect(searchLanes(lanes, "zzz")).toEqual([]);
+  });
+  test("search key", () => {
+    expect(linearSearchKey("c1", "me")).toBe("c1:me");
   });
 });

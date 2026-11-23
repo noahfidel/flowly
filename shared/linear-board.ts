@@ -79,6 +79,23 @@ export function visibleGroups<G extends { key: string }>(groups: readonly G[], h
   return groups.filter((g) => !hidden.includes(g.key));
 }
 
+/** The board-view key of a scope's remembered search: `<connectionId>:<me|teamId>` (LINEAR-BOARD-SPEC §4). */
+export const linearSearchKey = (connectionId: string, scope: string) => `${connectionId}:${scope}`;
+
+/** True when every whitespace-separated word of `query` appears (case-insensitive) in the issue's key, title, assignee, state, team or priority. */
+export function issueMatches(issue: LinearIssueRow, query: string): boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const haystack = [issue.key, issue.title, issue.assignee, issue.stateName, issue.teamKey, issue.teamName, issue.priorityLabel].join("\n").toLowerCase();
+  return words.every((w) => haystack.includes(w));
+}
+
+/** Lanes with only the matching issues; while searching, lanes left empty drop out. A blank query returns `lanes` itself. */
+export function searchLanes<T extends LinearIssueRow>(lanes: LinearLane<T>[], query: string): LinearLane<T>[] {
+  if (!query.trim()) return lanes;
+  return lanes.map((lane) => ({ ...lane, issues: lane.issues.filter((i) => issueMatches(i, query)) })).filter((lane) => lane.issues.length > 0);
+}
+
 type MarkerTask = { id: string; projectId: string; workspaceId: string; title: string; archivedAt: string | null; updatedAt: string };
 type MarkerArtifact = { taskId: string; external?: { provider: string; key: string } };
 

@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, View, useWindowDimensions } from "react-native";
 import { ScrollView } from "@getpaseo/plugin/client/react-native";
 import { useRpc, type PluginOpenScreenInput, type PluginScreenProps, type PluginSidebarItemProps } from "@getpaseo/plugin/client";
@@ -6,7 +6,7 @@ import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import * as rpc from "../shared/rpc";
 import { familyOf } from "../shared/connectors";
-import { buildLanes, visibleGroups, type LinearBoardRow, type LinearLane, type LinearState } from "../shared/linear-board";
+import { buildLanes, linearSearchKey, searchLanes, visibleGroups, type LinearBoardRow, type LinearLane, type LinearState } from "../shared/linear-board";
 import { LocaleRoot } from "./i18n";
 import { MotionProvider } from "./motion";
 import { useBoardView } from "./board-view";
@@ -15,7 +15,7 @@ import { LinearMark } from "./brand-icons";
 import { linearOpenParams, linearStartParams } from "./linear-start";
 import { isCompactLayout } from "./geometry";
 import { useStableCallback, useStableTheme } from "./stable";
-import { Badge, Button, Choices, IconButton, Label, Notice, Row, Theme, font, noFocusRing, radius, space, useTheme } from "./ui";
+import { Badge, Button, Choices, IconButton, Label, Notice, Row, TextBox, Theme, font, noFocusRing, radius, space, touch, useTheme } from "./ui";
 import { t } from "../shared/i18n";
 
 /**
@@ -94,7 +94,46 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
   const allGroups = useMemo(() => buildLanes(board.data?.states || noStates, board.data?.issues || noIssues), [board.data]);
   // Settings are parsed again on every render: compare the hidden list by content.
   const hiddenKey = hidden.join(",");
-  const groups = useMemo(() => visibleGroups(allGroups, hidden), [allGroups, hiddenKey]);
+  const scopeKey = linearSearchKey(connection?.id ?? "", teamId ?? "me");
+  // The search text: this run's typing, else the remembered one (LINEAR-BOARD-SPEC §4).
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const draftsRef = useRef(drafts);
+  const query = drafts[scopeKey] ?? view.values?.linearSearch[scopeKey] ?? "";
+  const statusGroups = useMemo(() => visibleGroups(allGroups, hidden), [allGroups, hiddenKey]);
+  const groups = useMemo(() => searchLanes(statusGroups, query), [statusGroups, query]);
+  const saveSearch = useStableCallback((key: string) => {
+    const text = draftsRef.current[key];
+    if (text === undefined || !view.values) return;
+    const current = view.values.linearSearch;
+    if ((current[key] ?? "") === text) return;
+    const next = { ...current };
+    if (!text) delete next[key];
+    else {
+      // At most 100 scopes: the oldest entry goes first.
+      if (!(key in next)) for (const old of Object.keys(next).slice(0, Math.max(0, Object.keys(next).length - 99))) delete next[old];
+      next[key] = text;
+    }
+    void view.update({ linearSearch: next });
+  });
+  // A save that waits for typing to pause; a scope change, clearing and leaving the screen save at once.
+  const searchSave = useRef<{ timer: ReturnType<typeof setTimeout>; key: string } | null>(null);
+  const flushSearchSave = useStableCallback(() => {
+    const waiting = searchSave.current;
+    if (!waiting) return;
+    clearTimeout(waiting.timer);
+    searchSave.current = null;
+    saveSearch(waiting.key);
+  });
+  useEffect(() => flushSearchSave, [scopeKey]);
+  const typeSearch = useStableCallback((key: string, text: string) => {
+    draftsRef.current = { ...draftsRef.current, [key]: text };
+    setDrafts(draftsRef.current);
+    if (searchSave.current && searchSave.current.key !== key) flushSearchSave();
+    if (searchSave.current) clearTimeout(searchSave.current.timer);
+    searchSave.current = null;
+    if (text) searchSave.current = { key, timer: setTimeout(() => flushSearchSave(), 500) };
+    else saveSearch(key);
+  });
   const layoutChoice = view.values?.linearLayout || "auto";
   const layout = layoutChoice === "auto" ? (compact ? "list" : "board") : layoutChoice;
   const [scopeOpen, setScopeOpen] = useState(false);
@@ -153,6 +192,38 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
         </Button>
         <IconButton icon="RefreshCw" label={t("Refresh")} disabled={board.isFetching} onPress={refresh} />
       </View>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space[2] }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <TextBox
+            key={scopeKey}
+            value={query}
+            onChangeText={(text) => typeSearch(scopeKey, text)}
+            commitDelay={150}
+            maxLength={200}
+            autoCorrect={false}
+            autoCapitalize="none"
+            placeholder={t("Search loaded issues")}
+            accessibilityLabel={t("Search issues")}
+            style={{
+              height: touch ? 40 : 32,
+              paddingHorizontal: space[3],
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: colors.border,
+              color: colors.foreground,
+              fontSize: font.base,
+            }}
+          />
+        </View>
+        {!!query.trim() && <IconButton icon="X" label={t("Clear search")} onPress={() => typeSearch(scopeKey, "")} />}
+      </View>
+      {!!query.trim() && (
+        <Label muted size={font.sm}>
+          {board.data?.truncated
+            ? t("Searches only the {n} most recently updated issues loaded here, not all of Linear.", { n: total })
+            : t("Searches only the issues on this board, not all of Linear.")}
+        </Label>
+      )}
       {linear.length > 1 && (
         <Choices title={t("Connection")} hideTitle value={connection.id} options={linear.map((c) => ({ value: c.id, label: c.name }))} onChange={chooseConnection} />
       )}
@@ -178,7 +249,7 @@ function LinearBoard({ compact: hostCompact, openScreen }: { compact: boolean; o
       ) : board.error ? (
         <Notice tone="warning">{externalError(board.error, "linear")}</Notice>
       ) : shown === 0 ? (
-        <Label muted>{t("No issues in this view.")}</Label>
+        <Label muted>{query.trim() && statusGroups.some((g) => g.issues.length) ? t("No issues match your search.") : t("No issues in this view.")}</Label>
       ) : layout === "board" ? (
         <ScrollView horizontal contentContainerStyle={{ gap: space[3], alignItems: "flex-start" }}>
           {groups.map((g) => (

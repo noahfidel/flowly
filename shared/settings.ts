@@ -106,6 +106,12 @@ export const boardViewSettings = defineSettings({
     prMine: z.boolean().catch(false).default(false),
     /** Status lanes the Linear board's filter hides: lowercased state names (older stored state types match nothing). */
     linearHidden: z.array(z.string().max(100)).max(100).catch([]).default([]),
+    /** The Linear board's search text by `<connectionId>:<me|teamId>` (LINEAR-BOARD-SPEC §4). */
+    linearSearch: z
+      .record(z.string().min(1).max(300), z.string().max(200))
+      .transform((r) => Object.fromEntries(Object.entries(r).slice(0, groupMapCap)))
+      .catch({})
+      .default({}),
     /** Card sidebar width as last dragged, as a share of the Flowly area; 0 = never dragged, opens at half (UI-UX-SPEC, drawer width). */
     drawerShare: z.number().min(0).max(1).catch(0).default(0),
     /** The dispatcher chat minimized on desktop; it starts open (DISPATCHER-SPEC §9.3). */
