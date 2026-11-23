@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { PaseoApi } from "@getpaseo/client";
 import { AgentCards } from "./agent-cards";
 import { agentFixture } from "./agent-fixture";
-import { CardStarter } from "./start-card";
+import { CardStarter, restoreOwnWorkspace } from "./start-card";
 import type { RecoveryState, WorkspaceRecovery } from "./workspace-restore";
 import { ExternalError } from "./connectors/http";
 import { codedError, toolFailure } from "./tool-error";
@@ -100,7 +100,15 @@ async function setup() {
     },
   } as unknown as PaseoApi;
   /** A fake Paseo recovery: what inspect answers, and which workspaces were connected to and restored. */
-  const recover: { state: RecoveryState | null; connectFails: boolean; connects: number; restores: string[] } = { state: null, connectFails: false, connects: 0, restores: [] };
+  const recover: { state: RecoveryState | null; connectFails: boolean; restoreFails: boolean; archivedSessions: { id: string; archivedAt: string; labels: Record<string, string> }[]; connects: number; closes: number; restores: string[] } = {
+    state: null,
+    connectFails: false,
+    restoreFails: false,
+    archivedSessions: [],
+    connects: 0,
+    closes: 0,
+    restores: [],
+  };
   const recovery: WorkspaceRecovery = {
     async connect() {
       recover.connects++;
@@ -108,12 +116,15 @@ async function setup() {
       return {
         inspect: async (id) => recover.state ?? { kind: "recoverable", workspaceId: id, workspaceName: id, action: "unarchive", branch: null },
         restore: async (id) => {
+          if (recover.restoreFails) throw new Error("restore refused");
           recover.restores.push(id);
           space(id);
         },
-        archivedSessions: async () => [],
+        archivedSessions: async () => recover.archivedSessions,
         reviveSession: async () => undefined,
-        close: async () => undefined,
+        close: async () => {
+          recover.closes++;
+        },
       };
     },
   };
@@ -197,6 +208,7 @@ async function setup() {
     starterFor,
     hooks,
     recover,
+    recovery,
     caller,
     card,
     session,
@@ -1213,6 +1225,13 @@ test("start_card restores a card's own archived workspace, then moves it to a wo
   expect(x.createdSessions).toHaveLength(1);
   const board = await x.store.read();
   expect(board.events.filter((e) => e.taskId === "c" && e.action === "workspace_restored")).toHaveLength(1);
+  expect(board.events.find((e) => e.action === "workspace_restored")?.note).toBe("Archived outside Flowly; restored for the card's start.");
+  expect(x.recover.closes).toBe(1);
+  // The same key again after the restore: the session is replayed, nothing is restored or recorded twice.
+  const again = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(again).toMatchObject({ replayed: true, agentId: started.agentId });
+  expect(x.recover.restores).toEqual(["ws-c"]);
+  expect((await x.store.read()).events.filter((e) => e.action === "workspace_restored")).toHaveLength(1);
 });
 
 test("start_card does not restore a shared or switched card's archived workspace", async () => {
@@ -1237,7 +1256,12 @@ test("start_card refuses with Paseo's reason when the archived workspace cannot 
   expect(error).toMatchObject({ code: "WORKSPACE_ARCHIVED", message: expect.stringContaining("The folder is gone.") });
   expect(x.recover.restores).toEqual([]);
   expect(x.createdSessions).toEqual([]);
+  expect(x.recover.closes).toBe(1);
   x.recover.state = null;
+  x.recover.restoreFails = true;
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go3" }, x.paseo))).toBe("WORKSPACE_ARCHIVED");
+  expect(x.recover.closes).toBe(2);
+  x.recover.restoreFails = false;
   x.recover.connectFails = true;
   expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go2" }, x.paseo))).toBe("WORKSPACE_ARCHIVED");
 });
@@ -1248,4 +1272,33 @@ test("start_card still refuses a workspace that is being archived", async () => 
   x.workspaces.get("ws-c")!.archivingAt = new Date().toISOString();
   expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("RESOURCE_UNAVAILABLE");
   expect(x.recover.connects).toBe(0);
+});
+
+test("start_card does not restore an archived workspace that had sessions", async () => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true });
+  x.workspaces.delete("ws-c");
+  x.recover.archivedSessions = [{ id: "old", archivedAt: new Date().toISOString(), labels: {} }];
+  const error = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo).catch((e: unknown) => toolFailure(e));
+  expect(error).toMatchObject({ code: "WORKSPACE_ARCHIVED", message: expect.stringContaining("had sessions") });
+  expect(x.recover.restores).toEqual([]);
+  expect(x.recover.closes).toBe(1);
+  expect(x.createdSessions).toEqual([]);
+});
+
+test("restoreOwnWorkspace (the drawer's Start) restores an eligible card and refuses an ineligible one", async () => {
+  const x = await setup();
+  await x.card("own", { ownsWorkspace: true });
+  await x.card("shared", { ownsWorkspace: false });
+  await x.card("used", { ownsWorkspace: true });
+  for (const id of ["own", "shared", "used"]) x.workspaces.delete(`ws-${id}`);
+  const run = (id: string) => restoreOwnWorkspace(x.store, x.recovery, id, true);
+  await run("own");
+  expect(x.recover.restores).toEqual(["ws-own"]);
+  expect((await x.store.read()).events.filter((e) => e.taskId === "own" && e.action === "workspace_restored")).toHaveLength(1);
+  expect(await x.failure(run("shared"))).toBe("WORKSPACE_ARCHIVED");
+  x.recover.archivedSessions = [{ id: "old", archivedAt: new Date().toISOString(), labels: {} }];
+  expect(await x.failure(run("used"))).toBe("WORKSPACE_ARCHIVED");
+  expect(x.recover.restores).toEqual(["ws-own"]);
+  expect(await x.failure(run("nope"))).toBe("NOT_FOUND");
 });

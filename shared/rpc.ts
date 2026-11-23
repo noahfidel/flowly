@@ -1299,3 +1299,5 @@ export const startAgain = defineRpc({ name: "tasks.start-again", input: startAga
 
 /** Whether telemetry is forced off on the daemon's host by DO_NOT_TRACK / FLOWLY_TELEMETRY=0 / NODE_ENV=test, or by a build without a PostHog key (`builtOff`) (TELEMETRY-SPEC §5, §6). */
 export const telemetryStatus = defineRpc({ name: "telemetry.status", input: z.strictObject({}), output: z.object({ forcedOff: z.boolean(), builtOff: z.boolean().default(false) }) });
+/** The drawer's Start on a card whose own workspace was archived outside Flowly: restores it first (START-CARD-SPEC §3.1). */
+export const restoreWorkspace = defineRpc({ name: "tasks.restore-workspace", input: z.strictObject({ taskId: z.string().min(1) }), output: z.object({ ok: z.literal(true) }) });

@@ -69,6 +69,7 @@ import { startedByUser, turnPick, userTexts } from "./shared/agent-habits";
 import { turnTimeline } from "./server/turn-timeline";
 import { cardOfChat, resolveCardChats } from "./server/card-chats";
 import { codedError, ToolError } from "./server/tool-error";
+import { restoreOwnWorkspace } from "./server/start-card";
 import { legacyBoardViewPath, readLegacyBoardGroups } from "./server/legacy-board-groups";
 import { exportMarkdown } from "./shared/board-export";
 import type { MemoryEntry } from "./shared/memory";
@@ -557,6 +558,12 @@ export default function contribute(host: PluginServerContext) {
       .catch((e: unknown) => {
         throw codedError(e);
       });
+  });
+  server.handle(rpc.restoreWorkspace, async (input) => {
+    await restoreOwnWorkspace(store, tools.starter.deps.recovery, input.taskId, true).catch((e: unknown) => {
+      throw codedError(e);
+    });
+    return { ok: true as const };
   });
   server.handle(rpc.dispatcherTail, (input, { paseo }) => tails.dispatcherTail(input, paseo));
   sessionSettings.dispatcher = (groupId) => tools.dispatcher.groupSession(groupId);

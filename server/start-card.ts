@@ -26,7 +26,6 @@ import { archivedWorkspaceStart } from "../shared/archived-start";
 import type { WorkspaceRecovery } from "./workspace-restore";
 
 export { startCardInputSchema, startCardResultSchema } from "../shared/tools";
-export { archivedWorkspaceStart };
 
 const execute = promisify(execFile);
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -125,6 +124,50 @@ export async function linearBranchFor(task: Task, board: Board, connectors: Pick
   }
 }
 
+/**
+ * Brings back a card's own workspace that was archived outside Flowly (START-CARD-SPEC §3.1): the card owns it, was
+ * never switched, and the workspace never had a session. Used by the start and by the drawer's Start (`tasks.restore-workspace`).
+ * Refuses with WORKSPACE_ARCHIVED, saying why.
+ */
+export async function restoreOwnWorkspace(store: BoardStore, recovery: WorkspaceRecovery, taskId: string, human: boolean): Promise<void> {
+  const task = (await store.read()).tasks.find((t) => t.id === taskId);
+  if (!task || task.archivedAt) throw new ToolError("NOT_FOUND", "No live card with that id.");
+  const rule = archivedWorkspaceStart(task);
+  if (!rule.restorable)
+    throw new ToolError("WORKSPACE_ARCHIVED", `${rule.reason} ${human ? "Use Switch to worktree on the card, then start again." : "Ask the user to switch the card to a worktree, then start it."}`);
+  let conn: Awaited<ReturnType<WorkspaceRecovery["connect"]>>;
+  try {
+    conn = await recovery.connect();
+  } catch (e) {
+    logFailure("Flowly start_card workspace recovery not reached:", e, `card ${task.id}`);
+    throw new ToolError("WORKSPACE_ARCHIVED", `The card's workspace is archived and Paseo could not be asked to restore it: ${errorText(e)}`);
+  }
+  try {
+    const state = await conn.inspect(task.workspaceId);
+    if (state.kind !== "recoverable")
+      throw new ToolError("WORKSPACE_ARCHIVED", `The card's workspace is archived and Paseo cannot restore it: ${state.message || state.reason}`);
+    // Never used: a workspace that had sessions keeps its history where it is.
+    if ((await conn.archivedSessions(task.workspaceId)).length)
+      throw new ToolError(
+        "WORKSPACE_ARCHIVED",
+        `The card's workspace was archived outside Flowly and it already had sessions, so Flowly does not restore it. ${human ? "Use Switch to worktree on the card, then start again." : "Ask the user to switch the card to a worktree, then start it."}`,
+      );
+    await conn.restore(task.workspaceId);
+  } catch (e) {
+    if (e instanceof ToolError) throw e;
+    logFailure("Flowly start_card workspace not restored:", e, `card ${task.id} workspace ${task.workspaceId}`);
+    throw new ToolError("WORKSPACE_ARCHIVED", `Paseo did not restore the card's archived workspace: ${errorText(e)}`);
+  } finally {
+    await conn.close();
+  }
+  await store
+    .mutate((board) => {
+      if (board.tasks.some((t) => t.id === task.id))
+        store.event(board, { taskId: task.id, actor: "system", action: "workspace_restored", note: "Archived outside Flowly; restored for the card's start." });
+    })
+    .catch((e) => logFailure("Flowly start_card restore event not recorded:", e, `card ${task.id}`));
+}
+
 export type StarterDeps = {
   /** `ToolServer.prepareSession`: card context, MCP credential and the prepared session id for this operation. */
   prepare: (taskId: string, operationId: string, paseo: PaseoApi) => Promise<ToolPreparation>;
@@ -204,7 +247,7 @@ export class CardStarter {
     let workspace = await paseo.workspaces.ref(task.workspaceId).refresh().catch(() => null);
     if (workspace?.archivingAt) throw new ToolError("RESOURCE_UNAVAILABLE", "The card's workspace is being archived.");
     if (!workspace) {
-      await this.restoreOwn(caller, task, paseo);
+      await restoreOwnWorkspace(this.store, this.deps.recovery, task.id, !!caller.human);
       workspace = await paseo.workspaces.ref(task.workspaceId).refresh().catch(() => null);
       if (!workspace || workspace.archivingAt) throw new ToolError("RESOURCE_UNAVAILABLE", "The card's workspace is unavailable or being archived.");
     }
@@ -273,44 +316,6 @@ export class CardStarter {
       release();
       throw e;
     }
-  }
-
-  /**
-   * The card's workspace is gone from Paseo: bring a workspace Flowly made for the card back (same workspace id),
-   * or refuse with WORKSPACE_ARCHIVED.
-   */
-  private async restoreOwn(caller: CardCaller, task: Task, paseo: PaseoApi) {
-    const rule = archivedWorkspaceStart(task);
-    if (!rule.restorable)
-      throw new ToolError(
-        "WORKSPACE_ARCHIVED",
-        `${rule.reason} ${caller.human ? "Use Switch to worktree on the card, then start again." : "Ask the user to switch the card to a worktree, then start it."}`,
-      );
-    let conn: Awaited<ReturnType<WorkspaceRecovery["connect"]>>;
-    try {
-      conn = await this.deps.recovery.connect();
-    } catch (e) {
-      logFailure("Flowly start_card workspace recovery not reached:", e, `card ${task.id}`);
-      throw new ToolError("WORKSPACE_ARCHIVED", `The card's workspace is archived and Paseo could not be asked to restore it: ${errorText(e)}`);
-    }
-    try {
-      const state = await conn.inspect(task.workspaceId);
-      if (state.kind !== "recoverable")
-        throw new ToolError("WORKSPACE_ARCHIVED", `The card's workspace is archived and Paseo cannot restore it: ${state.message || state.reason}`);
-      await conn.restore(task.workspaceId);
-    } catch (e) {
-      if (e instanceof ToolError) throw e;
-      logFailure("Flowly start_card workspace not restored:", e, `card ${task.id} workspace ${task.workspaceId}`);
-      throw new ToolError("WORKSPACE_ARCHIVED", `Paseo did not restore the card's archived workspace: ${errorText(e)}`);
-    } finally {
-      await conn.close();
-    }
-    await this.store
-      .mutate((board) => {
-        if (board.tasks.some((t) => t.id === task.id))
-          this.store.event(board, { taskId: task.id, actor: "system", action: "workspace_restored", note: "Archived outside Flowly; restored to start the card." });
-      })
-      .catch((e) => logFailure("Flowly start_card restore event not recorded:", e, `card ${task.id}`));
   }
 
   /**

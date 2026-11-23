@@ -3,7 +3,8 @@ import type { Task } from "./model";
 /**
  * Whether Flowly may restore a card's archived workspace so the card can start (START-CARD-SPEC "Archived own
  * workspace at start"): only the directory or worktree workspace Flowly made for the card, never switched.
- * A shared or switched card's workspace is never touched.
+ * A shared or switched card's workspace is never touched. This is the pure part; the start also checks that the
+ * archived workspace never had a session (`restoreOwnWorkspace`).
  */
 export function archivedWorkspaceStart(task: Pick<Task, "ownsWorkspace" | "previousWorkspaces" | "switch">): { restorable: boolean; reason: string } {
   const restorable = task.ownsWorkspace === true && !task.previousWorkspaces?.length && !task.switch;
