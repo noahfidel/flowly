@@ -2332,3 +2332,11 @@ The repeated replay when cards are opened in succession is the visible cost of p
 - Tests (failing first): `server/pr-menu.test.ts`, `server/board-overview.test.ts`, `client/pr-list.test.ts`.
 - Onboarding: no new tip or tour line (an extension of the existing menu). What's new: none. Telemetry: none.
 - Not run: real UI (desktop, phone) screenshots and a live GitHub connection / `gh` check.
+
+## Board: pull requests menu, compact chip (branch `kanban/pr-menu-mark-your-own-prs-on-the-rows-ow-ad84f6`) — 2026-11-23
+
+- Feature (Ruling, user, 2026-11-23; spec D21): the chip's *· {m} yours* text becomes a `User` icon and the bare count; the accessibility label keeps the full sentence and web shows it as a hover hint below the overview bar (the bar's horizontal ScrollView would clip a hint inside it).
+- Code: `prChipText` in `client/pr-list.ts` returns `{ text, mine, label, tooltip }`; `client/overview-bar.tsx` (`Chip` gains `trailing` and `onHover`, the bar draws the hint); the string *{prs} · {mine} yours* removed from all 9 catalogs, no new strings.
+- Tests: `client/pr-list.test.ts` (chip parts with and without yours).
+- Onboarding: none (a visual change to an existing chip). What's new: none. Telemetry: none.
+- Not run: real UI (desktop hover hint, phone) screenshots.
