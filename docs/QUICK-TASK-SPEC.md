@@ -65,8 +65,8 @@ Create task form stays one tap away.
   fallback, and the Project picker can change it.
 - **Group**: the group of the project the dialog opens with. That is the shown board's group (from the Command
   Center, the group the board opens on: the one last viewed, BOARD-GROUPS-SPEC §3), unless the entry
-  point pins a project of another group (a lane's Add task, Linear's Start card) or the board's group is empty and
-  the fallback picks another group's project; then it is that project's group. It applies to every entry point.
+  point pins a project of another group (a lane's Add task) or the board's group is empty and
+  the fallback picks another group's project; then it is that project's group. Linear's Start card opens on the shown group like New task on a group board (LINEAR-BOARD-SPEC §5). It applies to every entry point.
   Ruling (Noah 2026-11-13): the default group is the shown board's group, with no new setting (the last
   quick-task project stays the only stored quick-task value), and the Project picker lists only the selected group's
   projects.

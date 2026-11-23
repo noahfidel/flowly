@@ -1,5 +1,11 @@
 # Implementation progress
 
+## Linear Start card respects board groups (branch `kanban/linear-board-start-button-respect-board-791e6c`) — 2026-11-23
+
+- Cause: the Start card effect ran as soon as the overview loaded, before the board-view settings (stored group and Project filter) and the groups list, so on a cold start the shown group was still the default group; it also read the project before awaiting the Linear search and pinned that stale value, which made Quick task open on another group.
+- Fix (LINEAR-BOARD-SPEC §5, QUICK-TASK-SPEC §3): `linearStartTarget` in `client/linear-start.ts` (replaces `startProject`) is not ready until settings and groups are loaded; the effect waits without marking the link applied, then opens Quick task in the shown group's quick project, read again after the search. No new strings.
+- Tests: `client/linear-start.test.ts` (7 new for the shown group's project, written first and failing).
+
 ## Shortcuts: P opens the Pull requests menu; G switches group, A opens Guardrails (branch `kanban/board-shortcut-p-opens-the-pull-requests-083fa0`) — 2026-11-23
 
 - Feature (ruling, Noah 2026-11-23, SHORTCUTS-SPEC §2.1-2.2, PR-MENU-SPEC D24): `P` opens and closes the Pull requests menu (not consumed with no PR chip), the group switcher moves from `P` to `G`, Guardrails from `G` to `A`. The chip's label and hover hint, the group switcher and Guardrails hints, and the help rows follow.
