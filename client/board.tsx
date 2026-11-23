@@ -744,6 +744,9 @@ function BoardContent(
   // Add group and Delete group… dialogs; Group settings is its own page (onGroupSettings).
   const [groupDialog, setGroupDialog] = useState<{ kind: "add" } | { kind: "delete"; groupId: string } | null>(null);
   const chooseGroup = (id: string) => {
+    // The card of the group left closes: returning to it goes through its remembered place (switchGroup), never a
+    // leftover card. Callers that open a card in the new group set it afterwards.
+    if (id !== group?.id && taskId) setTask("");
     ignoredLink.current = linkKey;
     pendingFocus.current = null;
     setProject(groupViewId(id));
@@ -1451,11 +1454,12 @@ function BoardContent(
     const aliveThere = navAlive({ tasks: overviewData.data?.tasks ?? null, projects: overviewData.data?.projects ?? null, groups: boardGroups, group: { id, projectIds: members } });
     const arrival = groupArrival(placeOf(props.host.id, id), aliveThere, compact, auto);
     chooseGroup(id);
+    // Phones: the chat page of the group left closes unless the arrival opens this group's chat page.
+    const opensChat = (arrival.kind === "restore" && arrival.entry.kind === "dispatcher") || (arrival.kind === "auto" && arrival.open.kind === "dispatcher");
+    if (compact && chat.open && !opensChat) setChat((c) => ({ ...c, open: false }));
     if (arrival.kind === "restore") return applyNav(arrival.entry);
     if (arrival.kind === "auto") return arrival.open.kind === "dispatcher" ? openWaitingDispatcher() : showStepCard("needs", arrival.open.taskId);
-    // The bare board: the card of the group left closes (phones: its chat page too).
-    if (taskId) setTask("");
-    if (compact && chat.open) setChat((c) => ({ ...c, open: false }));
+    // The bare board: chooseGroup closed the card of the group left.
   });
   // D / the toolbar button opened the dock: the chat focuses its message box (each request is distinct).
   const [chatFocus, setChatFocus] = useState(0);
