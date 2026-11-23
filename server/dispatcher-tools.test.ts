@@ -35,6 +35,7 @@ afterEach(async () => {
 const stamp = "2026-11-08T10:00:00.000Z";
 const dispatcherTools = [
   "flowly_list_projects",
+  "flowly_list_groups",
   "flowly_list_cards",
   "flowly_get_card",
   "flowly_get_card_activity",
@@ -3021,4 +3022,58 @@ test("flowly_get_card_activity gives a null workpad when the project's workpad i
   const d = await x.connect(x.dispatcherToken);
   const out = (await d.call("flowly_get_card_activity", { projectId: "q", taskId: "q1", include: ["workpad"] })).structuredContent;
   expect(out.workpad).toBeNull();
+});
+
+// ---- Listing board groups (DISPATCHER-SPEC §5.11) ----
+
+type GroupRow = { groupId: string; name: string; own: boolean; dispatcher: string };
+const groupRows = (result: { structuredContent: { groups: GroupRow[] } }) => result.structuredContent.groups;
+
+test("flowly_list_groups lists every group in board order with its own marker and dispatcher state, and nothing else (DISPATCHER-SPEC §5.11)", async () => {
+  const x = await peers();
+  const fromB = await x.b.call("flowly_list_groups", {});
+  expect(code(fromB)).toBeUndefined();
+  expect(groupRows(fromB)).toEqual([
+    { groupId: x.groupId, name: "Projects", own: false, dispatcher: "live" },
+    { groupId: x.clients.id, name: "Clients", own: true, dispatcher: "live" },
+  ]);
+  expect(groupRows(await x.a.call("flowly_list_groups", {})).map((g) => g.own)).toEqual([true, false]);
+  const json = JSON.stringify(fromB.structuredContent);
+  for (const id of ["p", "q", "r", "q1", "q2"]) expect(json).not.toContain(`"${id}"`);
+  for (const g of groupRows(fromB)) expect(Object.keys(g).sort()).toEqual(["dispatcher", "groupId", "name", "own"]);
+  expect((await x.a.call("flowly_list_groups", { extra: 1 })).isError).toBe(true);
+});
+
+test("flowly_list_groups reports none, unguarded and unknown, works with agent cards off and follows renames (DISPATCHER-SPEC §5.11)", async () => {
+  const x = await peers();
+  const empty = await x.store.createGroup({ name: "Empty" });
+  const state = async () => Object.fromEntries(groupRows(await x.a.call("flowly_list_groups", {})).map((g) => [g.name, g.dispatcher]));
+  expect(await state()).toEqual({ Projects: "live", Clients: "live", Empty: "none" });
+  // A dead (archived) dispatcher is none.
+  x.agents[x.bId].archivedAt = stamp;
+  expect((await state()).Clients).toBe("none");
+  x.agents[x.bId].archivedAt = null;
+  // An unreadable Paseo refresh is unknown for that group only.
+  const agents = x.paseo.agents as unknown as { ref: (id: string) => unknown };
+  const ref = agents.ref;
+  agents.ref = (id) => (id === x.bId ? { refresh: async () => { throw new Error("down"); } } : ref(id));
+  expect(await state()).toEqual({ Projects: "live", Clients: "unknown", Empty: "none" });
+  agents.ref = ref;
+  // A read: allowed while Agents create and edit cards is off.
+  x.server.cards.on = async () => false;
+  expect(code(await x.a.call("flowly_list_groups", {}))).toBeUndefined();
+  x.server.cards.on = async () => true;
+  // Names are read at call time.
+  await x.store.updateGroup({ id: empty.id, revision: empty.revision, name: "Renamed" });
+  expect(Object.keys(await state())).toContain("Renamed");
+});
+
+test("flowly_list_groups shows an unguarded dispatcher, and a replaced token is refused (DISPATCHER-SPEC §5.11)", async () => {
+  const x = await peers({ guardA: false });
+  expect(groupRows(await x.b.call("flowly_list_groups", {})).find((g) => g.groupId === x.groupId)?.dispatcher).toBe("unguarded");
+  const wrong = await x.connect(x.server.secrets.dispatcherCredential({ agentId: x.bId, workspaceId: "dw", groupId: x.groupId }));
+  expect(code(await wrong.call("flowly_list_groups", {}))).toBe("DISPATCHER_REPLACED");
+  const unknown = await x.a.call("flowly_message_dispatcher", { groupId: "no-such-group", text: "hi" });
+  expect(code(unknown)).toBe("GROUP_NOT_FOUND");
+  expect(unknown.structuredContent.error.message).toContain("flowly_list_groups");
 });

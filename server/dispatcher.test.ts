@@ -1761,6 +1761,15 @@ test("the charter sends a refinement of a card's work to that card, versioned 12
   expect(dispatcherGuardVersion).toBe(2);
 });
 
+test("the charter finds another group's id with flowly_list_groups first, versioned 13 (DISPATCHER-SPEC §5.11)", () => {
+  expect(dispatcherCharterVersion).toBe(13);
+  expect(dispatcherToolNames).toContain("flowly_list_groups");
+  const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.startsWith("- Message another board group's dispatcher"))!;
+  expect(line).toContain("flowly_list_groups");
+  expect(line).toMatch(/every time/);
+  expect(line).toMatch(/none or unguarded, tell the user/);
+});
+
 test("the charter says each card creation is confirmed in the chat and a cancel stops it (DISPATCHER-SPEC §5.2, §6)", () => {
   const charter = dispatcherCharter({ name: "Projects" });
   const line = charter.split("\n").find((l) => l.includes("CARD_REFUSED"))!;

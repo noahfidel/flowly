@@ -251,6 +251,9 @@ const manageGroupsResultSchema = z.object({
 const listProjectsResultSchema = z.object({
   projects: z.array(z.object({ projectId: z.string(), title: z.string(), rootAvailable: z.boolean(), openCards: z.number().int() })),
 });
+const listGroupsResultSchema = z.object({
+  groups: z.array(z.object({ groupId: z.string(), name: z.string(), own: z.boolean(), dispatcher: z.enum(["live", "unguarded", "none", "unknown"]) })),
+});
 const linkCardsResultSchema = z.object({ link: linkSchema, created: z.boolean() });
 const addArtifactResultSchema = z.object({
   artifact: z.object({
@@ -394,6 +397,34 @@ export class DispatcherTools {
         })),
     );
     return { projects };
+  }
+
+  /**
+   * Every board group's id and name, which one is the caller's and how its dispatcher stands (§5.11): the same reads
+   * and predicates `messageDispatcher` uses. A read: no agent-cards switch, no rate bucket, nothing written.
+   */
+  async listGroups(identity: DispatcherIdentity) {
+    const { groupId } = await this.caller(identity);
+    const board = await this.store.read();
+    const record = await this.dispatcher.resolvedRecord();
+    const paseo = this.cards.api();
+    const groups = await Promise.all(
+      board.groups.map(async (g) => {
+        const entry = record.groups[g.id];
+        let dispatcher: "live" | "unguarded" | "none" | "unknown" = "none";
+        if (entry?.agentId) {
+          try {
+            const agent = (await paseo.agents.ref(entry.agentId).refresh())?.agent ?? null;
+            dispatcher = isDeadDispatcher(agent) ? "none" : guarded(entry) ? "live" : "unguarded";
+          } catch (e) {
+            logFailure("Flowly dispatcher group list agent unreadable:", e, g.id);
+            dispatcher = "unknown";
+          }
+        }
+        return { groupId: g.id, name: g.name, own: g.id === groupId, dispatcher };
+      }),
+    );
+    return { groups };
   }
 
   async proposeIdea(identity: DispatcherIdentity, raw: unknown) {
@@ -874,7 +905,7 @@ export class DispatcherTools {
     await this.cards.enabled();
     const board = await this.store.read();
     const target = board.groups.find((g) => g.id === input.groupId);
-    if (!target) throw new ToolError("GROUP_NOT_FOUND", "No board group with that id. Ask the user which group they mean.");
+    if (!target) throw new ToolError("GROUP_NOT_FOUND", "No board group with that id. Call flowly_list_groups for the current ids, or ask the user which group they mean.");
     if (target.id === caller.groupId)
       throw new ToolError("DISPATCHER_SELF", "That is your own group. flowly_message_dispatcher is for another group's dispatcher.");
     const sender = board.groups.find((g) => g.id === caller.groupId) ?? { id: caller.groupId, name: caller.groupId };
@@ -941,7 +972,7 @@ export class DispatcherTools {
     // delivered, so it is refused as the call would have been.
     if (outcome?.kind === "dropped") {
       release();
-      if (outcome.reason === "deleted") throw new ToolError("GROUP_NOT_FOUND", "That board group was just deleted; nothing was sent. Tell the user.");
+      if (outcome.reason === "deleted") throw new ToolError("GROUP_NOT_FOUND", "That board group was just deleted; nothing was sent. Call flowly_list_groups and tell the user.");
       throw new ToolError("DISPATCHER_DOWN", `The ${target.name} group has no running dispatcher. Tell the user; only they can start it.`);
     }
     return {
@@ -1221,6 +1252,17 @@ export class DispatcherTools {
       () => toolResult(() => this.listProjects(identity)),
     );
     mcp.registerTool(
+      "flowly_list_groups",
+      {
+        description:
+          "List every board group with its groupId and name, which one is yours (own), and its dispatcher: live (flowly_message_dispatcher reaches it), unguarded (it must be replaced first; tell the user), none (no running dispatcher; tell the user, only they can start it) or unknown. Use it to find another group's groupId before flowly_message_dispatcher; never guess or reuse an old id. Shows no other group's projects or cards. Read-only.",
+        inputSchema: z.strictObject({}),
+        outputSchema: listGroupsResultSchema,
+        annotations: read,
+      },
+      () => toolResult(() => this.listGroups(identity)),
+    );
+    mcp.registerTool(
       "flowly_list_cards",
       {
         description: "List one project's cards with lane, priority, type, tags, Linear issue (linear) and revision (descriptions cut to 300 characters). Filter by words (query, which also match a Linear key) and lanes (status). Read-only.",
@@ -1394,7 +1436,7 @@ export class DispatcherTools {
     mcp.registerTool(
       "flowly_message_dispatcher",
       {
-        description: `Send a plain message to another board group's dispatcher (groupId: that group's id), steered into its turn and marked as coming from your group's dispatcher. Use it to coordinate between groups when the user asked for it or it follows from their standing requests: ask it to create and start a card in its group, or tell it a PR landed or a card it waits on is done. You never act on another group's projects yourself. Keep it short and self-contained: it cannot see your chat. Its answer, if any, arrives later as a message from it, never as this tool's result; answer a message from another dispatcher with this tool only when it needs one (your final text does not reach it). Never about a card's questions, permission requests or blockers: never ask another dispatcher to answer, approve, deny, dismiss or relay one. queued: true means it waits on its user and gets your message once that ends: tell the user and don't send it again. GROUP_NOT_FOUND, DISPATCHER_SELF (your own group), DISPATCHER_DOWN (no running dispatcher: tell the user, only they can start it), DISPATCHER_UNGUARDED (it must be replaced first: tell the user), QUEUE_FULL (at most ${queuedPeerMessageLimits.perGroup} queued per group), SEND_FAILED. At most ${dispatcherPeerMessagesPerTargetPerHour} per group and ${dispatcherPeerMessagesPerHour} in all per hour (DISPATCHER_MESSAGE_LIMIT), and ${dispatcherPeerChainLimit} between two groups until the user writes to either (DISPATCHER_CHAIN_LIMIT): then stop and ask the user. AGENT_CARDS_DISABLED: the user turned this off.`,
+        description: `Send a plain message to another board group's dispatcher (groupId: that group's id, from flowly_list_groups), steered into its turn and marked as coming from your group's dispatcher. Use it to coordinate between groups when the user asked for it or it follows from their standing requests: ask it to create and start a card in its group, or tell it a PR landed or a card it waits on is done. You never act on another group's projects yourself. Keep it short and self-contained: it cannot see your chat. Its answer, if any, arrives later as a message from it, never as this tool's result; answer a message from another dispatcher with this tool only when it needs one (your final text does not reach it). Never about a card's questions, permission requests or blockers: never ask another dispatcher to answer, approve, deny, dismiss or relay one. queued: true means it waits on its user and gets your message once that ends: tell the user and don't send it again. GROUP_NOT_FOUND (call flowly_list_groups), DISPATCHER_SELF (your own group), DISPATCHER_DOWN (no running dispatcher: tell the user, only they can start it), DISPATCHER_UNGUARDED (it must be replaced first: tell the user), QUEUE_FULL (at most ${queuedPeerMessageLimits.perGroup} queued per group), SEND_FAILED. At most ${dispatcherPeerMessagesPerTargetPerHour} per group and ${dispatcherPeerMessagesPerHour} in all per hour (DISPATCHER_MESSAGE_LIMIT), and ${dispatcherPeerChainLimit} between two groups until the user writes to either (DISPATCHER_CHAIN_LIMIT): then stop and ask the user. AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.messageDispatcher,
         outputSchema: peerResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

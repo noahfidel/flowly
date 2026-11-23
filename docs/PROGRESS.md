@@ -2350,3 +2350,13 @@ The repeated replay when cards are opened in succession is the visible cost of p
 - Tests: `client/pr-list.test.ts` (chip parts with and without yours).
 - Onboarding: none (a visual change to an existing chip). What's new: none. Telemetry: none.
 - Not run: real UI (desktop hover hint, phone) screenshots.
+
+## 2026-11-23 Dispatcher lists board groups (flowly_list_groups) (branch `kanban/let-a-dispatcher-discover-other-board-gr-709ace`)
+
+- Report: a dispatcher could not learn another group's id, so `flowly_message_dispatcher` had nothing to address. New read-only tool `flowly_list_groups {}` → `{ groups: [{ groupId, name, own, dispatcher }] }` (`live`, `unguarded`, `none`, `unknown`), DISPATCHER-SPEC §5.11. `GROUP_NOT_FOUND` messages of `flowly_message_dispatcher` point to it. Charter version 13: find the id with it first, every time.
+- Decision and why (user-approved 2026-11-23): a tool, not an "Other groups" section in the board summary: the summary is the session's first message, fixed at start, so it goes stale after a group is created, renamed or deleted. Names and ids only, so `PROJECT_OUT_OF_GROUP` isolation is unchanged. `dispatcherGuardVersion` stays 2; running dispatchers get the new-tools Replace warning.
+- Files: `server/dispatcher-tools.ts`, `shared/dispatcher.ts`, `docs/DISPATCHER-SPEC.md`, tests in `server/dispatcher-tools.test.ts` and `server/dispatcher.test.ts`.
+- Tests (failing first): `server/dispatcher-tools.test.ts` (order, own marker, exact keys, no project or card ids, none, unguarded, unknown, cards off, rename, replaced token, GROUP_NOT_FOUND text), `server/dispatcher.test.ts` (tool name, charter 13, charter line).
+- Checks: `npm run typecheck` exit 0; `npm test -- --maxWorkers=3` 2968 passed, 1 failed (`server/quick-title.test.ts` timing flake, unrelated; passes on rerun with the dispatcher tests: 3 files, 247 passed).
+- Onboarding: no tour or tip change (no UI). Telemetry: no field. Strings: none.
+- UNRUN: a live dispatcher after Replace calling the tool.
