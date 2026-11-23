@@ -1,5 +1,6 @@
 import { access, constants, stat } from "node:fs/promises";
 import type { PaseoApi } from "@getpaseo/client";
+import { archivedWorkspaceStart } from "../shared/archived-start";
 import { laneEnabled, laneName, projectLanes } from "../shared/lanes";
 import { linksOf } from "../shared/links";
 import { changeTags, normalizeTags, tagChangeNote } from "../shared/tags";
@@ -238,7 +239,24 @@ export class AgentCards {
       : ["done", "cancelled"].includes(task.status)
         ? "The card is finished; only the user reopens or changes it."
         : "";
-    return { card: cardView(board, project, task, await this.linearView(board, task.id)), editable: !reason, reason };
+    return { card: cardView(board, project, task, await this.linearView(board, task.id)), editable: !reason, reason, start: await this.startState(task, reason) };
+  }
+  /** Whether flowly_start_card can start the card now, and why not (START-CARD-SPEC "Archived own workspace at start"). */
+  private async startState(task: Task, cardReason: string): Promise<{ ok: boolean; reason: string }> {
+    if (cardReason) return { ok: false, reason: cardReason };
+    let workspace: Awaited<ReturnType<ReturnType<PaseoApi["workspaces"]["ref"]>["refresh"]>> | null;
+    try {
+      workspace = await this.api().workspaces.ref(task.workspaceId).refresh();
+    } catch {
+      // Not readable now (no Paseo context, or the call failed): the start itself decides.
+      return { ok: true, reason: "" };
+    }
+    if (workspace?.archivingAt) return { ok: false, reason: "The card's workspace is being archived." };
+    if (workspace) return { ok: true, reason: "" };
+    const rule = archivedWorkspaceStart(task);
+    return rule.restorable
+      ? { ok: true, reason: "The card's workspace was archived outside Flowly; flowly_start_card restores it." }
+      : { ok: false, reason: `${rule.reason} Ask the user to switch the card to a worktree.` };
   }
   /**
    * `fromIdea`: the dispatcher creating the card from an idea of the project (DISPATCHER-SPEC §5.1). A replay

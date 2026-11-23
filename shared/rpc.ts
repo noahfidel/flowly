@@ -611,6 +611,8 @@ export const taskContext = defineRpc({
   input: z.object({ id: z.string() }),
   output: z.object({
     available: z.boolean(),
+    /** Not available, but Start restores the card's archived own workspace. */
+    restorable: z.boolean().optional(),
     reason: z.string(),
     context: z.string(),
     owner: z.string(),

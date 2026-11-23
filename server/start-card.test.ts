@@ -6,6 +6,7 @@ import type { PaseoApi } from "@getpaseo/client";
 import { AgentCards } from "./agent-cards";
 import { agentFixture } from "./agent-fixture";
 import { CardStarter } from "./start-card";
+import type { RecoveryState, WorkspaceRecovery } from "./workspace-restore";
 import { ExternalError } from "./connectors/http";
 import { codedError, toolFailure } from "./tool-error";
 import { agentCardLimits } from "../shared/tools";
@@ -98,6 +99,24 @@ async function setup() {
       },
     },
   } as unknown as PaseoApi;
+  /** A fake Paseo recovery: what inspect answers, and which workspaces were connected to and restored. */
+  const recover: { state: RecoveryState | null; connectFails: boolean; connects: number; restores: string[] } = { state: null, connectFails: false, connects: 0, restores: [] };
+  const recovery: WorkspaceRecovery = {
+    async connect() {
+      recover.connects++;
+      if (recover.connectFails) throw new Error("no daemon");
+      return {
+        inspect: async (id) => recover.state ?? { kind: "recoverable", workspaceId: id, workspaceName: id, action: "unarchive", branch: null },
+        restore: async (id) => {
+          recover.restores.push(id);
+          space(id);
+        },
+        archivedSessions: async () => [],
+        reviveSession: async () => undefined,
+        close: async () => undefined,
+      };
+    },
+  };
   const cards = new AgentCards(x.store);
   cards.attach(paseo);
   let on = true;
@@ -114,6 +133,7 @@ async function setup() {
       preparedFor: (operationId) => x.secrets.preparedFor(operationId),
       keptWorktree: (operationId) => x.secrets.keptStart(operationId),
       keepWorktree: (operationId, request) => x.secrets.keepStart(operationId, request),
+      recovery,
     });
     made.modelDefault = async () => ({ provider: "claude", model: "claude-sonnet-5-5" });
     return made;
@@ -176,6 +196,7 @@ async function setup() {
     starter,
     starterFor,
     hooks,
+    recover,
     caller,
     card,
     session,
@@ -1179,4 +1200,52 @@ test("a worktree request kept before §11 (no base) still parses and starts on i
   expect(x.createdWorkspaces[0].source).toEqual({ kind: "worktree", cwd: x.a, projectId: "native", action: "branch-off", refName: "refs/heads/main", branchName: "kanban/old-request" });
   expect(started.base).toEqual({ ref: "refs/heads/main", from: "project" });
   expect(await x.read("c")).toMatchObject({ baseRef: "refs/heads/main", workspaceId: "created-1" });
+});
+
+/** The card's own directory workspace was archived outside Flowly (START-CARD-SPEC "Archived own workspace at start"). */
+test("start_card restores a card's own archived workspace, then moves it to a worktree", async () => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true });
+  x.workspaces.delete("ws-c");
+  const started = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.recover.restores).toEqual(["ws-c"]);
+  expect(started.replayed).toBe(false);
+  expect(x.createdSessions).toHaveLength(1);
+  const board = await x.store.read();
+  expect(board.events.filter((e) => e.taskId === "c" && e.action === "workspace_restored")).toHaveLength(1);
+});
+
+test("start_card does not restore a shared or switched card's archived workspace", async () => {
+  const x = await setup();
+  await x.card("shared", { ownsWorkspace: false });
+  await x.card("moved", { ownsWorkspace: true, previousWorkspaces: [{ id: "old", kind: "directory", directory: x.a, switchedAt: new Date().toISOString() }] });
+  for (const id of ["shared", "moved"]) {
+    x.workspaces.delete(`ws-${id}`);
+    expect(await x.failure(x.starter.start(x.caller, { taskId: id, idempotencyKey: "go" }, x.paseo)), id).toBe("WORKSPACE_ARCHIVED");
+  }
+  expect(x.recover.connects).toBe(0);
+  expect(x.recover.restores).toEqual([]);
+  expect(x.createdSessions).toEqual([]);
+});
+
+test("start_card refuses with Paseo's reason when the archived workspace cannot be restored", async () => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true });
+  x.workspaces.delete("ws-c");
+  x.recover.state = { kind: "unavailable", workspaceId: "ws-c", reason: "directory_missing", message: "The folder is gone." };
+  const error = await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo).catch((e: unknown) => toolFailure(e));
+  expect(error).toMatchObject({ code: "WORKSPACE_ARCHIVED", message: expect.stringContaining("The folder is gone.") });
+  expect(x.recover.restores).toEqual([]);
+  expect(x.createdSessions).toEqual([]);
+  x.recover.state = null;
+  x.recover.connectFails = true;
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go2" }, x.paseo))).toBe("WORKSPACE_ARCHIVED");
+});
+
+test("start_card still refuses a workspace that is being archived", async () => {
+  const x = await setup();
+  await x.card("c", { ownsWorkspace: true });
+  x.workspaces.get("ws-c")!.archivingAt = new Date().toISOString();
+  expect(await x.failure(x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo))).toBe("RESOURCE_UNAVAILABLE");
+  expect(x.recover.connects).toBe(0);
 });

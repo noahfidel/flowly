@@ -724,7 +724,7 @@ export const listCardsResultSchema = z.object({
   cards: z.array(cardSummarySchema),
   truncated: z.boolean(),
 });
-export const getCardResultSchema = z.object({ card: cardViewSchema, editable: z.boolean(), reason: z.string() });
+export const getCardResultSchema = z.object({ card: cardViewSchema, editable: z.boolean(), reason: z.string(), start: z.object({ ok: z.boolean(), reason: z.string() }) });
 export const createCardResultSchema = z.object({ card: cardViewSchema, replayed: z.boolean(), base: worktreeBaseSchema.optional(), warnings: z.array(z.string()).optional() });
 export const setPlanResultSchema = z.object({ plan: cardPlanSchema });
 export const clearPlanResultSchema = z.object({ cleared: z.boolean() });

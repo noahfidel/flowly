@@ -536,3 +536,21 @@ test("create_card with workspace=worktree from a card session whose branch is ah
   expect(await x.failure(x.cards.create(x.card, { title: "Bad", workspace: "worktree", baseRef: "a..b", idempotencyKey: "bad" }))).toBe("BASE_INVALID");
   expect(x.workspaces).toHaveLength(3);
 });
+
+test("get_card says whether the card can start when its workspace was archived", async () => {
+  const x = await setup();
+  await x.store.mutate((board) => {
+    const base = board.tasks[0];
+    board.tasks.push({ ...base, id: "own", workspaceId: "wown", operationId: "own", ownsWorkspace: true });
+    board.tasks.push({ ...base, id: "shared", workspaceId: "wshared", operationId: "shared", ownsWorkspace: false });
+  });
+  expect(await x.cards.get(x.board, { taskId: "own" })).toMatchObject({ start: { ok: true, reason: "" } });
+  let found: unknown = null;
+  x.cards.attach({ workspaces: { ref: () => ({ refresh: async () => found }) } } as unknown as PaseoApi);
+  expect((await x.cards.get(x.board, { taskId: "own" })).start).toEqual({ ok: true, reason: expect.stringContaining("flowly_start_card restores it") });
+  const refused = (await x.cards.get(x.board, { taskId: "shared" })).start;
+  expect(refused.ok).toBe(false);
+  expect(refused.reason).toContain("switch the card to a worktree");
+  found = { archivingAt: new Date().toISOString() };
+  expect((await x.cards.get(x.board, { taskId: "own" })).start).toEqual({ ok: false, reason: "The card's workspace is being archived." });
+});

@@ -1,3 +1,4 @@
+import { archivedWorkspaceStart } from "../shared/archived-start";
 import { laneName, laneProblem } from "../shared/lanes";
 import { linkContextLines, linksOf } from "../shared/links";
 import { artifactContextLines, artifactsOf } from "../shared/artifacts";
@@ -734,6 +735,8 @@ export class BoardService {
     }));
     return {
       available,
+      // The card's own never-used workspace was archived outside Flowly: Start restores it (START-CARD-SPEC).
+      restorable: !workspace && !task.archivedAt && !project.archivedAt && !["done", "cancelled"].includes(task.status) && archivedWorkspaceStart(task).restorable,
       reason:
         task.archivedAt || project.archivedAt
           ? "Task or project is archived."

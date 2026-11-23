@@ -1275,7 +1275,7 @@ export class DispatcherTools {
     mcp.registerTool(
       "flowly_get_card",
       {
-        description: "Read one card of a project in full: title, description, lane, priority, type, tags, links, plan, Linear issue (linear) and revision. Read-only.",
+        description: "Read one card of a project in full: title, description, lane, priority, type, tags, links, plan, Linear issue (linear) and revision. start says whether flowly_start_card can start it now (start.ok) and why not. Read-only.",
         inputSchema: dispatcherInputs.getCard,
         outputSchema: getCardResultSchema,
         annotations: read,
@@ -1363,7 +1363,7 @@ export class DispatcherTools {
       "flowly_start_card",
       {
         description:
-          "Start a session on a card of a project, in the card's own worktree (a session-less directory card Flowly made moves to a new worktree first, branched off the project's base, or off its parent card's branch while that has commits the base lacks, as the project's follow-up setting says; base in the result says which). Link a follow-up to its parent before starting it. BASE_CHOICE_NEEDED: ask the user where to branch from and start again with baseRef. The session uses the project's New task model and mode, or mode (a permission mode id; MODE_UNAVAILABLE lists the provider's ids); a card with an approved plan does not default to plan mode. It starts with prompt (default: the card's title and description, plus its approved plan). CARD_HAS_SESSION: the card already has a session. NEEDS_WORKTREE: ask the user to switch the card to a worktree. Pass a unique idempotencyKey; retrying returns the same session.",
+          "Start a session on a card of a project, in the card's own worktree (a session-less directory card Flowly made moves to a new worktree first, branched off the project's base, or off its parent card's branch while that has commits the base lacks, as the project's follow-up setting says; base in the result says which). Link a follow-up to its parent before starting it. BASE_CHOICE_NEEDED: ask the user where to branch from and start again with baseRef. The session uses the project's New task model and mode, or mode (a permission mode id; MODE_UNAVAILABLE lists the provider's ids); a card with an approved plan does not default to plan mode. It starts with prompt (default: the card's title and description, plus its approved plan). CARD_HAS_SESSION: the card already has a session. NEEDS_WORKTREE: ask the user to switch the card to a worktree. A card's own never-used workspace archived outside Flowly is restored first; WORKSPACE_ARCHIVED: it cannot be, ask the user to switch the card to a worktree. Pass a unique idempotencyKey; retrying returns the same session.",
         inputSchema: dispatcherInputs.startCard,
         outputSchema: startCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },

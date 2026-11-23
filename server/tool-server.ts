@@ -69,6 +69,7 @@ import { AgentService } from "./agent-service";
 import { AgentCards, type CardCaller } from "./agent-cards";
 import { ProjectIdeas } from "./project-ideas";
 import { CardStarter } from "./start-card";
+import { daemonWorkspaceRecovery } from "./workspace-restore";
 import { BoardStore } from "./store";
 import { BoardService, paseoHome } from "./service";
 import { ToolSecrets, writePrivate, type ContextMethod } from "./tool-context";
@@ -122,6 +123,7 @@ export class ToolServer {
       preparedFor: (operationId) => this.secrets.preparedFor(operationId),
       keptWorktree: (operationId) => this.secrets.keptStart(operationId),
       keepWorktree: (operationId, request) => this.secrets.keepStart(operationId, request),
+      recovery: daemonWorkspaceRecovery(),
     });
     this.dispatcher = new Dispatcher(
       store.directory,
@@ -252,7 +254,7 @@ export class ToolServer {
       "flowly_get_card",
       {
         description:
-          "Read one card of this Flowly project in full: title, description, lane, priority, type, tags, links and revision. Pass its revision to flowly_update_card. editable=false for archived and finished cards. Read-only.",
+          "Read one card of this Flowly project in full: title, description, lane, priority, type, tags, links and revision. Pass its revision to flowly_update_card. editable=false for archived and finished cards. start says whether flowly_start_card can start it now (start.ok) and why not. Read-only.",
         inputSchema: getCardInputSchema,
         outputSchema: getCardResultSchema,
         annotations: { readOnlyHint: true, openWorldHint: false },
@@ -329,7 +331,7 @@ export class ToolServer {
       "flowly_start_card",
       {
         description:
-          "Start a session on a card of this Flowly project, in the card's own worktree. A card whose workspace is the empty directory workspace Flowly made for it (it never had a session) first moves to a new worktree branched off the project's base (named after its Linear issue's branch when it has one); a follow-up branches off its parent card's branch instead while that has commits the base lacks, as the project's follow-up setting says (base in the result says which; pass baseRef only when the user chose). That empty workspace is archived. BASE_CHOICE_NEEDED: ask the user where to branch from and start again with baseRef. A card already in a worktree starts there; a linked multi-repo project starts in its folder. NEEDS_WORKTREE: the card's directory workspace had sessions or is not its own; ask the user to switch it to a worktree. CARD_HAS_SESSION: send that session instructions instead. The session uses the project's New task model and mode (or mode, a permission mode id: MODE_UNAVAILABLE lists the provider's ids; a card with an approved plan does not default to plan mode), gets the card's tools and starts with prompt (default: the card's title and description, plus its approved plan). Done/Cancelled cards are refused (CARD_FINISHED). Pass a unique idempotencyKey; retrying with the same key returns the same session (replayed=true). Counts against the 20-per-hour limit shared with flowly_create_card (CARD_LIMIT).",
+          "Start a session on a card of this Flowly project, in the card's own worktree. A card whose workspace is the empty directory workspace Flowly made for it (it never had a session) first moves to a new worktree branched off the project's base (named after its Linear issue's branch when it has one); a follow-up branches off its parent card's branch instead while that has commits the base lacks, as the project's follow-up setting says (base in the result says which; pass baseRef only when the user chose). That empty workspace is archived. BASE_CHOICE_NEEDED: ask the user where to branch from and start again with baseRef. A card already in a worktree starts there; a linked multi-repo project starts in its folder. NEEDS_WORKTREE: the card's directory workspace had sessions or is not its own; ask the user to switch it to a worktree. A card's own never-used workspace that was archived outside Flowly is restored first; WORKSPACE_ARCHIVED: it cannot be (shared, switched, or Paseo refused); ask the user to switch the card to a worktree. CARD_HAS_SESSION: send that session instructions instead. The session uses the project's New task model and mode (or mode, a permission mode id: MODE_UNAVAILABLE lists the provider's ids; a card with an approved plan does not default to plan mode), gets the card's tools and starts with prompt (default: the card's title and description, plus its approved plan). Done/Cancelled cards are refused (CARD_FINISHED). Pass a unique idempotencyKey; retrying with the same key returns the same session (replayed=true). Counts against the 20-per-hour limit shared with flowly_create_card (CARD_LIMIT).",
         inputSchema: startCardInputSchema,
         outputSchema: startCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
