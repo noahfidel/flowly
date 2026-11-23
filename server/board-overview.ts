@@ -8,13 +8,14 @@ import { hasOpenNextMoves } from "../shared/next-moves";
 import { faceKey, familyOf } from "../shared/connectors";
 import { overviewCollections, overviewKeys, type OverviewCollection, type OverviewPatch } from "../shared/overview";
 import { hiddenPrKeys } from "../shared/hidden-prs";
+import type { PrMineIndex } from "./pr-menu";
 import { cardPrs, prIsHidden, prMenuCard } from "../shared/pr-rows";
 import { etagOf } from "./etag";
 
 type Board = z.infer<typeof boardSchema>;
 
 /** Preserve rule results; no history/body is removed from storage. */
-export function boardOverview(board: Board): BoardOverview {
+export function boardOverview(board: Board, mine?: PrMineIndex): BoardOverview {
   const events = new Map<string, BoardEvent[]>();
   for (const e of board.events) {
     const list = events.get(e.taskId);
@@ -60,7 +61,7 @@ export function boardOverview(board: Board): BoardOverview {
       hasExternal: artifacts.some(a => !!a.external),
       hasWorkpad: !!workpad,
       hasNextMoves: hasOpenNextMoves(own),
-      ...prCountsOf(task, artifacts, hiddenPrs),
+      ...prCountsOf(task, artifacts, hiddenPrs, mine),
       sessions,
     };
   });
@@ -68,13 +69,14 @@ export function boardOverview(board: Board): BoardOverview {
 }
 
 /** The card's PRs for the board's pull requests menu (PR-MENU-SPEC §3.1); a malformed card counts none instead of breaking the overview. */
-function prCountsOf(task: Board["tasks"][number], artifacts: Board["artifacts"], hiddenPrs: ReadonlySet<string>) {
+function prCountsOf(task: Board["tasks"][number], artifacts: Board["artifacts"], hiddenPrs: ReadonlySet<string>, mine?: PrMineIndex) {
   try {
     const rows = prMenuCard(task) ? cardPrs(task, artifacts) : [];
-    const hidden = rows.filter((r) => prIsHidden(hiddenPrs, task.id, r.url)).length;
-    return { prs: rows.length - hidden, prsHidden: hidden };
+    const visible = rows.filter((r) => !prIsHidden(hiddenPrs, task.id, r.url));
+    // "Yours" is what the menu's last read found (PR-MENU-SPEC D20): a known-only lower bound, 0 without an index.
+    return { prs: visible.length, prsHidden: rows.length - visible.length, prsMine: mine ? visible.filter((r) => mine.has(task.id, r.url)).length : 0 };
   } catch {
-    return { prs: 0, prsHidden: 0 };
+    return { prs: 0, prsHidden: 0, prsMine: 0 };
   }
 }
 

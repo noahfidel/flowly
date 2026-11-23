@@ -5,6 +5,7 @@ import { Dot, Label, font, noFocusRing, radius, space, touch, useTheme } from ".
 import { stateColors } from "./state-colors";
 import { Enter, PulseDot } from "./motion";
 import { overviewRow, type BoardOverview } from "./overview";
+import { prChipText } from "./pr-list";
 import { t, tn } from "../shared/i18n";
 
 /**
@@ -20,6 +21,7 @@ export function OverviewBar({
   onRunning,
   prs,
   prsHidden,
+  prsMine,
   onPrs,
   updated,
   onUpdated,
@@ -46,6 +48,8 @@ export function OverviewBar({
   prs: number;
   /** PRs the user hid from the menu (PR-MENU-SPEC D12); with none shown, they keep the chip visible. */
   prsHidden: number;
+  /** Of `prs`, the ones known to be the user's (PR-MENU-SPEC D20). */
+  prsMine: number;
   onPrs(): void;
   /** Cards the dispatcher saw change since you looked (§9.2); never part of needYou. */
   updated: number;
@@ -72,6 +76,7 @@ export function OverviewBar({
   const state = stateColors(colors);
   const o = overview;
   const row = overviewRow({ runningTasks: o.runningTasks, needYou, updated, prs, prsHidden }, { ideas: openIdeas !== null, memory: memoryCount !== null || guardrailCount !== null, insights: !!onInsights });
+  const prChip = prChipText(prs, prsMine);
   return (
     <View style={{ borderBottomWidth: 1, borderColor: colors.border }}>
       <ScrollView
@@ -94,8 +99,8 @@ export function OverviewBar({
         </View>
         {row.statusDivider && <Divider />}
         {row.prs && (
-          <Chip label={tn(prs, "Show {n} pull request", "Show {n} pull requests")} icon={<Icon name="GitPullRequest" size={13} color={colors.foregroundMuted} />} onPress={onPrs}>
-            {tn(prs, "{n} PR", "{n} PRs")}
+          <Chip label={prChip.label} icon={<Icon name="GitPullRequest" size={13} color={colors.foregroundMuted} />} onPress={onPrs}>
+            {prChip.text}
           </Chip>
         )}
         {row.running && (

@@ -31,6 +31,8 @@ export const cardFactsSchema = z.strictObject({
   prs: z.number().int().nonnegative(),
   /** PRs of the card the user hid from the menu (PR-MENU-SPEC D11, D12); not part of `prs`. */
   prsHidden: z.number().int().nonnegative().default(0),
+  /** Visible PRs of the card the menu's last read found to be the user's (PR-MENU-SPEC D20); part of `prs`, known-only, 0 after a daemon restart. */
+  prsMine: z.number().int().nonnegative().default(0),
   sessions: z.array(sessionFactsSchema),
 });
 export type CardFacts = z.infer<typeof cardFactsSchema>;

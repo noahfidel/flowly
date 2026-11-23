@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,11 +11,11 @@ import { laneName } from "../shared/lanes";
 import * as rpc from "../shared/rpc";
 import { msg, t } from "../shared/i18n";
 import { Modal } from "./modal";
-import { Button, IconButton, Label, Row, Theme, Toggle, font, space, touch, useTheme } from "./ui";
+import { Button, IconButton, Label, Row, Theme, Toggle, font, noFocusRing, space, touch, useTheme } from "./ui";
 import { stateColors } from "./state-colors";
 import { openQuickLink } from "./quick-links-row";
 import { usePrListQuery } from "./queries";
-import { hiddenPrRows, mineNote, prRowDetail, prRowTitle, prSections, type PrListRow, type PrSectionId } from "./pr-list";
+import { hiddenPrRows, isOwnPr, mineNote, prRowDetail, prRowTitle, prSections, type PrListRow, type PrSectionId } from "./pr-list";
 import { useStableCallback } from "./stable";
 import { useBoardView } from "./board-view";
 
@@ -24,7 +25,7 @@ const noRows: PrListRow[] = [];
 const sectionTitles: Record<PrSectionId, string> = { open: msg("Open"), reviewing: msg("Reviewing"), closed: msg("Merged or closed"), unknown: msg("Author not known") };
 const stateWords: Record<Exclude<PrState, "">, string> = { draft: msg("Draft"), open: msg("Open"), merged: msg("Merged"), closed: msg("Closed") };
 
-type ShownRow = { hidden: boolean; key: string; taskId: string; url: string; state: PrState; title: string; detail: string; label: string };
+type ShownRow = { hidden: boolean; key: string; taskId: string; url: string; state: PrState; title: string; detail: string; label: string; mine: boolean };
 
 /**
  * The board's pull requests menu (PR-MENU-SPEC §2): the PRs of the cards in the projects the board shows, in three
@@ -39,6 +40,7 @@ export function PrMenu({
   onClose,
   onOpenCard,
   onChanged,
+  onListed,
 }: {
   open: boolean;
   /** The projects the board shows now (its filtered project, else every live member of the group shown). */
@@ -49,6 +51,8 @@ export function PrMenu({
   onOpenCard(taskId: string): void;
   /** After a PR was hidden or shown again: refresh the board overview, whose card facts carry the chip's count. */
   onChanged(): void;
+  /** After a list read arrives: refresh only the overview, whose `prsMine` that read may have changed (D20). */
+  onListed(): void;
 }) {
   const ids = useMemo(() => projects.slice(0, maxProjects).map((p) => p.id), [projects]);
   const query = usePrListQuery(ids, open);
@@ -56,6 +60,15 @@ export function PrMenu({
   // Read when the list arrives or the menu opens, not on every overview poll.
   const board = useRef({ tasks, projects });
   board.current = { tasks, projects };
+  // The read fills the daemon's "yours" index (D20); refresh the overview once per arrival so the chip updates now.
+  const listedAt = query.dataUpdatedAt;
+  const changed = useStableCallback(() => onListed());
+  const refreshed = useRef(0);
+  useEffect(() => {
+    if (!open || !listedAt || refreshed.current === listedAt) return;
+    refreshed.current = listedAt;
+    changed();
+  }, [open, listedAt, changed]);
   const view = useBoardView();
   const mine = view.values?.prMine ?? false;
   const { sections, hiddenList, note } = useMemo(() => {
@@ -76,9 +89,14 @@ export function PrMenu({
         state: r.state,
         title,
         detail: prRowDetail(r, { card: cardTitle, lane: card ? laneName(project, card.status) : "", project: several ? project?.title : undefined }),
-        label: word
-          ? t("Open card {card}: pull request {number} · {state}", { card: cardTitle, number: r.number, state: word })
-          : t("Open card {card}: pull request {number}", { card: cardTitle, number: r.number }),
+        mine: isOwnPr(r),
+        label: r.mine === true
+          ? word
+            ? t("Open card {card}: pull request {number} · {state} · your PR", { card: cardTitle, number: r.number, state: word })
+            : t("Open card {card}: pull request {number} · your PR", { card: cardTitle, number: r.number })
+          : word
+            ? t("Open card {card}: pull request {number} · {state}", { card: cardTitle, number: r.number, state: word })
+            : t("Open card {card}: pull request {number}", { card: cardTitle, number: r.number }),
       };
     };
     return {
@@ -199,6 +217,7 @@ const PrRow = memo(function PrRow({ row, onClose, onOpenCard, onToggle, disabled
       testID={`pr-row-${row.taskId}`}
       trailing={
         <View style={{ flexDirection: "row", alignItems: "center", gap: space[1] }}>
+          {row.mine && <OwnMark />}
           {!!row.state && (
             <Label size={font.sm} color={tone} selectable={false}>
               {t(stateWords[row.state])}
@@ -229,3 +248,33 @@ const PrRow = memo(function PrRow({ row, onClose, onOpenCard, onToggle, disabled
     />
   );
 });
+
+/**
+ * The person icon on the user's own PRs (D19). Touch relies on the accessibility label; on web a hover shows the same
+ * words in a small label placed over the row's edge, so the row never shifts.
+ */
+function OwnMark() {
+  const { colors } = useTheme();
+  const [hover, setHover] = useState(false);
+  const icon = <Icon name="User" size={14} color={colors.foregroundMuted} />;
+  // On touch a plain View, so a tap on the icon still opens the row's card; only web hovers.
+  if (touch) return <View accessible accessibilityRole="image" accessibilityLabel={t("Your PR")}>{icon}</View>;
+  return (
+    <Pressable
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={t("Your PR")}
+      focusable={false}
+      style={noFocusRing}
+      onHoverIn={() => setHover(true)}
+      onHoverOut={() => setHover(false)}
+    >
+      {icon}
+      {hover && (
+        <View pointerEvents="none" style={{ position: "absolute", right: 0, bottom: 18 }}>
+          <Label muted size={font.sm} selectable={false} lines={1}>{t("Your PR")}</Label>
+        </View>
+      )}
+    </Pressable>
+  );
+}

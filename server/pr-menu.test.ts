@@ -3,7 +3,7 @@ import type { Connection, ExternalRef } from "../shared/connectors";
 import type { Artifact, Task } from "../shared/model";
 import { prReviewOperationId } from "../shared/pr-review";
 import { prSections } from "../client/pr-list";
-import { GhPrCache, ghPrMenuState, ghViewerLogin, listPrs, prFetchCap, type PrMenuReads } from "./pr-menu";
+import { GhPrCache, ghPrMenuState, ghViewerLogin, listPrs, PrMineIndex, prFetchCap, type PrMenuReads } from "./pr-menu";
 import { refKey, type Summaries } from "./connectors/service";
 
 /** `prs.list` (PR-MENU-SPEC §3.2): rows of the chosen projects, each with the connector badge's state word. */
@@ -345,4 +345,43 @@ test("ghViewerLogin: asks gh api user with an argument array, caches 30 minutes 
   clock.now = 31 * 60_000;
   expect(await read()).toBe("ada");
   expect(seen).toHaveLength(3);
+});
+
+test("mine index: records true rows, drops false ones, keeps on null, per card and trimmed URL (PR-MENU-SPEC D20)", async () => {
+  const one = "https://github.com/o/r/pull/1";
+  const board = { projects: [project("p")], tasks: [task("a"), task("b")], artifacts: [artifact("a", one), artifact("a", "https://github.com/o/r/pull/2"), artifact("a", "https://github.com/o/r/pull/3"), artifact("b", one)] };
+  const index = new PrMineIndex();
+  const states = { "o/r#1": { status: "Open", author: "Ada" }, "o/r#2": { status: "Open", author: "bob" }, "o/r#3": { status: "Open" } };
+  await listPrs(board, ["p"], { ...fakeReads([github], states, [], {}, { gh: "ada" }), mineIndex: index });
+  expect(index.has("a", ` ${one} `)).toBe(true);
+  expect(index.has("b", one)).toBe(true);
+  expect(index.has("a", "https://github.com/o/r/pull/2")).toBe(false);
+  expect(index.has("a", "https://github.com/o/r/pull/3")).toBe(false);
+  // A later read that no longer knows the login (null) keeps the entries; one that says someone else drops them.
+  await listPrs(board, ["p"], { ...fakeReads([github], states), mineIndex: index });
+  expect(index.has("a", one)).toBe(true);
+  await listPrs(board, ["p"], { ...fakeReads([github], states, [], {}, { gh: "eve" }), mineIndex: index });
+  expect(index.has("a", one)).toBe(false);
+  expect(index.has("b", one)).toBe(false);
+});
+
+test("mine index: a failed read keeps what the last good read found (PR-MENU-SPEC D20)", async () => {
+  const one = "https://github.com/o/r/pull/1";
+  const board = { projects: [project("p")], tasks: [task("a")], artifacts: [artifact("a", one)] };
+  const index = new PrMineIndex();
+  await listPrs(board, ["p"], { ...fakeReads([github], { "o/r#1": { status: "Open", author: "ada" } }, [], {}, { gh: "ada" }), mineIndex: index });
+  expect(index.has("a", one)).toBe(true);
+  const failing: PrMenuReads = { ...fakeReads([github], {}), list: async () => { throw new Error("offline"); }, mineIndex: index };
+  const { rows } = await listPrs(board, ["p"], failing, () => {});
+  expect(rows.map((r) => r.mine)).toEqual([null]);
+  expect(index.has("a", one)).toBe(true);
+});
+
+test("mine index: hidden rows are recorded too; listPrs works without an index", async () => {
+  const a = artifact("a", "https://github.com/o/r/pull/1");
+  const board = { projects: [project("p")], tasks: [task("a")], artifacts: [a], hiddenPrs: [{ taskId: "a", url: a.target, hiddenAt: at(0) }] };
+  const index = new PrMineIndex();
+  await listPrs(board, ["p"], { ...fakeReads([github], {}, [], { "o/r#1": { status: "Open", expired: false, author: "ada" } }, { gh: "ada" }), mineIndex: index });
+  expect(index.has("a", a.target)).toBe(true);
+  await expect(listPrs(board, ["p"], fakeReads([github], {}))).resolves.toBeTruthy();
 });

@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { Status } from "../shared/model";
 import type { listPrs } from "../shared/rpc";
+import { t, tn } from "../shared/i18n";
 
 /** The board's pull requests menu (PR-MENU-SPEC): pure rules for its chip count, sections, order and row text. */
 
@@ -9,24 +10,36 @@ export type PrSectionId = "open" | "reviewing" | "closed" | "unknown";
 export type PrSection = { id: PrSectionId; rows: PrListRow[] };
 
 /**
- * The chip's counts (§2.1, D12): the overview's per-card `prs` (visible) and `prsHidden` over the live cards of the
- * projects the board shows.
+ * The chip's counts (§2.1, D12, D20): the overview's per-card `prs` (visible), `prsHidden` and `prsMine` (the visible
+ * ones the menu's last read found to be the user's) over the live cards of the projects the board shows.
  */
 export function prCount(
   projects: readonly { id: string }[],
   tasks: readonly { id: string; projectId: string; archivedAt: string | null }[],
-  facts: ReadonlyMap<string, { prs: number; prsHidden?: number }>,
-): { shown: number; hidden: number } {
+  facts: ReadonlyMap<string, { prs: number; prsHidden?: number; prsMine?: number }>,
+): { shown: number; hidden: number; mine: number } {
   const ids = new Set(projects.map((p) => p.id));
   let shown = 0,
-    hidden = 0;
+    hidden = 0,
+    mine = 0;
   for (const t of tasks)
     if (!t.archivedAt && ids.has(t.projectId)) {
       shown += facts.get(t.id)?.prs ?? 0;
       hidden += facts.get(t.id)?.prsHidden ?? 0;
+      mine += facts.get(t.id)?.prsMine ?? 0;
     }
-  return { shown, hidden };
+  return { shown, hidden, mine };
 }
+
+/** The chip's text and accessibility label (§2.1, D20): the total, then "· m yours" only when some are known to be the user's. */
+export function prChipText(prs: number, mine: number): { text: string; label: string } {
+  const text = tn(prs, "{n} PR", "{n} PRs");
+  const label = tn(prs, "Show {n} pull request", "Show {n} pull requests");
+  return mine > 0 ? { text: t("{prs} · {mine} yours", { prs: text, mine }), label: t("{prs}, {mine} yours", { prs: label, mine }) } : { text, label };
+}
+
+/** Whether a row gets the "Your PR" marker (D19): only when the author is known to be the user; unknown never does. */
+export const isOwnPr = (r: { mine: boolean | null }): boolean => r.mine === true;
 
 // Board lane order, furthest along first (D5); a card no longer on the board sorts last.
 const laneRank: Partial<Record<Status, number>> = { integrated: 0, committed: 1, in_review: 2, test: 3, development: 4, design: 5, blocked: 6, todo: 7, backlog: 8 };

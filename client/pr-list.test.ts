@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Status } from "../shared/model";
-import { hiddenPrRows, mineNote, prCount, prRowTitle, prRowDetail, prSections, type PrListRow } from "./pr-list";
+import { hiddenPrRows, isOwnPr, mineNote, prChipText, prCount, prRowTitle, prRowDetail, prSections, type PrListRow } from "./pr-list";
 
 /** The pull requests menu (PR-MENU-SPEC §1 D5, §2.3): sections, their order and each row's text. */
 
@@ -76,10 +76,10 @@ test("the chip's count sums the overview's per-card prs over the live cards of t
     { id: "c", projectId: "p", archivedAt: at(1) },
     { id: "d", projectId: "p", archivedAt: null },
   ];
-  const facts = new Map([["a", { prs: 2, prsHidden: 1 }], ["b", { prs: 5, prsHidden: 0 }], ["c", { prs: 1 }]]);
-  expect(prCount([{ id: "p" }], tasks, facts)).toEqual({ shown: 2, hidden: 1 });
-  expect(prCount([{ id: "p" }, { id: "q" }], tasks, facts)).toEqual({ shown: 7, hidden: 1 });
-  expect(prCount([], tasks, facts)).toEqual({ shown: 0, hidden: 0 });
+  const facts = new Map([["a", { prs: 2, prsHidden: 1, prsMine: 1 }], ["b", { prs: 5, prsHidden: 0 }], ["c", { prs: 1 }]]);
+  expect(prCount([{ id: "p" }], tasks, facts)).toEqual({ shown: 2, hidden: 1, mine: 1 });
+  expect(prCount([{ id: "p" }, { id: "q" }], tasks, facts)).toEqual({ shown: 7, hidden: 1, mine: 1 });
+  expect(prCount([], tasks, facts)).toEqual({ shown: 0, hidden: 0, mine: 0 });
 });
 
 test("row title never repeats the PR, and never drops a bare leading number that is part of the title", () => {
@@ -126,4 +126,17 @@ test("My PRs note: none known to be yours, or no login known at all", () => {
   expect(mineNote([review])).toBe("none");
   expect(mineNote([unknown, row("dev", "#5", 5, { mine: true, hidden: true })])).toBe("noLogin");
   expect(mineNote([])).toBeNull();
+});
+
+test("only a row known to be the user's gets the marker; unknown authors never do (D19)", () => {
+  expect(isOwnPr(row("t", "#1", 0, { mine: true }))).toBe(true);
+  expect(isOwnPr(row("t", "#1", 0, { mine: false }))).toBe(false);
+  expect(isOwnPr(row("t", "#1", 0, { mine: null }))).toBe(false);
+});
+
+test("the chip splits out the yours count only when it is above 0 (D20)", () => {
+  expect(prChipText(8, 3)).toEqual({ text: "8 PRs · 3 yours", label: "Show 8 pull requests, 3 yours" });
+  expect(prChipText(1, 1)).toEqual({ text: "1 PR · 1 yours", label: "Show 1 pull request, 1 yours" });
+  expect(prChipText(8, 0)).toEqual({ text: "8 PRs", label: "Show 8 pull requests" });
+  expect(prChipText(1, 0)).toEqual({ text: "1 PR", label: "Show 1 pull request" });
 });

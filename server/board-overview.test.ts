@@ -4,6 +4,7 @@ import { boardOverviewSchema } from "../shared/overview";
 import { readOverviewChanged } from "../shared/rpc";
 import { applyOverviewPatch } from "../client/overview-query";
 import { boardOverview, OverviewDeltas } from "./board-overview";
+import { PrMineIndex } from "./pr-menu";
 
 function view(revision = 1) {
   return boardOverview(boardSchema.parse({ events: [], version: 5, revision, projects: [], tasks: [] }));
@@ -80,4 +81,18 @@ test("groups ride in the overview sorted by position; add, rename, move and remo
   const removal = deltas.read(removed, { etag: response.etag });
   expect(removal.patch?.groups?.remove).toEqual(["c"]);
   expect(applyOverviewPatch(next, removal.patch!)).toEqual(removed);
+});
+
+test("prsMine counts the visible PRs the mine index knows, and is 0 without an index (PR-MENU-SPEC D20)", () => {
+  const url = (n: number) => `https://github.com/o/r/pull/${n}`;
+  const artifact = (id: string, target: string) => ({ id, taskId: "a", projectId: "p", role: "output", kind: "url", target, title: target, note: "", createdBy: "agent", createdAt: at, updatedAt: at });
+  const board = boardSchema.parse({
+    events: [], version: 5, revision: 1, projects: [project], tasks: [task("a")],
+    artifacts: [artifact("x1", url(1)), artifact("x2", url(2)), artifact("x3", url(3))],
+    hiddenPrs: [{ taskId: "a", url: url(2), hiddenAt: at }],
+  });
+  const index = new PrMineIndex();
+  index.record([{ taskId: "a", url: url(1), mine: true }, { taskId: "a", url: url(2), mine: true }, { taskId: "a", url: url(3), mine: false }, { taskId: "zz", url: url(1), mine: true }]);
+  expect(boardOverview(board, index).cards[0]).toMatchObject({ prs: 2, prsHidden: 1, prsMine: 1 });
+  expect(boardOverview(board).cards[0]).toMatchObject({ prs: 2, prsHidden: 1, prsMine: 0 });
 });

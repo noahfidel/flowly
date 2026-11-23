@@ -1,5 +1,6 @@
 import { familyOf, type Connection, type ExternalRef } from "../shared/connectors";
 import type { Artifact, Project, Task } from "../shared/model";
+import { prHiddenKey } from "../shared/hidden-prs";
 import { boardPrs, githubPrKey, prStateOf, type BoardPr, type PrState } from "../shared/pr-rows";
 import { refKey, type Summaries } from "./connectors/service";
 import { logFailure } from "./error-report";
@@ -21,7 +22,28 @@ export type PrMenuReads = {
   ghCache?: GhPrCache;
   /** The signed-in `gh` user's login (cached by the reader); throws when gh cannot tell. */
   ghViewer?: () => Promise<string | null>;
+  /** Where `listPrs` notes which returned rows are the user's, for the chip's "yours" count (D20). */
+  mineIndex?: PrMineIndex;
 };
+
+/**
+ * Daemon-memory set of the PRs (card plus trimmed URL) the last menu read found to be the user's (PR-MENU-SPEC D20).
+ * A known-only lower bound: lost on restart, refilled the next time the menu opens, never read from the network.
+ */
+export class PrMineIndex {
+  private readonly keys = new Set<string>();
+  record(rows: readonly { taskId: string; url: string; mine: boolean | null }[]): void {
+    for (const r of rows) {
+      const key = prHiddenKey(r.taskId, r.url);
+      // Unknown (null) keeps what an earlier read found: a PR past the fetch cap must not flap out of "yours".
+      if (r.mine === true) this.keys.add(key);
+      else if (r.mine === false) this.keys.delete(key);
+    }
+  }
+  has(taskId: string, url: string): boolean {
+    return this.keys.has(prHiddenKey(taskId, url));
+  }
+}
 
 /** What `gh pr view` tells: the state word and the author's login ("" when none). */
 export type GhPr = { state: PrState; author: string };
@@ -158,7 +180,7 @@ export async function listPrs(
         log("Flowly gh viewer login failed:", error, "");
       }
     }
-    return {
+    const result = {
       rows: rows.map((r, i): PrMenuRow => {
         const ghKey = ghRows.get(i);
         if (ghKey) {
@@ -170,8 +192,11 @@ export async function listPrs(
         return { ...r, state: prStateOf(summary?.status), mine: ref ? sameLogin(summary?.author, logins.get(ref.connectionId)) : null };
       }),
     };
+    reads.mineIndex?.record(result.rows);
+    return result;
   } catch (error) {
     log("Flowly pull request states failed:", error, `${rows.length} rows`);
+    // A failed read learns nothing about authors, so the "yours" index keeps what the last good read found (D20).
     return { rows: rows.map((r) => ({ ...r, state: "" as const, mine: null })) };
   }
 }

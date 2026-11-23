@@ -77,7 +77,7 @@ import { validZone } from "./shared/insights";
 import { SearchService } from "./server/search";
 import { QuickTitleService } from "./server/quick-title";
 import { PrReviewCards } from "./server/pr-review-cards";
-import { GhPrCache, ghPrMenuState, ghViewerLogin, listPrs } from "./server/pr-menu";
+import { GhPrCache, ghPrMenuState, ghViewerLogin, listPrs, PrMineIndex } from "./server/pr-menu";
 import { PrReviewArchiver, connectorPrReviews, connectorPrState, firstKnown, firstKnownReview, ghPrReviews, ghPrState } from "./server/pr-review-archive";
 import { ReviewLedgers } from "./server/review-ledgers";
 import { POSTHOG_KEY, TelemetryService } from "./server/telemetry";
@@ -639,9 +639,11 @@ export default function contribute(host: PluginServerContext) {
   });
   const chipDeltas = new BoardDeltas();
   const overviewDeltas = new OverviewDeltas();
+  // The PRs the pull requests menu's last read found to be the user's; feeds the chip's "yours" count (PR-MENU-SPEC D20).
+  const prMineIndex = new PrMineIndex();
   server.handle(rpc.readOverviewChanged, async (input, { paseo }) => {
     tools.attach(paseo);
-    return overviewDeltas.read(boardOverview(await store.view()), input);
+    return overviewDeltas.read(boardOverview(await store.view(), prMineIndex), input);
   });
   server.handle(rpc.readStorageStatus, () => store.storageStatus());
   server.handle(rpc.backupStorage, async () => ({ name: await store.backupStorage() }));
@@ -913,7 +915,7 @@ export default function contribute(host: PluginServerContext) {
   // PR-MENU-SPEC §3.2: read only when the menu opens; states from the connector badge cache, else `gh` for github.com PRs no connection reads.
   const ghPrCache = new GhPrCache();
   const ghViewer = ghViewerLogin();
-  server.handle(rpc.listPrs, async (input) => listPrs(await store.read(), input.projectIds, { list: () => connectors.list(), viewers: () => connectors.viewerLogins(), locate: (list) => connectors.locate(list), cached: (refs) => connectors.cachedBadges(refs), badges: (refs) => connectors.badges(refs), gh: ghPrMenuState(), ghCache: ghPrCache, ghViewer: ghViewer }));
+  server.handle(rpc.listPrs, async (input) => listPrs(await store.read(), input.projectIds, { list: () => connectors.list(), viewers: () => connectors.viewerLogins(), locate: (list) => connectors.locate(list), cached: (refs) => connectors.cachedBadges(refs), badges: (refs) => connectors.badges(refs), gh: ghPrMenuState(), ghCache: ghPrCache, ghViewer: ghViewer, mineIndex: prMineIndex }));
   server.handle(rpc.hidePr, (input) => store.hidePr(input));
   server.handle(rpc.restorePr, (input) => store.restorePr(input));
   server.handle(rpc.readExternal, async (input) => {
