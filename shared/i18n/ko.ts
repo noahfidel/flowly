@@ -1186,7 +1186,7 @@ const catalog: Catalog = {
   "Search words": "검색어",
   "Comma-separated": "쉼표로 구분",
   "From a deleted card": "삭제된 카드에서",
-  "Switch project": "프로젝트 전환",
+  "Switch group": "그룹 전환",
   "Search and filter": "검색 및 필터",
   "Project ideas": "프로젝트 아이디어",
   "Next / previous card in column": "열의 다음 / 이전 카드",

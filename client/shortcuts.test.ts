@@ -5,6 +5,7 @@ import {
   intentParams,
   navigateGrid,
   parseBoardIntent,
+  prMenuClosesOn,
   resolveShortcut,
   shortcutHelp,
   taskGrid,
@@ -21,13 +22,13 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "T" }, true)).toBe("new-task");
     expect(resolveShortcut({ key: "n" }, true)).toBe("attention");
     expect(resolveShortcut({ key: "N" }, true)).toBe("attention");
-    expect(resolveShortcut({ key: "a" }, true)).toBeNull();
+    expect(resolveShortcut({ key: "a" }, true)).toBe("guardrails");
     expect(resolveShortcut({ key: "q" }, true)).toBe("quick-task");
     expect(resolveShortcut({ key: "b" }, true)).toBe("ideas");
     expect(resolveShortcut({ key: "i" }, true)).toBe("insights");
-    expect(resolveShortcut({ key: "g" }, true)).toBe("guardrails");
+    expect(resolveShortcut({ key: "g" }, true)).toBe("projects");
     expect(resolveShortcut({ key: "m" }, true)).toBe("memory");
-    expect(resolveShortcut({ key: "p" }, true)).toBe("projects");
+    expect(resolveShortcut({ key: "p" }, true)).toBe("prs");
     expect(resolveShortcut({ key: "/" }, true)).toBe("filters");
     expect(resolveShortcut({ key: "f" }, true)).toBe("filters");
     expect(resolveShortcut({ key: "u" }, true)).toBe("updated");
@@ -51,12 +52,11 @@ describe("board shortcut keys", () => {
     expect(resolveShortcut({ key: "D", shiftKey: true }, true)).toBeNull();
     expect(shortcutHelp.some((row) => row.keys.includes("D") && row.title === "Open the dispatcher and focus its message box")).toBe(true);
   });
-  test("O opens the open card's session and R its newest pull request; G stays Guardrails", () => {
+  test("O opens the open card's session and R its newest pull request", () => {
     expect(resolveShortcut({ key: "o" }, true)).toBe("open-session");
     expect(resolveShortcut({ key: "O" }, true)).toBe("open-session");
     expect(resolveShortcut({ key: "r" }, true)).toBe("open-pr");
     expect(resolveShortcut({ key: "R" }, true)).toBe("open-pr");
-    expect(resolveShortcut({ key: "g" }, true)).toBe("guardrails");
     for (const key of ["o", "r"]) {
       expect(resolveShortcut({ key }, false)).toBeNull();
       expect(resolveShortcut({ key, metaKey: true }, true)).toBeNull();
@@ -66,6 +66,33 @@ describe("board shortcut keys", () => {
     }
     expect(shortcutHelp.some((row) => row.keys.includes("O") && row.title === "Open the open card's active session")).toBe(true);
     expect(shortcutHelp.some((row) => row.keys.includes("R") && row.title === "Open the open card's newest pull request")).toBe(true);
+  });
+  test("P opens the Pull requests menu, G the group switcher and A Guardrails (ruling 2026-11-23)", () => {
+    const expected = { p: "prs", g: "projects", a: "guardrails" } as const;
+    for (const [key, action] of Object.entries(expected)) {
+      expect(resolveShortcut({ key }, true)).toBe(action);
+      expect(resolveShortcut({ key: key.toUpperCase() }, true)).toBe(action);
+      expect(resolveShortcut({ key }, false)).toBeNull();
+      expect(resolveShortcut({ key, metaKey: true }, true)).toBeNull();
+      expect(resolveShortcut({ key, ctrlKey: true }, true)).toBeNull();
+      expect(resolveShortcut({ key, altKey: true }, true)).toBeNull();
+      expect(resolveShortcut({ key: key.toUpperCase(), shiftKey: true }, true)).toBeNull();
+    }
+    expect(shortcutHelp.find((row) => row.keys.includes("P"))?.title).toBe("Pull requests");
+    expect(shortcutHelp.find((row) => row.keys.includes("G"))?.title).toBe("Switch group");
+    expect(shortcutHelp.find((row) => row.keys.includes("A"))?.title).toBe("Guardrails");
+    expect(shortcutHelp.some((row) => row.title === "Switch project")).toBe(false);
+  });
+  test("the open PR menu closes on a bare P only", () => {
+    expect(prMenuClosesOn({ key: "p" })).toBe(true);
+    expect(prMenuClosesOn({ key: "P" })).toBe(true);
+    expect(prMenuClosesOn({ key: "p", metaKey: true })).toBe(false);
+    expect(prMenuClosesOn({ key: "p", ctrlKey: true })).toBe(false);
+    expect(prMenuClosesOn({ key: "p", altKey: true })).toBe(false);
+    expect(prMenuClosesOn({ key: "P", shiftKey: true })).toBe(false);
+    expect(prMenuClosesOn({ key: "p", repeat: true })).toBe(false);
+    expect(prMenuClosesOn({ key: "p", isComposing: true })).toBe(false);
+    for (const key of ["g", "a", "r", "Escape", "Enter", "pp", ""]) expect(prMenuClosesOn({ key })).toBe(false);
   });
   test("O and R apply only on desktop with a card open", () => {
     expect(cardShortcutApplies(undefined, false)).toBe(false);

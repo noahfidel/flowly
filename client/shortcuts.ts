@@ -8,6 +8,7 @@ export type ShortcutAction =
   | "new-task"
   | "quick-task"
   | "projects"
+  | "prs"
   | "filters"
   | "attention"
   | "updated"
@@ -40,14 +41,15 @@ export type BoardIntent = Extract<
 export const shortcutHelp: readonly { keys: string[]; title: string; /** Listed only while the double tap of Ctrl is on (SHORTCUTS-SPEC §5). */ doubleTap?: true }[] = [
   { keys: ["T"], title: msg("New task") },
   { keys: ["Q"], title: msg("Quick task") },
-  { keys: ["P"], title: msg("Switch project") },
+  { keys: ["P"], title: msg("Pull requests") },
+  { keys: ["G"], title: msg("Switch group") },
   { keys: ["S"], title: msg("Search") },
   { keys: ["/", "F"], title: msg("Search and filter") },
   { keys: ["N"], title: msg("Step through what needs you") },
   { keys: ["U"], title: msg("Step through unread cards") },
   { keys: ["I"], title: msg("Project insights") },
   { keys: ["B"], title: msg("Project ideas") },
-  { keys: ["G"], title: msg("Guardrails") },
+  { keys: ["A"], title: msg("Guardrails") },
   { keys: ["M"], title: msg("Memory") },
   { keys: ["D"], title: msg("Open the dispatcher and focus its message box") },
   { keys: ["J", "K"], title: msg("Next / previous card in column") },
@@ -66,7 +68,7 @@ export const shortcutHelp: readonly { keys: string[]; title: string; /** Listed 
 const letters: Record<string, ShortcutAction> = {
   t: "new-task",
   q: "quick-task",
-  p: "projects",
+  p: "prs",
   f: "filters",
   n: "attention",
   u: "updated",
@@ -79,7 +81,8 @@ const letters: Record<string, ShortcutAction> = {
   r: "open-pr",
   i: "insights",
   b: "ideas",
-  g: "guardrails",
+  g: "projects",
+  a: "guardrails",
   m: "memory",
   s: "search",
   d: "dispatcher",
@@ -105,6 +108,23 @@ export function isApplePlatform(nav: { platform?: string; userAgent?: string } |
 export function historyKeyHint(direction: "back" | "forward", apple: boolean): string {
   if (apple) return direction === "back" ? "⌃[" : "⌃]";
   return direction === "back" ? "Alt+←" : "Alt+→";
+}
+
+/**
+ * The open Pull requests menu closes on a second bare P: board shortcuts are blocked while a Modal is open, so the menu
+ * itself takes the key (SHORTCUTS-SPEC §2.2, PR-MENU-SPEC D24).
+ */
+export function prMenuClosesOn(event: ShortcutKey): boolean {
+  return (
+    event.key.length === 1 &&
+    event.key.toLowerCase() === "p" &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    !event.repeat &&
+    !event.isComposing
+  );
 }
 
 /** O and R act on the card open in the sidebar, desktop only (SHORTCUTS-SPEC §2.1); otherwise the key is not consumed. */

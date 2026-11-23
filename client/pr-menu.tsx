@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
@@ -18,12 +18,26 @@ import { usePrListQuery } from "./queries";
 import { hiddenPrRows, isOwnPr, mineNote, prListRead, prRowDetail, prRowTitle, prSections, type PrListRow, type PrSectionId } from "./pr-list";
 import { useStableCallback } from "./stable";
 import { useBoardView } from "./board-view";
+import { prMenuClosesOn } from "./shortcuts";
 
 /** At most this many projects per read (PR-MENU-SPEC §3.2). */
 const maxProjects = 20;
 const noRows: PrListRow[] = [];
 const sectionTitles: Record<PrSectionId, string> = { open: msg("Open"), reviewing: msg("Reviewing"), closed: msg("Merged or closed"), unknown: msg("Author not known") };
 const stateWords: Record<Exclude<PrState, "">, string> = { draft: msg("Draft"), open: msg("Open"), merged: msg("Merged"), closed: msg("Closed") };
+
+/** RN-Web forwards React keyboard events on View; React Native's types omit them. */
+type WebKeyEvent = {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  repeat: boolean;
+  nativeEvent?: { isComposing?: boolean };
+  preventDefault(): void;
+  stopPropagation(): void;
+};
 
 type ShownRow = { hidden: boolean; key: string; taskId: string; url: string; state: PrState; title: string; detail: string; label: string; mine: boolean };
 
@@ -38,6 +52,7 @@ export function PrMenu({
   projects,
   tasks,
   theme,
+  keyboard,
   onClose,
   onOpenCard,
   onChanged,
@@ -50,6 +65,8 @@ export function PrMenu({
   projects: readonly Project[];
   tasks: readonly Task[];
   theme: PluginTheme;
+  /** Web desktop with board shortcuts on: P closes the menu and focus moves into it on open (PR-MENU-SPEC D24). */
+  keyboard: boolean;
   onClose(): void;
   onOpenCard(taskId: string): void;
   /** After a PR was hidden or shown again: refresh the board overview, whose card facts carry the chip's count. */
@@ -149,6 +166,25 @@ export function PrMenu({
       setToggling(false);
     }
   });
+  // Board shortcuts are blocked while a Modal is open, so the menu takes P itself; Esc stays with the host Modal.
+  const keysRef = useRef<View>(null);
+  const keys = keyboard && Platform.OS === "web";
+  useEffect(() => {
+    if (!open || !keys) return;
+    const timer = setTimeout(() => (keysRef.current as unknown as { focus?: () => void } | null)?.focus?.(), 0);
+    return () => clearTimeout(timer);
+  }, [open, keys]);
+  const keyProps = keys
+    ? {
+        focusable: true,
+        onKeyDown: (e: WebKeyEvent) => {
+          if (!prMenuClosesOn({ ...e, isComposing: e.nativeEvent?.isComposing })) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        },
+      }
+    : {};
   return (
     <Modal
       open={open}
@@ -159,54 +195,56 @@ export function PrMenu({
     >
       <Modal.Content contentContainerStyle={{ padding: space[3], gap: space[1] }}>
         <Theme.Provider value={theme}>
-          {query.isError && !query.data ? (
-            <View style={{ gap: space[2], alignItems: "flex-start" }}>
-              <Label muted size={font.md} selectable={false}>{t("Could not load pull requests.")}</Label>
-              <Button small onPress={() => void query.refetch()}>{t("Retry")}</Button>
-            </View>
-          ) : !query.data ? (
-            <Label muted size={font.md} selectable={false}>{t("Loading…")}</Label>
-          ) : showHidden ? (
-            <View style={{ gap: space[1] }}>
-              <Label muted size={font.sm} medium selectable={false}>{t("Hidden ({n})", { n: hiddenList.length })}</Label>
-              {hiddenList.map((row) => (
-                <PrRow key={row.key} row={row} onClose={onClose} onOpenCard={onOpenCard} onToggle={setHidden} disabled={toggling} />
-              ))}
-              <View style={{ alignItems: "flex-start", paddingTop: space[1] }}>
-                <Button quiet small onPress={() => setView("main")}>{t("Back")}</Button>
+          <View ref={keysRef} {...(keyProps as {})} style={{ gap: space[1], ...noFocusRing }}>
+            {query.isError && !query.data ? (
+              <View style={{ gap: space[2], alignItems: "flex-start" }}>
+                <Label muted size={font.md} selectable={false}>{t("Could not load pull requests.")}</Label>
+                <Button small onPress={() => void query.refetch()}>{t("Retry")}</Button>
               </View>
-            </View>
-          ) : (
-            <>
-              <Toggle title={t("My PRs")} value={mine} onChange={(next) => void view.update({ prMine: next })} />
-              {note === "none" && (
-                <Label muted size={font.md} selectable={false}>{t("None of these pull requests is known to be yours.")}</Label>
-              )}
-              {note === "noLogin" && (
-                <Label muted size={font.md} selectable={false}>
-                  {t("Flowly can't tell which pull requests are yours: connect GitHub in Settings → Connectors, or sign in to the gh CLI.")}
-                </Label>
-              )}
-              {sections.length === 0 && !note && (
-                <Label muted size={font.md} selectable={false}>
-                  {hiddenList.length > 0 ? t("All pull requests on this board are hidden.") : t("No pull requests on this board")}
-                </Label>
-              )}
-              {sections.map((section) => (
-                <View key={section.id} style={{ gap: space[1] }}>
-                  <Label muted size={font.sm} medium selectable={false}>{t(sectionTitles[section.id])}</Label>
-                  {section.rows.map((row) => (
-                    <PrRow key={row.key} row={row} onClose={onClose} onOpenCard={onOpenCard} onToggle={setHidden} disabled={toggling} />
-                  ))}
-                </View>
-              ))}
-              {hiddenList.length > 0 && (
+            ) : !query.data ? (
+              <Label muted size={font.md} selectable={false}>{t("Loading…")}</Label>
+            ) : showHidden ? (
+              <View style={{ gap: space[1] }}>
+                <Label muted size={font.sm} medium selectable={false}>{t("Hidden ({n})", { n: hiddenList.length })}</Label>
+                {hiddenList.map((row) => (
+                  <PrRow key={row.key} row={row} onClose={onClose} onOpenCard={onOpenCard} onToggle={setHidden} disabled={toggling} />
+                ))}
                 <View style={{ alignItems: "flex-start", paddingTop: space[1] }}>
-                  <Button quiet small onPress={() => setView("hidden")}>{t("Hidden ({n})", { n: hiddenList.length })}</Button>
+                  <Button quiet small onPress={() => setView("main")}>{t("Back")}</Button>
                 </View>
-              )}
-            </>
-          )}
+              </View>
+            ) : (
+              <>
+                <Toggle title={t("My PRs")} value={mine} onChange={(next) => void view.update({ prMine: next })} />
+                {note === "none" && (
+                  <Label muted size={font.md} selectable={false}>{t("None of these pull requests is known to be yours.")}</Label>
+                )}
+                {note === "noLogin" && (
+                  <Label muted size={font.md} selectable={false}>
+                    {t("Flowly can't tell which pull requests are yours: connect GitHub in Settings → Connectors, or sign in to the gh CLI.")}
+                  </Label>
+                )}
+                {sections.length === 0 && !note && (
+                  <Label muted size={font.md} selectable={false}>
+                    {hiddenList.length > 0 ? t("All pull requests on this board are hidden.") : t("No pull requests on this board")}
+                  </Label>
+                )}
+                {sections.map((section) => (
+                  <View key={section.id} style={{ gap: space[1] }}>
+                    <Label muted size={font.sm} medium selectable={false}>{t(sectionTitles[section.id])}</Label>
+                    {section.rows.map((row) => (
+                      <PrRow key={row.key} row={row} onClose={onClose} onOpenCard={onOpenCard} onToggle={setHidden} disabled={toggling} />
+                    ))}
+                  </View>
+                ))}
+                {hiddenList.length > 0 && (
+                  <View style={{ alignItems: "flex-start", paddingTop: space[1] }}>
+                    <Button quiet small onPress={() => setView("hidden")}>{t("Hidden ({n})", { n: hiddenList.length })}</Button>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
         </Theme.Provider>
       </Modal.Content>
     </Modal>

@@ -34,6 +34,7 @@ export function OverviewBar({
   guardrailCount,
   onGuardrails,
   guardrailsShortcut,
+  prsShortcut,
   memoryCount,
   onMemory,
   memoryShortcut,
@@ -67,6 +68,7 @@ export function OverviewBar({
   guardrailCount: number | null;
   onGuardrails(): void;
   guardrailsShortcut: string;
+  prsShortcut: string;
   /** Memory added this week (GUARDRAILS-SPEC §7.4); null when guardrails are off for the project. */
   memoryCount: number | null;
   onMemory(): void;
@@ -76,7 +78,9 @@ export function OverviewBar({
   const state = stateColors(colors);
   const o = overview;
   const row = overviewRow({ runningTasks: o.runningTasks, needYou, updated, prs, prsHidden }, { ideas: openIdeas !== null, memory: memoryCount !== null || guardrailCount !== null, insights: !!onInsights });
-  const prChip = prChipText(prs, prsMine);
+  const prText = prChipText(prs, prsMine);
+  const prKey = prsShortcut ? ` (${prsShortcut})` : "";
+  const prChip = { ...prText, label: `${prText.label}${prKey}`, tooltip: prText.tooltip ? `${prText.tooltip}${prKey}` : null };
   // The PR chip's web hover hint (PR-MENU-SPEC D21). The bar is a horizontal ScrollView, which clips anything drawn
   // outside it, so the hint is drawn below the bar in this outer View, at the chip's measured left edge.
   const barRef = useRef<View>(null);

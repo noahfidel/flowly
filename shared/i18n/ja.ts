@@ -1186,7 +1186,7 @@ const catalog: Catalog = {
   "Search words": "検索語",
   "Comma-separated": "カンマ区切り",
   "From a deleted card": "削除されたカードから",
-  "Switch project": "プロジェクトを切り替え",
+  "Switch group": "グループを切り替え",
   "Search and filter": "検索とフィルター",
   "Project ideas": "プロジェクトのアイデア",
   "Next / previous card in column": "列内の次 / 前のカード",

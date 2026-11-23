@@ -1186,7 +1186,7 @@ const catalog: Catalog = {
   "Search words": "检索词",
   "Comma-separated": "用逗号分隔",
   "From a deleted card": "来自已删除的卡片",
-  "Switch project": "切换项目",
+  "Switch group": "切换分组",
   "Search and filter": "搜索和筛选",
   "Project ideas": "项目想法",
   "Next / previous card in column": "列内下一张 / 上一张卡片",

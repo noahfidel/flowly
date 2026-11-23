@@ -1186,7 +1186,7 @@ const catalog: Catalog = {
   "Search words": "Palabras de búsqueda",
   "Comma-separated": "Separadas por comas",
   "From a deleted card": "De una tarjeta borrada",
-  "Switch project": "Cambiar de proyecto",
+  "Switch group": "Cambiar de grupo",
   "Search and filter": "Buscar y filtrar",
   "Project ideas": "Ideas del proyecto",
   "Next / previous card in column": "Tarjeta siguiente / anterior de la columna",

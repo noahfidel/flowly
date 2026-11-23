@@ -2107,6 +2107,21 @@ function BoardContent(
   const shortcutsOn = Platform.OS === "web" && !compact;
   const withKey = (text: string, key: string) =>
     shortcutsOn ? `${text} (${key})` : text;
+  const openPrMenu = useStableCallback(() => {
+    setMenu("prs");
+    // Opening the menu shows the pr-menu tip was not needed.
+    if (onboarding.values && !onboarding.values.tipsSeen.includes("pr-menu")) void onboarding.markTipSeen("pr-menu");
+  });
+  // When the Pull requests menu closes by any route, focus returns to the board root once its Modal is gone, so the next
+  // shortcut arrives (SHORTCUTS-SPEC §2.2). Its own timer: the shared one is "latest call wins" and would cancel a pending open.
+  const afterPrMenuClose = useAfterModalClose();
+  const prevMenu = useRef(menu);
+  useEffect(() => {
+    const was = prevMenu.current;
+    prevMenu.current = menu;
+    if (was === "prs" && menu !== "prs" && shortcutsOn)
+      afterPrMenuClose(() => (rootRef.current as unknown as { focus?: () => void } | null)?.focus?.());
+  }, [menu, shortcutsOn]);
   function runIntent(intent: BoardIntent | Exclude<ShortcutAction, BoardIntent>) {
     // An open menu takes every shortcut but Esc (it steps out or closes).
     if (intent !== "escape" && menuControl.isOpen()) return false;
@@ -2135,6 +2150,11 @@ function BoardContent(
       case "projects":
       case "shortcuts":
         setMenu(intent);
+        return true;
+      case "prs":
+        // Not consumed while the chip is hidden (PR-MENU-SPEC D24).
+        if (prCounts.shown + prCounts.hidden === 0) return false;
+        openPrMenu();
         return true;
       case "welcome":
         setWelcomeOpen(true);
@@ -2388,14 +2408,14 @@ function BoardContent(
               <ProjectSwitcher
                 title={group?.name ?? t("Projects")}
                 otherNeeds={otherNeedTotal}
-                shortcut={shortcutsOn ? "P" : ""}
+                shortcut={shortcutsOn ? "G" : ""}
                 onPress={() => setMenu("projects")}
               />
             ) : (
               <GroupTabs
                 groups={boardGroups}
                 activeId={group?.id ?? ""}
-                shortcut={shortcutsOn ? "P" : ""}
+                shortcut={shortcutsOn ? "G" : ""}
                 onSelect={switchGroup}
                 onManage={() => setMenu("projects")}
                 onCreate={() => setProjectForm("new")}
@@ -2491,11 +2511,8 @@ function BoardContent(
             prs={prCounts.shown}
             prsHidden={prCounts.hidden}
             prsMine={prCounts.mine}
-            onPrs={() => {
-              setMenu("prs");
-              // Opening the menu shows the pr-menu tip was not needed.
-              if (onboarding.values && !onboarding.values.tipsSeen.includes("pr-menu")) void onboarding.markTipSeen("pr-menu");
-            }}
+            onPrs={openPrMenu}
+            prsShortcut={shortcutsOn ? "P" : ""}
             updated={updatedIds.length}
             onUpdated={startUpdated}
             updatedShortcut={shortcutsOn ? "U" : ""}
@@ -2510,7 +2527,7 @@ function BoardContent(
             ideasShortcut={shortcutsOn ? "B" : ""}
             guardrailCount={guardrailCount}
             onGuardrails={() => togglePage("guardrails")}
-            guardrailsShortcut={shortcutsOn ? "G" : ""}
+            guardrailsShortcut={shortcutsOn ? "A" : ""}
             memoryCount={memoryCount}
             onMemory={() => togglePage("memory")}
             memoryShortcut={shortcutsOn ? "M" : ""}
@@ -2730,7 +2747,7 @@ function BoardContent(
           </View>
         )}
 
-        {/* board-groups 3/7: the group switcher (P): group rows in order, Add group, New project in the shown group. */}
+        {/* board-groups 3/7: the group switcher (G): group rows in order, Add group, New project in the shown group. */}
         <Modal
           open={menu === "projects"}
           title={t("Groups")}
@@ -3035,7 +3052,7 @@ function BoardContent(
             </Theme.Provider>
           </Modal.Content>
         </Modal>
-        <PrMenu open={menu === "prs"} warm={prCounts.shown > 0} projects={overviewCover.projects} tasks={board?.tasks ?? noTasks} theme={props.theme} onClose={closeMenu} onOpenCard={openTaskById} onChanged={refresh} onListed={() => void overviewData.refetch()} />
+        <PrMenu open={menu === "prs"} warm={prCounts.shown > 0} projects={overviewCover.projects} tasks={board?.tasks ?? noTasks} theme={props.theme} keyboard={shortcutsOn} onClose={closeMenu} onOpenCard={openTaskById} onChanged={refresh} onListed={() => void overviewData.refetch()} />
         {/* board-groups 3/7: Add group and Delete group…; Group settings is its own page. */}
         {groupDialog?.kind === "add" && (
           <GroupNameDialog
