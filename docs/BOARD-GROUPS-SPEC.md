@@ -19,7 +19,7 @@ exactly one group. Individual projects are no longer top-level navigation.
   selected group.
 - Ruling (Noah, 2026-11-10): each project belongs to exactly one group. A new project is placed in a group when it
   is created, or in the default group when none is chosen.
-- Ruling (Noah, 2026-11-10): group tabs replace project tabs, in the tab bar and in the project switcher (**P**).
+- Ruling (Noah, 2026-11-10): group tabs replace project tabs, in the tab bar and in the project switcher (**G**).
   Individual projects are no longer listed as top-level navigation.
 - Ruling (Noah, 2026-11-10): the group board has a project filter that narrows it to one project's cards and ideas.
 - Ruling (Noah, 2026-11-10): repo-bound settings stay per project (check commands, auto review and its rework
@@ -272,7 +272,7 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   "Group {name}"). Drag to reorder (the shared `SortableList`, `groups.move`), right-click or long-press menu
   (Group settings, New task, Move left, Move right, Delete group…). **+** opens New project preset to the current
   group; **⇕ Manage groups** opens the switcher. There is no All tab and no project tab.
-- **Switcher (P):** group rows only, in `position` order; the open group is selected; picking one opens its board.
+- **Switcher (G):** group rows only, in `position` order; the open group is selected; picking one opens its board.
   Rows for Edit / Restore / Remove of a project move to the group settings page (§5). **Add group** lives here and
   in group settings. On compact layouts the switcher's title is the group's name.
 - **View ids:** a group's view id is `*group:<id>`. `*all` and bare project ids are no longer view ids (§7 maps

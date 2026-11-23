@@ -4,7 +4,7 @@ Status: requested by the user on 2026-10-15 (card “Optimize the project system
 
 ## Entry point
 
-The project chooser (All projects / `P`) has one **Remove “<name>”…** row for the current project, next to Edit. The former **Archive** row is folded into it; projects archived earlier still show **Restore** (and can be removed).
+The project chooser (All projects / `G`) has one **Remove “<name>”…** row for the current project, next to Edit. The former **Archive** row is folded into it; projects archived earlier still show **Restore** (and can be removed).
 
 ## Dialog
 

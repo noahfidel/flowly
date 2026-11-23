@@ -463,7 +463,7 @@ The same run, the same model call, the same switch and period as Skills (INSIGHT
 
 ### 7.4 The Guardrails page and the Memory page (D10)
 
-**The Guardrails page**. Entry point: the **Guardrails** chip in the overview bar (showing a count when there are `observing` commands or new ones this week), shortcut `G`; the project menu has the same name. A whole page, aligned with Ideas / Insights.
+**The Guardrails page**. Entry point: the **Guardrails** chip in the overview bar (showing a count when there are `observing` commands or new ones this week), shortcut `A`; the project menu has the same name. A whole page, aligned with Ideas / Insights.
 
 - Two segments at the top: **Commands**, **Guidelines**; within each segment grouped by active (observing), paused, archived, with archived collapsed by default.
 - A command row: the name, the command text, the state (showing `observing 1/3` while observing), the latest result; menu: Edit, Pause / Resume, Delete. **Add command** at the end of the segment.

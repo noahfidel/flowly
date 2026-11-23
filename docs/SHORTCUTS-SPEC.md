@@ -22,7 +22,9 @@
 | --- | --- | --- |
 | `T` | Open "New task": Quick task when *Quick task for New task* is on (default), otherwise the full form (default Todo; QUICK-TASK-SPEC §5) | A current project exists and is not archived |
 | `Q` | Open Quick task, the project defaulting to the one last used for Quick task, otherwise the current project (QUICK-TASK-SPEC §3) | At least one unarchived project |
-| `P` | Open the project switcher popover | — |
+| `P` | Open / close the Pull requests menu (PR-MENU-SPEC D24); help row "Pull requests"; the PR chip shows the hint "P" | The board shows a PR chip; otherwise not consumed |
+| `G` | Open the group switcher (BOARD-GROUPS-SPEC); help row "Switch group" | — |
+| `A` | Open / close the Guardrails page (GUARDRAILS-SPEC); the Guardrails chip shows the hint "A" | A current project exists with memory on; otherwise not consumed |
 | `/` or `F` | Open the filter/search popover | A current project exists |
 | `S` | Open / close the Search page (SEARCH-SPEC §5) | A current project exists |
 | `N` | Start stepping through "N need you" one card at a time (same as that button in the overview bar, `startStep("needs")`; help row "Step through what needs you") | A current project exists or All projects |
@@ -39,6 +41,7 @@
 
 - Ruling (Noah, 2026-11-10): `N` starts stepping through "N need you" (it was `A`), `T` opens "New task" (it was `N`), and `A` is no longer bound to any action (freed, no alias). All shortcut hints (the need button, the New task button, the help popover) are updated accordingly.
 - Ruling (Noah, 2026-11-18): the PR shortcut is `R`, because `G` stays Guardrails.
+- Ruling (Noah, 2026-11-23): `P` opens and closes the Pull requests menu, the group switcher moves from `P` to `G`, and Guardrails moves from `G` to `A`.
 - Uppercase letters (`CapsLock`) are equivalent to lowercase; any other combination with `Cmd/Ctrl/Alt` is never handled and is left to the host shortcuts (the exception is Back / Forward: `⌃[` / `⌃]` on macOS, `Alt+←` / `Alt+→` elsewhere, each with no other modifier). `⌘[` / `⌘]` (macOS) and `Ctrl+[` / `Ctrl+]` (Windows and Linux) are Paseo's previous / next workspace and go to the host. Letters with `Shift` held (such as `Shift+N`) are not handled; characters that themselves need Shift, such as `?`, are handled as usual.
 - Auto-repeat (key held) and events during IME composition (`isComposing`) are ignored.
 - A handled key calls `preventDefault` + `stopPropagation`; an unhandled one bubbles to the host unchanged.
@@ -49,6 +52,8 @@
 - Any text input inside the plugin has focus (`Field`, the session follow-up input).
 - Any host `Modal` owned by the plugin is open (project/filter/Attention/status/card actions/form/new session/Wrap up/session editor/shortcut help, etc.). Then Esc is handled by the host Modal itself.
 - The compact layout, native platforms (iOS/Android), and "New task" while a write operation is running likewise do not take effect.
+
+- While the Pull requests menu is open the board is blocked, so the menu itself takes a bare `P` (`prMenuClosesOn`, no modifier, no repeat, no IME composition) and closes; `Esc` is the host Modal's. On open, focus moves into the menu so `Tab` and `Esc` work there. When the menu closes by any route, focus returns to the board root after the Modal has closed (`MODAL_CLOSE_MS`), so the next shortcut arrives.
 
 Blocking is implemented by a reference count inside the plugin (`useShortcutBlock` in `client/shortcuts.ts`): inputs register on `onFocus/onBlur`, all plugin Modals register on `open` through the wrapper in `client/modal.tsx`, and they unregister when the component unmounts. The DOM `activeElement` or `event.target` is not read.
 

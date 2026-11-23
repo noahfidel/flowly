@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Shortcuts: P opens the Pull requests menu; G switches group, A opens Guardrails (branch `kanban/board-shortcut-p-opens-the-pull-requests-083fa0`) — 2026-11-23
+
+- Feature (ruling, Noah 2026-11-23, SHORTCUTS-SPEC §2.1-2.2, PR-MENU-SPEC D24): `P` opens and closes the Pull requests menu (not consumed with no PR chip), the group switcher moves from `P` to `G`, Guardrails from `G` to `A`. The chip's label and hover hint, the group switcher and Guardrails hints, and the help rows follow.
+- Code: `client/shortcuts.ts` (`prs` action, `prMenuClosesOn`), `client/board.tsx` (`openPrMenu`, focus back to the board root after the menu closes, on its own `useAfterModalClose`), `client/pr-menu.tsx` (`keyboard` prop: focus into the menu on open, `P` closes), `client/overview-bar.tsx` (`prsShortcut`).
+- Tests: `client/shortcuts.test.ts` (keys, modifiers, blocked, `prMenuClosesOn`, help rows). i18n: "Switch group" replaces "Switch project" in all catalogs. Onboarding, What's new, telemetry: none (existing controls, new keys).
+- Not run: the real app (desktop) click-through of P open/close, focus return and the hints.
+
 ## Board groups remember their state when you switch away and back (branch `kanban/board-groups-remember-their-state-when-y-fdd59d`) — 2026-11-23
 
 - Feature (ruling, Noah 2026-11-23, BOARD-GROUPS-SPEC §3 *Per-group view state*, UI-REFRESH-SPEC §7ae): each group keeps its open card and session (phones: also its chat page), its own Back/Forward stack and cursor, its search/priority/type/tag/show-archived filters, its collapsed lanes, and its scroll. A tab or switcher switch shows the remembered card (dropped when gone, archived, finished, moved to another group's project or in an archived project), else the need-you open, else the bare board with the card closed. A switch records nothing in the group left; Back never crosses groups; applying an entry never switches group. The desktop dock stays the global `chatMinimized` setting.
