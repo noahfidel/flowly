@@ -98,7 +98,7 @@ import { useNavHistory } from "./use-nav-history";
 import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
 import { openNativeSession, openNativeWorkspace } from "./session-state";
 import { externalError, useConnections } from "./connectors";
-import { linearQuickSeed, parseLinearOpen, parseLinearStart } from "./linear-start";
+import { linearQuickSeed, linearStartTarget, parseLinearOpen, parseLinearStart } from "./linear-start";
 import { cardProgress, useSummaries } from "./task-progress";
 import { LocaleRoot } from "./i18n";
 import { agentModelFromValues, effectiveAgentModel, startingAgent } from "../shared/agent-defaults";
@@ -1640,6 +1640,10 @@ function BoardContent(
   }, [props.params?.linearIssue, props.params?.openTaskId, props.params?.requestId]);
   const appliedLinear = useRef("");
   const searchLinear = useRpc(rpc.searchExternal);
+  // The Start card target: the shown group's quick project, once groups and board-view settings are known.
+  const linearStartTargetNow = useStableCallback(() =>
+    linearStartTarget({ groups: boardGroups, projects: board?.projects ?? noProjects, shownGroupId: group?.id ?? "", filterId: validFilterId, lastQuickProjectId: view.values?.lastQuickProjectId ?? "", settingsLoaded: !!view.values }),
+  );
   useEffect(() => {
     if (linearInput.error) return setError(linearInput.error);
     const open = linearInput.open;
@@ -1658,8 +1662,10 @@ function BoardContent(
     }
     const start = linearInput.start;
     if (!start || !board || appliedLinear.current === start.requestId) return;
+    const target = linearStartTargetNow();
+    if (!target.ready) return; // wait for the groups and the board-view settings (LINEAR-BOARD-SPEC §5)
     appliedLinear.current = start.requestId;
-    if (!project && !allView) return setError(t("Create a project first, then start the card again."));
+    if (!target.projectId) return setError(t("Create a project first, then start the card again."));
     void (async () => {
       try {
         const found = (await searchLinear({ connectionId: start.connectionId, query: start.key })).results.find((r) => r.key === start.key);
@@ -1670,14 +1676,17 @@ function BoardContent(
         setPage(null);
         setTask("");
         setTaskForm(null);
-        // Quick task in the board's current project, with the issue attached (LINEAR-BOARD-SPEC §5);
-        // on the All board in the last quick-task project (ALL-PROJECTS-SPEC §5).
-        setQuickTask({ status: "todo", ...(project ? { projectId: project.id } : { recent: true }), seed: linearQuickSeed(found) });
+        // Quick task in the shown group's quick project, with the issue attached (LINEAR-BOARD-SPEC §5); read after the
+        // search so a board that changed meanwhile is respected.
+        const now = linearStartTargetNow();
+        const projectId = now.ready ? now.projectId : null;
+        if (!projectId) return setError(t("Create a project first, then start the card again."));
+        setQuickTask({ status: "todo", projectId, seed: linearQuickSeed(found) });
       } catch (e) {
         if (appliedLinear.current === start.requestId) setError(externalError(e, "linear"));
       }
     })();
-  }, [linearInput, !!board, !!project, allView]);
+  }, [linearInput, !!board, serverGroupIds, !!view.values]);
   const openSearchMemory = useStableCallback((hit: SearchMemoryHit) => {
     ignoredLink.current = linkKey;
     focusGroupOf(hit.projectId, true, true); // the Memory page acts on that project

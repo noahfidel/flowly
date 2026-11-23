@@ -2,7 +2,9 @@ import { z } from "zod";
 import type { PluginScreenParams } from "@getpaseo/plugin/client";
 import type { ConnectorProvider, ExternalSummary } from "../shared/connectors";
 import type { LinearCard } from "../shared/linear-board";
-import { pickProject } from "./project-memory";
+import type { Group, Project } from "../shared/model";
+import { includedProjects } from "./all-projects";
+import { groupMembers, groupQuickProject } from "./board-groups";
 import { t } from "../shared/i18n";
 import type { QuickTaskSeed } from "./quick-task";
 
@@ -52,5 +54,24 @@ export function linearQuickSeed(item: ExternalSummary, provider: ConnectorProvid
   return { title: item.summary ? `${item.key}: ${item.summary}` : item.key, externals: [{ item, provider }] };
 }
 
-/** The board's current project: the chosen one, else the one viewed last, else the first. */
-export const startProject = pickProject;
+/**
+ * The project Start card opens Quick task in (LINEAR-BOARD-SPEC §5, QUICK-TASK-SPEC §3): the shown group's quick
+ * project (its Project filter, else the last quick-task project when a live member, else its first member; an empty
+ * group uses All's rule). Not ready until the board-view settings and the groups are loaded, so a cold start uses the
+ * stored group and filter instead of the default group.
+ */
+export function linearStartTarget(input: {
+  groups: readonly Group[];
+  projects: readonly Project[];
+  shownGroupId: string;
+  filterId: string;
+  lastQuickProjectId: string;
+  settingsLoaded: boolean;
+}): { ready: false } | { ready: true; projectId: string | null } {
+  if (!input.settingsLoaded || input.groups.length === 0) return { ready: false };
+  const live = includedProjects(input.projects);
+  const shown = input.groups.find((g) => g.id === input.shownGroupId);
+  const members = shown ? groupMembers(shown, input.projects).filter((p) => !p.archivedAt) : live;
+  const target = groupQuickProject(members, live, input.lastQuickProjectId, input.filterId);
+  return { ready: true, projectId: target?.id ?? null };
+}
