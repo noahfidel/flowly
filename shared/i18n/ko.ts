@@ -1755,7 +1755,6 @@ const catalog: Catalog = {
   "Your PR": "내 PR",
   "Open card {card}: pull request {number} · {state} · your PR": "카드 {card} 열기: 풀 리퀘스트 {number} · {state} · 내 PR",
   "Open card {card}: pull request {number} · your PR": "카드 {card} 열기: 풀 리퀘스트 {number} · 내 PR",
-  "{prs} · {mine} yours": "{prs} · 내 PR {mine}개",
   "{prs}, {mine} yours": "{prs}, 내 PR {mine}개",
   "Could not load pull requests.": "풀 리퀘스트를 불러올 수 없습니다.",
   "No pull requests on this board": "이 보드에 풀 리퀘스트가 없습니다",

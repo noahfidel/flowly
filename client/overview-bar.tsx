@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { Dot, Label, font, noFocusRing, radius, space, touch, useTheme } from "./ui";
@@ -77,11 +77,39 @@ export function OverviewBar({
   const o = overview;
   const row = overviewRow({ runningTasks: o.runningTasks, needYou, updated, prs, prsHidden }, { ideas: openIdeas !== null, memory: memoryCount !== null || guardrailCount !== null, insights: !!onInsights });
   const prChip = prChipText(prs, prsMine);
+  // The PR chip's web hover hint (PR-MENU-SPEC D21). The bar is a horizontal ScrollView, which clips anything drawn
+  // outside it, so the hint is drawn below the bar in this outer View, at the chip's measured left edge.
+  const barRef = useRef<View>(null);
+  // Only the left edge is kept; the text is the live tooltip, so a count that changes while hovered shows at once.
+  const [hintLeft, setHintLeft] = useState<number | null>(null);
+  const hover = useRef(0);
+  const showHint = (chip: View | null) => {
+    // A leave (or press, scroll) that comes before the measurement answers must win, so each hover gets its own number.
+    const turn = ++hover.current;
+    if (!chip || !barRef.current) return setHintLeft(null);
+    const bar = barRef.current;
+    chip.measureInWindow((x) => bar.measureInWindow((barX) => {
+      if (turn === hover.current) setHintLeft(Math.max(0, x - barX));
+    }));
+  };
+  const hideHint = () => {
+    hover.current++;
+    setHintLeft(null);
+  };
+  const hintText = row.prs ? prChip.tooltip : null;
+  // When the yours part goes away (or the chip with it), the hint must not come back on its own later.
+  useEffect(() => {
+    if (!hintText) hideHint();
+  }, [hintText]);
+  const hint = hintLeft !== null && hintText && !touch ? { text: hintText, left: hintLeft } : null;
   return (
-    <View style={{ borderBottomWidth: 1, borderColor: colors.border }}>
+    <View ref={barRef} style={{ borderBottomWidth: 1, borderColor: colors.border, zIndex: hint ? 10 : undefined }}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        // The hint's left edge is measured once, so scrolling hides it.
+        onScroll={hintLeft !== null ? hideHint : undefined}
+        scrollEventThrottle={16}
         contentContainerStyle={{
           flexDirection: "row",
           alignItems: "center",
@@ -99,7 +127,24 @@ export function OverviewBar({
         </View>
         {row.statusDivider && <Divider />}
         {row.prs && (
-          <Chip label={prChip.label} icon={<Icon name="GitPullRequest" size={13} color={colors.foregroundMuted} />} onPress={onPrs}>
+          <Chip
+            label={prChip.label}
+            icon={<Icon name="GitPullRequest" size={13} color={colors.foregroundMuted} />}
+            trailing={
+              prChip.mine !== null && (
+                <>
+                  <Icon name="User" size={13} color={colors.foregroundMuted} />
+                  <Label size={font.sm} selectable={false}>{String(prChip.mine)}</Label>
+                </>
+              )
+            }
+            onPress={() => {
+              // The menu opens over this spot; the hint must not sit on it.
+              hideHint();
+              onPrs();
+            }}
+            onHover={prChip.tooltip ? showHint : undefined}
+          >
             {prChip.text}
           </Chip>
         )}
@@ -155,6 +200,25 @@ export function OverviewBar({
           {t("Insights")}</Chip>
         )}
       </ScrollView>
+      {hint && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: hint.left,
+            marginTop: 2,
+            paddingHorizontal: space[1.5],
+            paddingVertical: 2,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.surface1,
+          }}
+        >
+          <Label muted size={font.sm} selectable={false} lines={1}>{hint.text}</Label>
+        </View>
+      )}
     </View>
   );
 }
@@ -169,21 +233,29 @@ function Chip({
   label,
   onPress,
   strong,
+  trailing,
+  onHover,
   children,
 }: {
   icon: ReactNode;
   label: string;
   onPress?(): void;
   strong?: boolean;
+  /** Drawn after the text, in the same row (the PR chip's person icon and count, PR-MENU-SPEC D21). */
+  trailing?: ReactNode;
+  /** Web hover: the chip's node on enter, null on leave; never called on touch. */
+  onHover?(chip: View | null): void;
   children: ReactNode;
 }) {
   const { colors } = useTheme();
+  const ref = useRef<View>(null);
   const content = (
     <>
       {icon}
       <Label size={font.sm} medium={strong} selectable={false}>
         {children}
       </Label>
+      {trailing}
     </>
   );
   const base = {
@@ -200,7 +272,10 @@ function Chip({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={label}
+          ref={ref}
           onPress={onPress}
+          onHoverIn={onHover && !touch ? () => onHover(ref.current) : undefined}
+          onHoverOut={onHover && !touch ? () => onHover(null) : undefined}
           style={(state) => {
             const { hovered, pressed, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
             return { ...noFocusRing, ...base, backgroundColor: hovered || pressed ? colors.surface2 : "transparent" };

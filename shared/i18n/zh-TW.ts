@@ -1755,7 +1755,6 @@ const catalog: Catalog = {
   "Your PR": "你的 PR",
   "Open card {card}: pull request {number} · {state} · your PR": "開啟卡片 {card}：提取要求 {number} · {state} · 你的 PR",
   "Open card {card}: pull request {number} · your PR": "開啟卡片 {card}：提取要求 {number} · 你的 PR",
-  "{prs} · {mine} yours": "{prs} · 其中 {mine} 個是你的",
   "{prs}, {mine} yours": "{prs}，其中 {mine} 個是你的",
   "Could not load pull requests.": "無法載入提取要求。",
   "No pull requests on this board": "此看板上沒有提取要求",

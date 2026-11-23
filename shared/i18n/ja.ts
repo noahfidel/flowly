@@ -1755,7 +1755,6 @@ const catalog: Catalog = {
   "Your PR": "あなたの PR",
   "Open card {card}: pull request {number} · {state} · your PR": "カード {card} を開く: プルリクエスト {number} · {state} · あなたの PR",
   "Open card {card}: pull request {number} · your PR": "カード {card} を開く: プルリクエスト {number} · あなたの PR",
-  "{prs} · {mine} yours": "{prs} · うち自分の {mine} 件",
   "{prs}, {mine} yours": "{prs}、うち自分の {mine} 件",
   "Could not load pull requests.": "プルリクエストを読み込めませんでした。",
   "No pull requests on this board": "このボードにプルリクエストはありません",

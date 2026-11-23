@@ -31,11 +31,17 @@ export function prCount(
   return { shown, hidden, mine };
 }
 
-/** The chip's text and accessibility label (§2.1, D20): the total, then "· m yours" only when some are known to be the user's. */
-export function prChipText(prs: number, mine: number): { text: string; label: string } {
+/**
+ * The chip's parts (§2.1, D20–D21): `text` is the total; `mine` is the bare count shown after a person icon, null while
+ * none is known to be the user's (the chip is then the total alone). `label` is the full sentence for screen readers;
+ * `tooltip` repeats it on web hover, only when the person icon is shown.
+ */
+export function prChipText(prs: number, mine: number): { text: string; mine: number | null; label: string; tooltip: string | null } {
   const text = tn(prs, "{n} PR", "{n} PRs");
   const label = tn(prs, "Show {n} pull request", "Show {n} pull requests");
-  return mine > 0 ? { text: t("{prs} · {mine} yours", { prs: text, mine }), label: t("{prs}, {mine} yours", { prs: label, mine }) } : { text, label };
+  if (mine <= 0) return { text, mine: null, label, tooltip: null };
+  const full = t("{prs}, {mine} yours", { prs: label, mine });
+  return { text, mine, label: full, tooltip: full };
 }
 
 /** Whether a row gets the "Your PR" marker (D19): only when the author is known to be the user; unknown never does. */

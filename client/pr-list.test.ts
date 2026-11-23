@@ -134,9 +134,9 @@ test("only a row known to be the user's gets the marker; unknown authors never d
   expect(isOwnPr(row("t", "#1", 0, { mine: null }))).toBe(false);
 });
 
-test("the chip splits out the yours count only when it is above 0 (D20)", () => {
-  expect(prChipText(8, 3)).toEqual({ text: "8 PRs · 3 yours", label: "Show 8 pull requests, 3 yours" });
-  expect(prChipText(1, 1)).toEqual({ text: "1 PR · 1 yours", label: "Show 1 pull request, 1 yours" });
-  expect(prChipText(8, 0)).toEqual({ text: "8 PRs", label: "Show 8 pull requests" });
-  expect(prChipText(1, 0)).toEqual({ text: "1 PR", label: "Show 1 pull request" });
+test("the chip shows the yours count after a person icon only when it is above 0 (D20, D21)", () => {
+  expect(prChipText(8, 3)).toEqual({ text: "8 PRs", mine: 3, label: "Show 8 pull requests, 3 yours", tooltip: "Show 8 pull requests, 3 yours" });
+  expect(prChipText(1, 1)).toEqual({ text: "1 PR", mine: 1, label: "Show 1 pull request, 1 yours", tooltip: "Show 1 pull request, 1 yours" });
+  expect(prChipText(8, 0)).toEqual({ text: "8 PRs", mine: null, label: "Show 8 pull requests", tooltip: null });
+  expect(prChipText(1, 0)).toEqual({ text: "1 PR", mine: null, label: "Show 1 pull request", tooltip: null });
 });

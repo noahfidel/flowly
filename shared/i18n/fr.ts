@@ -1755,7 +1755,6 @@ const catalog: Catalog = {
   "Your PR": "Votre PR",
   "Open card {card}: pull request {number} · {state} · your PR": "Ouvrir la carte {card} : pull request {number} · {state} · votre PR",
   "Open card {card}: pull request {number} · your PR": "Ouvrir la carte {card} : pull request {number} · votre PR",
-  "{prs} · {mine} yours": "{prs} · {mine} à vous",
   "{prs}, {mine} yours": "{prs}, {mine} à vous",
   "Could not load pull requests.": "Impossible de charger les pull requests.",
   "No pull requests on this board": "Aucune pull request sur ce tableau",
