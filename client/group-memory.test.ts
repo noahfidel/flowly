@@ -104,6 +104,12 @@ describe("history and scroll per group", () => {
     expect(scrollOf("h", "g3")).toBeUndefined();
   });
 
+  test("a lane not reported (collapsed, not mounted) keeps its offset", () => {
+    rememberScroll("board", "h", "g1", { x: 10, y: { todo: 300, done: 80 } });
+    rememberScroll("board", "h", "g1", { x: 20, y: { todo: 120 } });
+    expect(scrollOf("h", "g1")).toEqual({ x: 20, y: { todo: 120, done: 80 } });
+  });
+
   test("entries of deleted groups are dropped once the groups are known; other hosts' stay", () => {
     rememberPlace("board", "h", "g1", card("A"));
     rememberPlace("board", "h", "gone", card("B"));

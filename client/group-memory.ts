@@ -58,7 +58,8 @@ export function rememberScroll(instance: BoardInstance, hostId: string, groupId:
   if (instance === "panel" || !groupId) return;
   const key = keyOf(hostId, groupId);
   const current = store().scrolls.get(key) ?? { x: 0, y: {} };
-  store().scrolls.set(key, { ...current, ...patch });
+  // Lanes not reported (collapsed, not mounted) keep their offsets.
+  store().scrolls.set(key, { ...current, ...patch, y: patch.y ? { ...current.y, ...patch.y } : current.y });
 }
 
 /** Drops the entries of this host's groups that no longer exist (called once the groups are loaded). */
