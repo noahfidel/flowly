@@ -1,10 +1,10 @@
 import { expect, test } from "vitest";
 import { statuses } from "./model";
-import { boardViewSettings, boardViewValues, statusSettingsValues, storedFilters } from "./settings";
+import { boardViewSettings, boardViewValues, groupCollapsedOf, groupFilterOf, statusSettingsValues, storedFilters, withGroupEntry } from "./settings";
 
 test("older stored settings get defaults for newer fields; invalid values fall back", () => {
-  expect(boardViewValues({ lastQuickProjectId: "p" })).toEqual({ sendBehavior: "steer", startAgentOnCreate: true, quickTaskDefault: true, quickTaskAiTitle: true, quickTaskMode: "worktree", lastQuickProjectId: "p", lastAddProjectId: "", lastGroupId: "", lastFilter: null, projectFilters: {}, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, linearLayout: "auto", linearScope: "me", linearHidden: [], prMine: false, memoryKind: "all", memorySort: "newest", memoryLayout: "list", drawerShare: 0, chatMinimized: false, chatExpanded: false, chatWidth: 0 });
-  expect(boardViewValues(undefined)).toEqual({ sendBehavior: "steer", startAgentOnCreate: true, quickTaskDefault: true, quickTaskAiTitle: true, quickTaskMode: "worktree", lastQuickProjectId: "", lastAddProjectId: "", lastGroupId: "", lastFilter: null, projectFilters: {}, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, linearLayout: "auto", linearScope: "me", linearHidden: [], prMine: false, memoryKind: "all", memorySort: "newest", memoryLayout: "list", drawerShare: 0, chatMinimized: false, chatExpanded: false, chatWidth: 0 });
+  expect(boardViewValues({ lastQuickProjectId: "p" })).toEqual({ sendBehavior: "steer", startAgentOnCreate: true, quickTaskDefault: true, quickTaskAiTitle: true, quickTaskMode: "worktree", lastQuickProjectId: "p", lastAddProjectId: "", lastGroupId: "", lastFilter: null, projectFilters: {}, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, groupFilters: {}, groupCollapsed: {}, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, linearLayout: "auto", linearScope: "me", linearHidden: [], prMine: false, memoryKind: "all", memorySort: "newest", memoryLayout: "list", drawerShare: 0, chatMinimized: false, chatExpanded: false, chatWidth: 0 });
+  expect(boardViewValues(undefined)).toEqual({ sendBehavior: "steer", startAgentOnCreate: true, quickTaskDefault: true, quickTaskAiTitle: true, quickTaskMode: "worktree", lastQuickProjectId: "", lastAddProjectId: "", lastGroupId: "", lastFilter: null, projectFilters: {}, boardSort: "manual", collapsedColumns: [], filterSearch: "", filterPriority: "all", filterType: "all", filterTags: [], showArchived: false, groupFilters: {}, groupCollapsed: {}, hideFinishedAfterDays: 14, runningSweep: true, lastTicketConnection: "", lastConnections: {}, cardActivity: "auto", cardHidden: [], drawerOrder: [], drawerOpen: {}, linearLayout: "auto", linearScope: "me", linearHidden: [], prMine: false, memoryKind: "all", memorySort: "newest", memoryLayout: "list", drawerShare: 0, chatMinimized: false, chatExpanded: false, chatWidth: 0 });
   expect(boardViewValues({ sendBehavior: "bogus" }).sendBehavior).toBe("steer");
   // The dock's old tab, layouts and Attention sections (Ruling, Noah 2026-11-09: the dock is the chat only) are dropped.
   expect(boardViewValues({ dockLayout: "side", dockStackShare: 0.3, attentionOpen: { needs: false }, dockTab: "attention", lastQuickProjectId: "p" })).toEqual(boardViewValues({ lastQuickProjectId: "p" }));
@@ -137,6 +137,42 @@ test("projectFilters: per-group map, bad data falls back, capped; the legacy las
   expect(storedFilters({ projectFilters: { g1: "a" }, lastFilter: { groupId: "g2", projectId: "b" } })).toEqual({ g1: "a", g2: "b" });
   expect(storedFilters({ projectFilters: { g2: "new" }, lastFilter: { groupId: "g2", projectId: "b" } })).toEqual({ g2: "new" });
   expect(storedFilters({ projectFilters: {}, lastFilter: null })).toEqual({});
+});
+
+test("groupFilters and groupCollapsed: per-group maps, bad data falls back, capped (ruling 2026-11-23)", () => {
+  const f1 = { search: "bug", priority: "high", type: "feature", tags: ["ui"], archived: true };
+  expect(boardViewValues({ groupFilters: { g1: f1 }, groupCollapsed: { g1: ["done"], g2: [] } })).toMatchObject({ groupFilters: { g1: f1 }, groupCollapsed: { g1: ["done"], g2: [] } });
+  // A bad field falls back to its default; the rest of the entry and the other settings stay.
+  expect(boardViewValues({ groupFilters: { g1: { ...f1, priority: "urgent!", tags: "ui" } }, lastQuickProjectId: "q" })).toMatchObject({
+    groupFilters: { g1: { search: "bug", priority: "all", type: "feature", tags: [], archived: true } },
+    lastQuickProjectId: "q",
+  });
+  expect(boardViewValues({ groupFilters: { g1: {} } }).groupFilters).toEqual({ g1: { search: "", priority: "all", type: "all", tags: [], archived: false } });
+  expect(boardViewValues({ groupCollapsed: { g1: ["nope"] } }).groupCollapsed).toEqual({ g1: [] });
+  // A bad map: none.
+  expect(boardViewValues({ groupFilters: "x", groupCollapsed: 4, lastQuickProjectId: "q" })).toMatchObject({ groupFilters: {}, groupCollapsed: {}, lastQuickProjectId: "q" });
+  expect(boardViewValues({ groupFilters: { g1: 4 } }).groupFilters).toEqual({});
+  const many = Object.fromEntries(Array.from({ length: 150 }, (_, i) => [`g${i}`, ["done"]]));
+  expect(Object.keys(boardViewValues({ groupCollapsed: many }).groupCollapsed)).toHaveLength(100);
+  expect(Object.keys(boardViewValues({ groupFilters: Object.fromEntries(Array.from({ length: 150 }, (_, i) => [`g${i}`, {}])) }).groupFilters)).toHaveLength(100);
+});
+
+test("a group with no entry starts from the global filters and collapsed lanes saved before per-group ones", () => {
+  const values = boardViewValues({ filterSearch: "old", filterPriority: "low", filterType: "bugfix", filterTags: ["x"], showArchived: true, collapsedColumns: ["blocked"], groupFilters: { g1: { search: "mine" } }, groupCollapsed: { g1: ["done"] } });
+  expect(groupFilterOf(values, "g2")).toEqual({ search: "old", priority: "low", type: "bugfix", tags: ["x"], archived: true });
+  expect(groupFilterOf(values, "g1")).toEqual({ search: "mine", priority: "all", type: "all", tags: [], archived: false });
+  expect(groupCollapsedOf(values, "g2")).toEqual(["blocked"]);
+  expect(groupCollapsedOf(values, "g1")).toEqual(["done"]);
+});
+
+test("writing one group's entry keeps the others, drops deleted groups and keeps the cap", () => {
+  expect(withGroupEntry({ g1: 1, g2: 2 }, "g2", 3, null)).toEqual({ g1: 1, g2: 3 });
+  expect(withGroupEntry({ g1: 1, gone: 2 }, "g3", 3, ["g1", "g3"])).toEqual({ g1: 1, g3: 3 });
+  const many = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`g${i}`, i]));
+  const next = withGroupEntry(many, "new", 1, null);
+  expect(Object.keys(next)).toHaveLength(100);
+  expect(next.new).toBe(1);
+  expect(next.g0).toBeUndefined();
 });
 
 test("prMine defaults off and falls back to off on a bad value", () => {

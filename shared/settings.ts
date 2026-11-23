@@ -13,6 +13,19 @@ import { memoryKinds } from "./memory";
 export const memorySorts = ["newest", "used", "recent"] as const;
 export type MemorySort = (typeof memorySorts)[number];
 
+/** At most this many groups' entries in a per-group map (`groupFilters`, `groupCollapsed`). */
+export const groupMapCap = 100;
+
+/** One group's board filters (BOARD-GROUPS-SPEC §3, *Per-group view state*). */
+const groupFilterSchema = z.object({
+  search: z.string().max(200).catch("").default(""),
+  priority: z.enum(["all", ...priorities]).catch("all").default("all"),
+  type: z.enum(["all", ...taskTypes]).catch("all").default("all"),
+  tags: z.array(z.string().max(80)).max(20).catch([]).default([]),
+  archived: z.boolean().catch(false).default(false),
+});
+export type GroupFilter = z.infer<typeof groupFilterSchema>;
+
 /** Host-scoped board view preferences (not board data). */
 export const boardViewSettings = defineSettings({
   id: "board-view",
@@ -54,6 +67,22 @@ export const boardViewSettings = defineSettings({
     /** Tags shown (any matches); a value ending in "/" matches by prefix (CARD-TAGS-SPEC §6.4). */
     filterTags: z.array(z.string().max(80)).max(20).default([]),
     showArchived: z.boolean().default(false),
+    /**
+     * The search, priority, type, tag and show-archived filters of each group, by group id (BOARD-GROUPS-SPEC §3,
+     * ruling 2026-11-23); a group with no entry starts from the global `filter*` / `showArchived` values above
+     * (`groupFilterOf`). A bad field falls back to its default, a bad map to none.
+     */
+    groupFilters: z
+      .record(z.string().min(1).max(200), groupFilterSchema)
+      .transform((r) => Object.fromEntries(Object.entries(r).slice(0, groupMapCap)))
+      .catch({})
+      .default({}),
+    /** The collapsed lanes of each group, by group id (ruling 2026-11-23); a group with no entry starts from `collapsedColumns`. */
+    groupCollapsed: z
+      .record(z.string().min(1).max(200), z.array(statusSchema).max(statuses.length).catch([]))
+      .transform((r) => Object.fromEntries(Object.entries(r).slice(0, groupMapCap)))
+      .catch({})
+      .default({}),
     /** Done/Cancelled cards that finished more than this many days ago fold under "Show older"; 0 shows all. */
     hideFinishedAfterDays: z.number().int().min(0).max(365).default(14),
     /** The dot sweep on running cards, sessions and subagent rows (MOTION-SPEC, running state). */
@@ -97,6 +126,34 @@ export type BoardView = z.infer<typeof boardViewSettings.schema>;
 export function storedFilters(values: { projectFilters: Record<string, string>; lastFilter: { groupId: string; projectId: string } | null }): Record<string, string> {
   const { lastFilter } = values;
   return lastFilter && !(lastFilter.groupId in values.projectFilters) ? { ...values.projectFilters, [lastFilter.groupId]: lastFilter.projectId } : values.projectFilters;
+}
+
+/** A group's filters: its own entry, else the global values saved before per-group filters (the seed). */
+export function groupFilterOf(values: BoardView, groupId: string): GroupFilter {
+  return (
+    values.groupFilters[groupId] ?? {
+      search: values.filterSearch,
+      priority: values.filterPriority,
+      type: values.filterType,
+      tags: values.filterTags,
+      archived: values.showArchived,
+    }
+  );
+}
+
+/** A group's collapsed lanes: its own entry, else the global set saved before per-group lanes (the seed). */
+export function groupCollapsedOf(values: BoardView, groupId: string): BoardView["collapsedColumns"] {
+  return values.groupCollapsed[groupId] ?? values.collapsedColumns;
+}
+
+/**
+ * A per-group map with one group's entry set: entries of groups that no longer exist are dropped (`liveGroupIds`;
+ * null while the groups are not known), and the oldest entries go beyond the cap. The other groups' entries stay.
+ */
+export function withGroupEntry<T>(map: Record<string, T>, groupId: string, value: T, liveGroupIds: readonly string[] | null): Record<string, T> {
+  const live = liveGroupIds ? new Set(liveGroupIds) : null;
+  const kept = Object.entries(map).filter(([id]) => id !== groupId && (!live || live.has(id)));
+  return Object.fromEntries([...kept, [groupId, value] as const].slice(-groupMapCap));
 }
 
 /**
