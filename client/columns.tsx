@@ -127,6 +127,9 @@ function LaneAccent({ active }: { active: boolean }) {
     borderWidth: 1.5, borderRadius: radius.xl, borderColor: colors.accent, opacity,
   }} />;
 }
+/** The desktop board's sideways offset and each lane's vertical offset. */
+export type BoardScroll = { x: number; y: Partial<Record<Status, number>> };
+
 export function DesktopColumns({
   statuses,
   tasks,
@@ -142,6 +145,8 @@ export function DesktopColumns({
   olderShown = [],
   onToggleOlder,
   reveal,
+  initialScroll,
+  onScrollChange,
   renderCard,
   onAdd,
   onDrop,
@@ -172,6 +177,13 @@ export function DesktopColumns({
    * than a second (`at`) is not replayed when the board mounts again, e.g. on leaving Insights.
    */
   reveal?: { status: Status; n: number; at: number; center?: boolean; taskId?: string };
+  /**
+   * Where the board was left (its group's scroll, BOARD-GROUPS-SPEC §3): applied once, when the board and each lane
+   * first lay out their content. Read at mount only; the board is keyed by its group.
+   */
+  initialScroll?: BoardScroll;
+  /** Every scroll of the board or a lane; cheap (no state), for the group's scroll memory. */
+  onScrollChange?(scroll: BoardScroll): void;
   renderCard(task: Task, drag: CardDrag, dragging: boolean): ReactNode;
   onAdd(status: Status): void;
   onDrop(input: Placement): void;
@@ -197,6 +209,9 @@ export function DesktopColumns({
     listTops = useRef<Partial<Record<Status, number>>>({}),
     scrollY = useRef<Partial<Record<Status, number>>>({}),
     listScrolls = useRef<Partial<Record<Status, NativeScrollView | null>>>({});
+  // The offsets still to restore: the board's on its first content layout, each lane's on its own.
+  const restore = useRef<{ x: number | null; y: Partial<Record<Status, number>> }>({ x: initialScroll?.x ?? null, y: { ...initialScroll?.y } });
+  const reportScroll = () => onScrollChange?.({ x: offset.current, y: { ...scrollY.current } });
   // A lane animates its collapse only for the user's own toggle, never when the stored settings arrive or on mount.
   const onToggleCollapse = toggleCollapseProp
     ? (status: Status) => {
@@ -467,9 +482,17 @@ export function DesktopColumns({
         onScroll={(e) => {
           offset.current = e.nativeEvent.contentOffset.x;
           if (live.current) move(live.current.point);
+          reportScroll();
         }}
         onContentSizeChange={(width) => {
           contentWidth.current = width;
+          const x = restore.current.x;
+          if (x === null || width <= 0) return;
+          restore.current.x = null;
+          if (x <= 0) return;
+          const max = viewport.current.width > 0 ? Math.max(0, width - viewport.current.width) : x;
+          offset.current = Math.min(x, max);
+          scrollRef.current?.scrollTo({ x: offset.current, animated: false });
         }}
         contentContainerStyle={{
           padding: space[3],
@@ -647,6 +670,15 @@ export function DesktopColumns({
                 onScroll={(e) => {
                   scrollY.current[status] = e.nativeEvent.contentOffset.y;
                   if (live.current) move(live.current.point);
+                  reportScroll();
+                }}
+                onContentSizeChange={() => {
+                  const y = restore.current.y[status];
+                  if (y === undefined) return;
+                  delete restore.current.y[status];
+                  if (y <= 0) return;
+                  scrollY.current[status] = y;
+                  listScrolls.current[status]?.scrollTo({ y, animated: false });
                 }}
                 contentContainerStyle={{
                   ...verticalContent,

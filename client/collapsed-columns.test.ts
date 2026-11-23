@@ -14,13 +14,18 @@ test("the stored set wins once loaded; before that the last known one; with neit
   expect(shownCollapsed(null, undefined)).toEqual({ ready: false, collapsed: [] });
 });
 
-test("the last known set is kept per host and survives a fresh module (a client re-run)", () => {
-  expect(lastCollapsed("h1")).toBeUndefined();
-  rememberCollapsed("h1", ["done"]);
-  rememberCollapsed("h2", []);
-  expect(lastCollapsed("h1")).toEqual(["done"]);
-  expect(lastCollapsed("h2")).toEqual([]);
-  expect(lastCollapsed("h3")).toBeUndefined();
+test("the last known set is kept per host and group and survives a fresh module (a client re-run)", () => {
+  expect(lastCollapsed("h1", "g1")).toBeUndefined();
+  rememberCollapsed("h1", "g1", ["done"]);
+  rememberCollapsed("h1", "g2", ["blocked"]);
+  rememberCollapsed("h2", "g1", []);
+  expect(lastCollapsed("h1", "g1")).toEqual(["done"]);
+  expect(lastCollapsed("h1", "g2")).toEqual(["blocked"]);
+  expect(lastCollapsed("h2", "g1")).toEqual([]);
+  expect(lastCollapsed("h3", "g1")).toBeUndefined();
+  // A group not drawn yet in this run has no set; a board that knows no group yet takes the host's last shown one.
+  expect(lastCollapsed("h1", "g3")).toBeUndefined();
+  expect(lastCollapsed("h1", "")).toEqual(["blocked"]);
 });
 
 test("only a lane the user toggled animates", () => {

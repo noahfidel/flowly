@@ -1,13 +1,13 @@
 /**
- * Back and Forward through what the user opened (UI-REFRESH-SPEC §7ae): a stack of places with a pointer, per window,
- * in memory. Separate from the unread step-through (`step-through.ts`), which is a queue of what needs attention and
+ * Back and Forward through what the user opened (UI-REFRESH-SPEC §7ae): a stack of places with a pointer, one per board
+ * group (ruling 2026-11-23), in memory. Separate from the unread step-through (`step-through.ts`), which is a queue of what needs attention and
  * keeps its own Next/Previous; a walk's opens are recorded here like any other open. Pure: nothing here reads or marks
  * read state; applying an entry is only ever an open (`navOpenAction`).
  */
 
 /** A place: a card (and the session shown in it, "" = its details), a group's dispatcher chat, or nothing open. */
 export type NavEntry =
-  | { kind: "board"; groupId?: string }
+  | { kind: "board" }
   | { kind: "card"; taskId: string; sessionId?: string }
   | { kind: "dispatcher"; groupId: string };
 
@@ -22,16 +22,16 @@ export type NavDirection = "back" | "forward";
 export const navHistoryCap = 50;
 export const emptyNavHistory: NavHistory = { entries: [], index: -1 };
 
-/** Same place: the same card (whatever its session), the same group's dispatcher, or both nothing open (boards of two known groups differ). */
+/** Same place: the same card (whatever its session), the same group's dispatcher, or both nothing open. */
 export function samePlace(a: NavEntry, b: NavEntry): boolean {
   if (a.kind === "card") return b.kind === "card" && a.taskId === b.taskId;
   if (a.kind === "dispatcher") return b.kind === "dispatcher" && a.groupId === b.groupId;
-  return b.kind === "board" && (a.groupId === undefined || b.groupId === undefined || a.groupId === b.groupId);
+  return b.kind === "board";
 }
 
 function copy(entry: NavEntry): NavEntry {
   if (entry.kind === "card") return entry.sessionId === undefined ? { kind: "card", taskId: entry.taskId } : { kind: "card", taskId: entry.taskId, sessionId: entry.sessionId };
-  return entry.kind === "dispatcher" ? { kind: "dispatcher", groupId: entry.groupId } : entry.groupId === undefined ? { kind: "board" } : { kind: "board", groupId: entry.groupId };
+  return entry.kind === "dispatcher" ? { kind: "dispatcher", groupId: entry.groupId } : { kind: "board" };
 }
 
 function replaceAt(history: NavHistory, entry: NavEntry): NavHistory {
@@ -116,26 +116,31 @@ export function navStep(
 }
 
 /**
- * Whether an entry can still be opened (§7ae skip rules). A card: it exists, is not archived, is not in Done or
- * Cancelled, and its project exists and is live. A dispatcher: its group exists. The bare board always. `tasks` null
- * (no full overview yet: a cold link's board holds only its own card) or no groups known: nothing counts as gone.
+ * Whether an entry can still be opened in a group's history (§7ae skip rules). A card: it exists, is not archived, is
+ * not in Done or Cancelled, its project exists and is live, and (with `group`) that project is one of the group's
+ * members, so a card moved to a project of another group is gone from this group's stack. A dispatcher: its group
+ * exists and (with `group`) is this group. The bare board always. `tasks` null (no full overview yet: a cold link's
+ * board holds only its own card) or no groups known: nothing counts as gone.
  */
 export function navAlive(index: {
   tasks: readonly { id: string; projectId: string; status: string; archivedAt?: string | null }[] | null;
   projects: readonly { id: string; archivedAt?: string | null }[] | null;
   groups: readonly { id: string }[];
+  /** The group whose history this is, with its member project ids; omitted: any group. */
+  group?: { id: string; projectIds: readonly string[] } | null;
 }): (entry: NavEntry) => boolean {
   const tasks = index.tasks ? new Map(index.tasks.map((t) => [t.id, t])) : null;
   const projects = new Map((index.projects ?? []).map((p) => [p.id, p]));
   const groups = new Set(index.groups.map((g) => g.id));
+  const group = groups.size && index.group ? { id: index.group.id, members: new Set(index.group.projectIds) } : null;
   return (entry) => {
     if (entry.kind === "board") return true;
-    if (entry.kind === "dispatcher") return !groups.size || groups.has(entry.groupId);
+    if (entry.kind === "dispatcher") return !groups.size || (groups.has(entry.groupId) && (!group || group.id === entry.groupId));
     if (!tasks) return true;
     const task = tasks.get(entry.taskId);
     if (!task || task.archivedAt || task.status === "done" || task.status === "cancelled") return false;
     const project = projects.get(task.projectId);
-    return !!project && !project.archivedAt;
+    return !!project && !project.archivedAt && (!group || group.members.has(task.projectId));
   };
 }
 
@@ -143,10 +148,10 @@ export function navAlive(index: {
 export type NavOpenAction =
   | { kind: "open-card"; taskId: string; sessionId: string }
   | { kind: "open-dispatcher"; groupId: string }
-  | { kind: "show-board"; groupId?: string };
+  | { kind: "show-board" };
 
 export function navOpenAction(entry: NavEntry): NavOpenAction {
   if (entry.kind === "card") return { kind: "open-card", taskId: entry.taskId, sessionId: entry.sessionId ?? "" };
   if (entry.kind === "dispatcher") return { kind: "open-dispatcher", groupId: entry.groupId };
-  return entry.groupId === undefined ? { kind: "show-board" } : { kind: "show-board", groupId: entry.groupId };
+  return { kind: "show-board" };
 }

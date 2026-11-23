@@ -15,12 +15,18 @@ const store = (): Store => {
   return (holder[key] ??= new Map());
 };
 
-export function rememberCollapsed(hostId: string, collapsed: readonly Status[]): void {
+/**
+ * Collapsed lanes are per group (BOARD-GROUPS-SPEC §3, ruling 2026-11-23): the set is kept per host and group, and as
+ * the host's last shown set for a board that does not know its group yet.
+ */
+export function rememberCollapsed(hostId: string, groupId: string, collapsed: readonly Status[]): void {
+  store().set(`${hostId}|${groupId}`, [...collapsed]);
   store().set(hostId, [...collapsed]);
 }
 
-export function lastCollapsed(hostId: string): Status[] | undefined {
-  return store().get(hostId);
+/** The last known set of a group; with no group known yet, the host's last shown one. */
+export function lastCollapsed(hostId: string, groupId: string): Status[] | undefined {
+  return groupId ? store().get(`${hostId}|${groupId}`) : store().get(hostId);
 }
 
 /** The set to draw now: the stored one once loaded, else the last known one, else none yet (`ready: false`: draw no lanes). */

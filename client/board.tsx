@@ -93,6 +93,7 @@ import { laneRows, sameRows, type LaneRow } from "./lane-rows";
 import { LanePager } from "./lane-pager";
 import { useAndroidBack } from "./android-back";
 import { navAlive, navOpenAction, type NavEntry } from "./nav-history";
+import { groupArrival, placeOf, pruneGroups, rememberScroll, scrollOf } from "./group-memory";
 import { useNavHistory } from "./use-nav-history";
 import { LiveTaskCard, type CardDrag, type LiveTaskCardProps } from "./card";
 import { openNativeSession, openNativeWorkspace } from "./session-state";
@@ -109,12 +110,12 @@ import { SettingsOpenerContext } from "./settings-opener";
 import { findingDescription, workflowInsightsSettings, workflowSettingsValues, type Finding } from "../shared/workflow-insights";
 import { WrapupModal } from "./wrapup";
 import { SwitchModal, type SwitchDirection } from "./workspace-switch";
-import { performanceLogOn, performanceSettings, featureSettings, featureSettingsValues, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, shortcutSettings, shortcutSettingsValues, wrapupSettings, wrapupSettingsValues, storedFilters } from "../shared/settings";
+import { performanceLogOn, performanceSettings, featureSettings, featureSettingsValues, ideasSettings, ideasSettingsValues, modelSettings, modelSettingsValues, shortcutSettings, shortcutSettingsValues, wrapupSettings, wrapupSettingsValues, storedFilters, groupCollapsedOf, groupFilterOf, withGroupEntry, type GroupFilter } from "../shared/settings";
 import { pickOutputSession } from "./card-output";
 import { statusChanges } from "./changes";
 import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuControl, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { boardCardMenu } from "./card-menu";
-import { DesktopColumns, OlderToggle, type Placement } from "./columns";
+import { DesktopColumns, OlderToggle, type BoardScroll, type Placement } from "./columns";
 import { olderFinishedFromDates } from "./finished-cards";
 import { ResizeGrip } from "./resize";
 import { chatWidth, defaultDrawerShare, minChatWidth, drawerShare, drawerWidth, isCompactLayout } from "./geometry";
@@ -245,6 +246,7 @@ const noGroups: Group[] = [];
 const noProjects: Project[] = [];
 const noRunning: RunningRow[] = [];
 const noIds: string[] = [];
+const noGroupFilter: GroupFilter = { search: "", priority: "all", type: "all", tags: [], archived: false };
 const noAgents: PaseoAgent[] = [];
 const noTurnFacts: ReadonlyMap<string, { latestTurn?: { action: string; at: string } }> = new Map();
 const noProviderRunning: ProviderRunning = { running: {} };
@@ -378,11 +380,10 @@ function BoardContent(
   };
   const [projectId, setProject] = useState(""),
     [taskId, setTaskState] = useState(""),
-    [search, setSearchState] = useState(""),
-    [priority, setPriorityState] = useState("all"),
-    [taskType, setTaskTypeState] = useState("all"),
-    [tagFilter, setTagFilterState] = useState<string[]>([]),
-    [archived, setArchivedState] = useState(false),
+    // This run's filters and collapsed lanes per group (BOARD-GROUPS-SPEC §3), over the saved ones (`groupFilters`,
+    // `groupCollapsed`); the workspace panel keeps its changes here only.
+    [ownFilters, setOwnFilters] = useState<Record<string, GroupFilter>>({}),
+    [ownCollapsed, setOwnCollapsed] = useState<Record<string, Status[]>>({}),
     [menu, setMenu] = useState<"projects" | "filters" | "status" | "attention" | "running" | "prs" | "shortcuts" | "settings" | null>(null),
     // First-run welcome tour (ONBOARDING-SPEC): opened once automatically, or by hand.
     [welcomeOpen, setWelcomeOpen] = useState(false),
@@ -447,52 +448,14 @@ function BoardContent(
     setTaskFormState(next);
   });
   const mutationLock = useRef(false);
-  // Filters are remembered (board-view settings): restored once, then written through.
-  const filtersRestored = useRef(false);
+  // The drawer and dock widths are remembered (board-view settings): restored once.
+  const widthsRestored = useRef(false);
   useEffect(() => {
-    if (filtersRestored.current || !view.values) return;
-    filtersRestored.current = true;
-    setSearchState(view.values.filterSearch);
-    setPriorityState(view.values.filterPriority);
-    setTaskTypeState(view.values.filterType);
-    setTagFilterState(view.values.filterTags);
-    setArchivedState(view.values.showArchived);
+    if (widthsRestored.current || !view.values) return;
+    widthsRestored.current = true;
     if (view.values.drawerShare) setPreferredShare(view.values.drawerShare);
     if (view.values.chatWidth) setChatPreferred(view.values.chatWidth);
   }, [!!view.values]);
-  const searchSave = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (searchSave.current) clearTimeout(searchSave.current);
-  }, []);
-  const setSearch = (next: string) => {
-    setSearchState(next);
-    if (searchSave.current) clearTimeout(searchSave.current);
-    searchSave.current = setTimeout(() => void view.update({ filterSearch: next.slice(0, 200) }), 500);
-  };
-  const setPriority = (next: string) => {
-    setPriorityState(next);
-    void view.update({ filterPriority: next as "all" });
-  };
-  const setTaskType = (next: string) => {
-    setTaskTypeState(next);
-    void view.update({ filterType: next as "all" });
-  };
-  const setTagFilter = (next: string[]) => {
-    const value = next.slice(0, 20);
-    setTagFilterState(value);
-    void view.update({ filterTags: value });
-  };
-  // Clicking a tag in the drawer adds it to the filter (CARD-TAGS-SPEC §6.3).
-  const filterByTag = useStableCallback((tag: string) => {
-    if (!tagFilter.includes(tag)) setTagFilter([...tagFilter, tag]);
-  });
-  const setArchived = (next: boolean | ((current: boolean) => boolean)) => {
-    setArchivedState((current) => {
-      const value = typeof next === "function" ? next(current) : next;
-      if (value !== current) void view.update({ showArchived: value });
-      return value;
-    });
-  };
   useEffect(() => {
     ignoredLink.current = "";
     setSessionEntry(null);
@@ -527,14 +490,15 @@ function BoardContent(
     // Native detail is complete for this card; no background full-board catch-up.
     focusGroupOf(target.project.id, false); // board-groups 3/7: the card's group
     setTaskState(target.task.id);
-    setSearch("");
-    setPriority("all");
-    setTaskType("all");
-    setTagFilter([]);
-    setArchived(
-      (current) =>
-        current || !!target.project.archivedAt || !!target.task.archivedAt,
-    );
+    // The card's group's filters, so the card shows on its board (the group shown while groups are unknown).
+    const linkGroupId = (projected?.groups.length ? groupOf(target.project)?.id : undefined) ?? group?.id ?? "";
+    writeGroupFilter(linkGroupId, {
+      search: "",
+      priority: "all",
+      type: "all",
+      tags: [],
+      archived: filterOf(linkGroupId).archived || !!target.project.archivedAt || !!target.task.archivedAt,
+    });
     setMobileStatus(target.task.status);
     setError("");
     // The chip opens the card's overview, not the session it was tapped in:
@@ -599,28 +563,11 @@ function BoardContent(
       setTaskState(linked.id);
     }
   }, [linked?.id]);
-  // board-groups 3/7: projects are no longer dragged here (groups are), so no drop override.
-  const projects = (board?.projects || [])
-    .filter((p) => archived || !p.archivedAt)
-    .sort(projectOrder);
   const boardSort: BoardSort = view.values?.boardSort || "manual";
   // What cards show (CARD-DISPLAY-SPEC); one object for all cards so memoized cards stay put.
   const cardActivity = view.values?.cardActivity, cardHiddenKey = (view.values?.cardHidden || []).join(",");
   const display = useMemo(() => cardDisplay({ cardActivity, cardHidden: cardHiddenKey.split(",") }), [cardActivity, cardHiddenKey]);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>(undefined);
-  // The lanes are drawn only once the collapsed set is known (stored, or last known for this host), so they never open and then shrink.
-  const storedCollapsed = view.values ? view.values.collapsedColumns || [] : undefined;
-  const { ready: columnsReady, collapsed: collapsedColumns } = shownCollapsed(storedCollapsed, lastCollapsed(props.host.id));
-  useEffect(() => {
-    if (storedCollapsed) rememberCollapsed(props.host.id, storedCollapsed);
-  }, [props.host.id, JSON.stringify(storedCollapsed)]);
-  const toggleCollapse = (status: Status) => {
-    if (!view.values) return;
-    const next = collapsedColumns.includes(status)
-      ? collapsedColumns.filter((s) => s !== status)
-      : [...collapsedColumns, status];
-    void view.update({ collapsedColumns: next });
-  };
   const chooseSort = (next: BoardSort) => {
     if (!view.values || next === boardSort) return;
     void view.update({ boardSort: next });
@@ -645,6 +592,87 @@ function BoardContent(
   // Explicit choice → the group last viewed in this run → the one stored in board-view (a restart) → the default (§3).
   const group = pickGroupView(boardGroups, board?.projects || [], projectId, lastViewedGroupView(), view.values?.lastGroupId ?? "");
   const groupKey = group ? `${group.id}|${allLiveProjects.filter((p) => p.groupId === group.id).map((p) => p.id).join(",")}` : "";
+  const shownGroupId = group?.id ?? "";
+  // The workspace panel shares module state and board-view settings with the main board but never writes them.
+  const instance: BoardInstance = props.workspaceId ? "panel" : "board";
+  // The groups that exist, once the overview lists them: per-group entries of other ids are dropped when written.
+  const liveGroupIds = projected?.groups.length ? serverGroups.map((g) => g.id) : null;
+  // The search, priority, type, tag and show-archived filters of each group (BOARD-GROUPS-SPEC §3, ruling 2026-11-23):
+  // this run's value, else the saved one, else the global value saved before per-group filters. Writes go to one group's
+  // entry; only the main board saves them.
+  const ownFiltersRef = useRef(ownFilters);
+  ownFiltersRef.current = ownFilters;
+  const filterOf = (id: string): GroupFilter => ownFiltersRef.current[id] ?? (view.values ? groupFilterOf(view.values, id) : noGroupFilter);
+  const saveGroupFilter = useStableCallback((id: string) => {
+    const value = ownFiltersRef.current[id];
+    if (instance === "panel" || !id || !value || !view.values) return;
+    // This run's entries are the latest of their groups, also when the saved values have not caught up yet.
+    const { [""]: _none, ...own } = ownFiltersRef.current;
+    void view.update({ groupFilters: withGroupEntry({ ...view.values.groupFilters, ...own }, id, value, liveGroupIds) });
+  });
+  // A save that waits for typing to pause; any other write of the group saves it at once, as does leaving the board.
+  const searchSave = useRef<{ timer: ReturnType<typeof setTimeout>; id: string } | null>(null);
+  const flushSearchSave = useStableCallback(() => {
+    const waiting = searchSave.current;
+    if (!waiting) return;
+    clearTimeout(waiting.timer);
+    searchSave.current = null;
+    saveGroupFilter(waiting.id);
+  });
+  useEffect(() => () => flushSearchSave(), []);
+  // `delay`: typing in the search box saves once it pauses.
+  const writeGroupFilter = useStableCallback((id: string, patch: Partial<GroupFilter>, delay?: number) => {
+    const next = { ...ownFiltersRef.current, [id]: { ...filterOf(id), ...patch } };
+    ownFiltersRef.current = next;
+    setOwnFilters(next);
+    if (searchSave.current?.id === id) {
+      clearTimeout(searchSave.current.timer);
+      searchSave.current = null;
+    }
+    flushSearchSave();
+    if (delay) searchSave.current = { timer: setTimeout(() => flushSearchSave(), delay), id };
+    else saveGroupFilter(id);
+  });
+  const shownFilter = ownFilters[shownGroupId] ?? (view.values ? groupFilterOf(view.values, shownGroupId) : noGroupFilter);
+  const { search, priority, tags: tagFilter, archived } = shownFilter;
+  const taskType = shownFilter.type;
+  const setSearch = (next: string) => writeGroupFilter(shownGroupId, { search: next.slice(0, 200) }, 500);
+  const setPriority = (next: string) => writeGroupFilter(shownGroupId, { priority: next as GroupFilter["priority"] });
+  const setTaskType = (next: string) => writeGroupFilter(shownGroupId, { type: next as GroupFilter["type"] });
+  const setTagFilter = (next: string[]) => writeGroupFilter(shownGroupId, { tags: next.slice(0, 20) });
+  // Clicking a tag in the drawer adds it to the filter (CARD-TAGS-SPEC §6.3).
+  const filterByTag = useStableCallback((tag: string) => {
+    if (!tagFilter.includes(tag)) setTagFilter([...tagFilter, tag]);
+  });
+  const setArchived = (next: boolean | ((current: boolean) => boolean)) => {
+    const current = filterOf(shownGroupId).archived;
+    const value = typeof next === "function" ? next(current) : next;
+    if (value !== current) writeGroupFilter(shownGroupId, { archived: value });
+  };
+  // board-groups 3/7: projects are no longer dragged here (groups are), so no drop override.
+  const projects = (board?.projects || [])
+    .filter((p) => archived || !p.archivedAt)
+    .sort(projectOrder);
+  // The collapsed lanes of each group, the same way (ruling 2026-11-23). The lanes are drawn only once the set is known
+  // (stored, or last known for this host and group), so they never open and then shrink.
+  const storedCollapsed = ownCollapsed[shownGroupId] ?? (view.values ? groupCollapsedOf(view.values, shownGroupId) : undefined);
+  const { ready: columnsReady, collapsed: collapsedColumns } = shownCollapsed(storedCollapsed, lastCollapsed(props.host.id, shownGroupId));
+  useEffect(() => {
+    if (storedCollapsed && instance === "board") rememberCollapsed(props.host.id, shownGroupId, storedCollapsed);
+  }, [props.host.id, shownGroupId, JSON.stringify(storedCollapsed)]);
+  const toggleCollapse = (status: Status) => {
+    if (!view.values) return;
+    const next = collapsedColumns.includes(status)
+      ? collapsedColumns.filter((s) => s !== status)
+      : [...collapsedColumns, status];
+    const { [""]: _none, ...own } = ownCollapsed;
+    setOwnCollapsed({ ...ownCollapsed, [shownGroupId]: next });
+    if (instance === "board" && shownGroupId) void view.update({ groupCollapsed: withGroupEntry({ ...view.values.groupCollapsed, ...own }, shownGroupId, next, liveGroupIds) });
+  };
+  // Entries of deleted groups leave this run's memory once the groups are known.
+  useEffect(() => {
+    if (liveGroupIds) pruneGroups(instance, props.host.id, liveGroupIds);
+  }, [serverGroupIds]);
   // No group known yet (a cold direct link's board holds just the card's project): show the live projects it has.
   const liveProjects = useMemo(
     () => (group ? groupMembers(group, board?.projects || []) : allLiveProjects),
@@ -653,8 +681,6 @@ function BoardContent(
   // The Project filter (BOARD-GROUPS-SPEC §4, ruling, Noah 2026-11-18: per-group filter): each group keeps its own,
   // remembered for this app run and in the board-view settings (a restart starts from the stored ones). The shown
   // group's is read through validProjectFilter (the project may have left); switching group never changes any.
-  // The workspace panel shares module state and board-view settings with the main board but never writes them.
-  const instance: BoardInstance = props.workspaceId ? "panel" : "board";
   const [filters, setFilters] = useState<Record<string, string>>(() => restoredFilters({}));
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
@@ -806,13 +832,15 @@ function BoardContent(
     ? board?.tasks.find((t) => t.id === wrapPrompt && !t.archivedAt)
     : undefined;
   const switchTask = switchRequest ? board?.tasks.find((t) => t.id === switchRequest.taskId && !t.archivedAt) : undefined;
-  // Compact: open each project on its first lane that has cards (once per
-  // project; a linked card or the user's own tab choice wins afterwards).
+  // Compact: open each group on the lane it was left on in this run (BOARD-GROUPS-SPEC §3), else its first lane that
+  // has cards (each time the group is shown; a linked or restored card or the user's own tab choice wins afterwards).
   const autoLane = useRef("");
   useEffect(() => {
     if (!board || !viewKey || autoLane.current === viewKey) return;
     autoLane.current = viewKey;
     if (taskId) return;
+    const left = group ? scrollOf(props.host.id, group.id)?.lane : undefined;
+    if (left && shownStatuses.includes(left)) return setMobileStatus(left);
     const first = shownStatuses.find((s) => visible.some((t) => t.status === s));
     if (first) setMobileStatus(first);
   }, [board, viewKey]);
@@ -820,6 +848,17 @@ function BoardContent(
     const lane = mobileLane(shownStatuses, mobileStatus);
     if (lane !== mobileStatus) setMobileStatus(lane);
   }, [shownStatuses.join(","), mobileStatus]);
+  // The lane shown is the group's; the render that brings another group still shows the lane of the one left.
+  const laneGroup = useRef("");
+  useEffect(() => {
+    if (laneGroup.current !== shownGroupId) return void (laneGroup.current = shownGroupId);
+    rememberScroll(instance, props.host.id, shownGroupId, { lane: mobileStatus });
+  }, [shownGroupId, mobileStatus]);
+  // The desktop board's offsets of the group shown, saved as it scrolls (no re-render) and restored when it is next shown.
+  const boardScroll = useMemo(() => {
+    const id = shownGroupId;
+    return (next: BoardScroll) => rememberScroll(instance, props.host.id, id, next);
+  }, [shownGroupId, instance, props.host.id]);
   // Recent activity counts turn ends only (sort.ts turnEndActivity). Sessions that
   // record no turn events contribute the time they last went idle, remembered
   // across their next turn so the card holds its place while it runs.
@@ -1394,16 +1433,24 @@ function BoardContent(
     dockActive.current = true;
     setDockOpen(true);
   });
-  // Switching the board to a group that waits on the user (BOARD-GROUPS-SPEC §3): opens what its "N need you" would open
-  // first. One handler, so one render and one history entry.
+  // Switching the board to another group by its tab or switcher row (BOARD-GROUPS-SPEC §3): the group shows the place
+  // it was left on (its open card and session; phones: also its chat page), else what its "N need you" would open
+  // first, else its bare board. One handler, so one render; nothing is recorded in the group left.
   const switchGroup = useStableCallback((id: string) => {
     const g = boardGroups.find((x) => x.id === id);
-    const auto = g && projected && agents.data
-      ? groupSwitchOpen(group?.id ?? "", id, dispatcherNeeds.get(id) ?? 0, needsQueue(attention, resolvedSignals, boardScope(groupMembers(g, board?.projects || noProjects).map((p) => p.id))))
+    if (!g || id === group?.id) return chooseGroup(id);
+    const members = groupMembers(g, board?.projects || noProjects).map((p) => p.id);
+    const auto = projected && agents.data
+      ? groupSwitchOpen(group?.id ?? "", id, dispatcherNeeds.get(id) ?? 0, needsQueue(attention, resolvedSignals, boardScope(members)))
       : null;
+    const aliveThere = navAlive({ tasks: overviewData.data?.tasks ?? null, projects: overviewData.data?.projects ?? null, groups: boardGroups, group: { id, projectIds: members } });
+    const arrival = groupArrival(placeOf(props.host.id, id), aliveThere, compact, auto);
     chooseGroup(id);
-    if (auto?.kind === "dispatcher") openWaitingDispatcher();
-    else if (auto?.kind === "card") showStepCard("needs", auto.taskId);
+    if (arrival.kind === "restore") return applyNav(arrival.entry);
+    if (arrival.kind === "auto") return arrival.open.kind === "dispatcher" ? openWaitingDispatcher() : showStepCard("needs", arrival.open.taskId);
+    // The bare board: the card of the group left closes (phones: its chat page too).
+    if (taskId) setTask("");
+    if (compact && chat.open) setChat((c) => ({ ...c, open: false }));
   });
   // D / the toolbar button opened the dock: the chat focuses its message box (each request is distinct).
   const [chatFocus, setChatFocus] = useState(0);
@@ -1447,12 +1494,14 @@ function BoardContent(
       !overviewData.data || !view.values ? null
       : navTaskId ? { kind: "card", taskId: navTaskId }
       : navDockShown && dispatcherGroupId ? { kind: "dispatcher", groupId: dispatcherGroupId }
-      : { kind: "board", ...(dispatcherGroupId ? { groupId: dispatcherGroupId } : {}) },
+      : { kind: "board" },
     [!!overviewData.data, !!view.values, navTaskId, navDockShown, dispatcherGroupId],
   );
+  // The shown group's history: a card whose project is not one of its members, or another group's dispatcher, is gone.
+  const navMembers = group ? liveProjects.map((p) => p.id).join(",") : "";
   const navIsAlive = useMemo(
-    () => navAlive({ tasks: overviewData.data?.tasks ?? null, projects: overviewData.data?.projects ?? null, groups: boardGroups }),
-    [overviewData.data?.tasks, overviewData.data?.projects, boardGroups],
+    () => navAlive({ tasks: overviewData.data?.tasks ?? null, projects: overviewData.data?.projects ?? null, groups: boardGroups, group: group ? { id: group.id, projectIds: navMembers.split(",").filter(Boolean) } : null }),
+    [overviewData.data?.tasks, overviewData.data?.projects, boardGroups, group?.id, navMembers],
   );
   // An entry opens through the usual paths, so an open reads what any open reads and nothing is marked unread.
   const applyNav = useStableCallback((entry: NavEntry) => {
@@ -1466,15 +1515,12 @@ function BoardContent(
       // An empty session returns the card to its details, as a card link does.
       return setSessionEntry({ taskId: action.taskId, sessionId: action.sessionId, requestId: `history-${Date.now()}` });
     }
-    if (action.kind === "show-board" && action.groupId && action.groupId !== group?.id) chooseGroup(action.groupId);
+    // Every entry is of the group shown (one history per group): applying one never switches group.
     if (taskId) setTask("");
-    if (action.kind === "open-dispatcher") {
-      if (action.groupId !== group?.id) chooseGroup(action.groupId);
-      return setDockOpen(true);
-    }
+    if (action.kind === "open-dispatcher") return setDockOpen(true);
     if (navDockShown) closeChat();
   });
-  const nav = useNavHistory({ location: navLocation, isAlive: navIsAlive, apply: applyNav });
+  const nav = useNavHistory({ hostId: props.host.id, groupId: shownGroupId, instance, location: navLocation, isAlive: navIsAlive, apply: applyNav });
   // Only the open card's drawer reports its session; a closing one's late report is dropped.
   const navSessionShown = useStableCallback((id: string, sessionId: string) => {
     if (id === taskId) nav.reportSession(id, sessionId);
@@ -2643,6 +2689,9 @@ function BoardContent(
                   </>
                 ) : !columnsReady ? null : (
                   <DesktopColumns
+                    key={viewKey}
+                    initialScroll={shownGroupId ? scrollOf(props.host.id, shownGroupId) : undefined}
+                    onScrollChange={boardScroll}
                     statuses={shownStatuses}
                     tasks={visible}
                     disabled={pending || !!project?.archivedAt}
@@ -2867,10 +2916,7 @@ function BoardContent(
                   disabled={!filterCount}
                   onPress={() => {
                     if (group) setGroupFilter(group.id, null);
-                    setSearch("");
-                    setPriority("all");
-                    setTaskType("all");
-                    setTagFilter([]);
+                    writeGroupFilter(shownGroupId, { search: "", priority: "all", type: "all", tags: [] });
                   }}
                 >
                   {t("Reset filters")}</Button>

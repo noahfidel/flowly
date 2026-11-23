@@ -232,24 +232,59 @@ describe("which entries are still there", () => {
   });
 });
 
-describe("boards of different groups", () => {
-  const boardOf = (groupId: string): NavEntry => ({ kind: "board", groupId });
+describe("one history per group (ruling 2026-11-23)", () => {
+  const tasks = [
+    { id: "a", projectId: "p1", status: "todo", archivedAt: null },
+    { id: "b", projectId: "p2", status: "todo", archivedAt: null },
+    { id: "moved", projectId: "p2", status: "todo", archivedAt: null },
+  ];
+  const projects = [{ id: "p1", archivedAt: null }, { id: "p2", archivedAt: null }];
+  const groups = [{ id: "g1" }, { id: "g2" }];
+  const inG1 = navAlive({ tasks, projects, groups, group: { id: "g1", projectIds: ["p1"] } });
+  const inG2 = navAlive({ tasks, projects, groups, group: { id: "g2", projectIds: ["p2"] } });
 
-  test("another group's board is another place; the same group, or one without a group, is the same", () => {
-    const h = record(boardOf("a"));
-    expect(recordLocation(h, boardOf("b")).entries).toEqual([boardOf("a"), boardOf("b")]);
-    expect(recordLocation(h, boardOf("a"))).toBe(h);
-    expect(recordLocation(h, board)).toBe(h);
-  });
-
-  test("an entry opens its group's board", () => {
-    expect(navOpenAction(boardOf("g"))).toEqual({ kind: "show-board", groupId: "g" });
+  test("the bare board is one place, with no group", () => {
+    expect(recordLocation(record(board), board)).toEqual(record(board));
     expect(navOpenAction(board)).toEqual({ kind: "show-board" });
   });
 
-  test("Back from a card opened right after a group switch lands on the previous group's board", () => {
-    const h = record(boardOf("a"), card("x"));
-    const step = navStep(h, "back", alive);
-    expect(step?.entry).toEqual(boardOf("a"));
+  test("two groups' stacks are independent, and a switch records nothing in either", () => {
+    const g1 = record(board, card("a", "s"));
+    let g2 = record(board, card("b"));
+    // Showing g2 again on its remembered card is the place at its cursor: nothing is added.
+    expect(recordLocation(g2, card("b"))).toBe(g2);
+    // Opening a card in g2 adds to g2 only.
+    g2 = recordLocation(g2, card("x"));
+    expect(g1.entries).toEqual([board, card("a", "s")]);
+    // Back to g1, on its card: still nothing recorded; Back there goes to g1's board, never to g2's entries.
+    expect(recordLocation(g1, card("a"))).toBe(g1);
+    const step = navStep(g1, "back", inG1)!;
+    expect(step.entry).toEqual(board);
+    expect(canNavStep(step.history, "back", inG1)).toBe(false);
+    expect(navStep(g2, "back", inG2)!.entry).toEqual(card("b"));
+  });
+
+  test("a card whose project is not one of the group's members is gone from that group's history", () => {
+    expect(inG1(card("a"))).toBe(true);
+    expect(inG1(card("moved"))).toBe(false);
+    expect(inG2(card("moved"))).toBe(true);
+    // "moved" was opened in g1 and then moved to a project of g2: Back in g1 skips and prunes it.
+    const h = record(board, card("a"), card("moved"), card("c1"));
+    const withC1 = navAlive({ tasks: [...tasks, { id: "c1", projectId: "p1", status: "todo", archivedAt: null }], projects, groups, group: { id: "g1", projectIds: ["p1"] } });
+    const step = navStep(h, "back", withC1)!;
+    expect(step.entry).toEqual(card("a"));
+    expect(step.history.entries).toEqual([board, card("a"), card("c1")]);
+  });
+
+  test("another group's dispatcher is gone from a group's history", () => {
+    expect(inG1(dispatcher("g1"))).toBe(true);
+    expect(inG1(dispatcher("g2"))).toBe(false);
+    expect(navStep(record(dispatcher("g2"), card("a")), "back", inG1)).toBeNull();
+  });
+
+  test("until the groups are known, membership does not count", () => {
+    const early = navAlive({ tasks, projects, groups: [], group: { id: "g1", projectIds: [] } });
+    expect(early(card("moved"))).toBe(true);
+    expect(early(dispatcher("g2"))).toBe(true);
   });
 });
