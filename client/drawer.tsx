@@ -40,7 +40,7 @@ import { PriorityIcon, StatusIcon, TypeIcon, WorkspaceIcon, priorityLabels, work
 import { cardWorkspace } from "../shared/card-display";
 import { useLiveAgents, useQueuedMessagesQuery } from "./queries";
 import { shallowEqual, useStableCallback } from "./stable";
-import { startAgainMessage, startRestoresWorkspace } from "./start-again";
+import { startAgainMessage } from "./start-again";
 import { isLegacyScope } from "../shared/scope";
 import { SessionCard } from "./session-card";
 import { subagentSummary } from "./subagents";
@@ -212,7 +212,7 @@ function TaskDrawerView({
     undoRelease = useRpc(rpc.releaseUndo),
     adoptIdea = useRpc(rpc.adoptIdea),
     contextRead = useRpc(rpc.taskContext),
-    startAgain = useRpc(rpc.startAgain),
+    restoreWorkspace = useRpc(rpc.restoreWorkspace),
     configure = useRpc(rpc.configureSession);
   const { query: readState, receipts, markRead, markUnread } = useSessionReads();
   const [selected, setSelected] = useState(sessionEntry?.sessionId || ""),
@@ -443,26 +443,20 @@ function TaskDrawerView({
     workspace.isError ||
     scope.isError ||
     !scope.data?.available;
-  // The card's own workspace was archived outside Flowly: Start restores it and starts with the project's defaults.
-  const restoresOnStart = startRestoresWorkspace(!!workspace.data, scope.data) && !workspace.isError && !scope.isError;
-  const restoreKey = useRef(`restore-${task.id}-${Date.now()}`);
+  // The card's own workspace was archived outside Flowly: Start restores it first, then opens the form as usual.
+  const restoresOnStart = !workspace.data && !workspace.isError && !scope.isError && scope.data?.restorable === true;
   const [restoring, setRestoring] = useState(false);
-  const startRestoring = useStableCallback(() => {
+  const startPress = useStableCallback(() => {
+    if (!restoresOnStart) return setShowNew(true);
     setRestoring(true);
-    void startAgain({ taskId: task.id, idempotencyKey: restoreKey.current })
+    void restoreWorkspace({ taskId: task.id })
+      .then(() => Promise.all([workspace.refetch(), scope.refetch()]))
       .then(
-        () => {
-          restoreKey.current = `restore-${task.id}-${Date.now()}`;
-          toast.show(t("Session started"), { variant: "success" });
-          void workspace.refetch();
-          void scope.refetch();
-          void sessions.refetch();
-        },
+        () => setShowNew(true),
         (e) => toast.show(startAgainMessage(message(e)), { variant: "error" }),
       )
       .finally(() => setRestoring(false));
   });
-  const startPress = () => (restoresOnStart ? startRestoring() : setShowNew(true));
   const startDisabled = !active || restoring || (unavailable && !restoresOnStart);
   const legacy = isLegacyScope(task, project);
   const resourceIssue = workspace.error

@@ -1506,7 +1506,6 @@ const catalog: Catalog = {
   "Choose an option or type an answer, not both.": "请选择一个选项或输入回答，不能两者都用。",
   "This card's folder already had sessions, or Flowly didn't create it for the card. Switch the card to a worktree from its menu, then start again.": "这张卡片的文件夹已经有过会话，或不是 Flowly 为这张卡片创建的。请从卡片菜单切换到 worktree，再重新开始。",
   "Start restores the archived workspace.": "开始时会恢复已归档的工作区。",
-  "The card's workspace was archived outside Flowly and can't be restored. Switch the card to a worktree from its menu, then start again.": "这张卡片的工作区在 Flowly 之外被归档，无法恢复。请从卡片菜单切换到 worktree，再重新开始。",
   "The card already has a running session. Send it a message instead.": "这张卡片已有运行中的会话，请改为给它发消息。",
   "Auto summary is off. Turn it on with the settings gear at the top of the board, or press Refresh.": "自动摘要已关闭。请用看板顶部的设置齿轮开启，或点击“刷新”。",
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "以后可以在设置（看板顶部的齿轮）里修改这些。也可以在那里重新打开这个导览。",

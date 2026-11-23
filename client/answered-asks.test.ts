@@ -69,11 +69,3 @@ test("the dispatcher runs only on Claude; a refused start says why and what to p
   // A message refused for an unguarded dispatcher (ruling, Noah 2026-11-09).
   expect(dispatcherStartMessage("DISPATCHER_UNGUARDED: Replace the dispatcher to keep chatting; nothing was sent.")).toBe("Replace the dispatcher to keep chatting");
 });
-
-test("Start restores an archived own workspace only when the daemon says so", async () => {
-  const { startRestoresWorkspace } = await import("./start-again");
-  expect(startRestoresWorkspace(false, { restorable: true })).toBe(true);
-  expect(startRestoresWorkspace(true, { restorable: true })).toBe(false);
-  expect(startRestoresWorkspace(false, { restorable: false })).toBe(false);
-  expect(startRestoresWorkspace(false, undefined)).toBe(false);
-});

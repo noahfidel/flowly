@@ -3,8 +3,8 @@
 ## Start: restore a card's own workspace archived outside Flowly — 2026-11-23
 
 - Root cause: the Flowly-made directory workspace `wks_64f4829c49507475` of an agent-made card, on the zenlytic checkout (branch `dev`), was archived 3.5 s after creation from the desktop app through the merge-celebration plugin (Paseo matched branch `dev` to merged release PR #9275). Start then failed with "unavailable or archived" and Flowly had no way out.
-- Fix (ruling, Noah 2026-11-23, START-CARD-SPEC §3.1): Start (`flowly_start_card` and the user's Start) restores a never-used own workspace through the workspace-restore seam, records `workspace_restored`, and continues; shared or switched cards get `WORKSPACE_ARCHIVED`. `flowly_get_card` returns `start: { ok, reason }`; `tasks.context` returns `restorable` and the drawer keeps Start enabled with "Start restores the archived workspace."
-- Tests: `server/start-card.test.ts` (restore, shared/switched, unavailable, archivingAt), `server/agent-cards.test.ts` (`start`), `client/answered-asks.test.ts`. i18n: two strings in all catalogs. Onboarding, What's new, telemetry: none.
+- Fix (ruling, Noah 2026-11-23, START-CARD-SPEC §3.1): Start (`flowly_start_card`, and the drawer's Start through `tasks.restore-workspace`) restores an own, never-switched workspace that never had a session through the workspace-restore seam, records `workspace_restored`, and continues; shared, switched or used ones get `WORKSPACE_ARCHIVED` with the reason. `flowly_get_card` returns `start: { ok, reason }`; `tasks.context` returns `restorable` and the drawer keeps Start enabled (restore first, then the usual form) with "Start restores the archived workspace."
+- Tests: `server/start-card.test.ts` (restore, shared/switched, unavailable, archivingAt), `server/agent-cards.test.ts` (`start`), `client/answered-asks.test.ts`. i18n: one string in all catalogs. Onboarding, What's new, telemetry: none.
 
 ## A card counts as running while its subagents run (branch `kanban/check-whether-a-card-counts-as-running-w-b2ca08`) — 2026-11-22
 

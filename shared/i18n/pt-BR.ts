@@ -1506,7 +1506,6 @@ const catalog: Catalog = {
   "Choose an option or type an answer, not both.": "Escolha uma opção ou digite uma resposta, não as duas.",
   "This card's folder already had sessions, or Flowly didn't create it for the card. Switch the card to a worktree from its menu, then start again.": "A pasta deste cartão já teve sessões, ou o Flowly não a criou para o cartão. Mude o cartão para um worktree pelo menu dele e comece de novo.",
   "Start restores the archived workspace.": "Iniciar restaura o espaço de trabalho arquivado.",
-  "The card's workspace was archived outside Flowly and can't be restored. Switch the card to a worktree from its menu, then start again.": "O espaço de trabalho do cartão foi arquivado fora do Flowly e não pode ser restaurado. Mude o cartão para um worktree pelo menu dele e comece de novo.",
   "The card already has a running session. Send it a message instead.": "O cartão já tem uma sessão em andamento. Envie uma mensagem a ela.",
   "Auto summary is off. Turn it on with the settings gear at the top of the board, or press Refresh.": "O resumo automático está desativado. Ative-o na engrenagem de configurações no topo do quadro ou pressione Atualizar.",
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "Você pode mudar tudo isso depois em Configurações, a engrenagem no topo do quadro. Lá você também reabre este tour.",

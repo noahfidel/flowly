@@ -1506,7 +1506,6 @@ const catalog: Catalog = {
   "Choose an option or type an answer, not both.": "옵션을 고르거나 답을 입력하세요. 둘 다는 안 됩니다.",
   "This card's folder already had sessions, or Flowly didn't create it for the card. Switch the card to a worktree from its menu, then start again.": "이 카드의 폴더에는 이미 세션이 있었거나, Flowly가 이 카드를 위해 만든 폴더가 아닙니다. 카드 메뉴에서 워크트리로 전환한 뒤 다시 시작하세요.",
   "Start restores the archived workspace.": "시작하면 보관된 작업 공간이 복원됩니다.",
-  "The card's workspace was archived outside Flowly and can't be restored. Switch the card to a worktree from its menu, then start again.": "이 카드의 작업 공간이 Flowly 밖에서 보관되어 복원할 수 없습니다. 카드 메뉴에서 워크트리로 전환한 뒤 다시 시작하세요.",
   "The card already has a running session. Send it a message instead.": "이 카드에는 이미 실행 중인 세션이 있습니다. 대신 메시지를 보내세요.",
   "Auto summary is off. Turn it on with the settings gear at the top of the board, or press Refresh.": "자동 요약이 꺼져 있습니다. 보드 위쪽의 설정 톱니바퀴로 켜거나 새로고침을 누르세요.",
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "나중에 설정(보드 위쪽 톱니바퀴)에서 언제든 바꿀 수 있습니다. 이 투어도 그곳에서 다시 열 수 있습니다.",
