@@ -52,6 +52,8 @@ import { DispatcherPanel } from "./dispatcher-panel";
 import { LeftDock } from "./left-dock";
 import { lastCollapsed, rememberCollapsed, shownCollapsed } from "./collapsed-columns";
 import { dockShortcut, escAction, toolbarDockButtons } from "./dock-logic";
+import { cardBoxEscape, composerPassThrough } from "./chat-focus-logic";
+import type { ComposerKey } from "./session-input";
 import { needsCount, groupSwitchOpen, needsQueue, needsStartAction, dispatcherInView, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, walkQueue, type Step, type StepKind, type Walk } from "./step-through";
 import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
@@ -2248,6 +2250,19 @@ function BoardContent(
       }
     }
   }
+  // The card chat's message box (SHORTCUTS-SPEC §2.2, Ruling, Noah 2026-11-23): Esc blurs it like the dispatcher's, an empty box
+  // then runs the Esc chain; Back and Forward pass through. Focus goes to the board root first (a Back into another chat
+  // takes it again once that chat renders).
+  const cardBoxEscapeRun = useStableCallback((draftEmpty: boolean) => {
+    (rootRef.current as unknown as { focus?: () => void } | null)?.focus?.();
+    if (cardBoxEscape(draftEmpty) === "chain") runIntent("escape");
+  });
+  const cardBoxShortcut = useStableCallback((event: ComposerKey) => {
+    const action = composerPassThrough(event, appleKeys);
+    if (!action || !shortcutsOn || !runIntent(action)) return false;
+    (rootRef.current as unknown as { focus?: () => void } | null)?.focus?.();
+    return true;
+  });
   const onKeyDown = (e: WebKeyEvent) => {
     const action = resolveShortcut(
       { ...e, isComposing: e.nativeEvent?.isComposing },
@@ -2375,6 +2390,8 @@ function BoardContent(
         sectionOrder={(view.values?.drawerOrder || []).join(",")}
         sectionOpen={JSON.stringify(view.values?.drawerOpen || {})}
         focus={drawerFocus?.taskId === drawer.item.task.id ? drawerFocus : undefined}
+        onComposerEscape={cardBoxEscapeRun}
+        onComposerShortcut={cardBoxShortcut}
       />
       </View>
       </CardDetailProvider>

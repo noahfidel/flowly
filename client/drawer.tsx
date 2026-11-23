@@ -48,6 +48,7 @@ import { RunningDots } from "./running-motion";
 import { sessionTree, subagentBucket, type SessionNode } from "../shared/subagents";
 import { SessionCreate } from "./session-create";
 import { SessionPreview } from "./session-preview";
+import type { ComposerKey } from "./session-input";
 import { drawerFrame } from "./geometry";
 import { useSessionReads } from "./session-reads";
 import { sessionAttention } from "../shared/session-attention";
@@ -137,6 +138,8 @@ function TaskDrawerView({
   sectionOrder,
   sectionOpen,
   focus,
+  onComposerEscape,
+  onComposerShortcut,
 }: {
   task: Task;
   project: Project;
@@ -201,6 +204,10 @@ function TaskDrawerView({
   sectionOpen?: string;
   /** A search hit to land on (DRAWER-SPEC "Focus from search"); each key is handled once. */
   focus?: DrawerFocus;
+  /** Esc in the card chat's message box, after it blurred (SHORTCUTS-SPEC §2.2); the board owns the Esc chain. */
+  onComposerEscape?(draftEmpty: boolean): void;
+  /** A key typed in the chat's message box; true when a board shortcut (Back/Forward) took it. */
+  onComposerShortcut?(event: ComposerKey): boolean;
 }) {
   usePerfRender("switch.drawer.commit");
   const switchStart = perfStart();
@@ -216,6 +223,8 @@ function TaskDrawerView({
     configure = useRpc(rpc.configureSession);
   const { query: readState, receipts, markRead, markUnread } = useSessionReads();
   const [selected, setSelected] = useState(sessionEntry?.sessionId || ""),
+    // The chat the user opened last asks for the message box's focus once (SHORTCUTS-SPEC §2.2); background changes never set it.
+    [focusChat, setFocusChat] = useState({ id: "", n: 0 }),
     [highlighted, setHighlighted] = useState(""),
     [showNew, setShowNew] = useState(false),
     // A session started from an idea (IDEAS-SPEC §6.3): prefills the form, recorded on the idea once created.
@@ -233,6 +242,10 @@ function TaskDrawerView({
     [pendingSessions, setPendingSessions] = useState<Record<string, boolean>>(
       {},
     );
+  const openChat = (id: string) => {
+    setSelected(id);
+    if (id) setFocusChat((current) => ({ id, n: current.n + 1 }));
+  };
   // The retained compact root is paused; visible card props still need remote edits/deletions.
   const pollBoard = drawerNeedsBoard(compact, active, selected);
   // Only keep the shared poll alive. The root/data readers deliver changed props;
@@ -346,7 +359,7 @@ function TaskDrawerView({
     ]);
     if (consumedEntry.current === key) return;
     consumedEntry.current = key;
-    setSelected(sessionEntry.sessionId);
+    openChat(sessionEntry.sessionId);
     setShowNew(false);
     setError("");
     onSessionEntryConsumed?.(sessionEntry.requestId);
@@ -503,7 +516,7 @@ function TaskDrawerView({
   // A subagent picked from the session view's chip opens here when it is one of this card's sessions.
   const openCardSession = useStableCallback((sessionId: string) => {
     if (!sessions.data?.some((a) => a.id === sessionId)) return false;
-    setSelected(sessionId);
+    openChat(sessionId);
     setError("");
     return true;
   });
@@ -567,7 +580,7 @@ function TaskDrawerView({
     );
   });
   const openSession = useStableCallback((agentId: string) => {
-    setSelected(agentId);
+    openChat(agentId);
     setError("");
   });
   const archivedSessions = ordered.filter((a) => !!a.archivedAt);
@@ -593,7 +606,7 @@ function TaskDrawerView({
     consumedEntry.current = activeEntryKey;
     const id = sessions.data ? activeQuickSession(quickSessions) : null;
     if (id) {
-      setSelected(id);
+      openChat(id);
       setShowNew(false);
       setError("");
     } else if (sessions.data && sessionEntry.toastNone) toast.show(t("No session yet."), { variant: "info" });
@@ -680,7 +693,7 @@ function TaskDrawerView({
   const sessionMenu = (a: (typeof ordered)[number]): MenuEntry[] => {
     const running = a.status === "running" || a.status === "initializing";
     return [
-      { id: "open", label: a.archivedAt ? t("Open to restore") : t("Open"), icon: "MessageSquare", onPress: () => setSelected(a.id) },
+      { id: "open", label: a.archivedAt ? t("Open to restore") : t("Open"), icon: "MessageSquare", onPress: () => openChat(a.id) },
       ...(typeof navigation?.openAgent === "function"
         ? [{ id: "native", label: t("Open in Paseo"), icon: "ArrowUpRight", onPress: () => openNativeSession(navigation, a.id, hostId) }]
         : []),
@@ -749,7 +762,7 @@ function TaskDrawerView({
       attention={sessionAttention(a, task.id, receipts, events)}
       readStateUnavailable={readState.isPending || readState.isError}
       onPress={() => {
-        setSelected(a.id);
+        openChat(a.id);
         setError("");
       }}
       menu={menuHandlers(openMenu, a.title || t("Session"), () => sessionMenu(a))}
@@ -1081,6 +1094,9 @@ function TaskDrawerView({
           onMoveToDone={moveToDone}
           dispatcherQueued={queuedFor(queued, task.id, selected)}
           stepBack={sessionStepBack}
+          focusKey={focusChat.id === selected ? focusChat.n : 0}
+          onComposerEscape={onComposerEscape}
+          onComposerShortcut={onComposerShortcut}
         />
       ) : (
         <>
@@ -1196,7 +1212,7 @@ function TaskDrawerView({
                     icon="Reply"
                     disabled={!active || !q.agentId}
                     onPress={() => {
-                      if (q.agentId) setSelected(q.agentId);
+                      if (q.agentId) openChat(q.agentId);
                       setError("");
                     }}
                   >

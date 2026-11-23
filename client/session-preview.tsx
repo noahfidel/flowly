@@ -27,7 +27,8 @@ import {
   Actions,
   Row,
   message,
-  noFocusRing } from "./ui";
+  noFocusRing,
+  touch } from "./ui";
 import { sessionTone } from "./status";
 import { resolveSend, type SendBehavior } from "./send-queue";
 import { queuedRowKey, useComposer } from "./composer";
@@ -60,8 +61,10 @@ import { sessionAttention } from "../shared/session-attention";
 import { Enter, MotionReveal, motionDuration, useMotionValue, useReducedMotion, useSettled, lerp } from "./motion";
 import { RunningDots } from "./running-motion";
 import { useKeyboardInset } from "./keyboard";
+import type { ComposerKey } from "./session-input";
 import { restoredDraft } from "./session-input";
 import { ComposerBox, useComposerDraft } from "./session-composer";
+import { composerAutoFocus } from "./chat-focus-logic";
 import { t, tn } from "../shared/i18n";
 import { QueuedMessages, sameQueued } from "./queued-messages";
 import { bannerRequestId } from "./queued-request";
@@ -116,6 +119,9 @@ function SessionPreviewView({
   onMoveToDone,
   dispatcherQueued = [],
   stepBack,
+  focusKey = 0,
+  onComposerEscape,
+  onComposerShortcut,
 }: {
   task: Task;
   sessionId: string;
@@ -153,6 +159,12 @@ function SessionPreviewView({
    * Esc and Android Back call it first; it returns whether it took the step.
    */
   stepBack?: MutableRefObject<(() => boolean) | null>;
+  /** Changes with each chat the user opened here (0: none): the message box takes focus once (SHORTCUTS-SPEC §2.2). */
+  focusKey?: number;
+  /** Esc in the message box, after it blurred: the board focuses its root and, for an empty box, runs its Esc chain. */
+  onComposerEscape?(draftEmpty: boolean): void;
+  /** A key typed in the message box; true when a board shortcut (Back/Forward) took it. */
+  onComposerShortcut?(event: ComposerKey): boolean;
 }) {
   usePerfRender("switch.preview.commit");
   const switchStart = perfStart();
@@ -408,6 +420,13 @@ function SessionPreviewView({
   // Open agent questions and approvals, answered here instead of in Paseo (SESSION-QUESTION-SPEC).
   const requestsKey = JSON.stringify(active?.pendingPermissions ?? []);
   const requests = useMemo(() => pendingRequests(active), [requestsKey]);
+  // A chat the user opened takes focus once, when its box is there (the agent is loaded, so its requests are known).
+  const handledFocus = useRef(0);
+  useEffect(() => {
+    if (!focusKey || handledFocus.current === focusKey || !visible || !active) return;
+    handledFocus.current = focusKey;
+    if (composerAutoFocus({ requested: true, web: !touch, pendingRequests: requests.length })) box.requestFocus();
+  }, [focusKey, visible, !!active]);
   const respond = useStableCallback((request: PendingRequest, reply: PermissionReply) => {
     noteInteraction();
     void perform(async () => {
@@ -594,6 +613,11 @@ function SessionPreviewView({
             }}
             onSubmit={(alternate) => void submitInstruction(alternate)}
             onStop={() => void config.apply({ stop: true }, t("Session stopped"))}
+            onShortcutKey={onComposerShortcut}
+            onEscape={() => {
+              box.inputRef.current?.blur?.();
+              onComposerEscape?.(!draft.trim());
+            }}
           />
           <View style={{ flexDirection: "row", alignItems: "center", gap: space[2], zIndex: 2 }}>
             <View style={{ flex: 1, minWidth: 0 }}>

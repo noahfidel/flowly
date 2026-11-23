@@ -7,6 +7,7 @@ import { sendBehaviorText, type SendBehavior } from "./send-queue";
 import { imageInputSupported, listenForImages, pickImageFiles, readImages, type Attachment } from "./web-images";
 import { AttachmentThumb } from "./image-attach";
 import { maxImages } from "../shared/composer";
+import { requestInputFocus } from "./chat-focus-logic";
 import { composerEnterAction, createDraftBuffer, createDraftReporter, type ComposerKey } from "./session-input";
 import { t } from "../shared/i18n";
 
@@ -128,6 +129,10 @@ export function useComposerDraft({
     read: () => draftBuffer.read(),
     /** The sent text left the box; text typed while the send is in flight stays. */
     clear: (sent: string) => draftBuffer.clear(sent),
+    /** A chat the user opened (SHORTCUTS-SPEC §2.2): focus the box now, or on its mount when it is not there yet. */
+    requestFocus() {
+      requestInputFocus(inputRef.current, refocus);
+    },
     /** Focus the box once the parent's next outside change lands (a picked next move). */
     focusAfterChange() {
       if (ownInput) focusNext.current = true;
@@ -152,6 +157,7 @@ export function ComposerBox({
   onSubmit,
   onStop,
   onEscape,
+  onShortcutKey,
   footer,
 }: {
   composer: ComposerDraft;
@@ -171,6 +177,8 @@ export function ComposerBox({
   onStop?(): void;
   /** Esc in the box (web): the dispatcher chat blurs it so board shortcuts work again; the draft stays. */
   onEscape?(): void;
+  /** A key before the box handles it (web): true means a board shortcut took it (Back/Forward from the card chat's box). */
+  onShortcutKey?(event: ComposerKey): boolean;
   /** Quiet read-only text beside the attach button, such as the dispatcher's model. */
   footer?: string;
 }) {
@@ -185,6 +193,10 @@ export function ComposerBox({
     c.setFocused(false);
     keyboard.onInputBlur();
   });
+  // A focus requested before the input existed has been taken by its mount.
+  useEffect(() => {
+    c.refocus.current = false;
+  }, []);
   const inputMax = compact ? 108 : 160;
   const fitInput = (contentHeight: number) => {
     const next = Math.max(inputMin, Math.min(inputMax, Math.ceil(contentHeight)));
@@ -257,6 +269,7 @@ export function ComposerBox({
           returnKeyType="send"
           onKeyPress={(event) => {
             if (Platform.OS !== "web") return;
+            if (onShortcutKey?.(event.nativeEvent as ComposerKey)) return event.preventDefault();
             if (onEscape && (event.nativeEvent as ComposerKey).key === "Escape") return onEscape();
             const action = composerEnterAction(event.nativeEvent as ComposerKey);
             if (action === "native") return;
