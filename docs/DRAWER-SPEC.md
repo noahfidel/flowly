@@ -117,6 +117,7 @@ Status: implemented 2026-10-29. Card: button to open associated workspace. The u
 2. It calls `navigation.openWorkspace({ workspaceId: task.workspaceId, serverId: host.id })` (`openNativeWorkspace`). Nothing else changes in the sidebar.
 3. It is there only when the host offers `navigation.openWorkspace`. It is disabled, not hidden, while the sidebar is inactive or the workspace is unavailable or still being checked (the sidebar's own *unavailable* state, the one that disables Start session), so the header icons do not shift when the check finishes.
 4. The session view (a selected session) keeps its own header; its *Open in Paseo* still opens the session.
+5. A chat the user opens focuses its message box on web, and Back / Forward pass through from the box (SHORTCUTS-SPEC §2.2, Ruling, Noah 2026-11-23).
 5. No new strings (*Open workspace* already exists), no onboarding tip, no telemetry field.
 
 ## Workspace kind

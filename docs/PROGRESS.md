@@ -1,5 +1,13 @@
 # Implementation progress
 
+## Opening a card's chat focuses its message box (branch `kanban/opening-a-chat-from-a-card-should-let-yo-b067e9`) — 2026-11-23
+
+- Cause: every way into a card chat ended in `setSelected(id)`, and nothing handed focus to the message box (after a click focus fell to the page body; after O / Back / Forward the board takes it).
+- Fix (ruling, Noah 2026-11-23, SHORTCUTS-SPEC §2.2): the drawer's `openChat` asks the keyed `SessionPreview` (`focusKey`) to focus its box once, on web, not while a Paseo request is pending. Esc in the box blurs (draft) or runs the board's Esc chain (empty); `⌃[`/`⌃]` and `Alt+←`/`Alt+→` pass through to Back / Forward.
+- Code: `client/chat-focus-logic.ts` (`composerAutoFocus`, `composerPassThrough`, `cardBoxEscape`, `requestInputFocus`), `client/session-composer.tsx` (`requestFocus`, `onShortcutKey`), `client/session-preview.tsx`, `client/drawer.tsx`, `client/board.tsx` (`cardBoxEscapeRun`, `cardBoxShortcut`).
+- Tests: new `client/chat-focus-logic.test.ts` (4; it failed with the module missing before the code). i18n: no new strings. Onboarding, What's new, telemetry: none (focus polish).
+- Not run: the real app (desktop) click-through of each open path, Esc and the history keys from the box, and a session with a pending request.
+
 ## Card home: Linear issue chip first in Quick links (branch `kanban/card-home-linear-issue-link-at-the-top-o-3c0113`) — 2026-11-23
 
 - Feature (DRAWER-SPEC Quick links, LINEAR-LINK-SPEC §4): the card's Linear issue (`linearIssueOf`, first Linear issue input) is the first chip of the card home's Quick links: Linear icon and the key, opens the connector's stored URL in the browser; a target that is not an http(s) URL shows a plain key that is not pressable. Never limited, not counted in "+N more", no new request.
