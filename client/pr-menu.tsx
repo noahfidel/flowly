@@ -73,6 +73,13 @@ export function PrMenu({
     refreshed.current = listedAt;
     changed();
   }, [read.refreshOnArrival, listedAt, changed]);
+  // A warm query stays enabled, so opening the menu no longer triggers React Query's refetch of a stale result: do it here.
+  const reopen = useStableCallback(() => {
+    if (query.isStale && !query.isFetching) void query.refetch();
+  });
+  useEffect(() => {
+    if (open) reopen();
+  }, [open, reopen]);
   const view = useBoardView();
   const mine = view.values?.prMine ?? false;
   const { sections, hiddenList, note } = useMemo(() => {
