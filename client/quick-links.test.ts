@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import type { Artifact } from "../shared/model";
+import { linearIssueOf } from "../shared/linear-ticket";
 import { QUICK_LIMIT, activeQuickSession, newestPrUrl, prNumberOf, prStateOf, quickLinks, quickSessionState, type QuickSession } from "./quick-links";
 
 /** Card home quick links (DRAWER-SPEC "Quick links"): which chips, their order, limits, states and "+N more". */
@@ -156,4 +157,47 @@ test("newestPrUrl: the first PR chip, GitLab recognized, duplicates, inputs and 
 test("newestPrUrl: no PR gives null", () => {
   expect(newestPrUrl([])).toBeNull();
   expect(newestPrUrl([artifact({ target: "https://example.com/doc" }), artifact({ target: "./notes.md" }), artifact({ target: "https://github.com/o/r/pull/1", role: "input" })])).toBeNull();
+});
+
+const linearRef = (key: string) => ({ connectionId: "c", provider: "linear", key, remoteId: "", itemType: "issue" }) as Artifact["external"];
+const linearInput = (key: string, target: string, title = key) => artifact({ target, role: "input", title, external: linearRef(key) });
+
+test("Linear issue: the first chip, ahead of PRs, with its key and the stored URL; never limited or counted", () => {
+  const issue = linearInput("ZEN-1", " https://linear.app/z/issue/ZEN-1/x ", "Fix it");
+  const pr = artifact({ target: "https://github.com/o/r/pull/12" });
+  const chips = quickLinks({ outputs: [pr], sessions: [session("s1", 1)], linear: issue });
+  expect(kinds(chips)).toEqual([`linear:${issue.id}`, `pr:${pr.id}`, "session:s1"]);
+  expect(chips[0]).toEqual({ kind: "linear", id: issue.id, key: "ZEN-1", url: "https://linear.app/z/issue/ZEN-1/x", title: "Fix it" });
+  // It does not count toward the sessions or outputs limits.
+  const many = [1, 2, 3, 4].map((s) => session(`s${s}`, s));
+  expect(kinds(quickLinks({ outputs: [], sessions: many, linear: issue })).filter((k) => k.startsWith("more"))).toEqual(["more:sessions:1"]);
+});
+
+test("Linear issue: without one there is no chip and an empty card stays empty", () => {
+  expect(quickLinks({ outputs: [], sessions: [] })).toEqual([]);
+  expect(quickLinks({ outputs: [], sessions: [], linear: undefined })).toEqual([]);
+  expect(quickLinks({ outputs: [], sessions: [session("s1", 1)] }).some((c) => c.kind === "linear")).toBe(false);
+});
+
+test("Linear issue: a target that is not an http(s) URL gives url null, the key still shows", () => {
+  for (const target of ["", "   ", "not a url", "ftp://linear.app/x", "linear://issue/ZEN-1", "javascript:alert(1)"]) {
+    const chips = quickLinks({ outputs: [], sessions: [], linear: linearInput("ZEN-1", target) });
+    expect(chips[0]).toMatchObject({ kind: "linear", key: "ZEN-1", url: null });
+  }
+  expect(quickLinks({ outputs: [], sessions: [], linear: linearInput("ZEN-1", "http://linear.app/x") })[0]).toMatchObject({ url: "http://linear.app/x" });
+});
+
+test("Linear issue: newestPrUrl ignores it", () => {
+  expect(newestPrUrl([artifact({ target: "https://github.com/o/r/pull/4" })])).toBe("https://github.com/o/r/pull/4");
+  expect(newestPrUrl([])).toBeNull();
+});
+
+test("Linear issue source: an output Linear artifact is not chosen; with two inputs the first is used", () => {
+  const output = artifact({ target: "https://linear.app/z/issue/ZEN-5", role: "output", external: linearRef("ZEN-5") });
+  const first = linearInput("ZEN-2", "https://linear.app/z/issue/ZEN-2");
+  const second = linearInput("ZEN-3", "https://linear.app/z/issue/ZEN-3");
+  expect(linearIssueOf([output], "t")).toBeUndefined();
+  expect(linearIssueOf([output, first, second], "t")?.id).toBe(first.id);
+  const chip = quickLinks({ outputs: [], sessions: [], linear: linearIssueOf([output, first, second], "t") })[0];
+  expect(chip).toMatchObject({ kind: "linear", key: "ZEN-2" });
 });

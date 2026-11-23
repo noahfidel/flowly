@@ -18,6 +18,7 @@ export type QuickSessionState = "waiting" | "running" | "error" | "done";
 export type QuickSession = { id: string; title: string; createdAt: string; state: QuickSessionState };
 
 export type QuickChip =
+  | { kind: "linear"; id: string; key: string; url: string | null; title: string }
   | { kind: "pr"; id: string; url: string; number: string; state: PrState; title: string }
   | { kind: "session"; id: string; title: string; number: number; state: QuickSessionState }
   | { kind: "output"; id: string; title: string; file: boolean; artifact: Artifact }
@@ -51,8 +52,20 @@ export function newestPrUrl(outputs: readonly Artifact[]): string | null {
   return chip?.kind === "pr" ? chip.url : null;
 }
 
+/** The stored target when it is an http(s) URL, else null (a chip never opens anything else). */
+function httpUrlOf(target: string): string | null {
+  const url = target.trim();
+  try {
+    const protocol = new URL(url).protocol;
+    return protocol === "https:" || protocol === "http:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * The chips, in order: every PR output (newest first, one per URL), then up to QUICK_LIMIT sessions
+ * The chips, in order: the card's Linear issue (`linear`, its first Linear issue input, never limited and not counted
+ * in "+N more"; its chip has no URL when the stored target is not an http(s) URL), every PR output (newest first, one per URL), then up to QUICK_LIMIT sessions
  * (waiting, running, error, done; newest first within each) and "+N more", then up to QUICK_LIMIT other
  * outputs (newest first) and "+N more". `outputs` are the card's artifacts newest first; inputs and the
  * plan are skipped. `prStatus` maps an artifact id to its connector status. Empty when there is nothing.
@@ -61,10 +74,12 @@ export function quickLinks({
   outputs,
   sessions,
   prStatus,
+  linear,
 }: {
   outputs: readonly Artifact[];
   sessions: readonly QuickSession[];
   prStatus?: ReadonlyMap<string, string | undefined>;
+  linear?: Artifact;
 }): QuickChip[] {
   const prs: QuickChip[] = [];
   const others: Artifact[] = [];
@@ -85,7 +100,9 @@ export function quickLinks({
   const started = [...sessions].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
   const numberOf = new Map(started.map((s, i) => [s.id, i + 1]));
   const shown = orderQuickSessions(sessions);
-  const chips: QuickChip[] = [...prs];
+  const chips: QuickChip[] = [];
+  if (linear?.external) chips.push({ kind: "linear", id: linear.id, key: linear.external.key, url: httpUrlOf(linear.target), title: linear.title });
+  chips.push(...prs);
   for (const s of shown.slice(0, QUICK_LIMIT)) chips.push({ kind: "session", id: s.id, title: s.title, number: numberOf.get(s.id)!, state: s.state });
   if (shown.length > QUICK_LIMIT) chips.push({ kind: "more", section: "sessions", count: shown.length - QUICK_LIMIT });
   for (const a of others.slice(0, QUICK_LIMIT)) chips.push({ kind: "output", id: a.id, title: a.title, file: a.kind === "file", artifact: a });

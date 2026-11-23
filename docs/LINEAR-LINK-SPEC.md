@@ -31,7 +31,7 @@ Same callers as the plan tools (card sessions, board sessions, the dispatcher wi
 
 ## 4. Showing it
 
-`flowly_get_card` and `flowly_create_card` return `linear: { key, url, title, state } | null`; `flowly_list_cards` returns it on a card that has one. `title` and `state` are Linear's last known summary and status (`""` when never read). `flowly_list_cards` `query` also matches the Linear key, case-insensitively. No request is made to show it.
+`flowly_get_card` and `flowly_create_card` return `linear: { key, url, title, state } | null`; `flowly_list_cards` returns it on a card that has one. `title` and `state` are Linear's last known summary and status (`""` when never read). `flowly_list_cards` `query` also matches the Linear key, case-insensitively. No request is made to show it. The card home's Quick links show it as the first chip (DRAWER-SPEC Quick links).
 
 ## 5. Branch naming
 

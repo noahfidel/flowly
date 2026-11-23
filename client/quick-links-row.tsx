@@ -5,10 +5,12 @@ import { openExternalUrl } from "@getpaseo/plugin/client";
 import type { Artifact } from "../shared/model";
 import { artifactsOf } from "../shared/artifacts";
 import { withoutPlan } from "../shared/plans";
+import { linearIssueOf } from "../shared/linear-ticket";
 import { msg, t, tn } from "../shared/i18n";
 import { useTaskDetail } from "./card-detail-query";
 import { ArtifactPreview, useExternalStatuses } from "./task-artifacts";
 import { ExternalPreview } from "./connectors";
+import { BrandIcon } from "./brand-icons";
 import { Label, font, radius, space, tint, touch, useTheme, noFocusRing } from "./ui";
 import { stateColors } from "./state-colors";
 import { quickLinks, type PrState, type QuickChip, type QuickSession, type QuickSessionState } from "./quick-links";
@@ -55,11 +57,13 @@ export const QuickLinks = memo(
     const list = useMemo(() => (detail ? withoutPlan(artifactsOf(detail.artifacts, taskId)) : []), [detail, taskId]);
     const external = useExternalStatuses(taskId, list);
     const prStatus = useMemo(() => new Map((external.data?.items || []).map((x) => [x.artifactId, x.summary.status])), [external.data]);
-    const chips = useMemo(() => quickLinks({ outputs: list.filter((a) => a.role === "output"), sessions, prStatus }), [list, sessions, prStatus]);
+    const linear = useMemo(() => linearIssueOf(list, taskId), [list, taskId]);
+    const chips = useMemo(() => quickLinks({ outputs: list.filter((a) => a.role === "output"), sessions, prStatus, linear }), [list, sessions, prStatus, linear]);
     if (!chips.length) return null;
     const openUrl = (url: string) => openQuickLink(url, toast);
     const press = (chip: QuickChip) => {
       if (chip.kind === "pr") return openUrl(chip.url);
+      if (chip.kind === "linear") return chip.url ? openUrl(chip.url) : undefined;
       if (chip.kind === "session") return onOpenSession(chip.id);
       if (chip.kind === "more") return onMore(chip.section);
       const a = chip.artifact;
@@ -95,6 +99,8 @@ export const QuickLinks = memo(
 
 function chipText(chip: QuickChip): string {
   switch (chip.kind) {
+    case "linear":
+      return chip.key;
     case "pr":
       return chip.state ? t(prText[chip.state], { number: chip.number }) : chip.number;
     case "session":
@@ -108,6 +114,12 @@ function chipText(chip: QuickChip): string {
 
 function chipLabel(chip: QuickChip, text: string): string {
   switch (chip.kind) {
+    case "linear":
+      return !chip.url
+        ? t("Linear issue {key}", { key: chip.key })
+        : chip.title
+          ? t("Open Linear issue {key}: {title}", { key: chip.key, title: chip.title })
+          : t("Open Linear issue {key}", { key: chip.key });
     case "pr":
       return chip.title ? t("Open pull request {label}: {title}", { label: text, title: chip.title }) : t("Open pull request {label}", { label: text });
     case "session":
@@ -161,11 +173,13 @@ function Chip({ chip, onPress }: { chip: QuickChip; onPress(chip: QuickChip): vo
             : "Link"
           : "ChevronDown";
   const text = chipText(chip);
-  const external = chip.kind === "pr" || (chip.kind === "output" && !chip.file && !chip.artifact.external);
+  const noLink = chip.kind === "linear" && !chip.url;
+  const external = chip.kind === "pr" || (chip.kind === "linear" && !!chip.url) || (chip.kind === "output" && !chip.file && !chip.artifact.external);
   return (
     <Pressable
-      accessibilityRole={external ? "link" : "button"}
+      accessibilityRole={noLink ? "text" : external ? "link" : "button"}
       accessibilityLabel={chipLabel(chip, text)}
+      disabled={noLink}
       onPress={() => onPress(chip)}
       style={(state) => {
         const { pressed, hovered, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
@@ -189,7 +203,7 @@ function Chip({ chip, onPress }: { chip: QuickChip; onPress(chip: QuickChip): vo
         };
       }}
     >
-      <Icon name={icon} size={13} color={tone} />
+      {chip.kind === "linear" ? <BrandIcon family="linear" size={13} /> : <Icon name={icon} size={13} color={tone} />}
       {/* A long title is cut, so one chip never takes the whole row; the full text is in the label. */}
       <View style={{ flexShrink: 1, minWidth: 0, maxWidth: 220 }}>
         <Label size={font.sm} medium lines={1} selectable={false} color={waiting ? tones.needsYou : undefined}>

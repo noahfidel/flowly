@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Card home: Linear issue chip first in Quick links (branch `kanban/card-home-linear-issue-link-at-the-top-o-3c0113`) — 2026-11-23
+
+- Feature (DRAWER-SPEC Quick links, LINEAR-LINK-SPEC §4): the card's Linear issue (`linearIssueOf`, first Linear issue input) is the first chip of the card home's Quick links: Linear icon and the key, opens the connector's stored URL in the browser; a target that is not an http(s) URL shows a plain key that is not pressable. Never limited, not counted in "+N more", no new request.
+- Code: `client/quick-links.ts` (`linear` chip kind, `linear` option of `quickLinks`; `newestPrUrl` unchanged), `client/quick-links-row.tsx`. i18n: 3 new strings in all catalogs. Onboarding, What's new, telemetry: none (an existing row gains a chip).
+- Tests: `client/quick-links.test.ts` (5 new, written first and failing).
+- Not run: the real app click-through of the chip.
+
 ## Linear Start card respects board groups (branch `kanban/linear-board-start-button-respect-board-791e6c`) — 2026-11-23
 
 - Cause: the Start card effect ran as soon as the overview loaded, before the board-view settings (stored group and Project filter) and the groups list, so on a cold start the shown group was still the default group; it also read the project before awaiting the Linear search and pinned that stale value, which made Quick task open on another group.
