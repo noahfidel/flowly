@@ -1,5 +1,11 @@
 # Implementation progress
 
+## Start: restore a card's own workspace archived outside Flowly — 2026-11-23
+
+- Root cause: the Flowly-made directory workspace `wks_64f4829c49507475` of an agent-made card, on the zenlytic checkout (branch `dev`), was archived 3.5 s after creation from the desktop app through the merge-celebration plugin (Paseo matched branch `dev` to merged release PR #9275). Start then failed with "unavailable or archived" and Flowly had no way out.
+- Fix (ruling, Noah 2026-11-23, START-CARD-SPEC §3.1): Start (`flowly_start_card` and the user's Start) restores a never-used own workspace through the workspace-restore seam, records `workspace_restored`, and continues; shared or switched cards get `WORKSPACE_ARCHIVED`. `flowly_get_card` returns `start: { ok, reason }`; `tasks.context` returns `restorable` and the drawer keeps Start enabled with "Start restores the archived workspace."
+- Tests: `server/start-card.test.ts` (restore, shared/switched, unavailable, archivingAt), `server/agent-cards.test.ts` (`start`), `client/answered-asks.test.ts`. i18n: two strings in all catalogs. Onboarding, What's new, telemetry: none.
+
 ## A card counts as running while its subagents run (branch `kanban/check-whether-a-card-counts-as-running-w-b2ca08`) — 2026-11-22
 
 - Feature (user-approved 2026-11-22, SUBAGENTS-SPEC §10): a card whose sessions are idle but whose subagents run shows the same running state as a running session (edge, signal `{n} subagents working`, overview running chip, running list). Counts: running provider subagents of the card's sessions, and active Paseo child agents of its sessions in another workspace (a child in the card's own workspace counts once, as a session).

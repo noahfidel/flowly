@@ -3,6 +3,7 @@ import { msg, t } from "../shared/i18n";
 /** Start again's refusals in the user's words (DISPATCHER-SPEC §9.4); the daemon sends `CODE: message`. */
 const refusals: Record<string, string> = {
   NEEDS_WORKTREE: msg("This card's folder already had sessions, or Flowly didn't create it for the card. Switch the card to a worktree from its menu, then start again."),
+  WORKSPACE_ARCHIVED: msg("The card's workspace was archived outside Flowly and can't be restored. Switch the card to a worktree from its menu, then start again."),
   CARD_HAS_SESSION: msg("The card already has a running session. Send it a message instead."),
 };
 
@@ -25,4 +26,12 @@ const dispatcherRefusals: Record<string, string> = {
 
 export function dispatcherStartMessage(error: string): string {
   return refusalText(error, dispatcherRefusals);
+}
+
+/**
+ * Whether Start must restore the card's archived workspace first (START-CARD-SPEC "Archived own workspace at
+ * start"): the workspace is gone and the daemon says the card's own never-used one may be brought back.
+ */
+export function startRestoresWorkspace(workspaceFound: boolean, scope: { restorable?: boolean } | undefined): boolean {
+  return !workspaceFound && scope?.restorable === true;
 }

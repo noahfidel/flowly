@@ -9,6 +9,8 @@ Status: the user requested this on 2026-10-15 and chose option A, a temporary di
   - the card's latest wrap-up record says the plugin archived the workspace. That means a `workspace_auto_archived` event, or a `wrapped_up` event whose note says `workspace archived`, with no `workspace_restored` after it;
   - or the card created that workspace (`ownsWorkspace === true`). This covers activity trimmed past 100 events.
 
+- **Also at start** (user-requested 2026-11-23): a card's start restores the card's own never-used workspace (`ownsWorkspace`, never switched) that was archived outside Flowly, with the same Paseo calls (`docs/START-CARD-SPEC.md` §3.1).
+
   A shared workspace (e.g. the project main, `ownsWorkspace: false`) is never restored.
 - **What Paseo does** (`workspace.recovery.restore`, same workspace ID, so the card binding stays valid):
   - **Directory still exists**: unarchive in place.

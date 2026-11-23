@@ -1505,6 +1505,8 @@ const catalog: Catalog = {
   "Start again": "Начать заново",
   "Choose an option or type an answer, not both.": "Выберите вариант или введите ответ, но не то и другое.",
   "This card's folder already had sessions, or Flowly didn't create it for the card. Switch the card to a worktree from its menu, then start again.": "В папке этой карточки уже были сессии, или Flowly создал её не для этой карточки. Переведите карточку на worktree через её меню и запустите снова.",
+  "Start restores the archived workspace.": "Запуск восстановит архивированное рабочее пространство.",
+  "The card's workspace was archived outside Flowly and can't be restored. Switch the card to a worktree from its menu, then start again.": "Рабочее пространство карточки заархивировано вне Flowly и не может быть восстановлено. Переведите карточку на worktree через её меню и запустите снова.",
   "The card already has a running session. Send it a message instead.": "У карточки уже есть идущая сессия. Отправьте ей сообщение.",
   "Auto summary is off. Turn it on with the settings gear at the top of the board, or press Refresh.": "Автосводка выключена. Включите её шестерёнкой настроек вверху доски или нажмите «Обновить».",
   "Change any of this later in Settings, the gear at the top of the board. You can reopen this tour there.": "Всё это можно изменить позже в настройках — шестерёнка вверху доски. Там же можно снова открыть этот обзор.",

@@ -38,6 +38,16 @@ Starts run one at a time per project root (the project's `primaryPath`), in the 
 8. At most 20 creations per session per hour, shared with `flowly_create_card` (`CARD_LIMIT`); the dispatcher has its own 40 per hour instead, counted apart (DISPATCHER-SPEC §5). The slot is taken before any further work, so concurrent creates and starts cannot pass the limit together, and given back when the start or create fails.
 9. A starting model (§5) exists (`MODEL_UNAVAILABLE`).
 
+### 3.1 Archived own workspace at start (ruling, Noah 2026-11-23)
+
+The card's workspace can be archived outside Flowly (for example a third-party plugin's "Archive workspace" button), so `workspaces.refresh` returns nothing for it. Start (`flowly_start_card` and the user's Start, both through `Starter.run`) then:
+
+- `archivingAt` set: `RESOURCE_UNAVAILABLE` ("being archived"), as before.
+- Workspace gone, and the card owns it (`ownsWorkspace === true`, no `previousWorkspaces`, no `switch`; `archivedWorkspaceStart` in `shared/archived-start.ts`): ask Paseo through the workspace-restore seam (`WorkspaceRecovery`, `docs/WORKSPACE-RESTORE-SPEC.md`). `recoverable`: restore it under the same workspace id, record a `workspace_restored` event ("Archived outside Flowly; restored to start the card."), read it again and continue (a directory card then moves to its worktree, §4.2). Not recoverable, or Paseo cannot be reached: `WORKSPACE_ARCHIVED` with Paseo's reason. Still gone after the restore: `RESOURCE_UNAVAILABLE`.
+- Workspace gone, and the card does not own it or was switched: `WORKSPACE_ARCHIVED`; nothing is restored. The message says to use Switch to worktree (user) or to ask the user to switch the card (agent).
+- `flowly_get_card` (also the dispatcher's) returns `start: { ok, reason }` next to `editable`: `ok: true` with the restore note for a restorable card, `ok: false` with the reason for a finished or archived card, a workspace being archived, or a non-restorable archived workspace.
+- UI: `tasks.context` returns `restorable`; the drawer keeps Start session enabled for such a card, shows "Start restores the archived workspace.", and Start runs the user's Start (project defaults) instead of opening the new-session form.
+
 ## 4. Where the session runs
 
 | The card's workspace | Result |
@@ -110,7 +120,7 @@ Created like the drawer's Start session (`launchKanbanSession`), from the daemon
 
 ## 8. Errors
 
-New codes: `NOT_FOUND`, `PROJECT_ARCHIVED`, `CARD_FINISHED`, `CARD_HAS_SESSION`, `NEEDS_WORKTREE`, `MODEL_UNAVAILABLE`, `WORKTREE_UNAVAILABLE`, `START_FAILED` (Paseo refused the worktree or the session; the message says why and names a worktree that was already created). Reused: `AGENT_CARDS_DISABLED`, `CARD_LIMIT`, `RESOURCE_UNAVAILABLE`, `SESSION_MISMATCH`.
+New codes: `NOT_FOUND`, `PROJECT_ARCHIVED`, `CARD_FINISHED`, `CARD_HAS_SESSION`, `NEEDS_WORKTREE`, `WORKSPACE_ARCHIVED` (§3.1), `MODEL_UNAVAILABLE`, `WORKTREE_UNAVAILABLE`, `START_FAILED` (Paseo refused the worktree or the session; the message says why and names a worktree that was already created). Reused: `AGENT_CARDS_DISABLED`, `CARD_LIMIT`, `RESOURCE_UNAVAILABLE`, `SESSION_MISMATCH`.
 
 ## 9. Acceptance
 

@@ -40,6 +40,7 @@ import { PriorityIcon, StatusIcon, TypeIcon, WorkspaceIcon, priorityLabels, work
 import { cardWorkspace } from "../shared/card-display";
 import { useLiveAgents, useQueuedMessagesQuery } from "./queries";
 import { shallowEqual, useStableCallback } from "./stable";
+import { startAgainMessage, startRestoresWorkspace } from "./start-again";
 import { isLegacyScope } from "../shared/scope";
 import { SessionCard } from "./session-card";
 import { subagentSummary } from "./subagents";
@@ -211,6 +212,7 @@ function TaskDrawerView({
     undoRelease = useRpc(rpc.releaseUndo),
     adoptIdea = useRpc(rpc.adoptIdea),
     contextRead = useRpc(rpc.taskContext),
+    startAgain = useRpc(rpc.startAgain),
     configure = useRpc(rpc.configureSession);
   const { query: readState, receipts, markRead, markUnread } = useSessionReads();
   const [selected, setSelected] = useState(sessionEntry?.sessionId || ""),
@@ -441,6 +443,27 @@ function TaskDrawerView({
     workspace.isError ||
     scope.isError ||
     !scope.data?.available;
+  // The card's own workspace was archived outside Flowly: Start restores it and starts with the project's defaults.
+  const restoresOnStart = startRestoresWorkspace(!!workspace.data, scope.data) && !workspace.isError && !scope.isError;
+  const restoreKey = useRef(`restore-${task.id}-${Date.now()}`);
+  const [restoring, setRestoring] = useState(false);
+  const startRestoring = useStableCallback(() => {
+    setRestoring(true);
+    void startAgain({ taskId: task.id, idempotencyKey: restoreKey.current })
+      .then(
+        () => {
+          restoreKey.current = `restore-${task.id}-${Date.now()}`;
+          toast.show(t("Session started"), { variant: "success" });
+          void workspace.refetch();
+          void scope.refetch();
+          void sessions.refetch();
+        },
+        (e) => toast.show(startAgainMessage(message(e)), { variant: "error" }),
+      )
+      .finally(() => setRestoring(false));
+  });
+  const startPress = () => (restoresOnStart ? startRestoring() : setShowNew(true));
+  const startDisabled = !active || restoring || (unavailable && !restoresOnStart);
   const legacy = isLegacyScope(task, project);
   const resourceIssue = workspace.error
     ? message(workspace.error)
@@ -919,7 +942,7 @@ function TaskDrawerView({
             onToggle={sectionStates.sessions.onToggle}
             summary={sessionSummary}
             actions={
-              <Button quiet icon="Plus" disabled={!active || unavailable} onPress={() => setShowNew(true)}>
+              <Button quiet icon="Plus" disabled={startDisabled} onPress={startPress}>
                 {t("Start session")}
               </Button>
             }
@@ -958,8 +981,11 @@ function TaskDrawerView({
               >
                 <Label muted size={font.md}>{t("No sessions yet")}</Label>
                 <View style={{ paddingTop: space[2] }}>
-                  <Button primary icon="Play" disabled={!active || unavailable} onPress={() => setShowNew(true)}>
+                  <Button primary icon="Play" disabled={startDisabled} onPress={startPress}>
                     {t("Start session")}</Button>
+                  {restoresOnStart && (
+                    <Label muted size={font.sm}>{t("Start restores the archived workspace.")}</Label>
+                  )}
                 </View>
               </View>
             ) : (
