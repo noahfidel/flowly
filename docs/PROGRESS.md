@@ -2318,3 +2318,11 @@ The repeated replay when cards are opened in succession is the visible cost of p
 - Tests (failing first): `server/connectors/github.test.ts`, `server/pr-menu.test.ts`, `client/pr-list.test.ts`, `shared/settings.test.ts`.
 - Onboarding: no new tip or tour line (a filter inside an existing menu). What's new: none. Telemetry: no heartbeat field.
 - Not run: real UI (desktop, phone) and a live GitHub connection / `gh` check.
+
+## Board: pull requests menu, own-PR marker and chip split (branch `kanban/pr-menu-mark-your-own-prs-on-the-rows-ow-ad84f6`) — 2026-11-22
+
+- Feature (card "PR menu: mark your own PRs on the rows"; Ruling, user, 2026-11-22; spec D19–D20): rows of the user's own PRs get a person icon (*Your PR*, hover hint on web), and the chip reads *{n} PRs · {m} yours* when some are known to be the user's. "Yours" is known-only from the menu's last read (daemon memory, empty after a restart until the menu opens); unknown authors never count.
+- Code: `PrMineIndex` in `server/pr-menu.ts` (filled by `listPrs`), `boardOverview(board, mine?)` and the card field `prsMine` in `shared/overview.ts`, one shared index wired in `index.server.ts`; `client/pr-list.ts` (`prCount.mine`, `prChipText`, `isOwnPr`), `client/pr-menu.tsx` (`OwnMark`, own-PR label variants, one overview refresh per arriving list), `client/overview-bar.tsx`; 5 new strings in all 9 catalogs.
+- Tests (failing first): `server/pr-menu.test.ts`, `server/board-overview.test.ts`, `client/pr-list.test.ts`.
+- Onboarding: no new tip or tour line (an extension of the existing menu). What's new: none. Telemetry: none.
+- Not run: real UI (desktop, phone) screenshots and a live GitHub connection / `gh` check.
