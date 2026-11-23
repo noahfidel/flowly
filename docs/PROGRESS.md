@@ -1,5 +1,10 @@
 # Implementation progress
 
+## Board: PR chip says "yours" again — 2026-11-23
+
+- Change (D22, user request 2026-11-23, PR-MENU-SPEC): after the person icon the PR chip reads "3 yours" instead of the bare number: [PR icon] 8 PRs [person icon] 3 yours. `prChipText` returns `mine` as that text; label, hover hint and the 0 case are unchanged.
+- Tests/i18n: `client/pr-list.test.ts` expects the new text. New string "{mine} yours" in all catalogs. Onboarding, What's new, telemetry: none.
+
 ## Dispatcher charter 12: refinements go to the existing card — 2026-11-23
 
 - Change (user request 2026-11-23, ruling in DISPATCHER-SPEC §6): a new "Existing work first" charter line sends a request that refines, corrects or extends a live or recently landed card's work to that card with `flowly_message_card`, and creates a follow-up card only when no card covers it, the work is unrelated, or the message returns `NO_LIVE_SESSION`, `SESSION_NOT_FOUND` or `dropped`. `dispatcherCharterVersion` 11 → 12, so running dispatchers show the Replace warning; guard version stays 2.

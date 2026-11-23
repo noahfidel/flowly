@@ -1756,6 +1756,7 @@ const catalog: Catalog = {
   "Open card {card}: pull request {number} · {state} · your PR": "Открыть карточку {card}: пулл-реквест {number} · {state} · ваш PR",
   "Open card {card}: pull request {number} · your PR": "Открыть карточку {card}: пулл-реквест {number} · ваш PR",
   "{prs}, {mine} yours": "{prs}, ваших: {mine}",
+  "{mine} yours": "ваших: {mine}",
   "Could not load pull requests.": "Не удалось загрузить пулл-реквесты.",
   "No pull requests on this board": "На этой доске нет пулл-реквестов",
   "Open pull request": "Открыть пулл-реквест",

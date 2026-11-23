@@ -134,7 +134,7 @@ export function OverviewBar({
               prChip.mine !== null && (
                 <>
                   <Icon name="User" size={13} color={colors.foregroundMuted} />
-                  <Label size={font.sm} selectable={false}>{String(prChip.mine)}</Label>
+                  <Label size={font.sm} selectable={false}>{prChip.mine}</Label>
                 </>
               )
             }
