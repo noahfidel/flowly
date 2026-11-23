@@ -285,3 +285,37 @@ export function previewText(text: string, maxLines: number, maxChars: number): {
   if (end >= text.length) return { text, truncated: false };
   return { text: `${text.slice(0, end).trimEnd()}…`, truncated: true };
 }
+
+/** Collapsed text shows this much before Show more: arguments, each side of an edit, and the result. */
+export const PREVIEW_LINES = 12;
+export const PREVIEW_CHARS = 1_500;
+export const EDIT_LINES = 6;
+export const EDIT_CHARS = 750;
+export const RESULT_LINES = 6;
+export const RESULT_CHARS = 750;
+
+type Preview = { text: string; truncated: boolean };
+
+/**
+ * What a step shows: arguments, edits and result together, cut to the preview limits unless `more`.
+ * `canToggle` keeps Show less once opened, even when the full text would have fit the preview.
+ */
+export function toolStepPreview(
+  detail: ToolCallDetail,
+  more: boolean,
+): { args?: Preview; edits?: { shown: { old?: string; new?: string }; truncated: boolean }[]; result?: Preview; canToggle: boolean } {
+  const cut = (text: string | undefined, lines: number, chars: number): Preview | undefined =>
+    text === undefined ? undefined : more ? { text, truncated: false } : previewText(text, lines, chars);
+  const args = cut(detail.args, PREVIEW_LINES, PREVIEW_CHARS);
+  const edits = detail.edits?.map((edit) => {
+    const old = cut(edit.old, EDIT_LINES, EDIT_CHARS);
+    const added = cut(edit.new, EDIT_LINES, EDIT_CHARS);
+    return {
+      shown: { old: old?.text, new: added?.text },
+      truncated: !!old?.truncated || !!added?.truncated,
+    };
+  });
+  const result = cut(detail.result, RESULT_LINES, RESULT_CHARS);
+  const canToggle = more || !!args?.truncated || !!edits?.some((e) => e.truncated) || !!result?.truncated;
+  return { ...(args && { args }), ...(edits && { edits }), ...(result && { result }), canToggle };
+}

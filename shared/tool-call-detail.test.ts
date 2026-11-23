@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { TOOL_ARGS_MAX, TOOL_RESULT_MAX, previewText, toolCallDetailSchema, toolCallView } from "./tool-call-detail";
+import { RESULT_CHARS, RESULT_LINES, TOOL_ARGS_MAX, TOOL_RESULT_MAX, previewText, toolCallDetailSchema, toolCallView, toolStepPreview } from "./tool-call-detail";
 import { maskSecrets } from "./secrets";
 
 const call = (detail: unknown, extra: Record<string, unknown> = {}) => ({ type: "tool_call", callId: "c", name: "x", status: "completed", detail, ...extra });
@@ -215,4 +215,28 @@ test("previewText cuts at lines or characters", () => {
   expect(previewText("abcdefghij", 5, 4)).toEqual({ text: "abcd…", truncated: true });
   expect(previewText("abc\n", 1, 100)).toEqual({ text: "abc…", truncated: true });
   expect(previewText("", 3, 10)).toEqual({ text: "", truncated: false });
+});
+
+test("an MCP result's credential-named field is masked", () => {
+  const view = toolCallView(call({ type: "unknown", input: { a: 1 }, output: { password: "hunter2xyz", user: "bob" } }));
+  expect(view.result).not.toContain("hunter2xyz");
+  expect(view.result).toContain("<secret>");
+  const shell = toolCallView(call({ type: "shell", command: "env", output: "API_TOKEN=abc123secretvalue\nAuthorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc.def" }));
+  expect(shell.result).not.toMatch(/abc123secretvalue|eyJhbGci/);
+  expect(shell.result).toContain("<secret>");
+});
+
+test("toolStepPreview cuts the result and toggles for any long section", () => {
+  const long = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
+  const cut = toolStepPreview({ found: true, args: "ls", result: long }, false);
+  expect(cut.result?.truncated).toBe(true);
+  expect(cut.result?.text.split("\n")).toHaveLength(RESULT_LINES);
+  expect(cut.canToggle).toBe(true);
+  const full = toolStepPreview({ found: true, args: "ls", result: long }, true);
+  expect(full.result).toEqual({ text: long, truncated: false });
+  expect(full.canToggle).toBe(true);
+  expect(toolStepPreview({ found: true, args: "ls", result: "ok" }, false).canToggle).toBe(false);
+  const chars = toolStepPreview({ found: true, args: "ls", result: "x".repeat(1_000) }, false);
+  expect(chars.result?.truncated).toBe(true);
+  expect(chars.result?.text).toHaveLength(RESULT_CHARS + 1);
 });
