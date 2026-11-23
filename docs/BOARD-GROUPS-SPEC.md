@@ -136,6 +136,13 @@ exactly one group. Individual projects are no longer top-level navigation.
   override; this supersedes the 2026-11-10 ruling's listing of auto review as repo-bound (check commands stay per
   project). A group with no value means Off. Migration collapses each group to its members' most common value
   (ruling, Noah 2026-11-18). New projects store no value and follow their group (§1, §2, §5, §7 step 9).
+- Ruling (Noah, 2026-11-23): each group remembers its own view (§3, *Per-group view state*). Back/Forward is one
+  history **per group** (its own stack and cursor; the arrows and keys act on the shown group's only, and switching
+  groups is not a history step), superseding "Back returns to the previous place, its group included" (2026-11-18,
+  §3) and UI-REFRESH-SPEC §7ae's group-crossing board entries. The search, priority, type, tag and show-archived
+  filters and the collapsed lanes become **per group** and stay saved in `board-view` (a group with no entry starts
+  from the former global value). A remembered open card wins over the "switching to a group that needs you" open; that
+  open runs only when the group has no remembered open card.
 - Ruling (Noah, 2026-11-18): the collapse counts only a group's live members; archived members count only when the
   group has no live one (§7 step 9). A project restored from a folder copy written before this change, with no
   value stored, keeps Off as its own override (PROJECT-FOLDER-SPEC §3).
@@ -298,7 +305,25 @@ whose dispatcher record cannot be read is refused with `DISPATCHER_UNAVAILABLE`.
   tab badge (every live member of the group): its dispatcher chat when its dispatcher waits, else the first card of its
   need-you walk in the card sidebar, with the step bar. Never for the group already shown, a group with nothing
   waiting, Back/Forward, a card or link that brings its group, New task from a tab menu, or a new group. The switch and
-  the open are one history entry, so Back returns to the previous place, its group included (UI-REFRESH-SPEC §7ae).
+  the open are one history entry in the target group's history (UI-REFRESH-SPEC §7ae). It runs only when the target
+  group has no remembered open card (below); a remembered card wins.
+- **Per-group view state** (ruling 2026-11-23). Switching away from a group and back shows it as it was left:
+  - *The open card* (and the session shown in it) of each group is remembered when the shown group changes, by any
+    path (a tab, the switcher, a card link that brings another group). On phones the dispatcher chat page counts as
+    the open place too; the desktop dock's open or minimized state stays one layout setting that follows the group shown.
+    Returning to the group reopens that card through the usual open path (the same reads as any open, never a read
+    change). A remembered card that was deleted, archived, moved to Done or Cancelled, moved to a project of another
+    group, or whose project was archived, is dropped: the group shows its normal board (or the need-you open below).
+  - *Back/Forward:* one history per group, kept for the app run (UI-REFRESH-SPEC §7ae).
+  - *Filters and lanes:* the Project filter (§4, already per group), the search, priority, type, tag and
+    show-archived filters and the collapsed lanes are per group, saved in `board-view` (`groupFilters`,
+    `groupCollapsed`); a group with no saved entry starts from the global value saved before this change.
+  - *Scroll:* the desktop board's sideways offset and each lane's vertical offset, and the phone's current lane, per
+    group for the app run only (module state, never saved).
+  - Open menus, pickers and pages (Search, Ideas, Insights, Memory, Guardrails) are not remembered.
+  - Entries of deleted groups are dropped once the groups are loaded. The card's workspace panel reads this state but
+    never writes it.
+  - Order on arrival: a remembered open card, else the need-you open above, else the bare group board.
 
 ## 4. The group board
 
@@ -581,6 +606,12 @@ Unit (server/shared, written with the follow-up cards):
   not undone; `groups.update` and `projects.update` with values and `null`; `projects.create` stores none and detects
   commands only in an On group; the store reports projects turned on by a project, group or membership write; a
   delivery in a project without an override is reviewed in an On group and not in an Off or unset one.
+
+- Per-group view state (`client/group-memory.test.ts`, `client/nav-history.test.ts`, `shared/settings.test.ts`):
+  card A open in group 1, card B in group 2, switching back reopens A and the reverse; each group's Back/Forward walks
+  only its own entries and a switch records nothing; filters and collapsed lanes per group with the global seed;
+  scroll per group; a remembered card that is gone, archived, finished or moved to another group gives the normal
+  board; a remembered card wins over the need-you open; deleted groups' entries are dropped.
 
 Upkeep (the plan's last task): welcome-tour copy and tips, a What's new entry (All and project tabs and the global
 dispatcher go away for existing users), the telemetry decision, and every new string in all i18n catalogs.
