@@ -52,11 +52,11 @@ Per list, independently:
 
 ### 3.1 Needs you rows
 
-In the dock's Attention tab and the need-you step-through in the card sidebar (DISPATCHER-SPEC §9.3 and §9.4), each open ask has a Snooze icon button (`BellOff`, accessibility label `Snooze {title}`), outside the row's tap area and always visible. It snoozes that one signal through `asks.dismiss { signal }`: the key is added to its list's set and every key already stored stays. Snoozing a need-you ask never touches `u:`.
+In the dock's Attention tab (DISPATCHER-SPEC §9.3), each open ask has a Snooze icon button (`BellOff`, accessibility label `Snooze {title}`), outside the row's tap area and always visible. It snoozes that one signal through `asks.dismiss { signal }`: the key is added to its list's set and every key already stored stays. Snoozing a need-you ask never touches `u:`.
 
 - Toast: `Snoozed. It comes back when something new happens.`
-- There is no Snoozed group or restore list in either place. Asks leave Needs you and return on a new key.
-- The step-through's Updates side has no Snooze button; stepping onto a card there reads its turn.
+- There is no Snoozed group or restore list. Asks leave Needs you and return on a new key.
+- The step-through in the card sidebar has no Snooze button (Ruling, Noah 2026-11-22, DISPATCHER-SPEC §9.4: its bar is one row with arrows and a close X); snoozing a card's ask stays in the card's actions menu. Stepping onto a card on the Unread side reads its turn.
 
 ### 3.2 Card menu
 

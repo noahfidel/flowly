@@ -1,23 +1,14 @@
-import { useState } from "react";
-import { ActivityIndicator, ScrollView, View } from "react-native";
-import { useRpc } from "@getpaseo/plugin/client";
-import { useQuery } from "@tanstack/react-query";
-import * as rpc from "../shared/rpc";
+import { View } from "react-native";
 import { t } from "../shared/i18n";
-import { Button, IconButton, Label, Notice, font, message, space, verticalContent, verticalScroll, useTheme } from "./ui";
-import { AskRow } from "./dispatcher-asks";
-import { queuedFor } from "./queued-messages";
-import { useQueuedMessagesQuery } from "./queries";
-import { dispatcherStartMessage } from "./start-again";
-import { dispatcherStatusKey } from "./dispatcher-panel";
-import { stepBarState, type AskItem, type StepKind } from "./step-through";
+import { IconButton, Label, font, space, useTheme } from "./ui";
+import type { StepKind } from "./step-through";
 
 type Position = { index: number | null; total: number; prev: string | null; next: string | null };
 
 /**
- * The step-through on top of the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09). Need you: "1 of N" with
- * ‹ Prev / Next ›, the card's asks pinned below, answered in place. Once its asks are answered the card stays and Next
- * is offered; nothing moves by itself. Unread: the same walk over the cards with an unread turn, with what changed on the card and Ask dispatcher (Ruling, Noah 2026-11-16: no Mark seen).
+ * The step-through on top of the card sidebar, one row: name, "i of N" while the card is in the queue, then ‹ › and the
+ * close X (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-22). The arrows are always there and disabled at the ends. Asks
+ * are answered in the session chat or the card's banners; nothing moves by itself and the X only leaves the walk.
  */
 export function StepThroughBar({
   kind,
@@ -25,48 +16,15 @@ export function StepThroughBar({
   onPrev,
   onNext,
   onEnd,
-  asks,
-  asksLoading,
-  onOpenCard,
-  onChanged,
-  summary,
-  onAskedDispatcher,
-  groupId,
 }: {
   kind: StepKind;
   position: Position;
   onPrev(): void;
   onNext(): void;
   onEnd(): void;
-  /** Need you: the shown card's asks, pinned. */
-  asks: readonly AskItem[];
-  asksLoading: boolean;
-  onOpenCard(taskId: string): void;
-  /** An ask answered or dismissed, or the dispatcher asked: read again. */
-  onChanged(): void;
-  /** Unread: what changed on the shown card, in plain words (empty for a card with only an unread turn). */
-  summary: string;
-  /** Ask dispatcher was sent: the dock opens on the chat. */
-  onAskedDispatcher(): void;
-  /** The board group whose dispatcher Ask dispatcher reaches (DISPATCHER-SPEC §0); null: it is off. */
-  groupId: string | null;
 }) {
   const { colors } = useTheme();
-  // Dispatcher messages queued for an asking session (DISPATCHER-SPEC §5.3): read only while asks are pinned here.
-  const queuedOn = kind === "needs" && asks.some((a) => a.state === "open");
-  const queuedQuery = useQueuedMessagesQuery(queuedOn);
-  // A disabled query keeps its cached list: without an open ask nothing queued is shown.
-  const queued = queuedOn ? queuedQuery.data : undefined;
-  const bar = stepBarState(kind, position);
   const title = kind === "needs" ? t("Needs you") : t("Unread");
-  const where =
-    bar.where === "position"
-      ? t("{index} of {total}", { index: position.index! + 1, total: position.total })
-      : bar.where === "answered"
-        ? t("Answered")
-        : bar.where === "caught-up"
-          ? t("All caught up")
-          : "";
   return (
     <View style={{ flexShrink: 0, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface1 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], paddingLeft: space[3], paddingRight: space[2], paddingVertical: space[1.5], minWidth: 0 }}>
@@ -74,98 +32,17 @@ export function StepThroughBar({
           <Label medium size={font.md} lines={1} selectable={false}>
             {title}
           </Label>
-          <Label muted size={font.sm} lines={1} selectable={false}>
-            {where}
-          </Label>
+          {position.index !== null && (
+            <Label muted size={font.sm} lines={1} selectable={false}>
+              {t("{index} of {total}", { index: position.index + 1, total: position.total })}
+            </Label>
+          )}
         </View>
-        {bar.arrows && <IconButton icon="ChevronLeft" label={t("Previous card")} disabled={!position.prev} onPress={onPrev} />}
-        {bar.next === "pill" ? (
-          <Button small primary onPress={onNext}>
-            {t("Next card")}
-          </Button>
-        ) : bar.next === "done" ? (
-          <Button small onPress={onEnd}>
-            {t("Done")}
-          </Button>
-        ) : bar.arrows ? (
-          <IconButton icon="ChevronRight" label={t("Next card")} disabled={!position.next} onPress={onNext} />
-        ) : null}
-        {/* Always there, always enabled: leaves the walk only; the card stays open and nothing is marked read or snoozed. */}
+        <IconButton icon="ChevronLeft" label={t("Previous card")} disabled={!position.prev} onPress={onPrev} />
+        <IconButton icon="ChevronRight" label={t("Next card")} disabled={!position.next} onPress={onNext} />
+        {/* Always enabled: leaves the walk only; the card stays open and nothing is marked read or snoozed. */}
         <IconButton icon="X" label={t("Stop stepping through")} onPress={onEnd} />
       </View>
-      {kind === "needs" ? (
-        asksLoading && !asks.length ? (
-          <View style={{ paddingBottom: space[3], alignItems: "center" }}>
-            <ActivityIndicator size="small" color={colors.foregroundMuted} />
-          </View>
-        ) : asks.length ? (
-          <ScrollView {...verticalScroll} style={{ maxHeight: 320 }} contentContainerStyle={{ ...verticalContent, paddingHorizontal: space[3], paddingBottom: space[3], gap: space[2] }}>
-            {asks.map((ask) => (
-              <AskRow key={ask.signal} item={ask} focused={false} onOpenCard={onOpenCard} onChanged={onChanged} queued={queuedFor(queued, ask.taskId, ask.agentId)} />
-            ))}
-          </ScrollView>
-        ) : null
-      ) : (
-        <UpdatedActions summary={summary} onChanged={onChanged} onAsked={onAskedDispatcher} groupId={groupId} />
-      )}
-    </View>
-  );
-}
-
-/**
- * What changed on the shown card, then Ask dispatcher (`dispatcher.what-next`, §9.2). No Mark seen (Ruling, Noah 2026-11-16).
- */
-function UpdatedActions({
-  summary,
-  onChanged,
-  onAsked,
-  groupId,
-}: {
-  summary: string;
-  onChanged(): void;
-  onAsked(): void;
-  groupId: string | null;
-}) {
-  const whatNext = useRpc(rpc.dispatcherWhatNext);
-  const readStatus = useRpc(rpc.dispatcherStatus);
-  // The dispatcher chat's own status read (shared key): an unguarded one takes no messages from the user (§3).
-  const status = useQuery({
-    queryKey: [...dispatcherStatusKey, groupId ?? "-"],
-    queryFn: () => readStatus({ groupId: groupId! }),
-    enabled: !!groupId,
-    refetchInterval: groupId ? 5_000 : false,
-    placeholderData: (p) => p,
-  });
-  const up = status.data?.state === "running" || status.data?.state === "idle";
-  const locked = up && !!status.data?.unguarded;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const run = (job: () => Promise<unknown>, after: () => void) => {
-    setBusy(true);
-    setError("");
-    void job()
-      .then(
-        () => {
-          onChanged();
-          after();
-        },
-        (e) => setError(dispatcherStartMessage(message(e))),
-      )
-      .finally(() => setBusy(false));
-  };
-  return (
-    <View style={{ paddingHorizontal: space[3], paddingBottom: space[2], gap: space[2] }}>
-      {!!summary && (
-        <Label size={font.sm} selectable={false}>
-          {summary}
-        </Label>
-      )}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[2] }}>
-        <Button small primary disabled={busy || locked || !groupId} onPress={() => groupId && run(() => whatNext({ groupId }), onAsked)}>
-          {t("Ask dispatcher")}
-        </Button>
-      </View>
-      {!!error && <Notice>{error}</Notice>}
     </View>
   );
 }

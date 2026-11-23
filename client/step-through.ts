@@ -1,16 +1,13 @@
 import type { AttentionItem } from "../shared/attention";
 import { openAskCount } from "../shared/attention";
 import { waitsOnYou } from "../shared/attention-dismiss";
-import type { CardChange, ChatItem } from "../shared/dispatcher";
 
 /**
  * Pure parts of the step-throughs in the card sidebar (DISPATCHER-SPEC §9.4; Ruling, Noah 2026-11-09): "N need you"
- * walks the cards with open asks that wait on you, newest first, with each card's asks pinned on top; "N unread" walks
- * the cards with an unread turn, newest first (Ruling, Noah 2026-11-16). No React.
+ * walks the cards with open asks that wait on you, newest first; "N unread" walks
+ * the cards with an unread turn, newest first (Ruling, Noah 2026-11-16); the bar over a card is one row (Ruling, Noah 2026-11-22). No React.
  */
 
-export type AskItem = Extract<ChatItem, { kind: "ask" }>;
-export type ChangeItem = Extract<ChatItem, { kind: "change" }>;
 export type StepKind = "needs" | "updated";
 /** The card shown and where it was in the queue when last seen there (to find its neighbours once it drops out). */
 export type Step = { taskId: string; index: number };
@@ -52,12 +49,6 @@ export function stepSession(item: AttentionItem | undefined, kind: StepKind, res
   return kind === "updated" ? (agents[0] ?? null) : agents.length === 1 ? agents[0] : null;
 }
 
-/** The change line among the chat items, when cards changed. */
-export function changeItem(items: readonly ChatItem[] | undefined): ChangeItem | null {
-  const change = (items ?? []).find((item): item is ChangeItem => item.kind === "change");
-  return change && change.cards.length ? change : null;
-}
-
 /** A step on `taskId`, at its place in `queue`. */
 export function stepAt(queue: readonly string[], taskId: string): Step {
   return { taskId, index: Math.max(0, queue.indexOf(taskId)) };
@@ -72,18 +63,6 @@ export function stepPosition(queue: readonly string[], step: Step): { index: num
   if (i >= 0) return { index: i, total: queue.length, prev: queue[i - 1] ?? null, next: queue[i + 1] ?? null };
   const at = Math.min(step.index, queue.length);
   return { index: null, total: queue.length, prev: queue[at - 1] ?? null, next: queue[at] ?? null };
-}
-
-/**
- * A need-you card's asks to pin in its sidebar: open ones newest first, then those whose session ended; not ones just
- * answered here, and no unread turns (they are in "N unread"; Ruling, Noah 2026-11-09).
- */
-export function cardAsks(items: readonly ChatItem[] | undefined, taskId: string, answered: ReadonlySet<string> = new Set()): AskItem[] {
-  const asks = (items ?? []).filter(
-    (item): item is AskItem => item.kind === "ask" && item.taskId === taskId && !answered.has(item.signal) && waitsOnYou(item.askKind ?? "unread"),
-  );
-  const newest = (a: AskItem, b: AskItem) => time(b.at) - time(a.at);
-  return [...asks.filter((a) => a.state === "open").sort(newest), ...asks.filter((a) => a.state === "session_ended").sort(newest)];
 }
 
 /**
@@ -144,31 +123,14 @@ export function groupSwitchOpen(fromGroupId: string, toGroupId: string, dispatch
 }
 
 /**
- * The bar's label and next control. In the queue: "i of N" and the › arrow. A card that left the queue stays shown:
- * Need you labels it "Answered" and offers Next card as the primary button; Updates has nothing answered (opening a
- * card reads its unread turn, which drops it mid-flip), so it keeps the plain arrow (Ruling, Noah 2026-11-11). With no
- * card left: "All caught up" and Done. Every state has the close X, which only leaves the walk (the card stays open,
- * nothing is marked read or snoozed); with no other card to walk to ("1 of 1") the arrows are hidden, not disabled.
- */
-export function stepBarState(
-  kind: StepKind,
-  position: { index: number | null; prev: string | null; next: string | null },
-): { where: "position" | "answered" | "none" | "caught-up"; next: "arrow" | "pill" | "done"; arrows: boolean; close: true } {
-  const arrows = !!(position.prev || position.next);
-  if (position.index !== null) return { where: "position", next: "arrow", arrows, close: true };
-  if (!position.next) return { where: "caught-up", next: "done", arrows, close: true };
-  return kind === "needs" ? { where: "answered", next: "pill", arrows, close: true } : { where: "none", next: "arrow", arrows, close: true };
-}
-
-/**
  * The order of one walk (§9.4; Ruling, Noah 2026-11-16: both walks hold their order). The live queues are recomputed on
  * every poll (newest first, a new event or ask moves a card to the front, answers and reads drop cards), so walking
  * them directly made the neighbours of the card shown jump. A walk keeps its own order instead: cards still in the live
  * queue stay where they were and a card that joins meanwhile goes to the end. For the unread walk the card shown stays
  * until the user leaves it, and so do the cards this walk visited (`visited`): opening one reads it, so it leaves the
  * live queue, but that is the walk's own doing and Previous must still reach it. A card read elsewhere (never
- * visited here) leaves. The need-you walk passes neither: an answered card drops out at once (the bar then says
- * "Answered").
+ * visited here) leaves. The need-you walk passes neither: an answered card drops out at once (the bar then shows
+ * no position).
  */
 export function stableQueue(prev: readonly string[], live: readonly string[], shown: string | null, visited: ReadonlySet<string> = new Set()): string[] {
   const liveSet = new Set(live);
@@ -186,36 +148,4 @@ export function walkQueue(prev: Walk | null, kind: StepKind, live: readonly stri
   const visited = same?.visited ?? new Set<string>();
   visited.add(shown);
   return { kind, ids: stableQueue(same?.ids ?? [], live, shown, visited), visited };
-}
-
-/** What changed on a card, in plain words, for the picker (§9.2): "Moved to Committed · New result note". Empty when unknown. */
-export function changeSummary(
-  changes: readonly CardChange[] | undefined,
-  t: (text: string, values?: Record<string, string | number>) => string,
-  lane: (status: string) => string,
-): string {
-  const words = (c: CardChange) => {
-    switch (c.kind) {
-      case "moved":
-        return c.status ? t("Moved to {lane}", { lane: lane(c.status) }) : t("Card updated");
-      case "result":
-        return t("New result note");
-      case "question":
-        return t("New question");
-      case "blocker":
-        return t("New blocker");
-      case "session_finished":
-        return t("Session finished");
-      case "session_failed":
-        return t("Session failed");
-      case "note":
-        return t("New progress note");
-      default:
-        return t("Card updated");
-    }
-  };
-  const parts = (changes ?? []).map(words);
-  // "Card updated" is only the fallback for bookkeeping, shown when nothing plainer happened.
-  const plain = parts.filter((p) => p !== t("Card updated"));
-  return [...new Set(plain.length ? plain : parts)].join(" · ");
 }

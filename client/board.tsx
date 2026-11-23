@@ -52,7 +52,7 @@ import { DispatcherPanel } from "./dispatcher-panel";
 import { LeftDock } from "./left-dock";
 import { lastCollapsed, rememberCollapsed, shownCollapsed } from "./collapsed-columns";
 import { dockShortcut, escAction, toolbarDockButtons } from "./dock-logic";
-import { cardAsks, changeItem, changeSummary, needsCount, groupSwitchOpen, needsQueue, needsStartAction, dispatcherInView, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, walkQueue, type Step, type StepKind, type Walk } from "./step-through";
+import { needsCount, groupSwitchOpen, needsQueue, needsStartAction, dispatcherInView, stepAt, stepPosition, stepSession, stepStartTarget, updatedQueue, walkQueue, type Step, type StepKind, type Walk } from "./step-through";
 import { StepThroughBar } from "./step-through-bar";
 import { bellResolved, forgetAnsweredMissing, markAsksAnswered, useAnsweredAsks } from "./answered-asks";
 import {
@@ -82,7 +82,7 @@ import { waitingOn } from "../shared/links";
 import { LinkPicker } from "./task-links";
 import { TaskDrawer } from "./drawer";
 import { DeleteTaskDialog } from "./task-delete";
-import { asksResolvedKey, dispatcherItemsKey, useDispatcherItemsQuery, useOverviewQuery, useLiveAgents, useGuardrailCountsQuery, useResolvedAsksQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
+import { useDispatcherItemsQuery, useOverviewQuery, useLiveAgents, useGuardrailCountsQuery, useResolvedAsksQuery, useResourcesQuery, useWorkflowInsightsQuery } from "./queries";
 import { groupOpenIdeaCount } from "./overview-query";
 import { useStableCallback, useStableTheme } from "./stable";
 import { isLegacyScope } from "../shared/scope";
@@ -996,7 +996,6 @@ function BoardContent(
     [boardGroups, board?.projects, group?.id, attention, resolvedSignals, dispatcherNeeds],
   );
   const otherNeedTotal = useMemo(() => [...otherNeeds.values()].reduce((n, x) => n + x, 0), [otherNeeds]);
-  const changed = useMemo(() => changeItem(dispatcherItems.data), [dispatcherItems.data]);
   const updatedIds = useMemo(() => updatedQueue(attention, resolvedSignals, stepScope), [attention, resolvedSignals, stepScope]);
   const [step, setStep] = useState<(Step & { kind: StepKind }) | null>(null);
   // Both walks keep their own order (walkQueue): the live queues reorder on every poll and drop cards as they are read or answered.
@@ -1019,7 +1018,6 @@ function BoardContent(
   useEffect(() => {
     if (step && taskId !== step.taskId) setStep(null);
   }, [taskId]);
-  const stepAsks = useMemo(() => (step?.kind === "needs" ? cardAsks(dispatcherItems.data, step.taskId, answeredAsks) : []), [step?.kind, step?.taskId, dispatcherItems.data, answeredAsks]);
   // A card of the step-through: its card, and the session that waits there (need-you: the one asking, when only one
   // does; updated: its unread chat, which opening reads).
   const showStepCard = (kind: StepKind, id: string) => {
@@ -1079,12 +1077,6 @@ function BoardContent(
   const stepPrev = useStableCallback(() => step && stepWhere?.prev && showStepCard(step.kind, stepWhere.prev));
   const stepNext = useStableCallback(() => step && stepWhere?.next && showStepCard(step.kind, stepWhere.next));
   const endStep = useStableCallback(() => setStep(null));
-  const changedCard = useMemo(() => (step?.kind === "updated" ? (changed?.cards.find((c) => c.taskId === step.taskId) ?? null) : null), [step?.kind, step?.taskId, changed]);
-  const stepChanged = useStableCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: dispatcherItemsKey });
-    void queryClient.invalidateQueries({ queryKey: ["flowly", "attention-count"] });
-    void queryClient.invalidateQueries({ queryKey: asksResolvedKey });
-  });
   // The project's tag vocabulary, plus prefix options for hierarchical tags (CARD-TAGS-SPEC §6.4). All: the union.
   const projectTags = useMemo(() => {
     const ids = allView ? liveProjects.map((p) => p.id) : project ? [project.id] : [];
@@ -1384,7 +1376,6 @@ function BoardContent(
       setChat((c) => (c.open === open && c.mounted ? c : { open, mounted: c.mounted || open }));
     } else if (open !== chatOpen) void view.update({ chatMinimized: !open });
   });
-  const openDock = useStableCallback(() => setDockOpen(true));
   // N need you while the shown group's dispatcher waits (§9.4; Ruling, Noah 2026-11-16): the dock on its chat, where its
   // pending requests show with their actions. The box is not focused, so a phone's keyboard does not cover them.
   const openWaitingDispatcher = useStableCallback(() => {
@@ -2241,13 +2232,6 @@ function BoardContent(
           onPrev={stepPrev}
           onNext={stepNext}
           onEnd={endStep}
-          asks={stepAsks}
-          asksLoading={!dispatcherItems.data}
-          onOpenCard={openTaskById}
-          onChanged={stepChanged}
-          summary={step.kind === "updated" ? changeSummary(changedCard?.changes, t, (status) => laneName(drawer.item!.project, status as Status)) : ""}
-          onAskedDispatcher={openDock}
-          groupId={dispatcherGroupId}
         />
       )}
       <TaskDrawer

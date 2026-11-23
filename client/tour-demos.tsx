@@ -85,8 +85,8 @@ function needDetail(need: Need) {
 
 /**
  * The overview's "N need you" chip and the step-through it starts in the card sidebar (DISPATCHER-SPEC §9.4; Ruling,
- * Noah 2026-11-09): "1 of N" with ‹ Prev / Next ›, the card's ask on top. Answering or dismissing it leaves the card
- * shown as Answered and offers Next card; the count follows. Nothing moves by itself.
+ * Noah 2026-11-22): one row, "Needs you · i of N" with ‹ › and ✕, the arrows disabled at the ends. Handling the card
+ * leaves it shown without a position; › walks on and the count follows. Nothing moves by itself.
  */
 export function AttentionDemo() {
   const { colors } = useTheme();
@@ -134,18 +134,14 @@ export function AttentionDemo() {
                 <View style={{ flexDirection: "row", alignItems: "center", gap: space[1], paddingLeft: space[3], paddingRight: space[2], paddingVertical: space[1.5], borderBottomWidth: 1, borderColor: colors.border, backgroundColor: colors.surface1 }}>
                   <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "baseline", gap: space[2] }}>
                     <Label medium size={font.md} lines={1} selectable={false}>{t("Needs you")}</Label>
-                    <Label muted size={font.sm} lines={1} selectable={false}>
-                      {index >= 0 ? t("{index} of {total}", { index: index + 1, total: queue.length }) : next ? t("Answered") : t("All caught up")}
-                    </Label>
+                    {index >= 0 && (
+                      <Label muted size={font.sm} lines={1} selectable={false}>
+                        {t("{index} of {total}", { index: index + 1, total: queue.length })}
+                      </Label>
+                    )}
                   </View>
                   <IconButton icon="ChevronLeft" label={t("Previous card")} disabled={!prev} onPress={() => prev && setShown(prev.id)} />
-                  {index < 0 && next ? (
-                    <Button small primary onPress={() => setShown(next.id)}>{t("Next card")}</Button>
-                  ) : index < 0 ? (
-                    <Button small onPress={() => setShown(null)}>{t("Done")}</Button>
-                  ) : (
-                    <IconButton icon="ChevronRight" label={t("Next card")} disabled={!next} onPress={() => next && setShown(next.id)} />
-                  )}
+                  <IconButton icon="ChevronRight" label={t("Next card")} disabled={!next} onPress={() => next && setShown(next.id)} />
                   <IconButton icon="X" label={t("Stop stepping through")} onPress={() => setShown(null)} />
                 </View>
                 <View style={{ padding: space[1.5] }}>

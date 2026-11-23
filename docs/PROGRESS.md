@@ -169,6 +169,13 @@
 - Not run: before/after UI captures (user ruling 2026-11-18: ship to main and install; the user opens a new card if the look needs changes). No tooltip: the plugin API has no tooltip primitive, so the full text is the accessibility label.
 - No tour page, tip, What's new entry (visible where the user already looks) or telemetry field.
 
+## Step-through bar trimmed to one row (branch `kanban/trim-the-unread-and-need-you-step-throug-eb93ed`) — 2026-11-22
+
+- Change (user decision 2026-11-22): the bar is `<Name> · <i of N>` with ‹ › ✕. "{index} of {total}" shows only while the card is in the queue; the arrows are always there, disabled at the ends; Answered, Next card, All caught up, Done, the pinned asks, the queued-messages read, the change summary and Ask dispatcher are removed. Chip counts, queues, walk order, `stepSession`, start rules, shortcuts and Esc are unchanged.
+- Code: `stepBarState`, `cardAsks`, `changeItem` and `changeSummary` deleted from `client/step-through.ts` (nothing else used them); `StepThroughBar` loses its asks, summary and dispatcher props; the tour's Attention demo bar and its "Step through" legend follow. Unused catalog entries removed, the new legend added to all nine. Specs: DISPATCHER-SPEC §9.4 ruling 2026-11-22, ATTENTION-DISMISS-SPEC §3.1, ONBOARDING-SETUP-SPEC.
+- Tests: `client/step-through.test.ts` loses only the tests of the deleted functions; `npm run typecheck` and `npm test` (the six files that need Node 22's `registerHooks` fail on Node 20 with or without this change).
+- No tip, What's new entry or telemetry field (patch-level trim of an existing control).
+
 ## Step-through bar always has an X (branch `kanban/unread-step-through-1-of-1-give-a-way-ou-4d0ebf`) — 2026-11-17
 
 - Defect: with one card in a walk ("Unread · 1 of 1", typically after opening the only unread card) the bar showed two disabled arrows and no way out; Done appears only once the card leaves the queue, and the visited card stays in the unread walk (`walkQueue`), so it never did.

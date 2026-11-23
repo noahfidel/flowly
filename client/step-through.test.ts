@@ -1,8 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { Project, Task } from "../shared/model";
 import type { AttentionItem } from "../shared/attention";
-import type { ChatItem } from "../shared/dispatcher";
-import { walkQueue, changeSummary, stableQueue, cardAsks, needsCount, needsQueue, stepAt, stepBarState, stepPosition, stepSession, stepStartTarget, needsStartAction, groupSwitchOpen, dispatcherInView, updatedQueue } from "./step-through";
+import { walkQueue, stableQueue, needsCount, needsQueue, stepAt, stepPosition, stepSession, stepStartTarget, needsStartAction, groupSwitchOpen, dispatcherInView, updatedQueue } from "./step-through";
 import { dispatcherWaits } from "../shared/attention";
 import { otherGroupNeeds } from "./board-groups";
 
@@ -99,30 +98,6 @@ test("when the shown card drops out (answered), it stays shown and next is the c
   expect(stepPosition(["new", "a", "b", "c"], step)).toEqual({ index: 2, total: 4, prev: "a", next: "c" });
 });
 
-const ask = (signal: string, taskId: string, s: number, state: "open" | "answered" | "session_ended" = "open", askKind: "question_report" | "unread" = "question_report"): ChatItem => ({
-  id: `ask-${signal}`,
-  at: at(s),
-  kind: "ask",
-  signal,
-  taskId,
-  projectId: "p",
-  title: taskId,
-  state,
-  askKind,
-});
-
-test("the card's pinned asks: its open asks newest first, then ended ones; answered and other cards' asks are not", () => {
-  const items = [ask("1", "a", 1), ask("2", "a", 5), ask("3", "a", 3, "answered"), ask("4", "a", 9, "session_ended"), ask("5", "b", 7)];
-  expect(cardAsks(items, "a").map((x) => x.signal)).toEqual(["2", "1", "4"]);
-  expect(cardAsks(items, "a", new Set(["2"])).map((x) => x.signal)).toEqual(["1", "4"]);
-  expect(cardAsks(undefined, "a")).toEqual([]);
-});
-
-test("a need-you card pins no unread turns: those are in N updated (Ruling, Noah 2026-11-09)", () => {
-  const items = [ask("q", "a", 1), ask("u", "a", 9, "open", "unread"), ask("u2", "a", 5, "session_ended", "unread")];
-  expect(cardAsks(items, "a").map((x) => x.signal)).toEqual(["q"]);
-});
-
 test("pressing the chip of the open step-through keeps the current card and place; the other kind starts at its first card", () => {
   const queue = ["a", "b", "c"];
   const open = stepAt(queue, "b");
@@ -144,40 +119,6 @@ test("starting Updates on a card it counts starts there; on any other card it op
   expect(stepStartTarget(null, null, "updated", [], "b")).toBeNull();
   // Need you is unchanged: always its first card.
   expect(stepStartTarget(null, null, "needs", queue, "b")).toEqual({ taskId: "a", keep: false });
-});
-
-test("the bar: in the queue it shows i of N with the arrow; a card that left it differs by kind (Ruling, Noah 2026-11-11)", () => {
-  const inQueue = { index: 1, total: 3, prev: "a", next: "c" };
-  const left = { index: null, total: 2, prev: "a", next: "c" };
-  const last = { index: null, total: 1, prev: "a", next: null };
-  expect(stepBarState("needs", inQueue)).toMatchObject({ where: "position", next: "arrow" });
-  expect(stepBarState("updated", inQueue)).toMatchObject({ where: "position", next: "arrow" });
-  expect(stepBarState("needs", left)).toMatchObject({ where: "answered", next: "pill" });
-  // Updates has nothing answered: reading a card's unread turn drops it mid-flip, so the plain arrow stays.
-  expect(stepBarState("updated", left)).toMatchObject({ where: "none", next: "arrow" });
-  expect(stepBarState("needs", last)).toMatchObject({ where: "caught-up", next: "done" });
-  expect(stepBarState("updated", last)).toMatchObject({ where: "caught-up", next: "done" });
-});
-
-test("the bar always offers a way out: the close X in every state, and no dead arrows when the walk has one card", () => {
-  const states = [
-    { index: 0, total: 1, prev: null, next: null }, // 1 of 1: the user's stuck case
-    { index: 0, total: 3, prev: null, next: "b" }, // 1 of N
-    { index: 1, total: 3, prev: "a", next: "c" }, // i of N
-    { index: 2, total: 3, prev: "b", next: null }, // N of N
-    { index: null, total: 2, prev: "a", next: "c" }, // left the queue, another follows
-    { index: null, total: 1, prev: "a", next: null }, // caught up
-    { index: null, total: 0, prev: null, next: null }, // caught up, nothing else
-  ];
-  for (const kind of ["needs", "updated"] as const) for (const position of states) expect(stepBarState(kind, position).close).toBe(true);
-  // 1 of 1: no other card to walk to, so the arrows are hidden, not shown disabled.
-  for (const kind of ["needs", "updated"] as const) {
-    expect(stepBarState(kind, { index: 0, prev: null, next: null })).toMatchObject({ where: "position", arrows: false, close: true });
-    expect(stepBarState(kind, { index: null, prev: null, next: null })).toMatchObject({ arrows: false, close: true });
-    // Multi-card walks keep their arrows, at either end too.
-    expect(stepBarState(kind, { index: 2, prev: "b", next: null })).toMatchObject({ where: "position", next: "arrow", arrows: true });
-    expect(stepBarState(kind, { index: 0, prev: null, next: "b" })).toMatchObject({ where: "position", next: "arrow", arrows: true });
-  }
 });
 
 test("the walk keeps its order: marking or reading cards and new updates never move the current card's neighbours", () => {
@@ -211,18 +152,6 @@ test("the walk keeps the cards it visited, though visiting them reads them", () 
   expect(stepPosition(walk, { taskId: "a", index: 0 })).toMatchObject({ prev: null, next: "b" });
   // a card read elsewhere (never visited) still leaves
   expect(stableQueue(["a", "b", "c"], ["c"], "a", new Set(["a"]))).toEqual(["a", "c"]);
-});
-
-test("a changed card's summary reads in plain words", () => {
-  const t = (s: string, v?: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (_, k) => String(v?.[k]));
-  expect(
-    changeSummary(
-      [{ kind: "moved", status: "committed" }, { kind: "result" }, { kind: "session_finished" }, { kind: "question" }],
-      t,
-      (status) => status[0].toUpperCase() + status.slice(1),
-    ),
-  ).toBe("Moved to Committed · New result note · Session finished · New question");
-  expect(changeSummary(undefined, t, (s) => s)).toBe("");
 });
 
 // DISPATCHER-SPEC §9.4, Ruling (Noah, 2026-11-16): the shown group's dispatcher's own asks.
@@ -328,7 +257,7 @@ describe("walkQueue", () => {
     expect(stepPosition(next.ids, { taskId: "b", index: 1 })).toMatchObject({ index: 1, total: 4, prev: "a", next: "c" });
   });
 
-  test("an answered card drops out of the need-you walk: Answered with the card that took its place", () => {
+  test("an answered card drops out of the need-you walk: the card that took its place is next", () => {
     const walk = walkQueue(null, "needs", ["a", "b", "c", "d"], "b");
     const after = walkQueue(walk, "needs", ["d", "a", "c"], "b");
     expect(after.ids).toEqual(["a", "c", "d"]);
@@ -336,7 +265,6 @@ describe("walkQueue", () => {
     const where = stepPosition(after.ids, { taskId: "b", index: 1 });
     expect(where.index).toBeNull();
     expect(where.next).toBe("c");
-    expect(stepBarState("needs", where)).toMatchObject({ where: "answered", next: "pill", arrows: true, close: true });
   });
 
   test("the updated walk keeps the shown and visited cards", () => {
