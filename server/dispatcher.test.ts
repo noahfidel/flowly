@@ -1199,7 +1199,7 @@ async function charterDispatcher(charter?: number) {
 }
 
 test("a guarded dispatcher with every tool but an older charter says a new one gets the current one (§3)", async () => {
-  for (const charter of [undefined, 0, 11]) {
+  for (const charter of [undefined, 0, 11, dispatcherCharterVersion - 1]) {
     const x = await charterDispatcher(charter);
     expect(await x.dispatcher.status(x.paseo)).toEqual({ state: "idle", agentId: "old", oldCharter: true });
     expect(x.created).toHaveLength(0);
@@ -1711,14 +1711,14 @@ test("the charter creates and starts a card for every work request and parks ide
   expect(ideas).toMatch(/side thought/);
   expect(ideas).toMatch(/an agent[^.]*proposes/);
   expect(ideas).toMatch(/never for something the user asked/i);
-  expect(ideas).toMatch(/[Nn]ever create or start a card on an agent's say-so/);
+  expect(ideas).toMatch(/Never start such a card on the agent's say-so/);
   // The old parking wording is gone everywhere.
   expect(charter).not.toContain("Park asks that should not start now");
   expect(charter).not.toMatch(/park it as an idea or give/);
   // Safeguards stay: the create confirm, the start rule, BASE_CHOICE_NEEDED and the asks rule.
   expect(charter).toContain(startRule);
-  expect(lines.find((l) => l.includes("CARD_REFUSED"))).toMatch(/asks the user to confirm it in this chat/);
-  expect(lines.find((l) => l.includes("BASE_CHOICE_NEEDED"))).toMatch(/BASE_CHOICE_NEEDED ask the user with AskUserQuestion/);
+  expect(lines.find((l) => l.includes("CARD_REFUSED") && !l.startsWith("- An approval"))).toMatch(/asks the user to confirm it in this chat/);
+  expect(lines.find((l) => l.includes("BASE_CHOICE_NEEDED") && !l.startsWith("- An approval"))).toMatch(/BASE_CHOICE_NEEDED ask the user with AskUserQuestion/);
   expect(charter).toMatch(/You have no tool that answers them/);
   expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(10);
   expect(dispatcherGuardVersion).toBe(2);
@@ -1762,7 +1762,7 @@ test("the charter sends a refinement of a card's work to that card, versioned 12
 });
 
 test("the charter finds another group's id with flowly_list_groups first, versioned 13 (DISPATCHER-SPEC §5.11)", () => {
-  expect(dispatcherCharterVersion).toBe(13);
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(13);
   expect(dispatcherToolNames).toContain("flowly_list_groups");
   const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.startsWith("- Message another board group's dispatcher"))!;
   expect(line).toContain("flowly_list_groups");
@@ -1770,9 +1770,32 @@ test("the charter finds another group's id with flowly_list_groups first, versio
   expect(line).toMatch(/none or unguarded, tell the user/);
 });
 
+test("the charter starts an approved card and leaves an agent-requested one in Todo, versioned 14 (user request 2026-11-24)", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  const lines = charter.split("\n");
+  const approval = lines.find((l) => l.startsWith("- An approval starts the card:"))!;
+  expect(approval).toBeDefined();
+  for (const part of ["flowly_create_card", "flowly_start_card", "in the same turn", "never ask again", '"hold"', '"don\'t start"', "CARD_REFUSED", "BASE_CHOICE_NEEDED", "another agent asked for"]) {
+    expect(approval).toContain(part);
+  }
+  expect(lines.indexOf(approval)).toBe(lines.indexOf(`- ${startRule}`) + 1);
+  const park = lines.find((l) => l.startsWith("- Park a project idea"))!;
+  expect(park).toBeDefined();
+  for (const part of ["asks you to create a card", "call flowly_create_card right away", "its confirm is the user's decision", "waits in Todo", "start it only when the user says so", "Never start such a card on the agent's say-so"]) {
+    expect(park).toContain(part);
+  }
+  expect(charter).not.toContain("let them decide");
+  const peer = lines.find((l) => l.startsWith("- Message another board group's dispatcher"))!;
+  expect(peer).toBeDefined();
+  expect(peer).not.toContain("create and start a card in its group");
+  expect(peer).toContain("waits in Todo there");
+  expect(dispatcherCharterVersion).toBe(14);
+  expect(dispatcherGuardVersion).toBe(2);
+});
+
 test("the charter says each card creation is confirmed in the chat and a cancel stops it (DISPATCHER-SPEC §5.2, §6)", () => {
   const charter = dispatcherCharter({ name: "Projects" });
-  const line = charter.split("\n").find((l) => l.includes("CARD_REFUSED"))!;
+  const line = charter.split("\n").find((l) => l.includes("CARD_REFUSED") && !l.startsWith("- An approval"))!;
   expect(line).toBeDefined();
   expect(line).toContain("flowly_create_card");
   expect(line).toMatch(/asks the user to confirm it in this chat/);
@@ -1809,7 +1832,7 @@ test("the charter has the rules for messaging another group's dispatcher and is 
 
 test("the charter says how a follow-up is created and where it branches from, and is versioned 4 (START-CARD-SPEC §11)", () => {
   const charter = dispatcherCharter({ name: "Projects" });
-  const line = charter.split("\n").find((l) => l.includes("BASE_CHOICE_NEEDED"))!;
+  const line = charter.split("\n").find((l) => l.includes("BASE_CHOICE_NEEDED") && !l.startsWith("- An approval"))!;
   expect(line).toBeDefined();
   // Linked before the start, so flowly_start_card sees the parent.
   expect(line).toMatch(/flowly_link_cards[^.]*follow_up[^.]*before[^.]*flowly_start_card/);
@@ -1837,7 +1860,7 @@ test("the charter asks the user with AskUserQuestion or a confirmed tool, never 
   // Never for a "start" request (startRule wins), and a refused ask falls back to one line of text.
   expect(line).toMatch(/never for a "start" request/);
   expect(line).toMatch(/If AskUserQuestion is refused, ask in one line of text/);
-  expect(dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("BASE_CHOICE_NEEDED"))).toMatch(/BASE_CHOICE_NEEDED ask the user with AskUserQuestion/);
+  expect(dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("BASE_CHOICE_NEEDED") && !l.startsWith("- An approval"))).toMatch(/BASE_CHOICE_NEEDED ask the user with AskUserQuestion/);
   expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(5);
   // The guard stays: an older dispatcher only lacks the tool, the charter's Replace warning covers it (§3).
   expect(dispatcherGuardVersion).toBe(2);

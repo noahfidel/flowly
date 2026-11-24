@@ -1,5 +1,14 @@
 # Implementation progress
 
+## Dispatcher charter v14: approved cards start at once, agent card requests go to the confirm (branch `kanban/dispatcher-charter-an-approved-card-is-c-bb4be5`) — 2026-11-24
+
+- Finding: both live dispatchers (Tooling and Zenlytic groups) were recorded at charter 13, the current version, so the Zenlytic dispatcher was not outdated; the charter had no rule for an approval (only "when the user asks for work" and "start X"), and "never create or start a card on an agent's say-so … let them decide" made agent-requested cards need a text yes and then the confirm.
+- Change: an approved card (yes, "create it", "do that idea", the confirm's Create) is created and started in the same turn, "hold" keeps it in Todo; a card another agent asks for is created through the confirm right away and never started on the agent's say-so (it waits in Todo until the user says so); a peer-dispatcher request now creates a card that waits in Todo. Charter version 13 to 14; ruling 2026-11-24 in DISPATCHER-SPEC §5.2.
+- Code: `shared/dispatcher.ts` only; the Replace warning comes from the version bump; both dispatchers need Replace dispatcher to load v14.
+- Tests: new test "the charter starts an approved card and leaves an agent-requested one in Todo, versioned 14"; `npx vitest run server/dispatcher.test.ts` 131 passed (131), `npm run typecheck` exit 0; four older charter tests now skip the new approval line when looking up the CARD_REFUSED and BASE_CHOICE_NEEDED lines; the old-charter test now also covers a record at version 13.
+- Onboarding, What's new, tips, telemetry, i18n: none (agent-facing charter text only).
+- Not run: a live dispatcher conversation with an approval and an agent request.
+
 ## Opening a card's chat focuses its message box (branch `kanban/opening-a-chat-from-a-card-should-let-yo-b067e9`) — 2026-11-23
 
 - Cause: every way into a card chat ended in `setSelected(id)`, and nothing handed focus to the message box (after a click focus fell to the page body; after O / Back / Forward the board takes it).
