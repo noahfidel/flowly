@@ -41,6 +41,7 @@ import {
   getUmbrella,
   listUmbrellas,
   reopenUmbrella,
+  setAcceptanceDone,
   setMembership,
   updateEntry,
   updateUmbrella,
@@ -908,6 +909,7 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.getUmbrella, (input) => coded(async () => getUmbrella(await store.read(), input.id)));
   server.handle(rpc.createUmbrella, (input) => coded(() => createUmbrella(store, input, human)));
   server.handle(rpc.updateUmbrella, (input) => coded(() => updateUmbrella(store, input, human)));
+  server.handle(rpc.tickUmbrellaAcceptance, (input) => coded(() => setAcceptanceDone(store, input, human)));
   server.handle(rpc.setUmbrellaMember, (input) => coded(() => setMembership(store, input, human)));
   server.handle(rpc.updateUmbrellaEntry, (input) => coded(() => updateEntry(store, input, human)));
   server.handle(rpc.closeUmbrella, (input) => coded(() => closeUmbrella(store, input, human)));

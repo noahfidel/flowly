@@ -288,9 +288,12 @@ export const umbrellaUpdateInput = z.strictObject({
   /** null clears it; changing it bumps `revision`, not the brief's revision. */
   briefSource: briefSourceInput.nullable().optional(),
   contract: z.string().max(umbrellaLimits.contract).optional(),
-  /** The whole list; an item without `id` is new, an unchanged one keeps its author. */
+  /**
+   * The whole list's text and order; an item without `id` is new and starts not done, an existing id keeps its `done`,
+   * `by` and `at` as the server has them (ticks go through `umbrellaTickInput`, so a save never undoes one), a missing id is removed.
+   */
   acceptance: z
-    .array(z.strictObject({ id: z.string().min(1).max(200).optional(), text: z.string().trim().min(1).max(umbrellaLimits.acceptanceText), done: z.boolean() }))
+    .array(z.strictObject({ id: z.string().min(1).max(200).optional(), text: z.string().trim().min(1).max(umbrellaLimits.acceptanceText) }))
     .max(umbrellaLimits.acceptance)
     .optional(),
   /** null clears it. */
@@ -299,6 +302,9 @@ export const umbrellaUpdateInput = z.strictObject({
   linearProject: linearProjectInput.nullable().optional(),
 });
 export type UmbrellaUpdateInput = z.infer<typeof umbrellaUpdateInput>;
+/** The user's tick of one acceptance item (§11): applied to the umbrella as it is now, with no revision check. */
+export const umbrellaTickInput = z.strictObject({ id: z.string().min(1).max(200), itemId: z.string().min(1).max(200), done: z.boolean() });
+export type UmbrellaTickInput = z.infer<typeof umbrellaTickInput>;
 export const umbrellaMemberInput = z.strictObject({
   taskId: z.string().min(1).max(200),
   /** null: leave the umbrella. */

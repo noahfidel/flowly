@@ -14,6 +14,7 @@ import {
   type UmbrellaMember,
   type UmbrellaMemberInput,
   type UmbrellaRevisionInput,
+  type UmbrellaTickInput,
   type UmbrellaSummary,
   type UmbrellaUpdateInput,
 } from "../shared/umbrella";
@@ -115,9 +116,12 @@ export function updateUmbrella(store: BoardStore, input: UmbrellaUpdateInput, by
       changed = true;
     }
     if (input.acceptance !== undefined) {
+      // Text and order only: an existing item keeps the `done`, `by` and `at` the server has (a tick made meanwhile
+      // survives), a new one starts not done (§11).
       const next = input.acceptance.map((item) => {
         const old = item.id ? u.acceptance.find((a) => a.id === item.id) : undefined;
-        return old && old.text === item.text && old.done === item.done ? old : { id: old?.id ?? randomUUID(), text: item.text, done: item.done, by, at: now };
+        if (old) return old.text === item.text ? old : { ...old, text: item.text };
+        return { id: randomUUID(), text: item.text, done: false, by, at: now };
       });
       if (JSON.stringify(next) !== JSON.stringify(u.acceptance)) {
         u.acceptance = next;
@@ -141,6 +145,26 @@ export function updateUmbrella(store: BoardStore, input: UmbrellaUpdateInput, by
     if (!changed) return { value: u, changed: false };
     u.revision++;
     u.updatedAt = now;
+    return { value: u, changed: true };
+  });
+}
+
+/**
+ * The user's tick of one acceptance item (panel checkbox, §11): sets `done`, `by` and `at` on the umbrella as it is now,
+ * so it never rewrites another item. No revision check and no `revision` bump (like an agent's tick, only `feedRevision`
+ * moves, when something changed); an open umbrella only (`UMBRELLA_CLOSED`), an unknown item is `NOT_FOUND`.
+ */
+export function setAcceptanceDone(store: BoardStore, input: UmbrellaTickInput, by: Actor): Promise<Umbrella> {
+  return store.transaction((board) => {
+    const u = find(board, input.id);
+    requireOpen(u);
+    const item = u.acceptance.find((a) => a.id === input.itemId);
+    if (!item) throw new ToolError("NOT_FOUND", "No acceptance item with that id in this umbrella.");
+    if (item.done === input.done) return { value: u, changed: false };
+    item.done = input.done;
+    item.by = by;
+    item.at = new Date().toISOString();
+    u.feedRevision++;
     return { value: u, changed: true };
   });
 }

@@ -58,6 +58,7 @@ import {
   umbrellaRevisionInput,
   umbrellaSummarySchema,
   umbrellaUpdateInput,
+  umbrellaTickInput,
 } from "./umbrella";
 import { healthSchema, preparationSchema, projectIdeaInputSchema, startCardResultSchema } from "./tools";
 import { connectionInput, connectionSchema, externalSummarySchema, itemTypeSchema } from "./connectors";
@@ -411,6 +412,11 @@ export const createUmbrella = defineRpc({
 export const updateUmbrella = defineRpc({
   name: "umbrellas.update",
   input: umbrellaUpdateInput,
+  output: umbrellaSchema,
+});
+export const tickUmbrellaAcceptance = defineRpc({
+  name: "umbrellas.tick-acceptance",
+  input: umbrellaTickInput,
   output: umbrellaSchema,
 });
 export const setUmbrellaMember = defineRpc({

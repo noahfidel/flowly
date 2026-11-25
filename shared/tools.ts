@@ -341,7 +341,8 @@ export const updateUmbrellaAcceptanceInputSchema = z.strictObject({
       }),
     )
     .min(1)
-    .max(umbrellaLimits.acceptance),
+    .max(umbrellaLimits.acceptance)
+    .refine((items) => new Set(items.map((i) => i.id)).size === items.length, { message: "Name each item id once." }),
   note: z
     .string()
     .trim()

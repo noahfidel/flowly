@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { BoardStore } from "./store";
 import {
   addEntry, archiveUmbrella, closeUmbrella, createUmbrella, getUmbrella, listUmbrellas, newCardUmbrella, proposeChange, reopenUmbrella, resolveChange, setMembership,
-  tickAcceptance, umbrellaWriteLimiter, updateEntry, updateUmbrella, withdrawEntry,
+  setAcceptanceDone, tickAcceptance, umbrellaWriteLimiter, updateEntry, updateUmbrella, withdrawEntry,
 } from "./umbrellas";
 import { createUmbrella as createRpc, updateUmbrella as updateRpc } from "../shared/rpc";
 import { umbrellaLimits } from "../shared/umbrella";
@@ -192,11 +192,12 @@ test("update checks the umbrella revision and bumps brief and contract revisions
   expect(renamed).toMatchObject({ title: "Renamed", revision: 3, brief: { revision: 1 }, contract: { revision: 1 } });
   // Acceptance items keep their author when unchanged.
   const agent: Actor = { kind: "dispatcher", agentId: "d" };
-  const listed = await updateUmbrella(store, { id: u.id, revision: 3, acceptance: [{ text: "Works end to end", done: false }] }, agent);
+  const listed = await updateUmbrella(store, { id: u.id, revision: 3, acceptance: [{ text: "Works end to end" }] }, agent);
   const itemId = listed.acceptance[0].id;
-  const ticked = await updateUmbrella(store, { id: u.id, revision: 4, acceptance: [{ id: itemId, text: "Works end to end", done: true }, { text: "Second", done: false }] }, human);
-  expect(ticked.acceptance).toMatchObject([{ id: itemId, done: true, by: human }, { text: "Second", by: human }]);
-  const kept = await updateUmbrella(store, { id: u.id, revision: 5, acceptance: [{ id: itemId, text: "Works end to end", done: true }] }, agent);
+  const ticked = await updateUmbrella(store, { id: u.id, revision: 4, acceptance: [{ id: itemId, text: "Works end to end" }, { text: "Second" }] }, human);
+  // A list save never ticks: the first item keeps its author, the new one starts not done.
+  expect(ticked.acceptance).toMatchObject([{ id: itemId, done: false, by: agent }, { text: "Second", done: false, by: human }]);
+  const kept = await updateUmbrella(store, { id: u.id, revision: 5, acceptance: [{ id: itemId, text: "Works end to end" }] }, agent);
   expect(kept.acceptance).toEqual([ticked.acceptance[0]]);
   expect(updateRpc.input.safeParse({ id: u.id, revision: 1, brief: "x".repeat(umbrellaLimits.brief + 1) }).success).toBe(false);
   expect(updateRpc.input.safeParse({ id: u.id, revision: 1, contract: "x".repeat(umbrellaLimits.contract + 1) }).success).toBe(false);
@@ -723,7 +724,7 @@ async function acceptanceSetup() {
   const x = await feedSetup();
   await updateUmbrella(
     x.store,
-    { id: x.u.id, revision: x.u.revision, acceptance: [{ text: "Corrections reach the next session", done: false }, { text: "No duplicate notes", done: false }], integrationTaskId: "a" },
+    { id: x.u.id, revision: x.u.revision, acceptance: [{ text: "Corrections reach the next session" }, { text: "No duplicate notes" }], integrationTaskId: "a" },
     human,
   );
   const board = await x.store.read();
@@ -774,4 +775,27 @@ test("a tick bumps feedRevision and leaves revision alone; a closed umbrella ref
   expect(() =>
     tickAcceptance(closed, closed.tasks.find((t) => t.id === "a")!, { acceptance: [{ id: u.acceptance[1]!.id, done: true }], note: "ok" }, agent("a"), now),
   ).toThrow(expect.objectContaining({ code: "UMBRELLA_CLOSED" }));
+});
+
+test("a stale Edit-list save never undoes an agent's tick, and a quick toggle leaves it intact", async () => {
+  const { store, u } = await acceptanceSetup();
+  const [first, second] = u.acceptance.map((a) => a.id);
+  // The panel opened Edit list on this revision; then the integration card ticks item 1 (feedRevision only).
+  const opened = u.revision;
+  await store.transaction((board) => {
+    tickAcceptance(board, board.tasks.find((t) => t.id === "a")!, { acceptance: [{ id: first!, done: true }], note: "ok" }, agent("a"), now);
+    return { value: undefined, changed: true };
+  });
+  expect((await store.read()).umbrellas[0]!.revision).toBe(opened);
+  // The save fixes a typo in item 2 against the same revision: no conflict, and the tick survives.
+  const saved = await updateUmbrella(store, { id: u.id, revision: opened, acceptance: [{ id: first!, text: "Corrections reach the next session" }, { id: second!, text: "No duplicate notes!" }] }, human);
+  expect(saved.acceptance).toMatchObject([{ id: first, done: true, by: agent("a") }, { id: second, text: "No duplicate notes!", done: false }]);
+  // A quick toggle of item 2 sends only that item and leaves item 1's agent tick alone; the revision stays.
+  const toggled = await setAcceptanceDone(store, { id: u.id, itemId: second!, done: true }, human);
+  expect(toggled.acceptance).toMatchObject([{ id: first, done: true, by: agent("a") }, { id: second, done: true, by: human }]);
+  expect(toggled.revision).toBe(saved.revision);
+  expect(toggled.feedRevision).toBe(saved.feedRevision + 1);
+  await expect(setAcceptanceDone(store, { id: u.id, itemId: "nope", done: true }, human)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await closeUmbrella(store, { id: u.id, revision: saved.revision }, human);
+  await expect(setAcceptanceDone(store, { id: u.id, itemId: first!, done: false }, human)).rejects.toMatchObject({ code: "UMBRELLA_CLOSED" });
 });

@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { UmbrellaEntry } from "../shared/model";
 import type { UmbrellaMember, UmbrellaSummary } from "../shared/umbrella";
 import {
-  acceptanceInput, changedLines, closeOffer, offerProject, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, memberWrites, moveMember, openQuestions, pendingChanges, pickableCards, pipelineRows, readyToClose, revisionToSend, umbrellaWritable,
+  acceptanceInput, changedLines, alreadyKept, closeOffer, offerProject, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, memberWrites, moveMember, openQuestions, pendingChanges, pickableCards, pipelineRows, readyToClose, revisionToSend, umbrellaWritable,
 } from "./umbrella-panel-logic";
 
 const member = (title: string, order?: number): UmbrellaMember => ({
@@ -77,16 +77,13 @@ test("a refusal's code is read from its message", () => {
   expect(errorCode("nope")).toBeNull();
 });
 
-test("acceptance edits send the whole list, trimmed, without empty items", () => {
+test("acceptance edits send text and order only, trimmed, without empty items", () => {
   const items = [
     { id: "a1", text: " Works end to end ", done: true },
     { text: "  ", done: false },
     { text: "New item", done: false },
   ];
-  expect(acceptanceInput(items)).toEqual([
-    { id: "a1", text: "Works end to end", done: true },
-    { text: "New item", done: false },
-  ]);
+  expect(acceptanceInput(items)).toEqual([{ id: "a1", text: "Works end to end" }, { text: "New item" }]);
 });
 
 test("an editor sends the revision it was opened on, not the umbrella's current one", () => {
@@ -226,4 +223,23 @@ test("an offered entry is kept in its writer's project, else the first member's"
   expect(offerProject({ sourceTaskId: "gone" }, tasks, members)).toBe("pm");
   expect(offerProject({}, tasks, members)).toBe("pm");
   expect(offerProject({}, tasks, [])).toBeNull();
+});
+
+test("readyToClose ignores archived members", () => {
+  const done = [{ done: true }];
+  expect(readyToClose([{ status: "done" }, { status: "development", archived: true }], done)).toBe(true);
+  expect(readyToClose([{ status: "development", archived: true }], done)).toBe(false);
+  expect(readyToClose([{ status: "done" }, { status: "development", archived: false }], done)).toBe(false);
+});
+
+test("an entry already kept in the project is recognised by kind and title", () => {
+  const existing = [
+    { kind: "note", state: "active", text: "Use drafts", noteKind: "decision" },
+    { kind: "note", state: "archived", text: "Old pitfall", noteKind: "pitfall" },
+    { kind: "guideline", state: "active", text: "Use drafts", noteKind: undefined },
+  ];
+  expect(alreadyKept(existing, { kind: "decision", title: " use DRAFTS " }, 120)).toBe(true);
+  expect(alreadyKept(existing, { kind: "convention", title: "Use drafts" }, 120)).toBe(false);
+  expect(alreadyKept(existing, { kind: "pitfall", title: "Old pitfall" }, 120)).toBe(false);
+  expect(alreadyKept(existing, { kind: "decision", title: "Use drafts and more".padEnd(130, "x") }, 120)).toBe(false);
 });

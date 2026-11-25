@@ -1652,7 +1652,7 @@ async function acceptanceSetup(integration = true) {
     {
       id: x.umbrellaId,
       revision: (await x.store.read()).umbrellas[0]!.revision,
-      acceptance: [{ text: "Corrections reach the next session", done: false }, { text: "No duplicate notes", done: false }],
+      acceptance: [{ text: "Corrections reach the next session" }, { text: "No duplicate notes" }],
       ...(integration ? { integrationTaskId: "t" } : {}),
     },
     x.human,
@@ -1680,7 +1680,9 @@ test("flowly_update_umbrella_acceptance ticks an item with a note on the integra
 test("flowly_update_umbrella_acceptance refuses other cards, unknown ids, a missing note and a closed umbrella", async () => {
   const x = await acceptanceSetup();
   expect(await x.code(x.tick({ acceptance: [{ id: "nope", done: true }] }))).toBe("NOT_FOUND");
-  await expect(x.tick({ note: "" })).rejects.toThrow();
+  expect(await x.code(x.tick({ note: "" }))).toBe("INVALID_INPUT");
+  const id = x.items[0]!.id;
+  expect(await x.code(x.tick({ acceptance: [{ id, done: true }, { id, done: false }] }))).toBe("INVALID_INPUT");
   expect(await x.code(x.tick({}, x.sibling))).toBe("NOT_INTEGRATION_CARD");
   expect(await x.code(x.tick({}, x.outside))).toBe("NOT_IN_UMBRELLA");
   expect((await x.store.read()).umbrellas[0]!.acceptance.every((a) => !a.done)).toBe(true);

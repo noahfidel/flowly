@@ -57,12 +57,15 @@ export function errorCode(error: unknown): string | null {
 
 export type AcceptanceDraft = { id?: string; text: string; done: boolean };
 
-/** `umbrellas.update`'s acceptance: the whole list, trimmed, empty items left out; an item without `id` is new. */
-export function acceptanceInput(items: readonly AcceptanceDraft[]): AcceptanceDraft[] {
+/**
+ * `umbrellas.update`'s acceptance: the list's text and order, trimmed, empty items left out; an item without `id` is new.
+ * Never `done`: ticks go through `umbrellas.tick-acceptance`, so a save cannot undo an agent's tick.
+ */
+export function acceptanceInput(items: readonly Pick<AcceptanceDraft, "id" | "text">[]): { id?: string; text: string }[] {
   return items.flatMap((item) => {
     const text = item.text.trim();
     if (!text) return [];
-    return [{ ...(item.id ? { id: item.id } : {}), text, done: item.done }];
+    return [{ ...(item.id ? { id: item.id } : {}), text }];
   });
 }
 
@@ -159,11 +162,12 @@ export function pickableCards(
 }
 
 /**
- * Ready to close (§11): there is at least one member, every member is Done or Cancelled and every acceptance item is
+ * Ready to close (§11): there is at least one member (archived ones are ignored), every member is Done or Cancelled and every acceptance item is
  * ticked (an empty list is met). Close stays the user's action; an umbrella with no member has nothing to finish.
  */
-export function readyToClose(members: readonly { status: string }[], acceptance: readonly { done: boolean }[]): boolean {
-  return members.length > 0 && members.every((m) => m.status === "done" || m.status === "cancelled") && acceptance.every((a) => a.done);
+export function readyToClose(members: readonly { status: string; archived?: boolean }[], acceptance: readonly { done: boolean }[]): boolean {
+  const live = members.filter((m) => !m.archived);
+  return live.length > 0 && live.every((m) => m.status === "done" || m.status === "cancelled") && acceptance.every((a) => a.done);
 }
 
 const offered: readonly UmbrellaEntry["kind"][] = ["decision", "convention", "pitfall"];
@@ -183,4 +187,15 @@ export function offerProject(
   members: readonly Pick<UmbrellaMember, "projectId">[],
 ): string | null {
   return (entry.sourceTaskId ? tasks.find((t) => t.id === entry.sourceTaskId)?.projectId : undefined) ?? members[0]?.projectId ?? null;
+}
+
+/** True when the project already holds a live note of this kind with this title (case-insensitive), so Keep need not save it again. */
+export function alreadyKept(
+  existing: readonly { kind: string; state: string; text: string; noteKind?: string }[],
+  entry: Pick<UmbrellaEntry, "kind" | "title">,
+  titleLimit: number,
+): boolean {
+  const key = (text: string) => text.trim().toLowerCase();
+  const title = key(entry.title.slice(0, titleLimit));
+  return existing.some((e) => e.kind === "note" && e.state === "active" && e.noteKind === entry.kind && key(e.text) === title);
 }

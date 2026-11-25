@@ -17,7 +17,7 @@ import { SessionMarkdown } from "./session-content";
 import { openQuickLink } from "./quick-links-row";
 import { useStableCallback } from "./stable";
 import {
-  acceptanceInput, closeOffer, editAfterSave, editBase, errorCode, listedUmbrellas, memberWrites, moveMember, offerProject, pipelineRows, readyToClose, revisionToSend, umbrellaWritable,
+  acceptanceInput, alreadyKept, closeOffer, editAfterSave, editBase, errorCode, listedUmbrellas, memberWrites, moveMember, offerProject, pipelineRows, readyToClose, revisionToSend, umbrellaWritable,
   type AcceptanceDraft, type EditBase, type SaveOutcome,
 } from "./umbrella-panel-logic";
 import { CloseOffer } from "./umbrella-close";
@@ -250,6 +250,8 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
   const reopen = useRpc(rpc.reopenUmbrella);
   const archive = useRpc(rpc.archiveUmbrella);
   const createGuardrail = useRpc(rpc.createGuardrail);
+  const readGuardrails = useRpc(rpc.readGuardrails);
+  const tick = useRpc(rpc.tickUmbrellaAcceptance);
   // The drawer section reads the same key, so the two share one cached read.
   const refetchKey = summary ? umbrellaRefetchKey(summary) : "";
   const key = ["flowly", "umbrella", hostId, id, refetchKey];
@@ -292,6 +294,13 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
       setBusy(false);
     }
   });
+  // A checkbox tap sends only that item, applied to the umbrella as it is now (no revision), so it never rewrites another item.
+  const writeTick = useStableCallback((itemId: string, done: boolean) =>
+    write(async () => {
+      const umbrella = await tick({ id, itemId, done });
+      return umbrella;
+    }),
+  );
   const writeEntry = useStableCallback(async (input: { id: string; status: "answered" | "superseded"; answer?: string }): Promise<boolean> => {
     setError("");
     try {
@@ -371,6 +380,9 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
     }
     setError("");
     try {
+      // Reopening the panel offers the entries again: one already kept (same kind and title) is not saved a second time.
+      const existing = (await readGuardrails({ projectId }).catch(() => undefined))?.value?.entries ?? [];
+      if (alreadyKept(existing, entry, memoryLimits.title)) return true;
       await createGuardrail({
         projectId,
         kind: "note",
@@ -510,7 +522,7 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
         writable={writable}
         busy={busy}
         revision={u.revision}
-        onTick={(items) => write((revision) => update({ id, revision, acceptance: acceptanceInput(items) }))}
+        onTick={(itemId, done) => writeTick(itemId, done)}
         onSave={(items, base) => write((revision) => update({ id, revision, acceptance: acceptanceInput(items) }), base)}
       />
       {!u.archivedAt && u.status === "closed" && <CloseOffer entries={offer} sourceOf={sourceOf} onKeep={keepEntry} />}
@@ -640,8 +652,8 @@ function Acceptance({ items, writable, busy, revision, onTick, onSave }: {
   writable: boolean;
   busy: boolean;
   revision: number;
-  /** A tick: the list as shown, against the revision shown. */
-  onTick(items: AcceptanceDraft[]): Promise<SaveOutcome>;
+  /** A tick: that one item only. */
+  onTick(itemId: string, done: boolean): Promise<SaveOutcome>;
   /** Edit list: against the revision it was opened on. */
   onSave(items: AcceptanceDraft[], base: number): Promise<SaveOutcome>;
 }) {
@@ -649,7 +661,8 @@ function Acceptance({ items, writable, busy, revision, onTick, onSave }: {
   const plain = (list: readonly { id?: string; text: string; done: boolean }[]): AcceptanceDraft[] => list.map((a) => ({ ...(a.id ? { id: a.id } : {}), text: a.text, done: a.done }));
   const toggle = useStableCallback((itemId: string) => {
     if (busy) return;
-    void onTick(plain(items).map((a) => (a.id === itemId ? { ...a, done: !a.done } : a)));
+    const item = items.find((a) => a.id === itemId);
+    if (item) void onTick(itemId, !item.done);
   });
   const editor = useDraft(writable, (list: DraftItem[], base: number) => onSave(plain(list), base));
   const draft = editor.draft?.value ?? null;

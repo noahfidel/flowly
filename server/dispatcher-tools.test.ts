@@ -3213,7 +3213,7 @@ test("update_umbrella refuses another group's umbrella", async () => {
   expect((await x.store.read()).umbrellas[0]).toMatchObject({ title: "Family", revision: 1 });
   // Its own group edits, as the dispatcher, bumping the revision; a stale revision is refused.
   const edited = await a.call("flowly_update_umbrella", {
-    id: u.id, revision: 1, title: "Renamed", brief: "Goal", contract: "shape: {a}", acceptance: [{ text: "It works", done: false }], briefSource: "https://example.test/brief",
+    id: u.id, revision: 1, title: "Renamed", brief: "Goal", contract: "shape: {a}", acceptance: [{ text: "It works" }], briefSource: "https://example.test/brief",
   });
   expect(code(edited)).toBeUndefined();
   expect(edited.structuredContent.umbrella).toMatchObject({ title: "Renamed", revision: 2, brief: { text: "Goal", source: "https://example.test/brief" }, contract: { text: "shape: {a}", revision: 1 } });
