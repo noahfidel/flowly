@@ -9,7 +9,7 @@ import * as rpc from "../shared/rpc";
 import { memoryLimits } from "../shared/memory";
 import type { Project, Task, Umbrella, UmbrellaEntry } from "../shared/model";
 import { t, tn } from "../shared/i18n";
-import { umbrellaLimits, umbrellaRefetchKey, type UmbrellaSummary } from "../shared/umbrella";
+import { memberSignature, umbrellaLimits, umbrellaRefetchKey, type UmbrellaSummary } from "../shared/umbrella";
 import { Modal } from "./modal";
 import { Disclosure } from "./disclosure";
 import { Enter } from "./motion";
@@ -83,6 +83,8 @@ export function linearProjectErrorText(code: string): string {
       return t("Flowly could not read this Linear project. Check that a Linear connection is set up and can see it.");
     case "EXTERNAL_UNAVAILABLE":
       return t("Linear is unreachable right now. Reopen the umbrella to try again.");
+    case "EXTERNAL_INVALID":
+      return t("This umbrella's Linear link must be a project URL (https://linear.app/<workspace>/project/<name>); a project key can't be read.");
     default:
       return t("Flowly could not read this Linear project.");
   }
@@ -280,8 +282,17 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
   // The Linear project (§10): one read-only read when the detail opens, none while it is closed; never polled.
   const readLinear = useRpc(rpc.umbrellaLinearProject);
   const linearUrl = data?.umbrella.linearProject?.url ?? "";
-  const linearKey = ["flowly", "umbrella-linear", hostId, id, linearUrl];
-  const linearRead = useQuery({ queryKey: linearKey, queryFn: () => readLinear({ id }), enabled: !!linearUrl, staleTime: Infinity, retry: false });
+  // Read again when the umbrella's member set changes (a card made or added from the list leaves it), never otherwise.
+  const members = memberSignature(tasks, id);
+  const linearKey = ["flowly", "umbrella-linear", hostId, id, linearUrl, members];
+  const linearRead = useQuery({
+    queryKey: linearKey,
+    queryFn: () => readLinear({ id }),
+    enabled: !!linearUrl,
+    staleTime: Infinity,
+    retry: false,
+    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[3] === id ? previous : undefined),
+  });
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState<"close" | "reopen" | "archive" | null>(null);
   const [busy, setBusy] = useState(false);
@@ -381,10 +392,15 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
   const openIssue = useStableCallback((url: string) => openQuickLink(url, toast));
   const makeCard = useStableCallback(async (issue: { identifier: string }) => {
     const connectionId = linearRead.data?.connectionId;
-    if (!connectionId) return;
+    if (!connectionId || busy) return;
+    setBusy(true);
     setError("");
-    const reason = await onMakeCard({ connectionId, key: issue.identifier, umbrellaId: id });
-    if (reason) setError(reason);
+    try {
+      const reason = await onMakeCard({ connectionId, key: issue.identifier, umbrellaId: id });
+      if (reason) setError(reason);
+    } finally {
+      setBusy(false);
+    }
   });
   const setRole = useStableCallback((taskId: string, role: string) => changeMembers(() => [{ taskId, role }]));
   const move = useStableCallback((taskId: string, delta: -1 | 1) => void changeMembers((members) => moveMember(pipelineRows(members), taskId, delta)));
@@ -559,6 +575,7 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
       {!!linear && (
         <LinearIssues
           withoutCard={linearRead.data?.withoutCard}
+          truncated={!!linearRead.data?.truncated}
           suggested={linearRead.data?.suggested ?? []}
           error={linearRead.isError ? linearProjectErrorText(errorCode(linearRead.error) ?? "") : ""}
           writable={writable}

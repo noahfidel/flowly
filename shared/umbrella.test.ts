@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { boardSchema, emptyBoard, type Board, type Group, type Project, type Task, type Umbrella, type UmbrellaEntry } from "./model";
 import {
-  applyGroupMoves, countsTowardLimit, issuesWithoutCard, parseLinearProject, suggestedMembers, leaveUmbrella, markConflicts, membersOf, rolesMentioned, repairUmbrellaGroups, umbrellaChipText, umbrellaContext, umbrellaLimits, recentEntries, umbrellaRefetchKey, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
+  applyGroupMoves, countsTowardLimit, issuesWithoutCard, linearWorkspaceOf, memberSignature, parseLinearProject, suggestedMembers, umbrellaCreateInput, umbrellaUpdateInput, leaveUmbrella, markConflicts, membersOf, rolesMentioned, repairUmbrellaGroups, umbrellaChipText, umbrellaContext, umbrellaLimits, recentEntries, umbrellaRefetchKey, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
 } from "./umbrella";
 
 const at = "2026-11-25T00:00:00.000Z";
@@ -435,15 +435,39 @@ test("the integration card's first instructions ask for the end-to-end check", (
   expect(umbrellaStartLine(board, board.tasks.find((t) => t.id === "a")!)).not.toContain("integration card");
 });
 
-test("parseLinearProject reads a project URL and a P- key", () => {
+test("parseLinearProject reads a project URL; a key or another link is refused", () => {
   expect(parseLinearProject("https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f")).toEqual({ url: "https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f" });
   expect(parseLinearProject("  https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f/overview ")).toEqual({ url: "https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f/overview" });
-  expect(parseLinearProject("p-zen-391")).toEqual({ key: "P-ZEN-391" });
-  expect(parseLinearProject("P-ZEN-391")).toEqual({ key: "P-ZEN-391" });
+  expect(parseLinearProject("P-ZEN-391")).toBeNull();
+  expect(parseLinearProject("p-zen-391")).toBeNull();
   expect(parseLinearProject("https://linear.app/acme/issue/ZEN-1/x")).toBeNull();
   expect(parseLinearProject("https://evil.test/acme/project/x-1")).toBeNull();
   expect(parseLinearProject("ZEN-391")).toBeNull();
   expect(parseLinearProject("")).toBeNull();
+});
+
+test("a project key is refused where the link is entered", () => {
+  const ok = umbrellaCreateInput.safeParse({ groupId: "g", title: "T", linearProject: { url: "https://linear.app/acme/project/fresh-1a2b3c4d5e6f" } });
+  expect(ok.success).toBe(true);
+  const key = umbrellaCreateInput.safeParse({ groupId: "g", title: "T", linearProject: { url: "P-ZEN-391" } });
+  expect(key.success).toBe(false);
+  expect(umbrellaUpdateInput.safeParse({ id: "u", revision: 1, linearProject: { url: " p-zen-391 " } }).success).toBe(false);
+  expect(umbrellaUpdateInput.safeParse({ id: "u", revision: 1, linearProject: null }).success).toBe(true);
+});
+
+test("linearWorkspaceOf reads the workspace segment", () => {
+  expect(linearWorkspaceOf("https://linear.app/Acme/project/x-1")).toBe("acme");
+  expect(linearWorkspaceOf("https://linear.app/acme")).toBe("acme");
+  expect(linearWorkspaceOf("https://other.test/acme")).toBeNull();
+});
+
+test("the member signature changes when the umbrella's member set does, not with order or other cards", () => {
+  const m = { id: "u", joinedAt: at, by: human };
+  const a = [task("a", { umbrella: m }), task("b", { umbrella: m }), task("c")];
+  expect(memberSignature(a, "u")).toBe("a,b");
+  expect(memberSignature([a[1]!, a[0]!, a[2]!], "u")).toBe("a,b");
+  expect(memberSignature([...a, task("d", { umbrella: m })], "u")).toBe("a,b,d");
+  expect(memberSignature(a, "other")).toBe("");
 });
 
 test("issues without a card skip issues linked to members", () => {

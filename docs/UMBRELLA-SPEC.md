@@ -212,7 +212,7 @@ Every change needs the user's accept, additive ones included (D6); the dispatche
 
 ## 10. Linear
 
-- Flowly only reads Linear. `linearProject` is a URL (`https://linear.app/<ws>/project/<slug>`) or a project key (P-ZEN-391); the connector gains a read-only `project` query (name, state, target date, url, issues with identifier/title/state). It never writes a status, comment or issue.
+- Flowly only reads Linear. `linearProject` is a project URL (`https://linear.app/<ws>/project/<slug>`) only: a project key (P-ZEN-391) is refused where the link is entered, because the public Linear API can't resolve one. The connector gains a read-only query that finds the project by the slug id ending the URL's slug (`projects(filter: { slugId })`) and returns its name, status, target date, url and first 100 issues (identifier/title/state); a full page shows a "first 100" line. The read uses the Linear connection whose workspace is the URL's `/<ws>/` segment (else each Linear connection in turn while the project is not found). The panel reads again when the umbrella's member set changes. It never writes a status, comment or issue.
 - The panel shows the project chip and, from one read while the panel is open, **issues in the project without a card in the umbrella** ("ZEN-9301 Correction detector — no card"); a row's *Make card* fills New task with the issue linked (as the Linear board does today) and the umbrella set. The list ships with the link (D9).
 - A member's own Linear issue stays the card's `flowly_set_linear` input; an issue whose project is the umbrella's Linear project is suggested as a member, never added on its own.
 

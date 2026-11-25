@@ -1941,5 +1941,7 @@ const catalog: Catalog = {
   "Make card": "创建卡片",
   "Linear issues without a card": "没有卡片的 Linear 事项",
   "Cards that may belong here": "可能属于这里的卡片",
+  "This umbrella's Linear link must be a project URL (https://linear.app/<workspace>/project/<name>); a project key can't be read.": "此伞组的 Linear 链接必须是项目 URL（https://linear.app/<workspace>/project/<name>）；无法读取项目键。",
+  "Showing the first {n} issues": "显示前 {n} 个事项",
 };
 export default catalog;

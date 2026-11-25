@@ -23,13 +23,15 @@ type Issue = {
   branch?: string;
   comments?: { id: string; body: string; at: string; updated?: string }[];
 };
+type ProjectFixture = { name: string; state: string; targetDate: string | null; issues: Issue[] };
 type Request = { query: string; variables: Record<string, unknown> };
 type Options = { status?: number; errors?: { message: string; extensions?: { code: string } }[]; headers?: Record<string, string>; aliasNulls?: boolean };
 
 const uuid = (key: string) => `uuid-${key.toLowerCase()}`;
 
 /** Linear's GraphQL API as recorded shapes: the operations the adapter sends, answered from `issues`. */
-function linear(issues: Issue[], options: () => Options = () => ({}), project?: { name: string; state: string; targetDate: string | null; issues: Issue[] }) {
+function linear(issues: Issue[], options: () => Options = () => ({}), project?: ProjectFixture | ((n: number) => ProjectFixture | undefined), viewerKeys: string[] = []) {
+  let projectReads = 0;
   const summary = (x: Issue) => ({
     id: uuid(x.key),
     identifier: x.key,
@@ -64,7 +66,7 @@ function linear(issues: Issue[], options: () => Options = () => ({}), project?: 
     if (o.status || o.errors) return { status: o.status ?? 200, body: { data: null, errors: o.errors || [] }, headers: o.headers };
     const { query, variables } = request;
     asked.query = query;
-    if (query.startsWith("query Viewer")) return { body: { data: { viewer: { name: "Ada Lovelace", displayName: "ada", email: "ada@acme.test", organization: { name: "Acme", urlKey: "acme" } } } } };
+    if (query.startsWith("query Viewer")) return { body: { data: { viewer: { name: "Ada Lovelace", displayName: "ada", email: "ada@acme.test", organization: { name: "Acme", urlKey: viewerKeys.shift() ?? "acme" } } } } };
     if (query.startsWith("query Issue(")) {
       const found = issues.find((x) => x.key === variables.id);
       if (!found) return { body: { data: { issue: null }, errors: [notFound] } };
@@ -80,16 +82,24 @@ function linear(issues: Issue[], options: () => Options = () => ({}), project?: 
       return { body: { data: { issues: { nodes: matches.map(summary) } } } };
     }
     if (query.startsWith("query Project(")) {
-      if (!project || (variables.id !== "1a2b3c4d5e6f" && variables.id !== "P-ZEN-391")) return { body: { data: { project: null }, errors: [{ ...notFound, message: "Entity not found: Project" }] } };
+      projectReads++;
+      const found = typeof project === "function" ? project(projectReads) : project;
+      // Only the slugId filter shape is answered; project(id:) is not (it is documented for the UUID only).
+      if (!query.includes("projects(filter: { slugId: { eq: $slug } }")) return { status: 400, body: { errors: [{ message: "Unknown operation", extensions: { code: "GRAPHQL_VALIDATION_FAILED" } }] } };
+      if (!found || variables.slug !== "1a2b3c4d5e6f") return { body: { data: { projects: { nodes: [] } } } };
       return {
         body: {
           data: {
-            project: {
-              name: project.name,
-              state: project.state,
-              targetDate: project.targetDate,
-              url: `${workspace}/project/${project.name.toLowerCase().replace(/\W+/g, "-")}-1a2b3c4d5e6f`,
-              issues: { nodes: project.issues.map((x) => ({ identifier: x.key, title: x.title, url: `${workspace}/issue/${x.key}`, state: { name: x.state || "In Progress" } })) },
+            projects: {
+              nodes: [
+                {
+                  name: found.name,
+                  status: { name: found.state },
+                  targetDate: found.targetDate,
+                  url: `${workspace}/project/${found.name.toLowerCase().replace(/\W+/g, "-")}-1a2b3c4d5e6f`,
+                  issues: { nodes: found.issues.map((x) => ({ identifier: x.key, title: x.title, url: `${workspace}/issue/${x.key}`, state: { name: x.state || "In Progress" } })) },
+                },
+              ],
             },
           },
         },
@@ -345,8 +355,8 @@ describe("Linear (CONNECTORS-SPEC §14)", () => {
       targetDate: "2026-12-15",
       issues: [{ key: "ZEN-9301", title: "Correction detector", state: "Todo" }, { key: "ZEN-9302", title: "Context loader" }],
     });
-    const byUrl = await x.service.linearProject({ url: "https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f" });
-    expect(byUrl).toMatchObject({
+    const found = await x.service.linearProject({ url: "https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f" });
+    expect(found).toMatchObject({
       connectionId: x.connection.id,
       name: "Fresh context",
       state: "started",
@@ -357,19 +367,53 @@ describe("Linear (CONNECTORS-SPEC §14)", () => {
         { identifier: "ZEN-9302", title: "Context loader", state: "In Progress", url: `${workspace}/issue/ZEN-9302` },
       ],
     });
-    const byKey = await x.service.linearProject({ key: "P-ZEN-391" });
-    expect(byKey.name).toBe("Fresh context");
     const asked = x.requests.filter((r) => r.query.startsWith("query Project("));
-    expect(asked).toHaveLength(2);
-    expect(asked[0]!.variables).toEqual({ id: "1a2b3c4d5e6f" });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.variables).toEqual({ slug: "1a2b3c4d5e6f" });
+    expect(asked[0]!.query).toContain("status { name }");
+    expect(asked[0]!.query).toContain("nodes { name status { name } targetDate url issues(first: 100)");
     expect(asked.every((r) => /^query /.test(r.query) && !/\b(mutation|subscription)\b/.test(r.query))).toBe(true);
     expect(x.calls.every((c) => c.method === "POST" && c.url.href === api)).toBe(true);
+  });
+
+  test("a project key never reaches the query, and a URL without a project is invalid", async () => {
+    const x = await connected([], undefined, { name: "Fresh", state: "started", targetDate: null, issues: [] });
+    await expect(x.service.linearProject({ url: "P-ZEN-391" })).rejects.toMatchObject({ code: "EXTERNAL_INVALID" });
+    await expect(x.service.linearProject({ url: "https://linear.app/acme/issue/ZEN-1/x" })).rejects.toMatchObject({ code: "EXTERNAL_INVALID" });
+    expect(x.requests.filter((r) => r.query.startsWith("query Project("))).toHaveLength(0);
   });
 
   test("a project the key can't see is not found; no Linear connection is not found either", async () => {
     const x = await connected([], undefined, undefined);
     await expect(x.service.linearProject({ url: "https://linear.app/acme/project/gone-aaaaaaaaaaaa" })).rejects.toMatchObject({ code: "EXTERNAL_NOT_FOUND" });
     const none = await env.service(linear([]).fetchImpl);
-    await expect(none.linearProject({ key: "P-ZEN-391" })).rejects.toMatchObject({ code: "EXTERNAL_NOT_FOUND" });
+    await expect(none.linearProject({ url: "https://linear.app/acme/project/fresh-1a2b3c4d5e6f" })).rejects.toMatchObject({ code: "EXTERNAL_NOT_FOUND" });
+  });
+
+  const fresh = { name: "Fresh", state: "started", targetDate: null, issues: [] };
+  const projectAuth = (x: { calls: { headers: Record<string, string>; body?: string }[] }) =>
+    x.calls.filter((c) => (c.body || "").includes("query Project(")).map((c) => c.headers.Authorization ?? c.headers.authorization);
+
+  test("with two Linear connections the URL's workspace picks the connection", async () => {
+    const fake = linear([], undefined, fresh, ["acme", "beta"]);
+    const service = await env.service(fake.fetchImpl);
+    const one = await service.save({ provider: "linear", secret: "lin_api_one" });
+    const two = await service.save({ provider: "linear", secret: "lin_api_two" });
+    expect(one.baseUrl).toBe("https://linear.app/acme");
+    expect(two.baseUrl).toBe("https://linear.app/beta");
+    const found = await service.linearProject({ url: "https://linear.app/beta/project/fresh-1a2b3c4d5e6f" });
+    expect(found.connectionId).toBe(two.id);
+    expect(projectAuth(fake)).toEqual(["lin_api_two"]);
+  });
+
+  test("when no workspace matches, each Linear connection is tried while the project is not found", async () => {
+    const fake = linear([], undefined, (n) => (n === 1 ? undefined : fresh), ["acme", "beta"]);
+    const service = await env.service(fake.fetchImpl);
+    const one = await service.save({ provider: "linear", secret: "lin_api_one" });
+    const two = await service.save({ provider: "linear", secret: "lin_api_two" });
+    const found = await service.linearProject({ url: "https://linear.app/gamma/project/fresh-1a2b3c4d5e6f" });
+    expect(found.connectionId).toBe(two.id);
+    expect(projectAuth(fake)).toEqual(["lin_api_one", "lin_api_two"]);
+    expect(one.id).not.toBe(two.id);
   });
 });

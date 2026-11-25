@@ -1,9 +1,9 @@
 import { memo } from "react";
 import { View } from "react-native";
 import { t } from "../shared/i18n";
-import type { LinearProjectIssue, SuggestedMember } from "../shared/umbrella";
+import { linearProjectIssueLimit, type LinearProjectIssue, type SuggestedMember } from "../shared/umbrella";
 import { PartTitle } from "./umbrella-feed";
-import { Button, Notice, Row, space } from "./ui";
+import { Button, Label, Notice, Row, font, space } from "./ui";
 
 /** The umbrella's Linear project (UMBRELLA-SPEC §10), read-only: its issues without a card here, and cards that look like members. */
 
@@ -57,8 +57,10 @@ const SuggestedRow = memo(function SuggestedRow({ card, canAdd, busy, onOpen, on
 });
 
 /** Nothing shows until the one read comes back; a refusal is one inline line and never blocks the panel. */
-export function LinearIssues({ withoutCard, suggested, error, writable, busy, onOpenIssue, onOpenCard, onMake, onAdd }: {
+export function LinearIssues({ withoutCard, truncated, suggested, error, writable, busy, onOpenIssue, onOpenCard, onMake, onAdd }: {
   withoutCard: readonly LinearProjectIssue[] | undefined;
+  /** The project has more issues than one read returns. */
+  truncated: boolean;
   suggested: readonly SuggestedMember[];
   error: string;
   writable: boolean;
@@ -78,6 +80,11 @@ export function LinearIssues({ withoutCard, suggested, error, writable, busy, on
           {withoutCard.map((issue) => (
             <IssueRow key={issue.identifier} issue={issue} canMake={writable} busy={busy} onOpen={onOpenIssue} onMake={onMake} />
           ))}
+          {truncated && (
+            <Label muted size={font.sm}>
+              {t("Showing the first {n} issues", { n: linearProjectIssueLimit })}
+            </Label>
+          )}
         </>
       )}
       {suggested.length > 0 && (

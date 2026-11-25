@@ -1941,5 +1941,7 @@ const catalog: Catalog = {
   "Make card": "카드 만들기",
   "Linear issues without a card": "카드가 없는 Linear 이슈",
   "Cards that may belong here": "여기에 속할 수 있는 카드",
+  "This umbrella's Linear link must be a project URL (https://linear.app/<workspace>/project/<name>); a project key can't be read.": "이 엄브렐라의 Linear 링크는 프로젝트 URL(https://linear.app/<workspace>/project/<name>)이어야 합니다. 프로젝트 키는 읽을 수 없습니다.",
+  "Showing the first {n} issues": "처음 {n}개의 이슈를 표시합니다",
 };
 export default catalog;

@@ -264,13 +264,19 @@ export function umbrellaSummary(u: Umbrella, board: Pick<Board, "tasks" | "umbre
 /** The umbrella as `store.view()` readers get it: brief and contract text emptied (their revisions stay). */
 export const umbrellaViewOf = (u: Umbrella): Umbrella => ({ ...u, brief: { ...u.brief, text: "" }, contract: { ...u.contract, text: "" } });
 
+/** A bare project key is not a link the daemon can read; refused where the link is entered. */
+export const isLinearProjectKey = (value: string) => /^P-[A-Za-z][A-Za-z0-9_]{0,30}-\d{1,9}$/i.test(value.trim());
+const projectLinkText = "Enter the project's URL (https://linear.app/<workspace>/project/<name>); a project key can't be read through the Linear API.";
+
 /** RPC inputs (UMBRELLA-SPEC §4.4); the user's edits from the panel. */
 const titleInput = z.string().trim().min(1).max(umbrellaLimits.title);
-const linearProjectInput = z.strictObject({
-  url: z.string().trim().min(1).max(2000),
-  key: z.string().trim().max(100).optional(),
-  name: z.string().trim().max(200).optional(),
-});
+const linearProjectInput = z
+  .strictObject({
+    url: z.string().trim().min(1).max(2000),
+    key: z.string().trim().max(100).optional(),
+    name: z.string().trim().max(200).optional(),
+  })
+  .refine((v) => !isLinearProjectKey(v.url), { message: projectLinkText, path: ["url"] });
 /** The link or path the user keeps the brief in (D4). */
 const briefSourceInput = z.string().trim().min(1).max(500);
 export const umbrellaCreateInput = z.strictObject({
@@ -537,13 +543,15 @@ export function umbrellaStartLine(board: Pick<Board, "umbrellas">, task: Task): 
     : line;
 }
 
+/** Issues one project read returns; a full page shows a "first N" line (§10). */
+export const linearProjectIssueLimit = 100;
+
 /**
- * A Linear project the user typed (§10): a `https://linear.app/<ws>/project/<slug>` URL or a project key (P-ZEN-391);
- * null for anything else (an issue link, another host, a bare issue key).
+ * The Linear project link the user entered (§10): a `https://linear.app/<ws>/project/<slug>` URL; null for anything else.
+ * A project key (P-ZEN-391) is null too: the public Linear API can't resolve one.
  */
-export function parseLinearProject(input: string): { url?: string; key?: string } | null {
+export function parseLinearProject(input: string): { url: string } | null {
   const text = input.trim();
-  if (/^P-[A-Za-z][A-Za-z0-9_]{0,30}-\d{1,9}$/i.test(text)) return { key: text.toUpperCase() };
   try {
     const url = new URL(text);
     if (url.protocol !== "https:" || url.hostname !== "linear.app" || url.username || url.password) return null;
@@ -552,6 +560,20 @@ export function parseLinearProject(input: string): { url?: string; key?: string 
     return null;
   }
 }
+
+/** The workspace segment of a Linear URL (`linear.app/<ws>/...`), lower case, or null. */
+export const linearWorkspaceOf = (url: string): string | null => {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "linear.app" ? (parsed.pathname.split("/")[1]?.toLowerCase() || null) : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Members' id signature for the Linear read's query key: it changes when the umbrella's member set does. */
+export const memberSignature = (tasks: readonly Pick<Task, "id" | "umbrella">[], umbrellaId: string): string =>
+  tasks.filter((t) => t.umbrella?.id === umbrellaId).map((t) => t.id).sort().join(",");
 
 export const linearProjectIssueSchema = z.object({ identifier: z.string(), title: z.string(), state: z.string(), url: z.string() });
 export type LinearProjectIssue = z.infer<typeof linearProjectIssueSchema>;

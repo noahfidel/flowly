@@ -31,6 +31,19 @@ test("the panel read lists project issues no member references and suggests unas
   expect(result.withoutCard.map((i) => i.identifier)).toEqual(["ZEN-2", "ZEN-3"]);
   expect(result.suggested).toEqual([{ taskId: "free", title: "free", projectTitle: "P", issue: "ZEN-2" }]);
   expect(result.project.name).toBe("Fresh");
+  expect(result.truncated).toBe(false);
+});
+
+test("a full page of issues is reported as truncated", async () => {
+  const many = Array.from({ length: 100 }, (_, i) => issue(`ZEN-${i + 10}`));
+  const result = await readUmbrellaLinear(board(), "u", async () => ({ connectionId: "c", name: "Fresh", state: "started", targetDate: null, url: "u", issues: many }));
+  expect(result.truncated).toBe(true);
+});
+
+test("a stored project key is invalid and never read", async () => {
+  const keyed = board();
+  keyed.umbrellas[0]!.linearProject = { url: "P-ZEN-391", key: "P-ZEN-391" };
+  await expect(readUmbrellaLinear(keyed, "u", async () => { throw new Error("never"); })).rejects.toMatchObject({ code: "EXTERNAL_INVALID" });
 });
 
 test("a Linear refusal keeps its code; an umbrella without a project is not found", async () => {

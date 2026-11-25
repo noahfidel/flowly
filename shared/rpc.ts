@@ -435,6 +435,7 @@ export const umbrellaLinearProject = defineRpc({
     connectionId: z.string(),
     project: z.object({ name: z.string(), state: z.string(), targetDate: z.string().nullable(), url: z.string() }),
     withoutCard: z.array(linearProjectIssueSchema),
+    truncated: z.boolean(),
     suggested: z.array(suggestedMemberSchema),
   }),
 });
