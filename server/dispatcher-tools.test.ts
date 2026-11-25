@@ -26,7 +26,7 @@ import {
 } from "../shared/dispatcher";
 import { relayEchoMs } from "../shared/dispatcher-relay";
 import { linkLimits } from "../shared/model";
-import { createUmbrella, proposeChange, setMembership, updateUmbrella } from "./umbrellas";
+import { closeUmbrella, createUmbrella, proposeChange, setMembership, updateUmbrella } from "./umbrellas";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -3203,8 +3203,12 @@ test("flowly_create_umbrella creates in the dispatcher's own group, with a brief
   expect(code(made)).toBeUndefined();
   expect(made.structuredContent).toMatchObject({ replayed: false, umbrella: { title: "Fresh", groupId: x.groupId, brief: { text: "Goal", source: "docs/spec.md" }, createdBy: { kind: "dispatcher", agentId: "disp" } } });
   expect(JSON.stringify(made.structuredContent)).not.toContain("operationId");
-  const again = await a.call("flowly_create_umbrella", { title: "Fresh", idempotencyKey: "fresh-1" });
+  const again = await a.call("flowly_create_umbrella", { title: "Fresh", brief: "Goal", briefSource: "docs/spec.md", idempotencyKey: "fresh-1" });
   expect(again.structuredContent).toMatchObject({ replayed: true, umbrella: { id: made.structuredContent.umbrella.id } });
+  // The same key with another title or brief is another request, not a replay.
+  expect(code(await a.call("flowly_create_umbrella", { title: "Other", brief: "Goal", idempotencyKey: "fresh-1" }))).toBe("REQUEST_REUSED");
+  expect(code(await a.call("flowly_create_umbrella", { title: "Fresh", brief: "Wider goal", idempotencyKey: "fresh-1" }))).toBe("REQUEST_REUSED");
+  expect(code(await a.call("flowly_create_umbrella", { title: "Fresh", idempotencyKey: "fresh-1" }))).toBe("REQUEST_REUSED");
   expect((await x.store.read()).umbrellas.filter((u) => u.title === "Fresh")).toHaveLength(1);
   // The other group's dispatcher makes its own, in its own group.
   const other = await b.call("flowly_create_umbrella", { title: "Clients work", idempotencyKey: "fresh-1" });
@@ -3253,6 +3257,26 @@ test("flowly_create_card takes an umbrellaId, checked in the write", async () =>
   expect(code(await b.call("flowly_create_card", { projectId: "r", title: "Stray", idempotencyKey: "m2", umbrellaId: u.id }))).toBe("UMBRELLA_OUT_OF_GROUP");
   expect(code(await a.call("flowly_create_card", { projectId: "q", title: "Both", idempotencyKey: "m3", umbrellaId: u.id, umbrella: "none" }))).toBe("INVALID_INPUT");
   expect((await x.store.read()).tasks.length).toBe(before);
+});
+
+test("flowly_create_card with an explicit umbrellaId is refused when the umbrella cannot take the card", async () => {
+  const { x, a } = await umbrellaWorld();
+  const shut = await createUmbrella(x.store, { groupId: x.groupId, title: "Shut" }, human);
+  await closeUmbrella(x.store, { id: shut.id, revision: shut.revision }, human);
+  const before = (await x.store.read()).tasks.length;
+  expect(code(await a.call("flowly_create_card", { projectId: "q", title: "Late", idempotencyKey: "m-closed", umbrellaId: shut.id }))).toBe("UMBRELLA_CLOSED");
+  expect((await x.store.read()).tasks.length).toBe(before);
+});
+
+test("a flowly_create_card replay with another umbrellaId is REQUEST_REUSED", async () => {
+  const { x, a, u } = await umbrellaWorld();
+  const second = await createUmbrella(x.store, { groupId: x.groupId, title: "Second" }, human);
+  const made = await a.call("flowly_create_card", { projectId: "q", title: "Member", idempotencyKey: "m-replay", umbrellaId: u.id });
+  expect(code(made)).toBeUndefined();
+  const same = await a.call("flowly_create_card", { projectId: "q", title: "Member", idempotencyKey: "m-replay", umbrellaId: u.id });
+  expect(same.structuredContent).toMatchObject({ replayed: true });
+  expect(code(await a.call("flowly_create_card", { projectId: "q", title: "Member", idempotencyKey: "m-replay", umbrellaId: second.id }))).toBe("REQUEST_REUSED");
+  expect((await x.store.read()).tasks.filter((t) => t.title === "Member")).toHaveLength(1);
 });
 
 test("flowly_manage_groups names the umbrellas its change split", async () => {

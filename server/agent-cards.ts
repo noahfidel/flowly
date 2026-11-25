@@ -281,7 +281,13 @@ export class AgentCards {
     const previous = board.tasks.find((t) => t.operationId === operationId);
     if (previous) {
       // The same key from another idea, or with or without one, is another request (DISPATCHER-SPEC §5.1).
-      if (previous.projectId !== project.id || previous.title !== input.title || previous.origin?.ideaId !== fromIdea?.ideaId)
+      // An explicit umbrellaId (the dispatcher's) that is not the card's umbrella is another request too.
+      if (
+        previous.projectId !== project.id ||
+        previous.title !== input.title ||
+        previous.origin?.ideaId !== fromIdea?.ideaId ||
+        (umbrellaId && previous.umbrella?.id !== umbrellaId)
+      )
         throw new ToolError("REQUEST_REUSED", "This idempotencyKey already created a different card. Use a new key for a new card.");
       return { card: cardView(board, project, previous, await this.linearView(board, previous.id)), replayed: true };
     }

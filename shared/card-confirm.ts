@@ -1,6 +1,6 @@
 import { dispatcherServerName } from "./dispatcher";
 import { t, tn } from "./i18n";
-import { taskTypes, type Group, type Project, type Task, type TaskType, type Umbrella } from "./model";
+import { taskTypes, umbrellaLimits, type Group, type Project, type Task, type TaskType, type Umbrella } from "./model";
 import { umbrellasLosingMembers } from "./umbrella";
 import { linearTicketTypeDefault, linearTicketWanted } from "./linear-ticket";
 import type { PendingRequest, PermissionReply } from "./permission-question";
@@ -108,7 +108,7 @@ export function isUmbrellaConfirm(request: PendingRequest) {
   return request.kind !== "question" && record(request.input) && confirmedTools.some((tool) => request.name === requestName(tool));
 }
 
-export type UmbrellaConfirmAction = "create" | "join" | "leave" | "update" | "manage_groups";
+export type UmbrellaConfirmAction = "create" | "join" | "member" | "leave" | "update" | "manage_groups";
 
 /** What the confirm reads of the board; umbrella summaries from the overview serve as well as full umbrellas. */
 export type UmbrellaConfirmBoard = {
@@ -118,7 +118,17 @@ export type UmbrellaConfirmBoard = {
   groups: readonly Group[];
 };
 
-const linearName = (v: unknown) => (record(v) ? (text(v.name)?.trim() || text(v.key)?.trim() || text(v.url)?.trim() || "") : "");
+/** Agent text as one line (whitespace collapsed), cut to `max` characters with an ellipsis so it cannot draw a fact line of its own. */
+const oneLine = (value: unknown, max: number) => {
+  const flat = (typeof value === "string" ? value : "").replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+};
+/** How much of a new brief, contract or first acceptance item the confirm shows. */
+const previewMax = 300;
+const sourceMax = 500;
+const linearNameMax = 200;
+const linearName = (v: unknown) =>
+  record(v) ? oneLine(text(v.name)?.trim() || text(v.key)?.trim() || text(v.url)?.trim() || "", linearNameMax) : "";
 
 /**
  * The project moves a flowly_manage_groups call would make, for the umbrellas they would split (UMBRELLA-SPEC §9):
@@ -170,19 +180,26 @@ function groupLines(input: Record<string, unknown>, board: UmbrellaConfirmBoard)
  * `manage_groups` adds a line per umbrella whose members a project move would split.
  */
 export function umbrellaConfirmFacts(request: PendingRequest, board: UmbrellaConfirmBoard): { action: UmbrellaConfirmAction; lines: string[] } | null {
+  const facts = umbrellaFacts(request, board);
+  // Every line is one line, whatever the agent's text or a title on the board holds.
+  return facts && { action: facts.action, lines: facts.lines.map((l) => oneLine(l, 2000)).filter(Boolean) };
+}
+
+function umbrellaFacts(request: PendingRequest, board: UmbrellaConfirmBoard): { action: UmbrellaConfirmAction; lines: string[] } | null {
   if (!isUmbrellaConfirm(request) || !record(request.input)) return null;
   const input = request.input;
   const umbrellaOf = (id: unknown) => board.umbrellas.find((u) => u.id === id)?.title ?? text(id) ?? "";
   const cardOf = (id: unknown) => board.tasks.find((c) => c.id === id)?.title ?? text(id) ?? "";
   if (request.name === requestName("flowly_manage_groups")) return { action: "manage_groups", lines: groupLines(input, board) };
   if (request.name === requestName("flowly_create_umbrella")) {
-    const source = text(input.briefSource)?.trim();
+    const source = oneLine(input.briefSource, sourceMax);
+    const brief = oneLine(input.brief, previewMax);
     const linear = linearName(input.linearProject);
     return {
       action: "create",
       lines: [
-        (text(input.title) ?? "").trim(),
-        ...(text(input.brief)?.trim() ? [t("With a brief")] : []),
+        oneLine(input.title, umbrellaLimits.title),
+        ...(brief ? [t("Brief: {text}", { text: brief })] : []),
         ...(source ? [t("Brief source: {source}", { source })] : []),
         ...(linear ? [t("Linear project: {name}", { name: linear })] : []),
       ].filter(Boolean),
@@ -192,7 +209,16 @@ export function umbrellaConfirmFacts(request: PendingRequest, board: UmbrellaCon
     const card = cardOf(input.taskId);
     const current = board.tasks.find((c) => c.id === input.taskId)?.umbrella;
     if (input.umbrellaId === null) return { action: "leave", lines: [t("{card} leaves {umbrella}", { card, umbrella: current ? umbrellaOf(current.id) : "" }).trim()] };
-    const role = text(input.role)?.trim();
+    const role = oneLine(input.role, umbrellaLimits.role);
+    if (current && current.id === input.umbrellaId)
+      return {
+        action: "member",
+        lines: [
+          t("{card} stays in {umbrella}", { card, umbrella: umbrellaOf(input.umbrellaId) }),
+          ...(role ? [t("Role: {role}", { role })] : []),
+          ...(typeof input.order === "number" ? [t("Order: {order}", { order: String(input.order) })] : []),
+        ],
+      };
     return {
       action: "join",
       lines: [
@@ -203,12 +229,20 @@ export function umbrellaConfirmFacts(request: PendingRequest, board: UmbrellaCon
     };
   }
   const lines = [umbrellaOf(input.id)];
-  if (text(input.title) !== undefined && text(input.title) !== umbrellaOf(input.id)) lines.push(t("Title: {title}", { title: text(input.title) ?? "" }));
-  if (input.brief !== undefined) lines.push(t("Brief changes"));
+  if (text(input.title) !== undefined && text(input.title) !== umbrellaOf(input.id))
+    lines.push(t("Title: {title}", { title: oneLine(input.title, umbrellaLimits.title) }));
+  if (typeof input.brief === "string") lines.push(oneLine(input.brief, previewMax) ? t("Brief: {text}", { text: oneLine(input.brief, previewMax) }) : t("Brief cleared"));
   if (input.briefSource === null) lines.push(t("Brief source cleared"));
-  else if (input.briefSource !== undefined) lines.push(t("Brief source: {source}", { source: text(input.briefSource) ?? "" }));
-  if (input.contract !== undefined) lines.push(t("Contract changes"));
-  if (input.acceptance !== undefined) lines.push(t("Acceptance list changes"));
+  else if (input.briefSource !== undefined) lines.push(t("Brief source: {source}", { source: oneLine(input.briefSource, sourceMax) }));
+  if (typeof input.contract === "string") lines.push(oneLine(input.contract, previewMax) ? t("Contract: {text}", { text: oneLine(input.contract, previewMax) }) : t("Contract cleared"));
+  if (Array.isArray(input.acceptance)) {
+    const first = record(input.acceptance[0]) ? oneLine(input.acceptance[0].text, Math.min(previewMax, umbrellaLimits.acceptanceText)) : "";
+    lines.push(
+      input.acceptance.length
+        ? tn(input.acceptance.length, "Acceptance: {n} item, first: {first}", "Acceptance: {n} items, first: {first}", { first })
+        : t("Acceptance list cleared"),
+    );
+  }
   if (input.integrationTaskId === null) lines.push(t("Integration card cleared"));
   else if (input.integrationTaskId !== undefined) lines.push(t("Integration card: {card}", { card: cardOf(input.integrationTaskId) }));
   if (input.linearProject === null) lines.push(t("Linear project cleared"));

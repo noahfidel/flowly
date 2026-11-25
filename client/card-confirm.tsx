@@ -94,6 +94,7 @@ export const CardConfirm = memo(function CardConfirm({
 const changeTitles: Record<UmbrellaConfirmAction, string> = {
   create: msg("Create this umbrella?"),
   join: msg("Add this card to an umbrella?"),
+  member: msg("Change this card's role or order?"),
   leave: msg("Take this card out of its umbrella?"),
   update: msg("Update this umbrella?"),
   manage_groups: msg("Change the board groups?"),
@@ -101,6 +102,7 @@ const changeTitles: Record<UmbrellaConfirmAction, string> = {
 const changeButtons: Record<UmbrellaConfirmAction, string> = {
   create: msg("Create"),
   join: msg("Add"),
+  member: msg("Update"),
   leave: msg("Remove"),
   update: msg("Update"),
   manage_groups: msg("Apply"),

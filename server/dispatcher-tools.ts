@@ -1191,6 +1191,9 @@ export class DispatcherTools {
     await this.assertPrompting(this.cards.api(), agentId, "an umbrella");
     const operationId = `dispatcher-umbrella:${digest(JSON.stringify([agentId, idempotencyKey]))}`;
     const previous = (await this.store.read()).umbrellas.find((u) => u.operationId === operationId);
+    // The same key with another title or brief is another request (as AgentCards.create does for a card).
+    if (previous && (previous.title !== fields.title || previous.brief.text !== (fields.brief ?? "")))
+      throw new ToolError("REQUEST_REUSED", "This idempotencyKey already created a different umbrella. Use a new key for a new umbrella.");
     const release = previous ? () => undefined : this.cards.reserve(agentId, true);
     try {
       const { operationId: _operation, replayed, ...umbrella } = await createUmbrella(

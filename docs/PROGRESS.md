@@ -21,6 +21,7 @@
 - Onboarding, What's new, telemetry: none (no new tour line or tip, no heartbeat field; the confirm is dispatcher chat only). i18n: 25 new strings in all 9 catalogs (terms follow each catalog's existing "Umbrella").
 - Tests: RED first (`npx vitest run server/dispatcher-tools.test.ts server/dispatcher.test.ts`: 12 failed, tools and charter missing; `shared/card-confirm.test.ts`: 5 failed against the old module). GREEN: those 3 files, 275 tests; `npm run typecheck` exit 0; `npm test -- --maxWorkers=3` exit 0 (248 files passed, 1 skipped; 3223 tests passed, 7 skipped).
 - Not run: the confirms in a running dispatcher chat (no install/reload allowed, no UI session), so their layout and the provider's real permission prompt for the new tools are unverified.
+- Fix round 1: the update and create confirms preview the new text (brief and contract: one line, at most 300 characters; acceptance: count and first item); a `set_umbrella` call that only changes role or order on a member shows its own `member` action; every confirm line is one line, cut to its schema maximum; `flowly_create_umbrella` replays with another title or brief and `flowly_create_card` replays with another `umbrellaId` are `REQUEST_REUSED` (a card's umbrella is compared with its current membership, so a card moved afterwards no longer replays with its first `umbrellaId`). Strings: 9 new, 3 removed in all catalogs.
 
 ## Umbrellas, task 8: contract changes (branch `kanban/spec-umbrella-epic-object-for-related-ca-e89f06`) — 2026-11-25
 

@@ -173,17 +173,68 @@ describe("the update_umbrella confirm names the umbrella and each changed field"
       b,
     )!;
     expect(facts.action).toBe("update");
-    expect(facts.lines).toEqual(["Fresh context", "Title: Renamed", "Brief changes", "Contract changes", "Acceptance list changes", "Integration card: Card t1", "Linear project: Roadmap"]);
+    expect(facts.lines).toEqual(["Fresh context", "Title: Renamed", "Brief: x", "Contract: y", "Acceptance list cleared", "Integration card: Card t1", "Linear project: Roadmap"]);
     expect(umbrellaConfirmFacts(call("flowly_update_umbrella", { id: "u", revision: 1, title: "Fresh context", integrationTaskId: null, linearProject: null, briefSource: null }), b)!.lines).toEqual([
       "Fresh context", "Brief source cleared", "Integration card cleared", "Linear project cleared",
     ]);
   });
 });
 
+describe("the umbrella confirms show the text the user approves", () => {
+  test("brief and contract previews collapse whitespace and cut at 300 characters with an ellipsis", () => {
+    const b = board();
+    const long = `Line one\n\n  line   two ${"w".repeat(400)}`;
+    const lines = umbrellaConfirmFacts(call("flowly_update_umbrella", { id: "u", revision: 1, brief: long, contract: "  Use\tPOST only. " }), b)!.lines;
+    expect(lines[1]).toBe(`Brief: ${`Line one line two ${"w".repeat(400)}`.slice(0, 299)}…`);
+    expect(lines[1].length).toBe("Brief: ".length + 300);
+    expect(lines[2]).toBe("Contract: Use POST only.");
+    expect(umbrellaConfirmFacts(call("flowly_update_umbrella", { id: "u", revision: 1, brief: "  ", contract: "" }), b)!.lines).toEqual(["Fresh context", "Brief cleared", "Contract cleared"]);
+    expect(umbrellaConfirmFacts(call("flowly_create_umbrella", { title: "Fresh", brief: "Goal\nmore", idempotencyKey: "k" }), b)!.lines).toEqual(["Fresh", "Brief: Goal more"]);
+  });
+  test("the acceptance list shows the item count and the first item, bounded the same way", () => {
+    const b = board();
+    const lines = umbrellaConfirmFacts(
+      call("flowly_update_umbrella", { id: "u", revision: 1, acceptance: [{ text: `Ship\nit ${"x".repeat(400)}`, done: false }, { text: "Second", done: true }] }),
+      b,
+    )!.lines;
+    expect(lines[1]).toBe(`Acceptance: 2 items, first: ${`Ship it ${"x".repeat(400)}`.slice(0, 299)}…`);
+    expect(umbrellaConfirmFacts(call("flowly_update_umbrella", { id: "u", revision: 1, acceptance: [{ text: "Only", done: false }] }), b)!.lines[1]).toBe("Acceptance: 1 item, first: Only");
+  });
+  test("agent text cannot draw a fake fact line: every value is one line and cut to its schema maximum", () => {
+    const b = board();
+    const created = umbrellaConfirmFacts(call("flowly_create_umbrella", { title: `X\nLeaves Y ${"t".repeat(200)}`, briefSource: "a\nb", idempotencyKey: "k" }), b)!.lines;
+    expect(created.every((l) => !/[\n\r]/.test(l))).toBe(true);
+    expect(created[0].length).toBe(120);
+    expect(created[0].startsWith("X Leaves Y ")).toBe(true);
+    expect(created[1]).toBe("Brief source: a b");
+    const joined = umbrellaConfirmFacts(call("flowly_set_umbrella", { projectId: "p1", taskId: "t3", umbrellaId: "u", role: "api\nLeaves Z and more words past forty characters" }), b)!.lines;
+    expect(joined.every((l) => !/[\n\r]/.test(l))).toBe(true);
+    expect(joined[1].length).toBe("Role: ".length + 40);
+    const updated = umbrellaConfirmFacts(call("flowly_update_umbrella", { id: "u", revision: 1, title: "A\nTitle: B", linearProject: { url: "u", name: "N\nBrief cleared" } }), b)!.lines;
+    expect(updated.every((l) => !/[\n\r]/.test(l))).toBe(true);
+    expect(updated).toContain("Title: A Title: B");
+    expect(updated).toContain("Linear project: N Brief cleared");
+  });
+});
+
+describe("a set_umbrella call on a card already in the umbrella", () => {
+  test("with only role or order changing it is its own action, naming the new role and order", () => {
+    const b = board();
+    expect(umbrellaConfirmFacts(call("flowly_set_umbrella", { projectId: "p1", taskId: "t1", umbrellaId: "u", role: "ui", order: 2 }), b)).toEqual({
+      action: "member",
+      lines: ["Card t1 stays in Fresh context", "Role: ui", "Order: 2"],
+    });
+    expect(umbrellaConfirmFacts(call("flowly_set_umbrella", { projectId: "p1", taskId: "t1", umbrellaId: "u", order: 0 }), b)).toEqual({
+      action: "member",
+      lines: ["Card t1 stays in Fresh context", "Order: 0"],
+    });
+  });
+});
+
 describe("the create and set_umbrella confirms", () => {
   test("create names the title and what comes with it; join and leave name the card and the umbrella", () => {
     const b = board();
-    expect(umbrellaConfirmFacts(call("flowly_create_umbrella", { title: "Fresh", brief: "Goal", briefSource: "docs/x.md", idempotencyKey: "k" }), b)).toEqual({ action: "create", lines: ["Fresh", "With a brief", "Brief source: docs/x.md"] });
+    expect(umbrellaConfirmFacts(call("flowly_create_umbrella", { title: "Fresh", brief: "Goal", briefSource: "docs/x.md", idempotencyKey: "k" }), b)).toEqual({ action: "create", lines: ["Fresh", "Brief: Goal", "Brief source: docs/x.md"] });
     expect(umbrellaConfirmFacts(call("flowly_set_umbrella", { projectId: "p1", taskId: "t3", umbrellaId: "u", role: "api" }), b)).toEqual({ action: "join", lines: ["Card t3 joins Fresh context", "Role: api"] });
     expect(umbrellaConfirmFacts(call("flowly_set_umbrella", { projectId: "p1", taskId: "t1", umbrellaId: null }), b)).toEqual({ action: "leave", lines: ["Card t1 leaves Fresh context"] });
   });
