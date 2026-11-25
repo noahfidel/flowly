@@ -21,6 +21,7 @@
 - Tests: `shared/umbrella.test.ts` (+6), `server/umbrellas.test.ts` (+3), `server/store-groups.test.ts` (+5 per backend, +1 JSON read repair), `server/project-remove.test.ts` (+1), `shared/board-export.test.ts` (+5), `server/dispatcher.test.ts` (+1), `server/sqlite-store.test.ts` (+1). Focused 7 files: 286 passed. `npm run typecheck` exit 0; `npm test -- --maxWorkers=3` exit 0, 246 files passed, 1 skipped; 3099 tests passed, 7 skipped.
 - Onboarding, What's new, tips, telemetry, i18n: none (no UI strings; agent-facing export text stays English).
 - Not run: the group-move confirms naming affected umbrellas (UI and dispatcher confirm text come with later tasks); the installed plugin.
+- Fix (coordinator ruling on the plan's "memberships that no longer fit are dropped"): a restored card also leaves an umbrella that is closed, archived or already has 30 members (counting restored cards before it, in the folder copy's order), with an `umbrella_left` note naming why; restored ideas drop a closed or archived `umbrellaId`. Tests: 2 new in `server/umbrellas.test.ts` (RED against the previous `server/store.ts`: 2 failed; GREEN 22 passed). Focused 8 files 301 passed; typecheck exit 0; `npm test -- --maxWorkers=3` exit 0, 3101 passed, 7 skipped (one earlier run hit a load flake in `server/auto-review.test.ts`, which passed 3/3 alone and in the rerun).
 
 ## Umbrellas, task 1: model, store and `umbrellas.*` RPCs (branch `kanban/spec-umbrella-epic-object-for-related-ca-e89f06`) — 2026-11-25
 

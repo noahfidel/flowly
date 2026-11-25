@@ -358,3 +358,60 @@ test("a restored project's cards drop memberships to missing or other-group umbr
     ["r3", "Left umbrella (it is no longer on the board)"],
   ]);
 });
+
+/** A folder copy of project "back" with the given cards and ideas. */
+const backSnapshot = (tasks: Task[], ideas: ProjectSnapshot["ideas"] = []): ProjectSnapshot => ({
+  savedAt: now,
+  autoReviewInherits: true,
+  project: {
+    id: "back", title: "Back", description: "", paseoProjectId: "n-back", primaryPath: "/back", repos: ["/back"],
+    revision: 1, createdAt: now, updatedAt: now, archivedAt: null,
+  },
+  tasks, events: [], ideas, links: [], artifacts: [], workpads: [], plans: [], summaries: [],
+});
+const restoredIdea = (id: string, umbrellaId: string): ProjectSnapshot["ideas"][number] => ({
+  id, projectId: "back", title: id, detail: "", rationale: "", context: "", status: "open", createdAt: now, updatedAt: now, umbrellaId,
+});
+
+test("a restored card drops its membership to a closed or archived umbrella, and so does an idea", async () => {
+  const store = await setup();
+  const open = await createUmbrella(store, { groupId: "A", title: "Open" }, human);
+  const closed = await createUmbrella(store, { groupId: "A", title: "Done work" }, human);
+  const archived = await createUmbrella(store, { groupId: "A", title: "Old work" }, human);
+  await closeUmbrella(store, { id: closed.id, revision: 1 }, human);
+  await archiveUmbrella(store, { id: archived.id, revision: 1 }, human);
+  const joined = (id: string) => ({ umbrella: { id, joinedAt: now, by: human } });
+  await store.restoreProject(
+    backSnapshot(
+      [card("r1", "back", joined(open.id)), card("r2", "back", joined(closed.id)), card("r3", "back", joined(archived.id))],
+      [restoredIdea("i1", open.id), restoredIdea("i2", closed.id), restoredIdea("i3", archived.id)],
+    ),
+    { primaryPath: "/back", paseoProjectId: "n-back" },
+  );
+  const board = await store.read();
+  expect(["r1", "r2", "r3"].map((id) => board.tasks.find((t) => t.id === id)!.umbrella?.id ?? null)).toEqual([open.id, null, null]);
+  expect(board.events.filter((e) => e.action === "umbrella_left").map((e) => [e.taskId, e.note])).toEqual([
+    ["r2", "Left umbrella Done work (it is closed)"],
+    ["r3", "Left umbrella Old work (it is archived)"],
+  ]);
+  expect(["i1", "i2", "i3"].map((id) => board.ideas.find((i) => i.id === id)!.umbrellaId ?? null)).toEqual([open.id, null, null]);
+});
+
+test("restored cards rejoin an umbrella only up to 30 members; the first ones keep their place", async () => {
+  const ids = Array.from({ length: umbrellaLimits.members - 1 }, (_, i) => `m${i}`);
+  const store = await setup(ids);
+  const u = await createUmbrella(store, { groupId: "A", title: "Busy" }, human);
+  for (const taskId of ids) await setMembership(store, { taskId, umbrellaId: u.id }, human);
+  const joined = { umbrella: { id: u.id, joinedAt: now, by: human } };
+  await store.restoreProject(
+    backSnapshot([card("r1", "back", joined), card("r2", "back", joined), card("r3", "back", joined)]),
+    { primaryPath: "/back", paseoProjectId: "n-back" },
+  );
+  const board = await store.read();
+  expect(board.tasks.filter((t) => t.umbrella?.id === u.id)).toHaveLength(umbrellaLimits.members);
+  expect(["r1", "r2", "r3"].map((id) => board.tasks.find((t) => t.id === id)!.umbrella?.id ?? null)).toEqual([u.id, null, null]);
+  expect(board.events.filter((e) => e.action === "umbrella_left").map((e) => [e.taskId, e.note])).toEqual([
+    ["r2", "Left umbrella Busy (it is full)"],
+    ["r3", "Left umbrella Busy (it is full)"],
+  ]);
+});

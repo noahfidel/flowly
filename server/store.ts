@@ -9,7 +9,7 @@ import { JsonBoardFile, StoreInvalidError, assertBoardInvariants, writeFileDurab
 import { BoardStorage, type StorageOptions } from "./sqlite-storage";
 import type { StorageStatus } from "../shared/storage";
 import { ideaTitleKey } from "../shared/ideas";
-import { applyGroupMoves, leaveUmbrella, repairUmbrellaGroups, umbrellaViewOf } from "../shared/umbrella";
+import { applyGroupMoves, leaveUmbrella, repairUmbrellaGroups, umbrellaLimits, umbrellaViewOf } from "../shared/umbrella";
 import { otherEnd, relationLabels, relationOf, touches } from "../shared/links";
 import { changeTags, mergeTagEdit, normalizeTags, tagChangeNote } from "../shared/tags";
 import {
@@ -760,20 +760,37 @@ export class BoardStore {
       board.plans.push(...(snapshot.plans || []).filter((p) => taskIds.has(p.taskId)));
       for (const t of tasks)
         this.event(board, { taskId: t.id, actor: "human", action: "restored", note: "Restored from project folder" });
-      // The restored project joins the default group (above): a card keeps its umbrella only when that umbrella is
-      // still on the board and in that group (UMBRELLA-SPEC §9, the group rule).
+      // The restored project joins the default group (above). Memberships that no longer fit are dropped (UMBRELLA-SPEC
+      // §9): a card keeps its umbrella only when that umbrella is still on the board, in that group, open (not closed
+      // or archived) and not full. Cards are taken in the folder copy's order, so the first ones keep their place.
       const groupId = defaultGroupOf(board)?.id;
       const umbrellaOf = (id: string) => board.umbrellas.find((u) => u.id === id);
-      const fits = (id: string) => !!groupId && umbrellaOf(id)?.groupId === groupId;
+      /** Why a membership in `id` doesn't fit, or null when it does (the member limit is checked per card below). */
+      const misfit = (id: string) => {
+        const umbrella = umbrellaOf(id);
+        if (!umbrella) return "Left umbrella (it is no longer on the board)";
+        if (!groupId || umbrella.groupId !== groupId) return `Left umbrella ${umbrella.title} (it is in another board group)`;
+        if (umbrella.archivedAt) return `Left umbrella ${umbrella.title} (it is archived)`;
+        if (umbrella.status !== "open") return `Left umbrella ${umbrella.title} (it is closed)`;
+        return null;
+      };
+      const members = new Map<string, number>();
+      for (const t of board.tasks)
+        if (t.umbrella && !taskIds.has(t.id)) members.set(t.umbrella.id, (members.get(t.umbrella.id) ?? 0) + 1);
       for (const t of tasks) {
-        if (!t.umbrella || fits(t.umbrella.id)) continue;
-        const umbrella = umbrellaOf(t.umbrella.id);
+        if (!t.umbrella) continue;
+        const id = t.umbrella.id;
+        const count = members.get(id) ?? 0;
+        const note = misfit(id) ?? (count >= umbrellaLimits.members ? `Left umbrella ${umbrellaOf(id)!.title} (it is full)` : null);
+        if (!note) {
+          members.set(id, count + 1);
+          continue;
+        }
         delete t.umbrella;
-        const note = umbrella ? `Left umbrella ${umbrella.title} (it is in another board group)` : "Left umbrella (it is no longer on the board)";
         this.event(board, { taskId: t.id, actor: "system", action: "umbrella_left", note });
       }
       for (const idea of board.ideas)
-        if (idea.umbrellaId && (idea.taskId ? taskIds.has(idea.taskId) : idea.projectId === source.id) && !fits(idea.umbrellaId))
+        if (idea.umbrellaId && (idea.taskId ? taskIds.has(idea.taskId) : idea.projectId === source.id) && misfit(idea.umbrellaId))
           delete idea.umbrellaId;
       return { project, cards: tasks.length, unbound };
     });
