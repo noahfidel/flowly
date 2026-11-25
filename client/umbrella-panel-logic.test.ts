@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { UmbrellaEntry } from "../shared/model";
 import type { UmbrellaMember, UmbrellaSummary } from "../shared/umbrella";
 import {
-  acceptanceInput, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, openQuestions, pipelineRows, revisionToSend, umbrellaWritable,
+  acceptanceInput, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, moveMember, openQuestions, pickableCards, pipelineRows, revisionToSend, umbrellaWritable,
 } from "./umbrella-panel-logic";
 
 const member = (title: string, order?: number): UmbrellaMember => ({
@@ -102,3 +102,53 @@ test("an editor sends the revision it was opened on, not the umbrella's current 
   expect(editAfterSave(base, { status: "failed" })).toBe(base);
 });
 
+test("a member change keeps the role and order it does not change", () => {
+  const m = { taskId: "t", role: "map", order: 2 };
+  expect(memberInput("u", m, {})).toEqual({ taskId: "t", umbrellaId: "u", role: "map", order: 2 });
+  expect(memberInput("u", m, { role: " scorer " })).toEqual({ taskId: "t", umbrellaId: "u", role: "scorer", order: 2 });
+  // An empty role clears it; an order change keeps the role.
+  expect(memberInput("u", m, { role: "  " })).toEqual({ taskId: "t", umbrellaId: "u", order: 2 });
+  expect(memberInput("u", { taskId: "t" }, { order: 1 })).toEqual({ taskId: "t", umbrellaId: "u", order: 1 });
+});
+
+test("moving a member renumbers the pipeline and changes only the orders that differ", () => {
+  const rows = pipelineRows([member("A", 1), member("B", 2), member("C"), member("D")]);
+  // C has no order: moving it up puts it before B; A keeps 1, B becomes 3, C gets 2, D gets 4.
+  expect(moveMember(rows, "C", -1)).toEqual([
+    { taskId: "C", order: 2 },
+    { taskId: "B", order: 3 },
+    { taskId: "D", order: 4 },
+  ]);
+  expect(moveMember(rows, "A", -1)).toEqual([]);
+  expect(moveMember(rows, "D", 1)).toEqual([]);
+  expect(moveMember(rows, "missing", 1)).toEqual([]);
+});
+
+test("the picker offers the group's live cards not in this umbrella, and says when a card moves", () => {
+  const projects = [
+    { id: "p1", title: "App", groupId: "g", archivedAt: null },
+    { id: "p2", title: "Api", groupId: "g", archivedAt: null },
+    { id: "p3", title: "Other", groupId: "h", archivedAt: null },
+    { id: "p4", title: "Old", groupId: "g", archivedAt: "2026-11-01T00:00:00.000Z" },
+  ];
+  const card = (id: string, projectId: string, over: Record<string, unknown> = {}) => ({ id, title: id, projectId, archivedAt: null, ...over });
+  const tasks = [
+    card("Scorer", "p1"),
+    card("Member", "p1", { umbrella: { id: "u" } }),
+    card("Elsewhere", "p2", { umbrella: { id: "v" } }),
+    card("Gone", "p2", { umbrella: { id: "deleted" } }),
+    card("Archived", "p1", { archivedAt: "2026-11-01T00:00:00.000Z" }),
+    card("Other group", "p3"),
+    card("Old project", "p4"),
+    card("api client", "p2"),
+  ];
+  const umbrellas = [{ id: "v", title: "Search" }];
+  const all = pickableCards(tasks, projects, umbrellas, "g", "u", "");
+  expect(all).toEqual([
+    { taskId: "api client", title: "api client", projectTitle: "Api" },
+    { taskId: "Elsewhere", title: "Elsewhere", projectTitle: "Api", moveFrom: "Search" },
+    { taskId: "Gone", title: "Gone", projectTitle: "Api", moveFrom: "" },
+    { taskId: "Scorer", title: "Scorer", projectTitle: "App" },
+  ]);
+  expect(pickableCards(tasks, projects, umbrellas, "g", "u", " API ").map((c) => c.taskId)).toEqual(["api client"]);
+});

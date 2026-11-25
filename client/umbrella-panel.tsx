@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
@@ -6,9 +6,9 @@ import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-quer
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { z } from "zod";
 import * as rpc from "../shared/rpc";
-import { umbrellaEntryKinds, type Actor, type Umbrella, type UmbrellaEntry } from "../shared/model";
-import { msg, t, tn } from "../shared/i18n";
-import { umbrellaLimits, umbrellaRefetchKey, type UmbrellaMember, type UmbrellaSummary } from "../shared/umbrella";
+import type { Project, Task, Umbrella } from "../shared/model";
+import { t, tn } from "../shared/i18n";
+import { umbrellaLimits, umbrellaRefetchKey, type UmbrellaSummary } from "../shared/umbrella";
 import { Modal } from "./modal";
 import { Disclosure } from "./disclosure";
 import { Enter } from "./motion";
@@ -16,32 +16,16 @@ import { SessionMarkdown } from "./session-content";
 import { openQuickLink } from "./quick-links-row";
 import { useStableCallback } from "./stable";
 import {
-  acceptanceInput, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, openQuestions, pipelineRows, revisionToSend, umbrellaWritable, type AcceptanceDraft, type EditBase, type SaveOutcome,
+  acceptanceInput, editAfterSave, editBase, errorCode, listedUmbrellas, memberInput, moveMember, pipelineRows, revisionToSend, umbrellaWritable,
+  type AcceptanceDraft, type EditBase, type SaveOutcome,
 } from "./umbrella-panel-logic";
+import { Feed, PartTitle, Questions } from "./umbrella-feed";
+import { IntegrationCard, Pipeline } from "./umbrella-members";
 import {
-  Actions, Button, Choices, Field, IconButton, Label, Notice, Row, Theme, font, message, noFocusRing, pageBarHeight, radius, relativeTime, space, touch, useTheme, verticalContent, verticalScroll,
+  Actions, Button, Field, IconButton, Label, Notice, Row, Theme, font, message, noFocusRing, pageBarHeight, radius, relativeTime, space, touch, useTheme, verticalContent, verticalScroll,
 } from "./ui";
 
 type Detail = z.infer<typeof rpc.getUmbrella.output>;
-type Kind = UmbrellaEntry["kind"];
-
-const kindText: Record<Kind, string> = {
-  decision: msg("Decision"),
-  ruling: msg("Ruling"),
-  finding: msg("Finding"),
-  convention: msg("Convention"),
-  pitfall: msg("Pitfall"),
-  question: msg("Question"),
-  contract_change: msg("Contract change"),
-};
-const statusText: Partial<Record<UmbrellaEntry["status"], string>> = {
-  superseded: msg("Superseded"),
-  answered: msg("Answered"),
-  proposed: msg("Proposed"),
-  accepted: msg("Accepted"),
-  rejected: msg("Rejected"),
-  withdrawn: msg("Withdrawn"),
-};
 
 /** What the panel needs from the board around it. */
 type PanelProps = {
@@ -57,7 +41,28 @@ type PanelProps = {
   cardTitle(taskId: string): string | undefined;
   /** After a write: refresh the board overview, whose summary then carries the new revisions. */
   onChanged(): void;
+  /** The board's cards and projects: the member picker offers the group's live cards from these. */
+  tasks: readonly Task[];
+  projects: readonly Project[];
 };
+
+/** A daemon refusal in the user's words; `what` says which limit UMBRELLA_LIMIT hit. */
+function refusalText(error: unknown, what: "group" | "members" = "group"): string {
+  switch (errorCode(error)) {
+    case "UMBRELLA_LIMIT":
+      return what === "members"
+        ? t("This umbrella has {n} cards, the most it can hold. Remove one first.", { n: umbrellaLimits.members })
+        : t("This group already has 50 open umbrellas. Close one first.");
+    case "UMBRELLA_CLOSED":
+      return t("This umbrella is closed. Reopen it to change it.");
+    case "UMBRELLA_OUT_OF_GROUP":
+      return t("That card's project is in another board group than this umbrella.");
+    case "NOT_IN_UMBRELLA":
+      return t("The integration card must be in this umbrella.");
+    default:
+      return message(error);
+  }
+}
 
 /**
  * The umbrella panel (UMBRELLA-SPEC §7): the shown group's umbrellas, and one umbrella's brief, contract, pipeline,
@@ -187,7 +192,7 @@ function NewUmbrella({ groupId, onCancel, onCreated }: { groupId: string; onCanc
       const made = await create({ groupId, title: title.trim(), ...(brief.trim() ? { brief } : {}) });
       onCreated(made.id);
     } catch (e) {
-      setError(errorCode(e) === "UMBRELLA_LIMIT" ? t("This group already has 50 open umbrellas. Close one first.") : message(e));
+      setError(refusalText(e));
       setBusy(false);
     }
   };
@@ -226,13 +231,14 @@ function useDraft<T>(onSave: (value: T, revision: number) => Promise<SaveOutcome
   return { draft, start, change, save, cancel: () => setDraft(null) };
 }
 
-function UmbrellaDetail({ hostId, id, summary, onSelect, onOpenCard, cardTitle, onChanged }: PanelProps & { id: string; summary?: UmbrellaSummary }) {
+function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projects, onSelect, onOpenCard, cardTitle, onChanged }: PanelProps & { id: string; summary?: UmbrellaSummary }) {
   const { colors } = useTheme();
   const toast = useToast();
   const queryClient = useQueryClient();
   const get = useRpc(rpc.getUmbrella);
   const update = useRpc(rpc.updateUmbrella);
   const updateEntry = useRpc(rpc.updateUmbrellaEntry);
+  const setMember = useRpc(rpc.setUmbrellaMember);
   const close = useRpc(rpc.closeUmbrella);
   const reopen = useRpc(rpc.reopenUmbrella);
   const archive = useRpc(rpc.archiveUmbrella);
@@ -271,7 +277,7 @@ function UmbrellaDetail({ hostId, id, summary, onSelect, onOpenCard, cardTitle, 
           return { status: "failed" };
         }
       }
-      setError(code === "UMBRELLA_CLOSED" ? t("This umbrella is closed. Reopen it to change it.") : message(e));
+      setError(refusalText(e));
       if (code === "UMBRELLA_CLOSED") reload();
       return { status: "failed" };
     } finally {
@@ -286,10 +292,44 @@ function UmbrellaDetail({ hostId, id, summary, onSelect, onOpenCard, cardTitle, 
       onChanged();
       return true;
     } catch (e) {
-      setError(errorCode(e) === "UMBRELLA_CLOSED" ? t("This umbrella is closed. Reopen it to change it.") : message(e));
+      setError(refusalText(e));
       return false;
     }
   });
+  // Membership writes (`umbrellas.set-member`) change the card, not the umbrella's revision: the umbrella is read again after.
+  const writeMembers = useStableCallback(async (inputs: z.infer<typeof rpc.setUmbrellaMember.input>[]): Promise<boolean> => {
+    if (busy) return false;
+    setBusy(true);
+    setError("");
+    try {
+      for (const input of inputs) await setMember(input);
+      return true;
+    } catch (e) {
+      setError(refusalText(e, "members"));
+      return false;
+    } finally {
+      setBusy(false);
+      reload();
+      onChanged();
+    }
+  });
+  const members = data?.members;
+  const memberOf = (taskId: string) => members?.find((m) => m.taskId === taskId);
+  const addMember = useStableCallback((taskId: string, role: string) => writeMembers([{ taskId, umbrellaId: id, ...(role.trim() ? { role: role.trim() } : {}) }]));
+  const removeMember = useStableCallback((taskId: string) => writeMembers([{ taskId, umbrellaId: null }]));
+  const setRole = useStableCallback((taskId: string, role: string) => {
+    const member = memberOf(taskId);
+    return member ? writeMembers([memberInput(id, member, { role })]) : Promise.resolve(false);
+  });
+  const move = useStableCallback((taskId: string, delta: -1 | 1) => {
+    const rows = pipelineRows(members ?? []);
+    const inputs = moveMember(rows, taskId, delta).flatMap((change) => {
+      const member = rows.find((m) => m.taskId === change.taskId);
+      return member ? [memberInput(id, member, { order: change.order })] : [];
+    });
+    if (inputs.length) void writeMembers(inputs);
+  });
+  const title = useDraft((text: string, base: number) => write((revision) => update({ id, revision, title: text.trim() }), base));
   const memberIds = useMemo(() => new Map((data?.members ?? []).map((m) => [m.taskId, m.title])), [data?.members]);
   const sourceOf = useStableCallback((taskId: string | undefined) => {
     if (!taskId) return "";
@@ -319,9 +359,35 @@ function UmbrellaDetail({ hostId, id, summary, onSelect, onOpenCard, cardTitle, 
     <View style={{ gap: space[4] }}>
       {back}
       <View style={{ gap: space[1.5] }}>
-        <Label bold size={font.lg}>
-          {u.title}
-        </Label>
+        {title.draft ? (
+          <View style={{ gap: space[2] }}>
+            <Field
+              title={t("Title")}
+              value={title.draft.value}
+              onChange={(next) => title.change(() => next)}
+              maxLength={umbrellaLimits.title}
+              autoFocus
+              onSubmit={title.draft.value.trim() ? () => void title.save() : undefined}
+            />
+            <Actions>
+              <Button quiet disabled={busy} onPress={title.cancel}>
+                {t("Cancel")}
+              </Button>
+              <Button primary disabled={busy || !title.draft.value.trim()} onPress={() => void title.save()}>
+                {title.draft.base.replace ? t("Replace") : t("Save")}
+              </Button>
+            </Actions>
+          </View>
+        ) : (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space[1] }}>
+            <View style={{ flexShrink: 1, minWidth: 0 }}>
+              <Label bold size={font.lg}>
+                {u.title}
+              </Label>
+            </View>
+            {writable && <IconButton icon="Pencil" size={28} label={t("Rename {title}", { title: u.title })} disabled={busy} onPress={() => title.start(u.title, u.revision)} />}
+          </View>
+        )}
         <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space[2] }}>
           {u.archivedAt ? (
             <Label muted size={font.sm}>{t("Archived")}</Label>
@@ -367,7 +433,28 @@ function UmbrellaDetail({ hostId, id, summary, onSelect, onOpenCard, cardTitle, 
         revision={u.revision}
         onSave={(text, base) => write((revision) => update({ id, revision, contract: text }), base)}
       />
-      <Pipeline members={data.members} onOpen={openCard} />
+      <Pipeline
+        umbrellaId={id}
+        groupId={groupId}
+        members={data.members}
+        umbrellas={umbrellas}
+        tasks={tasks}
+        projects={projects}
+        writable={writable}
+        busy={busy}
+        onOpen={openCard}
+        onAdd={addMember}
+        onMove={move}
+        onRole={setRole}
+        onRemove={removeMember}
+      />
+      <IntegrationCard
+        members={data.members}
+        value={u.integrationTaskId ?? ""}
+        writable={writable}
+        busy={busy}
+        onChange={(taskId) => void write((revision) => update({ id, revision, integrationTaskId: taskId }))}
+      />
       <Questions entries={data.entries} writable={writable} sourceOf={sourceOf} onAnswer={answer} />
       <Feed entries={data.entries} writable={writable} sourceOf={sourceOf} onSupersede={supersede} />
       <Acceptance
@@ -434,23 +521,6 @@ function UmbrellaDetail({ hostId, id, summary, onSelect, onOpenCard, cardTitle, 
   );
 }
 
-function PartTitle({ title, count, trailing }: { title: string; count?: number; trailing?: ReactNode }) {
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: space[1.5], minHeight: touch ? 36 : 28 }}>
-      <Label bold size={font.md} selectable={false}>
-        {title}
-      </Label>
-      {count !== undefined && (
-        <Label muted size={font.md} selectable={false}>
-          {count}
-        </Label>
-      )}
-      <View style={{ flex: 1 }} />
-      {trailing}
-    </View>
-  );
-}
-
 /** The brief or the contract: markdown, and while editing a multiline Field whose text survives a conflict. */
 function TextPart({ title, text, empty, changed, source, max, writable, busy, revision, onSave }: {
   title: string;
@@ -507,178 +577,6 @@ function TextPart({ title, text, empty, changed, source, max, writable, busy, re
     </View>
   );
 }
-
-function Pipeline({ members, onOpen }: { members: readonly UmbrellaMember[]; onOpen(taskId: string): void }) {
-  const rows = useMemo(() => pipelineRows(members), [members]);
-  return (
-    <View style={{ gap: space[1] }}>
-      <PartTitle title={t("Pipeline")} count={rows.length} />
-      {rows.length === 0 ? (
-        <Label muted size={font.sm}>
-          {t("No cards yet. Ask the dispatcher, or a card's agent, to add cards to it.")}
-        </Label>
-      ) : (
-        rows.map((m) => <PipelineRow key={m.taskId} member={m} onOpen={onOpen} />)
-      )}
-    </View>
-  );
-}
-
-const PipelineRow = memo(function PipelineRow({ member, onOpen }: { member: UmbrellaMember; onOpen(taskId: string): void }) {
-  const detail = [member.role, member.laneName, member.projectTitle, member.archived ? t("Archived") : ""].filter(Boolean).join(" · ");
-  return <Row title={member.title} detail={detail} label={t("Open card {card}", { card: member.title })} onPress={() => onOpen(member.taskId)} />;
-});
-
-const actorName = (by: Actor, source: string) => (by.kind === "human" ? t("you") : by.kind === "dispatcher" ? t("dispatcher") : source || t("an agent"));
-
-function Questions({ entries, writable, sourceOf, onAnswer }: {
-  entries: readonly UmbrellaEntry[];
-  writable: boolean;
-  sourceOf(taskId: string | undefined): string;
-  onAnswer(id: string, text: string): Promise<boolean>;
-}) {
-  const open = useMemo(() => openQuestions(entries), [entries]);
-  if (!open.length) return null;
-  return (
-    <View style={{ gap: space[2] }}>
-      <PartTitle title={t("Open questions")} count={open.length} />
-      {open.map((e) => (
-        <QuestionRow key={e.id} entry={e} source={sourceOf(e.sourceTaskId)} writable={writable} onAnswer={onAnswer} />
-      ))}
-    </View>
-  );
-}
-
-const QuestionRow = memo(function QuestionRow({ entry, source, writable, onAnswer }: { entry: UmbrellaEntry; source: string; writable: boolean; onAnswer(id: string, text: string): Promise<boolean> }) {
-  const { colors } = useTheme();
-  // Cleared after a sent answer: TextBox shows an outside change of its value.
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const send = async () => {
-    const answer = text.trim();
-    if (!answer || sending) return;
-    setSending(true);
-    const ok = await onAnswer(entry.id, answer);
-    setSending(false);
-    if (ok) setText("");
-  };
-  return (
-    <View style={{ gap: space[1.5], padding: space[2], borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg }}>
-      <Label medium size={font.md}>
-        {entry.title}
-      </Label>
-      {!!entry.body && <Label size={font.sm}>{entry.body}</Label>}
-      <Label muted size={font.xs}>
-        {t("Asked by {who} {time}", { who: actorName(entry.by, source), time: relativeTime(entry.createdAt) })}
-      </Label>
-      {writable && (
-        <>
-          <Field title={t("Answer")} value={text} onChange={setText} multiline maxLength={umbrellaLimits.entryBody} />
-          <Actions>
-            <Button small primary disabled={sending || !text.trim()} onPress={() => void send()}>
-              {t("Answer")}
-            </Button>
-          </Actions>
-        </>
-      )}
-    </View>
-  );
-});
-
-const kindOptions = (): { value: Kind | "all"; label: string }[] => [{ value: "all", label: t("All") }, ...umbrellaEntryKinds.map((k) => ({ value: k, label: t(kindText[k]) }))];
-
-function Feed({ entries, writable, sourceOf, onSupersede }: {
-  entries: readonly UmbrellaEntry[];
-  writable: boolean;
-  sourceOf(taskId: string | undefined): string;
-  onSupersede(id: string): Promise<boolean>;
-}) {
-  const [kind, setKind] = useState<Kind | "all">("all");
-  const [closed, setClosed] = useState(false);
-  const rows = useMemo(() => feedRows(entries, kind, { closed }), [entries, kind, closed]);
-  const hidden = useMemo(() => feedRows(entries, kind, { closed: true }).length - feedRows(entries, kind).length, [entries, kind]);
-  return (
-    <View style={{ gap: space[2] }}>
-      <PartTitle title={t("Feed")} count={feedRows(entries, "all").length} />
-      <Choices title={t("Kind")} hideTitle value={kind} options={kindOptions()} onChange={setKind} />
-      {rows.length === 0 ? (
-        <Label muted size={font.sm}>
-          {t("Nothing in the feed yet.")}
-        </Label>
-      ) : (
-        rows.map((e) => <FeedRow key={e.id} entry={e} source={sourceOf(e.sourceTaskId)} writable={writable} onSupersede={onSupersede} />)
-      )}
-      {(hidden > 0 || closed) && (
-        <View style={{ flexDirection: "row" }}>
-          <Button small quiet onPress={() => setClosed(!closed)}>
-            {closed ? t("Hide superseded and withdrawn") : t("Show superseded and withdrawn ({n})", { n: hidden })}
-          </Button>
-        </View>
-      )}
-    </View>
-  );
-}
-
-const FeedRow = memo(function FeedRow({ entry, source, writable, onSupersede }: { entry: UmbrellaEntry; source: string; writable: boolean; onSupersede(id: string): Promise<boolean> }) {
-  const { colors } = useTheme();
-  const [confirming, setConfirming] = useState(false);
-  const busy = useRef(false);
-  const status = statusText[entry.status];
-  const live = entry.status === "active" || entry.status === "open";
-  const head = [t(kindText[entry.kind]), status ? t(status) : "", actorName(entry.by, source), relativeTime(entry.createdAt)].filter(Boolean).join(" · ");
-  return (
-    <View style={{ gap: space[1], paddingVertical: space[1.5], borderBottomWidth: 1, borderColor: colors.border, opacity: live || entry.status === "answered" ? 1 : 0.7 }}>
-      <Label muted size={font.xs}>
-        {head}
-      </Label>
-      <Label medium size={font.md}>
-        {entry.title}
-      </Label>
-      {!!entry.quote && (
-        <Label italic size={font.sm}>
-          {`“${entry.quote}”`}
-        </Label>
-      )}
-      {!!entry.body && <Label size={font.sm}>{entry.body}</Label>}
-      {!!entry.answer && (
-        <Label size={font.sm}>
-          <Label muted size={font.sm}>{`${t("Answer")}: `}</Label>
-          {entry.answer}
-        </Label>
-      )}
-      {writable && live && entry.kind !== "contract_change" && (
-        <View style={{ flexDirection: "row", gap: space[2], alignItems: "center" }}>
-          {confirming ? (
-            <>
-              <Label muted size={font.sm}>{t("Mark as superseded?")}</Label>
-              <Button small quiet onPress={() => setConfirming(false)}>
-                {t("Cancel")}
-              </Button>
-              <Button
-                small
-                danger
-                onPress={() => {
-                  if (busy.current) return;
-                  busy.current = true;
-                  void onSupersede(entry.id).finally(() => {
-                    busy.current = false;
-                    setConfirming(false);
-                  });
-                }}
-              >
-                {t("Supersede")}
-              </Button>
-            </>
-          ) : (
-            <Button small quiet label={t("Mark {title} as superseded", { title: entry.title })} onPress={() => setConfirming(true)}>
-              {t("Supersede")}
-            </Button>
-          )}
-        </View>
-      )}
-    </View>
-  );
-});
 
 type DraftItem = AcceptanceDraft & { key: string };
 

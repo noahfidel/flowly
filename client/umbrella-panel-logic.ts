@@ -70,3 +70,54 @@ export function editAfterSave(base: EditBase, outcome: SaveOutcome): EditBase | 
   return base;
 }
 
+/**
+ * `umbrellas.set-member` for a card already in the umbrella. The server replaces both role and order with what it is
+ * sent, so the ones not being changed are sent as they are; an empty role clears it.
+ */
+export function memberInput(
+  umbrellaId: string,
+  member: Pick<UmbrellaMember, "taskId" | "role" | "order">,
+  change: { role?: string; order?: number },
+): { taskId: string; umbrellaId: string; role?: string; order?: number } {
+  const role = (change.role ?? member.role ?? "").trim();
+  const order = change.order ?? member.order;
+  return { taskId: member.taskId, umbrellaId, ...(role ? { role } : {}), ...(order !== undefined ? { order } : {}) };
+}
+
+/** Moving one pipeline row up (-1) or down (1): the rows renumbered 1..n after the swap, only those whose order changes. */
+export function moveMember(rows: readonly Pick<UmbrellaMember, "taskId" | "order">[], taskId: string, delta: -1 | 1): { taskId: string; order: number }[] {
+  const from = rows.findIndex((r) => r.taskId === taskId);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= rows.length) return [];
+  const next = [...rows];
+  [next[from], next[to]] = [next[to]!, next[from]!];
+  return next.flatMap((r, index) => (r.order === index + 1 ? [] : [{ taskId: r.taskId, order: index + 1 }]));
+}
+
+export type PickableCard = { taskId: string; title: string; projectTitle: string; moveFrom?: string };
+
+/**
+ * Cards the member picker offers (D11, the user's own add): live cards of the group's live projects that are not in this
+ * umbrella, whose title contains `query`, by title. `moveFrom` names the umbrella a card would leave ("" when that
+ * umbrella is not in the summaries).
+ */
+export function pickableCards(
+  tasks: readonly { id: string; title: string; projectId: string; archivedAt: string | null; umbrella?: { id: string } }[],
+  projects: readonly { id: string; title: string; groupId?: string; archivedAt: string | null }[],
+  umbrellas: readonly Pick<UmbrellaSummary, "id" | "title">[],
+  groupId: string,
+  umbrellaId: string,
+  query: string,
+): PickableCard[] {
+  const live = new Map(projects.filter((p) => p.groupId === groupId && !p.archivedAt).map((p) => [p.id, p.title]));
+  const needle = query.trim().toLowerCase();
+  return tasks
+    .filter((t) => !t.archivedAt && live.has(t.projectId) && t.umbrella?.id !== umbrellaId && (!needle || t.title.toLowerCase().includes(needle)))
+    .map((t): PickableCard => ({
+      taskId: t.id,
+      title: t.title,
+      projectTitle: live.get(t.projectId)!,
+      ...(t.umbrella ? { moveFrom: umbrellas.find((u) => u.id === t.umbrella!.id)?.title ?? "" } : {}),
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+}

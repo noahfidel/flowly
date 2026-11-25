@@ -2774,6 +2774,8 @@ function BoardContent(
                     onOpenCard={openUmbrellaCard}
                     cardTitle={umbrellaCardTitle}
                     onChanged={umbrellasChanged}
+                    tasks={board.tasks}
+                    projects={board.projects}
                     onBack={closePage}
                   />
                 ) : page === "guardrails" && board && project ? (
@@ -3169,6 +3171,8 @@ function BoardContent(
             onOpenCard={openUmbrellaCard}
             cardTitle={umbrellaCardTitle}
             onChanged={umbrellasChanged}
+            tasks={board?.tasks ?? noTasks}
+            projects={board?.projects ?? noProjects}
             onClose={closeUmbrellas}
           />
         )}
