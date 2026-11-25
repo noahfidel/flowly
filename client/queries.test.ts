@@ -137,6 +137,7 @@ test("applying the daemon's patch gives back the board it was computed from", ()
       workpads: [{ taskId: "a", v: 1 }],
       attentionDismissals: [],
       groups: [item("g")],
+      umbrellas: [],
       ...over,
     }) as unknown as Parameters<typeof applyBoardPatch>[0];
   const before = make(1);
@@ -149,6 +150,8 @@ test("applying the daemon's patch gives back the board it was computed from", ()
     make(2, { events: [{ id: "e0" }, { id: "e1" }, { id: "e2" }], workpads: [{ taskId: "z", v: 1 }, { taskId: "a", v: 2 }], plans: [{ taskId: "a" }] }),
     // board groups travel by id like projects (BOARD-GROUPS-SPEC §1)
     make(2, { groups: [item("h"), item("g", 1)] }),
+    // umbrellas travel by id (UMBRELLA-SPEC §4.4)
+    make(2, { umbrellas: [item("u")] }),
   ];
   for (const after of cases) {
     const deltas = new BoardDeltas();

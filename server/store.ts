@@ -9,6 +9,7 @@ import { JsonBoardFile, StoreInvalidError, assertBoardInvariants, writeFileDurab
 import { BoardStorage, type StorageOptions } from "./sqlite-storage";
 import type { StorageStatus } from "../shared/storage";
 import { ideaTitleKey } from "../shared/ideas";
+import { umbrellaViewOf } from "../shared/umbrella";
 import { otherEnd, relationLabels, relationOf, touches } from "../shared/links";
 import { changeTags, mergeTagEdit, normalizeTags, tagChangeNote } from "../shared/tags";
 import {
@@ -298,8 +299,10 @@ export class BoardStore {
     }, delay);
     retry.timer.unref?.();
   }
+  /** The board for clients: umbrellas without brief and contract text, and no feed entries (UMBRELLA-SPEC §4.4). */
   async view() {
-    return boardSchema.parse(await this.read());
+    const board = boardSchema.parse(await this.read());
+    return { ...board, umbrellas: board.umbrellas.map(umbrellaViewOf), umbrellaEntries: [] };
   }
   mutate<T>(operation: (board: Board) => Promise<T> | T): Promise<T> {
     return this.transaction(async (board) => ({

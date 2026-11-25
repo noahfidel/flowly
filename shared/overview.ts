@@ -2,6 +2,7 @@ import { z } from "zod";
 import { groupSchema, projectSchema, taskSchema, linkSchema } from "./model";
 import { attentionDismissalSchema } from "./attention-dismiss";
 import { connectorFamilies } from "./connectors";
+import { umbrellaSummarySchema } from "./umbrella";
 
 /** Event facts, not a shortened event history (NATIVE-OVERVIEW-SPEC). */
 export const sessionFactsSchema = z.strictObject({
@@ -49,6 +50,8 @@ export const boardOverviewSchema = z.strictObject({
   attentionDismissals: z.array(attentionDismissalSchema),
   cards: z.array(cardFactsSchema),
   projectIdeas: z.array(projectIdeaFactsSchema),
+  /** Every umbrella of the board, archived ones included (the client hides them); summaries only (UMBRELLA-SPEC §4.4). */
+  umbrellas: z.array(umbrellaSummarySchema),
 });
 export type BoardOverview = z.infer<typeof boardOverviewSchema>;
 const collection = <T extends z.ZodType>(item: T) => z.strictObject({ set: z.array(item), remove: z.array(z.string()), order: z.array(z.string()).optional() }).optional();
@@ -62,6 +65,7 @@ export const overviewPatchSchema = z.strictObject({
   attentionDismissals: collection(attentionDismissalSchema),
   cards: collection(cardFactsSchema),
   projectIdeas: collection(projectIdeaFactsSchema),
+  umbrellas: collection(umbrellaSummarySchema),
 });
 export type OverviewPatch = z.infer<typeof overviewPatchSchema>;
 export const overviewResponseSchema = z.strictObject({ etag: z.string(), value: boardOverviewSchema.optional(), patch: overviewPatchSchema.optional() });
@@ -75,6 +79,7 @@ export const overviewKeys = {
   attentionDismissals: (x: { taskId: string }) => x.taskId,
   cards: (x: { taskId: string }) => x.taskId,
   projectIdeas: (x: { projectId: string }) => x.projectId,
+  umbrellas: (x: { id: string }) => x.id,
 } as const;
 export type OverviewCollection = keyof typeof overviewKeys;
 export const overviewCollections = Object.keys(overviewKeys) as OverviewCollection[];

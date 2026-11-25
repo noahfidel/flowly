@@ -11,10 +11,14 @@ import { hiddenPrKeys } from "../shared/hidden-prs";
 import type { PrMineIndex } from "./pr-menu";
 import { cardPrs, prIsHidden, prMenuCard } from "../shared/pr-rows";
 import { etagOf } from "./etag";
+import { umbrellaSummary } from "../shared/umbrella";
 
 type Board = z.infer<typeof boardSchema>;
 
-/** Preserve rule results; no history/body is removed from storage. */
+/**
+ * Preserve rule results; no history/body is removed from storage. Pass the full board (`store.read()`), not
+ * `store.view()`: umbrella summaries count the feed entries, which the view leaves out.
+ */
 export function boardOverview(board: Board, mine?: PrMineIndex): BoardOverview {
   const events = new Map<string, BoardEvent[]>();
   for (const e of board.events) {
@@ -65,7 +69,7 @@ export function boardOverview(board: Board, mine?: PrMineIndex): BoardOverview {
       sessions,
     };
   });
-  return { version: 1, revision: board.revision, groups: [...board.groups].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt)), projects: board.projects, tasks: board.tasks, links: board.links, attentionDismissals: board.attentionDismissals, cards, projectIdeas: projectIdeaFacts(board) };
+  return { version: 1, revision: board.revision, groups: [...board.groups].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt)), projects: board.projects, tasks: board.tasks, links: board.links, attentionDismissals: board.attentionDismissals, cards, projectIdeas: projectIdeaFacts(board), umbrellas: board.umbrellas.map(u => umbrellaSummary(u, board)) };
 }
 
 /** The card's PRs for the board's pull requests menu (PR-MENU-SPEC §3.1); a malformed card counts none instead of breaking the overview. */

@@ -392,6 +392,45 @@ export const switchSchema = z.object({
   integratedAt: timestamp.optional(),
 });
 export type WorkspaceSwitch = z.infer<typeof switchSchema>;
+/** Who wrote an umbrella field or entry (UMBRELLA-SPEC §2.1). */
+export const actorSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("human") }),
+  z.object({ kind: z.literal("agent"), agentId: z.string(), taskId: z.string().optional() }),
+  z.object({ kind: z.literal("dispatcher"), agentId: z.string() }),
+]);
+export type Actor = z.infer<typeof actorSchema>;
+/** Umbrella limits (UMBRELLA-SPEC §2.4) and the `get_task` budgets (§3); re-exported by shared/umbrella.ts. */
+export const umbrellaLimits = {
+  openPerGroup: 50,
+  members: 30,
+  activeEntries: 300,
+  writesPerHour: 20,
+  relaysPerHour: 60,
+  brief: 20000,
+  contract: 10000,
+  pendingChanges: 10,
+  title: 120,
+  role: 40,
+  acceptance: 20,
+  acceptanceText: 300,
+  entryTitle: 120,
+  entryBody: 2000,
+  quote: 500,
+  briefBudget: 8000,
+  feedBudget: 6000,
+  siblings: 30,
+} as const;
+/** A card's umbrella (UMBRELLA-SPEC §2.2); at most one per card. */
+export const umbrellaMembershipSchema = z.object({
+  id: z.string(),
+  /** The member's owned pipeline stage, e.g. "feature map". */
+  role: z.string().max(umbrellaLimits.role).optional(),
+  /** Sorts the pipeline. */
+  order: z.number().optional(),
+  joinedAt: timestamp,
+  by: actorSchema,
+});
+export type UmbrellaMembership = z.infer<typeof umbrellaMembershipSchema>;
 export const taskSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -439,6 +478,8 @@ export const taskSchema = z.object({
   review: reviewSchema.optional(),
   /** Review findings the agent disputed (GUARDRAILS-SPEC §6.1); written without a task revision, cleared at Done/Cancelled. */
   disputes: z.array(disputeSchema).max(disputeLimits.perTask).optional(),
+  /** The umbrella the card is a member of (UMBRELLA-SPEC §2.2); written without a task revision. */
+  umbrella: umbrellaMembershipSchema.optional(),
 });
 /** A follow-up an agent proposed on its card; the user may turn it into a card (IDEAS-SPEC). */
 export const ideaStatuses = ["open", "accepted", "dismissed"] as const;
@@ -469,10 +510,87 @@ export const ideaSchema = z.object({
   acceptedTaskId: z.string().optional(),
   /** Accepted in this card: the session the idea was sent to. */
   acceptedAgentId: z.string().optional(),
+  /** Proposed for the umbrella of its source card; the umbrella's ideas are derived from it (UMBRELLA-SPEC §2.3). */
+  umbrellaId: z.string().optional(),
   createdAt: timestamp,
   updatedAt: timestamp,
 });
 export type Idea = z.infer<typeof ideaSchema>;
+/** A named body of work inside one board group (UMBRELLA-SPEC §2.1). */
+export const umbrellaStatuses = ["open", "closed"] as const;
+export const umbrellaSchema = z.object({
+  id: z.string(),
+  /** The board group it lives in (D2). */
+  groupId: z.string(),
+  title: z.string().trim().min(1).max(umbrellaLimits.title),
+  /** Markdown every member reads; `source` is an optional link or path the user keeps it in (D4). */
+  brief: z.object({
+    text: z.string().max(umbrellaLimits.brief),
+    revision: z.number().int().nonnegative(),
+    updatedAt: timestamp,
+    updatedBy: actorSchema,
+    source: z.string().max(2000).optional(),
+  }),
+  /** Markdown: the handoff shapes between members. */
+  contract: z.object({
+    text: z.string().max(umbrellaLimits.contract),
+    revision: z.number().int().nonnegative(),
+    updatedAt: timestamp,
+    updatedBy: actorSchema,
+  }),
+  acceptance: z
+    .array(z.object({ id: z.string(), text: z.string().trim().min(1).max(umbrellaLimits.acceptanceText), done: z.boolean(), by: actorSchema, at: timestamp }))
+    .max(umbrellaLimits.acceptance),
+  /** The member that runs the end-to-end check (§11). */
+  integrationTaskId: z.string().optional(),
+  /** Read-only reference (§10). */
+  linearProject: z.object({ url: z.string().max(2000), key: z.string().max(100).optional(), name: z.string().max(200).optional() }).optional(),
+  /** Closed by the user only (§11). */
+  status: z.enum(umbrellaStatuses),
+  createdBy: actorSchema,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  /** Bumped by the user's and the dispatcher's edits; checked by umbrellas.update. */
+  revision: z.number().int().positive(),
+  /** Bumped by every feed write; never checked, so an agent entry never refuses a panel edit. */
+  feedRevision: z.number().int().nonnegative().default(0),
+  /** The creating call's idempotency key (replay of a create). */
+  operationId: z.string().optional(),
+  archivedAt: timestamp.nullable(),
+});
+export type Umbrella = z.infer<typeof umbrellaSchema>;
+/** The umbrella's feed (UMBRELLA-SPEC §2.3). */
+export const umbrellaEntryKinds = ["decision", "ruling", "finding", "convention", "pitfall", "question", "contract_change"] as const;
+export const umbrellaEntryStatuses = ["active", "superseded", "open", "answered", "proposed", "accepted", "rejected", "withdrawn"] as const;
+export const umbrellaEntrySchema = z.object({
+  id: z.string(),
+  umbrellaId: z.string(),
+  kind: z.enum(umbrellaEntryKinds),
+  title: z.string().max(umbrellaLimits.entryTitle),
+  body: z.string().max(umbrellaLimits.entryBody),
+  status: z.enum(umbrellaEntryStatuses),
+  /** The member it came from. */
+  sourceTaskId: z.string().optional(),
+  /** kind=ruling: the user's words. */
+  quote: z.string().max(umbrellaLimits.quote).optional(),
+  supersedes: z.string().optional(),
+  /** kind=question: the user's answer; kind=contract_change: the resolver's note (D19). */
+  answer: z.string().max(umbrellaLimits.entryBody).optional(),
+  /** kind=contract_change (§5). */
+  change: z
+    .object({
+      before: z.string().max(umbrellaLimits.contract),
+      after: z.string().max(umbrellaLimits.contract),
+      reason: z.string().max(umbrellaLimits.entryBody),
+      baseRevision: z.number().int().nonnegative(),
+      conflict: z.boolean().optional(),
+    })
+    .optional(),
+  by: actorSchema,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+});
+export type UmbrellaEntry = z.infer<typeof umbrellaEntrySchema>;
 /** A link between two cards of one project (CARD-LINKS-SPEC §2.1). */
 export const linkKinds = ["derived", "related", "blocks"] as const;
 export const linkLimits = { perTask: 50 } as const;
@@ -715,6 +833,9 @@ export const boardSchema = z.object({
   hiddenPrs: z.array(hiddenPrSchema).max(hiddenPrLimits.records).default([]),
   /** Board groups (BOARD-GROUPS-SPEC §1); absent in files written before them, filled by the one-time migration (§7). */
   groups: z.array(groupSchema).max(groupLimits.groups).default([]),
+  /** Umbrellas and their feeds (UMBRELLA-SPEC §2); absent in files written before them. */
+  umbrellas: z.array(umbrellaSchema).default([]),
+  umbrellaEntries: z.array(umbrellaEntrySchema).default([]),
   /**
    * Set once the start collapse of project Auto review values into group values has run (BOARD-GROUPS-SPEC §7 step 9),
    * or by the first write after a start that found no projects; never cleared, so the collapse never runs twice.
@@ -783,6 +904,8 @@ export const emptyBoard = (): Board => ({
   attentionDismissals: [],
   hiddenPrs: [],
   groups: [],
+  umbrellas: [],
+  umbrellaEntries: [],
   agentReceipts: [],
 });
 export const projectInput = z.strictObject({

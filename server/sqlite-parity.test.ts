@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoardStore } from "./store";
 import { emptyBoard, type Board } from "../shared/model";
+import { updateEntry } from "./umbrellas";
 
 // The same operations on board.json and on flowly.sqlite give the same board after every step
 // (SQLITE-STORAGE-SPEC §11 item 2). Ids and times are made deterministic so both runs can be compared.
@@ -78,6 +79,25 @@ const steps: [string, (s: BoardStore) => Promise<unknown>][] = [
         b.agentReceipts.push({ key: "k1", agentId: "a1", taskId: "t3", payloadHash: "h", action: "progress", eventId: "e1", taskRevision: 1, projectRevision: 1, status: "todo", at, expiresAt: at });
       }),
   ],
+  [
+    "umbrellas, feed entries and a membership",
+    (s) =>
+      s.mutate((b) => {
+        const human = { kind: "human" as const };
+        b.umbrellas.push({
+          id: "u1", groupId: "g1", title: "Umbrella", brief: { text: "Brief", revision: 1, updatedAt: at, updatedBy: human },
+          contract: { text: "", revision: 0, updatedAt: at, updatedBy: human }, acceptance: [{ id: "x1", text: "Works", done: false, by: human, at }],
+          status: "open", createdBy: human, createdAt: at, updatedAt: at, revision: 1, feedRevision: 0, archivedAt: null,
+        });
+        b.umbrellaEntries.push(
+          { id: "ue1", umbrellaId: "u1", kind: "question", title: "Drafts?", body: "", status: "open", sourceTaskId: "t3", by: { kind: "agent", agentId: "a1", taskId: "t3" }, createdAt: at, updatedAt: at },
+          { id: "ue2", umbrellaId: "u1", kind: "contract_change", title: "Change", body: "", status: "proposed", change: { before: "", after: "x", reason: "y", baseRevision: 0 }, by: { kind: "agent", agentId: "a1" }, createdAt: at, updatedAt: at },
+        );
+        b.tasks.find((t) => t.id === "t3")!.umbrella = { id: "u1", role: "map", order: 1, joinedAt: at, by: human };
+        b.ideas[0].umbrellaId = "u1";
+      }),
+  ],
+  ["answer an umbrella question", (s) => updateEntry(s, { id: "ue1", status: "answered", answer: "Drafts" }, { kind: "human" })],
   ["dismiss an idea", (s) => s.updateIdea({ id: "i1", status: "dismissed" })],
   ["snooze attention", (s) => s.dismissAttention({ taskId: "t1", list: "needs", signals: ["question:1"] })],
   ["snooze the other list of a migrated record", (s) => s.dismissAttention({ taskId: "t2", list: "updated", signals: ["u:tok2"] })],
@@ -110,6 +130,8 @@ describe("board.json and flowly.sqlite", () => {
     const final = JSON.stringify(await json.read());
     expect(final).toContain("Renamed");
     expect(final).not.toContain('"p2"');
+    expect(JSON.parse(final).umbrellaEntries.map((e: { status: string }) => e.status)).toEqual(["answered", "proposed"]);
+    expect(JSON.parse(final).umbrellas[0].feedRevision).toBe(1);
     expect(JSON.parse(final).attentionDismissals).toEqual([
       { taskId: "t1", needs: { signals: ["question:1"], snoozedAt: expect.any(String) } },
       { taskId: "t2", needs: { signals: ["q:e1"], snoozedAt: at }, updated: { signals: ["u:tok2"], snoozedAt: expect.any(String) } },

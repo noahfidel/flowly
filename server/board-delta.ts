@@ -22,6 +22,8 @@ const keys = {
   workpads: (x: { taskId: string }) => x.taskId,
   attentionDismissals: (x: { taskId: string }) => x.taskId,
   groups: (x: { id: string }) => x.id,
+  /** Brief and contract text are stripped and entries are never in the view, so they have no key (UMBRELLA-SPEC §4.4). */
+  umbrellas: (x: { id: string }) => x.id,
 } as const;
 export type KeyedName = keyof typeof keys;
 export const keyedNames = Object.keys(keys) as KeyedName[];

@@ -27,6 +27,8 @@ function board(status: Status, extra: { autoStatus?: boolean; archived?: boolean
     hiddenPrs: [],
     plans: [],
     groups: [],
+    umbrellas: [],
+    umbrellaEntries: [],
     agentReceipts: [],
   } as Board;
 }

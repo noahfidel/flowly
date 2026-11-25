@@ -96,3 +96,42 @@ test("prsMine counts the visible PRs the mine index knows, and is 0 without an i
   expect(boardOverview(board, index).cards[0]).toMatchObject({ prs: 2, prsHidden: 1, prsMine: 1 });
   expect(boardOverview(board).cards[0]).toMatchObject({ prs: 2, prsHidden: 1, prsMine: 0 });
 });
+
+const human = { kind: "human" as const };
+const umbrella = (over = {}) => ({
+  id: "u", groupId: "g", title: "Fresh context",
+  brief: { text: "Brief body", revision: 1, updatedAt: at, updatedBy: human },
+  contract: { text: "Contract body", revision: 1, updatedAt: at, updatedBy: human },
+  acceptance: [], status: "open", createdBy: human, createdAt: at, updatedAt: at, revision: 1, feedRevision: 0, archivedAt: null, ...over,
+});
+const umbrellaEntry = (id: string, kind: string, status: string) => ({ id, umbrellaId: "u", kind, title: id, body: "Entry body", status, by: human, createdAt: at, updatedAt: at });
+
+test("the overview carries umbrella summaries without brief, contract or entries", () => {
+  const member = { ...task("a"), umbrella: { id: "u", joinedAt: at, by: human } };
+  const board = boardSchema.parse({
+    events: [], version: 5, revision: 1, projects: [project], tasks: [member, task("b")],
+    umbrellas: [umbrella(), umbrella({ id: "old", title: "Old", status: "closed", archivedAt: at })],
+    umbrellaEntries: [umbrellaEntry("q1", "question", "open"), umbrellaEntry("c1", "contract_change", "proposed")],
+  });
+  const overview = boardOverviewSchema.parse(boardOverview(board));
+  expect(overview.umbrellas).toEqual([
+    { id: "u", groupId: "g", title: "Fresh context", status: "open", members: 1, openQuestions: 1, pendingChanges: 1, revision: 1, feedRevision: 0, archivedAt: null },
+    { id: "old", groupId: "g", title: "Old", status: "closed", members: 0, openQuestions: 0, pendingChanges: 0, revision: 1, feedRevision: 0, archivedAt: at },
+  ]);
+  const text = JSON.stringify(overview);
+  expect(text).not.toContain("Brief body");
+  expect(text).not.toContain("Contract body");
+  expect(text).not.toContain("Entry body");
+});
+
+test("an agent entry changes the summary's feedRevision and arrives in the overview patch", () => {
+  const deltas = new OverviewDeltas();
+  const build = (revision: number, feedRevision: number, entries: object[]) =>
+    boardOverview(boardSchema.parse({ events: [], version: 5, revision, projects: [project], tasks: [task("a")], umbrellas: [umbrella({ feedRevision })], umbrellaEntries: entries }));
+  const initial = build(1, 0, []);
+  const first = deltas.read(initial, {});
+  const next = build(2, 1, [umbrellaEntry("q1", "question", "open")]);
+  const response = readOverviewChanged.output.parse(deltas.read(next, { etag: first.etag }));
+  expect(response.patch?.umbrellas?.set).toEqual([expect.objectContaining({ id: "u", feedRevision: 1, openQuestions: 1, revision: 1 })]);
+  expect(applyOverviewPatch(initial, response.patch!)).toEqual(next);
+});

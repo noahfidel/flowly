@@ -47,7 +47,18 @@ import {
   groupMove,
   groupRemoval,
   projectGroupEdit,
+  umbrellaSchema,
+  umbrellaEntrySchema,
+  statusSchema,
 } from "./model";
+import {
+  umbrellaCreateInput,
+  umbrellaEntryUpdateInput,
+  umbrellaMemberInput,
+  umbrellaRevisionInput,
+  umbrellaSummarySchema,
+  umbrellaUpdateInput,
+} from "./umbrella";
 import { healthSchema, preparationSchema, projectIdeaInputSchema, startCardResultSchema } from "./tools";
 import { connectionInput, connectionSchema, externalSummarySchema, itemTypeSchema } from "./connectors";
 import { linearBoardRowSchema, linearStateSchema, linearTeamSchema } from "./linear-board";
@@ -154,6 +165,7 @@ export const boardPatchSchema = z.object({
   workpads: collectionPatch(workpadSchema),
   attentionDismissals: collectionPatch(attentionDismissalSchema),
   groups: collectionPatch(groupSchema),
+  umbrellas: collectionPatch(umbrellaSchema),
 });
 export const readBoardChanged = defineRpc({
   name: "board.read-changed",
@@ -363,6 +375,68 @@ export const deleteLink = defineRpc({
   name: "links.delete",
   input: z.strictObject({ id: z.string().min(1) }),
   output: z.object({ id: z.string() }),
+});
+/** Umbrellas (UMBRELLA-SPEC §4.4): the user's reads and edits; refusals keep their code (`CODE: message`). */
+export const listUmbrellas = defineRpc({
+  name: "umbrellas.list",
+  input: z.strictObject({ groupId: z.string().min(1).max(200) }),
+  output: z.array(umbrellaSummarySchema),
+});
+export const getUmbrella = defineRpc({
+  name: "umbrellas.get",
+  input: z.strictObject({ id: z.string().min(1).max(200) }),
+  output: z.object({
+    umbrella: umbrellaSchema,
+    entries: z.array(umbrellaEntrySchema),
+    members: z.array(
+      z.object({
+        taskId: z.string(),
+        projectId: z.string(),
+        projectTitle: z.string(),
+        title: z.string(),
+        status: statusSchema,
+        laneName: z.string(),
+        role: z.string().optional(),
+        order: z.number().optional(),
+        archived: z.boolean(),
+      }),
+    ),
+  }),
+});
+export const createUmbrella = defineRpc({
+  name: "umbrellas.create",
+  input: umbrellaCreateInput,
+  output: umbrellaSchema,
+});
+export const updateUmbrella = defineRpc({
+  name: "umbrellas.update",
+  input: umbrellaUpdateInput,
+  output: umbrellaSchema,
+});
+export const setUmbrellaMember = defineRpc({
+  name: "umbrellas.set-member",
+  input: umbrellaMemberInput,
+  output: taskSchema,
+});
+export const updateUmbrellaEntry = defineRpc({
+  name: "umbrellas.entry.update",
+  input: umbrellaEntryUpdateInput,
+  output: umbrellaEntrySchema,
+});
+export const closeUmbrella = defineRpc({
+  name: "umbrellas.close",
+  input: umbrellaRevisionInput,
+  output: umbrellaSchema,
+});
+export const reopenUmbrella = defineRpc({
+  name: "umbrellas.reopen",
+  input: umbrellaRevisionInput,
+  output: umbrellaSchema,
+});
+export const archiveUmbrella = defineRpc({
+  name: "umbrellas.archive",
+  input: umbrellaRevisionInput,
+  output: umbrellaSchema,
 });
 /** Connections and read-only external inputs (CONNECTORS-SPEC, EXTERNAL-TRACKER-SPEC). Credentials never leave the daemon. */
 export const listConnections = defineRpc({

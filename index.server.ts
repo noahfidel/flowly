@@ -34,6 +34,17 @@ import { resolveAiLanguage } from "./shared/ai-language";
 import { ComposerService, ComposerStore } from "./server/composer";
 import { adoptIdea } from "./server/ideas";
 import { createLink, deleteLink } from "./server/links";
+import {
+  archiveUmbrella,
+  closeUmbrella,
+  createUmbrella,
+  getUmbrella,
+  listUmbrellas,
+  reopenUmbrella,
+  setMembership,
+  updateEntry,
+  updateUmbrella,
+} from "./server/umbrellas";
 import { ArtifactService } from "./server/artifacts";
 import { cardGallery, cardGalleryImage } from "./server/artifact-gallery";
 import { PlanModeWatcher, PlanService } from "./server/plans";
@@ -90,7 +101,7 @@ import { moveStartedCard } from "./server/start-stage";
 import { EventBus, commitHandler } from "./server/event-bus";
 import { legacyNoteGroup, recordAgentIds, wireDispatcher, type DispatcherRecord } from "./server/dispatcher";
 import { dispatcherServerName } from "./shared/dispatcher";
-import type { Board } from "./shared/model";
+import { boardSchema, type Board } from "./shared/model";
 import { ChangeLineCache, DispatcherItems, groupItems, groupProjectIds, noteItems, seenMark, whatNextMessage } from "./server/dispatcher-items";
 import { DispatcherAsks } from "./server/dispatcher-asks";
 import { groupWriter } from "./server/group-writes";
@@ -681,7 +692,8 @@ export default function contribute(host: PluginServerContext) {
   const prMineIndex = new PrMineIndex();
   server.handle(rpc.readOverviewChanged, async (input, { paseo }) => {
     tools.attach(paseo);
-    return overviewDeltas.read(boardOverview(await store.view(), prMineIndex), input);
+    // From the full board: umbrella summaries count feed entries, which `view()` leaves out (UMBRELLA-SPEC §4.4).
+    return overviewDeltas.read(boardOverview(boardSchema.parse(await store.read()), prMineIndex), input);
   });
   server.handle(rpc.readStorageStatus, () => store.storageStatus());
   server.handle(rpc.backupStorage, async () => ({ name: await store.backupStorage() }));
@@ -889,6 +901,17 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.adoptIdea, (input, { paseo }) => adoptIdea(store, (message, api) => composer.push(message, api), input, paseo));
   server.handle(rpc.createLink, (input) => createLink(store, input));
   server.handle(rpc.deleteLink, (input) => deleteLink(store, input));
+  // Umbrellas (UMBRELLA-SPEC §4.4): the user's edits; refusals keep their code across the RPC.
+  const human = { kind: "human" } as const;
+  server.handle(rpc.listUmbrellas, async (input) => listUmbrellas(await store.read(), input.groupId));
+  server.handle(rpc.getUmbrella, (input) => coded(async () => getUmbrella(await store.read(), input.id)));
+  server.handle(rpc.createUmbrella, (input) => coded(() => createUmbrella(store, input, human)));
+  server.handle(rpc.updateUmbrella, (input) => coded(() => updateUmbrella(store, input, human)));
+  server.handle(rpc.setUmbrellaMember, (input) => coded(() => setMembership(store, input, human)));
+  server.handle(rpc.updateUmbrellaEntry, (input) => coded(() => updateEntry(store, input, human)));
+  server.handle(rpc.closeUmbrella, (input) => coded(() => closeUmbrella(store, input, human)));
+  server.handle(rpc.reopenUmbrella, (input) => coded(() => reopenUmbrella(store, input, human)));
+  server.handle(rpc.archiveUmbrella, (input) => coded(() => archiveUmbrella(store, input, human)));
   const artifacts = new ArtifactService(store, connectors, extraArtifactFolders);
   // A card's plan (CARD-PLAN-SPEC): the human RPCs, and plan-mode approvals of card sessions (§4).
   const plans = new PlanService(store, artifacts);

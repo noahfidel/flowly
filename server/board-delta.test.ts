@@ -15,6 +15,7 @@ const board = (over: Partial<Record<string, unknown>> = {}): View =>
     workpads: [{ taskId: "a", revision: 1 }],
     attentionDismissals: [],
     groups: [],
+    umbrellas: [],
     ...over,
   }) as unknown as View;
 
@@ -84,7 +85,7 @@ test("the daemon patches a remembered etag and falls back otherwise", () => {
 
 test("a full read says why", () => {
   const events = [{ id: "a" }, { id: "b" }];
-  const view = (extra: object[] = []) => ({ revision: 1, events: [...events, ...extra], plans: [], projects: [], tasks: [], ideas: [], links: [], artifacts: [], workpads: [], attentionDismissals: [], groups: [] }) as never;
+  const view = (extra: object[] = []) => ({ revision: 1, events: [...events, ...extra], plans: [], projects: [], tasks: [], ideas: [], links: [], artifacts: [], workpads: [], attentionDismissals: [], groups: [], umbrellas: [] }) as never;
   const reasons: string[] = [];
   const deltas = new BoardDeltas(2, (reason) => reasons.push(reason));
   deltas.read(view(), {});
@@ -100,7 +101,7 @@ test("an event on a card at its 100-event cap is a patch, not a full read (was t
     ...Array.from({ length: 100 }, (_, i) => ({ id: `a${i}`, taskId: "A" })),
     ...Array.from({ length: 5 }, (_, i) => ({ id: `b${i}`, taskId: "B" })),
   ];
-  const view = (events: { id: string }[]) => ({ revision: 1, events, plans: [], projects: [], tasks: [], ideas: [], links: [], artifacts: [], workpads: [], attentionDismissals: [], groups: [] }) as never;
+  const view = (events: { id: string }[]) => ({ revision: 1, events, plans: [], projects: [], tasks: [], ideas: [], links: [], artifacts: [], workpads: [], attentionDismissals: [], groups: [], umbrellas: [] }) as never;
   const next = [...log.filter((e) => e.id !== "a0"), { id: "a100", taskId: "A" }];
   expect(next.length).toBe(log.length);
   const reasons: string[] = [];
@@ -111,4 +112,13 @@ test("an event on a card at its 100-event cap is a patch, not a full read (was t
   expect(again.patch?.events).toEqual([{ id: "a100", taskId: "A" }]);
   expect(again.patch?.removeEvents).toEqual(["a0"]);
   expect(reasons).toEqual(["no-etag"]);
+});
+
+test("a changed umbrella arrives in the patch", () => {
+  const umbrella = (title: string, revision = 1) => ({ id: "u", groupId: "g", title, revision, brief: { text: "" } });
+  const before = board({ umbrellas: [umbrella("Fresh context")] });
+  const after = board({ revision: 2, umbrellas: [umbrella("Renamed", 2), { id: "v", groupId: "g", title: "New", revision: 1, brief: { text: "" } }] });
+  expect(patchOf(before, after).umbrellas).toEqual({ set: [umbrella("Renamed", 2), { id: "v", groupId: "g", title: "New", revision: 1, brief: { text: "" } }], remove: [] });
+  expect(patchOf(after, board({ revision: 3 })).umbrellas).toEqual({ set: [], remove: ["u", "v"] });
+  expect(patchOf(before, before).umbrellas).toBeUndefined();
 });
