@@ -39,6 +39,19 @@ export function bandedOrder<T extends Member>(tasks: readonly T[], umbrellas: re
   return umbrellaBands(tasks, umbrellas).flatMap((b) => b.tasks);
 }
 
+/**
+ * Move up / Move down with bands on (phone card menu): the `tasks.place` anchor that steps the card past its band-mate
+ * above (before it) or below (after it) among the lane's drawn rows. Null at the band's edge (a header or the older
+ * toggle is next), and for a card not drawn (a folded band): then nothing moves.
+ */
+export function bandStep<T extends { id: string }>(rows: readonly LaneRow<T>[], taskId: string, direction: "up" | "down"): { beforeId: string | null; afterId: string | null } | null {
+  const at = rows.findIndex((r) => r.kind === "task" && r.task.id === taskId);
+  if (at < 0) return null;
+  const next = rows[direction === "up" ? at - 1 : at + 1];
+  if (!next || next.kind !== "task") return null;
+  return direction === "up" ? { beforeId: next.task.id, afterId: null } : { beforeId: null, afterId: next.task.id };
+}
+
 /** The phone lane's rows for its bands: a header per band, then its cards unless the band is collapsed. */
 export function bandRows<T extends { id: string }>(bands: readonly UmbrellaBand<T>[], collapsed: ReadonlySet<string>): LaneRow<T>[] {
   return bands.flatMap((band) => {

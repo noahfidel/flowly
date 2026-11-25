@@ -119,7 +119,7 @@ import { statusChanges } from "./changes";
 import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuControl, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { boardCardMenu } from "./card-menu";
 import { BandHeader, DesktopColumns, OlderToggle, type BoardScroll, type LaneBands, type Placement } from "./columns";
-import { bandRows, bandedOrder, umbrellaBands } from "./umbrella-bands";
+import { bandRows, bandStep, bandedOrder, umbrellaBands } from "./umbrella-bands";
 import { olderFinishedFromDates } from "./finished-cards";
 import { ResizeGrip } from "./resize";
 import { chatWidth, defaultDrawerShare, minChatWidth, drawerShare, drawerWidth, isCompactLayout } from "./geometry";
@@ -1305,7 +1305,13 @@ function BoardContent(
         },
         move: (status) => move({ id: card.id, revision: card.revision, status }),
         // A group board steps through its one order: the group's unfiltered, the card's project's filtered (§4).
-        reorder: (direction) => void doAction(() => reorder({ id: card.id, revision: card.revision, direction, scope: allView ? "group" : "project" })),
+        // With bands on, the step is within the card's band as drawn (UMBRELLA-SPEC §7): placed before the band-mate above
+        // or after the one below; at the band's edge nothing moves.
+        reorder: (direction) => {
+          if (!laneBands) return void doAction(() => reorder({ id: card.id, revision: card.revision, direction, scope: allView ? "group" : "project" }));
+          const step = bandStep(laneOf(card.status).rows, card.id, direction);
+          if (step) place({ id: card.id, revision: card.revision, status: card.status, ...step });
+        },
         archive: () =>
           void doAction(
             () => updateTask({ id: card.id, revision: card.revision, archived: !card.archivedAt }),

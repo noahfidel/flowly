@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { UmbrellaSummary } from "../shared/umbrella";
-import { bandKey, bandRows, bandedOrder, umbrellaBands } from "./umbrella-bands";
+import { bandKey, bandRows, bandStep, bandedOrder, umbrellaBands } from "./umbrella-bands";
 import { laneRows, sameRows } from "./lane-rows";
 
 const summary = (id: string, title: string, over: Partial<UmbrellaSummary> = {}): UmbrellaSummary => ({
@@ -55,6 +55,26 @@ test("phone rows: a header per band, a collapsed band shows its header only", ()
   expect(folded[0]).toMatchObject({ kind: "band", title: "Alpha launch", count: 2, collapsed: true });
   const keys = rows.map((r) => r.key);
   expect(new Set(keys).size).toBe(keys.length);
+});
+
+test("Move up / down with bands steps within the card's band as drawn", () => {
+  // Manual order A1, X, A2: drawn as band U [A1, A2], then No umbrella [X].
+  const a1 = card("A1", "u-a"),
+    x = card("X"),
+    a2 = card("A2", "u-a");
+  const tasks = [a1, x, a2];
+  const rows = laneRows(tasks, [card("old")], true, bandRows(umbrellaBands(tasks, umbrellas), new Set<string>()));
+  expect(bandStep(rows, "A2", "up")).toEqual({ beforeId: "A1", afterId: null });
+  expect(bandStep(rows, "A1", "down")).toEqual({ beforeId: null, afterId: "A2" });
+  // Band edges: a header or the older toggle is next, so nothing moves.
+  expect(bandStep(rows, "A1", "up")).toBeNull();
+  expect(bandStep(rows, "A2", "down")).toBeNull();
+  expect(bandStep(rows, "X", "up")).toBeNull();
+  expect(bandStep(rows, "X", "down")).toBeNull();
+  expect(bandStep(rows, "old", "up")).toBeNull();
+  // A folded band's cards are not drawn: nothing moves.
+  const folded = laneRows(tasks, [], false, bandRows(umbrellaBands(tasks, umbrellas), new Set([bandKey("u-a")])));
+  expect(bandStep(folded, "A2", "up")).toBeNull();
 });
 
 test("phone rows keep their identity until a band folds, renames or changes count", () => {
