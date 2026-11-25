@@ -253,3 +253,24 @@ test("board view strips brief, contract and entries", async () => {
   expect(view.umbrellaEntries).toEqual([]);
   expect((await store.read()).umbrellas[0].brief.text).toBe("Secret brief");
 });
+
+test("an integration card that leaves its umbrella is no longer its integration card", async () => {
+  const store = await setup();
+  const u1 = await createUmbrella(store, { groupId: "A", title: "U1" }, human);
+  const u2 = await createUmbrella(store, { groupId: "A", title: "U2" }, human);
+  for (const taskId of ["a", "b"]) await setMembership(store, { taskId, umbrellaId: u1.id }, human);
+  await updateUmbrella(store, { id: u1.id, revision: 1, integrationTaskId: "a" }, human);
+  // Leaving to no umbrella clears it and bumps the umbrella's revision.
+  await setMembership(store, { taskId: "a", umbrellaId: null }, human);
+  let board = await store.read();
+  expect(board.umbrellas[0]).not.toHaveProperty("integrationTaskId");
+  expect(board.umbrellas[0].revision).toBe(3);
+  // Moving to another umbrella clears it too; a member that was not the integration card changes nothing.
+  await updateUmbrella(store, { id: u1.id, revision: 3, integrationTaskId: "b" }, human);
+  await setMembership(store, { taskId: "b", umbrellaId: u2.id }, human);
+  board = await store.read();
+  expect(board.umbrellas[0]).not.toHaveProperty("integrationTaskId");
+  expect(board.umbrellas[0].revision).toBe(5);
+  await setMembership(store, { taskId: "b", umbrellaId: null }, human);
+  expect((await store.read()).umbrellas[1].revision).toBe(1);
+});

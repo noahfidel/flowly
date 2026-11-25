@@ -137,6 +137,12 @@ export function setMembership(store: BoardStore, input: UmbrellaMemberInput, by:
     const current = task.umbrella;
     const leave = () => {
       const old = board.umbrellas.find((u) => u.id === current!.id);
+      // The integration card must be a member (§11): leaving drops the role, as an edit of the umbrella.
+      if (old?.integrationTaskId === task.id) {
+        delete old.integrationTaskId;
+        old.revision++;
+        old.updatedAt = new Date().toISOString();
+      }
       store.event(board, { taskId: task.id, ...eventActor(by), action: "umbrella_left", note: old?.title ?? "a deleted umbrella" });
     };
     if (input.umbrellaId === null) {
