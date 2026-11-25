@@ -20,6 +20,7 @@ import { linkLimits } from "../shared/model";
 import type { ProjectInput, TaskInput, Board, BranchedFrom, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
 import { groupOfProject } from "../shared/groups";
 import { effectiveRepos, sessionContext } from "../shared/scope";
+import { umbrellaStartLine } from "../shared/umbrella";
 import type { DeliveryMode } from "../shared/delivery-mode";
 import { setupContextLine, setupMissing } from "../shared/card-setup";
 import { linearTicketLines } from "../shared/linear-ticket";
@@ -759,6 +760,7 @@ export class BoardService {
         options.deliveryDefault,
         groupOfProject(board, project)?.defaults?.deliveryMode,
         groupOfProject(board, project),
+        umbrellaStartLine(board, task),
       ),
       memoryIds: memory.ids,
       directories,

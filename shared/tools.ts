@@ -6,6 +6,7 @@ import { connectorProviderSchema, itemTypeSchema } from "./connectors";
 import { memoryKinds, memoryLimits } from "./memory";
 import { guardrailScopeSchema } from "./guardrails";
 import { agentSearchSources, searchLimits } from "./search";
+import { umbrellaContextSchema } from "./umbrella";
 import {
   taskSchema,
   projectSchema,
@@ -913,6 +914,11 @@ export const toolContextSchema = z.object({
       resolved: z.boolean().optional(),
     }),
   ),
+  /**
+   * The card's umbrella (UMBRELLA-SPEC §3): brief, contract, feed, siblings and open ideas, with unread marks for this
+   * session; null when the card is in none. Optional for older servers; this server always sends it.
+   */
+  umbrella: umbrellaContextSchema.nullable().optional(),
 });
 export const toolResultSchema = z.object({
   receipt: receiptSchema.omit({

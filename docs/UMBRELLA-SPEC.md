@@ -108,11 +108,13 @@ UmbrellaEntry {
 
 ```ts
 umbrella: {
-  id, title, status, role, integration: boolean,          // this card's role; true when it is the integration card
+  id, title, status, role /* null when none */, integration: boolean,  // this card's role; true when it is the integration card
   brief: { text, revision, updatedAt, unread: boolean, truncated: boolean },
   contract: { text, revision, updatedAt, unread: boolean },
-  feed: { id, kind, title, body, status, sourceTaskId, sourceTitle, by, at, unread, answer? }[],
-                                                           // answer: only on an entry returned under D19
+  feed: { id, kind, title, body, status, sourceTaskId, sourceTitle, quote?, by, at, unread, answer? }[],
+                                                           // answer: only on an entry returned under D19; quote: a ruling's
+                                                           // quoted words (counted in the budget); sourceTaskId/sourceTitle
+                                                           // null when no card wrote it; a contract change's body is its reason
   openQuestions: number, pendingContractChanges: number,
   siblings: { taskId, projectId, projectTitle, title, laneName, status, role, order, archived }[],
                                                            // laneName from the sibling's own project's lanes
@@ -125,6 +127,7 @@ umbrella: {
 ```
 
 - **Budget.** Brief up to 8,000 characters (`truncated: true` and the full text through `flowly_get_umbrella`); feed: unread entries first, then every active `ruling`, then open `question` and `proposed` contract changes, then `decision`, `convention`, `pitfall`, `finding` newest first, until 6,000 characters; the rest is counted in `truncatedFeed`. Superseded, answered, rejected and withdrawn entries are left out, with one exception (D19): a question the user answered, or a contract change the user rejected, is returned once to the card it came from (`sourceTaskId`), as an unread entry with `answer`; once returned it counts as read and is left out again. Other members never get it. Siblings ≤ 30. Today the response has no overall cap; this block is capped on its own so a large umbrella cannot crowd out the card.
+- **Read marks.** Kept per session outside the board (`umbrella-reads.json`): the brief and contract revisions read in full and the entry ids shown (1,000 newest per umbrella). An entry returned under D19 is also recorded under its id and status, so an asker that saw its question while it was open still gets the answer once.
 - **Unread (R4).** `brief.unread`/`contract.unread` when the current revision is newer than the one this session last got in full and the change was not made by this session; a feed entry is unread until it has been returned to this session once. A truncated brief does not record its revision as read. Entries created by this session are never unread to it. The `turnChecklist` item "handle unread inputs" covers it: an unread brief or contract is read before work.
 - **First instructions** of a new member session add one line: the umbrella title, the member's role, "the brief, contract and feed are in flowly_get_task.umbrella", and the `[contract]` rule (fixing trial failure 3).
 - **Project memory is unchanged.** `memoryForTask` keeps choosing project notes; umbrella notes are in the feed, outside its budget (§6).

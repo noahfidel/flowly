@@ -1,6 +1,6 @@
 /** Agent-facing rules shared by the generated skill and every live task read. No user data. */
 export const turnChecklist: string[] = [
-  "Every turn, including commit/merge/rework/verification follow-ups: read flowly_get_task, handle unread inputs and fix setup.missing before work.",
+  "Every turn, even commit/merge/rework/verify: read flowly_get_task, handle unread inputs (umbrella brief/contract too) and fix setup.missing before work.",
   "Use design for research, planning and specs. For implementation (including docs-only changes), set development and write 3-5 workpad acceptance criteria before editing. Before executing task verification (including user-requested checks), ensure test. Ordinary inspection does not require test. Keep the stage current.",
   "Before starting and delivering: check your work against get_task guardrails; tick the acceptance criteria you met.",
   "After opening a PR/MR: register every PR/MR URL as an output this turn, even if an earlier turn already delivered.",

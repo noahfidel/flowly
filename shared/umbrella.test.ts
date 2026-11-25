@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { boardSchema, emptyBoard, type Board, type Group, type Project, type Task, type Umbrella, type UmbrellaEntry } from "./model";
 import {
-  applyGroupMoves, countsTowardLimit, leaveUmbrella, membersOf, repairUmbrellaGroups, umbrellaLimits, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
+  applyGroupMoves, countsTowardLimit, leaveUmbrella, membersOf, repairUmbrellaGroups, umbrellaContext, umbrellaLimits, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
 } from "./umbrella";
 
 const at = "2026-11-25T00:00:00.000Z";
@@ -161,4 +161,190 @@ test("a card that leaves its umbrella drops the integration card role", () => {
   expect(leaveUmbrella(board, board.tasks.find((t) => t.id === "b")!, at)?.id).toBe("u");
   expect(board.umbrellas[0].revision).toBe(2);
   expect(leaveUmbrella(board, board.tasks.find((t) => t.id === "c")!, at)).toBeUndefined();
+});
+
+/** get_task's umbrella block (§3): group G with projects p (lanes renamed) and q; members a (this card), b, c. */
+function contextBoard(over: { entries?: UmbrellaEntry[]; umbrella?: Partial<Umbrella> } = {}) {
+  const project = (id: string, extra: Partial<Project> = {}): Project => ({
+    id, title: `Project ${id}`, description: "", paseoProjectId: `n-${id}`, primaryPath: `/${id}`, repos: [`/${id}`],
+    revision: 1, createdAt: at, updatedAt: at, archivedAt: null, groupId: "g", ...extra,
+  });
+  const member = (role: string, order: number) => ({ umbrella: { id: "u", role, order, joinedAt: at, by: human } });
+  const board: Board = {
+    ...emptyBoard(),
+    groups: [{ id: "g", name: "G", position: 0, isDefault: true, revision: 1, createdAt: at, updatedAt: at }],
+    projects: [project("p", { lanes: [{ status: "todo", name: "Ready", enabled: true }] }), project("q")],
+    tasks: [
+      task("a", member("feature map", 1)),
+      task("b", { ...member("harness", 2), projectId: "q", status: "development" }),
+      task("c", { ...member("gallery", 3), archivedAt: at }),
+      task("x"),
+    ],
+    umbrellas: [umbrella({ integrationTaskId: "b", acceptance: [{ id: "a1", text: "End to end passes", done: false, by: human, at }], linearProject: { url: "https://linear.app/p", key: "K", name: "Proj" }, ...over.umbrella })],
+    umbrellaEntries: over.entries ?? [],
+    ideas: [
+      { id: "i1", taskId: "b", projectId: "q", title: "Open idea", detail: "", rationale: "", context: "", status: "open", umbrellaId: "u", createdAt: at, updatedAt: at },
+      { id: "i2", taskId: "b", projectId: "q", title: "Done idea", detail: "", rationale: "", context: "", status: "dismissed", umbrellaId: "u", createdAt: at, updatedAt: at },
+      { id: "i3", taskId: "x", projectId: "p", title: "Other idea", detail: "", rationale: "", context: "", status: "open", createdAt: at, updatedAt: at },
+    ],
+  };
+  return board;
+}
+const fed = (id: string, kind: UmbrellaEntry["kind"], status: UmbrellaEntry["status"], minute: number, extra: Partial<UmbrellaEntry> = {}): UmbrellaEntry => ({
+  ...entry(id, kind, status), createdAt: `2026-11-25T00:${String(minute).padStart(2, "0")}:00.000Z`, updatedAt: `2026-11-25T00:${String(minute).padStart(2, "0")}:00.000Z`, ...extra,
+});
+const ctxOf = (board: Board, taskId = "a", seen: Parameters<typeof umbrellaContext>[0]["seen"] = null, agentId = "me") =>
+  umbrellaContext({ board, task: board.tasks.find((t) => t.id === taskId)!, agentId, seen });
+const allSeen = (ids: string[]) => ({ brief: 99, contract: 99, entries: ids });
+
+test("a card outside an umbrella gets no block", () => {
+  expect(ctxOf(contextBoard(), "x")).toBeNull();
+});
+
+test("a member sees brief, contract, rulings first, siblings with lanes and roles, open ideas", () => {
+  const board = contextBoard({
+    umbrella: { contract: { text: "Shapes", revision: 2, updatedAt: at, updatedBy: human } },
+    entries: [fed("d1", "decision", "active", 1), fed("r1", "ruling", "active", 2, { quote: "Drafts only" })],
+  });
+  const { value, shown } = ctxOf(board, "a", allSeen(["d1", "r1"]))!;
+  expect(value).toMatchObject({
+    id: "u", title: "Fresh context", status: "open", role: "feature map", integration: false,
+    brief: { text: "The goal", revision: 1, unread: false, truncated: false },
+    contract: { text: "Shapes", revision: 2, unread: false },
+    openQuestions: 0, pendingContractChanges: 0,
+    acceptance: [{ text: "End to end passes", done: false }],
+    ideas: [{ id: "i1", title: "Open idea", status: "open", sourceTaskId: "b" }],
+    linearProject: { url: "https://linear.app/p", name: "Proj" },
+    truncatedFeed: 0, unreadLeftOut: 0,
+  });
+  expect(value.feed.map((e) => e.id)).toEqual(["r1", "d1"]);
+  expect(value.feed[0]).toMatchObject({ kind: "ruling", quote: "Drafts only", unread: false, sourceTaskId: null, sourceTitle: null });
+  expect(value.siblings).toEqual([
+    { taskId: "b", projectId: "q", projectTitle: "Project q", title: "B", laneName: "Development", status: "development", role: "harness", order: 2, archived: false },
+    { taskId: "c", projectId: "p", projectTitle: "Project p", title: "C", laneName: "Ready", status: "todo", role: "gallery", order: 3, archived: true },
+  ]);
+  expect(ctxOf(board, "b")!.value.integration).toBe(true);
+  expect(shown).toEqual({ brief: 1, contract: 2, entries: ["r1", "d1"] });
+});
+
+test("the feed puts unread first, then active rulings, then open questions and proposals, then the rest newest first", () => {
+  const board = contextBoard({
+    entries: [
+      fed("old-decision", "decision", "active", 1),
+      fed("new-finding", "finding", "active", 5),
+      fed("pitfall", "pitfall", "active", 3),
+      fed("ruling", "ruling", "active", 2),
+      fed("question", "question", "open", 4),
+      fed("proposal", "contract_change", "proposed", 6, { change: { before: "", after: "x", reason: "Why it changes", baseRevision: 0 } }),
+      fed("unread-old", "convention", "active", 0),
+      fed("unread-new", "decision", "active", 9),
+    ],
+  });
+  const seen = allSeen(["old-decision", "new-finding", "pitfall", "ruling", "question", "proposal"]);
+  const { value } = ctxOf(board, "a", seen)!;
+  expect(value.feed.map((e) => e.id)).toEqual(["unread-new", "unread-old", "ruling", "proposal", "question", "new-finding", "pitfall", "old-decision"]);
+  expect(value.feed.filter((e) => e.unread).map((e) => e.id)).toEqual(["unread-new", "unread-old"]);
+  // A contract change's body is its reason; the `after` text is only in flowly_get_umbrella.
+  expect(value.feed.find((e) => e.id === "proposal")).toMatchObject({ body: "Why it changes" });
+  expect(JSON.stringify(value.feed)).not.toContain('"after"');
+  expect(value).toMatchObject({ openQuestions: 1, pendingContractChanges: 1 });
+});
+
+test("the feed stops at 6,000 characters and counts the rest", () => {
+  const long = "x".repeat(2000);
+  const board = contextBoard({ entries: [1, 2, 3, 4].map((m) => fed(`d${m}`, "decision", "active", m, { body: long })) });
+  const { value, shown } = ctxOf(board, "a", allSeen(["d1", "d2", "d3", "d4"]))!;
+  expect(value.feed.map((e) => e.id)).toEqual(["d4", "d3"]);
+  expect(value.truncatedFeed).toBe(2);
+  expect(value.unreadLeftOut).toBe(0);
+  expect(shown.entries).toEqual(["d4", "d3"]);
+});
+
+test("unread entries left out are counted and not recorded as shown", () => {
+  const board = contextBoard({ entries: [1, 2, 3, 4, 5].map((m) => fed(`d${m}`, "decision", "active", m, { title: "t".repeat(100), body: "x".repeat(2000) })) });
+  const { value, shown } = ctxOf(board, "a", allSeen([]))!;
+  expect(value.feed.map((e) => e.id)).toEqual(["d5", "d4"]);
+  expect(value.unreadLeftOut).toBe(3);
+  expect(shown.entries).toEqual(["d5", "d4"]);
+  const next = ctxOf(board, "a", allSeen(shown.entries))!.value;
+  expect(next.feed.map((e) => [e.id, e.unread])).toEqual([["d3", true], ["d2", true]]);
+  expect(next.unreadLeftOut).toBe(1);
+});
+
+test("a long brief is cut at 8,000, marked truncated and is not recorded as read", () => {
+  const text = "b".repeat(8001);
+  const board = contextBoard({ umbrella: { brief: { text, revision: 3, updatedAt: at, updatedBy: human } } });
+  const { value, shown } = ctxOf(board, "a", { brief: 2, contract: 0, entries: [] })!;
+  expect(value.brief).toMatchObject({ text: text.slice(0, 8000), truncated: true, unread: true, revision: 3 });
+  expect(shown.brief).toBeNull();
+});
+
+test("brief and contract are unread when newer than this session's read, never for its own edits or an empty revision 0", () => {
+  const me = { kind: "agent" as const, agentId: "me" };
+  const board = contextBoard({ umbrella: { brief: { text: "B", revision: 2, updatedAt: at, updatedBy: human }, contract: { text: "C", revision: 4, updatedAt: at, updatedBy: me } } });
+  expect(ctxOf(board, "a", null)!.value).toMatchObject({ brief: { unread: true }, contract: { unread: false } });
+  expect(ctxOf(board, "a", { brief: 1, contract: 3, entries: [] })!.value).toMatchObject({ brief: { unread: true }, contract: { unread: false } });
+  expect(ctxOf(board, "a", { brief: 2, contract: 3, entries: [] })!.value.brief.unread).toBe(false);
+  // Task 1 starts the contract at revision 0 with no text: nothing to read.
+  expect(ctxOf(contextBoard(), "a", null)!.value.contract.unread).toBe(false);
+});
+
+test("an agent's own entry is never unread to it", () => {
+  const board = contextBoard({ entries: [fed("mine", "decision", "active", 1, { by: { kind: "agent", agentId: "me", taskId: "a" }, sourceTaskId: "a" })] });
+  expect(ctxOf(board, "a", null, "me")!.value.feed[0]).toMatchObject({ id: "mine", unread: false, sourceTitle: "A" });
+  expect(ctxOf(board, "b", null, "other")!.value.feed[0]).toMatchObject({ id: "mine", unread: true });
+});
+
+test("superseded, answered, rejected and withdrawn entries are left out", () => {
+  const board = contextBoard({
+    entries: [
+      fed("s", "decision", "superseded", 1, { sourceTaskId: "b" }),
+      fed("q", "question", "answered", 2, { sourceTaskId: "b", answer: "Yes" }),
+      fed("r", "contract_change", "rejected", 3, { sourceTaskId: "b", answer: "No" }),
+      fed("w", "contract_change", "withdrawn", 4, { sourceTaskId: "b" }),
+      fed("keep", "decision", "active", 5),
+    ],
+  });
+  const { value } = ctxOf(board, "a", null)!;
+  expect(value.feed.map((e) => e.id)).toEqual(["keep"]);
+  expect(value.truncatedFeed).toBe(0);
+});
+
+test("an answered question and a rejected proposal return once to the card they came from, with the answer", () => {
+  const asker = { kind: "agent" as const, agentId: "me", taskId: "a" };
+  const board = contextBoard({
+    entries: [
+      fed("q", "question", "open", 1, { sourceTaskId: "a", by: asker }),
+      fed("r", "contract_change", "proposed", 2, { sourceTaskId: "a", by: asker, change: { before: "", after: "x", reason: "Add a field", baseRevision: 0 } }),
+    ],
+  });
+  // The open question and the proposal were shown to the asker before the user answered.
+  const before = ctxOf(board, "a", null)!;
+  expect(before.value.feed.map((e) => [e.id, e.unread])).toEqual([["r", false], ["q", false]]);
+  const q = board.umbrellaEntries[0]!, r = board.umbrellaEntries[1]!;
+  Object.assign(q, { status: "answered", answer: "Drafts", updatedAt: "2026-11-25T01:00:00.000Z" });
+  Object.assign(r, { status: "rejected", answer: "Not now", updatedAt: "2026-11-25T01:00:00.000Z" });
+  const seen = { brief: 1, contract: 0, entries: before.shown.entries };
+  const first = ctxOf(board, "a", seen)!;
+  expect(first.value.feed.map((e) => ({ id: e.id, status: e.status, answer: e.answer, unread: e.unread }))).toEqual([
+    { id: "r", status: "rejected", answer: "Not now", unread: true },
+    { id: "q", status: "answered", answer: "Drafts", unread: true },
+  ]);
+  const second = ctxOf(board, "a", { ...seen, entries: [...seen.entries, ...first.shown.entries] })!;
+  expect(second.value.feed).toEqual([]);
+  // A sibling never gets them.
+  expect(ctxOf(board, "b", null, "other")!.value.feed).toEqual([]);
+});
+
+test("an entry from a deleted or moved-out card still renders", () => {
+  const board = contextBoard({ entries: [fed("gone", "finding", "active", 1, { sourceTaskId: "deleted" }), fed("out", "finding", "active", 2, { sourceTaskId: "x" })] });
+  expect(ctxOf(board, "a", null)!.value.feed.map((e) => [e.id, e.sourceTitle])).toEqual([["out", "moved out"], ["gone", "deleted card"]]);
+});
+
+test("the start line names the umbrella, the role and the [contract] rule", () => {
+  const board = contextBoard();
+  expect(umbrellaStartLine(board, board.tasks.find((t) => t.id === "x")!)).toBeNull();
+  expect(umbrellaStartLine(board, board.tasks[0]!)).toBe(
+    'Umbrella "Fresh context" (your role: feature map): the brief, contract and feed are in flowly_get_task.umbrella. Start a report\'s note with [contract] only when it changes a handoff shape or decision your siblings depend on.',
+  );
 });

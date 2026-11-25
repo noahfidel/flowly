@@ -16,6 +16,8 @@ import { fingerprintChanged } from "./connectors/fingerprint";
 import { cardPlanView } from "./plans";
 import { artifactRoots, dropArtifact, planRemovalRefused, externalArtifact, missingArtifacts, normalizeTarget, putArtifact, resolveExtraRoots, type NewArtifact } from "./artifacts";
 import { ArtifactReadStore } from "./artifact-reads";
+import { UmbrellaReadStore } from "./umbrella-reads";
+import { umbrellaContext } from "../shared/umbrella";
 import { ExternalError } from "./connectors/http";
 import { ExternalReadStore, refKey, type ConnectorService } from "./connectors/service";
 import { familyOf, itemTypeOf } from "../shared/connectors";
@@ -114,6 +116,7 @@ export class AgentService {
     readonly clock = () => Date.now(),
   ) {
     this.artifactReads = new ArtifactReadStore(store.directory);
+    this.umbrellaReads = new UmbrellaReadStore(store.directory, clock);
     this.externalReads = new ExternalReadStore(join(store.directory, "connectors"));
   }
   /** Reads external inputs (CONNECTORS-SPEC §9); set by the plugin entry. */
@@ -258,6 +261,8 @@ export class AgentService {
   }
   /** Per-session last read of the card's artifacts, for `unread` (CARD-ARTIFACTS-SPEC §4.2). */
   readonly artifactReads: ArtifactReadStore;
+  /** Per-session reads of the card's umbrella, for its `unread` marks (UMBRELLA-SPEC §3). */
+  readonly umbrellaReads: UmbrellaReadStore;
   attach(paseo: PaseoApi) {
     this.paseo = paseo;
   }
@@ -359,6 +364,9 @@ export class AgentService {
       unavailableReason = "Session summary is currently unavailable.";
     }
     const revision = { task: r.task.revision, project: r.project.revision };
+    // The card's umbrella (UMBRELLA-SPEC §3); unreadable marks read as nothing read yet.
+    const umbrellaSeen = r.task.umbrella ? await this.umbrellaReads.seen(identity.agentId, r.task.umbrella.id).catch(() => null) : null;
+    const umbrella = r.task.umbrella ? umbrellaContext({ board: r.board, task: r.task, agentId: identity.agentId, seen: umbrellaSeen }) : null;
     const finished = ["done", "cancelled"].includes(r.task.status);
     // The project's paseo.json scripts, so agents run them instead of retyping (WORKFLOW-INSIGHTS-SPEC §5.4).
     const scripts = await projectScripts(r.project).catch(() => []);
@@ -462,6 +470,7 @@ export class AgentService {
             })),
         };
       })),
+      umbrella: umbrella?.value ?? null,
     };
     // `setup` right after identity, so it is the first thing the agent reads (CARD-SETUP-SPEC §3.1).
     const { identity: _identity, ...rest } = built;
@@ -474,6 +483,10 @@ export class AgentService {
     if (markArtifacts && value.artifacts.length)
       await this.artifactReads.mark(identity.agentId, readAt).catch((e) =>
         logFailure("Kanban artifact reads not saved:", e),
+      );
+    if (markArtifacts && umbrella)
+      await this.umbrellaReads.mark(identity.agentId, umbrella.value.id, umbrella.shown).catch((e) =>
+        logFailure("Flowly umbrella reads not saved:", e),
       );
     const seenExternals = Object.fromEntries([...externals].filter(([, v]) => v.fingerprint).map(([id, v]) => [id, v.fingerprint]));
     if (markArtifacts && Object.keys(seenExternals).length)

@@ -12,7 +12,8 @@ import { putArtifact } from "./artifacts";
 import { ExternalError } from "./connectors/http";
 import { turnChecklist } from "../shared/turn-checklist";
 import { toolContextSchema } from "../shared/tools";
-import type { Lane } from "../shared/model";
+import type { Lane, UmbrellaEntry } from "../shared/model";
+import { createUmbrella, setMembership, updateEntry, updateUmbrella } from "./umbrellas";
 
 const roots: string[] = [];
 async function setup(seed?: Parameters<typeof agentFixture>[0]) {
@@ -1292,4 +1293,100 @@ test("get_task lists the card's sessions in background workspaces too", async ()
   await x.service.get(x.identity);
   expect(list).toHaveBeenCalled();
   for (const [input] of list.mock.calls) expect(input).toMatchObject({ filter: { includeBackground: true } });
+});
+
+/** Card t (this session's) and s join umbrella "Fresh context" in the fixture's group; returns its id. */
+async function umbrellaSetup(brief = "The goal") {
+  const x = await setup();
+  const groupId = "g";
+  const human = { kind: "human" as const };
+  await x.store.mutate((board) => {
+    board.groups.push({ id: groupId, name: "G", position: 0, isDefault: true, revision: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    board.projects[0]!.groupId = groupId;
+    board.tasks.push({ ...board.tasks[0]!, id: "s", workspaceId: "w-s", title: "Sibling", operationId: "create-s" });
+  });
+  const u = await createUmbrella(x.store, { groupId, title: "Fresh context", brief }, human);
+  await setMembership(x.store, { taskId: "t", umbrellaId: u.id, role: "feature map", order: 1 }, human);
+  await setMembership(x.store, { taskId: "s", umbrellaId: u.id, role: "harness", order: 2 }, human);
+  const addEntries = (entries: Partial<UmbrellaEntry>[]) =>
+    x.store.mutate((board) => {
+      for (const e of entries)
+        board.umbrellaEntries.push({
+          id: e.id!, umbrellaId: u.id, kind: "decision", title: e.id!, body: "", status: "active", by: human,
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...e,
+        });
+    });
+  return { ...x, umbrellaId: u.id, human, addEntries };
+}
+
+test("a card outside an umbrella gets umbrella null; the field is optional in the schema and always sent", async () => {
+  const x = await setup();
+  const ctx = await x.service.get(x.identity);
+  expect(ctx).toHaveProperty("umbrella", null);
+  const { umbrella: _umbrella, ...older } = ctx;
+  expect(toolContextSchema.safeParse(older).success).toBe(true);
+  expect(toolContextSchema.safeParse(ctx).success).toBe(true);
+});
+
+test("a member reads its umbrella in flowly_get_task", async () => {
+  const x = await umbrellaSetup();
+  const ctx = await x.service.get(x.identity);
+  expect(toolContextSchema.safeParse(ctx).success).toBe(true);
+  expect(ctx.umbrella).toMatchObject({
+    id: x.umbrellaId, title: "Fresh context", role: "feature map", integration: false,
+    brief: { text: "The goal", unread: true, truncated: false },
+    siblings: [{ taskId: "s", title: "Sibling", role: "harness", laneName: "Todo", projectTitle: "Project" }],
+  });
+});
+
+test("an edit by another session marks the brief unread once", async () => {
+  const x = await umbrellaSetup();
+  expect((await x.service.get(x.identity)).umbrella!.brief.unread).toBe(true);
+  expect((await x.service.get(x.identity)).umbrella!.brief.unread).toBe(false);
+  // The second session on the same card has its own marks.
+  expect((await x.service.get({ ...x.identity, agentId: "second" })).umbrella!.brief.unread).toBe(true);
+  const revision = (await x.store.read()).umbrellas[0]!.revision;
+  await updateUmbrella(x.store, { id: x.umbrellaId, revision, brief: "The new goal" }, x.human);
+  const after = await x.service.get(x.identity);
+  expect(after.umbrella!.brief).toMatchObject({ text: "The new goal", unread: true });
+  expect((await x.service.get(x.identity)).umbrella!.brief.unread).toBe(false);
+  // An agent's own entry is never unread to it; a write's context does not clear unread marks.
+  await x.addEntries([{ id: "mine", by: { kind: "agent", agentId: "actor", taskId: "t" }, sourceTaskId: "t" }, { id: "theirs" }]);
+  const passive = await x.service.get(x.identity, false);
+  expect(passive.umbrella!.feed.map((e) => [e.id, e.unread])).toEqual(expect.arrayContaining([["mine", false], ["theirs", true]]));
+  expect((await x.service.get(x.identity)).umbrella!.feed.find((e) => e.id === "theirs")!.unread).toBe(true);
+  expect((await x.service.get(x.identity)).umbrella!.feed.find((e) => e.id === "theirs")!.unread).toBe(false);
+});
+
+test("unread entries left out stay unread and are counted", async () => {
+  const x = await umbrellaSetup();
+  await x.addEntries([1, 2, 3, 4, 5].map((n) => ({ id: `d${n}`, title: "t".repeat(100), body: "x".repeat(2000), createdAt: `2026-11-25T00:0${n}:00.000Z` })));
+  const first = (await x.service.get(x.identity)).umbrella!;
+  expect(first.feed.map((e) => e.id)).toEqual(["d5", "d4"]);
+  expect(first).toMatchObject({ unreadLeftOut: 3, truncatedFeed: 3 });
+  const second = (await x.service.get(x.identity)).umbrella!;
+  expect(second.feed.slice(0, 2).map((e) => [e.id, e.unread])).toEqual([["d3", true], ["d2", true]]);
+  expect(second.unreadLeftOut).toBe(1);
+});
+
+test("a long brief is cut at 8,000, marked truncated and stays unread", async () => {
+  const x = await umbrellaSetup("b".repeat(9000));
+  for (let i = 0; i < 2; i++) {
+    const brief = (await x.service.get(x.identity)).umbrella!.brief;
+    expect(brief).toMatchObject({ truncated: true, unread: true });
+    expect(brief.text).toHaveLength(8000);
+  }
+});
+
+test("an answered question returns once to the asking card with its answer", async () => {
+  const x = await umbrellaSetup();
+  await x.addEntries([{ id: "q", kind: "question", status: "open", sourceTaskId: "t", by: { kind: "agent", agentId: "actor", taskId: "t" } }]);
+  expect((await x.service.get(x.identity)).umbrella!.feed).toEqual([expect.objectContaining({ id: "q", status: "open", unread: false })]);
+  await updateEntry(x.store, { id: "q", status: "answered", answer: "Drafts only" }, x.human);
+  const first = (await x.service.get(x.identity)).umbrella!;
+  expect(first.feed).toEqual([expect.objectContaining({ id: "q", status: "answered", answer: "Drafts only", unread: true })]);
+  expect((await x.service.get(x.identity)).umbrella!.feed).toEqual([]);
+  // Once per session: the card's second session gets it once too.
+  expect((await x.service.get({ ...x.identity, agentId: "second" })).umbrella!.feed).toEqual([expect.objectContaining({ id: "q", answer: "Drafts only" })]);
+  expect((await x.service.get({ ...x.identity, agentId: "second" })).umbrella!.feed).toEqual([]);
 });

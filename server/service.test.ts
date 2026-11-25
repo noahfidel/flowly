@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { BoardStore } from "./store";
 import { BoardService, resolveWorktreeBaseRef } from "./service";
 import { deliveryLine } from "../shared/delivery-mode";
+import { createUmbrella, setMembership } from "./umbrellas";
 import {
   projectInput,
   taskInput,
@@ -528,4 +529,22 @@ test("session context delivery line follows card, project, group, then host", as
     board.projects.find((p) => p.id === card.projectId)!.deliveryMode = "draft_pr";
   });
   expect(await text()).toContain(deliveryLine("draft_pr"));
+});
+
+test("a member's first instructions name the umbrella, its role and the [contract] rule", async () => {
+  const x = await setup();
+  const card = await x.service.createTask(x.input, x.paseo);
+  const before = (await x.service.context(card.id, x.paseo)).context;
+  expect(before).not.toContain("flowly_get_task.umbrella");
+  const groupId = "g";
+  await x.store.mutate((board) => {
+    board.groups.push({ id: groupId, name: "G", position: 0, isDefault: true, revision: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    board.projects.find((p) => p.id === card.projectId)!.groupId = groupId;
+  });
+  const u = await createUmbrella(x.store, { groupId, title: "Fresh context" }, { kind: "human" });
+  await setMembership(x.store, { taskId: card.id, umbrellaId: u.id, role: "feature map" }, { kind: "human" });
+  const text = (await x.service.context(card.id, x.paseo)).context;
+  expect(text).toContain('Umbrella "Fresh context" (your role: feature map)');
+  expect(text).toContain("flowly_get_task.umbrella");
+  expect(text).toContain("[contract]");
 });

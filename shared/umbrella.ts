@@ -1,6 +1,22 @@
 import { z } from "zod";
 import { groupOfProject } from "./groups";
-import { umbrellaLimits, umbrellaSchema, umbrellaStatuses, type Board, type Status, type Task, type Umbrella, type UmbrellaEntry } from "./model";
+import { laneName } from "./lanes";
+import {
+  actorSchema,
+  ideaStatuses,
+  statusSchema,
+  umbrellaEntryKinds,
+  umbrellaEntryStatuses,
+  umbrellaLimits,
+  umbrellaSchema,
+  umbrellaStatuses,
+  type Actor,
+  type Board,
+  type Status,
+  type Task,
+  type Umbrella,
+  type UmbrellaEntry,
+} from "./model";
 
 /** Umbrella rules shared by the daemon and the client (UMBRELLA-SPEC). */
 export { umbrellaLimits };
@@ -233,3 +249,208 @@ export const umbrellaEntryUpdateInput = z.strictObject({
 export type UmbrellaEntryUpdateInput = z.infer<typeof umbrellaEntryUpdateInput>;
 export const umbrellaRevisionInput = z.strictObject({ id: z.string().min(1).max(200), revision: z.number().int() });
 export type UmbrellaRevisionInput = z.infer<typeof umbrellaRevisionInput>;
+
+/** `flowly_get_task.umbrella` (UMBRELLA-SPEC §3): what a member's agent reads; null when the card has no umbrella. */
+export const umbrellaContextSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.enum(umbrellaStatuses),
+  /** This card's role in the umbrella. */
+  role: z.string().nullable(),
+  /** True when this card is the umbrella's integration card (§11). */
+  integration: z.boolean(),
+  /** Up to 8,000 characters; `truncated`: the full text is in flowly_get_umbrella. */
+  brief: z.object({ text: z.string(), revision: z.number(), updatedAt: z.string(), unread: z.boolean(), truncated: z.boolean() }),
+  contract: z.object({ text: z.string(), revision: z.number(), updatedAt: z.string(), unread: z.boolean() }),
+  /** Unread first, then active rulings, then open questions and proposed contract changes, then the rest newest first, up to 6,000 characters. */
+  feed: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.enum(umbrellaEntryKinds),
+      title: z.string(),
+      /** A contract change's body is its reason; its new text is in flowly_get_umbrella. */
+      body: z.string(),
+      status: z.enum(umbrellaEntryStatuses),
+      sourceTaskId: z.string().nullable(),
+      /** The source card's title, "deleted card" or "moved out"; null when no card wrote it. */
+      sourceTitle: z.string().nullable(),
+      /** kind=ruling: the user's words. */
+      quote: z.string().optional(),
+      by: actorSchema,
+      at: z.string(),
+      unread: z.boolean(),
+      /** Only on an answered question or rejected contract change returned once to the card it came from (D19). */
+      answer: z.string().optional(),
+    }),
+  ),
+  openQuestions: z.number(),
+  pendingContractChanges: z.number(),
+  /** The other members, at most 30; `laneName` from each sibling's own project. */
+  siblings: z.array(
+    z.object({
+      taskId: z.string(),
+      projectId: z.string(),
+      projectTitle: z.string(),
+      title: z.string(),
+      laneName: z.string(),
+      status: statusSchema,
+      role: z.string().nullable(),
+      order: z.number().nullable(),
+      archived: z.boolean(),
+    }),
+  ),
+  acceptance: z.array(z.object({ text: z.string(), done: z.boolean() })),
+  /** The umbrella's open ideas. */
+  ideas: z.array(z.object({ id: z.string(), title: z.string(), status: z.enum(ideaStatuses), sourceTaskId: z.string().nullable() })),
+  linearProject: z.object({ url: z.string(), name: z.string().optional() }).optional(),
+  /** Feed entries left out by the budget. */
+  truncatedFeed: z.number(),
+  /** Unread entries left out by the budget; they stay unread. */
+  unreadLeftOut: z.number(),
+});
+export type UmbrellaContext = z.infer<typeof umbrellaContextSchema>;
+
+/** What a session last got of one umbrella: the brief and contract revisions it read in full and the entries it was shown. */
+export type UmbrellaSeen = { brief: number; contract: number; entries: string[] };
+/** What one get_task showed; `brief` is null when it was truncated (its revision is not read). */
+export type UmbrellaShown = { brief: number | null; contract: number; entries: string[] };
+
+/**
+ * The read key of an answered or rejected entry returned to its source card (D19). It is apart from the entry's own
+ * id, so an asker that saw its question while it was open still gets the answer once.
+ */
+export const returnedKey = (e: Pick<UmbrellaEntry, "id" | "status">) => `${e.id}:${e.status}`;
+const byAgent = (actor: Actor, agentId: string) => actor.kind !== "human" && actor.agentId === agentId;
+const leftOut: readonly UmbrellaEntry["status"][] = ["superseded", "answered", "rejected", "withdrawn"];
+const lessons: readonly UmbrellaEntry["kind"][] = ["decision", "convention", "pitfall", "finding"];
+const entryBody = (e: UmbrellaEntry) => (e.kind === "contract_change" ? (e.change?.reason ?? e.body) : e.body);
+
+/**
+ * Builds `flowly_get_task.umbrella` for `task` as session `agentId` reads it (§3), and what it showed, for the
+ * caller to record with UmbrellaReadStore.mark. Null when the card is in no umbrella (or one no longer on the board).
+ */
+export function umbrellaContext(input: {
+  board: Pick<Board, "projects" | "tasks" | "umbrellas" | "umbrellaEntries" | "ideas">;
+  task: Task;
+  agentId: string;
+  seen: UmbrellaSeen | null;
+}): { value: UmbrellaContext; shown: UmbrellaShown } | null {
+  const { board, task, agentId, seen } = input;
+  const umbrella = task.umbrella && board.umbrellas.find((u) => u.id === task.umbrella!.id);
+  if (!umbrella) return null;
+  const read = new Set(seen?.entries ?? []);
+  const newest = (a: UmbrellaEntry, b: UmbrellaEntry) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
+  const entries = board.umbrellaEntries.filter((e) => e.umbrellaId === umbrella.id).sort(newest);
+  // D19: an answered question or a rejected proposal goes back once to the card it came from, with `answer`.
+  const returned = (e: UmbrellaEntry) =>
+    (e.status === "answered" || e.status === "rejected") && e.sourceTaskId === task.id && !read.has(returnedKey(e));
+  const live = entries.filter((e) => !leftOut.includes(e.status) || returned(e));
+  const unread = (e: UmbrellaEntry) => returned(e) || (!byAgent(e.by, agentId) && !read.has(e.id));
+  const tiers = [
+    live.filter(unread),
+    live.filter((e) => e.kind === "ruling" && e.status === "active"),
+    live.filter((e) => (e.kind === "question" && e.status === "open") || (e.kind === "contract_change" && e.status === "proposed")),
+    live.filter((e) => lessons.includes(e.kind) && e.status === "active"),
+  ];
+  const ordered = [...new Set(tiers.flat())];
+  const shown: UmbrellaEntry[] = [];
+  let size = 0;
+  for (const e of ordered) {
+    const next = size + e.title.length + entryBody(e).length + (e.quote?.length ?? 0);
+    if (next > umbrellaLimits.feedBudget) break;
+    size = next;
+    shown.push(e);
+  }
+  const titleOf = (id: string) => {
+    const source = board.tasks.find((t) => t.id === id);
+    return !source ? "deleted card" : source.umbrella?.id === umbrella.id ? source.title : "moved out";
+  };
+  const fresh = (part: { revision: number; updatedBy: Actor }, readRevision: number | undefined) =>
+    part.revision > 0 && part.revision > (readRevision ?? 0) && !byAgent(part.updatedBy, agentId);
+  const truncated = umbrella.brief.text.length > umbrellaLimits.briefBudget;
+  const projectOf = (projectId: string) => board.projects.find((p) => p.id === projectId);
+  let openQuestions = 0,
+    pendingContractChanges = 0;
+  for (const e of entries) {
+    if (e.kind === "question" && e.status === "open") openQuestions++;
+    else if (e.kind === "contract_change" && e.status === "proposed") pendingContractChanges++;
+  }
+  const value: UmbrellaContext = {
+    id: umbrella.id,
+    title: umbrella.title,
+    status: umbrella.status,
+    role: task.umbrella!.role ?? null,
+    integration: umbrella.integrationTaskId === task.id,
+    brief: {
+      text: umbrella.brief.text.slice(0, umbrellaLimits.briefBudget),
+      revision: umbrella.brief.revision,
+      updatedAt: umbrella.brief.updatedAt,
+      unread: fresh(umbrella.brief, seen?.brief),
+      truncated,
+    },
+    contract: {
+      text: umbrella.contract.text,
+      revision: umbrella.contract.revision,
+      updatedAt: umbrella.contract.updatedAt,
+      unread: fresh(umbrella.contract, seen?.contract),
+    },
+    feed: shown.map((e) => ({
+      id: e.id,
+      kind: e.kind,
+      title: e.title,
+      body: entryBody(e),
+      status: e.status,
+      sourceTaskId: e.sourceTaskId ?? null,
+      sourceTitle: e.sourceTaskId ? titleOf(e.sourceTaskId) : null,
+      ...(e.quote ? { quote: e.quote } : {}),
+      by: e.by,
+      at: e.createdAt,
+      unread: unread(e),
+      ...(returned(e) && e.answer !== undefined ? { answer: e.answer } : {}),
+    })),
+    openQuestions,
+    pendingContractChanges,
+    siblings: membersOf(board, umbrella.id)
+      .filter((t) => t.id !== task.id)
+      .slice(0, umbrellaLimits.siblings)
+      .map((t) => {
+        const project = projectOf(t.projectId);
+        return {
+          taskId: t.id,
+          projectId: t.projectId,
+          projectTitle: project?.title ?? "unknown project",
+          title: t.title,
+          laneName: project ? laneName(project, t.status) : t.status,
+          status: t.status,
+          role: t.umbrella?.role ?? null,
+          order: t.umbrella?.order ?? null,
+          archived: !!t.archivedAt,
+        };
+      }),
+    acceptance: umbrella.acceptance.map((a) => ({ text: a.text, done: a.done })),
+    ideas: board.ideas
+      .filter((i) => i.umbrellaId === umbrella.id && i.status === "open")
+      .map((i) => ({ id: i.id, title: i.title, status: i.status, sourceTaskId: i.taskId ?? null })),
+    ...(umbrella.linearProject
+      ? { linearProject: { url: umbrella.linearProject.url, ...(umbrella.linearProject.name ? { name: umbrella.linearProject.name } : {}) } }
+      : {}),
+    truncatedFeed: ordered.length - shown.length,
+    unreadLeftOut: ordered.filter((e) => unread(e) && !shown.includes(e)).length,
+  };
+  return {
+    value,
+    shown: {
+      brief: truncated ? null : umbrella.brief.revision,
+      contract: umbrella.contract.revision,
+      entries: shown.flatMap((e) => (returned(e) ? [e.id, returnedKey(e)] : [e.id])),
+    },
+  };
+}
+
+/** The line a member session's first instructions carry (§3), or null when the card has no umbrella. */
+export function umbrellaStartLine(board: Pick<Board, "umbrellas">, task: Task): string | null {
+  const umbrella = task.umbrella && board.umbrellas.find((u) => u.id === task.umbrella!.id);
+  if (!umbrella) return null;
+  const role = task.umbrella!.role ? ` (your role: ${task.umbrella!.role})` : "";
+  return `Umbrella "${umbrella.title}"${role}: the brief, contract and feed are in flowly_get_task.umbrella. Start a report's note with [contract] only when it changes a handoff shape or decision your siblings depend on.`;
+}

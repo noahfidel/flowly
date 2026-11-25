@@ -9,7 +9,7 @@ Use this skill when working in the workspace of an attached Flowly card.
 
 ## Start of every turn
 
-1. Every turn, including commit/merge/rework/verification follow-ups: read flowly_get_task, handle unread inputs and fix setup.missing before work.
+1. Every turn, even commit/merge/rework/verify: read flowly_get_task, handle unread inputs (umbrella brief/contract too) and fix setup.missing before work.
 2. Use design for research, planning and specs. For implementation (including docs-only changes), set development and write 3-5 workpad acceptance criteria before editing. Before executing task verification (including user-requested checks), ensure test. Ordinary inspection does not require test. Keep the stage current.
 3. Before starting and delivering: check your work against get_task guardrails; tick the acceptance criteria you met.
 4. After opening a PR/MR: register every PR/MR URL as an output this turn, even if an earlier turn already delivered.
