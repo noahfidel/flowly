@@ -1926,5 +1926,9 @@ const catalog: Catalog = {
   "Integration card cleared": "Интеграционная карточка снята",
   "Integration card: {card}": "Интеграционная карточка: {card}",
   "Linear project cleared": "Проект Linear снят",
+  "Keep for the project": "Сохранить для проекта",
+  "Kept": "Сохранено",
+  "Ready to close": "Готово к закрытию",
+  "This umbrella has no card whose project could keep it.": "В этом зонтике нет карточки, проект которой мог бы это сохранить.",
 };
 export default catalog;

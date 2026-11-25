@@ -488,6 +488,38 @@ export function withdrawEntry(board: Board, task: Task, id: string, _by: Actor, 
   return entry;
 }
 
+/** What the integration card sends (UMBRELLA-SPEC §11): existing items by id, and the evidence. */
+export type AcceptanceTick = { acceptance: { id: string; done: boolean }[]; note: string };
+
+/**
+ * The integration card's tick of umbrella acceptance items (pure; the caller's transaction records the card's event).
+ * Only the umbrella's integration card may (NOT_INTEGRATION_CARD); the note is the evidence and is required
+ * (INVALID_INPUT); an id not in the list is NOT_FOUND and nothing is ticked. It sets `done`, `by` and `at` of the named
+ * items and never adds, removes or rewrites an item (D5). An item already in the asked state keeps its `by` and `at`. Bumps `feedRevision` when something changed, never
+ * `revision`. Returns the items the call named.
+ */
+export function tickAcceptance(board: Board, task: Task, input: AcceptanceTick, by: Actor, now: string): Umbrella["acceptance"] {
+  const u = memberUmbrella(board, task);
+  if (u.integrationTaskId !== task.id)
+    throw new ToolError("NOT_INTEGRATION_CARD", "Only the umbrella's integration card ticks its acceptance items; the user sets which card that is.");
+  if (!input.note.trim()) throw new ToolError("INVALID_INPUT", "A tick needs a note: what you ran and what you saw.");
+  const items = input.acceptance.map((tick) => {
+    const item = u.acceptance.find((a) => a.id === tick.id);
+    if (!item) throw new ToolError("NOT_FOUND", `No acceptance item with id ${tick.id} in this umbrella. Use ids from get_task umbrella.acceptance.`);
+    return { item, done: tick.done };
+  });
+  let changed = false;
+  for (const { item, done } of items) {
+    if (item.done === done) continue;
+    changed = true;
+    item.done = done;
+    item.by = by;
+    item.at = now;
+  }
+  if (changed) u.feedRevision++;
+  return items.map(({ item }) => item);
+}
+
 const hour = 3600000;
 /**
  * Feed writes per member session (§2.4): `take` claims one of `umbrellaLimits.writesPerHour` slots in a rolling hour,

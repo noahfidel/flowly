@@ -118,7 +118,7 @@ umbrella: {
   openQuestions: number, pendingContractChanges: number,
   siblings: { taskId, projectId, projectTitle, title, laneName, status, role, order, archived }[],
                                                            // laneName from the sibling's own project's lanes
-  acceptance: { text, done }[],
+  acceptance: { id, text, done }[],                        // id: what flowly_update_umbrella_acceptance takes (integration card, §11)
   ideas: { id, title, status, sourceTaskId }[],            // the umbrella's open ideas
   linearProject?: { url, name? },
   truncatedFeed: number,                                   // entries left out
@@ -220,7 +220,7 @@ Every change needs the user's accept, additive ones included (D6); the dispatche
 
 - The umbrella's `acceptance` list is its end-to-end definition of done (e.g. "a correction made in chat appears in the next session's context within one hour"). The user owns it; agents may propose items as `finding` entries.
 - One member may be the **integration card** (`integrationTaskId`). Its `get_task.umbrella.integration` is `true` and its first instructions add: run the umbrella's acceptance end to end against what the siblings delivered, tick items with `flowly_update_umbrella_acceptance` (integration card only; a tick with evidence in the note), and report the result on the umbrella feed as a `finding`.
-- An umbrella never moves cards and is never closed automatically. The panel shows **Ready to close** when every member is Done or Cancelled and every acceptance item is ticked; the user closes it. A closed umbrella refuses new members and feed writes (`UMBRELLA_CLOSED`) and stays readable.
+- An umbrella never moves cards and is never closed automatically. The panel shows **Ready to close** when the umbrella has a member, every member is Done or Cancelled and every acceptance item is ticked (an empty list is met); the user closes it. After Close the panel lists the entries §6 offers, each with its own *Keep for the project* button: one project note per tap (`guardrails.create`, kind `note`, title and body cut to the memory limits), kept in the project of the card that wrote the entry, else the first member's project; the Kept marks live in the open view only. A closed umbrella refuses new members and feed writes (`UMBRELLA_CLOSED`) and stays readable.
 
 ## 12. Migration and switches
 

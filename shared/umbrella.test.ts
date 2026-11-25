@@ -212,7 +212,7 @@ test("a member sees brief, contract, rulings first, siblings with lanes and role
     brief: { text: "The goal", revision: 1, unread: false, truncated: false },
     contract: { text: "Shapes", revision: 2, unread: false },
     openQuestions: 0, pendingContractChanges: 0,
-    acceptance: [{ text: "End to end passes", done: false }],
+    acceptance: [{ id: "a1", text: "End to end passes", done: false }],
     ideas: [{ id: "i1", title: "Open idea", status: "open", sourceTaskId: "b" }],
     linearProject: { url: "https://linear.app/p", name: "Proj" },
     truncatedFeed: 0, unreadLeftOut: 0,
@@ -421,4 +421,16 @@ test("rolesMentioned finds roles named in the reason or the changed lines", () =
   expect(rolesMentioned(change, members)).toEqual(["t-api", "t-map"]);
   expect(rolesMentioned({ before: "x", after: "x", reason: "" }, members)).toEqual([]);
   expect(rolesMentioned({ before: "", after: "UI: buttons", reason: "" }, members)).toEqual(["t-ui"]);
+});
+
+test("the integration card's first instructions ask for the end-to-end check", () => {
+  const board = contextBoard();
+  // Card b is the integration card; card a is an ordinary member.
+  const line = umbrellaStartLine(board, board.tasks.find((t) => t.id === "b")!)!;
+  expect(line).toContain('Umbrella "Fresh context"');
+  expect(line).toContain("integration card");
+  expect(line).toContain("acceptance");
+  expect(line).toContain("flowly_update_umbrella_acceptance");
+  expect(line).toContain("finding");
+  expect(umbrellaStartLine(board, board.tasks.find((t) => t.id === "a")!)).not.toContain("integration card");
 });

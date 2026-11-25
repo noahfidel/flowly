@@ -6,7 +6,8 @@ import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-quer
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { z } from "zod";
 import * as rpc from "../shared/rpc";
-import type { Project, Task, Umbrella } from "../shared/model";
+import { memoryLimits } from "../shared/memory";
+import type { Project, Task, Umbrella, UmbrellaEntry } from "../shared/model";
 import { t, tn } from "../shared/i18n";
 import { umbrellaLimits, umbrellaRefetchKey, type UmbrellaSummary } from "../shared/umbrella";
 import { Modal } from "./modal";
@@ -16,9 +17,10 @@ import { SessionMarkdown } from "./session-content";
 import { openQuickLink } from "./quick-links-row";
 import { useStableCallback } from "./stable";
 import {
-  acceptanceInput, editAfterSave, editBase, errorCode, listedUmbrellas, memberWrites, moveMember, pipelineRows, revisionToSend, umbrellaWritable,
+  acceptanceInput, closeOffer, editAfterSave, editBase, errorCode, listedUmbrellas, memberWrites, moveMember, offerProject, pipelineRows, readyToClose, revisionToSend, umbrellaWritable,
   type AcceptanceDraft, type EditBase, type SaveOutcome,
 } from "./umbrella-panel-logic";
+import { CloseOffer } from "./umbrella-close";
 import { ContractChanges, Feed, PartTitle, Questions, type ResolveOutcome } from "./umbrella-feed";
 import { IntegrationCard, Pipeline } from "./umbrella-members";
 import {
@@ -247,6 +249,7 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
   const close = useRpc(rpc.closeUmbrella);
   const reopen = useRpc(rpc.reopenUmbrella);
   const archive = useRpc(rpc.archiveUmbrella);
+  const createGuardrail = useRpc(rpc.createGuardrail);
   // The drawer section reads the same key, so the two share one cached read.
   const refetchKey = summary ? umbrellaRefetchKey(summary) : "";
   const key = ["flowly", "umbrella", hostId, id, refetchKey];
@@ -359,6 +362,29 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
       return { ok: false, message: refusalText(e), stale: code === "CONTRACT_STALE" };
     }
   });
+  // Keep for the project (§6): one note per tap, in the project of the card that wrote the entry (else the first member's).
+  const keepEntry = useStableCallback(async (entry: UmbrellaEntry): Promise<boolean> => {
+    const projectId = offerProject(entry, tasks, data?.members ?? []);
+    if (!projectId) {
+      setError(t("This umbrella has no card whose project could keep it."));
+      return false;
+    }
+    setError("");
+    try {
+      await createGuardrail({
+        projectId,
+        kind: "note",
+        noteKind: entry.kind as "decision" | "convention" | "pitfall",
+        text: entry.title.slice(0, memoryLimits.title),
+        ...(entry.body ? { body: entry.body.slice(0, memoryLimits.body) } : {}),
+      });
+      return true;
+    } catch (e) {
+      setError(message(e));
+      return false;
+    }
+  });
+  const offer = useMemo(() => (data && data.umbrella.status === "closed" ? closeOffer(data.entries) : []), [data]);
   const back = (
     <View style={{ flexDirection: "row" }}>
       <Button small quiet icon="ChevronLeft" onPress={() => onSelect(null)}>
@@ -487,8 +513,14 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
         onTick={(items) => write((revision) => update({ id, revision, acceptance: acceptanceInput(items) }))}
         onSave={(items, base) => write((revision) => update({ id, revision, acceptance: acceptanceInput(items) }), base)}
       />
+      {!u.archivedAt && u.status === "closed" && <CloseOffer entries={offer} sourceOf={sourceOf} onKeep={keepEntry} />}
       {!u.archivedAt && (
         <View style={{ gap: space[2] }}>
+          {u.status === "open" && !confirm && readyToClose(data.members, u.acceptance) && (
+            <Label size={font.sm} bold>
+              {t("Ready to close")}
+            </Label>
+          )}
           {confirm ? (
             <View style={{ gap: space[3] }}>
               <Notice tone="warning">

@@ -369,7 +369,7 @@ export const umbrellaContextSchema = z.object({
       archived: z.boolean(),
     }),
   ),
-  acceptance: z.array(z.object({ text: z.string(), done: z.boolean() })),
+  acceptance: z.array(z.object({ id: z.string(), text: z.string(), done: z.boolean() })),
   /** The umbrella's open ideas. */
   ideas: z.array(z.object({ id: z.string(), title: z.string(), status: z.enum(ideaStatuses), sourceTaskId: z.string().nullable() })),
   linearProject: z.object({ url: z.string(), name: z.string().optional() }).optional(),
@@ -498,7 +498,7 @@ export function umbrellaContext(input: {
           archived: !!t.archivedAt,
         };
       }),
-    acceptance: umbrella.acceptance.map((a) => ({ text: a.text, done: a.done })),
+    acceptance: umbrella.acceptance.map((a) => ({ id: a.id, text: a.text, done: a.done })),
     ideas: board.ideas
       .filter((i) => i.umbrellaId === umbrella.id && i.status === "open")
       .map((i) => ({ id: i.id, title: i.title, status: i.status, sourceTaskId: i.taskId ?? null })),
@@ -523,5 +523,9 @@ export function umbrellaStartLine(board: Pick<Board, "umbrellas">, task: Task): 
   const umbrella = task.umbrella && board.umbrellas.find((u) => u.id === task.umbrella!.id);
   if (!umbrella) return null;
   const role = task.umbrella!.role ? ` (your role: ${task.umbrella!.role})` : "";
-  return `Umbrella "${umbrella.title}"${role}: the brief, contract and feed are in flowly_get_task.umbrella. Start a report's note with [contract] only when it changes a handoff shape or decision your siblings depend on.`;
+  const line = `Umbrella "${umbrella.title}"${role}: the brief, contract and feed are in flowly_get_task.umbrella. Start a report's note with [contract] only when it changes a handoff shape or decision your siblings depend on.`;
+  // The integration card (§11): its job is the end-to-end check of the umbrella's acceptance list.
+  return umbrella.integrationTaskId === task.id
+    ? `${line} You are the integration card: run the umbrella's acceptance end to end against what the sibling cards delivered, tick each item you met with flowly_update_umbrella_acceptance (the evidence goes in its note), and report the result as a finding with flowly_add_umbrella_entry.`
+    : line;
 }

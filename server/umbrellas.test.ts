@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { BoardStore } from "./store";
 import {
   addEntry, archiveUmbrella, closeUmbrella, createUmbrella, getUmbrella, listUmbrellas, newCardUmbrella, proposeChange, reopenUmbrella, resolveChange, setMembership,
-  umbrellaWriteLimiter, updateEntry, updateUmbrella, withdrawEntry,
+  tickAcceptance, umbrellaWriteLimiter, updateEntry, updateUmbrella, withdrawEntry,
 } from "./umbrellas";
 import { createUmbrella as createRpc, updateUmbrella as updateRpc } from "../shared/rpc";
 import { umbrellaLimits } from "../shared/umbrella";
@@ -716,4 +716,62 @@ test("the accepted event is on the proposing card with the resolver as actor", a
   });
   await expect(resolveChange(x.store, { id: third.id, decision: "rejected" }, human)).resolves.toMatchObject({ status: "rejected" });
   expect((await x.read()).board.events.filter((e) => e.action.startsWith("umbrella_contract_"))).toHaveLength(2);
+});
+
+/** feedSetup plus a two-item acceptance list and card "a" as the integration card. */
+async function acceptanceSetup() {
+  const x = await feedSetup();
+  await updateUmbrella(
+    x.store,
+    { id: x.u.id, revision: x.u.revision, acceptance: [{ text: "Corrections reach the next session", done: false }, { text: "No duplicate notes", done: false }], integrationTaskId: "a" },
+    human,
+  );
+  const board = await x.store.read();
+  const u = board.umbrellas[0]!;
+  return { ...x, board, u, task: (id: string) => board.tasks.find((t) => t.id === id)! };
+}
+
+test("only the integration card ticks acceptance", async () => {
+  const { board, task, u } = await acceptanceSetup();
+  const first = u.acceptance[0]!.id;
+  expect(() => tickAcceptance(board, task("b"), { acceptance: [{ id: first, done: true }], note: "ran it" }, agent("b"), now)).toThrow(
+    expect.objectContaining({ code: "NOT_INTEGRATION_CARD" }),
+  );
+  expect(() => tickAcceptance(board, task("c"), { acceptance: [{ id: first, done: true }], note: "ran it" }, agent("c"), now)).toThrow(
+    expect.objectContaining({ code: "NOT_IN_UMBRELLA" }),
+  );
+  expect(u.acceptance[0]!.done).toBe(false);
+});
+
+test("a tick needs a note and records who and when", async () => {
+  const { board, task, u } = await acceptanceSetup();
+  const [first, second] = u.acceptance.map((a) => a.id);
+  expect(() => tickAcceptance(board, task("a"), { acceptance: [{ id: first!, done: true }], note: "  " }, agent("a"), now)).toThrow(
+    expect.objectContaining({ code: "INVALID_INPUT" }),
+  );
+  // An unknown id refuses the whole call: nothing is ticked.
+  expect(() => tickAcceptance(board, task("a"), { acceptance: [{ id: first!, done: true }, { id: "nope", done: true }], note: "ran it" }, agent("a"), now)).toThrow(
+    expect.objectContaining({ code: "NOT_FOUND" }),
+  );
+  expect(u.acceptance.every((a) => !a.done)).toBe(true);
+  const later = "2026-11-26T09:00:00.000Z";
+  const ticked = tickAcceptance(board, task("a"), { acceptance: [{ id: first!, done: true }], note: "Ran the chat flow; the note showed up in 4 minutes." }, agent("a"), later);
+  expect(ticked.map((a) => a.id)).toEqual([first]);
+  expect(u.acceptance[0]).toMatchObject({ done: true, by: agent("a"), at: later });
+  expect(u.acceptance[1]).toMatchObject({ id: second, done: false });
+  // Unticking is allowed too, with its own note; the list's text and length never change.
+  tickAcceptance(board, task("a"), { acceptance: [{ id: first!, done: false }], note: "Regressed after the rebase." }, agent("a"), later);
+  expect(u.acceptance.map((a) => [a.text, a.done])).toEqual([["Corrections reach the next session", false], ["No duplicate notes", false]]);
+});
+
+test("a tick bumps feedRevision and leaves revision alone; a closed umbrella refuses it", async () => {
+  const { store, board, task, u } = await acceptanceSetup();
+  const before = { revision: u.revision, feed: u.feedRevision };
+  tickAcceptance(board, task("a"), { acceptance: [{ id: u.acceptance[0]!.id, done: true }], note: "ok" }, agent("a"), now);
+  expect(u).toMatchObject({ revision: before.revision, feedRevision: before.feed + 1 });
+  await closeUmbrella(store, { id: u.id, revision: u.revision }, human);
+  const closed = await store.read();
+  expect(() =>
+    tickAcceptance(closed, closed.tasks.find((t) => t.id === "a")!, { acceptance: [{ id: u.acceptance[1]!.id, done: true }], note: "ok" }, agent("a"), now),
+  ).toThrow(expect.objectContaining({ code: "UMBRELLA_CLOSED" }));
 });

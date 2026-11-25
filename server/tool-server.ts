@@ -31,6 +31,7 @@ import {
   umbrellaEntryInputSchema,
   withdrawEntryInputSchema,
   proposeContractChangeInputSchema,
+  updateUmbrellaAcceptanceInputSchema,
   recallInputSchema,
   recallResultSchema,
   agentSearchInputSchema,
@@ -598,6 +599,17 @@ export class ToolServer {
             annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
           },
           (input) => wrap(() => this.agents.write(identity, "umbrella_withdraw", input)),
+        );
+        mcp.registerTool(
+          "flowly_update_umbrella_acceptance",
+          {
+            description:
+              "Tick the umbrella's acceptance items, from the umbrella's integration card only (get_task umbrella.integration is true; NOT_INTEGRATION_CARD otherwise). Run the umbrella's acceptance end to end against what the sibling cards delivered, then pass the item ids from get_task umbrella.acceptance with done true for each one you met (or false to take a tick back) and a note with the evidence: what you ran and what you saw. It only sets done on existing items: it never adds or edits one, and the user owns the list. NOT_FOUND: an id is not in the list (nothing is ticked); read get_task again. Report the overall result on the umbrella feed as a finding with flowly_add_umbrella_entry. Refused: UMBRELLA_CLOSED, NOT_IN_UMBRELLA, UMBRELLA_RATE_LIMIT (20 feed writes per session per hour), AGENT_CARDS_DISABLED. The user closes the umbrella; ticking never closes it or moves a card. Does not change card status or task revision. Copy revisions/request from get_task.",
+            inputSchema: updateUmbrellaAcceptanceInputSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "umbrella_acceptance", input)),
         );
         mcp.registerTool(
           "flowly_recall",

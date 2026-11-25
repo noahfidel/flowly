@@ -1926,5 +1926,9 @@ const catalog: Catalog = {
   "Integration card cleared": "統合カードを解除",
   "Integration card: {card}": "統合カード: {card}",
   "Linear project cleared": "Linear プロジェクトを解除",
+  "Keep for the project": "プロジェクトに残す",
+  "Kept": "保存済み",
+  "Ready to close": "クローズできます",
+  "This umbrella has no card whose project could keep it.": "このアンブレラには、これを保存できるプロジェクトのカードがありません。",
 };
 export default catalog;

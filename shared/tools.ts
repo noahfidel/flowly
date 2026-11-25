@@ -329,6 +329,26 @@ export const withdrawEntryInputSchema = z.strictObject({
   request: requestSchema,
   id: z.string().min(1).max(200).describe("The id of an entry this card wrote (get_task umbrella.feed, sourceTaskId = this card)."),
 });
+/** flowly_update_umbrella_acceptance (UMBRELLA-SPEC §4.1, §11): the integration card ticks existing items; it never adds or edits one. */
+export const updateUmbrellaAcceptanceInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  acceptance: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1).max(200).describe("An item id from get_task umbrella.acceptance."),
+        done: z.boolean().describe("true when the end-to-end check met the item, false to take a tick back."),
+      }),
+    )
+    .min(1)
+    .max(umbrellaLimits.acceptance),
+  note: z
+    .string()
+    .trim()
+    .min(1)
+    .max(umbrellaLimits.entryBody)
+    .describe("The evidence: what you ran against what the siblings delivered and what you saw, in the language of get_task outputLanguage. Never a secret."),
+});
 /** flowly_recall (PROJECT-MEMORY-SPEC §6.4, GUARDRAILS-SPEC §5.3): read-only search of the project's notes and guidelines. */
 export const recallInputSchema = z.strictObject({
   query: z.string().max(200).default("").describe("Words about the area you are starting on; empty lists the latest entries."),
@@ -1099,6 +1119,7 @@ export type RememberInput = z.infer<typeof rememberInputSchema>;
 export type UmbrellaEntryInput = z.infer<typeof umbrellaEntryInputSchema>;
 export type WithdrawEntryInput = z.infer<typeof withdrawEntryInputSchema>;
 export type ProposeContractChangeInput = z.infer<typeof proposeContractChangeInputSchema>;
+export type UpdateUmbrellaAcceptanceInput = z.infer<typeof updateUmbrellaAcceptanceInputSchema>;
 export type RecallInput = z.input<typeof recallInputSchema>;
 export type AgentSearchInput = z.input<typeof agentSearchInputSchema>;
 export type TagsToolInput = z.infer<typeof tagsInputSchema>;

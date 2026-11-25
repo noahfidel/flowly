@@ -157,3 +157,30 @@ export function pickableCards(
     }))
     .sort((a, b) => a.title.localeCompare(b.title));
 }
+
+/**
+ * Ready to close (§11): there is at least one member, every member is Done or Cancelled and every acceptance item is
+ * ticked (an empty list is met). Close stays the user's action; an umbrella with no member has nothing to finish.
+ */
+export function readyToClose(members: readonly { status: string }[], acceptance: readonly { done: boolean }[]): boolean {
+  return members.length > 0 && members.every((m) => m.status === "done" || m.status === "cancelled") && acceptance.every((a) => a.done);
+}
+
+const offered: readonly UmbrellaEntry["kind"][] = ["decision", "convention", "pitfall"];
+
+/** What a closed umbrella offers the user as project memory (§6): its active decisions, conventions and pitfalls, in feed order. */
+export function closeOffer(entries: readonly UmbrellaEntry[]): UmbrellaEntry[] {
+  return entries.filter((e) => e.status === "active" && offered.includes(e.kind));
+}
+
+/**
+ * The project an offered entry is kept in (§6): the project of the card that wrote it when that card is still on the
+ * board, else the first member's project. null when the umbrella has neither.
+ */
+export function offerProject(
+  entry: Pick<UmbrellaEntry, "sourceTaskId">,
+  tasks: readonly { id: string; projectId: string }[],
+  members: readonly Pick<UmbrellaMember, "projectId">[],
+): string | null {
+  return (entry.sourceTaskId ? tasks.find((t) => t.id === entry.sourceTaskId)?.projectId : undefined) ?? members[0]?.projectId ?? null;
+}

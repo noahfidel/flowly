@@ -1643,3 +1643,59 @@ test("rejecting returns the entry once to the proposing card with the note", asy
   // A sibling never gets it.
   expect((await x.service.get(x.sibling)).umbrella!.feed.find((e) => e.id === proposal.id)).toBeUndefined();
 });
+
+/** memberSetup with two acceptance items and the session's card "t" as the umbrella's integration card. */
+async function acceptanceSetup(integration = true) {
+  const x = await memberSetup();
+  await updateUmbrella(
+    x.store,
+    {
+      id: x.umbrellaId,
+      revision: (await x.store.read()).umbrellas[0]!.revision,
+      acceptance: [{ text: "Corrections reach the next session", done: false }, { text: "No duplicate notes", done: false }],
+      ...(integration ? { integrationTaskId: "t" } : {}),
+    },
+    x.human,
+  );
+  const items = (await x.store.read()).umbrellas[0]!.acceptance;
+  const tick = async (extra: Record<string, unknown> = {}, who = x.identity) =>
+    x.service.write(who, "umbrella_acceptance", { ...(await x.signed(who)), acceptance: [{ id: items[0]!.id, done: true }], note: "Ran it end to end.", ...extra });
+  return { ...x, items, tick };
+}
+
+test("flowly_update_umbrella_acceptance ticks an item with a note on the integration card", async () => {
+  const x = await acceptanceSetup();
+  // get_task gives the integration card the ids it needs.
+  expect((await x.service.get(x.identity)).umbrella).toMatchObject({ integration: true, acceptance: [{ id: x.items[0]!.id, done: false }, { id: x.items[1]!.id, done: false }] });
+  const before = (await x.store.read()).umbrellas[0]!;
+  const result = await x.tick();
+  expect(result).toMatchObject({ replayed: false, receipt: { action: "umbrella_acceptance", taskRevision: 1 } });
+  const board = await x.store.read();
+  expect(board.umbrellas[0]!.acceptance[0]).toMatchObject({ done: true, by: { kind: "agent", agentId: "actor", taskId: "t" } });
+  expect(board.umbrellas[0]).toMatchObject({ revision: before.revision, feedRevision: before.feedRevision + 1 });
+  expect(board.events.at(-1)).toMatchObject({ taskId: "t", actor: "agent", agentId: "actor", action: "umbrella_acceptance_ticked", note: expect.stringContaining("Ran it end to end.") });
+  expect((await x.service.get(x.sibling)).umbrella!.acceptance[0]).toMatchObject({ done: true });
+});
+
+test("flowly_update_umbrella_acceptance refuses other cards, unknown ids, a missing note and a closed umbrella", async () => {
+  const x = await acceptanceSetup();
+  expect(await x.code(x.tick({ acceptance: [{ id: "nope", done: true }] }))).toBe("NOT_FOUND");
+  await expect(x.tick({ note: "" })).rejects.toThrow();
+  expect(await x.code(x.tick({}, x.sibling))).toBe("NOT_INTEGRATION_CARD");
+  expect(await x.code(x.tick({}, x.outside))).toBe("NOT_IN_UMBRELLA");
+  expect((await x.store.read()).umbrellas[0]!.acceptance.every((a) => !a.done)).toBe(true);
+  await closeUmbrella(x.store, { id: x.umbrellaId, revision: (await x.store.read()).umbrellas[0]!.revision }, x.human);
+  expect(await x.code(x.tick())).toBe("UMBRELLA_CLOSED");
+});
+
+test("a card that is not the integration card is refused even when none is set", async () => {
+  const x = await acceptanceSetup(false);
+  expect(await x.code(x.tick())).toBe("NOT_INTEGRATION_CARD");
+});
+
+test("flowly_update_umbrella_acceptance sits behind Agents create and edit cards and takes a feed slot", async () => {
+  const x = await acceptanceSetup();
+  x.service.agentCardsOn = async () => false;
+  expect(await x.code(x.tick())).toBe("AGENT_CARDS_DISABLED");
+  expect((await x.store.read()).umbrellas[0]!.acceptance.every((a) => !a.done)).toBe(true);
+});

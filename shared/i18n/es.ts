@@ -1926,5 +1926,9 @@ const catalog: Catalog = {
   "Integration card cleared": "Tarjeta de integración quitada",
   "Integration card: {card}": "Tarjeta de integración: {card}",
   "Linear project cleared": "Proyecto de Linear quitado",
+  "Keep for the project": "Guardar para el proyecto",
+  "Kept": "Guardado",
+  "Ready to close": "Listo para cerrar",
+  "This umbrella has no card whose project could keep it.": "Este paraguas no tiene ninguna tarjeta cuyo proyecto pueda guardarlo.",
 };
 export default catalog;

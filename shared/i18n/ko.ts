@@ -1926,5 +1926,9 @@ const catalog: Catalog = {
   "Integration card cleared": "통합 카드 해제",
   "Integration card: {card}": "통합 카드: {card}",
   "Linear project cleared": "Linear 프로젝트 해제",
+  "Keep for the project": "프로젝트에 보관",
+  "Kept": "보관됨",
+  "Ready to close": "닫을 준비 완료",
+  "This umbrella has no card whose project could keep it.": "이 엄브렐라에는 이를 보관할 프로젝트의 카드가 없습니다.",
 };
 export default catalog;

@@ -18,7 +18,7 @@ import { artifactRoots, dropArtifact, planRemovalRefused, externalArtifact, miss
 import { ArtifactReadStore } from "./artifact-reads";
 import { UmbrellaReadStore } from "./umbrella-reads";
 import { umbrellaContext } from "../shared/umbrella";
-import { addEntry, memberUmbrella, proposeChange, umbrellaWriteLimiter, withdrawEntry, type NewEntry } from "./umbrellas";
+import { addEntry, memberUmbrella, proposeChange, tickAcceptance, umbrellaWriteLimiter, withdrawEntry, type NewEntry } from "./umbrellas";
 import { ExternalError } from "./connectors/http";
 import { ExternalReadStore, refKey, type ConnectorService } from "./connectors/service";
 import { familyOf, itemTypeOf } from "../shared/connectors";
@@ -40,6 +40,7 @@ import {
   umbrellaEntryInputSchema,
   withdrawEntryInputSchema,
   proposeContractChangeInputSchema,
+  updateUmbrellaAcceptanceInputSchema,
   recallInputSchema,
   agentSearchInputSchema,
   artifactInputSchema,
@@ -65,6 +66,7 @@ import {
   type UmbrellaEntryInput,
   type WithdrawEntryInput,
   type ProposeContractChangeInput,
+  type UpdateUmbrellaAcceptanceInput,
   type RecallInput,
   type AgentSearchInput,
   type ArtifactToolInput,
@@ -511,10 +513,10 @@ export class AgentService {
     identity: ToolIdentity,
     action:
       | "status" | "progress" | "idea" | "idea_update" | "idea_remove" | "remember" | "artifact" | "artifact_remove" | "tags" | "type" | "next_moves" | "workpad" | "handover"
-      | "umbrella_entry" | "umbrella_withdraw" | "contract_change",
+      | "umbrella_entry" | "umbrella_withdraw" | "contract_change" | "umbrella_acceptance",
     raw: unknown,
   ): Promise<ToolResult> {
-    const input: StatusInput | ProgressInput | IdeaInput | IdeaUpdateInput | IdeaRemovalInput | RememberInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput | HandoverInput | UmbrellaEntryInput | WithdrawEntryInput | ProposeContractChangeInput =
+    const input: StatusInput | ProgressInput | IdeaInput | IdeaUpdateInput | IdeaRemovalInput | RememberInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput | HandoverInput | UmbrellaEntryInput | WithdrawEntryInput | ProposeContractChangeInput | UpdateUmbrellaAcceptanceInput =
       action === "status"
         ? statusInputSchema.parse(raw)
         : action === "umbrella_entry"
@@ -523,6 +525,8 @@ export class AgentService {
           ? withdrawEntryInputSchema.parse(raw)
         : action === "contract_change"
           ? proposeContractChangeInputSchema.parse(raw)
+        : action === "umbrella_acceptance"
+          ? updateUmbrellaAcceptanceInputSchema.parse(raw)
         : action === "remember"
           ? rememberInputSchema.parse(raw)
           : action === "idea"
@@ -625,7 +629,7 @@ export class AgentService {
     const umbrellaMemory = action === "remember" && (input as RememberInput).scope === "umbrella";
     if (umbrellaMemory && (input as RememberInput).kind === "contact")
       throw new ToolError("UMBRELLA_KIND", "Contacts are project-wide: remember them without scope=umbrella.");
-    const feedWrite = action === "umbrella_entry" || action === "umbrella_withdraw" || action === "contract_change" || umbrellaMemory;
+    const feedWrite = action === "umbrella_entry" || action === "umbrella_withdraw" || action === "contract_change" || action === "umbrella_acceptance" || umbrellaMemory;
     const umbrellaWrite = feedWrite || (action === "idea" && !!(input as IdeaInput).umbrella);
     let releaseSlot: (() => void) | undefined;
     if (umbrellaWrite && !(await this.store.read()).agentReceipts.some((r) => r.key === key)) {
@@ -966,6 +970,18 @@ export class AgentService {
                 actor: "agent",
                 action: "umbrella_contract_proposed",
                 note: `contract change on r${e.change!.baseRevision}: ${e.title}`,
+              });
+            }
+            if (action === "umbrella_acceptance") {
+              // The integration card's tick (UMBRELLA-SPEC §11): who and when go on the item, the evidence on the event.
+              const tick = input as UpdateUmbrellaAcceptanceInput;
+              const items = tickAcceptance(board, task, tick, by, now);
+              return this.store.event(board, {
+                taskId: task.id,
+                agentId: identity.agentId,
+                actor: "agent",
+                action: "umbrella_acceptance_ticked",
+                note: `${tick.acceptance.map((a) => `${a.done ? "met" : "not met"}: ${items.find((i) => i.id === a.id)!.text}`).join("; ")} · ${tick.note}`,
               });
             }
             if (action === "umbrella_withdraw") {

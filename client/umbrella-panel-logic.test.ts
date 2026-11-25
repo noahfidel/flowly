@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { UmbrellaEntry } from "../shared/model";
 import type { UmbrellaMember, UmbrellaSummary } from "../shared/umbrella";
 import {
-  acceptanceInput, changedLines, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, memberWrites, moveMember, openQuestions, pendingChanges, pickableCards, pipelineRows, revisionToSend, umbrellaWritable,
+  acceptanceInput, changedLines, closeOffer, offerProject, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, memberWrites, moveMember, openQuestions, pendingChanges, pickableCards, pipelineRows, readyToClose, revisionToSend, umbrellaWritable,
 } from "./umbrella-panel-logic";
 
 const member = (title: string, order?: number): UmbrellaMember => ({
@@ -193,4 +193,37 @@ test("the before/after view lists the lines only one side has", () => {
   expect(changedLines("a\nb\nc", "a\nc\nd")).toEqual({ removed: ["b"], added: ["d"] });
   expect(changedLines("", "new")).toEqual({ removed: [], added: ["new"] });
   expect(changedLines("same", "same")).toEqual({ removed: [], added: [] });
+});
+
+test("readyToClose needs every member finished and every item ticked", () => {
+  const done = [{ done: true }, { done: true }];
+  expect(readyToClose([{ status: "done" }, { status: "cancelled" }], done)).toBe(true);
+  expect(readyToClose([{ status: "done" }, { status: "development" }], done)).toBe(false);
+  expect(readyToClose([{ status: "done" }], [{ done: true }, { done: false }])).toBe(false);
+  // No member means nothing was finished; an empty acceptance list is met.
+  expect(readyToClose([], done)).toBe(false);
+  expect(readyToClose([{ status: "done" }], [])).toBe(true);
+});
+
+test("the close offer lists active decisions, conventions and pitfalls", () => {
+  const entries = [
+    entry("d", "decision", "active", 1),
+    entry("c", "convention", "active", 2),
+    entry("p", "pitfall", "active", 3),
+    entry("old", "decision", "superseded", 4),
+    entry("f", "finding", "active", 5),
+    entry("r", "ruling", "active", 6),
+    entry("q", "question", "open", 7),
+    entry("w", "pitfall", "withdrawn", 8),
+  ];
+  expect(closeOffer(entries).map((e) => e.id)).toEqual(["d", "c", "p"]);
+});
+
+test("an offered entry is kept in its writer's project, else the first member's", () => {
+  const tasks = [{ id: "t1", projectId: "pa" }];
+  const members = [{ projectId: "pm" }, { projectId: "pz" }];
+  expect(offerProject({ sourceTaskId: "t1" }, tasks, members)).toBe("pa");
+  expect(offerProject({ sourceTaskId: "gone" }, tasks, members)).toBe("pm");
+  expect(offerProject({}, tasks, members)).toBe("pm");
+  expect(offerProject({}, tasks, [])).toBeNull();
 });

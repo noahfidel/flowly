@@ -1926,5 +1926,9 @@ const catalog: Catalog = {
   "Integration card cleared": "整合卡片已清除",
   "Integration card: {card}": "整合卡片:{card}",
   "Linear project cleared": "Linear 專案已清除",
+  "Keep for the project": "保留給專案",
+  "Kept": "已保留",
+  "Ready to close": "可以關閉",
+  "This umbrella has no card whose project could keep it.": "此傘形專案沒有可保留它的專案所屬的卡片。",
 };
 export default catalog;
