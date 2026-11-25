@@ -1,6 +1,6 @@
 # Umbrellas: one brief, contract and decisions feed for a family of cards
 
-Status: **approved by Noah, 2026-11-25 (rulings D1-D18 in §16).** Nothing here is built yet. Contract only; progress goes to `docs/PROGRESS.md`. Amends `docs/CARD-LINKS-SPEC.md` §9 (membership only, ruling D13), `docs/DISPATCHER-SPEC.md` §5.8 (relay targets, and Flowly now tells member agents the `[contract]` rule) and `docs/PROJECT-MEMORY-SPEC.md` (a second, umbrella-scoped feed).
+Status: **approved by Noah, 2026-11-25 (rulings D1-D21 in §16).** Nothing here is built yet. Contract only; progress goes to `docs/PROGRESS.md`. Amends `docs/CARD-LINKS-SPEC.md` §9 (membership only, ruling D13), `docs/DISPATCHER-SPEC.md` §5.8 (relay targets, and Flowly now tells member agents the `[contract]` rule) and `docs/PROJECT-MEMORY-SPEC.md` (a second, umbrella-scoped feed).
 
 An **umbrella** is a named body of work inside one board group: a title, a brief every member card reads, a contract (the handoff shapes between members), a feed of decisions, findings and open questions, an acceptance list for the whole scope, an optional Linear project, and its member cards. A card belongs to at most one umbrella. Membership is a shared context, not a hierarchy: an umbrella never moves, starts, blocks, finishes or wraps up a card.
 
@@ -50,7 +50,9 @@ Umbrella {
   linearProject?: { url: string; key?: string; name?: string };  // read-only reference (§10)
   status: "open" | "closed";    // closed by the user only (§11)
   createdBy: Actor; createdAt: string; updatedAt: string;
-  revision: number;
+  revision: number;             // bumped by the user's and the dispatcher's edits; checked by umbrellas.update
+  feedRevision: number;         // bumped by every feed write (agent or user); never checked, so an agent entry never refuses a panel edit
+  operationId?: string;         // the creating agent's idempotency key digest (flowly_create_umbrella replay)
   archivedAt: string | null;
 }
 Actor = { kind: "human" } | { kind: "agent"; agentId: string; taskId?: string } | { kind: "dispatcher"; agentId: string }
@@ -76,8 +78,8 @@ UmbrellaEntry {
   sourceTaskId?: string;        // the member it came from
   quote?: string;               // kind=ruling: the user's words, ≤ 500
   supersedes?: string;
-  answer?: string;              // kind=question, set by the user
-  change?: { before: string; after: string; reason: string; baseRevision: number };  // kind=contract_change
+  answer?: string;              // kind=question: the user's answer; kind=contract_change: the resolver's note (D19)
+  change?: { before: string; after: string; reason: string; baseRevision: number; conflict?: boolean };  // kind=contract_change (§5)
   by: Actor; createdAt: string; updatedAt: string;
 }
 ```
@@ -92,12 +94,13 @@ UmbrellaEntry {
 
 | What | Limit |
 |---|---|
-| Umbrellas per group (open) | 50; closed and archived do not count |
+| Umbrellas per group (open) | 50; closed and archived do not count. Checked on create and reopen only: umbrellas that follow their projects to another group (§9) are never refused, so a group may then hold more than 50 |
 | Members per umbrella | 30 |
-| Feed entries per umbrella | 300 active-or-open; superseded/answered/rejected are kept but not counted |
+| Feed entries per umbrella | 300 `active` or `open`; superseded, answered, rejected, accepted and withdrawn are kept but not counted, and `proposed` contract changes count only against their own limit below |
 | Feed writes per member session | 20 per hour (`UMBRELLA_RATE_LIMIT`) |
 | Brief / contract | 20,000 / 10,000 characters |
 | Pending contract changes per umbrella | 10 |
+| Sibling relay messages per dispatcher | 60 per hour, apart from `flowly_message_card`'s 30 (D21) |
 
 ## 3. What a member's agent reads
 
@@ -108,7 +111,8 @@ umbrella: {
   id, title, status, role, integration: boolean,          // this card's role; true when it is the integration card
   brief: { text, revision, updatedAt, unread: boolean, truncated: boolean },
   contract: { text, revision, updatedAt, unread: boolean },
-  feed: { id, kind, title, body, status, sourceTaskId, sourceTitle, by, at, unread }[],
+  feed: { id, kind, title, body, status, sourceTaskId, sourceTitle, by, at, unread, answer? }[],
+                                                           // answer: only on an entry returned under D19
   openQuestions: number, pendingContractChanges: number,
   siblings: { taskId, projectId, projectTitle, title, laneName, status, role, order, archived }[],
                                                            // laneName from the sibling's own project's lanes
@@ -120,7 +124,7 @@ umbrella: {
 }
 ```
 
-- **Budget.** Brief up to 8,000 characters (`truncated: true` and the full text through `flowly_get_umbrella`); feed: unread entries first, then every active `ruling`, then open `question` and `proposed` contract changes, then `decision`, `convention`, `pitfall`, `finding` newest first, until 6,000 characters; the rest is counted in `truncatedFeed`. Superseded, answered, rejected and withdrawn entries are left out. Siblings ≤ 30. Today the response has no overall cap; this block is capped on its own so a large umbrella cannot crowd out the card.
+- **Budget.** Brief up to 8,000 characters (`truncated: true` and the full text through `flowly_get_umbrella`); feed: unread entries first, then every active `ruling`, then open `question` and `proposed` contract changes, then `decision`, `convention`, `pitfall`, `finding` newest first, until 6,000 characters; the rest is counted in `truncatedFeed`. Superseded, answered, rejected and withdrawn entries are left out, with one exception (D19): a question the user answered, or a contract change the user rejected, is returned once to the card it came from (`sourceTaskId`), as an unread entry with `answer`; once returned it counts as read and is left out again. Other members never get it. Siblings ≤ 30. Today the response has no overall cap; this block is capped on its own so a large umbrella cannot crowd out the card.
 - **Unread (R4).** `brief.unread`/`contract.unread` when the current revision is newer than the one this session last got in full and the change was not made by this session; a feed entry is unread until it has been returned to this session once. A truncated brief does not record its revision as read. Entries created by this session are never unread to it. The `turnChecklist` item "handle unread inputs" covers it: an unread brief or contract is read before work.
 - **First instructions** of a new member session add one line: the umbrella title, the member's role, "the brief, contract and feed are in flowly_get_task.umbrella", and the `[contract]` rule (fixing trial failure 3).
 - **Project memory is unchanged.** `memoryForTask` keeps choosing project notes; umbrella notes are in the feed, outside its budget (§6).
@@ -139,7 +143,7 @@ umbrella: {
 | `flowly_remember` | adds `scope: "project" \| "umbrella"` (default `project`) | `umbrella` writes a feed entry instead of a project note (§6): `decision`, `convention`, `pitfall` keep their kind, `contact` is refused (`UMBRELLA_KIND`; contacts are project-wide), `tags` and `keywords` are dropped, `supersedes` must name a feed entry. `MEMORY_DISABLED` does not apply to the umbrella scope. |
 | `flowly_create_card` | adds `umbrella?: "inherit" \| "none"` (default `inherit` from a member, D11) | The follow-up joins the creator's umbrella. |
 
-Errors: `NOT_IN_UMBRELLA`, `UMBRELLA_CLOSED`, `UMBRELLA_KIND`, `UMBRELLA_OUT_OF_GROUP`, `UMBRELLA_LIMIT`, `UMBRELLA_RATE_LIMIT`, `CONTRACT_STALE` (baseRevision behind; re-read), `UMBRELLAS_DISABLED` (the switch is off, §12).
+Errors: `NOT_IN_UMBRELLA`, `UMBRELLA_CLOSED`, `UMBRELLA_KIND`, `UMBRELLA_OUT_OF_GROUP`, `UMBRELLA_LIMIT`, `UMBRELLA_RATE_LIMIT`, `CONTRACT_STALE` (baseRevision behind; re-read), `NOT_INTEGRATION_CARD`, and `AGENT_CARDS_DISABLED` when *Agents create and edit cards* is off (§12, D10; there is no separate umbrella switch).
 
 ### 4.2 Board tools (card sessions and sessions outside cards; the user's ask)
 
@@ -154,18 +158,20 @@ Gated by *Agents create and edit cards* (as `flowly_create_card`).
 
 ### 4.3 Dispatcher tools
 
-The same reads, plus `flowly_set_umbrella` and `flowly_create_umbrella` with the dispatcher's usual group check (`PROJECT_OUT_OF_GROUP`, checked again in the write transaction) and a user confirm on create and on adding an existing card (never preapproved, like `flowly_create_card`). `flowly_resolve_contract_change {id, accept|reject, note}` only after the user's answer in the dispatcher chat (D6); it is preapproved, because that answer is the approval (D16). `flowly_update_umbrella {id, revision, title?, brief?, contract?, acceptance?, integrationTaskId?, linearProject?}` edits an umbrella of its group after the user's yes in its chat, and every call shows a permission prompt (never preapproved, D5, D15). New tools raise `dispatcherToolNames`; the charter text (§8) raises `dispatcherCharterVersion`.
+The same reads, plus `flowly_set_umbrella` and `flowly_create_umbrella` with the dispatcher's usual group check (`PROJECT_OUT_OF_GROUP`, checked again in the write transaction) and a user confirm on create and on adding an existing card (never preapproved, like `flowly_create_card`; since a tool is either preapproved or not, every `flowly_set_umbrella` call prompts, a removal included). `flowly_resolve_contract_change {id, accept|reject, note}` only after the user's answer in the dispatcher chat (D6); it is preapproved, because that answer is the approval (D16). `flowly_update_umbrella {id, revision, title?, brief?, contract?, acceptance?, integrationTaskId?, linearProject?}` edits an umbrella of its group after the user's yes in its chat, and every call shows a permission prompt (never preapproved, D5, D15). New tools raise `dispatcherToolNames`; the charter text (§8) raises `dispatcherCharterVersion`.
 
 ### 4.4 RPCs (`shared/rpc.ts`, schema-validated)
 
-`umbrellas.list {groupId}`, `umbrellas.get {id}`, `umbrellas.create {groupId, title, brief?, linearProject?}`, `umbrellas.update {id, revision, title?, brief?, contract?, acceptance?, integrationTaskId?, linearProject?}` (the user's edits) (REVISION_CONFLICT on a stale revision), `umbrellas.set-member {taskId, umbrellaId|null, role?, order?}`, `umbrellas.entry.update {id, status, answer?}` (answer a question, accept/reject a contract change, supersede), `umbrellas.close {id}` / `umbrellas.reopen`, `umbrellas.archive` (like close: members stay, it stays readable, writes are refused with `UMBRELLA_CLOSED`, and it leaves the lists; D18). All writes serialize through the store, validate input and bump the umbrella's revision.
+`umbrellas.list {groupId}`, `umbrellas.get {id}`, `umbrellas.create {groupId, title, brief?, linearProject?}`, `umbrellas.update {id, revision, title?, brief?, contract?, acceptance?, integrationTaskId?, linearProject?}` (the user's edits) (REVISION_CONFLICT on a stale revision), `umbrellas.set-member {taskId, umbrellaId|null, role?, order?}`, `umbrellas.entry.update {id, status, answer?}` (answer a question, accept/reject a contract change with an optional note in `answer`, supersede), `umbrellas.entry.create {umbrellaId, kind: decision|convention|pitfall|finding, title, body}` (the user's own entry, used by *Create from related cards*, §12), `umbrellas.close {id, revision}` / `umbrellas.reopen {id, revision}`, `umbrellas.archive {id, revision}` (like close: members stay, it stays readable, writes are refused with `UMBRELLA_CLOSED`, and it leaves the lists; D18), `umbrellas.linear-project {id}` (read-only, §10). All writes serialize through the store and validate input; the user's edits bump `revision`, feed writes bump `feedRevision` (§2.1).
+
+The board receives umbrellas as summaries in the board overview (id, group, title, status, member count, open questions, pending changes, `revision`, `feedRevision`, archive time, Linear project), never brief, contract or entries; the panel and drawer section read one umbrella with `umbrellas.get` and read it again when that umbrella's `revision` or `feedRevision` changes, with no polling.
 
 ## 5. Contract changes
 
 1. A member calls `flowly_propose_contract_change` with the full new contract text and the revision it read. Flowly stores `contract_change` `proposed` with a computed `before`.
-2. **Conflict detection (Flowly, not guessed by the dispatcher):** a proposal whose `baseRevision` is behind the current contract is refused `CONTRACT_STALE`, and the agent rereads and proposes again (D17). A proposal that shares its `baseRevision` with another pending one is stored, and both are marked `conflict: true`; an accept marks the pending proposals it leaves behind `conflict: true`.
+2. **Conflict detection (Flowly, not guessed by the dispatcher):** a proposal whose `baseRevision` is behind the current contract is refused `CONTRACT_STALE`, and the agent rereads and proposes again (D17). A proposal that shares its `baseRevision` with another pending one is stored, and both are marked `conflict: true`; an accept marks the pending proposals it leaves behind `conflict: true`. Accepting a pending proposal whose `baseRevision` is behind the current contract is refused `CONTRACT_STALE` (D20), in the panel and through `flowly_resolve_contract_change`; the user rejects it or the agent proposes again on the current revision.
 3. The dispatcher hears it as a stop (a new stop kind, `contract_proposed`, EVENT-BUS-SPEC §2) with the conflict flag and the members whose role the change mentions. Its charter: never accept on its own; put the change, its reason and any conflict to the user with AskUserQuestion in the dispatcher chat (accept / reject / ask the proposer to merge), and call `flowly_resolve_contract_change` only with the user's answer. The user can also accept or reject on the umbrella panel.
-4. Accepted: the contract text becomes `after`, `revision + 1`, every other member sees `contract.unread`, and live siblings get one relay line (§8). Rejected: the proposer's next `get_task` shows the status and note.
+4. Accepted: the contract text becomes `after`, `revision + 1`, every other member sees `contract.unread`, and live siblings get one relay line (§8). Rejected: the proposing card's next `get_task` returns the entry once, with status `rejected` and the note in `answer`, and after that it counts as read (D19, §3); other members never get it.
 5. A change that also sets a product rule ("suggestions never open PRs without review") is a `ruling` question for the user, not something the dispatcher or an agent decides.
 
 Every change needs the user's accept, additive ones included (D6); the dispatcher never accepts on its own.
@@ -176,17 +182,17 @@ Every change needs the user's accept, additive ones included (D6); the dispatche
 
 ## 7. Board
 
-- **Filter.** The Filters modal gains *Umbrella* (single choice, plus "No umbrella"), stored in `groupFilters`, `projectFilters` and the global filter (`filterUmbrella`), counted in the filter badge. On a group board it covers every project's cards.
+- **Filter.** The Filters modal gains *Umbrella* (single choice, plus "No umbrella"), stored in each group's filter (`groupFilters`) and the global filter (`filterUmbrella`), counted in the filter badge. (`projectFilters` only remembers each group's chosen project, so it holds no umbrella.) On a group board it covers every project's cards.
 - **Card face.** A quiet umbrella chip in `CardMeta` after the type (title cut to 20 characters, the role after a dot when set); a new `cardFields` id `umbrella` so it can be hidden. Not the `Layers` icon (Shortcut epics).
 - **Umbrella panel.** A board toolbar menu *Umbrellas* lists the group's open umbrellas (member count, open questions, pending changes). Opening one shows: title and Linear chip; brief (markdown, editable by the user); contract; the pipeline (members by `order` with role, lane and project); the feed with filters by kind, the open questions with an answer box; the acceptance list; Close. Pending contract changes with Accept / Reject come with card 4 and Ready to close with card 6 (§17). A member row opens the card.
-- **Card drawer.** A new movable section *Umbrella* (`drawer-sections`): role, a link to the panel, unread brief/contract markers, the last 5 feed entries. The Quick links row adds the umbrella chip after the Linear issue.
+- **Card drawer.** A new movable section *Umbrella* (`drawer-sections`): role, a link to the panel, when the brief and contract last changed (unread is tracked per agent session, R4, so the user sees change dates, not unread markers), the last 5 feed entries. The Quick links row adds the umbrella chip after the Linear issue.
 - **Group by.** A board toggle *Group by umbrella* draws one horizontal band per umbrella (members only, in their lanes) and a last band "No umbrella". No group-by exists today (lanes are statuses, sort is the only grouping-like control), so it is the largest UI piece and ships in a later card (card 8), after the filter, chip, panel and drawer section (D8).
 - Lanes stay statuses: an umbrella is never a lane (a lane per umbrella would break the workflow-lane model of `BOARD-GROUPS-SPEC` §5).
 
 ## 8. Dispatcher
 
 - **Assignment (D11).** A card created from a member (follow-up, `flowly_create_card` by a member session, or an accepted member idea) joins the umbrella. When the dispatcher creates a card the user describes as part of a family, it proposes the umbrella in the create confirm. Adding an *existing* card or moving it between umbrellas is a user decision (confirm in the dispatcher chat or the UI).
-- **Relay targets.** `contractRelayTargets` becomes the union of `related`-linked cards (today) and live siblings, each once, never the source, within the group. Live = not archived, not Done/Cancelled, with a live session (unchanged). The cap `relayTargetLimit` rises from 10 to 30 (the member limit); if both sets together exceed it, siblings come first by `order`, then related cards, and the relay line says how many were left out.
+- **Relay targets.** `contractRelayTargets` becomes the union of `related`-linked cards (today) and live siblings, each once, never the source, within the group. Live = not archived, not Done/Cancelled, with a live session (unchanged). The cap `relayTargetLimit` rises from 10 to 30 (the member limit); if both sets together exceed it, siblings come first by `order`, then related cards, and the relay line says how many were left out. Relay messages (a `flowly_message_card` call that names the relayed event and goes to one of that relay's targets) take from their own budget of 60 per hour per dispatcher, apart from `flowly_message_card`'s 30 (D21).
 - **What is relayed (D12).** (a) `[contract]`-marked results and deliveries, as today; (b) accepted contract changes ("contract r5 accepted: …"); (c) new `ruling` entries. Not relayed as messages: other feed entries and member deliveries; siblings see them through `get_task` unread marks on their next turn. Never relayed: questions, permission requests, blockers (unchanged).
 - **Persistence.** The relayed-event memory moves from process memory to the board (per group, last 500) so a reload does not relay twice (trial failure 6).
 - **Charter.** One section on umbrellas: read `flowly_get_umbrella` before planning a family's next card; propose the umbrella on create; never accept a contract change or record a ruling without the user's answer; relay only what the relay line carries. `dispatcherCharterVersion` +1, so running dispatchers show the Replace warning.
@@ -197,7 +203,7 @@ Every change needs the user's accept, additive ones included (D6); the dispatche
 - **Projects change group.** Three paths move projects: the UI's project move (`projects.set-group`), **Delete group** (all its projects go to the default group) and the dispatcher's `flowly_manage_groups` set-members (confirmed by the user on every call). One rule for all three, applied inside the same write: an umbrella whose member projects *all* end up in one group moves with them (`groupId` updated, nothing lost); otherwise the cards that left its group leave the umbrella (membership cleared, a `left` activity event) and the umbrella keeps its feed entries with `sourceTaskId`, showing the card as "moved out". The UI confirm and the dispatcher's confirm text name each umbrella that would lose members. An umbrella whose group is deleted and that has no members left moves to the default group. A dangling `groupId` is repaired to the default group on read, as for projects.
 - **Project archive / remove.** Archiving keeps memberships (archived cards show as archived siblings). Remove (PROJECT-REMOVE-SPEC) clears the membership of its cards in the backup and in the umbrella; an umbrella with no members left is kept (the user may archive it).
 - **Card delete / archive.** Delete clears membership; feed entries keep `sourceTaskId` and show "deleted card". Archive keeps it. Wrap up never touches the umbrella.
-- **Board export.** `board.export-markdown` per project gains a section per umbrella that has a member in it: title, Linear link, brief (first 2,000 characters), members in that project, and the members elsewhere as `title (project)` only. Without `projectId` (all live projects) each umbrella is listed once, after the projects. `storage.export-json` includes the collections. Project-remove backups include the umbrellas their cards were in, by id and title.
+- **Board export.** `board.export-markdown` per project gains a section per umbrella that has a member in it: title, Linear link, brief (first 2,000 characters), members in that project, and the members elsewhere as `title (project)` only. Without `projectId` (all live projects) each umbrella with a member in those projects is listed once, after the projects; an umbrella with no member in the exported projects is never listed. A group dispatcher's first message (built from the same export over its group's projects) lists its group's umbrellas by title and members only, without the brief. `storage.export-json` includes the collections. Project-remove backups include the umbrellas their cards were in, by id and title.
 
 ## 10. Linear
 
@@ -247,6 +253,7 @@ Every change needs the user's accept, additive ones included (D6); the dispatche
 - The Linear project chip shows the project's name read from Linear; Flowly makes no write call to Linear.
 - The per-project export lists each umbrella with members in that project and names members elsewhere by title and project.
 - Nothing about an umbrella changes a card's lane, session, workspace or wrap-up.
+- The user's answer to an umbrella question, or a rejected contract change with its note, reaches the asking or proposing card once and no other member (D19); accepting a proposal behind the current contract is refused `CONTRACT_STALE` (D20); relays to siblings take from their own 60-per-hour budget, leaving `flowly_message_card`'s 30 untouched (D21).
 
 ## 16. Rulings
 
@@ -270,6 +277,9 @@ Noah accepted every recommendation of the draft on 2026-11-25. Rejected options 
 - **D16: preapproving the resolve call.** (a) `flowly_resolve_contract_change` is preapproved, since the user's answer to the dispatcher's question is the approval; (b) a second permission prompt. Ruling (Noah, 2026-11-25): (a).
 - **D17: a proposal on an old contract revision.** (a) refused `CONTRACT_STALE`; (b) stored with a conflict flag. Ruling (Noah, 2026-11-25): (a).
 - **D18: archiving an umbrella.** (a) like closing: members stay, it stays readable, writes are refused, and it leaves the lists; (b) archiving also clears every membership. Ruling (Noah, 2026-11-25): (a).
+- **D19: answers and rejections reaching the asker.** §3 left answered and rejected entries out of the feed while §5 promised the proposer the note. (a) the asking or proposing card's next `get_task` returns that entry once, with `answer` (the answer or the reject note), then it counts as read; other members don't get it; (b) every member sees answered and rejected entries; (c) only `flowly_get_umbrella` shows them. Ruling (Noah, 2026-11-25): (a).
+- **D20: accepting a proposal on an old revision.** After another change is accepted, a still-pending proposal may rest on an older contract. (a) its accept is refused `CONTRACT_STALE` and the agent proposes again; (b) accept applies `after` anyway, dropping the earlier accepted change; (c) accept after a second confirm. Ruling (Noah, 2026-11-25): (a).
+- **D21: relay budget.** A relay to up to 30 targets would use `flowly_message_card`'s 30 per hour. (a) sibling relays get their own budget, 60 per hour, apart from the 30; (b) relays share the 30; (c) relays are unlimited. Ruling (Noah, 2026-11-25): (a).
 
 ## 17. Proposed card split
 
