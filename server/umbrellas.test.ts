@@ -10,6 +10,7 @@ import { createUmbrella as createRpc, updateUmbrella as updateRpc } from "../sha
 import { umbrellaLimits } from "../shared/umbrella";
 import { codedError } from "./tool-error";
 import type { Actor, Task, UmbrellaEntry } from "../shared/model";
+import type { ProjectSnapshot } from "./project-folder";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -291,4 +292,69 @@ test("briefSource sets, keeps and clears the brief's source link without a brief
   expect(updateRpc.input.safeParse({ id: u.id, revision: 4, briefSource: "x".repeat(501) }).success).toBe(false);
   expect(createRpc.input.safeParse({ groupId: "A", title: "T", briefSource: "x".repeat(500) }).success).toBe(true);
   expect(createRpc.input.safeParse({ groupId: "A", title: "T", briefSource: "x".repeat(501) }).success).toBe(false);
+});
+
+// ---- Lifecycle (UMBRELLA-SPEC §9) ----
+
+test("deleting a card clears its membership and the integration card", async () => {
+  const store = await setup();
+  const u = await createUmbrella(store, { groupId: "A", title: "U" }, human);
+  for (const taskId of ["a", "b"]) await setMembership(store, { taskId, umbrellaId: u.id }, human);
+  await updateUmbrella(store, { id: u.id, revision: 1, integrationTaskId: "a" }, human);
+  await store.mutate((board) => void board.umbrellaEntries.push({ ...entry("d1", "decision", "active", u.id), sourceTaskId: "a" }));
+  await store.deleteTask({ id: "a", revision: 1 });
+  const board = await store.read();
+  expect(board.umbrellas[0]).not.toHaveProperty("integrationTaskId");
+  expect(board.umbrellas[0].revision).toBe(3);
+  expect(board.tasks.filter((t) => t.umbrella?.id === u.id).map((t) => t.id)).toEqual(["b"]);
+  expect(board.umbrellaEntries).toEqual([expect.objectContaining({ id: "d1", sourceTaskId: "a", status: "active" })]);
+  // The panel's read of the umbrella holds up with a source card that is gone.
+  expect(getUmbrella(board, u.id).members.map((m) => m.taskId)).toEqual(["b"]);
+  // A member that was not the integration card leaves the umbrella untouched.
+  await store.deleteTask({ id: "b", revision: 1 });
+  expect((await store.read()).umbrellas[0].revision).toBe(3);
+});
+
+test("archiving a card keeps its membership", async () => {
+  const store = await setup();
+  const u = await createUmbrella(store, { groupId: "A", title: "U" }, human);
+  await setMembership(store, { taskId: "a", umbrellaId: u.id }, human);
+  await updateUmbrella(store, { id: u.id, revision: 1, integrationTaskId: "a" }, human);
+  await store.editTask({ id: "a", revision: 1, archived: true, actor: "human" });
+  const board = await store.read();
+  expect(board.tasks.find((t) => t.id === "a")!.umbrella).toMatchObject({ id: u.id });
+  expect(board.umbrellas[0].integrationTaskId).toBe("a");
+  expect(getUmbrella(board, u.id).members).toEqual([expect.objectContaining({ taskId: "a", archived: true })]);
+});
+
+test("a restored project's cards drop memberships to missing or other-group umbrellas", async () => {
+  const store = await setup();
+  const inA = await createUmbrella(store, { groupId: "A", title: "In A" }, human);
+  const inB = await createUmbrella(store, { groupId: "B", title: "In B" }, human);
+  const joined = (id: string) => ({ id, joinedAt: now, by: human });
+  const snapshot: ProjectSnapshot = {
+    savedAt: now,
+    autoReviewInherits: true,
+    project: {
+      id: "back", title: "Back", description: "", paseoProjectId: "n-back", primaryPath: "/back", repos: ["/back"],
+      revision: 1, createdAt: now, updatedAt: now, archivedAt: null, groupId: "B",
+    },
+    tasks: [
+      card("r1", "back", { umbrella: joined(inA.id) }),
+      card("r2", "back", { umbrella: joined(inB.id) }),
+      card("r3", "back", { umbrella: joined("gone") }),
+      card("r4", "back"),
+    ],
+    events: [], ideas: [], links: [], artifacts: [], workpads: [], plans: [], summaries: [],
+  };
+  // The restored project joins the default group A (its folder copy carries no group).
+  await store.restoreProject(snapshot, { primaryPath: "/back", paseoProjectId: "n-back" });
+  const board = await store.read();
+  const membership = (id: string) => board.tasks.find((t) => t.id === id)!.umbrella?.id ?? null;
+  expect(["r1", "r2", "r3", "r4"].map(membership)).toEqual([inA.id, null, null, null]);
+  const left = board.events.filter((e) => e.action === "umbrella_left");
+  expect(left.map((e) => [e.taskId, e.note])).toEqual([
+    ["r2", "Left umbrella In B (it is in another board group)"],
+    ["r3", "Left umbrella (it is no longer on the board)"],
+  ]);
 });

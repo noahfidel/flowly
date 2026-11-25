@@ -56,6 +56,33 @@ test("removing a project drops it and all its cards, events and receipts, keepin
   expect(backup.agentReceipts).toHaveLength(1);
 });
 
+test("project remove clears memberships and lists the umbrellas in the backup", async () => {
+  const { store } = await setup();
+  const human = { kind: "human" as const };
+  const umbrella = (id: string, title: string, integrationTaskId?: string) => ({
+    id, groupId: "g", title, brief: { text: "", revision: 0, updatedAt: now, updatedBy: human },
+    contract: { text: "", revision: 0, updatedAt: now, updatedBy: human }, acceptance: [], status: "open" as const,
+    createdBy: human, createdAt: now, updatedAt: now, revision: 1, feedRevision: 0, archivedAt: null,
+    ...(integrationTaskId ? { integrationTaskId } : {}),
+  });
+  const joined = (id: string) => ({ id, joinedAt: now, by: human });
+  await store.mutate((b) => {
+    b.umbrellas.push(umbrella("u1", "Only p1", "t1"), umbrella("u2", "Shared"), umbrella("u3", "Untouched"));
+    b.tasks.find((t) => t.id === "t1")!.umbrella = joined("u1");
+    b.tasks.find((t) => t.id === "t2")!.umbrella = joined("u2");
+    b.tasks.find((t) => t.id === "t3")!.umbrella = joined("u2");
+  });
+  const result = await store.removeProject({ id: "p1", revision: 1 });
+  const backup = JSON.parse(await readFile(result.backup, "utf8"));
+  expect(backup.umbrellas).toEqual([{ id: "u1", title: "Only p1" }, { id: "u2", title: "Shared" }]);
+  for (const t of backup.tasks) expect(t).not.toHaveProperty("umbrella");
+  const board = await store.read();
+  // Every umbrella stays, the one with no members left too; its integration card is cleared.
+  expect(board.umbrellas.map((u) => u.id)).toEqual(["u1", "u2", "u3"]);
+  expect(board.umbrellas[0]).not.toHaveProperty("integrationTaskId");
+  expect(board.tasks.map((t) => [t.id, t.umbrella?.id])).toEqual([["t3", "u2"]]);
+});
+
 test("the native project can be linked again after removal; stale revision is rejected", async () => {
   const { store } = await setup();
   await expect(store.removeProject({ id: "p1", revision: 2 })).rejects.toThrow("Revision conflict");

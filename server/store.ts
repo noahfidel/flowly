@@ -9,7 +9,7 @@ import { JsonBoardFile, StoreInvalidError, assertBoardInvariants, writeFileDurab
 import { BoardStorage, type StorageOptions } from "./sqlite-storage";
 import type { StorageStatus } from "../shared/storage";
 import { ideaTitleKey } from "../shared/ideas";
-import { umbrellaViewOf } from "../shared/umbrella";
+import { applyGroupMoves, leaveUmbrella, repairUmbrellaGroups, umbrellaViewOf } from "../shared/umbrella";
 import { otherEnd, relationLabels, relationOf, touches } from "../shared/links";
 import { changeTags, mergeTagEdit, normalizeTags, tagChangeNote } from "../shared/tags";
 import {
@@ -229,6 +229,9 @@ export class BoardStore {
     if (!this.groupsReady) return board;
     const now = new Date().toISOString();
     const repair = ensureGroups(board, now, () => this.nextGroupId);
+    // An umbrella whose group is gone moves to the default group (UMBRELLA-SPEC §9), on the copy too.
+    const fallback = defaultGroupOf(board);
+    if (fallback) repairUmbrellaGroups(board, fallback.id);
     // One manual order per group column (BOARD-GROUPS-SPEC §1, §7 step 8) on the copy too, so a read shows it at once.
     syncGroupOrder(board);
     // Group lanes (BOARD-GROUPS-SPEC §1, §7 step 7) on the copy too, so a read never shows a member out of step.
@@ -343,6 +346,9 @@ export class BoardStore {
     if (this.groupsReady || migrating) {
       const now = new Date().toISOString();
       const repair = ensureGroups(board, now, this.takeGroupId);
+      // An umbrella whose group is gone (Delete group left it with no members) moves to the default group (UMBRELLA-SPEC §9).
+      const fallback = defaultGroupOf(board);
+      if (fallback) repairUmbrellaGroups(board, fallback.id);
       // Moved, new and restored projects join their group's manual order at the end of each column (§1).
       syncGroupOrder(board);
       // Lanes are group-level (BOARD-GROUPS-SPEC §1): moved, new and restored projects take their group's lanes, the
@@ -657,10 +663,14 @@ export class BoardStore {
       if (project.revision !== input.revision)
         throw new Error("Revision conflict: reload the project before removing it.");
       const taskIds = new Set(board.tasks.filter((t) => t.projectId === project.id).map((t) => t.id));
+      const gone = board.tasks.filter((t) => taskIds.has(t.id));
+      // The umbrellas its cards were in, by id and title; the cards are saved without their membership (UMBRELLA-SPEC §9).
+      const umbrellaIds = new Set(gone.flatMap((t) => (t.umbrella ? [t.umbrella.id] : [])));
       const removed = {
         removedAt: new Date().toISOString(),
         project,
-        tasks: board.tasks.filter((t) => taskIds.has(t.id)),
+        tasks: gone.map(({ umbrella: _umbrella, ...t }) => t),
+        umbrellas: board.umbrellas.filter((u) => umbrellaIds.has(u.id)).map((u) => ({ id: u.id, title: u.title })),
         events: board.events.filter((e) => taskIds.has(e.taskId)),
         agentReceipts: board.agentReceipts.filter((r) => taskIds.has(r.taskId)),
         ideas: board.ideas.filter((i) => i.projectId === project.id || (i.taskId && taskIds.has(i.taskId))),
@@ -673,6 +683,8 @@ export class BoardStore {
       await mkdir(folder, { recursive: true, mode: 0o700 });
       const backup = join(folder, `${project.id}-${removed.removedAt.replace(/[:.]/g, "-")}.json`);
       await writeFileDurable(backup, JSON.stringify(removed, null, 2), "wx");
+      // An umbrella keeps no integration card that is gone; it stays even with no members left (the user may archive it).
+      for (const task of gone) leaveUmbrella(board, task, removed.removedAt);
       board.projects = board.projects.filter((p) => p.id !== project.id);
       board.tasks = board.tasks.filter((t) => !taskIds.has(t.id));
       board.events = board.events.filter((e) => !taskIds.has(e.taskId));
@@ -748,6 +760,21 @@ export class BoardStore {
       board.plans.push(...(snapshot.plans || []).filter((p) => taskIds.has(p.taskId)));
       for (const t of tasks)
         this.event(board, { taskId: t.id, actor: "human", action: "restored", note: "Restored from project folder" });
+      // The restored project joins the default group (above): a card keeps its umbrella only when that umbrella is
+      // still on the board and in that group (UMBRELLA-SPEC §9, the group rule).
+      const groupId = defaultGroupOf(board)?.id;
+      const umbrellaOf = (id: string) => board.umbrellas.find((u) => u.id === id);
+      const fits = (id: string) => !!groupId && umbrellaOf(id)?.groupId === groupId;
+      for (const t of tasks) {
+        if (!t.umbrella || fits(t.umbrella.id)) continue;
+        const umbrella = umbrellaOf(t.umbrella.id);
+        delete t.umbrella;
+        const note = umbrella ? `Left umbrella ${umbrella.title} (it is in another board group)` : "Left umbrella (it is no longer on the board)";
+        this.event(board, { taskId: t.id, actor: "system", action: "umbrella_left", note });
+      }
+      for (const idea of board.ideas)
+        if (idea.umbrellaId && (idea.taskId ? taskIds.has(idea.taskId) : idea.projectId === source.id) && !fits(idea.umbrellaId))
+          delete idea.umbrellaId;
       return { project, cards: tasks.length, unbound };
     });
   }
@@ -777,6 +804,8 @@ export class BoardStore {
       await mkdir(folder, { recursive: true, mode: 0o700 });
       const backup = join(folder, `task-${task.id}-${removed.removedAt.replace(/[:.]/g, "-")}.json`);
       await writeFileDurable(backup, JSON.stringify(removed, null, 2), "wx");
+      // Delete clears the membership and an integration card role naming it; feed entries keep `sourceTaskId` (UMBRELLA-SPEC §9).
+      leaveUmbrella(board, task, removed.removedAt);
       board.tasks = board.tasks.filter((t) => t !== task);
       board.events = board.events.filter((e) => e.taskId !== task.id);
       board.agentReceipts = board.agentReceipts.filter((r) => r.taskId !== task.id);
@@ -1052,6 +1081,8 @@ export class BoardStore {
         }
       board.groups = board.groups.filter((g) => g !== group);
       if (moved.length) bumpGroups(board, [target.id], now);
+      // Its umbrellas follow their projects; one left with no members goes to the default group by the commit's repair.
+      this.umbrellaGroupMoves(board, moved, now);
       return { value: { id: group.id, movedTo: target.id, projectIds: moved }, changed: true };
     });
   }
@@ -1069,6 +1100,7 @@ export class BoardStore {
       project.updatedAt = new Date().toISOString();
       // A membership change bumps every group it touches, so a stale group edit or set_members is refused (DISPATCHER-SPEC §5.2).
       bumpGroups(board, [from, input.groupId], project.updatedAt);
+      this.umbrellaGroupMoves(board, [project.id], project.updatedAt);
       return { value: project, changed: true };
     });
   }
@@ -1112,8 +1144,18 @@ export class BoardStore {
       }
       for (const project of leftOut) move(project, target.id);
       if (moved.length) bumpGroups(board, [...touched], now);
+      this.umbrellaGroupMoves(board, moved.map((m) => m.projectId), now);
       return { value: { group, moved }, changed: moved.length > 0 };
     });
+  }
+  /**
+   * The umbrella rule for projects that changed group (UMBRELLA-SPEC §9), inside the write that moved them: umbrellas
+   * follow when all their members land in one group, otherwise the members that left drop out with an `umbrella_left`
+   * event. Never refused, not even past the open-umbrella limit (§2.4).
+   */
+  private umbrellaGroupMoves(board: Board, projectIds: readonly string[], now: string) {
+    if (!projectIds.length) return;
+    applyGroupMoves(board, projectIds, now, (taskId, note) => this.event(board, { taskId, actor: "system", action: "umbrella_left", note }));
   }
   event(board: Board, input: Omit<BoardEvent, "id" | "at">) {
     const event = {

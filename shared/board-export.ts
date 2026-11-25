@@ -1,6 +1,7 @@
 import { agentsRule, type MemoryEntry } from "./memory";
 import { isSourceNote, parseBacklog } from "./ideas-import";
-import type { Board, Idea } from "./model";
+import type { Board, Idea, Project } from "./model";
+import { membersOf } from "./umbrella";
 
 /** Markdown export of a board (IDEAS-IMPORT-EXPORT-SPEC §7): open cards, open ideas and active memory per live project. */
 
@@ -39,9 +40,61 @@ const ideaLines = (idea: Idea, cardTitle: string | undefined) => {
   return lines;
 };
 
-export function exportMarkdown(board: Board, memory: Record<string, MemoryEntry[]>): string {
+/** How much of an umbrella's brief the export carries (UMBRELLA-SPEC §9). */
+export const exportBriefLimit = 2000;
+
+/**
+ * The umbrellas with a member in the exported projects, each once, after the projects (UMBRELLA-SPEC §9): title,
+ * Linear link, the brief (cut to `exportBriefLimit`, as a quote so its headings stay inside it), the members in the
+ * exported projects, and the members elsewhere as `title (project)` only. Pass the full board (`store.read()`): the
+ * client view holds no brief text.
+ */
+function umbrellaSection(board: Board, exported: readonly Project[], projects: readonly Pick<Project, "id" | "title">[], briefs: boolean): string[] {
+  const inExport = new Set(exported.map((p) => p.id));
+  const projectTitle = (id: string) => {
+    const project = projects.find((p) => p.id === id);
+    return project ? oneLine(project.title) : "unknown project";
+  };
   const out: string[] = [];
-  for (const project of board.projects.filter((p) => !p.archivedAt)) {
+  for (const umbrella of board.umbrellas) {
+    const members = membersOf(board, umbrella.id);
+    const here = members.filter((t) => inExport.has(t.projectId));
+    if (!here.length) continue;
+    out.push(`### ${oneLine(umbrella.title)}`);
+    if (umbrella.archivedAt || umbrella.status !== "open") out.push(`Status: ${umbrella.archivedAt ? "archived" : umbrella.status}`);
+    if (umbrella.linearProject) out.push(`Linear: ${umbrella.linearProject.url}`);
+    const brief = umbrella.brief.text.trim();
+    if (briefs && brief) {
+      const cut = brief.length > exportBriefLimit ? `${brief.slice(0, exportBriefLimit)}…` : brief;
+      out.push("", ...cut.split(/\r?\n/).map((line) => (line.trim() ? `> ${line}` : ">")), "");
+    }
+    out.push("Members:");
+    for (const t of here) {
+      const where = inExport.size > 1 ? `${projectTitle(t.projectId)}, ` : "";
+      const archived = t.archivedAt ? ", archived" : "";
+      const role = t.umbrella?.role ? `; role: ${oneLine(t.umbrella.role)}` : "";
+      out.push(`- ${oneLine(t.title)} (${where}${t.status}, ${t.id}${archived}${role})`);
+    }
+    const elsewhere = members.filter((t) => !inExport.has(t.projectId));
+    if (elsewhere.length) out.push("Members elsewhere:", ...elsewhere.map((t) => `- ${oneLine(t.title)} (${projectTitle(t.projectId)})`));
+    out.push("");
+  }
+  return out.length ? ["## Umbrellas", "", ...out] : [];
+}
+
+/**
+ * `board.projects` are the projects to export (live ones; callers pass the chosen subset). Options: `umbrellaBriefs`
+ * (default true; false lists each umbrella's title and members only, for a dispatcher's first message) and
+ * `allProjects` (every project, to name members in projects outside the export; default `board.projects`).
+ */
+export function exportMarkdown(
+  board: Board,
+  memory: Record<string, MemoryEntry[]>,
+  options: { umbrellaBriefs?: boolean; allProjects?: readonly Pick<Project, "id" | "title">[] } = {},
+): string {
+  const out: string[] = [];
+  const exported = board.projects.filter((p) => !p.archivedAt);
+  for (const project of exported) {
     out.push(`## ${oneLine(project.title)}`, "");
     const cards = board.tasks.filter((t) => t.projectId === project.id && !t.archivedAt && t.status !== "done" && t.status !== "cancelled");
     if (cards.length) {
@@ -62,5 +115,6 @@ export function exportMarkdown(board: Board, memory: Record<string, MemoryEntry[
     const rules = (memory[project.id] ?? []).filter((e) => e.status === "active");
     if (rules.length) out.push("### Memory", ...rules.map(agentsRule), "");
   }
+  out.push(...umbrellaSection(board, exported, options.allProjects ?? board.projects, options.umbrellaBriefs ?? true));
   return out.join("\n");
 }

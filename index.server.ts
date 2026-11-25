@@ -416,7 +416,8 @@ export default function contribute(host: PluginServerContext) {
     const notes = (await memory.memoryState()).entries;
     const entries: Record<string, MemoryEntry[]> = {};
     for (const p of live) entries[p.id] = notes.filter((e) => e.projectId === p.id);
-    return { markdown: exportMarkdown({ ...board, projects: live }, entries) };
+    // The full board (`store.read()`, not `view()`): umbrella sections carry the brief (UMBRELLA-SPEC §9).
+    return { markdown: exportMarkdown({ ...board, projects: live }, entries, { allProjects: board.projects }) };
   });
   tools.agents.guardrails = guardrails;
   server.handle(rpc.readGuardrails, async ({ projectId, etag }) => ifChanged(await guardrails.view(projectId), etag));

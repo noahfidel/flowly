@@ -342,7 +342,10 @@ function deletable(board: Pick<Board, "groups">, input: GroupRemoval): Group {
   return group;
 }
 
-/** A group's dispatcher's first message (§0, §6): each live member project's id, then their open cards and ideas, without memory. */
+/**
+ * A group's dispatcher's first message (§0, §6): each live member project's id, then their open cards and ideas,
+ * without memory, and the umbrellas with a member in them by title and members only (UMBRELLA-SPEC §9).
+ */
 export function dispatcherSummary(board: Board, groupId: string): string {
   const live = board.projects.filter((p) => !p.archivedAt && p.groupId === groupId);
   const projects = live.map((p) => `- ${p.id}: ${p.title.replace(/\s+/g, " ").trim()}`);
@@ -352,7 +355,7 @@ export function dispatcherSummary(board: Board, groupId: string): string {
     "Projects of this group (projectId: title):",
     ...(projects.length ? projects : ["- none yet"]),
     "",
-    exportMarkdown({ ...board, projects: live }, {}).trim(),
+    exportMarkdown({ ...board, projects: live }, {}, { umbrellaBriefs: false, allProjects: board.projects }).trim(),
   ]
     .join("\n")
     .trim();

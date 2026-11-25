@@ -598,4 +598,29 @@ describe("backups, restore and the way back to JSON", () => {
     expect((await again.read()).tasks[0].title).toBe("On JSON");
     expect(onDisk(d).tasks[0].title).toBe("On JSON");
   });
+
+  test("storage.export-json includes umbrellas and entries", async () => {
+    const d = await directory();
+    const board = fixture(),
+      human = { kind: "human" as const },
+      at = "2026-10-20T10:00:00.000Z";
+    board.umbrellas.push({
+      id: "u1", groupId: "g1", title: "Umbrella", brief: { text: "The full brief", revision: 1, updatedAt: at, updatedBy: human },
+      contract: { text: "The contract", revision: 1, updatedAt: at, updatedBy: human }, acceptance: [], status: "open",
+      createdBy: human, createdAt: at, updatedAt: at, revision: 3, feedRevision: 2, archivedAt: null,
+    });
+    board.umbrellaEntries.push({
+      id: "e1", umbrellaId: "u1", kind: "decision", title: "Decided", body: "Body", status: "active", sourceTaskId: "t1",
+      by: human, createdAt: at, updatedAt: at,
+    });
+    board.tasks[0].umbrella = { id: "u1", role: "map", joinedAt: at, by: human };
+    await writeBoard(d, board);
+    const s = open(d);
+    await s.exportStorage();
+    const raw = JSON.parse(await readFile(join(d, "board.json"), "utf8"));
+    // Read from storage, not the client view: brief and contract text and the entries are all there.
+    expect(raw.umbrellas).toEqual([expect.objectContaining({ id: "u1", brief: expect.objectContaining({ text: "The full brief" }), contract: expect.objectContaining({ text: "The contract" }) })]);
+    expect(raw.umbrellaEntries).toEqual([expect.objectContaining({ id: "e1", sourceTaskId: "t1" })]);
+    expect(raw.tasks[0].umbrella).toMatchObject({ id: "u1", role: "map" });
+  });
 });

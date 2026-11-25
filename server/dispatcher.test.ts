@@ -2582,6 +2582,24 @@ test("a group's first message summarizes only that group's live projects (§6)",
   expect(dispatcherSummary(b, "empty")).toContain("- none yet");
 });
 
+test("a dispatcher's first message lists only its group's umbrellas, without briefs", () => {
+  const b = twoGroupBoard();
+  const human = { kind: "human" as const };
+  const umbrella = (id: string, groupId: string, title: string): Board["umbrellas"][number] => ({
+    id, groupId, title, brief: { text: `Brief of ${title}`, revision: 1, updatedAt: T, updatedBy: human },
+    contract: { text: "", revision: 0, updatedAt: T, updatedBy: human }, acceptance: [], status: "open",
+    createdBy: human, createdAt: T, updatedAt: T, revision: 1, feedRevision: 0, archivedAt: null,
+  });
+  const joined = (id: string) => ({ id, joinedAt: T, by: human });
+  b.tasks.push({ ...boardTask("a1", "p"), umbrella: joined("ug") }, { ...boardTask("b1", "p2"), umbrella: joined("uh") });
+  b.umbrellas.push(umbrella("ug", G, "Projects family"), umbrella("uh", H, "Clients family"));
+  const summary = dispatcherSummary(b, H);
+  expect(summary).toContain("### Clients family");
+  expect(summary.endsWith("## Umbrellas\n\n### Clients family\nMembers:\n- Card b1 (todo, b1)")).toBe(true);
+  expect(summary).not.toContain("Projects family");
+  expect(summary).not.toContain("Brief of");
+});
+
 // ---- Review fixes: per-group workspace, flush re-check, delete re-check, late stops (DISPATCHER-SPEC §0-§2, §7) ----
 
 const sonnet = "claude/claude-sonnet-5-5";

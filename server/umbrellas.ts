@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Actor, Board, BoardEvent, Task, Umbrella, UmbrellaEntry } from "../shared/model";
 import { laneName } from "../shared/lanes";
 import {
+  leaveUmbrella,
   membersOf,
   umbrellaGroupOf,
   umbrellaLimits,
@@ -141,19 +142,13 @@ export function setMembership(store: BoardStore, input: UmbrellaMemberInput, by:
     if (!task) throw new ToolError("NOT_FOUND", "No card with that id.");
     const current = task.umbrella;
     const leave = () => {
-      const old = board.umbrellas.find((u) => u.id === current!.id);
       // The integration card must be a member (§11): leaving drops the role, as an edit of the umbrella.
-      if (old?.integrationTaskId === task.id) {
-        delete old.integrationTaskId;
-        old.revision++;
-        old.updatedAt = new Date().toISOString();
-      }
+      const old = leaveUmbrella(board, task, new Date().toISOString());
       store.event(board, { taskId: task.id, ...eventActor(by), action: "umbrella_left", note: old?.title ?? "a deleted umbrella" });
     };
     if (input.umbrellaId === null) {
       if (!current) return { value: task, changed: false };
       leave();
-      delete task.umbrella;
       return { value: task, changed: true };
     }
     const u = find(board, input.umbrellaId);

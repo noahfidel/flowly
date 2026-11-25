@@ -12,6 +12,9 @@ import { Dispatcher } from "./dispatcher";
 import { projectCreator } from "./project-create";
 import { emptyBoard, groupInput, groupLimits, type Board, type Group, type Project, type Task } from "../shared/model";
 import { groupOrder, type LegacyGroup } from "../shared/groups";
+import { umbrellaLimits } from "../shared/umbrella";
+import type { Actor, UmbrellaEntry } from "../shared/model";
+import { createUmbrella, setMembership, updateUmbrella } from "./umbrellas";
 
 /** Board groups in the store (BOARD-GROUPS-SPEC §1, §2, §7, §8), on both backends. */
 
@@ -92,6 +95,10 @@ function layout(board: Board) {
   );
 }
 const byName = (board: Board, name: string) => board.groups.find((g) => g.name === name)!;
+const human: Actor = { kind: "human" };
+const umbrellaEntry = (id: string, umbrellaId: string): UmbrellaEntry => ({
+  id, umbrellaId, kind: "decision", title: id, body: "", status: "active", by: human, createdAt: at, updatedAt: at,
+});
 const errors = () => vi.spyOn(console, "error").mockImplementation(() => undefined);
 
 describe.each(["json", "sqlite"] as const)("board groups in the store (%s)", (backend) => {
@@ -380,6 +387,96 @@ describe.each(["json", "sqlite"] as const)("board groups in the store (%s)", (ba
     expect(after.revision).toBe(board.revision);
     expect(byName(after, "Zen").revision).toBe(zen.revision);
   });
+
+  // ---- Umbrellas across group moves (UMBRELLA-SPEC §9) ----
+
+  /** `ready()` plus cards: a1 in a (Zen), b1 and b2 in b, c1 in c (both Projects); umbrella U in Projects holds b1, b2, c1. */
+  async function withUmbrella() {
+    const s = await ready();
+    await s.mutate((board) => void board.tasks.push(task("a1", "a"), task("b1", "b"), task("b2", "b"), task("c1", "c")));
+    const fallback = byName(await s.read(), "Projects");
+    const u = await createUmbrella(s, { groupId: fallback.id, title: "Fresh context" }, human);
+    for (const id of ["b1", "b2", "c1"]) await setMembership(s, { taskId: id, umbrellaId: u.id }, human);
+    await updateUmbrella(s, { id: u.id, revision: u.revision, integrationTaskId: "b1" }, human);
+    await s.mutate((board) => void board.umbrellaEntries.push({ ...umbrellaEntry("d1", u.id), sourceTaskId: "b1" }));
+    return { s, u };
+  }
+  const memberIds = (board: Board, umbrellaId: string) => board.tasks.filter((t) => t.umbrella?.id === umbrellaId).map((t) => t.id).sort();
+
+  test("all member projects move together: the umbrella follows", async () => {
+    const { s, u } = await withUmbrella();
+    const zen = byName(await s.read(), "Zen");
+    await s.setGroupMembers({ groupId: zen.id, revision: zen.revision, projectIds: ["a", "old", "b", "c"] });
+    const after = await onDisk(backend, s.directory);
+    expect(after.umbrellas.find((x) => x.id === u.id)).toMatchObject({ groupId: zen.id, integrationTaskId: "b1" });
+    expect(memberIds(after, u.id)).toEqual(["b1", "b2", "c1"]);
+    expect(after.events.filter((e) => e.action === "umbrella_left")).toEqual([]);
+  });
+
+  test("a group move never fails on the open-umbrella limit", async () => {
+    const { s, u } = await withUmbrella();
+    const zen = byName(await s.read(), "Zen");
+    for (let i = 0; i < umbrellaLimits.openPerGroup; i++) await createUmbrella(s, { groupId: zen.id, title: `Z${i}` }, human);
+    // c moves first and c1 leaves U, so b1 and b2 are the only members left and follow b into Zen.
+    const c = (await s.read()).projects.find((p) => p.id === "c")!;
+    await s.setProjectGroup({ projectId: "c", revision: c.revision, groupId: zen.id });
+    expect(memberIds(await s.read(), u.id)).toEqual(["b1", "b2"]);
+    const b = (await s.read()).projects.find((p) => p.id === "b")!;
+    await s.setProjectGroup({ projectId: "b", revision: b.revision, groupId: zen.id });
+    const after = await onDisk(backend, s.directory);
+    expect(after.umbrellas.find((x) => x.id === u.id)!.groupId).toBe(zen.id);
+    expect(after.umbrellas.filter((x) => x.groupId === zen.id && x.status === "open")).toHaveLength(umbrellaLimits.openPerGroup + 1);
+    await expect(createUmbrella(s, { groupId: zen.id, title: "One more" }, human)).rejects.toMatchObject({ code: "UMBRELLA_LIMIT" });
+  });
+
+  test("a split move drops only the cards that left", async () => {
+    const { s, u } = await withUmbrella();
+    const board = await s.read();
+    const zen = byName(board, "Zen"),
+      fallback = byName(board, "Projects");
+    const b = board.projects.find((p) => p.id === "b")!;
+    await s.setProjectGroup({ projectId: "b", revision: b.revision, groupId: zen.id });
+    const after = await onDisk(backend, s.directory);
+    expect(memberIds(after, u.id)).toEqual(["c1"]);
+    const stayed = after.umbrellas.find((x) => x.id === u.id)!;
+    expect(stayed.groupId).toBe(fallback.id);
+    expect(stayed).not.toHaveProperty("integrationTaskId");
+    expect(after.umbrellaEntries).toEqual([expect.objectContaining({ id: "d1", umbrellaId: u.id, sourceTaskId: "b1", status: "active" })]);
+    const left = after.events.filter((e) => e.action === "umbrella_left");
+    expect(left.map((e) => [e.taskId, e.actor, e.note])).toEqual([
+      ["b1", "system", "Left umbrella Fresh context (project moved to another group)"],
+      ["b2", "system", "Left umbrella Fresh context (project moved to another group)"],
+    ]);
+  });
+
+  test("delete group moves its umbrellas with the projects to the default group", async () => {
+    const s = await ready();
+    await s.mutate((board) => void board.tasks.push(task("a1", "a"), task("o1", "old", { archivedAt: at })));
+    let board = await s.read();
+    const zen = byName(board, "Zen"),
+      fallback = byName(board, "Projects");
+    const u = await createUmbrella(s, { groupId: zen.id, title: "Zen work" }, human);
+    await setMembership(s, { taskId: "a1", umbrellaId: u.id }, human);
+    // An archived card keeps its membership (§9); written past the refusal for joining archived.
+    await s.mutate((b) => void (b.tasks.find((t) => t.id === "o1")!.umbrella = { id: u.id, joinedAt: at, by: human }));
+    const empty = await createUmbrella(s, { groupId: zen.id, title: "No members" }, human);
+    board = await s.read();
+    await s.deleteGroup({ id: zen.id, revision: byName(board, "Zen").revision });
+    const after = await onDisk(backend, s.directory);
+    expect(after.umbrellas.map((x) => [x.id, x.groupId])).toEqual([
+      [u.id, fallback.id],
+      [empty.id, fallback.id],
+    ]);
+    expect(memberIds(after, u.id)).toEqual(["a1", "o1"]);
+  });
+
+  test("an umbrella stored with a group that no longer exists is moved to the default group on write", async () => {
+    const s = await ready();
+    const fallback = byName(await s.read(), "Projects");
+    const u = await createUmbrella(s, { groupId: fallback.id, title: "Orphan" }, human);
+    await s.mutate((board) => void (board.umbrellas.find((x) => x.id === u.id)!.groupId = "gone"));
+    expect((await onDisk(backend, s.directory)).umbrellas[0].groupId).toBe(fallback.id);
+  });
 });
 
 describe("sqlite only", () => {
@@ -469,6 +566,22 @@ describe("json only", () => {
     const stored = await onDisk("json", d);
     expect(stored.groups.map((g) => g.id)).toEqual([shown[0].id]);
     expect(layout(stored)).toEqual({ "Projects*": ["a", "b"] });
+  });
+
+  test("a dangling groupId is repaired to the default group on read", async () => {
+    const d = await directory();
+    await seed(d, [project("a")]);
+    const s = open("json", d);
+    await s.migrateGroups(legacy([]));
+    const fallback = byName(await s.read(), "Projects");
+    const u = await createUmbrella(s, { groupId: fallback.id, title: "Orphan" }, human);
+    // Stored past the store, as an older build or a hand edit would leave it.
+    const stored = await onDisk("json", d);
+    stored.umbrellas[0].groupId = "gone";
+    await writeFile(join(d, "board.json"), JSON.stringify(stored));
+    expect((await s.read()).umbrellas.find((x) => x.id === u.id)!.groupId).toBe(fallback.id);
+    // The read wrote nothing.
+    expect((await onDisk("json", d)).umbrellas[0].groupId).toBe("gone");
   });
 
   test("a read repairs its copy without writing, and logs a dangling group once", async () => {

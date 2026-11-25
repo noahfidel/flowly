@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { exportMarkdown } from "./board-export";
 import { parseBacklog } from "./ideas-import";
-import type { Board, Idea, Project, Task } from "./model";
+import type { Board, Idea, Project, Task, Umbrella } from "./model";
 import { emptyBoard } from "./model";
 import type { MemoryEntry } from "./memory";
 
@@ -152,5 +152,78 @@ describe("exportMarkdown", () => {
     );
     expect(md).toContain("Scale quantities");
     expect(parseBacklog(md).map((r) => r.title)).toEqual(["Offline mode", "Planner idea"]);
+  });
+});
+
+describe("exportMarkdown umbrellas (UMBRELLA-SPEC §9)", () => {
+  const human = { kind: "human" as const };
+  const umbrella = (over: Partial<Umbrella> = {}): Umbrella => ({
+    id: "u1", groupId: "g", title: "Fresh context",
+    brief: { text: "Corrections reach the next session.", revision: 1, updatedAt: at, updatedBy: human },
+    contract: { text: "The handoff shape", revision: 1, updatedAt: at, updatedBy: human },
+    acceptance: [], status: "open", createdBy: human, createdAt: at, updatedAt: at, revision: 1, feedRevision: 0, archivedAt: null,
+    linearProject: { url: "https://linear.app/z/project/fresh-context", name: "Fresh context" },
+    ...over,
+  });
+  const member = (id: string, role?: string) => ({ umbrella: { id, ...(role ? { role } : {}), joinedAt: at, by: human } });
+  /** p1 Recipes and p2 Planner; u1 has a1 (p1), b1 (p2) and a card in a removed project; u2 has only b2 (p2). */
+  const umbrellaBoard = (over: Partial<Umbrella> = {}) =>
+    board({
+      projects: [project(), project({ id: "p2", title: "Planner" })],
+      tasks: [
+        task({ id: "a1", title: "Feature map", ...member("u1", "feature map") }),
+        task({ id: "b1", projectId: "p2", title: "Harness", status: "design", ...member("u1") }),
+        task({ id: "x1", projectId: "gone", title: "Orphan card", ...member("u1") }),
+        task({ id: "b2", projectId: "p2", title: "Planner only", ...member("u2") }),
+      ],
+      umbrellas: [umbrella(over), umbrella({ id: "u2", title: "Planner work", brief: { text: "Planner brief", revision: 1, updatedAt: at, updatedBy: human } })],
+    });
+  const onlyRecipes = (b: Board) => ({ ...b, projects: b.projects.filter((p) => p.id === "p1") });
+
+  test("project export lists each umbrella with a member in it", () => {
+    const full = umbrellaBoard({ brief: { text: `${"x".repeat(1990)}${"y".repeat(100)}`, revision: 1, updatedAt: at, updatedBy: human } });
+    const md = exportMarkdown(onlyRecipes(full), {}, { allProjects: full.projects });
+    expect(md).toContain("## Umbrellas\n\n### Fresh context\nLinear: https://linear.app/z/project/fresh-context\n");
+    expect(md).toContain(`> ${"x".repeat(1990)}${"y".repeat(10)}…\n`);
+    expect(md).not.toContain("y".repeat(11));
+    expect(md).toContain("Members:\n- Feature map (todo, a1; role: feature map)\n");
+    expect(md).toContain("Members elsewhere:\n- Harness (Planner)\n- Orphan card (unknown project)\n");
+    expect(md).not.toContain("Planner work");
+    expect(md.indexOf("## Recipes")).toBeLessThan(md.indexOf("## Umbrellas"));
+  });
+
+  test("export without projectId lists each umbrella once after the projects", () => {
+    const full = umbrellaBoard();
+    const md = exportMarkdown(full, {});
+    expect(md.match(/### Fresh context/g)).toHaveLength(1);
+    expect(md.match(/### Planner work/g)).toHaveLength(1);
+    expect(md.indexOf("## Planner")).toBeLessThan(md.indexOf("## Umbrellas"));
+    // Several projects exported: a member names its project.
+    expect(md).toContain("Members:\n- Feature map (Recipes, todo, a1; role: feature map)\n- Harness (Planner, design, b1)\nMembers elsewhere:\n- Orphan card (unknown project)\n");
+    // Ideas import still picks up only ideas, never members or brief lines.
+    expect(parseBacklog(md)).toEqual([]);
+  });
+
+  test("an umbrella with no member in the exported projects is not listed", () => {
+    const full = umbrellaBoard();
+    full.umbrellas.push(umbrella({ id: "u3", title: "Empty one" }));
+    expect(exportMarkdown(full, {})).not.toContain("Empty one");
+    const recipes = exportMarkdown(onlyRecipes(full), {});
+    expect(recipes).not.toContain("Planner work");
+    expect(exportMarkdown(board({ projects: [project()] }), {})).not.toContain("## Umbrellas");
+  });
+
+  test("umbrellaBriefs false lists titles and members without the brief", () => {
+    const md = exportMarkdown(umbrellaBoard(), {}, { umbrellaBriefs: false });
+    expect(md).toContain("### Fresh context\n");
+    expect(md).toContain("- Harness (Planner, design, b1)");
+    expect(md).not.toContain("Corrections reach");
+    expect(md).not.toContain("Planner brief");
+    expect(md).not.toContain("handoff shape");
+  });
+
+  test("a closed or archived umbrella is listed and marked", () => {
+    const md = exportMarkdown(umbrellaBoard({ status: "closed", archivedAt: at }), {});
+    expect(md).toContain("### Fresh context\nStatus: archived\n");
   });
 });
