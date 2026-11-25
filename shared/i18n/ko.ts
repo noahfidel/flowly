@@ -1883,5 +1883,17 @@ const catalog: Catalog = {
   "That card's project is in another board group than this umbrella.": "그 카드의 프로젝트는 이 엄브렐라와 다른 보드 그룹에 있습니다.",
   "The integration card must be in this umbrella.": "통합 카드는 이 엄브렐라에 속해야 합니다.",
   "Rename {title}": "{title} 이름 바꾸기",
+  "The contract changed since this was proposed, so it can't be accepted. Reject it, and the card can propose again on the current contract.": "이 제안 이후 계약이 바뀌어 채택할 수 없습니다. 거절하면 카드가 현재 계약을 기준으로 다시 제안할 수 있습니다.",
+  "Contract changes": "계약 변경",
+  "Proposed by {who} {time} · on revision {n}": "{who}의 제안 {time} · 리비전 {n} 기준",
+  "Conflicts with another pending change or a newer contract.": "대기 중인 다른 변경 또는 더 새로운 계약과 충돌합니다.",
+  "Before and after": "변경 전과 후",
+  "Before": "변경 전",
+  "After": "변경 후",
+  "Reject the change {title}": "변경 {title} 거절",
+  "Reject": "거절",
+  "Accept the change {title}": "변경 {title} 채택",
+  "Accept": "채택",
+  "Note (optional)": "메모 (선택)",
 };
 export default catalog;

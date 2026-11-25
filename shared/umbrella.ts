@@ -24,6 +24,47 @@ export { umbrellaLimits };
 /** Entries that count toward the 300 per umbrella: `active` and `open`; `proposed` counts only against the pending changes. */
 export const countsTowardLimit = (e: UmbrellaEntry) => e.status === "active" || e.status === "open";
 
+/**
+ * Conflict detection for contract changes (§5, D17, D20): every `proposed` change is a conflict when it shares its
+ * `baseRevision` with another `proposed` one or rests on a revision behind `contractRevision`; any other proposed change
+ * loses the flag. Mutates `entries` (one umbrella's); closed proposals and other kinds are left as they are.
+ */
+export function markConflicts(entries: UmbrellaEntry[], contractRevision: number): void {
+  const pending = entries.filter((e) => e.kind === "contract_change" && e.status === "proposed" && e.change);
+  const onBase = new Map<number, number>();
+  for (const e of pending) onBase.set(e.change!.baseRevision, (onBase.get(e.change!.baseRevision) ?? 0) + 1);
+  for (const e of pending) {
+    const change = e.change!;
+    if ((onBase.get(change.baseRevision) ?? 0) > 1 || change.baseRevision < contractRevision) change.conflict = true;
+    else delete change.conflict;
+  }
+}
+
+/**
+ * The members a contract change concerns (§5 step 3): the task ids whose role (case-insensitive, as a whole word)
+ * appears in the reason or in a line present in only one of `before` and `after`, in `members` order.
+ */
+export function rolesMentioned(change: { before: string; after: string; reason: string }, members: readonly { taskId: string; role?: string }[]): string[] {
+  const lines = (text: string) => new Set(text.split("\n").map((l) => l.trimEnd()));
+  const before = lines(change.before),
+    after = lines(change.after);
+  const changed = [...[...before].filter((l) => !after.has(l)), ...[...after].filter((l) => !before.has(l))];
+  const text = [change.reason, ...changed].join("\n").toLowerCase();
+  // A word character: a digit or underscore, or a letter with case. Uncased scripts (CJK) have no word gaps to check.
+  const wordChar = (ch: string | undefined) => !!ch && (/[0-9_]/.test(ch) || ch.toLowerCase() !== ch.toUpperCase());
+  const named = (role: string) => {
+    for (let at = text.indexOf(role); at >= 0; at = text.indexOf(role, at + 1))
+      if (!wordChar(text[at - 1]) && !wordChar(text[at + role.length])) return true;
+    return false;
+  };
+  const found: string[] = [];
+  members.forEach((m) => {
+    const role = m.role?.trim().toLowerCase();
+    if (role && !found.includes(m.taskId) && named(role)) found.push(m.taskId);
+  });
+  return found;
+}
+
 /** The card face's umbrella chip text (§7): the title cut to 20 characters (an ellipsis counts), ` · role` when the card has one. */
 export function umbrellaChipText(title: string, role?: string): string {
   const chars = [...title];
@@ -266,10 +307,13 @@ export const umbrellaMemberInput = z.strictObject({
   order: z.number().finite().optional(),
 });
 export type UmbrellaMemberInput = z.infer<typeof umbrellaMemberInput>;
-/** Answer a question or supersede an entry; accept/reject of a contract change comes with contract changes. */
+/**
+ * Answer a question, supersede an entry, or accept or reject a contract change (§5); for a contract change `answer` is
+ * the resolver's optional note (D19).
+ */
 export const umbrellaEntryUpdateInput = z.strictObject({
   id: z.string().min(1).max(200),
-  status: z.enum(["answered", "superseded"]),
+  status: z.enum(["answered", "superseded", "accepted", "rejected"]),
   answer: z.string().trim().min(1).max(umbrellaLimits.entryBody).optional(),
 });
 export type UmbrellaEntryUpdateInput = z.infer<typeof umbrellaEntryUpdateInput>;

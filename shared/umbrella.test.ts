@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { boardSchema, emptyBoard, type Board, type Group, type Project, type Task, type Umbrella, type UmbrellaEntry } from "./model";
 import {
-  applyGroupMoves, countsTowardLimit, leaveUmbrella, membersOf, repairUmbrellaGroups, umbrellaChipText, umbrellaContext, umbrellaLimits, recentEntries, umbrellaRefetchKey, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
+  applyGroupMoves, countsTowardLimit, leaveUmbrella, markConflicts, membersOf, rolesMentioned, repairUmbrellaGroups, umbrellaChipText, umbrellaContext, umbrellaLimits, recentEntries, umbrellaRefetchKey, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
 } from "./umbrella";
 
 const at = "2026-11-25T00:00:00.000Z";
@@ -383,4 +383,42 @@ test("recentEntries returns the newest five without withdrawn ones", () => {
   expect(recentEntries(entries).map((e) => e.id)).toEqual(["e5", "e4", "e3", "e2", "e1"]);
   expect(recentEntries(entries, 2)).toHaveLength(2);
   expect(entries[0]!.id).toBe("e0");
+});
+
+const proposal = (id: string, baseRevision: number, status: UmbrellaEntry["status"] = "proposed"): UmbrellaEntry => ({
+  ...entry(id, "contract_change", status),
+  change: { before: "", after: id, reason: id, baseRevision },
+});
+
+test("markConflicts flags proposals sharing a base or behind the contract, and clears the rest", () => {
+  const a = proposal("a", 1), b = proposal("b", 1), c = proposal("c", 2), old = proposal("old", 1, "rejected");
+  markConflicts([a, b, c, old, entry("d", "decision", "active")], 2);
+  expect([a.change!.conflict, b.change!.conflict, c.change!.conflict]).toEqual([true, true, undefined]);
+  // A closed proposal is never touched.
+  expect(old.change!.conflict).toBeUndefined();
+  // Once a and b are gone, c on the current revision alone is no conflict; b behind still is.
+  a.status = "withdrawn";
+  markConflicts([a, b, c], 1);
+  expect([b.change!.conflict, c.change!.conflict]).toEqual([undefined, undefined]);
+  markConflicts([b, c], 2);
+  expect([b.change!.conflict, c.change!.conflict]).toEqual([true, undefined]);
+});
+
+test("rolesMentioned finds roles named in the reason or the changed lines", () => {
+  const members = [
+    { taskId: "t-api", role: "API" },
+    { taskId: "t-ui", role: "ui" },
+    { taskId: "t-map", role: "feature map" },
+    { taskId: "t-none" },
+    { taskId: "t-gallery", role: "gallery" },
+  ];
+  const change = {
+    before: "shared line about gallery\nold: Feature Map shape\n",
+    after: "shared line about gallery\nnew: rapid build\n",
+    reason: "The api needs a new field",
+  };
+  // Case-insensitive; a line in both texts does not count; "ui" inside "build" is no mention.
+  expect(rolesMentioned(change, members)).toEqual(["t-api", "t-map"]);
+  expect(rolesMentioned({ before: "x", after: "x", reason: "" }, members)).toEqual([]);
+  expect(rolesMentioned({ before: "", after: "UI: buttons", reason: "" }, members)).toEqual(["t-ui"]);
 });

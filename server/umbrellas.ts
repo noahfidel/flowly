@@ -4,6 +4,7 @@ import { laneName } from "../shared/lanes";
 import {
   countsTowardLimit,
   leaveUmbrella,
+  markConflicts,
   membersOf,
   umbrellaGroupOf,
   umbrellaLimits,
@@ -182,8 +183,13 @@ export function setMembership(store: BoardStore, input: UmbrellaMemberInput, by:
   });
 }
 
-/** Answers an open question or supersedes an entry; bumps the umbrella's `feedRevision`, never its `revision`. */
-export function updateEntry(store: BoardStore, input: UmbrellaEntryUpdateInput, _by: Actor): Promise<UmbrellaEntry> {
+/**
+ * Answers an open question or supersedes an entry; bumps the umbrella's `feedRevision`, never its `revision`. Accepting
+ * or rejecting a contract change goes to `resolveChange`.
+ */
+export function updateEntry(store: BoardStore, input: UmbrellaEntryUpdateInput, by: Actor): Promise<UmbrellaEntry> {
+  if (input.status === "accepted" || input.status === "rejected")
+    return resolveChange(store, { id: input.id, decision: input.status, ...(input.answer !== undefined ? { answer: input.answer } : {}) }, by);
   return store.transaction((board) => {
     const entry = board.umbrellaEntries.find((e) => e.id === input.id);
     if (!entry) throw new ToolError("NOT_FOUND", "No umbrella entry with that id.");
@@ -199,6 +205,109 @@ export function updateEntry(store: BoardStore, input: UmbrellaEntryUpdateInput, 
     entry.status = input.status;
     entry.updatedAt = now;
     u.feedRevision++;
+    return { value: entry, changed: true };
+  });
+}
+
+/** A member's proposed contract change (UMBRELLA-SPEC §5): the full new text, why, and the contract revision it read. */
+export type NewChange = { after: string; reason: string; baseRevision: number };
+
+/** An entry title from a reason: its first line, cut to the title limit. */
+const titleOf = (reason: string) => {
+  const line = reason.trim().split("\n")[0]!.trim() || "Contract change";
+  const chars = [...line];
+  return chars.length > umbrellaLimits.entryTitle ? `${chars.slice(0, umbrellaLimits.entryTitle - 1).join("")}…` : line;
+};
+
+/**
+ * Records `task`'s proposed contract change (pure; the caller's transaction records the card's event). It never edits
+ * the contract: `before` is the contract as it is now. A base behind the contract is CONTRACT_STALE (D17); a base
+ * shared with another pending proposal marks both `conflict` (`markConflicts`). At most 10 pending per umbrella
+ * (UMBRELLA_LIMIT). Bumps `feedRevision`, never `revision`.
+ */
+export function proposeChange(board: Board, task: Task, input: NewChange, by: Actor, now: string): UmbrellaEntry {
+  const u = memberUmbrella(board, task);
+  if (input.baseRevision !== u.contract.revision)
+    throw new ToolError(
+      "CONTRACT_STALE",
+      `The contract is at revision ${u.contract.revision}, not ${input.baseRevision}. Read get_task umbrella.contract again and propose on the current text.`,
+    );
+  if (input.after === u.contract.text) throw new ToolError("INVALID_INPUT", "after is the contract as it is now; there is no change to propose.");
+  const entries = board.umbrellaEntries.filter((e) => e.umbrellaId === u.id);
+  if (entries.filter((e) => e.kind === "contract_change" && e.status === "proposed").length >= umbrellaLimits.pendingChanges)
+    throw new ToolError(
+      "UMBRELLA_LIMIT",
+      `This umbrella already has ${umbrellaLimits.pendingChanges} pending contract changes. Wait until the user resolves one, or withdraw one of yours.`,
+    );
+  const entry: UmbrellaEntry = {
+    id: randomUUID(),
+    umbrellaId: u.id,
+    kind: "contract_change",
+    title: titleOf(input.reason),
+    body: input.reason,
+    status: "proposed",
+    sourceTaskId: task.id,
+    change: { before: u.contract.text, after: input.after, reason: input.reason, baseRevision: input.baseRevision },
+    by,
+    createdAt: now,
+    updatedAt: now,
+  };
+  board.umbrellaEntries.push(entry);
+  markConflicts([...entries, entry], u.contract.revision);
+  u.feedRevision++;
+  return entry;
+}
+
+/**
+ * The user's (panel) or the dispatcher's (`flowly_resolve_contract_change`, after the user's answer) accept or reject
+ * of a pending contract change (§5). Accept: the contract becomes `after`, its revision +1 and the umbrella's `revision`
+ * +1, refused CONTRACT_STALE when the proposal rests on an older contract (D20), and the proposals it leaves behind are
+ * marked as conflicts. Reject: the optional note goes in `answer`, which get_task returns once to the proposing card
+ * (D19). Both bump `feedRevision` and record `umbrella_contract_accepted` / `_rejected` on the proposing card, skipped
+ * when that card is gone. `groupId`: the dispatcher's group; an umbrella of another group is UMBRELLA_OUT_OF_GROUP.
+ */
+export function resolveChange(
+  store: BoardStore,
+  input: { id: string; decision: "accepted" | "rejected"; answer?: string },
+  by: Actor,
+  options: { groupId?: string } = {},
+): Promise<UmbrellaEntry> {
+  return store.transaction((board) => {
+    const entry = board.umbrellaEntries.find((e) => e.id === input.id);
+    if (!entry) throw new ToolError("NOT_FOUND", "No umbrella entry with that id.");
+    const u = find(board, entry.umbrellaId);
+    if (options.groupId !== undefined && u.groupId !== options.groupId)
+      throw new ToolError("UMBRELLA_OUT_OF_GROUP", "This umbrella belongs to another board group; its own dispatcher handles it. Tell the user.");
+    requireOpen(u);
+    if (entry.kind !== "contract_change" || entry.status !== "proposed" || !entry.change)
+      throw new ToolError("INVALID_INPUT", `Only a pending contract change can be accepted or rejected; this entry is ${entry.status}.`);
+    const now = new Date().toISOString();
+    if (input.decision === "accepted") {
+      if (entry.change.baseRevision < u.contract.revision)
+        throw new ToolError(
+          "CONTRACT_STALE",
+          `This change was proposed on contract revision ${entry.change.baseRevision}, and the contract is now at ${u.contract.revision}. Reject it, or ask its card to propose again on the current contract.`,
+        );
+      u.contract = { text: entry.change.after, revision: u.contract.revision + 1, updatedAt: now, updatedBy: by };
+      u.revision++;
+      u.updatedAt = now;
+    }
+    entry.status = input.decision;
+    if (input.answer !== undefined) entry.answer = input.answer;
+    entry.updatedAt = now;
+    markConflicts(board.umbrellaEntries.filter((e) => e.umbrellaId === u.id), u.contract.revision);
+    u.feedRevision++;
+    // Recorded on the proposing card, which a relay names as the source (Task 10); a card that is gone gets none.
+    if (entry.sourceTaskId && board.tasks.some((t) => t.id === entry.sourceTaskId))
+      store.event(board, {
+        taskId: entry.sourceTaskId,
+        ...eventActor(by),
+        action: input.decision === "accepted" ? "umbrella_contract_accepted" : "umbrella_contract_rejected",
+        note:
+          input.decision === "accepted"
+            ? `contract r${u.contract.revision} accepted: ${entry.change.reason}`
+            : `contract change rejected: ${entry.change.reason}${input.answer ? ` (note: ${input.answer})` : ""}`,
+      });
     return { value: entry, changed: true };
   });
 }
@@ -349,6 +458,8 @@ export function withdrawEntry(board: Board, task: Task, id: string, _by: Actor, 
   else if (countsTowardLimit(entry)) entry.status = "superseded";
   else throw new ToolError("INVALID_INPUT", `That entry is already ${entry.status}.`);
   entry.updatedAt = now;
+  // A withdrawn proposal no longer conflicts with the others on its base.
+  if (entry.kind === "contract_change") markConflicts(board.umbrellaEntries.filter((e) => e.umbrellaId === u.id), u.contract.revision);
   u.feedRevision++;
   return entry;
 }

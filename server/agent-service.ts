@@ -18,7 +18,7 @@ import { artifactRoots, dropArtifact, planRemovalRefused, externalArtifact, miss
 import { ArtifactReadStore } from "./artifact-reads";
 import { UmbrellaReadStore } from "./umbrella-reads";
 import { umbrellaContext } from "../shared/umbrella";
-import { addEntry, memberUmbrella, umbrellaWriteLimiter, withdrawEntry, type NewEntry } from "./umbrellas";
+import { addEntry, memberUmbrella, proposeChange, umbrellaWriteLimiter, withdrawEntry, type NewEntry } from "./umbrellas";
 import { ExternalError } from "./connectors/http";
 import { ExternalReadStore, refKey, type ConnectorService } from "./connectors/service";
 import { familyOf, itemTypeOf } from "../shared/connectors";
@@ -39,6 +39,7 @@ import {
   rememberInputSchema,
   umbrellaEntryInputSchema,
   withdrawEntryInputSchema,
+  proposeContractChangeInputSchema,
   recallInputSchema,
   agentSearchInputSchema,
   artifactInputSchema,
@@ -63,6 +64,7 @@ import {
   type RememberInput,
   type UmbrellaEntryInput,
   type WithdrawEntryInput,
+  type ProposeContractChangeInput,
   type RecallInput,
   type AgentSearchInput,
   type ArtifactToolInput,
@@ -509,16 +511,18 @@ export class AgentService {
     identity: ToolIdentity,
     action:
       | "status" | "progress" | "idea" | "idea_update" | "idea_remove" | "remember" | "artifact" | "artifact_remove" | "tags" | "type" | "next_moves" | "workpad" | "handover"
-      | "umbrella_entry" | "umbrella_withdraw",
+      | "umbrella_entry" | "umbrella_withdraw" | "contract_change",
     raw: unknown,
   ): Promise<ToolResult> {
-    const input: StatusInput | ProgressInput | IdeaInput | IdeaUpdateInput | IdeaRemovalInput | RememberInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput | HandoverInput | UmbrellaEntryInput | WithdrawEntryInput =
+    const input: StatusInput | ProgressInput | IdeaInput | IdeaUpdateInput | IdeaRemovalInput | RememberInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput | HandoverInput | UmbrellaEntryInput | WithdrawEntryInput | ProposeContractChangeInput =
       action === "status"
         ? statusInputSchema.parse(raw)
         : action === "umbrella_entry"
           ? umbrellaEntryInputSchema.parse(raw)
         : action === "umbrella_withdraw"
           ? withdrawEntryInputSchema.parse(raw)
+        : action === "contract_change"
+          ? proposeContractChangeInputSchema.parse(raw)
         : action === "remember"
           ? rememberInputSchema.parse(raw)
           : action === "idea"
@@ -621,7 +625,7 @@ export class AgentService {
     const umbrellaMemory = action === "remember" && (input as RememberInput).scope === "umbrella";
     if (umbrellaMemory && (input as RememberInput).kind === "contact")
       throw new ToolError("UMBRELLA_KIND", "Contacts are project-wide: remember them without scope=umbrella.");
-    const feedWrite = action === "umbrella_entry" || action === "umbrella_withdraw" || umbrellaMemory;
+    const feedWrite = action === "umbrella_entry" || action === "umbrella_withdraw" || action === "contract_change" || umbrellaMemory;
     const umbrellaWrite = feedWrite || (action === "idea" && !!(input as IdeaInput).umbrella);
     let releaseSlot: (() => void) | undefined;
     if (umbrellaWrite && !(await this.store.read()).agentReceipts.some((r) => r.key === key)) {
@@ -953,6 +957,17 @@ export class AgentService {
         ? (() => {
             const now = new Date(this.clock()).toISOString(),
               by = { kind: "agent" as const, agentId: identity.agentId, taskId: task.id };
+            if (action === "contract_change") {
+              // A proposal only (UMBRELLA-SPEC §5): the contract changes when the user accepts it.
+              const e = proposeChange(board, task, input as ProposeContractChangeInput, by, now);
+              return this.store.event(board, {
+                taskId: task.id,
+                agentId: identity.agentId,
+                actor: "agent",
+                action: "umbrella_contract_proposed",
+                note: `contract change on r${e.change!.baseRevision}: ${e.title}`,
+              });
+            }
             if (action === "umbrella_withdraw") {
               const e = withdrawEntry(board, task, (input as WithdrawEntryInput).id, by, now);
               return this.store.event(board, { taskId: task.id, agentId: identity.agentId, actor: "agent", action: "umbrella_entry_withdrawn", note: `${e.kind}: ${e.title}` });

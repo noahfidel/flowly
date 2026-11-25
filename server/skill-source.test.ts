@@ -27,4 +27,5 @@ test("the skill names the umbrella block and the [contract] rule", () => {
   expect(skillText).toContain("[contract]");
   expect(skillText).toContain("flowly_add_umbrella_entry");
   expect(skillText).toContain("never edit the brief or the contract");
+  expect(skillText).toContain("proposing a change with flowly_propose_contract_change");
 });

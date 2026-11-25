@@ -13,7 +13,7 @@ import { ExternalError } from "./connectors/http";
 import { turnChecklist } from "../shared/turn-checklist";
 import { toolContextSchema, umbrellaEntryInputSchema } from "../shared/tools";
 import type { Lane, UmbrellaEntry } from "../shared/model";
-import { closeUmbrella, createUmbrella, setMembership, updateEntry, updateUmbrella } from "./umbrellas";
+import { closeUmbrella, createUmbrella, resolveChange, setMembership, updateEntry, updateUmbrella } from "./umbrellas";
 import type { MemoryService } from "./memory";
 
 const roots: string[] = [];
@@ -1581,4 +1581,65 @@ test("D22: remember scope=umbrella can't supersede a ruling or another card's op
   expect(await remember(ruling!.id)).toBe("UMBRELLA_KIND");
   expect(await remember(asked!.id)).toBe("INVALID_INPUT");
   expect((await x.store.read()).umbrellaEntries.map((e) => e.status)).toEqual(["active", "open"]);
+});
+
+/** memberSetup plus `propose`: flowly_propose_contract_change from a session, on the contract revision it read. */
+async function proposalSetup() {
+  const x = await memberSetup();
+  const propose = async (who = x.identity, after = "shape: {a, b}", reason = "The gallery needs b") => {
+    const ctx = await x.service.get(who, false);
+    return x.service.write(who, "contract_change", {
+      expectedRevision: ctx.revision,
+      request: ctx.request,
+      after,
+      reason,
+      baseRevision: ctx.umbrella!.contract.revision,
+    });
+  };
+  return { ...x, propose };
+}
+
+test("flowly_propose_contract_change records a proposal and never edits the contract", async () => {
+  const x = await proposalSetup();
+  const result = await x.propose();
+  expect(result).toMatchObject({ replayed: false, receipt: { action: "contract_change", taskRevision: 1 } });
+  const board = await x.store.read();
+  expect(board.umbrellaEntries).toEqual([
+    expect.objectContaining({ kind: "contract_change", status: "proposed", sourceTaskId: "t", change: expect.objectContaining({ after: "shape: {a, b}", baseRevision: 0 }) }),
+  ]);
+  expect(board.umbrellas[0]!.contract).toMatchObject({ text: "", revision: 0 });
+  expect(board.events.at(-1)).toMatchObject({ taskId: "t", actor: "agent", agentId: "actor", action: "umbrella_contract_proposed" });
+  // The sibling reads it among the pending changes; a stale base is refused.
+  expect((await x.service.get(x.sibling)).umbrella).toMatchObject({ pendingContractChanges: 1 });
+  const ctx = await x.service.get(x.sibling, false);
+  expect(
+    await x.code(x.service.write(x.sibling, "contract_change", { expectedRevision: ctx.revision, request: ctx.request, after: "x", reason: "y", baseRevision: 5 })),
+  ).toBe("CONTRACT_STALE");
+});
+
+test("an accepted proposal marks the contract unread for every member", async () => {
+  const x = await proposalSetup();
+  // Both sessions read the umbrella first, so the contract is read.
+  await x.service.get(x.identity);
+  await x.service.get(x.sibling);
+  await x.propose();
+  const proposal = (await x.store.read()).umbrellaEntries[0]!;
+  await resolveChange(x.store, { id: proposal.id, decision: "accepted" }, x.human);
+  for (const who of [x.sibling, x.identity]) {
+    expect((await x.service.get(who)).umbrella!.contract).toMatchObject({ text: "shape: {a, b}", revision: 1, unread: true });
+    expect((await x.service.get(who)).umbrella!.contract.unread).toBe(false);
+  }
+});
+
+test("rejecting returns the entry once to the proposing card with the note", async () => {
+  const x = await proposalSetup();
+  await x.propose();
+  const proposal = (await x.store.read()).umbrellaEntries[0]!;
+  await x.service.get(x.sibling);
+  await updateEntry(x.store, { id: proposal.id, status: "rejected", answer: "Keep a alone for now" }, x.human);
+  const first = (await x.service.get(x.identity)).umbrella!;
+  expect(first.feed).toEqual([expect.objectContaining({ id: proposal.id, status: "rejected", answer: "Keep a alone for now", unread: true })]);
+  expect((await x.service.get(x.identity)).umbrella!.feed.find((e) => e.id === proposal.id)).toBeUndefined();
+  // A sibling never gets it.
+  expect((await x.service.get(x.sibling)).umbrella!.feed.find((e) => e.id === proposal.id)).toBeUndefined();
 });

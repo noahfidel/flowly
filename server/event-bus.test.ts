@@ -388,3 +388,51 @@ describe("contract news (DISPATCHER-SPEC §5.8)", () => {
     expect(mergeNotes(marked, { ...later, contract: { eventId: "e2", text: "z" } }).contract).toEqual({ eventId: "e2", text: "z" });
   });
 });
+
+describe("contract proposals (UMBRELLA-SPEC §5)", () => {
+  const human = { kind: "human" as const };
+  /** Umbrella u with members t1 (api), t2 (gallery) and t3 (no role); t1 proposed a change on r1, as did t2. */
+  function umbrellaBoard() {
+    const b = board();
+    const t1 = b.tasks[0]!;
+    b.tasks.push({ ...t1, id: "t2", title: "Task two", operationId: "op2" }, { ...t1, id: "t3", title: "Task three", operationId: "op3" });
+    b.tasks[0]!.umbrella = { id: "u", role: "api", joinedAt: now, by: human };
+    b.tasks[1]!.umbrella = { id: "u", role: "gallery", joinedAt: now, by: human };
+    b.tasks[2]!.umbrella = { id: "u", joinedAt: now, by: human };
+    b.umbrellas.push({
+      id: "u", groupId: "g", title: "Fresh context",
+      brief: { text: "", revision: 0, updatedAt: now, updatedBy: human },
+      contract: { text: "shape: {a}", revision: 1, updatedAt: now, updatedBy: human },
+      acceptance: [], status: "open", createdBy: human, createdAt: now, updatedAt: now, revision: 2, feedRevision: 2, archivedAt: null,
+    });
+    const proposal = (id: string, sourceTaskId: string, after: string, reason: string, createdAt: string) => ({
+      id, umbrellaId: "u", kind: "contract_change" as const, title: reason, body: reason, status: "proposed" as const, sourceTaskId,
+      by: { kind: "agent" as const, agentId: `s-${sourceTaskId}`, taskId: sourceTaskId }, createdAt, updatedAt: createdAt,
+      change: { before: "shape: {a}", after, reason, baseRevision: 1, conflict: true },
+    });
+    b.umbrellaEntries.push(
+      proposal("c2", "t2", "shape: {a, c}", "for the gallery", "2026-11-08T09:00:00.000Z"),
+      proposal("c1", "t1", "shape: {a, b}\ngallery: thumbnails", "the api adds b", now),
+    );
+    return b;
+  }
+
+  test("a contract proposal is a stop with the conflict flag and the mentioned members", () => {
+    const b = umbrellaBoard();
+    const e = event({ taskId: "t1", action: "umbrella_contract_proposed", agentId: "s-t1", note: "contract change on r1: the api adds b" });
+    const [f] = factsFromCommit([e], b);
+    expect(isStop(f!)).toBe(true);
+    const out: DispatcherNote[] = [];
+    const batcher = new NoteBatcher({ windowMs: 10_000, maxWaitMs: 60_000, exclude: () => null }, (n) => out.push(...n));
+    batcher.push([f!]);
+    const note = batcher.takeProject("p1")[0]!;
+    expect(note).toMatchObject({ taskId: "t1", kind: "contract_proposed", proposal: { eventId: e.id, umbrellaId: "u", conflict: true, mentions: ["t1", "t2"] } });
+    expect(note.detail).toMatch(/conflict/i);
+    // The user's own events are not news; another umbrella action is no proposal.
+    expect(isStop(factsFromCommit([event({ taskId: "t1", actor: "human", action: "umbrella_contract_proposed" })], b)[0]!)).toBe(false);
+    expect(factsFromCommit([event({ taskId: "t1", action: "umbrella_entry_added" })], b)[0]).not.toHaveProperty("proposal");
+    // The proposal survives a later plain status change on the same card.
+    const later: DispatcherNote = { taskId: "t1", projectId: "p1", title: "Task one", kind: "status_changed", detail: "todo → in_review", at: now };
+    expect(mergeNotes(note, later).proposal).toEqual(note.proposal);
+  });
+});

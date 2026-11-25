@@ -26,6 +26,7 @@ import {
 } from "../shared/dispatcher";
 import { relayEchoMs } from "../shared/dispatcher-relay";
 import { linkLimits } from "../shared/model";
+import { createUmbrella, proposeChange, setMembership, updateUmbrella } from "./umbrellas";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -54,6 +55,7 @@ const dispatcherTools = [
   "flowly_message_dispatcher",
   "flowly_archive_card",
   "flowly_add_artifact",
+  "flowly_resolve_contract_change",
   // Not preapproved: the user confirms each call (ruling, Noah 2026-11-10).
   "flowly_create_project",
   "flowly_manage_groups",
@@ -3076,4 +3078,42 @@ test("flowly_list_groups shows an unguarded dispatcher, and a replaced token is 
   const unknown = await x.a.call("flowly_message_dispatcher", { groupId: "no-such-group", text: "hi" });
   expect(code(unknown)).toBe("GROUP_NOT_FOUND");
   expect(unknown.structuredContent.error.message).toContain("flowly_list_groups");
+});
+
+test("resolve_contract_change is preapproved and stays in the dispatcher's group", async () => {
+  const x = await setup();
+  // Ruling D16: the user's answer in the dispatcher chat is the approval, so the call itself is preapproved.
+  expect(dispatcherToolNames).toContain("flowly_resolve_contract_change");
+  expect(dispatcherConfirmedToolNames).not.toContain("flowly_resolve_contract_change" as never);
+  const human = { kind: "human" as const };
+  const u = await createUmbrella(x.store, { groupId: x.groupId, title: "Family" }, human);
+  await setMembership(x.store, { taskId: "q1", umbrellaId: u.id, role: "api" }, human);
+  await setMembership(x.store, { taskId: "q2", umbrellaId: u.id, role: "ui" }, human);
+  await updateUmbrella(x.store, { id: u.id, revision: u.revision, contract: "shape: {a}" }, human);
+  const propose = (taskId: string, after: string) =>
+    x.store.transaction((board) => ({
+      value: proposeChange(board, board.tasks.find((t) => t.id === taskId)!, { after, reason: `${taskId} needs it`, baseRevision: 1 }, { kind: "agent", agentId: `s-${taskId}`, taskId }, stamp),
+      changed: true,
+    }));
+  const first = await propose("q1", "shape: {a, b}");
+  const second = await propose("q2", "shape: {a, c}");
+  const { a, b } = await twoGroups(x);
+  // Another group's dispatcher can't resolve it, and nothing changes.
+  const before = JSON.stringify((await x.store.read()).umbrellaEntries);
+  expect(code(await b.call("flowly_resolve_contract_change", { id: first.id, decision: "accept" }))).toBe("UMBRELLA_OUT_OF_GROUP");
+  expect(JSON.stringify((await x.store.read()).umbrellaEntries)).toBe(before);
+  // Its own group's dispatcher accepts, as itself.
+  const accepted = await a.call("flowly_resolve_contract_change", { id: first.id, decision: "accept", note: "The user agreed" });
+  expect(code(accepted)).toBeUndefined();
+  expect(accepted.structuredContent).toMatchObject({ entry: { id: first.id, status: "accepted" }, contract: { revision: 2 } });
+  const board = await x.store.read();
+  expect(board.umbrellas[0]!.contract).toMatchObject({ text: "shape: {a, b}", updatedBy: { kind: "dispatcher", agentId: "disp" } });
+  expect(board.events.at(-1)).toMatchObject({ taskId: "q1", action: "umbrella_contract_accepted", actor: "agent", agentId: "disp" });
+  // D20: the other proposal now rests on r1, so accepting it is refused; rejecting it still works, with the note.
+  expect(code(await a.call("flowly_resolve_contract_change", { id: second.id, decision: "accept" }))).toBe("CONTRACT_STALE");
+  const rejected = await a.call("flowly_resolve_contract_change", { id: second.id, decision: "reject", note: "Propose again on r2" });
+  expect(rejected.structuredContent).toMatchObject({ entry: { id: second.id, status: "rejected", answer: "Propose again on r2" } });
+  // A write: refused while Agents create and edit cards is off.
+  x.server.cards.on = async () => false;
+  expect(code(await a.call("flowly_resolve_contract_change", { id: second.id, decision: "reject" }))).toBe("AGENT_CARDS_DISABLED");
 });

@@ -303,6 +303,26 @@ export const umbrellaEntryInputSchema = z
   })
   .refine((v) => v.kind !== "ruling" || !!v.quote, { message: "A ruling needs quote: the user's own words from this chat.", path: ["quote"] })
   .refine((v) => v.kind === "ruling" || v.quote === undefined, { message: "quote is only for kind=ruling.", path: ["quote"] });
+/** flowly_propose_contract_change (UMBRELLA-SPEC §4.1, §5): a proposal only; the user accepts or rejects it. */
+export const proposeContractChangeInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  after: z
+    .string()
+    .max(umbrellaLimits.contract)
+    .describe("The whole new contract text as you propose it (markdown), not a diff: start from get_task umbrella.contract.text."),
+  reason: z
+    .string()
+    .trim()
+    .min(1)
+    .max(umbrellaLimits.entryBody)
+    .describe("Why the change is needed and what it changes for the sibling cards, in the language of get_task outputLanguage. Never a secret."),
+  baseRevision: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe("get_task umbrella.contract.revision: the contract revision your text starts from."),
+});
 /** flowly_withdraw_umbrella_entry (UMBRELLA-SPEC §4.1): one of this card's own entries. */
 export const withdrawEntryInputSchema = z.strictObject({
   expectedRevision: revisionSchema,
@@ -1078,6 +1098,7 @@ export type IdeaRemovalInput = z.infer<typeof ideaRemovalSchema>;
 export type RememberInput = z.infer<typeof rememberInputSchema>;
 export type UmbrellaEntryInput = z.infer<typeof umbrellaEntryInputSchema>;
 export type WithdrawEntryInput = z.infer<typeof withdrawEntryInputSchema>;
+export type ProposeContractChangeInput = z.infer<typeof proposeContractChangeInputSchema>;
 export type RecallInput = z.input<typeof recallInputSchema>;
 export type AgentSearchInput = z.input<typeof agentSearchInputSchema>;
 export type TagsToolInput = z.infer<typeof tagsInputSchema>;

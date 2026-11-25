@@ -3,8 +3,10 @@ import { View } from "react-native";
 import { umbrellaEntryKinds, type Actor, type UmbrellaEntry } from "../shared/model";
 import { msg, t } from "../shared/i18n";
 import { umbrellaLimits } from "../shared/umbrella";
-import { feedRows, openQuestions } from "./umbrella-panel-logic";
-import { Actions, Button, Choices, Field, Label, font, radius, relativeTime, space, touch, useTheme } from "./ui";
+import { changedLines, feedRows, openQuestions, pendingChanges } from "./umbrella-panel-logic";
+import { Disclosure } from "./disclosure";
+import { SessionMarkdown } from "./session-content";
+import { Actions, Button, Choices, Field, Label, Notice, font, radius, relativeTime, space, touch, useTheme } from "./ui";
 
 /** The umbrella panel's feed and open questions (UMBRELLA-SPEC §7), and the part titles the panel shares. */
 type Kind = UmbrellaEntry["kind"];
@@ -100,7 +102,125 @@ const QuestionRow = memo(function QuestionRow({ entry, source, writable, onAnswe
   );
 });
 
-const kindOptions = (): { value: Kind | "all"; label: string }[] => [{ value: "all", label: t("All") }, ...umbrellaEntryKinds.map((k) => ({ value: k, label: t(kindText[k]) }))];
+/** What accepting or rejecting a contract change came to; `stale`: the accept was refused CONTRACT_STALE (D20). */
+export type ResolveOutcome = { ok: true } | { ok: false; message: string; stale: boolean };
+
+/**
+ * Pending contract changes (UMBRELLA-SPEC §5): each with its reason, a conflict mark, the lines it changes and the full
+ * before and after texts, and Accept / Reject (with an optional note that goes back to the proposing card, D19). An
+ * accept refused as stale shows why and opens Reject.
+ */
+export function ContractChanges({ entries, writable, sourceOf, onResolve }: {
+  entries: readonly UmbrellaEntry[];
+  writable: boolean;
+  sourceOf(taskId: string | undefined): string;
+  onResolve(id: string, decision: "accepted" | "rejected", note?: string): Promise<ResolveOutcome>;
+}) {
+  const pending = useMemo(() => pendingChanges(entries), [entries]);
+  if (!pending.length) return null;
+  return (
+    <View style={{ gap: space[2] }}>
+      <PartTitle title={t("Contract changes")} count={pending.length} />
+      {pending.map((e) => (
+        <ChangeRow key={e.id} entry={e} source={sourceOf(e.sourceTaskId)} writable={writable} onResolve={onResolve} />
+      ))}
+    </View>
+  );
+}
+
+const ChangeRow = memo(function ChangeRow({ entry, source, writable, onResolve }: {
+  entry: UmbrellaEntry;
+  source: string;
+  writable: boolean;
+  onResolve(id: string, decision: "accepted" | "rejected", note?: string): Promise<ResolveOutcome>;
+}) {
+  const { colors } = useTheme();
+  const change = entry.change!;
+  const lines = useMemo(() => changedLines(change.before, change.after), [change.before, change.after]);
+  const [full, setFull] = useState(false);
+  // null: the buttons; a string: the reject form with its note.
+  const [note, setNote] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const resolve = async (decision: "accepted" | "rejected") => {
+    if (sending) return;
+    setSending(true);
+    setError("");
+    const outcome = await onResolve(entry.id, decision, decision === "rejected" ? note?.trim() || undefined : undefined);
+    setSending(false);
+    if (outcome.ok) return;
+    setError(outcome.message);
+    if (outcome.stale) setNote((n) => n ?? "");
+  };
+  return (
+    <View style={{ gap: space[1.5], padding: space[2], borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg }}>
+      <Label medium size={font.md}>
+        {entry.title}
+      </Label>
+      {entry.body.trim() !== entry.title.trim() && <Label size={font.sm}>{entry.body}</Label>}
+      <Label muted size={font.xs}>
+        {t("Proposed by {who} {time} · on revision {n}", { who: actorName(entry.by, source), time: relativeTime(entry.createdAt), n: change.baseRevision })}
+      </Label>
+      {!!change.conflict && (
+        <Label size={font.sm} color={colors.statusWarning}>
+          {t("Conflicts with another pending change or a newer contract.")}
+        </Label>
+      )}
+      {(lines.removed.length > 0 || lines.added.length > 0) && (
+        <View style={{ gap: 2 }}>
+          {lines.removed.map((line, i) => (
+            <Label key={`r${i}`} mono size={font.sm} color={colors.statusDanger}>
+              {`− ${line}`}
+            </Label>
+          ))}
+          {lines.added.map((line, i) => (
+            <Label key={`a${i}`} mono size={font.sm} color={colors.statusSuccess}>
+              {`+ ${line}`}
+            </Label>
+          ))}
+        </View>
+      )}
+      <Disclosure title={t("Before and after")} open={full} onChange={setFull} flush>
+        <View style={{ gap: space[2] }}>
+          <View style={{ gap: space[1] }}>
+            <Label muted size={font.xs}>{t("Before")}</Label>
+            {change.before.trim() ? <SessionMarkdown text={change.before} /> : <Label muted size={font.sm}>{t("No contract yet.")}</Label>}
+          </View>
+          <View style={{ gap: space[1] }}>
+            <Label muted size={font.xs}>{t("After")}</Label>
+            <SessionMarkdown text={change.after} />
+          </View>
+        </View>
+      </Disclosure>
+      {!!error && <Notice tone="warning">{error}</Notice>}
+      {writable &&
+        (note === null ? (
+          <Actions>
+            <Button small quiet disabled={sending} label={t("Reject the change {title}", { title: entry.title })} onPress={() => setNote("")}>
+              {t("Reject")}
+            </Button>
+            <Button small primary disabled={sending} label={t("Accept the change {title}", { title: entry.title })} onPress={() => void resolve("accepted")}>
+              {t("Accept")}
+            </Button>
+          </Actions>
+        ) : (
+          <>
+            <Field title={t("Note (optional)")} value={note} onChange={setNote} multiline maxLength={umbrellaLimits.entryBody} />
+            <Actions>
+              <Button small quiet disabled={sending} onPress={() => setNote(null)}>
+                {t("Cancel")}
+              </Button>
+              <Button small danger disabled={sending} onPress={() => void resolve("rejected")}>
+                {t("Reject")}
+              </Button>
+            </Actions>
+          </>
+        ))}
+    </View>
+  );
+});
+
+const kindOptions = ():{ value: Kind | "all"; label: string }[] => [{ value: "all", label: t("All") }, ...umbrellaEntryKinds.map((k) => ({ value: k, label: t(kindText[k]) }))];
 
 export function Feed({ entries, writable, sourceOf, onSupersede }: {
   entries: readonly UmbrellaEntry[];

@@ -10,7 +10,7 @@ Status: user decision 2026-11-08 (single-pane spec: the dispatcher hears every c
 
 | Kind | Source | Fields |
 |---|---|---|
-| `board` | a committed board write: one fact per `BoardEvent` it created | `event`, `projectId`, `title` (the card's title at commit) |
+| `board` | a committed board write: one fact per `BoardEvent` it created | `event`, `projectId`, `title` (the card's title at commit); for `umbrella_contract_proposed`, `proposal` `{ umbrellaId, conflict, mentions }` from the card's newest contract change as the commit left it (`conflict`: Flowly's flag, `markConflicts`; `mentions`: the member cards whose role, case-insensitive and as a whole word, appears in the reason or in a line only one of the before and after texts has, `rolesMentioned`) |
 | `permission` | the `agent.permission_requested` hook, for every session | `agentId`, `taskId` (the managed card, else `null`), `request` |
 | `permission_resolved` | the `agent.permission_resolved` hook | `agentId`, `requestId` |
 
@@ -24,7 +24,7 @@ A commit publishes its events once, after the write is saved and before storage'
 
 `isStop(fact)` is true for:
 
-- `board`: `status_changed` into `blocked`, `in_review`, `committed`, `integrated`, `done` or `cancelled`; any `status_changed` or `progress_reported` event whose `reportKind` is `question`, `blocker` or `result`; `agent.turn_ended` with outcome `failed`; an agent's `progress` report whose note starts with the contract marker (`[contract]`, DISPATCHER-SPEC §5.8).
+- `board`: `status_changed` into `blocked`, `in_review`, `committed`, `integrated`, `done` or `cancelled`; any `status_changed` or `progress_reported` event whose `reportKind` is `question`, `blocker` or `result`; `agent.turn_ended` with outcome `failed`; an agent's `progress` report whose note starts with the contract marker (`[contract]`, DISPATCHER-SPEC §5.8); an agent's `umbrella_contract_proposed` (a member's `flowly_propose_contract_change`, UMBRELLA-SPEC §5), whose note kind is `contract_proposed`.
 - `permission`.
 
 False for: events by the user (`actor` human: their own moves are not news to them), A1r restores (`rule` A1r, "No work was reported in that turn; restored"), turn starts, status changes into `design`, `development`, `test` (including the automatic ones), `progress` reports without the contract marker, permission resolutions, every other action (edits, tags, ideas, `agent.permission_requested`). A turn that ends `canceled` is not a stop.
@@ -39,7 +39,7 @@ False for: events by the user (`actor` human: their own moves are not news to th
 - The batch flushes when no fact has arrived for `windowMs` (10 s) after the latest, or `maxWaitMs` (60 s) after the first fact of the batch, whichever comes first; the 60 s are counted from the batch's first fact even when its time reads as 0. A flush with no notes does nothing. A flush callback that throws is logged (`logFailure`) and the batch is dropped.
 - `dispose()` clears the timer and the pending notes (plugin unload); a later push starts a new batch.
 
-`kind`: the report kind (`question`, `blocker`, `result`) when the event has one other than `progress`; `status_changed` for a status move; `turn_failed` for a failed turn; else the event's `action`. `detail`: the status move (`<from> → <to>`) and the event's note, when any. `later` and `earlier` are set only by merging.
+`kind`: the report kind (`question`, `blocker`, `result`) when the event has one other than `progress`; `status_changed` for a status move; `turn_failed` for a failed turn; `contract_proposed` for a contract proposal; else the event's `action`. `detail`: the status move (`<from> → <to>`) and the event's note, when any; for a contract proposal also whether it conflicts and the mentioned cards' ids, so the dispatcher's line carries them. `later` and `earlier` are set only by merging. A contract proposal's note carries `proposal: { eventId, umbrellaId, conflict, mentions }`, kept across merges like `contract`.
 
 ### 3.1 Restores
 

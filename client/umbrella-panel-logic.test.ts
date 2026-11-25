@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { UmbrellaEntry } from "../shared/model";
 import type { UmbrellaMember, UmbrellaSummary } from "../shared/umbrella";
 import {
-  acceptanceInput, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, memberWrites, moveMember, openQuestions, pickableCards, pipelineRows, revisionToSend, umbrellaWritable,
+  acceptanceInput, changedLines, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, memberWrites, moveMember, openQuestions, pendingChanges, pickableCards, pipelineRows, revisionToSend, umbrellaWritable,
 } from "./umbrella-panel-logic";
 
 const member = (title: string, order?: number): UmbrellaMember => ({
@@ -178,4 +178,19 @@ test("member writes never pull back a card that left the umbrella", () => {
   ]);
   // A card missing from the fresh members is skipped too.
   expect(memberWrites("u", fresh, [{ taskId: "Z", order: 3 }], new Set(["A", "C", "Z"]))).toEqual([]);
+});
+
+test("pending contract changes list only proposed ones, oldest first", () => {
+  const change = (id: string, status: UmbrellaEntry["status"], minute: number) => ({
+    ...entry(id, "contract_change", status, minute),
+    change: { before: "", after: id, reason: id, baseRevision: 1 },
+  });
+  const entries = [change("late", "proposed", 5), change("done", "accepted", 1), change("early", "proposed", 2), entry("q", "question", "open", 0)];
+  expect(pendingChanges(entries).map((e) => e.id)).toEqual(["early", "late"]);
+});
+
+test("the before/after view lists the lines only one side has", () => {
+  expect(changedLines("a\nb\nc", "a\nc\nd")).toEqual({ removed: ["b"], added: ["d"] });
+  expect(changedLines("", "new")).toEqual({ removed: [], added: ["new"] });
+  expect(changedLines("same", "same")).toEqual({ removed: [], added: [] });
 });

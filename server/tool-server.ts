@@ -30,6 +30,7 @@ import {
   rememberInputSchema,
   umbrellaEntryInputSchema,
   withdrawEntryInputSchema,
+  proposeContractChangeInputSchema,
   recallInputSchema,
   recallResultSchema,
   agentSearchInputSchema,
@@ -568,12 +569,23 @@ export class ToolServer {
           "flowly_add_umbrella_entry",
           {
             description:
-              "Append an entry to this card's umbrella feed (get_task umbrella), which every member card's agent reads and no card outside it does. Member cards only (NOT_IN_UMBRELLA otherwise). Append-only: it never edits the brief or the contract (propose contract changes instead; the user edits the brief). kind: decision, finding, convention or pitfall for what siblings need to know; question for an open question to the user about the whole umbrella (not this card's ask); ruling only for a product rule the user gave in this chat, with quote holding the user's own words from this chat, never your paraphrase or another card's. To correct an entry, add a new one with supersedes=<its id>: a ruling only by a new ruling (UMBRELLA_KIND otherwise), and an open question only by the card that asked it (INVALID_INPUT otherwise; the user's answer closes it). Body at most 2,000 characters. Refused: UMBRELLA_CLOSED (closed or archived umbrella), UMBRELLA_LIMIT (300 active entries), UMBRELLA_RATE_LIMIT (20 feed writes per session per hour), AGENT_CARDS_DISABLED. Does not change card status or task revision. Copy revisions/request from get_task.",
+              "Append an entry to this card's umbrella feed (get_task umbrella), which every member card's agent reads and no card outside it does. Member cards only (NOT_IN_UMBRELLA otherwise). Append-only: it never edits the brief or the contract (propose contract changes with flowly_propose_contract_change instead; the user edits the brief). kind: decision, finding, convention or pitfall for what siblings need to know; question for an open question to the user about the whole umbrella (not this card's ask); ruling only for a product rule the user gave in this chat, with quote holding the user's own words from this chat, never your paraphrase or another card's. To correct an entry, add a new one with supersedes=<its id>: a ruling only by a new ruling (UMBRELLA_KIND otherwise), and an open question only by the card that asked it (INVALID_INPUT otherwise; the user's answer closes it). Body at most 2,000 characters. Refused: UMBRELLA_CLOSED (closed or archived umbrella), UMBRELLA_LIMIT (300 active entries), UMBRELLA_RATE_LIMIT (20 feed writes per session per hour), AGENT_CARDS_DISABLED. Does not change card status or task revision. Copy revisions/request from get_task.",
             inputSchema: umbrellaEntryInputSchema,
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
           (input) => wrap(() => this.agents.write(identity, "umbrella_entry", input)),
+        );
+        mcp.registerTool(
+          "flowly_propose_contract_change",
+          {
+            description:
+              "Propose a change to this card's umbrella contract (get_task umbrella.contract: the handoff shapes between member cards) when your work needs a shape your siblings depend on to change. Member cards only (NOT_IN_UMBRELLA otherwise). It never edits the contract: it records a pending proposal that only the user accepts or rejects (on the umbrella panel, or through the dispatcher after they answer), and every change needs that, additive ones too. Pass after (the whole new contract text, not a diff), reason (why, and what it changes for siblings) and baseRevision (get_task umbrella.contract.revision). CONTRACT_STALE: the contract changed since you read it; read get_task again and propose on the current text. Another pending proposal on the same revision is flagged as a conflict for the user. A rejection comes back once in get_task umbrella.feed with the user's note in answer; withdraw your own pending proposal with flowly_withdraw_umbrella_entry. If the change also sets a product rule, ask the user instead. Refused: UMBRELLA_CLOSED, UMBRELLA_LIMIT (10 pending changes), UMBRELLA_RATE_LIMIT (20 feed writes per session per hour), AGENT_CARDS_DISABLED. Does not change card status or task revision. Copy revisions/request from get_task.",
+            inputSchema: proposeContractChangeInputSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "contract_change", input)),
         );
         mcp.registerTool(
           "flowly_withdraw_umbrella_entry",

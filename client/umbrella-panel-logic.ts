@@ -24,6 +24,21 @@ export function openQuestions(entries: readonly UmbrellaEntry[]): UmbrellaEntry[
   return entries.filter((e) => e.kind === "question" && e.status === "open").sort((a, b) => -newest(a, b));
 }
 
+/** The umbrella's pending contract changes (§5), oldest first (the order they were proposed in). */
+export function pendingChanges(entries: readonly UmbrellaEntry[]): UmbrellaEntry[] {
+  return entries.filter((e) => e.kind === "contract_change" && e.status === "proposed" && e.change).sort((a, b) => -newest(a, b));
+}
+
+/** A contract change's before/after view: the lines only `before` has (removed) and only `after` has (added), in order. */
+export function changedLines(before: string, after: string): { removed: string[]; added: string[] } {
+  const lines = (text: string) => (text ? text.split("\n").map((l) => l.trimEnd()) : []);
+  const old = lines(before),
+    next = lines(after);
+  const oldSet = new Set(old),
+    nextSet = new Set(next);
+  return { removed: old.filter((l) => l && !nextSet.has(l)), added: next.filter((l) => l && !oldSet.has(l)) };
+}
+
 /** The panel's list for one group: open umbrellas, and apart the closed ones; archived ones leave it (D18). By title. */
 export function listedUmbrellas(all: readonly UmbrellaSummary[], groupId: string): { open: UmbrellaSummary[]; closed: UmbrellaSummary[] } {
   const mine = all.filter((u) => u.groupId === groupId && !u.archivedAt).sort((a, b) => a.title.localeCompare(b.title));

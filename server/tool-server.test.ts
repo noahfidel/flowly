@@ -88,6 +88,7 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "flowly_remove_idea",
     "flowly_remember",
     "flowly_add_umbrella_entry",
+    "flowly_propose_contract_change",
     "flowly_withdraw_umbrella_entry",
     "flowly_recall",
     "flowly_search",
@@ -917,4 +918,25 @@ test("member tools are registered for card sessions", async () => {
   expect(tool("flowly_remember").description).toMatch(/1,000/);
   expect(tool("flowly_propose_idea").inputSchema.properties).toHaveProperty("umbrella");
   expect(tool("flowly_create_card").inputSchema.properties).toHaveProperty("umbrella");
+});
+
+test("flowly_propose_contract_change is registered for card sessions", async () => {
+  const x = await setup();
+  const response = await fetch(x.url + "mcp", {
+    method: "POST",
+    headers: { Authorization: x.authorization, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+  });
+  const body = await response.text();
+  const parsed = JSON.parse(
+    response.headers.get("content-type")?.includes("text/event-stream")
+      ? body.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).at(-1)!
+      : body,
+  );
+  const tools = parsed.result.tools as { name: string; description: string; inputSchema: { properties: Record<string, unknown> } }[];
+  const propose = tools.find((t) => t.name === "flowly_propose_contract_change")!;
+  expect(Object.keys(propose.inputSchema.properties)).toEqual(["expectedRevision", "request", "after", "reason", "baseRevision"]);
+  expect(propose.description).toMatch(/never edits the contract/);
+  expect(propose.description).toMatch(/CONTRACT_STALE/);
+  expect(propose.description).toMatch(/UMBRELLA_LIMIT/);
 });

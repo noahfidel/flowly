@@ -1883,5 +1883,17 @@ const catalog: Catalog = {
   "That card's project is in another board group than this umbrella.": "Проект этой карточки находится в другой группе доски, чем этот зонтичный проект.",
   "The integration card must be in this umbrella.": "Карточка интеграции должна входить в этот зонтичный проект.",
   "Rename {title}": "Переименовать {title}",
+  "The contract changed since this was proposed, so it can't be accepted. Reject it, and the card can propose again on the current contract.": "Контракт изменился после этого предложения, поэтому его нельзя принять. Отклоните его — карточка сможет предложить снова на основе текущего контракта.",
+  "Contract changes": "Изменения контракта",
+  "Proposed by {who} {time} · on revision {n}": "Предложил(а) {who} {time} · на основе ревизии {n}",
+  "Conflicts with another pending change or a newer contract.": "Конфликтует с другим ожидающим изменением или более новым контрактом.",
+  "Before and after": "До и после",
+  "Before": "До",
+  "After": "После",
+  "Reject the change {title}": "Отклонить изменение {title}",
+  "Reject": "Отклонить",
+  "Accept the change {title}": "Принять изменение {title}",
+  "Accept": "Принять",
+  "Note (optional)": "Заметка (необязательно)",
 };
 export default catalog;

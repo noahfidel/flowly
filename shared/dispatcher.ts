@@ -20,6 +20,12 @@ export const dispatcherNoteSchema = z.object({
   earlier: z.number().int().min(0).optional(),
   /** Contract news the card marked (DISPATCHER-SPEC §5.8): the event it came from and its text after the marker. */
   contract: z.object({ eventId: z.string(), text: z.string() }).optional(),
+  /**
+   * A member's proposed umbrella contract change (kind `contract_proposed`, EVENT-BUS-SPEC §2, UMBRELLA-SPEC §5): its
+   * event, the umbrella, whether it conflicts with another pending proposal or an older contract, and the member cards
+   * whose role it mentions.
+   */
+  proposal: z.object({ eventId: z.string(), umbrellaId: z.string(), conflict: z.boolean(), mentions: z.array(z.string()) }).optional(),
   at: z.string(),
 });
 export type DispatcherNote = z.infer<typeof dispatcherNoteSchema>;
@@ -34,14 +40,16 @@ const lasting = new Set(["question", "blocker"]);
 export function mergeNotes(prev: DispatcherNote, next: DispatcherNote): DispatcherNote {
   const hidden = (prev.earlier ?? 0) + (next.earlier ?? 0);
   const contract = next.contract ?? prev.contract;
+  const proposal = next.proposal ?? prev.proposal;
+  const carried = { ...(contract ? { contract } : {}), ...(proposal ? { proposal } : {}) };
   if (lasting.has(prev.kind) && next.kind === "status_changed") {
     const replaced = next.detail ? (prev.later ? 1 : 0) : 1;
     const later = next.detail || prev.later;
     const earlier = hidden + replaced;
-    return { ...prev, title: next.title, at: next.at, ...(later ? { later } : {}), ...(earlier ? { earlier } : {}), ...(contract ? { contract } : {}) };
+    return { ...prev, title: next.title, at: next.at, ...(later ? { later } : {}), ...(earlier ? { earlier } : {}), ...carried };
   }
-  const { later: _, earlier: __, contract: ___, ...base } = next;
-  return { ...base, ...(next.later ? { later: next.later } : {}), ...(contract ? { contract } : {}), earlier: hidden + 1 + (prev.later ? 1 : 0) };
+  const { later: _, earlier: __, contract: ___, proposal: ____, ...base } = next;
+  return { ...base, ...(next.later ? { later: next.later } : {}), ...carried, earlier: hidden + 1 + (prev.later ? 1 : 0) };
 }
 
 /** At most this many event ids are kept with the seen mark, all from its one millisecond (§9.2). */
@@ -72,6 +80,8 @@ export const dispatcherToolNames = [
   "flowly_add_artifact",
   "flowly_get_card_activity",
   "flowly_search_cards",
+  // Preapproved (ruling D16): it is called only with the user's answer in the dispatcher chat, which is the approval.
+  "flowly_resolve_contract_change",
 ] as const;
 /**
  * What the card agent sees in front of a dispatcher message (DISPATCHER-SPEC §5.3): an exception to "a card's

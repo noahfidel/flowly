@@ -10,7 +10,8 @@ import { openReport } from "../shared/progress";
 import { workpadEnabled, workpadOf } from "../shared/workpad";
 import { ideaNewestFirst } from "../shared/ideas";
 import { linkFor } from "../shared/links";
-import { artifactLimits, artifactRoles, groupLimits, linkSchema, projectInput, tagLimits, type Idea, type Project, type ProjectInput } from "../shared/model";
+import { artifactLimits, artifactRoles, groupLimits, linkSchema, projectInput, tagLimits, umbrellaLimits, type Idea, type Project, type ProjectInput } from "../shared/model";
+import { resolveChange } from "./umbrellas";
 import type { GroupWriter } from "./group-writes";
 import { normalizeTag, normalizeTags } from "../shared/tags";
 import {
@@ -157,6 +158,17 @@ export const dispatcherInputs = {
     archived: z.boolean().default(true).describe("true archives the card (default); false brings an archived card back."),
     reason: z.string().trim().min(1).max(500).optional().describe("Why, in a few words; shown in the card's activity."),
   }),
+  resolveContractChange: z.strictObject({
+    id: z.string().min(1).max(200).describe("The pending contract change's entry id, from the board update or flowly_get_umbrella."),
+    decision: z.enum(["accept", "reject"]).describe("The user's answer in this chat: accept applies the change to the contract; reject keeps the contract."),
+    note: z
+      .string()
+      .trim()
+      .min(1)
+      .max(umbrellaLimits.entryBody)
+      .optional()
+      .describe("The user's reason, in a few words; a rejected change returns once to its card with it."),
+  }),
   addArtifact: z.strictObject({
     projectId,
     taskId: z.string().min(1).max(200).describe("Card id from flowly_list_cards."),
@@ -267,6 +279,10 @@ const addArtifactResultSchema = z.object({
   }),
   changed: z.boolean(),
   notice: z.string().optional(),
+});
+const resolveContractChangeResultSchema = z.object({
+  entry: z.object({ id: z.string(), status: z.string(), answer: z.string().optional() }),
+  contract: z.object({ revision: z.number().int() }),
 });
 const archiveCardResultSchema = z.object({
   card: z.object({ taskId: z.string(), title: z.string(), status: z.string(), archived: z.boolean(), revision: z.number().int() }),
@@ -1095,6 +1111,28 @@ export class DispatcherTools {
   }
 
   /**
+   * Accepts or rejects a member's pending contract change with the user's answer (UMBRELLA-SPEC §5, DISPATCHER-SPEC §4).
+   * Preapproved (ruling D16). A write: the agent-cards switch applies. The umbrella's group is checked in the write
+   * (UMBRELLA_OUT_OF_GROUP); the event on the proposing card names the dispatcher session as its agent.
+   */
+  async resolveContractChange(identity: DispatcherIdentity, raw: unknown) {
+    const input = dispatcherInputs.resolveContractChange.parse(raw);
+    const { agentId, groupId } = await this.caller(identity);
+    await this.cards.enabled();
+    const entry = await resolveChange(
+      this.store,
+      { id: input.id, decision: input.decision === "accept" ? "accepted" : "rejected", ...(input.note !== undefined ? { answer: input.note } : {}) },
+      { kind: "dispatcher", agentId },
+      { groupId },
+    );
+    const umbrella = (await this.store.read()).umbrellas.find((u) => u.id === entry.umbrellaId);
+    return {
+      entry: { id: entry.id, status: entry.status, ...(entry.answer !== undefined ? { answer: entry.answer } : {}) },
+      contract: { revision: umbrella?.contract.revision ?? 0 },
+    };
+  }
+
+  /**
    * A single-directory project from an existing folder, as the project form's Create project (DISPATCHER-SPEC §5.2).
    * A write: the agent-cards switch applies. Never preapproved, so the user confirms each call (ruling, Noah 2026-11-10).
    */
@@ -1464,6 +1502,17 @@ export class DispatcherTools {
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       },
       (raw) => inProject(dispatcherInputs.addArtifact, raw, (c, input) => this.cards.addArtifact(c, input), true),
+    );
+    mcp.registerTool(
+      "flowly_resolve_contract_change",
+      {
+        description:
+          "Accept or reject a member card's proposed umbrella contract change (a contract_proposed board update), only with the user's answer: never on your own, additive changes included. First put the change, its reason and any conflict to the user with AskUserQuestion (accept, reject, or ask the proposing card to merge), then call this with their decision and their reason as note. accept makes the proposal the umbrella's contract; reject keeps the contract and returns the proposal once to its card with the note. CONTRACT_STALE: the proposal rests on an older contract (another change was accepted since); tell the user, who can reject it so the card proposes again. INVALID_INPUT: it is no longer pending. UMBRELLA_OUT_OF_GROUP: another group's umbrella. UMBRELLA_CLOSED, NOT_FOUND, AGENT_CARDS_DISABLED.",
+        inputSchema: dispatcherInputs.resolveContractChange,
+        outputSchema: resolveContractChangeResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      },
+      (raw) => toolResult(() => this.resolveContractChange(identity, raw)),
     );
     // Not preapproved (dispatcherConfirmedToolNames): every call shows a permission prompt the user answers.
     mcp.registerTool(

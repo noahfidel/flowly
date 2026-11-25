@@ -19,7 +19,7 @@ import {
   acceptanceInput, editAfterSave, editBase, errorCode, listedUmbrellas, memberWrites, moveMember, pipelineRows, revisionToSend, umbrellaWritable,
   type AcceptanceDraft, type EditBase, type SaveOutcome,
 } from "./umbrella-panel-logic";
-import { Feed, PartTitle, Questions } from "./umbrella-feed";
+import { ContractChanges, Feed, PartTitle, Questions, type ResolveOutcome } from "./umbrella-feed";
 import { IntegrationCard, Pipeline } from "./umbrella-members";
 import {
   Actions, Button, Field, IconButton, Label, Notice, Row, Theme, font, message, noFocusRing, pageBarHeight, radius, relativeTime, space, touch, useTheme, verticalContent, verticalScroll,
@@ -59,6 +59,8 @@ function refusalText(error: unknown, what: "group" | "members" = "group"): strin
       return t("That card's project is in another board group than this umbrella.");
     case "NOT_IN_UMBRELLA":
       return t("The integration card must be in this umbrella.");
+    case "CONTRACT_STALE":
+      return t("The contract changed since this was proposed, so it can't be accepted. Reject it, and the card can propose again on the current contract.");
     default:
       return message(error);
   }
@@ -342,6 +344,21 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
   const openCard = useStableCallback((taskId: string) => onOpenCard(taskId));
   const answer = useStableCallback((entryId: string, text: string) => writeEntry({ id: entryId, status: "answered", answer: text }));
   const supersede = useStableCallback((entryId: string) => writeEntry({ id: entryId, status: "superseded" }));
+  // Accept or reject a contract change (§5). An accept changes the contract and the umbrella's revision, so the whole
+  // umbrella is read again; a refusal is shown on the change's own row (a stale accept there offers Reject, D20).
+  const resolve = useStableCallback(async (entryId: string, decision: "accepted" | "rejected", note?: string): Promise<ResolveOutcome> => {
+    try {
+      const entry = await updateEntry({ id: entryId, status: decision, ...(note ? { answer: note } : {}) });
+      patch((old) => ({ ...old, entries: old.entries.map((e) => (e.id === entry.id ? entry : e)) }));
+      if (decision === "accepted") reload();
+      onChanged();
+      return { ok: true };
+    } catch (e) {
+      const code = errorCode(e);
+      if (code === "UMBRELLA_CLOSED" || code === "INVALID_INPUT") reload();
+      return { ok: false, message: refusalText(e), stale: code === "CONTRACT_STALE" };
+    }
+  });
   const back = (
     <View style={{ flexDirection: "row" }}>
       <Button small quiet icon="ChevronLeft" onPress={() => onSelect(null)}>
@@ -437,6 +454,7 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
         revision={u.revision}
         onSave={(text, base) => write((revision) => update({ id, revision, contract: text }), base)}
       />
+      <ContractChanges entries={data.entries} writable={writable} sourceOf={sourceOf} onResolve={resolve} />
       <Pipeline
         umbrellaId={id}
         groupId={groupId}

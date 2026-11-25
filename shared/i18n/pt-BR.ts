@@ -1883,5 +1883,17 @@ const catalog: Catalog = {
   "That card's project is in another board group than this umbrella.": "O projeto desse card está em outro grupo do quadro que este guarda-chuva.",
   "The integration card must be in this umbrella.": "O card de integração precisa estar neste guarda-chuva.",
   "Rename {title}": "Renomear {title}",
+  "The contract changed since this was proposed, so it can't be accepted. Reject it, and the card can propose again on the current contract.": "O contrato mudou desde que isto foi proposto, então não pode ser aceito. Rejeite-o, e o cartão pode propor de novo sobre o contrato atual.",
+  "Contract changes": "Mudanças de contrato",
+  "Proposed by {who} {time} · on revision {n}": "Proposto por {who} {time} · sobre a revisão {n}",
+  "Conflicts with another pending change or a newer contract.": "Conflita com outra mudança pendente ou com um contrato mais recente.",
+  "Before and after": "Antes e depois",
+  "Before": "Antes",
+  "After": "Depois",
+  "Reject the change {title}": "Rejeitar a mudança {title}",
+  "Reject": "Rejeitar",
+  "Accept the change {title}": "Aceitar a mudança {title}",
+  "Accept": "Aceitar",
+  "Note (optional)": "Nota (opcional)",
 };
 export default catalog;

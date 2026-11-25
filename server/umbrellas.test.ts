@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoardStore } from "./store";
 import {
-  addEntry, archiveUmbrella, closeUmbrella, createUmbrella, getUmbrella, listUmbrellas, newCardUmbrella, reopenUmbrella, setMembership, umbrellaWriteLimiter,
-  updateEntry, updateUmbrella, withdrawEntry,
+  addEntry, archiveUmbrella, closeUmbrella, createUmbrella, getUmbrella, listUmbrellas, newCardUmbrella, proposeChange, reopenUmbrella, resolveChange, setMembership,
+  umbrellaWriteLimiter, updateEntry, updateUmbrella, withdrawEntry,
 } from "./umbrellas";
 import { createUmbrella as createRpc, updateUmbrella as updateRpc } from "../shared/rpc";
 import { umbrellaLimits } from "../shared/umbrella";
@@ -582,4 +582,124 @@ test("D22 does not limit the user's own supersede", async () => {
   await updateEntry(store, { id: ruling.id, status: "superseded" }, human);
   await updateEntry(store, { id: asked.id, status: "superseded" }, human);
   expect((await store.read()).umbrellaEntries.map((e) => e.status)).toEqual(["superseded", "superseded"]);
+});
+
+/** feedSetup with a contract at revision 1; `propose` runs proposeChange in a store transaction, as the agent tool does. */
+async function contractSetup() {
+  const x = await feedSetup();
+  await updateUmbrella(x.store, { id: x.u.id, revision: x.u.revision, contract: "shape: {a}" }, human);
+  const propose = (taskId: string, after: string, baseRevision: number, reason = `${taskId} needs it`) =>
+    x.store.transaction((board) => {
+      const task = board.tasks.find((t) => t.id === taskId)!;
+      return { value: proposeChange(board, task, { after, reason, baseRevision }, agent(taskId), now), changed: true };
+    });
+  const read = async () => {
+    const board = await x.store.read();
+    return { board, u: board.umbrellas.find((u) => u.id === x.u.id)!, entry: (id: string) => board.umbrellaEntries.find((e) => e.id === id)! };
+  };
+  return { ...x, propose, read };
+}
+
+test("a proposal never changes the contract", async () => {
+  const x = await contractSetup();
+  const before = (await x.read()).u;
+  const made = await x.propose("a", "shape: {a, b}", 1, "b is needed for the gallery");
+  expect(made).toMatchObject({
+    kind: "contract_change", status: "proposed", sourceTaskId: "a", by: agent("a"), body: "b is needed for the gallery",
+    change: { before: "shape: {a}", after: "shape: {a, b}", reason: "b is needed for the gallery", baseRevision: 1 },
+  });
+  expect(made.change!.conflict).toBeUndefined();
+  const { u } = await x.read();
+  expect(u.contract).toEqual(before.contract);
+  expect(u.revision).toBe(before.revision);
+  expect(u.feedRevision).toBe(before.feedRevision + 1);
+});
+
+test("two proposals on the same base are both flagged as a conflict", async () => {
+  const x = await contractSetup();
+  const first = await x.propose("a", "shape: {a, b}", 1);
+  const second = await x.propose("b", "shape: {a, c}", 1);
+  const { entry } = await x.read();
+  expect(entry(first.id).change!.conflict).toBe(true);
+  expect(entry(second.id).change!.conflict).toBe(true);
+});
+
+test("a proposal on an old base is refused as stale", async () => {
+  const x = await contractSetup();
+  const refused = await x.propose("a", "shape: {a, b}", 0).catch((e: unknown) => e);
+  expect(refused).toMatchObject({ code: "CONTRACT_STALE" });
+  expect((codedError(refused) as Error).message).toMatch(/CONTRACT_STALE/);
+  expect((await x.read()).board.umbrellaEntries).toEqual([]);
+});
+
+test("the 11th pending change is refused", async () => {
+  const x = await contractSetup();
+  for (let i = 0; i < umbrellaLimits.pendingChanges; i++) await x.propose("a", `shape ${i}`, 1);
+  await expect(x.propose("b", "shape 11", 1)).rejects.toMatchObject({ code: "UMBRELLA_LIMIT" });
+  // A resolved one frees its place.
+  const pending = (await x.read()).board.umbrellaEntries.filter((e) => e.status === "proposed");
+  await resolveChange(x.store, { id: pending[0]!.id, decision: "rejected" }, human);
+  await expect(x.propose("b", "shape 11", 1)).resolves.toMatchObject({ status: "proposed" });
+});
+
+test("accepting one marks the others behind as conflicts and bumps the revision", async () => {
+  const x = await contractSetup();
+  const first = await x.propose("a", "shape: {a, b}", 1);
+  const second = await x.propose("b", "shape: {a, c}", 1);
+  const before = (await x.read()).u;
+  const accepted = await resolveChange(x.store, { id: first.id, decision: "accepted" }, human);
+  expect(accepted.status).toBe("accepted");
+  const { u, entry } = await x.read();
+  expect(u.contract).toMatchObject({ text: "shape: {a, b}", revision: 2, updatedBy: human });
+  expect(u.revision).toBe(before.revision + 1);
+  expect(u.feedRevision).toBe(before.feedRevision + 1);
+  expect(entry(second.id)).toMatchObject({ status: "proposed", change: { conflict: true } });
+});
+
+test("accepting a proposal behind the current contract is refused as stale", async () => {
+  const x = await contractSetup();
+  const first = await x.propose("a", "shape: {a, b}", 1);
+  const second = await x.propose("b", "shape: {a, c}", 1);
+  // Through the panel's RPC (umbrellas.entry.update).
+  await updateEntry(x.store, { id: first.id, status: "accepted" }, human);
+  const refused = await updateEntry(x.store, { id: second.id, status: "accepted" }, human).catch((e: unknown) => e);
+  expect(refused).toMatchObject({ code: "CONTRACT_STALE" });
+  expect((await x.read()).u.contract).toMatchObject({ text: "shape: {a, b}", revision: 2 });
+  // Rejecting it still works, with the note in answer.
+  await expect(updateEntry(x.store, { id: second.id, status: "rejected", answer: "Propose again on r2" }, human)).resolves.toMatchObject({
+    status: "rejected",
+    answer: "Propose again on r2",
+  });
+});
+
+test("only a pending proposal can be resolved, and a closed umbrella refuses it", async () => {
+  const x = await contractSetup();
+  const first = await x.propose("a", "shape: {a, b}", 1);
+  const question = addEntry(x.board, x.task("a"), { kind: "question", title: "Q", body: "" }, agent("a"), now);
+  await x.store.mutate((b) => void b.umbrellaEntries.push(question));
+  await expect(resolveChange(x.store, { id: question.id, decision: "accepted" }, human)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  await expect(resolveChange(x.store, { id: "nope", decision: "accepted" }, human)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  await closeUmbrella(x.store, { id: x.u.id, revision: (await x.read()).u.revision }, human);
+  await expect(resolveChange(x.store, { id: first.id, decision: "accepted" }, human)).rejects.toMatchObject({ code: "UMBRELLA_CLOSED" });
+});
+
+test("the accepted event is on the proposing card with the resolver as actor", async () => {
+  const x = await contractSetup();
+  const first = await x.propose("a", "shape: {a, b}", 1, "the gallery needs b");
+  const second = await x.propose("b", "shape: {a, c}", 1);
+  const third = await x.propose("b", "shape: {a, d}", 1);
+  const dispatcher: Actor = { kind: "dispatcher", agentId: "disp" };
+  await resolveChange(x.store, { id: first.id, decision: "accepted" }, dispatcher);
+  await resolveChange(x.store, { id: second.id, decision: "rejected", answer: "Not now" }, human);
+  const events = (await x.read()).board.events.filter((e) => e.action.startsWith("umbrella_contract_"));
+  expect(events).toEqual([
+    expect.objectContaining({ taskId: "a", action: "umbrella_contract_accepted", actor: "agent", agentId: "disp", note: expect.stringContaining("the gallery needs b") }),
+    expect.objectContaining({ taskId: "b", action: "umbrella_contract_rejected", actor: "human" }),
+  ]);
+  // A proposal whose card is gone resolves with no event and no error.
+  await x.store.mutate((b) => {
+    b.tasks = b.tasks.filter((t) => t.id !== "b");
+  });
+  await expect(resolveChange(x.store, { id: third.id, decision: "rejected" }, human)).resolves.toMatchObject({ status: "rejected" });
+  expect((await x.read()).board.events.filter((e) => e.action.startsWith("umbrella_contract_"))).toHaveLength(2);
 });

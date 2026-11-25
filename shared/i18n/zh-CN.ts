@@ -1883,5 +1883,17 @@ const catalog: Catalog = {
   "That card's project is in another board group than this umbrella.": "那张卡片的项目与这个伞组不在同一个看板分组。",
   "The integration card must be in this umbrella.": "集成卡片必须属于这个伞组。",
   "Rename {title}": "重命名 {title}",
+  "The contract changed since this was proposed, so it can't be accepted. Reject it, and the card can propose again on the current contract.": "此提议之后契约已变更，因此无法采纳。拒绝它后，该卡片可以基于当前契约重新提议。",
+  "Contract changes": "契约变更",
+  "Proposed by {who} {time} · on revision {n}": "{who} 提议于 {time} · 基于修订 {n}",
+  "Conflicts with another pending change or a newer contract.": "与另一项待处理的变更或更新的契约冲突。",
+  "Before and after": "变更前后",
+  "Before": "变更前",
+  "After": "变更后",
+  "Reject the change {title}": "拒绝变更 {title}",
+  "Reject": "拒绝",
+  "Accept the change {title}": "采纳变更 {title}",
+  "Accept": "采纳",
+  "Note (optional)": "备注（可选）",
 };
 export default catalog;

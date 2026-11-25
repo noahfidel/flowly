@@ -2,6 +2,7 @@ import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
 import { mergeNotes, type DispatcherNote } from "../shared/dispatcher";
 import type { Board, BoardEvent, Status } from "../shared/model";
 import { contractNews } from "../shared/dispatcher-relay";
+import { membersOf, rolesMentioned } from "../shared/umbrella";
 import { logFailure } from "./error-report";
 
 /** Event bus and dispatcher note batching (EVENT-BUS-SPEC). */
@@ -18,6 +19,8 @@ export type BusFact =
        * §7). Absent before the board has groups.
        */
       groupId?: string;
+      /** umbrella_contract_proposed: the proposal as the commit left it (UMBRELLA-SPEC §5 step 3). */
+      proposal?: { umbrellaId: string; conflict: boolean; mentions: string[] };
     }
   | { kind: "permission"; agentId: string; taskId: string | null; request: AgentPermissionRequest }
   | { kind: "permission_resolved"; agentId: string; requestId: string };
@@ -55,9 +58,26 @@ export function factsFromCommit(events: readonly BoardEvent[], board: Board): Bu
     const task = tasks.get(event.taskId);
     if (!task) continue;
     const groupId = groups.get(task.projectId);
-    facts.push({ kind: "board", event, projectId: task.projectId, title: task.title, ...(groupId ? { groupId } : {}) });
+    const proposal = event.action === contractProposed ? proposalOf(board, event.taskId) : undefined;
+    facts.push({ kind: "board", event, projectId: task.projectId, title: task.title, ...(groupId ? { groupId } : {}), ...(proposal ? { proposal } : {}) });
   }
   return facts;
+}
+
+/** The event a member's flowly_propose_contract_change records on its card (UMBRELLA-SPEC §5). */
+const contractProposed = "umbrella_contract_proposed";
+
+/**
+ * The card's newest contract change as its commit left it: the one that commit proposed (one proposal per write). Its
+ * conflict flag is Flowly's (`markConflicts`); `mentions` are the members whose role the change names.
+ */
+function proposalOf(board: Board, taskId: string): { umbrellaId: string; conflict: boolean; mentions: string[] } | undefined {
+  let newest: Board["umbrellaEntries"][number] | undefined;
+  for (const e of board.umbrellaEntries)
+    if (e.kind === "contract_change" && e.sourceTaskId === taskId && e.change && (!newest || e.createdAt >= newest.createdAt)) newest = e;
+  if (!newest?.change) return undefined;
+  const members = membersOf(board, newest.umbrellaId).map((t) => ({ taskId: t.id, role: t.umbrella?.role }));
+  return { umbrellaId: newest.umbrellaId, conflict: !!newest.change.conflict, mentions: rolesMentioned(newest.change, members) };
 }
 
 /**
@@ -84,6 +104,8 @@ export function isStop(fact: BusFact): boolean {
   const { event } = fact;
   if (event.actor === "human") return false;
   if (event.action === "status_changed" && event.rule === "A1r") return false;
+  // A member's proposed contract change waits on the user's accept or reject (UMBRELLA-SPEC §5 step 3).
+  if (event.action === contractProposed) return true;
   return isStopEvent(event) || contractNews(event) !== null;
 }
 
@@ -97,14 +119,21 @@ export function isStopEvent(event: Pick<BoardEvent, "action" | "to" | "reportKin
 
 function noteOf(fact: Extract<BusFact, { kind: "board" }>): DispatcherNote {
   const { event } = fact;
+  const proposal = event.action === contractProposed ? fact.proposal : undefined;
   const kind =
     event.action === "agent.turn_ended" && event.outcome === "failed"
       ? "turn_failed"
-      : event.reportKind && event.reportKind !== "progress"
-        ? event.reportKind
-        : event.action;
+      : proposal
+        ? "contract_proposed"
+        : event.reportKind && event.reportKind !== "progress"
+          ? event.reportKind
+          : event.action;
   const move = event.action === "status_changed" && event.to ? `${event.from ?? ""} → ${event.to}`.trim() : "";
-  const detail = [move, event.note].filter(Boolean).join(": ");
+  // The conflict and the mentioned members ride in the line the dispatcher reads, too.
+  const flags = proposal
+    ? [proposal.conflict ? "conflicts with another pending proposal or an older contract" : "", proposal.mentions.length ? `roles mentioned: ${proposal.mentions.map((id) => `[${id}]`).join(", ")}` : ""]
+    : [];
+  const detail = [[move, event.note].filter(Boolean).join(": "), ...flags].filter(Boolean).join("; ");
   const news = contractNews(event);
   return {
     taskId: event.taskId,
@@ -113,6 +142,7 @@ function noteOf(fact: Extract<BusFact, { kind: "board" }>): DispatcherNote {
     kind,
     detail,
     ...(news !== null ? { contract: { eventId: event.id, text: news } } : {}),
+    ...(proposal ? { proposal: { eventId: event.id, ...proposal } } : {}),
     at: event.at,
   };
 }
