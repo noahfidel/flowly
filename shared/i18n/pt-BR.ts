@@ -1941,7 +1941,7 @@ const catalog: Catalog = {
   "Make card": "Criar card",
   "Linear issues without a card": "Issues do Linear sem card",
   "Cards that may belong here": "Cards que podem pertencer aqui",
-  "This umbrella's Linear link must be a project URL (https://linear.app/<workspace>/project/<name>); a project key can't be read.": "O link do Linear deste guarda-chuva deve ser a URL de um projeto (https://linear.app/<workspace>/project/<name>); uma chave de projeto não pode ser lida.",
   "Showing the first {n} issues": "Mostrando as primeiras {n} issues",
+  "This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).": "O projeto do Linear deste guarda-chuva não é uma URL de projeto nem uma chave de projeto (P-<TEAM>-<number>).",
 };
 export default catalog;

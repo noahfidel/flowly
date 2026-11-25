@@ -84,22 +84,18 @@ function linear(issues: Issue[], options: () => Options = () => ({}), project?: 
     if (query.startsWith("query Project(")) {
       projectReads++;
       const found = typeof project === "function" ? project(projectReads) : project;
-      // Only the slugId filter shape is answered; project(id:) is not (it is documented for the UUID only).
-      if (!query.includes("projects(filter: { slugId: { eq: $slug } }")) return { status: 400, body: { errors: [{ message: "Unknown operation", extensions: { code: "GRAPHQL_VALIDATION_FAILED" } }] } };
-      if (!found || variables.slug !== "1a2b3c4d5e6f") return { body: { data: { projects: { nodes: [] } } } };
+      // project(id:) answers for the slug id and for the key alike.
+      if (!query.includes("project(id: $id)")) return { status: 400, body: { errors: [{ message: "Unknown operation", extensions: { code: "GRAPHQL_VALIDATION_FAILED" } }] } };
+      if (!found || (variables.id !== "1a2b3c4d5e6f" && variables.id !== "P-ZEN-391")) return { body: { data: { project: null }, errors: [{ message: "Entity not found: Project", extensions: { code: "INVALID_INPUT" } }] } };
       return {
         body: {
           data: {
-            projects: {
-              nodes: [
-                {
-                  name: found.name,
-                  status: { name: found.state },
-                  targetDate: found.targetDate,
-                  url: `${workspace}/project/${found.name.toLowerCase().replace(/\W+/g, "-")}-1a2b3c4d5e6f`,
-                  issues: { nodes: found.issues.map((x) => ({ identifier: x.key, title: x.title, url: `${workspace}/issue/${x.key}`, state: { name: x.state || "In Progress" } })) },
-                },
-              ],
+            project: {
+              name: found.name,
+              status: { name: found.state },
+              targetDate: found.targetDate,
+              url: `${workspace}/project/${found.name.toLowerCase().replace(/\W+/g, "-")}-1a2b3c4d5e6f`,
+              issues: { nodes: found.issues.map((x) => ({ identifier: x.key, title: x.title, url: `${workspace}/issue/${x.key}`, state: { name: x.state || "In Progress" } })) },
             },
           },
         },
@@ -369,17 +365,21 @@ describe("Linear (CONNECTORS-SPEC §14)", () => {
     });
     const asked = x.requests.filter((r) => r.query.startsWith("query Project("));
     expect(asked).toHaveLength(1);
-    expect(asked[0]!.variables).toEqual({ slug: "1a2b3c4d5e6f" });
+
+    expect(asked[0]!.variables).toEqual({ id: "1a2b3c4d5e6f" });
+    const byKey = await x.service.linearProject({ key: "p-zen-391" });
+    expect(byKey.name).toBe("Fresh context");
+    expect(x.requests.filter((r) => r.query.startsWith("query Project("))[1]!.variables).toEqual({ id: "P-ZEN-391" });
     expect(asked[0]!.query).toContain("status { name }");
-    expect(asked[0]!.query).toContain("nodes { name status { name } targetDate url issues(first: 100)");
+    expect(asked[0]!.query).toContain("project(id: $id) { name status { name } targetDate url issues(first: 100)");
     expect(asked.every((r) => /^query /.test(r.query) && !/\b(mutation|subscription)\b/.test(r.query))).toBe(true);
     expect(x.calls.every((c) => c.method === "POST" && c.url.href === api)).toBe(true);
   });
 
-  test("a project key never reaches the query, and a URL without a project is invalid", async () => {
+  test("text that is neither a project URL nor a key is invalid and never queried", async () => {
     const x = await connected([], undefined, { name: "Fresh", state: "started", targetDate: null, issues: [] });
-    await expect(x.service.linearProject({ url: "P-ZEN-391" })).rejects.toMatchObject({ code: "EXTERNAL_INVALID" });
     await expect(x.service.linearProject({ url: "https://linear.app/acme/issue/ZEN-1/x" })).rejects.toMatchObject({ code: "EXTERNAL_INVALID" });
+    await expect(x.service.linearProject({ key: "foo" })).rejects.toMatchObject({ code: "EXTERNAL_INVALID" });
     expect(x.requests.filter((r) => r.query.startsWith("query Project("))).toHaveLength(0);
   });
 
@@ -415,5 +415,22 @@ describe("Linear (CONNECTORS-SPEC §14)", () => {
     expect(found.connectionId).toBe(two.id);
     expect(projectAuth(fake)).toEqual(["lin_api_one", "lin_api_two"]);
     expect(one.id).not.toBe(two.id);
+  });
+
+  test("a not found from a working connection wins over a later auth failure; failed tokens are skipped", async () => {
+    let n = 0;
+    const fake = linear([], undefined, undefined, ["acme", "beta"]);
+    const inner = fake.fetchImpl;
+    const service = await env.service(async (input, init) => {
+      const body = String((init as { body?: string } | undefined)?.body || "");
+      if (body.includes("query Project(") && ++n === 2) return new Response(JSON.stringify({ errors: [{ message: "x", extensions: { code: "AUTHENTICATION_ERROR" } }] }), { status: 401, headers: { "content-type": "application/json" } });
+      return inner(input, init);
+    });
+    await service.save({ provider: "linear", secret: "lin_api_one" });
+    await service.save({ provider: "linear", secret: "lin_api_two" });
+    await expect(service.linearProject({ url: "https://linear.app/gamma/project/fresh-1a2b3c4d5e6f" })).rejects.toMatchObject({ code: "EXTERNAL_NOT_FOUND" });
+    // The second connection's token is now marked failed: a later read skips it.
+    await expect(service.linearProject({ url: "https://linear.app/gamma/project/fresh-1a2b3c4d5e6f" })).rejects.toMatchObject({ code: "EXTERNAL_NOT_FOUND" });
+    expect(n).toBe(3);
   });
 });

@@ -6,7 +6,7 @@ import { connectorProviderSchema, itemTypeSchema } from "./connectors";
 import { memoryKinds, memoryLimits } from "./memory";
 import { guardrailScopeSchema } from "./guardrails";
 import { agentSearchSources, searchLimits } from "./search";
-import { umbrellaContextSchema, umbrellaSummarySchema } from "./umbrella";
+import { parseLinearProject, umbrellaContextSchema, umbrellaSummarySchema } from "./umbrella";
 import {
   taskSchema,
   projectSchema,
@@ -714,7 +714,7 @@ export const createUmbrellaInputSchema = z.strictObject({
   brief: z.string().max(umbrellaLimits.brief).optional().describe("The initial brief only; no agent tool edits an existing brief."),
   linearProject: z
     .strictObject({ url: z.string().trim().min(1).max(2000), key: z.string().trim().max(100).optional(), name: z.string().trim().max(200).optional() })
-    .refine((v) => !/^P-[A-Za-z][A-Za-z0-9_]{0,30}-\d{1,9}$/i.test(v.url), { message: "Pass the project's URL (https://linear.app/<workspace>/project/<name>); a project key can't be read through the Linear API.", path: ["url"] })
+    .refine((v) => parseLinearProject(v.url) !== null, { message: "Pass a Linear project URL (https://linear.app/<workspace>/project/<name>) or a project key (P-<TEAM>-<number>).", path: ["url"] })
     .optional()
     .describe("A Linear project the umbrella follows (read-only; Flowly never writes to Linear)."),
   idempotencyKey: z

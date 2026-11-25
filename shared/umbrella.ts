@@ -264,9 +264,9 @@ export function umbrellaSummary(u: Umbrella, board: Pick<Board, "tasks" | "umbre
 /** The umbrella as `store.view()` readers get it: brief and contract text emptied (their revisions stay). */
 export const umbrellaViewOf = (u: Umbrella): Umbrella => ({ ...u, brief: { ...u.brief, text: "" }, contract: { ...u.contract, text: "" } });
 
-/** A bare project key is not a link the daemon can read; refused where the link is entered. */
+/** A project key as Linear shows it (P-ZEN-391); `project(id:)` reads it as it does a slug id. */
 export const isLinearProjectKey = (value: string) => /^P-[A-Za-z][A-Za-z0-9_]{0,30}-\d{1,9}$/i.test(value.trim());
-const projectLinkText = "Enter the project's URL (https://linear.app/<workspace>/project/<name>); a project key can't be read through the Linear API.";
+const projectLinkText = "Enter a Linear project URL (https://linear.app/<workspace>/project/<name>) or a project key (P-<TEAM>-<number>).";
 
 /** RPC inputs (UMBRELLA-SPEC §4.4); the user's edits from the panel. */
 const titleInput = z.string().trim().min(1).max(umbrellaLimits.title);
@@ -276,7 +276,7 @@ const linearProjectInput = z
     key: z.string().trim().max(100).optional(),
     name: z.string().trim().max(200).optional(),
   })
-  .refine((v) => !isLinearProjectKey(v.url), { message: projectLinkText, path: ["url"] });
+  .refine((v) => parseLinearProject(v.url) !== null, { message: projectLinkText, path: ["url"] });
 /** The link or path the user keeps the brief in (D4). */
 const briefSourceInput = z.string().trim().min(1).max(500);
 export const umbrellaCreateInput = z.strictObject({
@@ -547,11 +547,12 @@ export function umbrellaStartLine(board: Pick<Board, "umbrellas">, task: Task): 
 export const linearProjectIssueLimit = 100;
 
 /**
- * The Linear project link the user entered (§10): a `https://linear.app/<ws>/project/<slug>` URL; null for anything else.
- * A project key (P-ZEN-391) is null too: the public Linear API can't resolve one.
+ * The Linear project the user entered (§10): a `https://linear.app/<ws>/project/<slug>` URL or a project key
+ * (P-ZEN-391); null for anything else.
  */
-export function parseLinearProject(input: string): { url: string } | null {
+export function parseLinearProject(input: string): { url?: string; key?: string } | null {
   const text = input.trim();
+  if (isLinearProjectKey(text)) return { key: text.toUpperCase() };
   try {
     const url = new URL(text);
     if (url.protocol !== "https:" || url.hostname !== "linear.app" || url.username || url.password) return null;

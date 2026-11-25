@@ -84,7 +84,7 @@ export function linearProjectErrorText(code: string): string {
     case "EXTERNAL_UNAVAILABLE":
       return t("Linear is unreachable right now. Reopen the umbrella to try again.");
     case "EXTERNAL_INVALID":
-      return t("This umbrella's Linear link must be a project URL (https://linear.app/<workspace>/project/<name>); a project key can't be read.");
+      return t("This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).");
     default:
       return t("Flowly could not read this Linear project.");
   }

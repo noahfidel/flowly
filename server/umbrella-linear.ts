@@ -16,16 +16,15 @@ export type UmbrellaLinear = {
   suggested: SuggestedMember[];
 };
 
-type ProjectReader = (ref: { url: string }) => Promise<{ connectionId: string; name: string; state: string; targetDate: string | null; url: string; issues: LinearProjectIssue[] }>;
+type ProjectReader = (ref: { url?: string; key?: string }) => Promise<{ connectionId: string; name: string; state: string; targetDate: string | null; url: string; issues: LinearProjectIssue[] }>;
 
 export async function readUmbrellaLinear(board: Board, id: string, read: ProjectReader): Promise<UmbrellaLinear> {
   const umbrella = board.umbrellas.find((u) => u.id === id);
   if (!umbrella) throw new ToolError("NOT_FOUND", "No umbrella with that id.");
   const stored = umbrella.linearProject;
   if (!stored) throw new ToolError("NOT_FOUND", "This umbrella has no Linear project.");
-  // Only a project URL resolves; a key can't be read through the public Linear API.
-  const ref = parseLinearProject(stored.url);
-  if (!ref) throw new ToolError("EXTERNAL_INVALID", "The umbrella's Linear project is not a project URL.");
+  const ref = parseLinearProject(stored.url) ?? (stored.key ? parseLinearProject(stored.key) : null);
+  if (!ref) throw new ToolError("EXTERNAL_INVALID", "The umbrella's Linear project is not a project URL or key.");
   try {
     const found = await read(ref);
     const memberIds = new Set(membersOf(board, id).map((t) => t.id));

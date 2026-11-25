@@ -435,23 +435,24 @@ test("the integration card's first instructions ask for the end-to-end check", (
   expect(umbrellaStartLine(board, board.tasks.find((t) => t.id === "a")!)).not.toContain("integration card");
 });
 
-test("parseLinearProject reads a project URL; a key or another link is refused", () => {
+test("parseLinearProject reads a project URL and a P- key; other text is refused", () => {
   expect(parseLinearProject("https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f")).toEqual({ url: "https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f" });
   expect(parseLinearProject("  https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f/overview ")).toEqual({ url: "https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f/overview" });
-  expect(parseLinearProject("P-ZEN-391")).toBeNull();
-  expect(parseLinearProject("p-zen-391")).toBeNull();
+  expect(parseLinearProject("P-ZEN-391")).toEqual({ key: "P-ZEN-391" });
+  expect(parseLinearProject("p-zen-391")).toEqual({ key: "P-ZEN-391" });
+  expect(parseLinearProject("foo")).toBeNull();
   expect(parseLinearProject("https://linear.app/acme/issue/ZEN-1/x")).toBeNull();
   expect(parseLinearProject("https://evil.test/acme/project/x-1")).toBeNull();
   expect(parseLinearProject("ZEN-391")).toBeNull();
   expect(parseLinearProject("")).toBeNull();
 });
 
-test("a project key is refused where the link is entered", () => {
-  const ok = umbrellaCreateInput.safeParse({ groupId: "g", title: "T", linearProject: { url: "https://linear.app/acme/project/fresh-1a2b3c4d5e6f" } });
-  expect(ok.success).toBe(true);
-  const key = umbrellaCreateInput.safeParse({ groupId: "g", title: "T", linearProject: { url: "P-ZEN-391" } });
-  expect(key.success).toBe(false);
-  expect(umbrellaUpdateInput.safeParse({ id: "u", revision: 1, linearProject: { url: " p-zen-391 " } }).success).toBe(false);
+test("entry accepts a project URL or a P- key and refuses other text", () => {
+  const entry = (url: string) => umbrellaCreateInput.safeParse({ groupId: "g", title: "T", linearProject: { url } }).success;
+  expect(entry("https://linear.app/acme/project/fresh-1a2b3c4d5e6f")).toBe(true);
+  expect(entry("P-ZEN-391")).toBe(true);
+  expect(entry("foo")).toBe(false);
+  expect(umbrellaUpdateInput.safeParse({ id: "u", revision: 1, linearProject: { url: "foo" } }).success).toBe(false);
   expect(umbrellaUpdateInput.safeParse({ id: "u", revision: 1, linearProject: null }).success).toBe(true);
 });
 

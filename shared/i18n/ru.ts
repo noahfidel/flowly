@@ -1941,7 +1941,7 @@ const catalog: Catalog = {
   "Make card": "Создать карточку",
   "Linear issues without a card": "Задачи Linear без карточки",
   "Cards that may belong here": "Карточки, которые могут относиться сюда",
-  "This umbrella's Linear link must be a project URL (https://linear.app/<workspace>/project/<name>); a project key can't be read.": "Ссылка Linear этого зонтичного проекта должна быть URL проекта (https://linear.app/<workspace>/project/<name>); ключ проекта прочитать нельзя.",
   "Showing the first {n} issues": "Показаны первые {n} задач",
+  "This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).": "Проект Linear этого зонтичного проекта не является ни URL проекта, ни ключом проекта (P-<TEAM>-<number>).",
 };
 export default catalog;

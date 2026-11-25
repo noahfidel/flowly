@@ -3,7 +3,7 @@ import { classifyQuery, connectorLimits, issueKey, linearItemUrl, type ExternalS
 import { ExternalError, ReadOnlyHttp, cut, mapLimit, retryAfter, type Fetch, type StoredConnection } from "./http";
 import { withDiscussion } from "./fingerprint";
 import type { ConnectorAdapter, Fetched, ItemRef } from "./types";
-import { linearProjectIssueLimit } from "../../shared/umbrella";
+import { isLinearProjectKey, linearProjectIssueLimit } from "../../shared/umbrella";
 import type { LinearIssueRow, LinearState, LinearTeam } from "../../shared/linear-board";
 
 /**
@@ -57,8 +57,8 @@ const scopeQuery = `query Scope($filter: IssueFilter, $first: Int, $after: Strin
 const statesQuery = "query States($filter: WorkflowStateFilter, $first: Int) { workflowStates(filter: $filter, first: $first) { nodes { id name type position team { id } } } }";
 const teamsQuery = "query Teams($first: Int) { teams(first: $first) { nodes { id key name } } }";
 
-/** One project by its slug id (UMBRELLA-SPEC §10), read-only: `project(id:)` is documented for the UUID only, `slugId` is a filter field. */
-const projectQuery = `query Project($slug: String!) { projects(filter: { slugId: { eq: $slug } }, first: 1) { nodes { name status { name } targetDate url issues(first: ${linearProjectIssueLimit}) { nodes { identifier title url state { name } } } } } }`;
+/** One project (UMBRELLA-SPEC §10), read-only: `project(id:)` takes the UUID, the slug id or the human-readable key, and finds archived projects too. */
+const projectQuery = `query Project($id: String!) { project(id: $id) { name status { name } targetDate url issues(first: ${linearProjectIssueLimit}) { nodes { identifier title url state { name } } } } }`;
 
 /** Seconds to wait: Retry-After, else the request window's reset (UTC epoch milliseconds). */
 function waitFor(headers: Headers) {
@@ -274,20 +274,25 @@ export function projectSlugId(url: string): string | null {
   }
 }
 
-/** A project's name, state, target date and issues, with one read-only query (UMBRELLA-SPEC §10). Only a project URL resolves. */
-export async function readProject(connection: StoredConnection, fetchImpl: Fetch, ref: { url: string }): Promise<LinearProject> {
-  const slug = projectSlugId(ref.url);
-  if (!slug) throw new ExternalError("EXTERNAL_INVALID", "That is not a Linear project link.");
-  type Reply = { projects?: { nodes?: { name?: string; status?: { name?: string } | null; targetDate?: string | null; url?: string; issues?: { nodes?: LinearIssue[] } | null }[] } | null };
-  const { data, errors, headers } = await graphql<Reply>(connection, fetchImpl, projectQuery, { slug });
-  if (!data?.projects && errors.length) throw graphqlError(errors, headers);
-  const project = data?.projects?.nodes?.[0];
-  if (!project) throw new ExternalError("EXTERNAL_NOT_FOUND", "Not found, or this account can't see it.");
+/** The id `project(id:)` takes: the key as given (upper case), else the slug id ending a project URL's slug; null when neither. */
+function projectId(ref: { url?: string; key?: string }): string | null {
+  if (ref.key && isLinearProjectKey(ref.key)) return ref.key.trim().toUpperCase();
+  return ref.url ? projectSlugId(ref.url) : null;
+}
+
+/** A project's name, status, target date and issues, with one read-only query (UMBRELLA-SPEC §10). */
+export async function readProject(connection: StoredConnection, fetchImpl: Fetch, ref: { url?: string; key?: string }): Promise<LinearProject> {
+  const id = projectId(ref);
+  if (!id) throw new ExternalError("EXTERNAL_INVALID", "That is not a Linear project link or key.");
+  type Reply = { project?: { name?: string; status?: { name?: string } | null; targetDate?: string | null; url?: string; issues?: { nodes?: LinearIssue[] } | null } | null };
+  const { data, errors, headers } = await graphql<Reply>(connection, fetchImpl, projectQuery, { id });
+  const project = data?.project;
+  if (!project) throw errors.length ? graphqlError(errors, headers) : new ExternalError("EXTERNAL_NOT_FOUND", "Not found, or this account can't see it.");
   return {
     name: text(project.name),
     state: text(project.status?.name),
     targetDate: text(project.targetDate) || null,
-    url: text(project.url) || ref.url,
+    url: text(project.url) || ref.url || "",
     issues: (project.issues?.nodes || [])
       .filter((i) => i?.identifier)
       .map((i) => ({

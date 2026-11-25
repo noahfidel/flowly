@@ -536,29 +536,33 @@ export class ConnectorService {
   }
 
   /**
-   * A Linear project (UMBRELLA-SPEC §10), read-only, by its URL. With `connectionId` only that connection reads it.
-   * Otherwise the Linear connections whose workspace is the URL's `/<ws>/` segment come first (when none matches, all
-   * do), working tokens before failed ones, and each is tried in turn while the project is not found for it.
+   * A Linear project (UMBRELLA-SPEC §10), read-only, by URL or key. With `connectionId` only that connection reads it.
+   * Otherwise connections whose token failed are skipped, and those whose workspace is the URL's `/<ws>/` segment come
+   * first (when none matches, all do); each is tried in turn while the project is not found for it. A later auth
+   * failure never hides a "not found" a working connection gave.
    */
-  async linearProject(input: { connectionId?: string; url: string }) {
+  async linearProject(input: { connectionId?: string; url?: string; key?: string }) {
     const all = (await this.connections.all()).filter((c) => familyOf(c.provider) === "linear");
-    let candidates = input.connectionId ? [await this.linear(input.connectionId)] : all;
-    if (!input.connectionId) {
+    let candidates = input.connectionId ? [await this.linear(input.connectionId)] : all.filter((c) => !c.authFailed);
+    if (!input.connectionId && input.url) {
       const workspace = linearWorkspaceOf(input.url);
-      const same = workspace ? all.filter((c) => linearWorkspaceOf(c.baseUrl) === workspace) : [];
-      candidates = [...(same.length ? same : all)].sort((a, b) => Number(!!a.authFailed) - Number(!!b.authFailed));
+      const same = workspace ? candidates.filter((c) => linearWorkspaceOf(c.baseUrl) === workspace) : [];
+      if (same.length) candidates = same;
     }
-    if (!candidates.length) throw new ExternalError("EXTERNAL_NOT_FOUND", "No Linear connection is set up in Flowly.");
-    let last: unknown;
+    if (!candidates.length)
+      throw all.length ? new ExternalError("EXTERNAL_AUTH", "Linear refused the token. Update the connection in Flowly settings.") : new ExternalError("EXTERNAL_NOT_FOUND", "No Linear connection is set up in Flowly.");
+    let notFound: ExternalError | undefined;
+    let refused: ExternalError | undefined;
     for (const connection of candidates) {
       try {
-        return { connectionId: connection.id, ...(await this.call(connection.id, (c) => readProject(c, this.fetchImpl, { url: input.url }))) };
+        return { connectionId: connection.id, ...(await this.call(connection.id, (c) => readProject(c, this.fetchImpl, { url: input.url, key: input.key }))) };
       } catch (error) {
-        last = error;
-        if (!(error instanceof ExternalError && error.code === "EXTERNAL_NOT_FOUND")) throw error;
+        if (!(error instanceof ExternalError) || (error.code !== "EXTERNAL_NOT_FOUND" && error.code !== "EXTERNAL_AUTH")) throw error;
+        if (error.code === "EXTERNAL_NOT_FOUND") notFound ??= error;
+        else refused ??= error;
       }
     }
-    throw last;
+    throw notFound ?? refused!;
   }
 
   /** The teams a Linear connection's key can see. */
