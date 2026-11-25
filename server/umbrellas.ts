@@ -58,7 +58,7 @@ export function createUmbrella(store: BoardStore, input: UmbrellaCreateInput & {
       id: randomUUID(),
       groupId: input.groupId,
       title: input.title,
-      brief: { text: brief, revision: brief ? 1 : 0, updatedAt: now, updatedBy: by },
+      brief: { text: brief, revision: brief ? 1 : 0, updatedAt: now, updatedBy: by, ...(input.briefSource ? { source: input.briefSource } : {}) },
       contract: { text: "", revision: 0, updatedAt: now, updatedBy: by },
       acceptance: [],
       ...(input.linearProject ? { linearProject: input.linearProject } : {}),
@@ -89,6 +89,11 @@ export function updateUmbrella(store: BoardStore, input: UmbrellaUpdateInput, by
     }
     if (input.brief !== undefined && input.brief !== u.brief.text) {
       u.brief = { ...u.brief, text: input.brief, revision: u.brief.revision + 1, updatedAt: now, updatedBy: by };
+      changed = true;
+    }
+    if (input.briefSource !== undefined && input.briefSource !== (u.brief.source ?? null)) {
+      if (input.briefSource === null) delete u.brief.source;
+      else u.brief.source = input.briefSource;
       changed = true;
     }
     if (input.contract !== undefined && input.contract !== u.contract.text) {

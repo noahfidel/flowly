@@ -83,10 +83,13 @@ const linearProjectInput = z.strictObject({
   key: z.string().trim().max(100).optional(),
   name: z.string().trim().max(200).optional(),
 });
+/** The link or path the user keeps the brief in (D4). */
+const briefSourceInput = z.string().trim().min(1).max(500);
 export const umbrellaCreateInput = z.strictObject({
   groupId: z.string().min(1).max(200),
   title: titleInput,
   brief: z.string().max(umbrellaLimits.brief).optional(),
+  briefSource: briefSourceInput.nullable().optional(),
   linearProject: linearProjectInput.optional(),
 });
 export type UmbrellaCreateInput = z.infer<typeof umbrellaCreateInput>;
@@ -95,6 +98,8 @@ export const umbrellaUpdateInput = z.strictObject({
   revision: z.number().int(),
   title: titleInput.optional(),
   brief: z.string().max(umbrellaLimits.brief).optional(),
+  /** null clears it; changing it bumps `revision`, not the brief's revision. */
+  briefSource: briefSourceInput.nullable().optional(),
   contract: z.string().max(umbrellaLimits.contract).optional(),
   /** The whole list; an item without `id` is new, an unchanged one keeps its author. */
   acceptance: z

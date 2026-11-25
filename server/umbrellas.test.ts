@@ -274,3 +274,21 @@ test("an integration card that leaves its umbrella is no longer its integration 
   await setMembership(store, { taskId: "b", umbrellaId: null }, human);
   expect((await store.read()).umbrellas[1].revision).toBe(1);
 });
+
+test("briefSource sets, keeps and clears the brief's source link without a brief revision", async () => {
+  const store = await setup();
+  const u = await createUmbrella(store, { groupId: "A", title: "U", brief: "Goal", briefSource: "https://example.com/pitch" }, human);
+  expect(u.brief).toMatchObject({ text: "Goal", revision: 1, source: "https://example.com/pitch" });
+  const moved = await updateUmbrella(store, { id: u.id, revision: 1, briefSource: "~/notes/pitch.md" }, human);
+  expect(moved).toMatchObject({ revision: 2, brief: { revision: 1, source: "~/notes/pitch.md" } });
+  // Undefined leaves it; the same value is no edit.
+  expect(await updateUmbrella(store, { id: u.id, revision: 2, title: "Renamed" }, human)).toMatchObject({ revision: 3, brief: { source: "~/notes/pitch.md" } });
+  expect(await updateUmbrella(store, { id: u.id, revision: 3, briefSource: "~/notes/pitch.md" }, human)).toMatchObject({ revision: 3 });
+  const cleared = await updateUmbrella(store, { id: u.id, revision: 3, briefSource: null }, human);
+  expect(cleared.revision).toBe(4);
+  expect(cleared.brief).not.toHaveProperty("source");
+  expect(cleared.brief.revision).toBe(1);
+  expect(updateRpc.input.safeParse({ id: u.id, revision: 4, briefSource: "x".repeat(501) }).success).toBe(false);
+  expect(createRpc.input.safeParse({ groupId: "A", title: "T", briefSource: "x".repeat(500) }).success).toBe(true);
+  expect(createRpc.input.safeParse({ groupId: "A", title: "T", briefSource: "x".repeat(501) }).success).toBe(false);
+});
