@@ -433,6 +433,7 @@ function MoreFeatures() {
     { icon: "GitPullRequest", title: t("Delivery mode"), text: t("Choose per card, with a default in Settings → Workflow, whether its agent leaves the work on a branch for you to review or pushes it as a draft or ready PR. Pushing still asks you first.") },
     { icon: "GitMerge", title: t("Pull requests"), text: t("Every PR on the board in one list, under N PRs above the board; each row opens its card or the PR.") },
     { icon: "Layers", title: t("Board groups"), text: t("Projects sit in boards. Each group has its own tab, dispatcher and defaults; add a group from the project switcher.") },
+    { icon: "Umbrella", title: t("Umbrellas"), text: t("Umbrellas (epics): group cards for one body of work under a shared brief and decisions feed.") },
     { icon: "Bot", title: t("Dispatcher"), text: t("One agent for all your projects, in a chat next to the board. It hears when cards stop, makes and starts cards for what you ask, and tells you what needs you.") },
     { icon: "FileText", title: t("Start prompt"), text: t("Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.") },
     { icon: "BookMarked", title: t("Memory"), text: t("Agents remember the project's decisions, pitfalls and conventions; new sessions see them. Open Memory to pin, edit or archive them.") },

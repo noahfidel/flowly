@@ -107,6 +107,8 @@ Insights shows a year of the project's activity, GitHub style: one square per da
 
 Projects sit in boards. Each group has its own tab, its own dispatcher and its own defaults for the agent model, the delivery mode and the dispatcher's model; a group's board shows its projects' cards together, with a project filter. Insights, Ideas and Memory cover the whole group until you filter to one project; each entry names its project. Flowly reopens the group and filter you last used, also after a restart. Add groups from the project switcher.
 
+**Umbrellas** (epics) group the cards of one body of work, from any of the group's projects, under a shared brief, a contract between them, a feed of decisions and questions, and an acceptance list. Member agents read all of it in their task context and add what their siblings need to know; you edit the brief and contract and answer questions in the umbrella panel (the umbrella button above the board). Filter the board by umbrella, or hide its chip on the cards.
+
 ## Languages
 
 The interface follows your device language, or pick one in **Flowly settings → Language**: English, 简体中文, 繁體中文, 日本語, 한국어, Español, Français, Deutsch, Português (Brasil) and Русский. Agent instructions, daemon error details and the text agents and summaries write are not translated. AI-written text (summaries, the daily digest, Workflow insights, suggested next steps and ideas) has its own language, **Flowly settings → AI features → AI output language**; it follows the interface language until you pick one.

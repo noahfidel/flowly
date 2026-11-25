@@ -28,6 +28,7 @@ const snapshot: TelemetrySnapshot = {
   projects: 3,
   guardrails: 7,
   cardsOpen: 12,
+  umbrellasOpen: 6,
 };
 
 const event = (action: string, at: string, extra: Partial<FlowEntry> = {}): FlowEntry => ({ id: `${action}-${at}-${Math.random()}`, at, taskId: "t1", actor: "agent", action, ...extra });
@@ -35,12 +36,12 @@ const event = (action: string, at: string, extra: Partial<FlowEntry> = {}): Flow
 /** The exact §4 whitelist (window_days only after a gap of more than 7 days). */
 const expectedKeys = [
   "$process_person_profile", "$geoip_disable", "flowly_version", "node_major", "os", "arch", "ui_language", "ui_locale", "ai_language",
-  "f_memory", "f_insights", "f_ideas", "f_artifacts", "f_outside_sessions", "f_auto_status", "f_auto_wrapup", "f_archive_on_delete", "f_workflow_insights", "f_summary", "f_auto_review",
+  "f_memory", "f_insights", "f_ideas", "f_artifacts", "f_outside_sessions", "f_auto_status", "f_auto_wrapup", "f_archive_on_delete", "f_workflow_insights", "f_summary", "f_auto_review", "f_umbrellas",
   "projects", "cards_open", "c_guardrails",
-  "c_cards_created", "c_turns", "c_deliveries", "c_next_moves", "c_next_moves_picked", "c_ideas_proposed", "c_ideas_accepted", "c_ideas_dismissed", "c_memory_proposed", "c_memory_confirmed", "c_wrapups", "c_reviews", "c_reviews_failed", "c_user_actions", "models",
+  "c_cards_created", "c_turns", "c_deliveries", "c_next_moves", "c_next_moves_picked", "c_ideas_proposed", "c_ideas_accepted", "c_ideas_dismissed", "c_memory_proposed", "c_memory_confirmed", "c_wrapups", "c_reviews", "c_reviews_failed", "c_user_actions", "c_umbrella_entries", "models",
 ].sort();
 
-function harness(directory: string, options: { env?: NodeJS.ProcessEnv; apiKey?: string; enabled?: () => Promise<boolean>; status?: number; throws?: boolean; now?: () => number; events?: FlowEntry[] } = {}) {
+function harness(directory: string, options: { env?: NodeJS.ProcessEnv; apiKey?: string; enabled?: () => Promise<boolean>; status?: number; throws?: boolean; now?: () => number; events?: FlowEntry[]; umbrellaEntriesAt?: string[] } = {}) {
   const calls: { url: string; body: { api_key: string; event: string; distinct_id: string; properties: Record<string, unknown> } }[] = [];
   let enabled = true;
   const service = new TelemetryService({
@@ -50,7 +51,7 @@ function harness(directory: string, options: { env?: NodeJS.ProcessEnv; apiKey?:
     now: options.now ?? (() => NOW),
     enabled: options.enabled ?? (async () => enabled),
     snapshot: async () => snapshot,
-    activity: async () => ({ events: options.events ?? [], memoryConfirmedAt: [] }),
+    activity: async () => ({ events: options.events ?? [], memoryConfirmedAt: [], umbrellaEntriesAt: options.umbrellaEntriesAt ?? [] }),
     fetch: (async (url: string, init: { body: string }) => {
       calls.push({ url, body: JSON.parse(init.body) });
       if (options.throws) throw new Error("offline");
@@ -233,4 +234,24 @@ test("§9-8: an invalid telemetry.json is kept aside and replaced", async () => 
 test("buckets", () => {
   expect([0, 1, 2, 5, 6, 20, 21, 100, 101].map(bucket)).toEqual(["0", "1", "2-5", "2-5", "6-20", "6-20", "21-100", "21-100", "100+"]);
   expect(Object.keys(heartbeatProperties(snapshot, countWindow([], [], 0, 1)))).not.toContain("window_days");
+});
+
+test("f_umbrellas is the bucketed open umbrella count", async () => {
+  const { service, calls } = harness(await dir());
+  await service.check();
+  expect(calls[0].body.properties.f_umbrellas).toBe("6-20");
+  expect(heartbeatProperties({ ...snapshot, umbrellasOpen: 0 }, countWindow([], [], 0, 1)).f_umbrellas).toBe("0");
+});
+
+test("c_umbrella_entries counts entries created in the window", async () => {
+  const root = await dir();
+  await writeFile(join(root, "telemetry.json"), JSON.stringify({ installId: "6f1d3f1e-8a1c-4d7f-9a59-1d2f7c9b3c11", lastSentAt: new Date(NOW - 2 * 24 * HOUR).toISOString(), windowStart: new Date(NOW - 24 * HOUR).toISOString() }));
+  // A user entry records no Activity event: the count reads the entries' own createdAt, not the flow log.
+  const inside = [new Date(NOW - HOUR).toISOString(), new Date(NOW - 2 * HOUR).toISOString()];
+  const before = new Date(NOW - 30 * HOUR).toISOString();
+  const { service, calls } = harness(root, { umbrellaEntriesAt: [...inside, before] });
+  expect(await service.check()).toBe("sent");
+  expect(calls[0].body.properties.c_umbrella_entries).toBe(2);
+  expect(calls[0].body.properties.c_user_actions).toBe(0);
+  expect(countWindow([], [], 0, NOW, inside).c_umbrella_entries).toBe(2);
 });

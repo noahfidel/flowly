@@ -107,6 +107,7 @@ Content-Type: application/json
 | `f_workflow_insights` | `workflow-insights.enabled`, with Insights on (Workflow insights is a host-level switch, not per project) | Boolean |
 | `f_summary` | `task-summary.summaryEnabled` | Boolean |
 | `f_auto_review` | Whether any non-archived project has Auto review on (`project.autoReview.enabled`, AUTO-REVIEW-SPEC) | Boolean |
+| `f_umbrellas` | The number of umbrellas that are open and not archived (UMBRELLA-SPEC §14), bucketed per §4.5 | A snapshot at send time, not a window count; umbrellas have no switch (UMBRELLA-SPEC D10), so this says how much they are used |
 | `projects` | The number of non-archived projects, bucketed per §4.5 | |
 | `c_guardrails` | The total number of active guidelines in non-archived projects (`kind: "guideline"`, `state: "active"` in `guardrails.json`, GUARDRAILS-SPEC §10), bucketed per §4.5; numbers only, no text | A snapshot at send time, not a window count |
 | `cards_open` | The number of cards in all projects that are non-archived and not in Done/Cancelled, bucketed per §4.5 | |
@@ -115,7 +116,7 @@ A new setting **does not** enter the heartbeat automatically. To add a field, th
 
 ### 4.3 Counts (within the window)
 
-The window is `[windowStart, send time)`. The data comes from `flow/<projectId>.jsonl`, not from the events in `board.json` (only 100 per card are kept, see this pitfall in the project memory), plus the memos in `guardrails.json`. The numbers of all projects are added together:
+The window is `[windowStart, send time)`. The data comes from `flow/<projectId>.jsonl`, not from the events in `board.json` (only 100 per card are kept, see this pitfall in the project memory), plus the memos in `guardrails.json` and the umbrella entries' `createdAt` on the board (`c_umbrella_entries`). The numbers of all projects are added together:
 
 | Field | What is counted |
 |---|---|
@@ -129,6 +130,7 @@ The window is `[windowStart, send time)`. The data comes from `flow/<projectId>.
 | `c_wrapups` | `wrapped_up` |
 | `c_reviews` / `c_reviews_failed` | `review_finished` carrying `results` / the number of times one of them has a gating item (`gating` is not `false`) with `state = failed` (AUTO-REVIEW-SPEC) |
 | `c_user_actions` | Events with `actor = human`, plus `agent.turn_ended` with `byUser` (a message sent by the user). `> 0` means someone actually used this install within the window, and it is the basis of DAU (§8) |
+| `c_umbrella_entries` | Umbrella feed entries whose `createdAt` falls in the window, by anyone (agent, dispatcher or user; UMBRELLA-SPEC §14). Read from the board's `umbrellaEntries`, not the flow log: the user's own entries record no Activity event |
 | `models` | A count table of `agent.turn_ended.model`, for example `{"claude/claude-sonnet-5-5": 12}` |
 
 Limits on `models`:

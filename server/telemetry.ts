@@ -75,11 +75,22 @@ export type WindowCounts = {
   c_reviews: number;
   c_reviews_failed: number;
   c_user_actions: number;
+  /** Umbrella feed entries created in the window, by anyone (UMBRELLA-SPEC §14). */
+  c_umbrella_entries: number;
   models: Record<string, number>;
 };
 
-/** Window counts from the untrimmed flow logs and memory confirmations, `[start, end)` (§4.3). */
-export function countWindow(events: readonly FlowEntry[], memoryConfirmedAt: readonly string[], start: number, end: number): WindowCounts {
+/**
+ * Window counts from the untrimmed flow logs, memory confirmations and umbrella entries' `createdAt`, `[start, end)`
+ * (§4.3). Umbrella entries are read from the board itself: the user's own entries record no Activity event.
+ */
+export function countWindow(
+  events: readonly FlowEntry[],
+  memoryConfirmedAt: readonly string[],
+  start: number,
+  end: number,
+  umbrellaEntriesAt: readonly string[] = [],
+): WindowCounts {
   const inside = (at: string) => {
     const t = Date.parse(at);
     return t >= start && t < end;
@@ -99,6 +110,7 @@ export function countWindow(events: readonly FlowEntry[], memoryConfirmedAt: rea
     c_reviews: 0,
     c_reviews_failed: 0,
     c_user_actions: 0,
+    c_umbrella_entries: 0,
     models: {},
   };
   const models = new Map<string, number>();
@@ -128,6 +140,7 @@ export function countWindow(events: readonly FlowEntry[], memoryConfirmedAt: rea
     }
   }
   c.c_memory_confirmed = memoryConfirmedAt.filter(inside).length;
+  c.c_umbrella_entries = umbrellaEntriesAt.filter(inside).length;
   for (const key of Object.keys(c) as (keyof WindowCounts)[]) {
     if (key !== "models") c[key] = Math.min(COUNT_CAP, c[key] as number);
   }
@@ -175,6 +188,8 @@ export type TelemetrySnapshot = {
   /** Active guidelines across unarchived projects (GUARDRAILS-SPEC §10). */
   guardrails: number;
   cardsOpen: number;
+  /** Open, unarchived umbrellas (UMBRELLA-SPEC §14). */
+  umbrellasOpen: number;
 };
 
 /** The heartbeat's properties: exactly the §4 whitelist. */
@@ -200,6 +215,7 @@ export function heartbeatProperties(s: TelemetrySnapshot, counts: WindowCounts, 
     f_workflow_insights: s.features.workflowInsights,
     f_summary: s.features.summary,
     f_auto_review: s.features.autoReview,
+    f_umbrellas: bucket(s.umbrellasOpen),
     projects: bucket(s.projects),
     c_guardrails: bucket(s.guardrails),
     cards_open: bucket(s.cardsOpen),
@@ -261,7 +277,8 @@ export type TelemetryDeps = {
   enabled(): Promise<boolean>;
   snapshot(): Promise<TelemetrySnapshot>;
   /** Flow-log entries of every project, and when each active note became active. */
-  activity(): Promise<{ events: FlowEntry[]; memoryConfirmedAt: string[] }>;
+  /** `umbrellaEntriesAt`: every umbrella entry's `createdAt`, from the full board (its view holds no entries). */
+  activity(): Promise<{ events: FlowEntry[]; memoryConfirmedAt: string[]; umbrellaEntriesAt?: string[] }>;
 };
 
 export type CheckResult = "sent" | "off" | "not-due" | "failed";
@@ -403,7 +420,7 @@ export class TelemetryService {
     const gap = now - start;
     const from = gap > MAX_WINDOW ? now - MAX_WINDOW : start;
     const [snapshot, activity] = await Promise.all([this.deps.snapshot(), this.deps.activity()]);
-    const counts = countWindow(activity.events, activity.memoryConfirmedAt, from, now);
+    const counts = countWindow(activity.events, activity.memoryConfirmedAt, from, now, activity.umbrellaEntriesAt);
     const properties = heartbeatProperties(snapshot, counts, gap > MAX_WINDOW ? Math.ceil(gap / DAY) : undefined);
     const sent = await this.post({ event: "flowly_heartbeat", distinct_id: state.installId, timestamp: new Date(now).toISOString(), properties });
     if (!sent) return "failed";

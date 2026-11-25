@@ -173,7 +173,8 @@ import {
   type BoardIntent,
 } from "./shortcuts";
 import { ConceptStrip, GuideBanner, WelcomeTour, useOnboarding } from "./onboarding";
-import { noTipFacts, nextTip, settingsHintDue, welcomeDecision, type TipId } from "./onboarding-logic";
+import { noTipFacts, nextTip, settingsHintDue, umbrellaFirstFact, welcomeDecision, type TipId } from "./onboarding-logic";
+import { UmbrellaModal, UmbrellaPage } from "./umbrella-panel";
 import { latestRelease, whatsNew, whatsNewDecision, type WhatsNewItem } from "./whats-new";
 import { WhatsNewWindow } from "./whats-new-window";
 import { t, tn } from "../shared/i18n";
@@ -214,6 +215,7 @@ const tipText: Record<TipId, (compact?: boolean) => string> = {
   "lane-swipe": () => t("Swipe left or right to switch lanes."),
   "card-double-click": () => t("Double-click a card to jump straight into its active session."),
   "pr-menu": () => t("Every pull request on this board, and the card that owns it, is one click away under N PRs."),
+  "umbrella-first": () => t("Several related cards? Put them under one umbrella so they share a brief."),
   "double-tap-ctrl": () => t("Double-tap Ctrl anywhere in Paseo to open Flowly. Turn it off in Settings → General."),
   "card-display": (compact) => compact
     // Compact puts the Sort choices and Card display… in the Filters dialog.
@@ -405,7 +407,10 @@ function BoardContent(
     [escapeRequest, setEscapeRequest] = useState<{ taskId: string; key: string } | null>(null),
     [prRequest, setPrRequest] = useState<{ taskId: string; key: string } | null>(null),
     // Project-level page over the board area: Insights or Ideas (IDEAS-INBOX-SPEC §3.3).
-    [page, setPage] = useState<"insights" | "ideas" | "guardrails" | "memory" | "search" | null>(null),
+    [page, setPage] = useState<"insights" | "ideas" | "guardrails" | "memory" | "search" | "umbrellas" | null>(null),
+    // The umbrella panel (UMBRELLA-SPEC §7): the umbrella shown in it (null: the list); a page on desktop, a Modal on phones.
+    [umbrellaPick, setUmbrellaPick] = useState<string | null>(null),
+    [umbrellaModal, setUmbrellaModal] = useState(false),
     // The dispatcher chat (DISPATCHER-SPEC §9.3): mounted on first open, then hidden rather than unmounted.
     [chat, setChat] = useState<{ open: boolean; mounted: boolean }>({ open: false, mounted: false }),
     // Search page (SEARCH-SPEC §5): the text it opens with and a key that remounts it for a new seed.
@@ -1160,8 +1165,29 @@ function BoardContent(
         .map((u) => ({ value: u.id, label: u.title })),
     [projected?.umbrellas, group?.id, umbrellaFilter],
   );
-  // Task 7 fills this in with the umbrella panel; until then the drawer shows no Open umbrella link.
-  const openUmbrellaPanel: ((id: string) => void) | undefined = undefined;
+  // The umbrella panel (UMBRELLA-SPEC §7), on the list or on one umbrella; opening it acts on the umbrella-first tip.
+  const showUmbrellas = useStableCallback((id: string | null) => {
+    setUmbrellaPick(id);
+    if (compact) setUmbrellaModal(true);
+    else {
+      ignoredLink.current = linkKey;
+      setPage("umbrellas");
+    }
+    if (onboarding.values && !onboarding.values.tipsSeen.includes("umbrella-first")) void onboarding.markTipSeen("umbrella-first");
+  });
+  const openUmbrellaPanel = useStableCallback((id: string) => showUmbrellas(id));
+  const closeUmbrellas = useStableCallback(() => {
+    setUmbrellaModal(false);
+    setPage((current) => (current === "umbrellas" ? null : current));
+  });
+  // A member row opens its card: beside the page on desktop; on phones once the Modal has gone.
+  const openUmbrellaCard = useStableCallback((id: string) => {
+    if (!compact) return openTaskById(id);
+    setUmbrellaModal(false);
+    afterModalClose(() => openTaskById(id));
+  });
+  const umbrellaCardTitle = useStableCallback((id: string) => board?.tasks.find((x) => x.id === id)?.title);
+  const umbrellasChanged = useStableCallback(() => void overviewData.refetch());
   const filterCount =
     Number(!!search) +
     Number(priority !== "all") +
@@ -1798,7 +1824,7 @@ function BoardContent(
   const workflowTipDue = !!project && workflowOn && !!onboarding.values && !(onboarding.values.tipsSeen.includes("first-workflow-insight") && onboarding.values.tipsSeen.includes("first-skill-draft"));
   const workflowView = useWorkflowInsightsQuery(project?.id || "", boardActive && workflowTipDue, false);
   const inPanel = instance === "panel";
-  const dialogOpen = !!menu || !!projectForm || !!groupSettings || !!taskForm || !!quickTask || !!removing || !!deleting || !!wrapPrompt || !!linking || !!switchRequest || !!groupDialog; // board-groups 3/7: group dialogs
+  const dialogOpen = !!menu || !!projectForm || !!groupSettings || !!taskForm || !!quickTask || !!removing || !!deleting || !!wrapPrompt || !!linking || !!switchRequest || !!groupDialog || umbrellaModal; // board-groups 3/7: group dialogs
   const welcome = welcomeDecision({
     settingsStatus: onboarding.status,
     welcomeSeen: onboarding.values?.welcomeSeen ?? false,
@@ -1879,13 +1905,19 @@ function BoardContent(
   const seeSettingsHint = () => {
     if (settingsHint) void onboarding.markTipSeen("settings-entry");
   };
+  // The umbrella-first tip's fact over the shown project (or the group's live projects), only while the tip is unseen (UMBRELLA-SPEC §14).
+  const umbrellaTipDue = !!onboarding.values && !onboarding.values.tipsSeen.includes("umbrella-first");
+  const umbrellaFamily = useMemo(
+    () => umbrellaTipDue && !!board && umbrellaFirstFact(board, new Set(project ? [project.id] : pageIds)),
+    [umbrellaTipDue, board?.tasks, board?.links, project?.id, pageIds],
+  );
   const tipBlocked = !onboarding.values || welcomeOpen || welcome === "show" || dialogOpen || settingsHint || whatsNewOpen || whatsNewDue === "show";
   // A group board with no single project (no filter, several projects) still announces groups (BOARD-GROUPS-SPEC §1).
   const groupBoard = !project && !!group && !task && !compact;
   const tip = inPanel || !board || page
     ? null
     : !project
-      ? groupBoard ? nextTip({ tipsSeen: onboarding.values?.tipsSeen ?? [], facts: { ...noTipFacts, groupTabs: allLiveProjects.length > 1, prMenu: prChip }, blocked: tipBlocked }) : null
+      ? groupBoard ? nextTip({ tipsSeen: onboarding.values?.tipsSeen ?? [], facts: { ...noTipFacts, groupTabs: allLiveProjects.length > 1, prMenu: prChip, umbrellaFamily }, blocked: tipBlocked }) : null
       : project.archivedAt
         ? null
         : nextTip({
@@ -1923,6 +1955,7 @@ function BoardContent(
           cardDoubleClick: Platform.OS === "web" && !compact && !task && projectTasks.some((x) => !x.archivedAt && !!cardIndex.agentsByWorkspace.get(x.workspaceId)?.length),
           doubleTapCtrl: doubleTapOn && shortcutPrefs.status === "ready" && !compact && !task && projectTasks.some((x) => !x.archivedAt),
           prMenu: !task && prChip,
+          umbrellaFamily: !task && umbrellaFamily,
         },
         blocked: tipBlocked,
       });
@@ -2529,6 +2562,9 @@ function BoardContent(
             {(!!project || allView) && (
               <IconButton icon="Search" label={withKey(t("Search"), "S")} active={page === "search"} onPress={() => (page === "search" ? setPage(null) : openSearch(""))} />
             )}
+            {!!group && (!!project || allView) && (
+              <IconButton icon="Umbrella" label={t("Umbrellas")} active={page === "umbrellas" || umbrellaModal} onPress={() => (page === "umbrellas" ? closeUmbrellas() : showUmbrellas(null))} />
+            )}
             <FilterButton
               count={filterCount}
               // Phones sort from the Filters dialog, so a non-manual sort lights its icon too.
@@ -2726,6 +2762,18 @@ function BoardContent(
                     nameOf={nameOf}
                     onOpenCard={openSearchCard}
                     onOpenMemory={openSearchMemory}
+                    onBack={closePage}
+                  />
+                ) : page === "umbrellas" && board && group ? (
+                  <UmbrellaPage
+                    hostId={props.host.id}
+                    groupId={group.id}
+                    umbrellas={projected?.umbrellas ?? noUmbrellas}
+                    selected={umbrellaPick}
+                    onSelect={setUmbrellaPick}
+                    onOpenCard={openUmbrellaCard}
+                    cardTitle={umbrellaCardTitle}
+                    onChanged={umbrellasChanged}
                     onBack={closePage}
                   />
                 ) : page === "guardrails" && board && project ? (
@@ -3109,6 +3157,21 @@ function BoardContent(
             </Theme.Provider>
           </Modal.Content>
         </Modal>
+        {compact && group && (
+          <UmbrellaModal
+            open={umbrellaModal}
+            theme={props.theme}
+            hostId={props.host.id}
+            groupId={group.id}
+            umbrellas={projected?.umbrellas ?? noUmbrellas}
+            selected={umbrellaPick}
+            onSelect={setUmbrellaPick}
+            onOpenCard={openUmbrellaCard}
+            cardTitle={umbrellaCardTitle}
+            onChanged={umbrellasChanged}
+            onClose={closeUmbrellas}
+          />
+        )}
         <PrMenu open={menu === "prs"} warm={prCounts.shown > 0} projects={overviewCover.projects} tasks={board?.tasks ?? noTasks} theme={props.theme} keyboard={shortcutsOn} onClose={closeMenu} onOpenCard={openTaskById} onChanged={refresh} onListed={() => void overviewData.refetch()} />
         {/* board-groups 3/7: Add group and Delete group…; Group settings is its own page. */}
         {groupDialog?.kind === "add" && (

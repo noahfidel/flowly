@@ -1,4 +1,5 @@
 /** Pure decisions for first-run guidance (ONBOARDING-SPEC). No React, no storage. */
+import type { Board } from "../shared/model";
 
 /** How it works, Built in, Guardrails, Insights, Ready (ONBOARDING-SETUP-SPEC §3). */
 export const welcomePageCount = 5;
@@ -29,7 +30,7 @@ export function welcomeDecision(input: {
   return input.blocked ? "wait" : "show";
 }
 
-export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "board-groups", "first-workpad", "subagents", "card-display", "first-workflow-insight", "attention-dismiss", "sidebar-order", "connectors", "session-history", "ai-language", "summary-models", "first-skill-draft", "search", "quick-task", "settings-entry", "dispatcher", "idea-discuss", "lane-swipe", "auto-review", "first-guardrail", "plan", "double-tap-ctrl", "card-double-click", "pr-menu"] as const;
+export const tipIds = ["first-card", "needs-you", "first-idea", "first-done", "first-artifact", "first-tag", "agent-question", "older-finished", "next-move", "first-ticket", "jira-connect", "board-groups", "first-workpad", "subagents", "card-display", "first-workflow-insight", "attention-dismiss", "sidebar-order", "connectors", "session-history", "ai-language", "summary-models", "first-skill-draft", "search", "quick-task", "settings-entry", "dispatcher", "idea-discuss", "lane-swipe", "auto-review", "first-guardrail", "plan", "double-tap-ctrl", "card-double-click", "pr-menu", "umbrella-first"] as const;
 export type TipId = (typeof tipIds)[number];
 
 export interface TipFacts {
@@ -98,6 +99,8 @@ export interface TipFacts {
   cardDoubleClick: boolean;
   /** The board's overview bar shows the "N PRs" chip (PR-MENU-SPEC §6). */
   prMenu: boolean;
+  /** A shown card outside every umbrella has two or more `related` siblings sharing one of its tags (UMBRELLA-SPEC §14). */
+  umbrellaFamily: boolean;
 }
 
 /** Banner tips; `settings-entry` is the callout by the settings button instead (settingsHintDue). */
@@ -136,18 +139,48 @@ const tipFact: Record<Exclude<TipId, "settings-entry">, keyof TipFacts> = {
   "double-tap-ctrl": "doubleTapCtrl",
   "card-double-click": "cardDoubleClick",
   "pr-menu": "prMenu",
+  "umbrella-first": "umbrellaFamily",
 };
 
 /** No fact holds: the starting point for a board that shows no single project (a group board, BOARD-GROUPS-SPEC §1). */
 export const noTipFacts: TipFacts = {
-  hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, groupTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, skillDraft: false, searchable: false, dispatcherIntro: false, ideaDiscuss: false, reviewShown: false, learnedGuideline: false, laneSwipe: false, cardPlan: false, doubleTapCtrl: false, cardDoubleClick: false, prMenu: false,
+  hasCard: false, needsYou: false, openIdea: false, movedToFinished: false, hasArtifact: false, hasAgentTag: false, agentQuestion: false, olderHidden: false, nextMove: false, hasTicket: false, noConnection: false, groupTabs: false, hasWorkpad: false, busyBoard: false, hasSubagent: false, workflowSuggestion: false, crowdedAttention: false, fullSidebar: false, cardOpen: false, cardWithSession: false, hasSummary: false, skillDraft: false, searchable: false, dispatcherIntro: false, ideaDiscuss: false, reviewShown: false, learnedGuideline: false, laneSwipe: false, cardPlan: false, doubleTapCtrl: false, cardDoubleClick: false, prMenu: false, umbrellaFamily: false,
 };
+
+/**
+ * The `umbrella-first` fact (UMBRELLA-SPEC §14): some live card of `projectIds`, in no umbrella, has two or more
+ * live cards linked to it as `related` that share one of its tags.
+ */
+export function umbrellaFirstFact(board: Pick<Board, "tasks" | "links">, projectIds: ReadonlySet<string>): boolean {
+  const byId = new Map(board.tasks.map((x) => [x.id, x]));
+  const siblings = new Map<string, Set<string>>();
+  const add = (a: string, b: string) => {
+    const set = siblings.get(a) ?? new Set<string>();
+    set.add(b);
+    siblings.set(a, set);
+  };
+  for (const link of board.links) {
+    if (link.kind !== "related" || link.from === link.to) continue;
+    add(link.from, link.to);
+    add(link.to, link.from);
+  }
+  for (const [id, others] of siblings) {
+    const card = byId.get(id);
+    if (others.size < 2 || !card || card.archivedAt || card.umbrella || !projectIds.has(card.projectId) || !card.tags?.length) continue;
+    const live = [...others].flatMap((other) => {
+      const sibling = byId.get(other);
+      return sibling && !sibling.archivedAt ? [sibling] : [];
+    });
+    if (card.tags.some(({ tag }) => live.filter((s) => s.tags?.some((x) => x.tag === tag)).length >= 2)) return true;
+  }
+  return false;
+}
 
 /** The one tip to show now: first in priority order whose fact holds and that was not shown before. */
 export function nextTip(input: { tipsSeen: readonly string[]; facts: TipFacts; blocked: boolean }): TipId | null {
   if (input.blocked) return null;
   // Waiting for the user outranks introductions; the answer-in-session tip is the more specific one.
-  const order: Exclude<TipId, "settings-entry">[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "auto-review", "first-guardrail", "plan", "first-workpad", "subagents", "first-idea", "idea-discuss", "first-skill-draft", "first-workflow-insight", "ai-language", "summary-models", "first-artifact", "first-ticket", "first-tag", "first-card", "dispatcher", "lane-swipe", "card-display", "search", "connectors", "session-history", "sidebar-order", "board-groups", "jira-connect", "quick-task", "double-tap-ctrl", "card-double-click", "pr-menu"];
+  const order: Exclude<TipId, "settings-entry">[] = ["agent-question", "needs-you", "attention-dismiss", "first-done", "older-finished", "next-move", "auto-review", "first-guardrail", "plan", "first-workpad", "subagents", "first-idea", "idea-discuss", "first-skill-draft", "first-workflow-insight", "ai-language", "summary-models", "first-artifact", "first-ticket", "first-tag", "umbrella-first", "first-card", "dispatcher", "lane-swipe", "card-display", "search", "connectors", "session-history", "sidebar-order", "board-groups", "jira-connect", "quick-task", "double-tap-ctrl", "card-double-click", "pr-menu"];
   return order.find((id) => input.facts[tipFact[id]] && !input.tipsSeen.includes(id)) ?? null;
 }
 

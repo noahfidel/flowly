@@ -1265,15 +1265,21 @@ export default function contribute(host: PluginServerContext) {
           .then((g) => g.entries.filter((e) => e.kind === "guideline" && e.state === "active" && live.has(e.projectId)).length)
           .catch(() => 0),
         cardsOpen: board.tasks.filter((t) => live.has(t.projectId) && !t.archivedAt && t.status !== "done" && t.status !== "cancelled").length,
+        umbrellasOpen: board.umbrellas.filter((u) => u.status === "open" && !u.archivedAt).length,
       };
     },
     activity: async () => {
       const board = await store.view();
-      const [events, state] = await Promise.all([
+      const [events, state, umbrellaEntriesAt] = await Promise.all([
         Promise.all(board.projects.map((p) => flow.read(p.id).catch(() => []))).then((lists) => lists.flat()),
         memory.memoryState().catch(() => null),
+        // The view strips umbrella entries, and the user's own entries record no event: read the full board.
+        store
+          .read()
+          .then((full) => (full.umbrellaEntries ?? []).map((e) => e.createdAt))
+          .catch(() => []),
       ]);
-      return { events, memoryConfirmedAt: (state?.entries ?? []).flatMap((e) => (e.confirmedAt ? [e.confirmedAt] : [])) };
+      return { events, memoryConfirmedAt: (state?.entries ?? []).flatMap((e) => (e.confirmedAt ? [e.confirmedAt] : [])), umbrellaEntriesAt };
     },
   });
   telemetry.start();
