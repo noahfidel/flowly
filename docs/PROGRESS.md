@@ -1,5 +1,11 @@
 # Implementation progress
 
+## Umbrella spec approved (branch `kanban/spec-umbrella-epic-object-for-related-ca-e89f06`) — 2026-11-25
+
+- Noah accepted every recommendation in UMBRELLA-SPEC §16; D1-D14 are now rulings and the spec is approved. Nothing is built; §17 lists the 8 build cards (1-3 first).
+- D13 amends CARD-LINKS-SPEC §9 for umbrella membership only (no rollup, status linking or cascades; card links stay same-project).
+- Onboarding, What's new, tips, telemetry, i18n: none in this change (docs only).
+
 ## Umbrella spec drafted (branch `kanban/spec-umbrella-epic-object-for-related-ca-e89f06`) — 2026-11-25
 
 - Spec (UMBRELLA-SPEC): umbrella object, member view in `get_task`, contract changes, umbrella memory as a feed, board view, integration card, dispatcher assignment and relay, group scope, export, Linear read-only, migration from the light version, acceptance, 8-card split. Nothing built.

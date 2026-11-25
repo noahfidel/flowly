@@ -170,6 +170,8 @@ Opens the existing new-task form (the same component), titled "Create follow-up 
 
 - Parent-child hierarchy, subtask progress rollup, status linking, cascading delete/wrap-up.
 - Cross-project links; other relation types such as `duplicate`; a link graph view.
+
+Amendment, ruling (Noah, 2026-11-25), `docs/UMBRELLA-SPEC.md` D13: umbrella *membership* is allowed as a shared context (one brief, contract and decisions feed) across the projects of one board group. It is not a parent-child hierarchy: no rollup, status linking or cascades, and card links themselves stay same-project.
 - Hard blocking for Blocks; automatically notifying the blocked card's session when the blocker finishes.
 - A tool for the agent to create/delete links.
 

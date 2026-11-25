@@ -1,10 +1,10 @@
 # Umbrellas: one brief, contract and decisions feed for a family of cards
 
-Status: **draft, 2026-11-25; open decisions in §16 wait for the user's ruling.** Nothing here is built. Contract only; progress goes to `docs/PROGRESS.md`. Amends `docs/CARD-LINKS-SPEC.md` §9 (membership only, see D13), `docs/DISPATCHER-SPEC.md` §5.8 (relay targets, and Flowly now tells member agents the `[contract]` rule) and `docs/PROJECT-MEMORY-SPEC.md` (a second, umbrella-scoped feed).
+Status: **approved by Noah, 2026-11-25 (rulings D1-D14 in §16).** Nothing here is built yet. Contract only; progress goes to `docs/PROGRESS.md`. Amends `docs/CARD-LINKS-SPEC.md` §9 (membership only, ruling D13), `docs/DISPATCHER-SPEC.md` §5.8 (relay targets, and Flowly now tells member agents the `[contract]` rule) and `docs/PROJECT-MEMORY-SPEC.md` (a second, umbrella-scoped feed).
 
 An **umbrella** is a named body of work inside one board group: a title, a brief every member card reads, a contract (the handoff shapes between members), a feed of decisions, findings and open questions, an acceptance list for the whole scope, an optional Linear project, and its member cards. A card belongs to at most one umbrella. Membership is a shared context, not a hierarchy: an umbrella never moves, starts, blocks, finishes or wraps up a card.
 
-Vocabulary: *umbrella* (this object; the UI word, see D1), *member* (a card in it), *sibling* (another member of the same umbrella), *brief* (the shared goal document), *contract* (the handoff shapes section), *feed* (the umbrella's entries, §2.3), *integration card* (the member that runs the umbrella's end-to-end check, §11). "Epic" stays the Shortcut connector item type (`CONNECTORS-SPEC` §15) and "group" stays a board group (`BOARD-GROUPS-SPEC`).
+Vocabulary: *umbrella* (this object; the UI word, ruling D1), *member* (a card in it), *sibling* (another member of the same umbrella), *brief* (the shared goal document), *contract* (the handoff shapes section), *feed* (the umbrella's entries, §2.3), *integration card* (the member that runs the umbrella's end-to-end check, §11). "Epic" stays the Shortcut connector item type (`CONNECTORS-SPEC` §15) and "group" stays a board group (`BOARD-GROUPS-SPEC`).
 
 ## 0. Why
 
@@ -23,7 +23,7 @@ What an umbrella adds over links and tags: a shared, versioned document with unr
 
 ## 1. Decisions taken by this spec (routine)
 
-These are implementation choices inside the requested scope. Product rules are in §16.
+These are implementation choices inside the requested scope. Product rules are the rulings in §16.
 
 - **R1: stored on the board.** Umbrellas and feed entries are new board collections (`umbrellas`, `umbrellaEntries`) with `.default([])`, so the SQLite store keeps them with no schema bump (`collectionsOf`).
 - **R2: membership lives on the card** (`task.umbrella`), not as links, so "at most one umbrella" is a field and not a constraint across rows.
@@ -143,7 +143,7 @@ Errors: `NOT_IN_UMBRELLA`, `UMBRELLA_CLOSED`, `UMBRELLA_KIND`, `UMBRELLA_OUT_OF_
 
 ### 4.2 Board tools (card sessions and sessions outside cards; the user's ask)
 
-`registerCardTools` gives board tools to card sessions and sessions outside cards alike, so these tools are what a member agent can do beyond §4.1. Rule: **no agent tool edits an existing brief, contract, acceptance list or integration card**; those change only in the UI (and through the dispatcher if D5 (b) is chosen). A member changes the contract only by proposing (§5).
+`registerCardTools` gives board tools to card sessions and sessions outside cards alike, so these tools are what a member agent can do beyond §4.1. Rule: **no agent tool edits an existing brief, contract, acceptance list or integration card**; those change only in the UI, or through the dispatcher after the user's yes in its chat (D5). A member changes the contract only by proposing (§5).
 
 - `flowly_list_umbrellas {}`: the open umbrellas of the caller's project's group. No `groupId` input; another group is never listed.
 - `flowly_get_umbrella {umbrellaId}`: full brief, contract, feed and members. An umbrella of another group returns `UMBRELLA_OUT_OF_GROUP`. Sibling titles, lanes and project names from other projects of the same group are visible by design.
@@ -168,11 +168,11 @@ The same reads, plus `flowly_set_umbrella` and `flowly_create_umbrella` with the
 4. Accepted: the contract text becomes `after`, `revision + 1`, every other member sees `contract.unread`, and live siblings get one relay line (§8). Rejected: the proposer's next `get_task` shows the status and note.
 5. A change that also sets a product rule ("suggestions never open PRs without review") is a `ruling` question for the user, not something the dispatcher or an agent decides.
 
-Whether *every* change needs the user, or additive ones can be accepted by the dispatcher, is D6.
+Every change needs the user's accept, additive ones included (D6); the dispatcher never accepts on its own.
 
 ## 6. Umbrella memory
 
-`flowly_remember scope=umbrella` (and `flowly_add_umbrella_entry`) write a feed entry, shown to every member through `get_task.umbrella.feed`, never to cards outside the umbrella. They stay out of project memory's 200-note cap and `memoryForTask` budget, so the trial's crowding-out (failure 5) cannot happen. Superseding works as for project notes. When the umbrella closes, its `decision`, `convention` and `pitfall` entries are offered to the user as project memory ("keep these for the repo?"), each one ticked off by the user; nothing moves silently. Whether umbrella memory is the feed (one store) or tagged project notes is D7.
+`flowly_remember scope=umbrella` (and `flowly_add_umbrella_entry`) write a feed entry, shown to every member through `get_task.umbrella.feed`, never to cards outside the umbrella. They stay out of project memory's 200-note cap and `memoryForTask` budget, so the trial's crowding-out (failure 5) cannot happen. Superseding works as for project notes. When the umbrella closes, its `decision`, `convention` and `pitfall` entries are offered to the user as project memory ("keep these for the repo?"), each one ticked off by the user; nothing moves silently. Umbrella memory is the feed, one store with its own budget, not tagged project notes (D7).
 
 ## 7. Board
 
@@ -180,7 +180,7 @@ Whether *every* change needs the user, or additive ones can be accepted by the d
 - **Card face.** A quiet umbrella chip in `CardMeta` after the type (title cut to 20 characters, the role after a dot when set); a new `cardFields` id `umbrella` so it can be hidden. Not the `Layers` icon (Shortcut epics).
 - **Umbrella panel.** A board toolbar menu *Umbrellas* lists the group's open umbrellas (member count, open questions, pending changes). Opening one shows: title and Linear chip; brief (markdown, editable by the user); contract; the pipeline (members by `order` with role, lane and project); the feed with filters by kind, the open questions with an answer box; the acceptance list; Close. Pending contract changes with Accept / Reject come with card 4 and Ready to close with card 6 (§17). A member row opens the card.
 - **Card drawer.** A new movable section *Umbrella* (`drawer-sections`): role, a link to the panel, unread brief/contract markers, the last 5 feed entries. The Quick links row adds the umbrella chip after the Linear issue.
-- **Group by.** A board toggle *Group by umbrella* draws one horizontal band per umbrella (members only, in their lanes) and a last band "No umbrella". No group-by exists today (lanes are statuses, sort is the only grouping-like control), so it is the largest UI piece; whether it ships with the first version or after the filter and panel is D8.
+- **Group by.** A board toggle *Group by umbrella* draws one horizontal band per umbrella (members only, in their lanes) and a last band "No umbrella". No group-by exists today (lanes are statuses, sort is the only grouping-like control), so it is the largest UI piece and ships in a later card (card 8), after the filter, chip, panel and drawer section (D8).
 - Lanes stay statuses: an umbrella is never a lane (a lane per umbrella would break the workflow-lane model of `BOARD-GROUPS-SPEC` §5).
 
 ## 8. Dispatcher
@@ -202,7 +202,7 @@ Whether *every* change needs the user, or additive ones can be accepted by the d
 ## 10. Linear
 
 - Flowly only reads Linear. `linearProject` is a URL (`https://linear.app/<ws>/project/<slug>`) or a project key (P-ZEN-391); the connector gains a read-only `project` query (name, state, target date, url, issues with identifier/title/state). It never writes a status, comment or issue.
-- The panel shows the project chip and, from one read while the panel is open, **issues in the project without a card in the umbrella** ("ZEN-9301 Correction detector — no card"); a row's *Make card* fills New task with the issue linked (as the Linear board does today) and the umbrella set. Whether this list ships (D9).
+- The panel shows the project chip and, from one read while the panel is open, **issues in the project without a card in the umbrella** ("ZEN-9301 Correction detector — no card"); a row's *Make card* fills New task with the issue linked (as the Linear board does today) and the umbrella set. The list ships with the link (D9).
 - A member's own Linear issue stays the card's `flowly_set_linear` input; an issue whose project is the umbrella's Linear project is suggested as a member, never added on its own.
 
 ## 11. Umbrella acceptance and the integration card
@@ -214,7 +214,7 @@ Whether *every* change needs the user, or additive ones can be accepted by the d
 ## 12. Migration and switches
 
 - No board version bump: new collections default to `[]`, `task.umbrella` is optional.
-- Switch (D10, recommendation): no new setting; agent writes sit behind the existing *Agents create and edit cards* switch. `UMBRELLAS_DISABLED` is used only if the user chooses a switch.
+- Switch (D10): no new setting; agent writes sit behind the existing *Agents create and edit cards* switch (`AGENT_CARDS_DISABLED`). There is no `UMBRELLAS_DISABLED` error.
 - **From the light version.** A one-time, user-run action on the panel, *Create from related cards*: pick a card, Flowly proposes its connected `related` component (same tag, same group) as members and asks for a brief; an attached charter file can be pasted into the brief (Flowly does not read files on its own). Tagged memory notes are offered for copying into the feed, each confirmed. Links and tags stay as they are.
 - `evidence.json` and `get_task.evidence` do not exist (EVIDENCE-GALLERY-SPEC rejected them); umbrella acceptance evidence is the integration card's output artifacts.
 
@@ -228,10 +228,10 @@ Whether *every* change needs the user, or additive ones can be accepted by the d
 
 ## 14. Onboarding, What's new, telemetry, i18n
 
-- Tour: one line in *More features*: "Umbrellas: group cards for one body of work under a shared brief and decisions feed."
+- Tour: one line in *More features*: "Umbrellas (epics): group cards for one body of work under a shared brief and decisions feed." (D1: "epic" appears once here, for discoverability.)
 - Tip `umbrella-first`: shown when a card first has two or more `related` siblings with the same tag ("Several related cards? Put them under one umbrella so they share a brief."). Tip table, `tipIds`, `tipText`, `nextTip` and a test.
 - What's new: one sentence in the release that ships the panel.
-- Telemetry: `f_umbrellas` (count of open umbrellas, bucketed) and `c_umbrella_entries` in the heartbeat (§4), or "No heartbeat field" if the user prefers; telemetry stays off in this fork either way.
+- Telemetry: `f_umbrellas` (count of open umbrellas, bucketed) and `c_umbrella_entries` in the heartbeat (TELEMETRY-SPEC §4); telemetry stays off in this fork either way.
 - i18n: every new UI string in all catalogs; agent-facing text and daemon errors stay English. Card-display, drawer-section and filter catalogs gain their entries.
 
 ## 15. Acceptance
@@ -248,22 +248,24 @@ Whether *every* change needs the user, or additive ones can be accepted by the d
 - The per-project export lists each umbrella with members in that project and names members elsewhere by title and project.
 - Nothing about an umbrella changes a card's lane, session, workspace or wrap-up.
 
-## 16. Open decisions (the user's ruling)
+## 16. Rulings
 
-- **D1: name.** (a) *Umbrella* in UI, tools and docs; (b) *Epic*, matching Linear/Jira habits but colliding with Shortcut epics in connectors, catalogs and agent text; (c) *Initiative*/*Bet*. Recommendation: (a), with "an epic" mentioned once in the tour line for discoverability.
-- **D2: scope.** (a) one project; (b) one board group, any of its projects; (c) across groups. (a) misses the harness family (two projects); (c) breaks the per-group dispatcher boundary (`PROJECT_OUT_OF_GROUP`) and per-group filters. Recommendation: (b). It makes cross-project `related` links (open idea "Decide on cross-project related links for card families") unnecessary for families; that idea can then be dismissed or kept for one-off links.
-- **D3: one umbrella per card.** (a) at most one; (b) several. Recommendation: (a): one brief and one contract per card keeps `get_task` bounded and the relay unambiguous.
-- **D4: where the brief lives.** (a) markdown stored in Flowly with a revision (optional `source` link to the user's own file); (b) a file artifact the umbrella points to (the trial's way); (c) a Linear project document. (b) and (c) have no revision Flowly can trust for unread and break on another machine or without a connection. Recommendation: (a).
-- **D5: who edits the brief and contract, who records rulings.** (a) the user only, in the UI; (b) the user, plus the dispatcher after the user's yes in its chat; member agents append feed entries and propose contract changes but never edit the brief or contract; an agent records a `ruling` only with the user's words quoted from its own chat; (c) any member agent edits. Recommendation: (b).
-- **D6: contract change approval.** (a) the user accepts every change; (b) the dispatcher accepts changes that only add fields or sections, the user accepts the rest; (c) proposals apply at once and are only reported. Recommendation: (a) for the first version; (b) needs a reliable "additive" test that markdown does not give.
-- **D7: umbrella memory.** (a) the feed is the umbrella memory (one store, separate budget, §6); (b) project memory notes tagged `umbrella:<id>`, boosted in `memoryForTask` for members. (b) reuses code but keeps the trial's crowding-out and leaks to non-members through recall. Recommendation: (a).
-- **D8: board view in the first version.** (a) filter, card chip, panel and drawer section first; *Group by umbrella* bands in a later card; (b) all at once; (c) filter and chip only. Recommendation: (a): bands need a new board layout on desktop and phones, the rest reuses existing pieces.
-- **D9: Linear project.** (a) a read-only link plus the "issues without a card" list; (b) link only; (c) none. Recommendation: (a): it answers "what in P-ZEN-391 has no card yet" without writing to Linear.
-- **D10: switch.** (a) no new switch, agent writes behind *Agents create and edit cards*; (b) a group setting *Umbrellas* (off by default). Recommendation: (a).
-- **D11: dispatcher assignment.** (a) follow-ups and member ideas inherit the umbrella automatically, an existing card joins only with the user's yes; (b) every membership change needs the user; (c) the dispatcher assigns freely. Recommendation: (a).
-- **D12: what the dispatcher relays.** (a) `[contract]` news, accepted contract changes and new rulings, as messages to live siblings; everything else only through unread marks; (b) also every member delivery ("results to siblings" read literally); (c) nothing as messages, unread marks only. (b) spends the 30-per-hour message budget on noise and interrupts running siblings. Recommendation: (a).
-- **D13: reversing CARD-LINKS §9.** The 2026-10-16 ruling rules out parent-child and cross-project links, and an umbrella is a container that spans projects. Recommendation: amend both §9 items for umbrella *membership* only (shared context across the group's projects), keep the ban on rollup, status linking and cascades, and keep card links same-project. Needs the user's explicit yes since it changes an accepted ruling.
-- **D14: closing.** (a) the user closes, and on close is offered to copy decisions to project memory one by one; (b) close automatically when all members are Done and acceptance is ticked. Recommendation: (a).
+Noah accepted every recommendation of the draft on 2026-11-25. Rejected options stay listed so a later change knows what was weighed.
+
+- **D1: name.** (a) *Umbrella* in UI, tools and docs; (b) *Epic*, matching Linear/Jira habits but colliding with Shortcut epics in connectors, catalogs and agent text; (c) *Initiative*/*Bet*. Ruling (Noah, 2026-11-25): (a): *Umbrella* in UI, tools and docs, with "epic" mentioned once in the tour line for discoverability.
+- **D2: scope.** (a) one project; (b) one board group, any of its projects; (c) across groups. (a) misses the harness family (two projects); (c) breaks the per-group dispatcher boundary (`PROJECT_OUT_OF_GROUP`) and per-group filters. Ruling (Noah, 2026-11-25): (b): one board group, any of its projects. Cross-project `related` links are not needed for families; the idea "Decide on cross-project related links for card families" stays open only for one-off links.
+- **D3: one umbrella per card.** (a) at most one; (b) several. Ruling (Noah, 2026-11-25): (a): at most one umbrella per card.
+- **D4: where the brief lives.** (a) markdown stored in Flowly with a revision (optional `source` link to the user's own file); (b) a file artifact the umbrella points to (the trial's way); (c) a Linear project document. (b) and (c) have no revision Flowly can trust for unread and break on another machine or without a connection. Ruling (Noah, 2026-11-25): (a): markdown stored in Flowly with a revision, with an optional `source` link.
+- **D5: who edits the brief and contract, who records rulings.** (a) the user only, in the UI; (b) the user, plus the dispatcher after the user's yes in its chat; member agents append feed entries and propose contract changes but never edit the brief or contract; an agent records a `ruling` only with the user's words quoted from its own chat; (c) any member agent edits. Ruling (Noah, 2026-11-25): (b): the user, plus the dispatcher after the user's yes in its chat; member agents append and propose only; an agent records a `ruling` only with the user's words quoted from its own chat.
+- **D6: contract change approval.** (a) the user accepts every change; (b) the dispatcher accepts changes that only add fields or sections, the user accepts the rest; (c) proposals apply at once and are only reported. Ruling (Noah, 2026-11-25): (a): the user accepts every contract change in this version.
+- **D7: umbrella memory.** (a) the feed is the umbrella memory (one store, separate budget, §6); (b) project memory notes tagged `umbrella:<id>`, boosted in `memoryForTask` for members. (b) reuses code but keeps the trial's crowding-out and leaks to non-members through recall. Ruling (Noah, 2026-11-25): (a): the feed is the umbrella memory.
+- **D8: board view in the first version.** (a) filter, card chip, panel and drawer section first; *Group by umbrella* bands in a later card; (b) all at once; (c) filter and chip only. Ruling (Noah, 2026-11-25): (a): filter, card chip, panel and drawer section first; *Group by umbrella* bands in a later card.
+- **D9: Linear project.** (a) a read-only link plus the "issues without a card" list; (b) link only; (c) none. Ruling (Noah, 2026-11-25): (a): a read-only link plus the "issues without a card" list.
+- **D10: switch.** (a) no new switch, agent writes behind *Agents create and edit cards*; (b) a group setting *Umbrellas* (off by default). Ruling (Noah, 2026-11-25): (a): no new switch; agent writes sit behind *Agents create and edit cards*.
+- **D11: dispatcher assignment.** (a) follow-ups and member ideas inherit the umbrella automatically, an existing card joins only with the user's yes; (b) every membership change needs the user; (c) the dispatcher assigns freely. Ruling (Noah, 2026-11-25): (a): follow-ups and member ideas inherit the umbrella automatically; an existing card joins only with the user's yes.
+- **D12: what the dispatcher relays.** (a) `[contract]` news, accepted contract changes and new rulings, as messages to live siblings; everything else only through unread marks; (b) also every member delivery ("results to siblings" read literally); (c) nothing as messages, unread marks only. (b) spends the 30-per-hour message budget on noise and interrupts running siblings. Ruling (Noah, 2026-11-25): (a): `[contract]` news, accepted contract changes and new rulings as messages to live siblings; everything else through unread marks.
+- **D13: reversing CARD-LINKS §9.** The 2026-10-16 ruling rules out parent-child and cross-project links, and an umbrella is a container that spans projects. Ruling (Noah, 2026-11-25): amend both CARD-LINKS §9 items for umbrella *membership* only; the bans on rollup, status linking and cascades stay, and card links stay same-project. This changes the 2026-10-16 ruling; `docs/CARD-LINKS-SPEC.md` §9 records the amendment.
+- **D14: closing.** (a) the user closes, and on close is offered to copy decisions to project memory one by one; (b) close automatically when all members are Done and acceptance is ticked. Ruling (Noah, 2026-11-25): (a): the user closes; on close, decisions are offered for project memory one by one.
 
 ## 17. Proposed card split
 
@@ -276,4 +278,4 @@ Each card is one branch and at most one PR; order is the dependency order. Cards
 5. **Dispatcher**: tools and confirms, charter section and version bump, relay targets = siblings ∪ related, rulings and accepted changes relayed, relay memory persisted.
 6. **Integration card and acceptance**: `integrationTaskId`, its instructions, `flowly_update_umbrella_acceptance`, Ready to close, close-time memory offer.
 7. **Linear project (read-only)**: connector `project` query, chip, "issues without a card" list, suggested members.
-8. **Group by umbrella** bands on desktop and phones (if D8 (a)); the light-version migration action.
+8. **Group by umbrella** bands on desktop and phones (D8); the light-version migration action.
