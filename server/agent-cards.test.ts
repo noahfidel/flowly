@@ -613,3 +613,88 @@ test("an explicit umbrellaId on the New card path is refused when the umbrella c
   await expect(x.cards.board.createTask(taskInput.parse({ projectId: "p", operationId: "n2", title: "Refused", mode: "directory", umbrellaId: u.id }), x.paseo)).rejects.toMatchObject({ code: "UMBRELLA_CLOSED" });
   expect(x.workspaces).toHaveLength(1);
 });
+
+/** Two groups: project p and a sibling project q in group g, and project r in group h, each with an umbrella of its own group. */
+async function umbrellaSetup() {
+  const x = await setup();
+  const at = new Date().toISOString(),
+    human = { kind: "human" as const };
+  await x.store.mutate((board) => {
+    for (const [id, position] of [["g", 0], ["h", 1]] as const)
+      board.groups.push({ id, name: id, position, ...(id === "g" ? { isDefault: true as const } : {}), revision: 1, createdAt: at, updatedAt: at });
+    const base = board.projects[0]!;
+    board.projects.push({ ...structuredClone(base), id: "q", paseoProjectId: "native-q", title: "Sibling", groupId: "g" });
+    board.projects.push({ ...structuredClone(base), id: "r", paseoProjectId: "native-r", title: "Elsewhere", groupId: "h" });
+    base.groupId = "g";
+    const card = board.tasks[0]!;
+    board.tasks.push({ ...structuredClone(card), id: "tq", projectId: "q", workspaceId: "wq", title: "Sibling card", operationId: "tq" });
+  });
+  const mine = await createUmbrella(x.store, { groupId: "g", title: "Mine", brief: "The brief." }, human);
+  const other = await createUmbrella(x.store, { groupId: "h", title: "Other" }, human);
+  await setMembership(x.store, { taskId: "t", umbrellaId: mine.id, role: "api" }, human);
+  await setMembership(x.store, { taskId: "tq", umbrellaId: mine.id }, human);
+  return { ...x, mine, other, human };
+}
+
+test("flowly_list_umbrellas lists only the caller's group", async () => {
+  const x = await umbrellaSetup();
+  const listed = await x.cards.listUmbrellas(x.card, {});
+  expect(listed.umbrellas.map((u) => u.title)).toEqual(["Mine"]);
+  expect(listed.umbrellas[0]).toMatchObject({ members: 2 });
+  await closeUmbrella(x.store, { id: x.mine.id, revision: x.mine.revision }, x.human);
+  expect((await x.cards.listUmbrellas(x.board, {})).umbrellas).toEqual([]);
+});
+
+test("flowly_get_umbrella of another group is refused", async () => {
+  const x = await umbrellaSetup();
+  expect(await x.failure(x.cards.getUmbrella(x.card, { umbrellaId: x.other.id }))).toBe("UMBRELLA_OUT_OF_GROUP");
+  expect(await x.failure(x.cards.getUmbrella(x.card, { umbrellaId: "missing" }))).toBe("NOT_FOUND");
+  const read = await x.cards.getUmbrella(x.card, { umbrellaId: x.mine.id });
+  expect(read.umbrella).toMatchObject({ title: "Mine", brief: { text: "The brief." } });
+  expect(read.umbrella).not.toHaveProperty("operationId");
+  expect(read.members.map((m) => [m.taskId, m.projectTitle])).toEqual([["t", "Project"], ["tq", "Sibling"]]);
+  expect(read.entries).toEqual([]);
+});
+
+test("flowly_create_umbrella replays by idempotencyKey", async () => {
+  const x = await umbrellaSetup();
+  const made = await x.cards.createUmbrella(x.card, { title: "Fresh", brief: "Start here.", idempotencyKey: "fresh" });
+  expect(made).toMatchObject({ replayed: false, umbrella: { title: "Fresh", groupId: "g", brief: { text: "Start here." } } });
+  expect((await x.store.read()).umbrellas.find((u) => u.id === made.umbrella.id)!.createdBy).toMatchObject({ kind: "agent", agentId: "actor" });
+  const again = await x.cards.createUmbrella(x.card, { title: "Fresh", idempotencyKey: "fresh" });
+  expect(again).toMatchObject({ replayed: true, umbrella: { id: made.umbrella.id } });
+  expect((await x.store.read()).umbrellas.filter((u) => u.title === "Fresh")).toHaveLength(1);
+  // Another session with the same key is another request; a replay took no hourly slot.
+  for (let i = 1; i < agentCardLimits.perHour; i++) await x.cards.createUmbrella(x.card, { title: `U${i}`, idempotencyKey: `k${i}` });
+  expect(await x.failure(x.cards.createUmbrella(x.card, { title: "Over", idempotencyKey: "over" }))).toBe("CARD_LIMIT");
+  expect((await x.cards.createUmbrella(x.card, { title: "Fresh", idempotencyKey: "fresh" })).replayed).toBe(true);
+});
+
+test("flowly_set_umbrella joins, changes the role and leaves a card of the caller's project", async () => {
+  const x = await umbrellaSetup();
+  const task = await x.cards.board.createTask(taskInput.parse({ projectId: "p", operationId: "n", title: "New", mode: "directory", umbrellaId: null }), x.paseo);
+  const joined = await x.cards.setUmbrella(x.card, { taskId: task.id, umbrellaId: x.mine.id, role: "ui", order: 2 });
+  expect(joined).toMatchObject({ taskId: task.id, changed: true, umbrella: { id: x.mine.id, title: "Mine", role: "ui", order: 2 } });
+  expect((await x.cards.setUmbrella(x.card, { taskId: task.id, umbrellaId: x.mine.id, role: "ui", order: 2 })).changed).toBe(false);
+  expect(await x.cards.setUmbrella(x.card, { taskId: task.id, umbrellaId: null })).toMatchObject({ changed: true, umbrella: null });
+  expect(await x.failure(x.cards.setUmbrella(x.card, { taskId: task.id, umbrellaId: x.other.id }))).toBe("UMBRELLA_OUT_OF_GROUP");
+});
+
+test("flowly_set_umbrella refuses a card of another project", async () => {
+  const x = await umbrellaSetup();
+  expect(await x.failure(x.cards.setUmbrella(x.card, { taskId: "tq", umbrellaId: null }))).toBe("CARD_NOT_FOUND");
+  expect((await x.store.read()).tasks.find((t) => t.id === "tq")!.umbrella?.id).toBe(x.mine.id);
+});
+
+test("board tools are refused when agent card edits are off", async () => {
+  const x = await umbrellaSetup();
+  x.turn(false);
+  for (const call of [
+    x.cards.boardCaller({ ...x.board, workspaceId: "w" }).then((c) => x.cards.listUmbrellas(c, {})),
+    x.cards.boardCaller({ ...x.board, workspaceId: "w" }).then((c) => x.cards.getUmbrella(c, { umbrellaId: x.mine.id })),
+    x.cards.createUmbrella(x.card, { title: "No", idempotencyKey: "no" }),
+    x.cards.setUmbrella(x.card, { taskId: "t", umbrellaId: null }),
+  ])
+    expect(await x.failure(call)).toBe("AGENT_CARDS_DISABLED");
+  expect((await x.store.read()).umbrellas.map((u) => u.title)).toEqual(["Mine", "Other"]);
+});

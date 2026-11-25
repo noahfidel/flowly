@@ -6,7 +6,7 @@ import { connectorProviderSchema, itemTypeSchema } from "./connectors";
 import { memoryKinds, memoryLimits } from "./memory";
 import { guardrailScopeSchema } from "./guardrails";
 import { agentSearchSources, searchLimits } from "./search";
-import { umbrellaContextSchema } from "./umbrella";
+import { umbrellaContextSchema, umbrellaSummarySchema } from "./umbrella";
 import {
   taskSchema,
   projectSchema,
@@ -38,6 +38,8 @@ import {
   changeShapeSchema,
   disputeLimits,
   umbrellaLimits,
+  umbrellaSchema,
+  umbrellaEntrySchema,
 } from "./model";
 
 export const agentStatuses = ["design", "development", "test", "blocked", "in_review", "committed", "integrated"] as const;
@@ -660,6 +662,54 @@ export const createCardInputSchema = z.strictObject({
     .describe(
       "inherit (default): a follow-up of a member card, or a card from an umbrella idea, joins that umbrella; when the umbrella can't take it (closed, full, another board group) the card is made without it and notice says why. none: the card joins no umbrella.",
     ),
+});
+/** The board tools for umbrellas (UMBRELLA-SPEC §4.2): the group is always the caller's project's group. */
+export const listUmbrellasInputSchema = z.strictObject({});
+export const getUmbrellaInputSchema = z.strictObject({
+  umbrellaId: z.string().min(1).max(200).describe("An umbrella id from flowly_list_umbrellas or your card's get_task umbrella."),
+});
+export const createUmbrellaInputSchema = z.strictObject({
+  title: z.string().trim().min(1).max(umbrellaLimits.title),
+  brief: z.string().max(umbrellaLimits.brief).optional().describe("The initial brief only; no agent tool edits an existing brief."),
+  linearProject: z
+    .strictObject({ url: z.string().trim().min(1).max(2000), key: z.string().trim().max(100).optional(), name: z.string().trim().max(200).optional() })
+    .optional()
+    .describe("A Linear project the umbrella follows (read-only; Flowly never writes to Linear)."),
+  idempotencyKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .describe("A unique key you choose for this umbrella. Retrying with the same key returns the umbrella already created instead of a second one."),
+});
+export const setUmbrellaInputSchema = z.strictObject({
+  taskId: z.string().min(1).max(200).describe("A card of this Flowly project."),
+  umbrellaId: z.string().min(1).max(200).nullable().describe("The umbrella to join or move to; null takes the card out of its umbrella."),
+  role: z.string().trim().max(umbrellaLimits.role).optional().describe("What this card owns in the umbrella, for example api or ui."),
+  order: z.number().finite().optional().describe("Where the card sorts among the members (lower first)."),
+});
+const umbrellaMemberResultSchema = z.object({
+  taskId: z.string(),
+  projectId: z.string(),
+  projectTitle: z.string(),
+  title: z.string(),
+  status: statusSchema,
+  laneName: z.string(),
+  role: z.string().optional(),
+  order: z.number().optional(),
+  archived: z.boolean(),
+});
+export const listUmbrellasResultSchema = z.object({ umbrellas: z.array(umbrellaSummarySchema) });
+export const getUmbrellaResultSchema = z.object({
+  umbrella: umbrellaSchema.omit({ operationId: true }),
+  entries: z.array(umbrellaEntrySchema),
+  members: z.array(umbrellaMemberResultSchema),
+});
+export const createUmbrellaResultSchema = z.object({ umbrella: umbrellaSchema.omit({ operationId: true }), replayed: z.boolean() });
+export const setUmbrellaResultSchema = z.object({
+  taskId: z.string(),
+  umbrella: z.object({ id: z.string(), title: z.string(), role: z.string().optional(), order: z.number().optional() }).nullable(),
+  changed: z.boolean(),
 });
 /** flowly_set_linear and flowly_clear_linear (LINEAR-LINK-SPEC §3). */
 export const setLinearInputSchema = z.strictObject({

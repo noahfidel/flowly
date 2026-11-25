@@ -136,3 +136,7 @@ The skill replaces "never start one or create cards yourself" with: create or ed
 ## 9. The card's plan (2026-11-10)
 
 Card tools gain `flowly_set_plan` and `flowly_clear_plan` (same callers, scope and switch as `flowly_update_card`), `flowly_create_card` gains optional `plan: { target, title?, approved }`, and the card view gains `plan: { title, approved } | null`. This amends the §1 non-goal "editing … artifacts … of other cards" for the plan slot only. See [CARD-PLAN-SPEC](CARD-PLAN-SPEC.md) §5.2.
+
+## 10. Umbrella board tools (2026-11-25)
+
+Card tools gain `flowly_list_umbrellas`, `flowly_get_umbrella`, `flowly_create_umbrella` and `flowly_set_umbrella` (card sessions and sessions outside cards, same switch as `flowly_create_card`; contract in [UMBRELLA-SPEC](UMBRELLA-SPEC.md) §4.2). The group is always the caller's project's group; another group's umbrella is `UMBRELLA_OUT_OF_GROUP`. Create and set count against the session's `agentCardLimits.perHour` (`CARD_LIMIT`); create's `operationId` is `agent-umbrella:<sha256(caller scope + idempotencyKey)>` and a replay takes no slot. No agent tool edits an existing brief, contract, acceptance list or integration card.

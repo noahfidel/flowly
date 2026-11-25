@@ -46,6 +46,14 @@ import {
   getCardInputSchema,
   getCardResultSchema,
   createCardInputSchema,
+  createUmbrellaInputSchema,
+  createUmbrellaResultSchema,
+  getUmbrellaInputSchema,
+  getUmbrellaResultSchema,
+  listUmbrellasInputSchema,
+  listUmbrellasResultSchema,
+  setUmbrellaInputSchema,
+  setUmbrellaResultSchema,
   createCardResultSchema,
   updateCardInputSchema,
   updateCardResultSchema,
@@ -286,6 +294,50 @@ export class ToolServer {
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       },
       (input) => run((c) => this.cards.update(c, input)),
+    );
+    mcp.registerTool(
+      "flowly_list_umbrellas",
+      {
+        description:
+          "List the open umbrellas of this project's board group (title, member count, open questions, pending contract changes). An umbrella is a body of work shared by related cards, with a brief, a contract and a feed. Never lists another group's. Read-only.",
+        inputSchema: listUmbrellasInputSchema,
+        outputSchema: listUmbrellasResultSchema,
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      (input) => run((c) => this.cards.listUmbrellas(c, input)),
+    );
+    mcp.registerTool(
+      "flowly_get_umbrella",
+      {
+        description:
+          "Read one umbrella of this project's board group in full: brief, contract, acceptance, feed entries and member cards (with their project and lane, also from other projects of the group). UMBRELLA_OUT_OF_GROUP: it belongs to another group. Read-only.",
+        inputSchema: getUmbrellaInputSchema,
+        outputSchema: getUmbrellaResultSchema,
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      (input) => run((c) => this.cards.getUmbrella(c, input)),
+    );
+    mcp.registerTool(
+      "flowly_create_umbrella",
+      {
+        description:
+          "Create an umbrella in this project's board group when the user asked you to group related cards. brief is only the initial text: no agent tool edits an existing brief, contract or acceptance list (the user does, in Flowly). Pass a unique idempotencyKey; retrying with the same key returns the same umbrella (replayed=true). Counts with card creations against the 20-per-hour limit (CARD_LIMIT). UMBRELLA_LIMIT: the group has 50 open umbrellas. AGENT_CARDS_DISABLED: the user turned this off; tell them instead.",
+        inputSchema: createUmbrellaInputSchema,
+        outputSchema: createUmbrellaResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      (input) => run((c) => this.cards.createUmbrella(c, input)),
+    );
+    mcp.registerTool(
+      "flowly_set_umbrella",
+      {
+        description:
+          "Put a card of this Flowly project in an umbrella, move it to another one, change its role or order, or take it out (umbrellaId null), only when the user asked you to. Joining needs an open umbrella of the card's board group with room (UMBRELLA_CLOSED, UMBRELLA_OUT_OF_GROUP, UMBRELLA_LIMIT). It never moves, starts or finishes the card, and never edits the umbrella. Counts against the 20-per-hour limit (CARD_LIMIT). CARD_NOT_FOUND, AGENT_CARDS_DISABLED.",
+        inputSchema: setUmbrellaInputSchema,
+        outputSchema: setUmbrellaResultSchema,
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      (input) => run((c) => this.cards.setUmbrella(c, input)),
     );
     mcp.registerTool(
       "flowly_set_plan",

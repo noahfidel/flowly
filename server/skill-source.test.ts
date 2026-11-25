@@ -21,3 +21,10 @@ test("the skill lets a related change join the card and names the project base, 
   expect(skillText).toContain("a new worktree branched off the project's base branch");
   expect(skillText).toContain("with Auto review off, ship in the same turn once your own checks pass and your review has no open findings");
 });
+
+test("the skill names the umbrella block and the [contract] rule", () => {
+  expect(skillText).toContain("umbrella block in flowly_get_task");
+  expect(skillText).toContain("[contract]");
+  expect(skillText).toContain("flowly_add_umbrella_entry");
+  expect(skillText).toContain("never edit the brief or the contract");
+});

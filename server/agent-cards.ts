@@ -9,11 +9,16 @@ import { isSummarizer } from "../shared/summary";
 import { absoluteTarget } from "../shared/artifacts";
 import { planApproved, planOf } from "../shared/plans";
 import { linearIssueOf, linearIssuesOf } from "../shared/linear-ticket";
+import type { Actor } from "../shared/model";
 import {
   agentCardLimits,
   clearLinearInputSchema,
   clearPlanInputSchema,
   createCardInputSchema,
+  createUmbrellaInputSchema,
+  getUmbrellaInputSchema,
+  listUmbrellasInputSchema,
+  setUmbrellaInputSchema,
   setLinearInputSchema,
   setPlanInputSchema,
   getCardInputSchema,
@@ -35,6 +40,7 @@ import { BoardService } from "./service";
 import { BoardStore, columnOrder, setTags } from "./store";
 import { digest } from "./tool-context";
 import { checkGroup, ToolError } from "./tool-error";
+import { createUmbrella, getUmbrella, listUmbrellas, setMembership } from "./umbrellas";
 
 /**
  * Who calls a card tool: a card session (its card is `taskId`), a session outside cards (AGENT-CARDS-SPEC §2), the
@@ -361,6 +367,89 @@ export class AgentCards {
       ...(chosen?.warnings.length ? { warnings: chosen.warnings } : {}),
       ...(notices.length ? { notice: notices.join("\n") } : {}),
     };
+  }
+  /** The board group of the caller's project: umbrella tools never take a group (UMBRELLA-SPEC §4.2). */
+  private umbrellaGroup(board: Board, caller: CardCaller) {
+    const groupId = this.project(board, caller).groupId;
+    if (!groupId) throw new ToolError("NOT_FOUND", "This Flowly project is in no board group.");
+    return groupId;
+  }
+  /** Who an umbrella write records (UMBRELLA-SPEC §2). */
+  private umbrellaActor(caller: CardCaller): Actor {
+    return caller.dispatcher
+      ? { kind: "dispatcher", agentId: caller.agentId }
+      : { kind: "agent", agentId: caller.agentId, ...(caller.taskId ? { taskId: caller.taskId } : {}) };
+  }
+  /** flowly_list_umbrellas: the open umbrellas of the caller's group. Reads need no switch of their own beyond the caller's (UMBRELLA-SPEC §4.2). */
+  async listUmbrellas(caller: CardCaller, raw: unknown) {
+    listUmbrellasInputSchema.parse(raw);
+    const board = await this.store.read();
+    return { umbrellas: listUmbrellas(board, this.umbrellaGroup(board, caller)) };
+  }
+  /** flowly_get_umbrella: one umbrella of the caller's group in full; another group's is UMBRELLA_OUT_OF_GROUP. */
+  async getUmbrella(caller: CardCaller, raw: unknown) {
+    const { umbrellaId } = getUmbrellaInputSchema.parse(raw);
+    const board = await this.store.read(),
+      groupId = this.umbrellaGroup(board, caller);
+    const found = getUmbrella(board, umbrellaId);
+    if (found.umbrella.groupId !== groupId)
+      throw new ToolError("UMBRELLA_OUT_OF_GROUP", "That umbrella belongs to another board group than this project. Use an id from flowly_list_umbrellas.");
+    const { operationId: _operation, ...umbrella } = found.umbrella;
+    return { ...found, umbrella };
+  }
+  /**
+   * flowly_create_umbrella: in the caller's group; the key replays it (a replay takes no hourly slot). Counts with card
+   * creations against the session's hourly limit.
+   */
+  async createUmbrella(caller: CardCaller, raw: unknown) {
+    const input = createUmbrellaInputSchema.parse(raw);
+    await this.enabled();
+    const board = await this.store.read(),
+      project = this.project(board, caller);
+    if (project.archivedAt) throw new ToolError("ARCHIVED", "The Flowly project is archived.");
+    const groupId = this.umbrellaGroup(board, caller);
+    const operationId = `agent-umbrella:${digest(JSON.stringify([caller.taskId ?? caller.projectId, caller.agentId, input.idempotencyKey]))}`;
+    const strip = ({ operationId: _operation, replayed: _replayed, ...umbrella }: Awaited<ReturnType<typeof createUmbrella>>) => umbrella;
+    const previous = board.umbrellas.find((u) => u.operationId === operationId);
+    if (previous) return { umbrella: strip(previous), replayed: true };
+    const release = this.reserve(caller.agentId, caller.dispatcher);
+    try {
+      const { idempotencyKey: _key, ...fields } = input;
+      const made = await createUmbrella(this.store, { ...fields, groupId, operationId }, this.umbrellaActor(caller));
+      // A concurrent call with the same key made it first: this one took no new umbrella, so it gives the slot back.
+      if (made.replayed) release();
+      return { umbrella: strip(made), replayed: !!made.replayed };
+    } catch (e) {
+      release();
+      throw e;
+    }
+  }
+  /** flowly_set_umbrella: joins, moves, re-roles or removes a card of the caller's project (UMBRELLA-SPEC §4.2, D11). */
+  async setUmbrella(caller: CardCaller, raw: unknown) {
+    const input = setUmbrellaInputSchema.parse(raw);
+    await this.enabled();
+    const board = await this.store.read(),
+      project = this.project(board, caller);
+    if (project.archivedAt) throw new ToolError("ARCHIVED", "The Flowly project is archived.");
+    const before = board.tasks.find((t) => t.id === input.taskId && t.projectId === project.id);
+    if (!before) throw new ToolError("CARD_NOT_FOUND", "No card with that id in this project. Use an id from flowly_list_cards.");
+    const release = this.reserve(caller.agentId, caller.dispatcher);
+    try {
+      const was = JSON.stringify(before.umbrella ?? null);
+      const task = await setMembership(this.store, input, this.umbrellaActor(caller));
+      const now = task.umbrella,
+        title = now ? (await this.store.read()).umbrellas.find((u) => u.id === now.id)?.title : undefined;
+      const changed = was !== JSON.stringify(now ?? null);
+      if (!changed) release();
+      return {
+        taskId: task.id,
+        umbrella: now ? { id: now.id, title: title ?? "", ...(now.role !== undefined ? { role: now.role } : {}), ...(now.order !== undefined ? { order: now.order } : {}) } : null,
+        changed,
+      };
+    } catch (e) {
+      release();
+      throw e;
+    }
   }
   /** Where a new worktree card branches from (START-CARD-SPEC §11.3): its parent is the calling card, when open. */
   private async worktreeBase(caller: CardCaller, board: Board, project: Project, explicit: string | undefined): Promise<BaseChoice> {
