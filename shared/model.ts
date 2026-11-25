@@ -859,7 +859,7 @@ export const receiptSchema = z.object({
   taskId: z.string(),
   payloadHash: z.string(),
   /** `review_rules`: receipts of the tool removed with guardrails (GUARDRAILS-SPEC §9); they expire within 7 days. */
-  action: z.enum(["status", "progress", "idea", "idea_update", "idea_remove", "remember", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "handover", "review_rules"]),
+  action: z.enum(["status", "progress", "idea", "idea_update", "idea_remove", "remember", "artifact", "artifact_remove", "tags", "type", "next_moves", "workpad", "handover", "review_rules", "umbrella_entry", "umbrella_withdraw"]),
   /** Empty when an artifact write changed nothing (same target already recorded). */
   eventId: z.string(),
   /** Stable result identity for idea writes, even after the idea is removed or pruned. */
@@ -1062,6 +1062,12 @@ export const taskInput = z.strictObject({
   ideaId: z.string().min(1).optional(),
   /** Create as a follow-up of this card (CARD-LINKS-SPEC §3); not together with ideaId. */
   followUpOf: z.string().min(1).optional(),
+  /**
+   * The umbrella the card joins (UMBRELLA-SPEC §2.2, D11): an id joins that one, refused when it can't take the card
+   * (closed, another board group, full); null joins none; omitted inherits the umbrella of `followUpOf` or of the idea
+   * (its `umbrellaId`, else its source card's), and an inherit the umbrella can't take leaves the card out instead.
+   */
+  umbrellaId: z.string().min(1).max(200).nullable().optional(),
   /** How the card is delivered (DELIVERY-MODE-SPEC §2); omitted: the host default applies when the context is built. */
   deliveryMode: z.enum(deliveryModes).optional(),
   /** true and false are stored; null or omitted stores nothing (LINEAR-TICKET-SPEC §5). */

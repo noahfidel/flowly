@@ -18,6 +18,7 @@ import { artifactRoots, dropArtifact, planRemovalRefused, externalArtifact, miss
 import { ArtifactReadStore } from "./artifact-reads";
 import { UmbrellaReadStore } from "./umbrella-reads";
 import { umbrellaContext } from "../shared/umbrella";
+import { addEntry, memberUmbrella, umbrellaWriteLimiter, withdrawEntry, type NewEntry } from "./umbrellas";
 import { ExternalError } from "./connectors/http";
 import { ExternalReadStore, refKey, type ConnectorService } from "./connectors/service";
 import { familyOf, itemTypeOf } from "../shared/connectors";
@@ -36,6 +37,8 @@ import {
   ideaRemovalSchema,
   ideaUpdateInputSchema,
   rememberInputSchema,
+  umbrellaEntryInputSchema,
+  withdrawEntryInputSchema,
   recallInputSchema,
   agentSearchInputSchema,
   artifactInputSchema,
@@ -58,6 +61,8 @@ import {
   type IdeaRemovalInput,
   type IdeaUpdateInput,
   type RememberInput,
+  type UmbrellaEntryInput,
+  type WithdrawEntryInput,
   type RecallInput,
   type AgentSearchInput,
   type ArtifactToolInput,
@@ -99,6 +104,10 @@ export class AgentService {
   readonly accesses = new Map<string, { at: string; action: string }>();
   /** The Ideas setting; off refuses new proposals (IDEAS-INBOX-SPEC §10). Set by the plugin entry. */
   ideasOn: () => Promise<boolean> = async () => true;
+  /** The Agents create and edit cards setting; off refuses umbrella writes (UMBRELLA-SPEC §4.1, D10). Set by the tool server. */
+  agentCardsOn: () => Promise<boolean> = async () => true;
+  /** Feed writes per member session, 20 an hour (UMBRELLA-SPEC §2.4). */
+  private umbrellaWrites: ReturnType<typeof umbrellaWriteLimiter>;
   /** The Agent artifacts setting; off refuses artifact writes (CARD-ARTIFACTS-SPEC §4.3). */
   artifactsOn: () => Promise<boolean> = async () => true;
   /** The extra artifact folders from Settings (CARD-ARTIFACTS-SPEC, extra folders). Set by the plugin entry. */
@@ -117,6 +126,7 @@ export class AgentService {
   ) {
     this.artifactReads = new ArtifactReadStore(store.directory);
     this.umbrellaReads = new UmbrellaReadStore(store.directory, clock);
+    this.umbrellaWrites = umbrellaWriteLimiter(clock);
     this.externalReads = new ExternalReadStore(join(store.directory, "connectors"));
   }
   /** Reads external inputs (CONNECTORS-SPEC §9); set by the plugin entry. */
@@ -497,12 +507,18 @@ export class AgentService {
   }
   async write(
     identity: ToolIdentity,
-    action: "status" | "progress" | "idea" | "idea_update" | "idea_remove" | "remember" | "artifact" | "artifact_remove" | "tags" | "type" | "next_moves" | "workpad" | "handover",
+    action:
+      | "status" | "progress" | "idea" | "idea_update" | "idea_remove" | "remember" | "artifact" | "artifact_remove" | "tags" | "type" | "next_moves" | "workpad" | "handover"
+      | "umbrella_entry" | "umbrella_withdraw",
     raw: unknown,
   ): Promise<ToolResult> {
-    const input: StatusInput | ProgressInput | IdeaInput | IdeaUpdateInput | IdeaRemovalInput | RememberInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput | HandoverInput =
+    const input: StatusInput | ProgressInput | IdeaInput | IdeaUpdateInput | IdeaRemovalInput | RememberInput | ArtifactToolInput | ArtifactRemovalInput | TagsToolInput | TypeToolInput | NextMovesInput | WorkpadInput | HandoverInput | UmbrellaEntryInput | WithdrawEntryInput =
       action === "status"
         ? statusInputSchema.parse(raw)
+        : action === "umbrella_entry"
+          ? umbrellaEntryInputSchema.parse(raw)
+        : action === "umbrella_withdraw"
+          ? withdrawEntryInputSchema.parse(raw)
         : action === "remember"
           ? rememberInputSchema.parse(raw)
           : action === "idea"
@@ -599,9 +615,26 @@ export class AgentService {
       action === "tags" || action === "idea" || (action === "idea_update" && (input as IdeaUpdateInput).tags)
         ? normalizeToolTags(action === "tags" ? "tags" : "idea", input as TagsToolInput | IdeaInput)
         : undefined;
+    // Umbrella writes (UMBRELLA-SPEC §4.1, §6): feed entries (flowly_add_umbrella_entry, flowly_remember scope=umbrella)
+    // and withdrawals take one of the session's hourly feed slots; those and an umbrella idea sit behind *Agents create
+    // and edit cards*. flowly_remember scope=umbrella never reaches project memory, so MEMORY_DISABLED does not apply.
+    const umbrellaMemory = action === "remember" && (input as RememberInput).scope === "umbrella";
+    if (umbrellaMemory && (input as RememberInput).kind === "contact")
+      throw new ToolError("UMBRELLA_KIND", "Contacts are project-wide: remember them without scope=umbrella.");
+    const feedWrite = action === "umbrella_entry" || action === "umbrella_withdraw" || umbrellaMemory;
+    const umbrellaWrite = feedWrite || (action === "idea" && !!(input as IdeaInput).umbrella);
+    let releaseSlot: (() => void) | undefined;
+    if (umbrellaWrite && !(await this.store.read()).agentReceipts.some((r) => r.key === key)) {
+      if (!(await this.agentCardsOn()))
+        throw new ToolError(
+          "AGENT_CARDS_DISABLED",
+          "Agents creating and editing cards is turned off in Flowly settings, and umbrella writes with it. Put it in your reply instead.",
+        );
+      if (feedWrite) releaseSlot = this.umbrellaWrites.take(identity.agentId);
+    }
     // A memory candidate (PROJECT-MEMORY-SPEC §4.1): its refusals come before the card write, so they leave no receipt.
     const memoryInput =
-      action === "remember"
+      action === "remember" && !umbrellaMemory
         ? (() => {
             const m = input as RememberInput;
             try {
@@ -914,6 +947,36 @@ export class AgentService {
               });
             })()
           : undefined;
+      // A member's feed write (UMBRELLA-SPEC §4.1): its event names the kind and title; a ruling has its own action so
+      // the relay matches rulings by action, never by the note.
+      const entryEvent = feedWrite
+        ? (() => {
+            const now = new Date(this.clock()).toISOString(),
+              by = { kind: "agent" as const, agentId: identity.agentId, taskId: task.id };
+            if (action === "umbrella_withdraw") {
+              const e = withdrawEntry(board, task, (input as WithdrawEntryInput).id, by, now);
+              return this.store.event(board, { taskId: task.id, agentId: identity.agentId, actor: "agent", action: "umbrella_entry_withdrawn", note: `${e.kind}: ${e.title}` });
+            }
+            const given = input as UmbrellaEntryInput | RememberInput;
+            const entry: NewEntry = {
+              kind: given.kind as NewEntry["kind"],
+              title: given.title,
+              body: given.body,
+              ...("quote" in given && given.quote ? { quote: given.quote } : {}),
+              ...(given.supersedes ? { supersedes: given.supersedes } : {}),
+            };
+            const e = addEntry(board, task, entry, by, now);
+            return this.store.event(board, {
+              taskId: task.id,
+              agentId: identity.agentId,
+              actor: "agent",
+              action: e.kind === "ruling" ? "umbrella_ruling_added" : "umbrella_entry_added",
+              note: `${e.kind}: ${e.title}`,
+            });
+          })()
+        : undefined;
+      // An idea for the umbrella (UMBRELLA-SPEC §4.1): only on a member card of an open umbrella.
+      const ideaUmbrella = action === "idea" && (input as IdeaInput).umbrella ? memberUmbrella(board, task).id : undefined;
       // Managing an idea of this card (IDEAS-SPEC §3.1).
       const ideaEvent =
         action === "idea_update" || action === "idea_remove"
@@ -922,6 +985,7 @@ export class AgentService {
             )
           : undefined;
       const event =
+        entryEvent ??
         ideaEvent ??
         artifactEvent ??
         tagsEvent ??
@@ -971,6 +1035,7 @@ export class AgentService {
           ...(idea.priority ? { priority: idea.priority } : {}),
           ...(tagEdit?.add.length ? { tags: tagEdit.add } : {}),
           scope: idea.scope,
+          ...(ideaUmbrella ? { umbrellaId: ideaUmbrella } : {}),
           status: "open",
           createdAt: event.at,
           updatedAt: event.at,
@@ -997,7 +1062,12 @@ export class AgentService {
       };
       board.agentReceipts.push(receipt);
       return { value: { receipt, replayed: false, ideaId, artifactId, reminders: reminders(board) }, changed: true };
+    }).catch((e: unknown) => {
+      // A refused feed write gives its hourly slot back (UMBRELLA-SPEC §2.4).
+      releaseSlot?.();
+      throw e;
     });
+    if (result.replayed) releaseSlot?.();
     if (delivering && !result.replayed) this.deliveryGate.clear(`${identity.agentId}:${identity.taskId}:${identity.workspaceId}`);
     if (review && !result.replayed) this.onDelivered?.(review, resources.paseo);
     const {

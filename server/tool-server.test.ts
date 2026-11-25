@@ -87,6 +87,8 @@ test("MCP initialize/list can precede actor creation; live calls require SDK con
     "flowly_update_idea",
     "flowly_remove_idea",
     "flowly_remember",
+    "flowly_add_umbrella_entry",
+    "flowly_withdraw_umbrella_entry",
     "flowly_recall",
     "flowly_search",
     "flowly_add_artifact",
@@ -878,4 +880,33 @@ test("card sessions reach the card tools over the CLI (AGENT-CARDS-SPEC §5)", a
   expect((await x.api("get_card", { taskId: "t" })).result.card.priority).toBe("high");
   expect((await cli("set-plan", "--input", JSON.stringify({ taskId: "t", target: "https://plans.example/cli", approved: true }))).plan).toMatchObject({ approved: true, source: "tool" });
   expect(await cli("clear-plan", "--input", JSON.stringify({ taskId: "t" }))).toEqual({ cleared: true });
+});
+
+test("member tools are registered for card sessions", async () => {
+  const x = await setup();
+  const response = await fetch(x.url + "mcp", {
+    method: "POST",
+    headers: { Authorization: x.authorization, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+  });
+  const body = await response.text();
+  const parsed = JSON.parse(
+    response.headers.get("content-type")?.includes("text/event-stream")
+      ? body.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).at(-1)!
+      : body,
+  );
+  const tools = parsed.result.tools as { name: string; description: string; inputSchema: { properties: Record<string, unknown> } }[];
+  const tool = (name: string) => tools.find((t) => t.name === name)!;
+  expect(tools.map((t) => t.name)).toEqual(expect.arrayContaining(["flowly_add_umbrella_entry", "flowly_withdraw_umbrella_entry"]));
+  const add = tool("flowly_add_umbrella_entry");
+  expect(Object.keys(add.inputSchema.properties)).toEqual(expect.arrayContaining(["expectedRevision", "request", "kind", "title", "body", "quote", "supersedes"]));
+  expect(add.description).toMatch(/member/i);
+  expect(add.description).toMatch(/never edits the brief or the contract/);
+  expect(add.description).toMatch(/user's own words from this chat/);
+  expect(Object.keys(tool("flowly_withdraw_umbrella_entry").inputSchema.properties)).toEqual(["expectedRevision", "request", "id"]);
+  expect(tool("flowly_remember").inputSchema.properties).toHaveProperty("scope");
+  expect(tool("flowly_remember").description).toMatch(/scope=umbrella/);
+  expect(tool("flowly_remember").description).toMatch(/1,000/);
+  expect(tool("flowly_propose_idea").inputSchema.properties).toHaveProperty("umbrella");
+  expect(tool("flowly_create_card").inputSchema.properties).toHaveProperty("umbrella");
 });

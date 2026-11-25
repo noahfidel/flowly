@@ -313,6 +313,7 @@ Input (strict):
   - `INVALID_INPUT`: `supersedes` is not an active entry of this project.
 - Output: `toolResultSchema`, with one more `memoryId`.
 - The CLI adds `remember --request-file … --kind … --title … --body … [--tags a,b] [--supersedes <id>]`; the HTTP `/api` `action` adds `"remember"`.
+- `scope: "project" | "umbrella"` (optional, default `project`): `umbrella` writes a feed entry of the card's umbrella instead of a project note and never touches `memory.json`; see UMBRELLA-SPEC §6 (and §4.1 for its errors).
 
 ### 4.2 Finished-card review (distill candidates at Done)
 

@@ -28,6 +28,8 @@ import {
   ideaRemovalSchema,
   ideaUpdateInputSchema,
   rememberInputSchema,
+  umbrellaEntryInputSchema,
+  withdrawEntryInputSchema,
   recallInputSchema,
   recallResultSchema,
   agentSearchInputSchema,
@@ -117,6 +119,8 @@ export class ToolServer {
     this.secrets = new ToolSecrets(store.directory);
     this.agents = new AgentService(store, this.secrets);
     this.cards = new AgentCards(store);
+    // Umbrella writes share the card tools' switch (UMBRELLA-SPEC §4.1, D10); read at each call.
+    this.agents.agentCardsOn = () => this.cards.on();
     this.projectIdeas = new ProjectIdeas(store);
     this.starter = new CardStarter(store, this.cards, {
       prepare: (taskId, operationId, paseo) => this.prepareSession(taskId, operationId, paseo),
@@ -265,7 +269,7 @@ export class ToolServer {
       "flowly_create_card",
       {
         description:
-          'Create a card in this Flowly project when the user asked you to create cards (for example "split this into cards" or "make a card for X"), or when you are about to start repo work that has no card yet (every workspace belongs to a card). Other follow-up work the user did not ask for is an idea (flowly_propose_idea in a card session), not a card. The card gets its own new workspace in the project folder (workspace=directory, default) or a new worktree (workspace=worktree; it branches off your card\'s branch when that has commits the project\'s base lacks, as the project\'s follow-up setting says, and base in the result says which; BASE_CHOICE_NEEDED: ask the user and pass baseRef) and lands in Backlog (default) or Todo; no session starts until you call flowly_start_card or the user starts it. Its agent cannot see this conversation: write the description with the goal, context, files and acceptance criteria. From a card session the new card follows up your card. If you planned this card (plan mode writes the plan to a file), pass that file as plan so the card keeps it; plan.approved=true only when the user approved it in your chat (PLAN_INVALID: the file is outside the project, nothing is created). Pass linear (a key like ZEN-9132 or a Linear URL) to link its Linear issue before it starts, so flowly_start_card names the branch from it (LINEAR_INVALID: Linear can not see it, nothing is created). Pass linearTicket=false for a card that needs no Linear ticket in a project that asks for one, or true to ask for one on a card whose type the project skips (research by default); omitted, it follows the project and the card\'s type. Pass a unique idempotencyKey; retrying with the same key returns the same card (replayed=true). At most 20 cards per session per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off; tell them instead.',
+          'Create a card in this Flowly project when the user asked you to create cards (for example "split this into cards" or "make a card for X"), or when you are about to start repo work that has no card yet (every workspace belongs to a card). Other follow-up work the user did not ask for is an idea (flowly_propose_idea in a card session), not a card. The card gets its own new workspace in the project folder (workspace=directory, default) or a new worktree (workspace=worktree; it branches off your card\'s branch when that has commits the project\'s base lacks, as the project\'s follow-up setting says, and base in the result says which; BASE_CHOICE_NEEDED: ask the user and pass baseRef) and lands in Backlog (default) or Todo; no session starts until you call flowly_start_card or the user starts it. Its agent cannot see this conversation: write the description with the goal, context, files and acceptance criteria. From a card session the new card follows up your card, and joins your card\'s umbrella unless umbrella="none" (if the umbrella cannot take it, the card is still made and notice says why). If you planned this card (plan mode writes the plan to a file), pass that file as plan so the card keeps it; plan.approved=true only when the user approved it in your chat (PLAN_INVALID: the file is outside the project, nothing is created). Pass linear (a key like ZEN-9132 or a Linear URL) to link its Linear issue before it starts, so flowly_start_card names the branch from it (LINEAR_INVALID: Linear can not see it, nothing is created). Pass linearTicket=false for a card that needs no Linear ticket in a project that asks for one, or true to ask for one on a card whose type the project skips (research by default); omitted, it follows the project and the card\'s type. Pass a unique idempotencyKey; retrying with the same key returns the same card (replayed=true). At most 20 cards per session per hour (CARD_LIMIT). AGENT_CARDS_DISABLED: the user turned this off; tell them instead.',
         inputSchema: createCardInputSchema,
         outputSchema: createCardResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -463,7 +467,7 @@ export class ToolServer {
           "flowly_propose_idea",
           {
             description:
-              "Propose a next step the user did not ask for. scope=here: an extension of this card's goal; the user may send it back to this card's session as an instruction. scope=new: divergent work (a bug found on the way, a refactor, a separate feature); the user may turn it into a new card that starts from your detail, rationale and context, whose agent cannot see this conversation, so put files, branches and findings in context. Do not propose work this card already requires, propose at most 3 per delivery, check ideas from get_task for duplicates, and never start the idea yourself. Does not change card status or task revision. Copy revisions/request from get_task.",
+              "Propose a next step the user did not ask for. scope=here: an extension of this card's goal; the user may send it back to this card's session as an instruction. scope=new: divergent work (a bug found on the way, a refactor, a separate feature); the user may turn it into a new card that starts from your detail, rationale and context, whose agent cannot see this conversation, so put files, branches and findings in context. Do not propose work this card already requires, propose at most 3 per delivery, check ideas from get_task for duplicates, and never start the idea yourself. On a member card, umbrella=true makes it an idea of the umbrella, which every member sees in get_task umbrella.ideas; a card made from it joins the umbrella. Does not change card status or task revision. Copy revisions/request from get_task.",
             inputSchema: ideaInputSchema,
             outputSchema: toolResultSchema,
             annotations: {
@@ -501,12 +505,34 @@ export class ToolServer {
           "flowly_remember",
           {
             description:
-              "Remember something for the project that would make a later, different card's agent re-ask the user, retry a dead end or hit the same problem: a decision the user made with its reason, including a rejected option (decision); a dead end, or the general lesson behind a bug you fixed, not the fix (pitfall); how the user wants work done here that the repository does not say (convention); people, external systems and environments (contact). It takes effect at once for new sessions on this project, so only propose what holds beyond this card. Not this card's progress (that is the summary), not open or deferred items (those are ideas), not what code, git or docs already say, and never a secret (say where it is kept). Only what holds beyond this card: if every later card that would need it works on the same feature, file or bug, leave it to the code and the summary. At most 3 per delivery, usually none; check get_task memory and flowly_recall first. To correct an entry, propose a new one with supersedes=<its id>; you cannot edit or delete entries. Returns MEMORY_DISABLED, MEMORY_DUPLICATE, MEMORY_LIMIT or MEMORY_SECRET when refused. Does not change card status or task revision. Copy revisions/request from get_task.",
+              "Remember something for the project that would make a later, different card's agent re-ask the user, retry a dead end or hit the same problem: a decision the user made with its reason, including a rejected option (decision); a dead end, or the general lesson behind a bug you fixed, not the fix (pitfall); how the user wants work done here that the repository does not say (convention); people, external systems and environments (contact). It takes effect at once for new sessions on this project, so only propose what holds beyond this card. Not this card's progress (that is the summary), not open or deferred items (those are ideas), not what code, git or docs already say, and never a secret (say where it is kept). Only what holds beyond this card: if every later card that would need it works on the same feature, file or bug, leave it to the code and the summary. At most 3 per delivery, usually none; check get_task memory and flowly_recall first. To correct an entry, propose a new one with supersedes=<its id>; you cannot edit or delete entries. Returns MEMORY_DISABLED, MEMORY_DUPLICATE, MEMORY_LIMIT or MEMORY_SECRET when refused. On a member card (get_task umbrella), scope=umbrella writes a feed entry of the umbrella instead of a project note, for knowledge only its member cards need: decision, convention or pitfall (contact is refused, UMBRELLA_KIND), tags and keywords dropped, supersedes naming a feed entry, the body still at most 1,000 characters (flowly_add_umbrella_entry takes 2,000); MEMORY_DISABLED does not apply to it. Does not change card status or task revision. Copy revisions/request from get_task.",
             inputSchema: rememberInputSchema,
             outputSchema: toolResultSchema,
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
           (input) => wrap(() => this.agents.write(identity, "remember", input)),
+        );
+        mcp.registerTool(
+          "flowly_add_umbrella_entry",
+          {
+            description:
+              "Append an entry to this card's umbrella feed (get_task umbrella), which every member card's agent reads and no card outside it does. Member cards only (NOT_IN_UMBRELLA otherwise). Append-only: it never edits the brief or the contract (propose contract changes instead; the user edits the brief). kind: decision, finding, convention or pitfall for what siblings need to know; question for an open question to the user about the whole umbrella (not this card's ask); ruling only for a product rule the user gave in this chat, with quote holding the user's own words from this chat, never your paraphrase or another card's. To correct an entry, add a new one with supersedes=<its id>. Body at most 2,000 characters. Refused: UMBRELLA_CLOSED (closed or archived umbrella), UMBRELLA_LIMIT (300 active entries), UMBRELLA_RATE_LIMIT (20 feed writes per session per hour), AGENT_CARDS_DISABLED. Does not change card status or task revision. Copy revisions/request from get_task.",
+            inputSchema: umbrellaEntryInputSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "umbrella_entry", input)),
+        );
+        mcp.registerTool(
+          "flowly_withdraw_umbrella_entry",
+          {
+            description:
+              "Withdraw one of this card's own umbrella feed entries (id from get_task umbrella.feed whose sourceTaskId is this card): a pending contract change proposal becomes withdrawn, any other entry superseded. Member cards only; another card's entry is NOT_FOUND. It never edits the brief or the contract. Counts toward the 20 feed writes per session per hour (UMBRELLA_RATE_LIMIT). Does not change card status or task revision. Copy revisions/request from get_task.",
+            inputSchema: withdrawEntryInputSchema,
+            outputSchema: toolResultSchema,
+            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+          },
+          (input) => wrap(() => this.agents.write(identity, "umbrella_withdraw", input)),
         );
         mcp.registerTool(
           "flowly_recall",

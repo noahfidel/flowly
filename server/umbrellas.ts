@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Actor, Board, BoardEvent, Task, Umbrella, UmbrellaEntry } from "../shared/model";
 import { laneName } from "../shared/lanes";
 import {
+  countsTowardLimit,
   leaveUmbrella,
   membersOf,
   umbrellaGroupOf,
@@ -267,4 +268,148 @@ export function getUmbrella(board: Board, id: string): { umbrella: Umbrella; ent
     };
   });
   return { umbrella, entries: board.umbrellaEntries.filter((e) => e.umbrellaId === id), members };
+}
+
+/** What a member's agent appends (UMBRELLA-SPEC §4.1): flowly_add_umbrella_entry, or flowly_remember scope=umbrella. */
+export type NewEntry = {
+  kind: "decision" | "finding" | "convention" | "pitfall" | "question" | "ruling";
+  title: string;
+  body: string;
+  quote?: string;
+  supersedes?: string;
+};
+
+/** The umbrella `task` writes to: NOT_IN_UMBRELLA when it is in none, UMBRELLA_CLOSED when that one is closed or archived. */
+export function memberUmbrella(board: Board, task: Task): Umbrella {
+  const u = task.umbrella ? board.umbrellas.find((x) => x.id === task.umbrella!.id) : undefined;
+  if (!u) throw new ToolError("NOT_IN_UMBRELLA", "This card is not in an umbrella; umbrella writes are for member cards only.");
+  requireOpen(u);
+  return u;
+}
+
+/**
+ * Appends a member's entry to its card's umbrella feed (pure; the caller's transaction records the card's event). A
+ * question starts `open`, every other kind `active`; `supersedes` names an active entry or open question of the same
+ * umbrella and marks it superseded. At most 300 counted entries (superseding one frees its place). Bumps the
+ * umbrella's `feedRevision`, never its `revision`.
+ */
+export function addEntry(board: Board, task: Task, input: NewEntry, by: Actor, now: string): UmbrellaEntry {
+  const u = memberUmbrella(board, task);
+  if (input.kind === "ruling" && !input.quote?.trim())
+    throw new ToolError("INVALID_INPUT", "A ruling needs quote: the user's own words from this card's chat.");
+  const replaced = input.supersedes ? board.umbrellaEntries.find((e) => e.id === input.supersedes && e.umbrellaId === u.id) : undefined;
+  if (input.supersedes && !replaced) throw new ToolError("NOT_FOUND", "No entry with that id in this card's umbrella. Use an id from get_task umbrella.feed.");
+  if (replaced && !countsTowardLimit(replaced))
+    throw new ToolError("INVALID_INPUT", `That entry is ${replaced.status}; only an active entry or an open question can be superseded.`);
+  const counted = board.umbrellaEntries.filter((e) => e.umbrellaId === u.id && countsTowardLimit(e)).length - (replaced ? 1 : 0);
+  if (counted >= umbrellaLimits.activeEntries)
+    throw new ToolError(
+      "UMBRELLA_LIMIT",
+      `This umbrella already has ${umbrellaLimits.activeEntries} active entries and open questions. Supersede one, or tell the user.`,
+    );
+  if (replaced) {
+    replaced.status = "superseded";
+    replaced.updatedAt = now;
+  }
+  const entry: UmbrellaEntry = {
+    id: randomUUID(),
+    umbrellaId: u.id,
+    kind: input.kind,
+    title: input.title,
+    body: input.body,
+    status: input.kind === "question" ? "open" : "active",
+    sourceTaskId: task.id,
+    ...(input.kind === "ruling" ? { quote: input.quote } : {}),
+    ...(replaced ? { supersedes: replaced.id } : {}),
+    by,
+    createdAt: now,
+    updatedAt: now,
+  };
+  board.umbrellaEntries.push(entry);
+  u.feedRevision++;
+  return entry;
+}
+
+/**
+ * Withdraws one of `task`'s own entries in its umbrella (pure): a `proposed` contract change becomes `withdrawn`, an
+ * active entry or open question `superseded`. Another card's entry is NOT_FOUND; a closed entry INVALID_INPUT.
+ * Bumps `feedRevision`, never `revision`.
+ */
+export function withdrawEntry(board: Board, task: Task, id: string, _by: Actor, now: string): UmbrellaEntry {
+  const u = memberUmbrella(board, task);
+  const entry = board.umbrellaEntries.find((e) => e.id === id && e.umbrellaId === u.id && e.sourceTaskId === task.id);
+  if (!entry) throw new ToolError("NOT_FOUND", "No entry of this card with that id in its umbrella. Use an id from get_task umbrella.feed whose sourceTaskId is this card.");
+  if (entry.status === "proposed") entry.status = "withdrawn";
+  else if (countsTowardLimit(entry)) entry.status = "superseded";
+  else throw new ToolError("INVALID_INPUT", `That entry is already ${entry.status}.`);
+  entry.updatedAt = now;
+  u.feedRevision++;
+  return entry;
+}
+
+const hour = 3600000;
+/**
+ * Feed writes per member session (§2.4): `take` claims one of `umbrellaLimits.writesPerHour` slots in a rolling hour,
+ * or throws UMBRELLA_RATE_LIMIT. Taken before the write's transaction; the returned function gives it back when the
+ * write was refused or replayed. In memory: a plugin reload resets it, like `agentCardLimits.perHour`.
+ */
+export function umbrellaWriteLimiter(clock: () => number = () => Date.now()) {
+  const slots = new Map<string, number[]>();
+  return {
+    take(agentId: string): () => void {
+      const now = clock(),
+        recent = (slots.get(agentId) || []).filter((at) => now - at < hour);
+      if (recent.length >= umbrellaLimits.writesPerHour)
+        throw new ToolError(
+          "UMBRELLA_RATE_LIMIT",
+          `This session already wrote ${umbrellaLimits.writesPerHour} umbrella feed entries in the last hour. Keep the rest for your reply or a later turn.`,
+        );
+      slots.set(agentId, [...recent, now]);
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        const list = [...(slots.get(agentId) || [])],
+          at = list.lastIndexOf(now);
+        if (at >= 0) list.splice(at, 1);
+        slots.set(agentId, list);
+      };
+    },
+  };
+}
+
+/** Why `u` can't take a new card of `projectId`, with the code an explicit join is refused with; undefined when it can. */
+function joinProblem(board: Board, u: Umbrella, projectId: string): { code: string; reason: string } | undefined {
+  if (isClosed(u)) return { code: "UMBRELLA_CLOSED", reason: `it is ${u.archivedAt ? "archived" : "closed"}` };
+  if (umbrellaGroupOf(board, { projectId }) !== u.groupId)
+    return { code: "UMBRELLA_OUT_OF_GROUP", reason: "it is in another board group than this card's project" };
+  if (membersOf(board, u.id).length >= umbrellaLimits.members)
+    return { code: "UMBRELLA_LIMIT", reason: `it already has ${umbrellaLimits.members} member cards` };
+  return undefined;
+}
+
+/**
+ * The umbrella a new card joins (D11, §4.1): an explicit `umbrellaId` (the New task form), refused with its code when
+ * that umbrella can't take the card; `null` none; otherwise inherited from `followUpOf`'s umbrella, or the idea's
+ * `umbrellaId`, else its source card's umbrella. An inherit the umbrella can't take returns `skipped` (why) and never
+ * refuses the card.
+ */
+export function newCardUmbrella(
+  board: Board,
+  input: { projectId: string; umbrellaId?: string | null; followUpOf?: string; ideaId?: string },
+): { umbrella?: Umbrella; skipped?: string } {
+  if (input.umbrellaId === null) return {};
+  if (input.umbrellaId !== undefined) {
+    const u = find(board, input.umbrellaId);
+    const problem = joinProblem(board, u, input.projectId);
+    if (problem) throw new ToolError(problem.code, `The card can't join the umbrella "${u.title}": ${problem.reason}.`);
+    return { umbrella: u };
+  }
+  const memberOf = (taskId: string | undefined) => (taskId ? board.tasks.find((t) => t.id === taskId)?.umbrella?.id : undefined);
+  const idea = input.ideaId ? board.ideas.find((i) => i.id === input.ideaId) : undefined;
+  const id = input.followUpOf ? memberOf(input.followUpOf) : idea ? (idea.umbrellaId ?? memberOf(idea.taskId)) : undefined;
+  const u = id ? board.umbrellas.find((x) => x.id === id) : undefined;
+  if (!u) return {};
+  const problem = joinProblem(board, u, input.projectId);
+  return problem ? { skipped: `The card was made without joining the umbrella "${u.title}": ${problem.reason}.` } : { umbrella: u };
 }

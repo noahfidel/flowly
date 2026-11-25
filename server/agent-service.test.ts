@@ -11,9 +11,10 @@ import { setupReminder } from "../shared/card-setup";
 import { putArtifact } from "./artifacts";
 import { ExternalError } from "./connectors/http";
 import { turnChecklist } from "../shared/turn-checklist";
-import { toolContextSchema } from "../shared/tools";
+import { toolContextSchema, umbrellaEntryInputSchema } from "../shared/tools";
 import type { Lane, UmbrellaEntry } from "../shared/model";
-import { createUmbrella, setMembership, updateEntry, updateUmbrella } from "./umbrellas";
+import { closeUmbrella, createUmbrella, setMembership, updateEntry, updateUmbrella } from "./umbrellas";
+import type { MemoryService } from "./memory";
 
 const roots: string[] = [];
 async function setup(seed?: Parameters<typeof agentFixture>[0]) {
@@ -1389,4 +1390,183 @@ test("an answered question returns once to the asking card with its answer", asy
   // Once per session: the card's second session gets it once too.
   expect((await x.service.get({ ...x.identity, agentId: "second" })).umbrella!.feed).toEqual([expect.objectContaining({ id: "q", answer: "Drafts only" })]);
   expect((await x.service.get({ ...x.identity, agentId: "second" })).umbrella!.feed).toEqual([]);
+});
+
+/** umbrellaSetup plus a session "sib" on the sibling card s, and card o outside the umbrella with its session "out". */
+async function memberSetup() {
+  const x = await umbrellaSetup();
+  x.actors.sib = { id: "sib", workspaceId: "w-s", title: "Sibling session", status: "idle", archivedAt: null };
+  x.actors.out = { id: "out", workspaceId: "w-o", title: "Outside session", status: "idle", archivedAt: null };
+  await x.store.mutate((board) => {
+    const { umbrella: _umbrella, ...plain } = board.tasks[0]!;
+    board.tasks.push({ ...plain, id: "o", workspaceId: "w-o", title: "Outside", operationId: "create-o" });
+  });
+  const sibling = { agentId: "sib", taskId: "s", workspaceId: "w-s" },
+    outside = { agentId: "out", taskId: "o", workspaceId: "w-o" };
+  const signed = async (who = x.identity) => {
+    const ctx = await x.service.get(who, false);
+    return { expectedRevision: ctx.revision, request: ctx.request };
+  };
+  const entry = async (who = x.identity, extra: Record<string, unknown> = {}) =>
+    x.service.write(who, "umbrella_entry", { ...(await signed(who)), kind: "decision", title: "Use drafts", body: "Drafts keep review cheap.", ...extra });
+  const code = (promise: Promise<unknown>) => promise.then(() => "none", (e) => toolFailure(e).code);
+  return { ...x, sibling, outside, signed, entry, code };
+}
+
+test("flowly_add_umbrella_entry appends to the card's umbrella and every sibling sees it", async () => {
+  const x = await memberSetup();
+  const result = await x.entry();
+  expect(result).toMatchObject({ replayed: false, receipt: { action: "umbrella_entry", taskRevision: 1 } });
+  const stored = (await x.store.read()).umbrellaEntries.find((e) => e.title === "Use drafts")!;
+  expect(stored).toMatchObject({ umbrellaId: x.umbrellaId, kind: "decision", status: "active", sourceTaskId: "t", by: { kind: "agent", agentId: "actor", taskId: "t" } });
+  // The sibling's session gets it unread; the writing session never does.
+  const seen = (await x.service.get(x.sibling)).umbrella!.feed.find((e) => e.id === stored.id);
+  expect(seen).toMatchObject({ title: "Use drafts", sourceTaskId: "t", sourceTitle: "Card", unread: true });
+  expect((await x.service.get(x.identity)).umbrella!.feed.find((e) => e.id === stored.id)!.unread).toBe(false);
+  expect((await x.service.get(x.outside)).umbrella).toBeNull();
+});
+
+test("a ruling without a quote is refused", async () => {
+  const x = await memberSetup();
+  const base = { ...(await x.signed()), kind: "ruling", title: "No PRs", body: "" };
+  expect(umbrellaEntryInputSchema.safeParse(base).success).toBe(false);
+  expect(umbrellaEntryInputSchema.safeParse({ ...base, quote: "  " }).success).toBe(false);
+  expect(umbrellaEntryInputSchema.safeParse({ ...base, quote: "suggestions never open PRs" }).success).toBe(true);
+  // A quote is only for a ruling.
+  expect(umbrellaEntryInputSchema.safeParse({ ...base, kind: "decision", quote: "x" }).success).toBe(false);
+  await expect(x.service.write(x.identity, "umbrella_entry", base)).rejects.toThrow();
+  expect((await x.store.read()).umbrellaEntries).toEqual([]);
+});
+
+test("a ruling records the quote and the agent", async () => {
+  const x = await memberSetup();
+  await x.entry(x.identity, { kind: "ruling", title: "No PRs from suggestions", quote: "suggestions never open PRs without review" });
+  const ruling = (await x.store.read()).umbrellaEntries[0]!;
+  expect(ruling).toMatchObject({ kind: "ruling", status: "active", quote: "suggestions never open PRs without review", by: { kind: "agent", agentId: "actor", taskId: "t" } });
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ taskId: "t", actor: "agent", agentId: "actor", action: "umbrella_ruling_added", note: "ruling: No PRs from suggestions" });
+  await x.entry();
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ taskId: "t", action: "umbrella_entry_added", note: "decision: Use drafts" });
+});
+
+test("an agent entry bumps feedRevision and leaves revision alone", async () => {
+  const x = await memberSetup();
+  const before = await x.store.read();
+  const u0 = before.umbrellas[0]!;
+  await x.entry();
+  const after = await x.store.read();
+  expect(after.umbrellas[0]).toMatchObject({ revision: u0.revision, feedRevision: u0.feedRevision + 1 });
+  expect(after.tasks.find((t) => t.id === "t")!.revision).toBe(before.tasks.find((t) => t.id === "t")!.revision);
+  // An open panel edit under the old revision still goes through.
+  await expect(updateUmbrella(x.store, { id: x.umbrellaId, revision: u0.revision, title: "Renamed" }, x.human)).resolves.toMatchObject({ title: "Renamed" });
+});
+
+test("the 21st feed write in an hour is refused", async () => {
+  const x = await memberSetup();
+  for (let i = 0; i < 19; i++) await x.entry(x.identity, { title: `Entry ${i}` });
+  // A replayed request does not take a slot.
+  const last = { ...(await x.signed()), kind: "finding", title: "Twentieth", body: "" };
+  expect((await x.service.write(x.identity, "umbrella_entry", last)).replayed).toBe(false);
+  expect((await x.service.write(x.identity, "umbrella_entry", last)).replayed).toBe(true);
+  expect(await x.code(x.entry(x.identity, { title: "One too many" }))).toBe("UMBRELLA_RATE_LIMIT");
+  expect(await x.code(x.service.write(x.identity, "remember", { ...(await x.signed()), scope: "umbrella", kind: "pitfall", title: "Also refused" }))).toBe("UMBRELLA_RATE_LIMIT");
+  // Another session has its own 20.
+  expect(await x.code(x.entry(x.sibling, { title: "Sibling's first" }))).toBe("none");
+  x.advance(3600000);
+  expect(await x.code(x.entry(x.identity, { title: "Next hour" }))).toBe("none");
+});
+
+test("a refused feed write gives its hourly slot back", async () => {
+  const x = await memberSetup();
+  for (let i = 0; i < 20; i++) expect(await x.code(x.entry(x.identity, { supersedes: "missing" }))).toBe("NOT_FOUND");
+  expect(await x.code(x.entry())).toBe("none");
+});
+
+test("a closed umbrella refuses feed writes", async () => {
+  const x = await memberSetup();
+  await x.entry();
+  const mine = (await x.store.read()).umbrellaEntries[0]!;
+  await closeUmbrella(x.store, { id: x.umbrellaId, revision: (await x.store.read()).umbrellas[0]!.revision }, x.human);
+  expect(await x.code(x.entry(x.identity, { title: "Late" }))).toBe("UMBRELLA_CLOSED");
+  expect(await x.code(x.service.write(x.identity, "umbrella_withdraw", { ...(await x.signed()), id: mine.id }))).toBe("UMBRELLA_CLOSED");
+  expect(await x.code(x.service.write(x.identity, "remember", { ...(await x.signed()), scope: "umbrella", kind: "decision", title: "Late" }))).toBe("UMBRELLA_CLOSED");
+  // It stays readable.
+  expect((await x.service.get(x.identity)).umbrella).toMatchObject({ status: "closed", feed: [expect.objectContaining({ id: mine.id })] });
+});
+
+test("a non-member gets NOT_IN_UMBRELLA", async () => {
+  const x = await memberSetup();
+  expect(await x.code(x.entry(x.outside))).toBe("NOT_IN_UMBRELLA");
+  expect(await x.code(x.service.write(x.outside, "umbrella_withdraw", { ...(await x.signed(x.outside)), id: "any" }))).toBe("NOT_IN_UMBRELLA");
+  expect(await x.code(x.service.write(x.outside, "remember", { ...(await x.signed(x.outside)), scope: "umbrella", kind: "decision", title: "X" }))).toBe("NOT_IN_UMBRELLA");
+  expect(await x.code(x.service.write(x.outside, "idea", { ...(await x.signed(x.outside)), title: "X", detail: "D", rationale: "R", umbrella: true }))).toBe("NOT_IN_UMBRELLA");
+  const board = await x.store.read();
+  expect(board.umbrellaEntries).toEqual([]);
+  expect(board.ideas).toEqual([]);
+  expect(board.agentReceipts).toEqual([]);
+});
+
+test("remember scope=umbrella writes a feed entry and no project note", async () => {
+  const x = await memberSetup();
+  const memory = { precheck: vi.fn(), propose: vi.fn(), taskContext: vi.fn(async () => ({ enabled: true, total: 0, entries: [] })) };
+  x.service.memory = memory as unknown as MemoryService;
+  const result = await x.service.write(x.identity, "remember", {
+    ...(await x.signed()), scope: "umbrella", kind: "convention", title: "Fixtures live in tinylink", body: "Never a new demo.", tags: ["Not A Tag!!"], keywords: ["k"],
+  });
+  expect(result.receipt.action).toBe("remember");
+  expect(result).not.toHaveProperty("memoryId");
+  expect(memory.precheck).not.toHaveBeenCalled();
+  expect(memory.propose).not.toHaveBeenCalled();
+  const stored = (await x.store.read()).umbrellaEntries;
+  expect(stored).toEqual([expect.objectContaining({ kind: "convention", title: "Fixtures live in tinylink", body: "Never a new demo.", status: "active", sourceTaskId: "t" })]);
+  expect(stored[0]).not.toHaveProperty("tags");
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ action: "umbrella_entry_added", note: "convention: Fixtures live in tinylink" });
+  expect((await x.service.get(x.sibling)).umbrella!.feed.map((e) => e.title)).toEqual(["Fixtures live in tinylink"]);
+  // supersedes names a feed entry.
+  await x.service.write(x.identity, "remember", { ...(await x.signed()), scope: "umbrella", kind: "convention", title: "Fixtures live in tinylink only", supersedes: stored[0]!.id });
+  expect((await x.store.read()).umbrellaEntries[0]!.status).toBe("superseded");
+  expect(await x.code(x.service.write(x.identity, "remember", { ...(await x.signed()), scope: "umbrella", kind: "contact", title: "Ops is Jane" }))).toBe("UMBRELLA_KIND");
+  // MEMORY_DISABLED never applies to the umbrella scope.
+  x.service.memory = undefined;
+  expect(await x.code(x.service.write(x.identity, "remember", { ...(await x.signed()), scope: "umbrella", kind: "pitfall", title: "Works with memory off" }))).toBe("none");
+  expect(await x.code(x.service.write(x.identity, "remember", { ...(await x.signed()), kind: "pitfall", title: "Project note" }))).toBe("MEMORY_DISABLED");
+});
+
+test("withdraw only touches this card's own entries", async () => {
+  const x = await memberSetup();
+  await x.entry();
+  await x.entry(x.sibling, { title: "Sibling's" });
+  const [mine, theirs] = (await x.store.read()).umbrellaEntries;
+  const feedRevision = (await x.store.read()).umbrellas[0]!.feedRevision;
+  const result = await x.service.write(x.identity, "umbrella_withdraw", { ...(await x.signed()), id: mine!.id });
+  expect(result.receipt.action).toBe("umbrella_withdraw");
+  expect(await x.code(x.service.write(x.identity, "umbrella_withdraw", { ...(await x.signed()), id: theirs!.id }))).toBe("NOT_FOUND");
+  const board = await x.store.read();
+  expect(board.umbrellaEntries.map((e) => e.status)).toEqual(["superseded", "active"]);
+  expect(board.umbrellas[0]).toMatchObject({ feedRevision: feedRevision + 1 });
+  expect(board.events.at(-1)).toMatchObject({ taskId: "t", action: "umbrella_entry_withdrawn", note: "decision: Use drafts" });
+});
+
+test("propose_idea umbrella=true sets umbrellaId and siblings see it in ideas", async () => {
+  const x = await memberSetup();
+  const idea = { title: "Share fixtures", detail: "D", rationale: "R" };
+  const flagged = await x.service.write(x.identity, "idea", { ...(await x.signed()), ...idea, umbrella: true });
+  await x.service.write(x.identity, "idea", { ...(await x.signed()), ...idea, title: "Card only" });
+  const board = await x.store.read();
+  expect(board.ideas.find((i) => i.id === flagged.ideaId)).toMatchObject({ umbrellaId: x.umbrellaId });
+  expect(board.ideas.find((i) => i.title === "Card only")).not.toHaveProperty("umbrellaId");
+  expect((await x.service.get(x.sibling)).umbrella!.ideas).toEqual([expect.objectContaining({ id: flagged.ideaId, title: "Share fixtures", sourceTaskId: "t" })]);
+});
+
+test("AGENT_CARDS_DISABLED refuses umbrella writes", async () => {
+  const x = await memberSetup();
+  await x.entry();
+  const mine = (await x.store.read()).umbrellaEntries[0]!;
+  x.service.agentCardsOn = async () => false;
+  expect(await x.code(x.entry(x.identity, { title: "Off" }))).toBe("AGENT_CARDS_DISABLED");
+  expect(await x.code(x.service.write(x.identity, "umbrella_withdraw", { ...(await x.signed()), id: mine.id }))).toBe("AGENT_CARDS_DISABLED");
+  expect(await x.code(x.service.write(x.identity, "remember", { ...(await x.signed()), scope: "umbrella", kind: "decision", title: "Off" }))).toBe("AGENT_CARDS_DISABLED");
+  expect(await x.code(x.service.write(x.identity, "idea", { ...(await x.signed()), title: "Off", detail: "D", rationale: "R", umbrella: true }))).toBe("AGENT_CARDS_DISABLED");
+  // A plain idea is not an umbrella write.
+  expect(await x.code(x.service.write(x.identity, "idea", { ...(await x.signed()), title: "Plain", detail: "D", rationale: "R" }))).toBe("none");
+  expect((await x.store.read()).umbrellaEntries).toHaveLength(1);
 });

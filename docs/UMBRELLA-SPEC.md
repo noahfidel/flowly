@@ -144,7 +144,9 @@ umbrella: {
 | `flowly_withdraw_umbrella_entry` | `{expectedRevision, request, id}` | Withdraws this card's own proposal or marks its own entry superseded. |
 | `flowly_propose_idea` | adds `umbrella: true` | The idea gets `umbrellaId`; shown to siblings in `get_task.umbrella.ideas`. |
 | `flowly_remember` | adds `scope: "project" \| "umbrella"` (default `project`) | `umbrella` writes a feed entry instead of a project note (§6): `decision`, `convention`, `pitfall` keep their kind, `contact` is refused (`UMBRELLA_KIND`; contacts are project-wide), `tags` and `keywords` are dropped, `supersedes` must name a feed entry. `MEMORY_DISABLED` does not apply to the umbrella scope. |
-| `flowly_create_card` | adds `umbrella?: "inherit" \| "none"` (default `inherit` from a member, D11) | The follow-up joins the creator's umbrella. |
+| `flowly_create_card` | adds `umbrella?: "inherit" \| "none"` (default `inherit` from a member, D11) | The follow-up joins the creator's umbrella; so does a card made from an idea with `umbrellaId` or from a member's idea. An umbrella that can't take it (closed, archived, full, another group) leaves the card out and the result's `notice` says why; the card is never refused for it. |
+
+Events on the writing card (no card revision change): `umbrella_entry_added` (note `kind: title`), `umbrella_ruling_added` for a ruling, `umbrella_entry_withdrawn`; a new card that joins records `umbrella_joined`. Withdrawing an entry that is already closed is `INVALID_INPUT`.
 
 Errors: `NOT_IN_UMBRELLA`, `UMBRELLA_CLOSED`, `UMBRELLA_KIND`, `UMBRELLA_OUT_OF_GROUP`, `UMBRELLA_LIMIT`, `UMBRELLA_RATE_LIMIT`, `CONTRACT_STALE` (baseRevision behind; re-read), `NOT_INTEGRATION_CARD`, and `AGENT_CARDS_DISABLED` when *Agents create and edit cards* is off (§12, D10; there is no separate umbrella switch).
 

@@ -37,6 +37,7 @@ import {
   reviewItemStates,
   changeShapeSchema,
   disputeLimits,
+  umbrellaLimits,
 } from "./model";
 
 export const agentStatuses = ["design", "development", "test", "blocked", "in_review", "committed", "integrated"] as const;
@@ -168,12 +169,16 @@ export const ideaInputSchema = z.strictObject({
     .describe(
       "here: an extension of this card's goal that this card's session can continue with its current context; new: divergent work that deserves its own card.",
     ),
+  umbrella: z
+    .boolean()
+    .optional()
+    .describe("true: the idea is for this card's umbrella (get_task umbrella), so every member sees it in umbrella.ideas. Only on a member card (NOT_IN_UMBRELLA)."),
 });
 /**
  * A project-level idea (PROJECT-IDEAS-SPEC §4): the card tool's input without the card's revision, request and scope.
  * `source` is free-text provenance, set by the import and by the human RPC.
  */
-export const projectIdeaInputSchema = ideaInputSchema.omit({ scope: true, expectedRevision: true, request: true }).extend({
+export const projectIdeaInputSchema = ideaInputSchema.omit({ scope: true, umbrella: true, expectedRevision: true, request: true }).extend({
   source: z.string().max(ideaLimits.source).optional().describe("Where the idea came from, such as a file and line."),
 });
 /** flowly_propose_idea on a board credential: the stored idea. */
@@ -259,7 +264,48 @@ export const rememberInputSchema = z.strictObject({
     .max(memoryLimits.keywords)
     .default([])
     .describe("Search words for recall: synonyms, the English and the user's-language name, file or module names."),
-  supersedes: z.string().min(1).max(200).optional().describe("The id of an active memory this one replaces (from get_task memory or flowly_recall)."),
+  supersedes: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("The id of an active memory this one replaces (from get_task memory or flowly_recall); with scope=umbrella, the id of a feed entry (get_task umbrella.feed)."),
+  scope: z
+    .enum(["project", "umbrella"])
+    .optional()
+    .describe(
+      "project (default): a project note. umbrella: a feed entry of this card's umbrella instead, seen by its member cards only (UMBRELLA_KIND for contact; tags and keywords are dropped).",
+    ),
+});
+const agentEntryKinds = ["decision", "finding", "convention", "pitfall", "question", "ruling"] as const;
+/** flowly_add_umbrella_entry (UMBRELLA-SPEC §4.1): append to the card's umbrella feed. A ruling needs the user's quoted words (D5). */
+export const umbrellaEntryInputSchema = z
+  .strictObject({
+    expectedRevision: revisionSchema,
+    request: requestSchema,
+    kind: z
+      .enum(agentEntryKinds)
+      .describe(
+        "decision: a choice made and why; finding: something learned that siblings need; convention: how this family of cards does a thing; pitfall: a dead end to avoid; question: an open question for the user about the whole umbrella; ruling: a product rule the user gave in this chat, with quote.",
+      ),
+    title: z.string().trim().min(1).max(umbrellaLimits.entryTitle).describe("The decision, finding or rule itself, in the language of get_task outputLanguage."),
+    body: z.string().trim().max(umbrellaLimits.entryBody).default("").describe("What and why. Never a secret."),
+    quote: z
+      .string()
+      .trim()
+      .min(1)
+      .max(umbrellaLimits.quote)
+      .optional()
+      .describe("kind=ruling only, and required there: the user's own words from this chat, quoted exactly."),
+    supersedes: z.string().min(1).max(200).optional().describe("The id of an active entry of this umbrella that this one replaces (get_task umbrella.feed)."),
+  })
+  .refine((v) => v.kind !== "ruling" || !!v.quote, { message: "A ruling needs quote: the user's own words from this chat.", path: ["quote"] })
+  .refine((v) => v.kind === "ruling" || v.quote === undefined, { message: "quote is only for kind=ruling.", path: ["quote"] });
+/** flowly_withdraw_umbrella_entry (UMBRELLA-SPEC §4.1): one of this card's own entries. */
+export const withdrawEntryInputSchema = z.strictObject({
+  expectedRevision: revisionSchema,
+  request: requestSchema,
+  id: z.string().min(1).max(200).describe("The id of an entry this card wrote (get_task umbrella.feed, sourceTaskId = this card)."),
 });
 /** flowly_recall (PROJECT-MEMORY-SPEC §6.4, GUARDRAILS-SPEC §5.3): read-only search of the project's notes and guidelines. */
 export const recallInputSchema = z.strictObject({
@@ -608,6 +654,12 @@ export const createCardInputSchema = z.strictObject({
     .optional()
     .describe("If you planned this card (plan mode writes the plan to a file), pass that file here so the card keeps it as its plan."),
   linear: z.string().trim().min(1).max(artifactLimits.target).optional().describe(linearIssueText),
+  umbrella: z
+    .enum(["inherit", "none"])
+    .default("inherit")
+    .describe(
+      "inherit (default): a follow-up of a member card, or a card from an umbrella idea, joins that umbrella; when the umbrella can't take it (closed, full, another board group) the card is made without it and notice says why. none: the card joins no umbrella.",
+    ),
 });
 /** flowly_set_linear and flowly_clear_linear (LINEAR-LINK-SPEC §3). */
 export const setLinearInputSchema = z.strictObject({
@@ -726,7 +778,14 @@ export const listCardsResultSchema = z.object({
   truncated: z.boolean(),
 });
 export const getCardResultSchema = z.object({ card: cardViewSchema, editable: z.boolean(), reason: z.string(), start: z.object({ ok: z.boolean(), reason: z.string() }) });
-export const createCardResultSchema = z.object({ card: cardViewSchema, replayed: z.boolean(), base: worktreeBaseSchema.optional(), warnings: z.array(z.string()).optional() });
+export const createCardResultSchema = z.object({
+  card: cardViewSchema,
+  replayed: z.boolean(),
+  base: worktreeBaseSchema.optional(),
+  warnings: z.array(z.string()).optional(),
+  /** Why the card did not join the umbrella it would have inherited (UMBRELLA-SPEC §4.1); the card was made. */
+  notice: z.string().optional(),
+});
 export const setPlanResultSchema = z.object({ plan: cardPlanSchema });
 export const clearPlanResultSchema = z.object({ cleared: z.boolean() });
 export const setLinearResultSchema = z.object({ linear: cardLinearSchema });
@@ -967,6 +1026,8 @@ export type ProjectIdeaInput = z.infer<typeof projectIdeaInputSchema>;
 export type IdeaUpdateInput = z.infer<typeof ideaUpdateInputSchema>;
 export type IdeaRemovalInput = z.infer<typeof ideaRemovalSchema>;
 export type RememberInput = z.infer<typeof rememberInputSchema>;
+export type UmbrellaEntryInput = z.infer<typeof umbrellaEntryInputSchema>;
+export type WithdrawEntryInput = z.infer<typeof withdrawEntryInputSchema>;
 export type RecallInput = z.input<typeof recallInputSchema>;
 export type AgentSearchInput = z.input<typeof agentSearchInputSchema>;
 export type TagsToolInput = z.infer<typeof tagsInputSchema>;

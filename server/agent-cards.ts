@@ -312,6 +312,8 @@ export class AgentCards {
     // before a slot is taken or a workspace made.
     const chosen = input.workspace === "worktree" ? await this.worktreeBase(caller, board, project, input.baseRef) : undefined;
     const release = this.reserve(caller.agentId, caller.dispatcher);
+    // Why an inherited umbrella did not take the card (UMBRELLA-SPEC §4.1, D11); the card is made either way.
+    const notices: string[] = [];
     let task: Task;
     try {
       task = await this.board.createTask(
@@ -329,9 +331,10 @@ export class AgentCards {
           baseRef: "",
           ...(caller.taskId ? { followUpOf: caller.taskId } : {}),
           ...(fromIdea ? { ideaId: fromIdea.ideaId } : {}),
+          ...(input.umbrella === "none" ? { umbrellaId: null } : {}),
         },
         this.api(),
-        { agentId: caller.agentId, ...(caller.groupId !== undefined ? { groupId: caller.groupId } : {}) },
+        { agentId: caller.agentId, ...(caller.groupId !== undefined ? { groupId: caller.groupId } : {}), ...(caller.dispatcher ? { dispatcher: true } : {}), notices },
         chosen && { refName: chosen.refName, baseRef: chosen.taskBaseRef, ...(chosen.branchedFrom ? { branchedFrom: chosen.branchedFrom } : {}) },
       );
     } catch (e) {
@@ -356,6 +359,7 @@ export class AgentCards {
       replayed: false,
       ...(base ? { base } : {}),
       ...(chosen?.warnings.length ? { warnings: chosen.warnings } : {}),
+      ...(notices.length ? { notice: notices.join("\n") } : {}),
     };
   }
   /** Where a new worktree card branches from (START-CARD-SPEC §11.3): its parent is the calling card, when open. */

@@ -6,7 +6,8 @@ import type { PaseoApi } from "@getpaseo/client";
 import { AgentCards } from "./agent-cards";
 import { agentFixture } from "./agent-fixture";
 import { toolFailure } from "./tool-error";
-import { statuses, tagLimits } from "../shared/model";
+import { statuses, tagLimits, taskInput } from "../shared/model";
+import { closeUmbrella, createUmbrella, setMembership } from "./umbrellas";
 import { agentCardLimits } from "../shared/tools";
 import { ExternalError } from "./connectors/http";
 import { putArtifact } from "./artifacts";
@@ -553,4 +554,62 @@ test("get_card says whether the card can start when its workspace was archived",
   expect(refused.reason).toContain("switch the card to a worktree");
   found = { archivingAt: new Date().toISOString() };
   expect((await x.cards.get(x.board, { taskId: "own" })).start).toEqual({ ok: false, reason: "The card's workspace is being archived." });
+});
+
+test("a follow-up created from a member joins its umbrella", async () => {
+  const x = await setup();
+  const at = new Date().toISOString(),
+    human = { kind: "human" as const };
+  await x.store.mutate((board) => {
+    board.groups.push({ id: "g", name: "G", position: 0, isDefault: true, revision: 1, createdAt: at, updatedAt: at });
+    board.projects[0]!.groupId = "g";
+  });
+  const u = await createUmbrella(x.store, { groupId: "g", title: "Family" }, human);
+  await setMembership(x.store, { taskId: "t", umbrellaId: u.id }, human);
+  const task = async (id: string) => (await x.store.read()).tasks.find((t) => t.id === id)!;
+  // Default inherit: the follow-up joins, by its creator, and its activity says so.
+  const inherited = await x.cards.create(x.card, { title: "Follow-up", idempotencyKey: "f" });
+  expect(inherited).not.toHaveProperty("notice");
+  expect((await task(inherited.card.taskId)).umbrella).toMatchObject({ id: u.id, by: { kind: "agent", agentId: "actor", taskId: "t" } });
+  expect((await x.store.read()).events.filter((e) => e.taskId === inherited.card.taskId).map((e) => [e.action, e.note ?? null])).toEqual([
+    ["created", null],
+    ["umbrella_joined", "Family"],
+  ]);
+  // umbrella: "none" leaves it out; a session outside cards has nothing to inherit.
+  const opted = await x.cards.create(x.card, { title: "Separate", idempotencyKey: "s", umbrella: "none" });
+  expect((await task(opted.card.taskId)).umbrella).toBeUndefined();
+  const loose = await x.cards.create(x.board, { title: "Loose", idempotencyKey: "l" });
+  expect((await task(loose.card.taskId)).umbrella).toBeUndefined();
+  // An accepted member idea's card joins: from the user's New card path and from the dispatcher.
+  await x.store.mutate((board) => {
+    board.ideas.push(
+      { id: "member-idea", taskId: "t", projectId: "p", title: "From a member", detail: "", rationale: "", context: "", status: "open", createdAt: at, updatedAt: at },
+      { id: "flagged-idea", projectId: "p", title: "Flagged", detail: "", rationale: "", context: "", status: "open", createdAt: at, updatedAt: at, umbrellaId: u.id },
+    );
+  });
+  const accepted = await x.cards.board.createTask(taskInput.parse({ projectId: "p", operationId: "accept", title: "From a member", mode: "directory", ideaId: "member-idea" }), x.paseo);
+  expect((await task(accepted.id)).umbrella).toMatchObject({ id: u.id, by: human });
+  const dispatched = await x.cards.create({ agentId: "disp", projectId: "p", dispatcher: true, groupId: "g" }, { title: "Flagged", idempotencyKey: "d" }, { ideaId: "flagged-idea", ideasOn: async () => true });
+  expect((await task(dispatched.card.taskId)).umbrella).toMatchObject({ id: u.id, by: { kind: "dispatcher", agentId: "disp" } });
+  // An umbrella that can't take the card: the card is still made, without membership, and the result says why.
+  await closeUmbrella(x.store, { id: u.id, revision: (await x.store.read()).umbrellas[0]!.revision }, human);
+  const outside = await x.cards.create(x.card, { title: "After close", idempotencyKey: "c" });
+  expect((await task(outside.card.taskId)).umbrella).toBeUndefined();
+  expect(outside.notice).toMatch(/Family.*closed/);
+});
+
+test("an explicit umbrellaId on the New card path is refused when the umbrella can't take the card", async () => {
+  const x = await setup();
+  const at = new Date().toISOString(),
+    human = { kind: "human" as const };
+  await x.store.mutate((board) => {
+    board.groups.push({ id: "g", name: "G", position: 0, isDefault: true, revision: 1, createdAt: at, updatedAt: at });
+    board.projects[0]!.groupId = "g";
+  });
+  const u = await createUmbrella(x.store, { groupId: "g", title: "Family" }, human);
+  const made = await x.cards.board.createTask(taskInput.parse({ projectId: "p", operationId: "n1", title: "Joins", mode: "directory", umbrellaId: u.id }), x.paseo);
+  expect((await x.store.read()).tasks.find((t) => t.id === made.id)!.umbrella).toMatchObject({ id: u.id, by: human });
+  await closeUmbrella(x.store, { id: u.id, revision: 1 }, human);
+  await expect(x.cards.board.createTask(taskInput.parse({ projectId: "p", operationId: "n2", title: "Refused", mode: "directory", umbrellaId: u.id }), x.paseo)).rejects.toMatchObject({ code: "UMBRELLA_CLOSED" });
+  expect(x.workspaces).toHaveLength(1);
 });

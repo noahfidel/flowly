@@ -17,10 +17,11 @@ import { BoardStore } from "./store";
 import { checkGroup } from "./tool-error";
 import { readSnapshot, SnapshotInvalidError, type ProjectSnapshot } from "./project-folder";
 import { linkLimits } from "../shared/model";
-import type { ProjectInput, TaskInput, Board, BranchedFrom, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
+import type { Actor, ProjectInput, TaskInput, Board, BranchedFrom, LinkedProjectInput, ProjectLinksEdit, Project, ProjectRemoval } from "../shared/model";
 import { groupOfProject } from "../shared/groups";
 import { effectiveRepos, sessionContext } from "../shared/scope";
 import { umbrellaStartLine } from "../shared/umbrella";
+import { newCardUmbrella } from "./umbrellas";
 import type { DeliveryMode } from "../shared/delivery-mode";
 import { setupContextLine, setupMissing } from "../shared/card-setup";
 import { linearTicketLines } from "../shared/linear-ticket";
@@ -477,9 +478,10 @@ export class BoardService {
    */
   /**
    * `branch`: an agent's worktree card whose base was already chosen (START-CARD-SPEC §11.3): the ref it branches off,
-   * the base the card stores, and the parent it branched from.
+   * the base the card stores, and the parent it branched from. `by.notices` collects what the caller should tell the
+   * creator (an inherited umbrella the card did not join, D11); `by.dispatcher`: the dispatcher made it.
    */
-  async createTask(input: TaskInput, paseo: PaseoApi, by?: { agentId: string; groupId?: string }, branch?: WorktreeBranch) {
+  async createTask(input: TaskInput, paseo: PaseoApi, by?: CardCreator, branch?: WorktreeBranch) {
     const findingId = input.insightFindingId;
     if (findingId) {
       if (!this.insightFindings) throw new Error("Workflow insights are unavailable.");
@@ -494,7 +496,7 @@ export class BoardService {
       );
     return task;
   }
-  private createCard(input: TaskInput, paseo: PaseoApi, by?: { agentId: string; groupId?: string }, branch?: WorktreeBranch) {
+  private createCard(input: TaskInput, paseo: PaseoApi, by?: CardCreator, branch?: WorktreeBranch) {
     return this.serialize(async () => {
       const board = await this.store.read();
       const previous = board.tasks.find(
@@ -515,6 +517,8 @@ export class BoardService {
       if (input.ideaId) openIdea(board, input.ideaId, project.id);
       if (input.ideaId && input.followUpOf) throw new Error("A card comes from an idea or follows up a card, not both.");
       if (input.followUpOf) followUpSource(board, input.followUpOf, project.id);
+      // An explicit umbrella that can't take the card is refused before any workspace exists (UMBRELLA-SPEC §4.1).
+      newCardUmbrella(board, { projectId: project.id, umbrellaId: input.umbrellaId, followUpOf: input.followUpOf, ideaId: input.ideaId });
       // Each external item is read before any workspace exists; one that can't be read refuses the card.
       const externals = input.externals?.length
         ? await (async () => {
@@ -626,6 +630,8 @@ export class BoardService {
           checkGroup(p, by?.groupId);
           const idea = input.ideaId ? openIdea(current, input.ideaId, project.id) : undefined;
           if (input.followUpOf) followUpSource(current, input.followUpOf, project.id);
+          // Read before the idea is marked accepted; checked again on the board as it is now.
+          const joins = newCardUmbrella(current, { projectId: project.id, umbrellaId: input.umbrellaId, followUpOf: input.followUpOf, ideaId: input.ideaId });
           const now = new Date().toISOString();
           const task = {
             id: randomUUID(),
@@ -654,6 +660,8 @@ export class BoardService {
             ...(cardBaseRef ? { baseRef: cardBaseRef } : {}),
             ...(cardBaseRef && branchedFrom ? { branchedFrom } : {}),
             ...(idea ? { origin: { ...(idea.taskId ? { taskId: idea.taskId } : {}), ideaId: idea.id } } : {}),
+            // Membership never bumps the card's revision; the join is an Activity event (UMBRELLA-SPEC §2.2, D11).
+            ...(joins.umbrella ? { umbrella: { id: joins.umbrella.id, joinedAt: now, by: creatorActor(by, input.followUpOf) } } : {}),
           };
           current.tasks.push(task);
           this.store.event(current, {
@@ -662,6 +670,15 @@ export class BoardService {
             ...(by ? { agentId: by.agentId } : {}),
             action: "created",
           });
+          if (joins.umbrella)
+            this.store.event(current, {
+              taskId: task.id,
+              actor: by ? "agent" : "human",
+              ...(by ? { agentId: by.agentId } : {}),
+              action: "umbrella_joined",
+              note: joins.umbrella.title,
+            });
+          if (joins.skipped) by?.notices?.push(joins.skipped);
           // The new card follows up its source (CARD-LINKS-SPEC §3); a project idea has none (PROJECT-IDEAS-SPEC §3).
           if (idea?.taskId)
             addLink(this.store, current, { kind: "derived", from: task.id, to: idea.taskId, ideaId: idea.id, createdBy: "system" }, { events: false, limit: false, archived: true });
@@ -769,6 +786,19 @@ export class BoardService {
         workspace?.projectDisplayName || workspace?.projectId || "Unavailable",
     };
   }
+}
+
+/**
+ * Who creates a card on an agent's behalf (AGENT-CARDS-SPEC §3.3): the session, the dispatcher's board group, and a list
+ * the create fills with notices for the caller.
+ */
+export type CardCreator = { agentId: string; groupId?: string; dispatcher?: boolean; notices?: string[] };
+
+/** The umbrella membership's `by` for a new card: the person, the dispatcher, or the card session that followed up. */
+function creatorActor(by: CardCreator | undefined, followUpOf: string | undefined): Actor {
+  if (!by) return { kind: "human" };
+  if (by.dispatcher) return { kind: "dispatcher", agentId: by.agentId };
+  return { kind: "agent", agentId: by.agentId, ...(followUpOf ? { taskId: followUpOf } : {}) };
 }
 
 /** The live card a new follow-up card links to, or an error (CARD-LINKS-SPEC §3). */

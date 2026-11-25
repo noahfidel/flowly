@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoardStore } from "./store";
 import {
-  archiveUmbrella, closeUmbrella, createUmbrella, getUmbrella, listUmbrellas, reopenUmbrella, setMembership, updateEntry, updateUmbrella,
+  addEntry, archiveUmbrella, closeUmbrella, createUmbrella, getUmbrella, listUmbrellas, newCardUmbrella, reopenUmbrella, setMembership, umbrellaWriteLimiter,
+  updateEntry, updateUmbrella, withdrawEntry,
 } from "./umbrellas";
 import { createUmbrella as createRpc, updateUmbrella as updateRpc } from "../shared/rpc";
 import { umbrellaLimits } from "../shared/umbrella";
@@ -414,4 +415,129 @@ test("restored cards rejoin an umbrella only up to 30 members; the first ones ke
     ["r2", "Left umbrella Busy (it is full)"],
     ["r3", "Left umbrella Busy (it is full)"],
   ]);
+});
+
+const agent = (taskId: string): Actor => ({ kind: "agent", agentId: `s-${taskId}`, taskId });
+/** Cards a and b in umbrella "Feed" (group A); c outside. Returns the board as read, for the pure feed writes. */
+async function feedSetup() {
+  const store = await setup();
+  const u = await createUmbrella(store, { groupId: "A", title: "Feed" }, human);
+  await setMembership(store, { taskId: "a", umbrellaId: u.id }, human);
+  await setMembership(store, { taskId: "b", umbrellaId: u.id }, human);
+  const board = await store.read();
+  const task = (id: string) => board.tasks.find((t) => t.id === id)!;
+  return { store, board, task, u: board.umbrellas[0]! };
+}
+
+test("addEntry appends to the card's umbrella: a question starts open, the others active; feedRevision moves, revision stays", async () => {
+  const { board, task, u } = await feedSetup();
+  const q = addEntry(board, task("a"), { kind: "question", title: "PRs or drafts?", body: "" }, agent("a"), now);
+  const d = addEntry(board, task("a"), { kind: "decision", title: "Drafts", body: "Why" }, agent("a"), now);
+  const r = addEntry(board, task("b"), { kind: "ruling", title: "No PRs", body: "", quote: "never open PRs" }, agent("b"), now);
+  expect([q.status, d.status, r.status]).toEqual(["open", "active", "active"]);
+  expect(d).toMatchObject({ umbrellaId: u.id, sourceTaskId: "a", by: agent("a"), createdAt: now, updatedAt: now });
+  expect(r.quote).toBe("never open PRs");
+  expect(board.umbrellaEntries).toHaveLength(3);
+  expect(u).toMatchObject({ feedRevision: 3, revision: 1 });
+});
+
+test("addEntry refuses a non-member, a closed umbrella, a ruling without a quote and the 301st counted entry", async () => {
+  const { board, task, u } = await feedSetup();
+  const code = (fn: () => unknown) => {
+    try {
+      fn();
+    } catch (e) {
+      return (e as { code?: string }).code;
+    }
+    return "none";
+  };
+  expect(code(() => addEntry(board, task("c"), { kind: "decision", title: "X", body: "" }, agent("c"), now))).toBe("NOT_IN_UMBRELLA");
+  expect(code(() => addEntry(board, task("a"), { kind: "ruling", title: "X", body: "" }, agent("a"), now))).toBe("INVALID_INPUT");
+  // Superseded, answered and withdrawn entries are kept but do not count.
+  for (let i = 0; i < umbrellaLimits.activeEntries; i++) board.umbrellaEntries.push(entry(`e${i}`, "finding", "active", u.id));
+  board.umbrellaEntries.push(entry("old", "decision", "superseded", u.id), entry("gone", "question", "answered", u.id));
+  expect(code(() => addEntry(board, task("a"), { kind: "decision", title: "X", body: "" }, agent("a"), now))).toBe("UMBRELLA_LIMIT");
+  // Superseding a counted entry frees its place.
+  expect(addEntry(board, task("a"), { kind: "decision", title: "X", body: "", supersedes: "e0" }, agent("a"), now).status).toBe("active");
+  u.status = "closed";
+  expect(code(() => addEntry(board, task("a"), { kind: "decision", title: "Y", body: "" }, agent("a"), now))).toBe("UMBRELLA_CLOSED");
+  u.status = "open";
+  u.archivedAt = now;
+  expect(code(() => addEntry(board, task("a"), { kind: "decision", title: "Y", body: "" }, agent("a"), now))).toBe("UMBRELLA_CLOSED");
+});
+
+test("supersedes must name an entry of the same umbrella and marks it superseded", async () => {
+  const { store, board, task, u } = await feedSetup();
+  const other = await createUmbrella(store, { groupId: "A", title: "Other" }, human);
+  board.umbrellaEntries.push(entry("there", "decision", "active", other.id), entry("here", "pitfall", "active", u.id));
+  expect(() => addEntry(board, task("a"), { kind: "decision", title: "X", body: "", supersedes: "there" }, agent("a"), now)).toThrow(
+    expect.objectContaining({ code: "NOT_FOUND" }),
+  );
+  expect(() => addEntry(board, task("a"), { kind: "decision", title: "X", body: "", supersedes: "nope" }, agent("a"), now)).toThrow(
+    expect.objectContaining({ code: "NOT_FOUND" }),
+  );
+  const made = addEntry(board, task("b"), { kind: "pitfall", title: "Better", body: "", supersedes: "here" }, agent("b"), now);
+  expect(made.supersedes).toBe("here");
+  expect(board.umbrellaEntries.find((e) => e.id === "here")).toMatchObject({ status: "superseded", updatedAt: now });
+});
+
+test("withdrawEntry touches only this card's own entries: proposed becomes withdrawn, the others superseded", async () => {
+  const { board, task, u } = await feedSetup();
+  const mine = addEntry(board, task("a"), { kind: "finding", title: "Mine", body: "" }, agent("a"), now);
+  const asked = addEntry(board, task("a"), { kind: "question", title: "Asked", body: "" }, agent("a"), now);
+  const theirs = addEntry(board, task("b"), { kind: "finding", title: "Theirs", body: "" }, agent("b"), now);
+  board.umbrellaEntries.push({ ...entry("proposal", "contract_change", "proposed", u.id), sourceTaskId: "a" });
+  const before = u.feedRevision;
+  expect(withdrawEntry(board, task("a"), mine.id, agent("a"), now).status).toBe("superseded");
+  expect(withdrawEntry(board, task("a"), asked.id, agent("a"), now).status).toBe("superseded");
+  expect(withdrawEntry(board, task("a"), "proposal", agent("a"), now).status).toBe("withdrawn");
+  expect(u.feedRevision).toBe(before + 3);
+  expect(() => withdrawEntry(board, task("a"), theirs.id, agent("a"), now)).toThrow(expect.objectContaining({ code: "NOT_FOUND" }));
+  expect(theirs.status).toBe("active");
+  // Once closed it can't be withdrawn again.
+  expect(() => withdrawEntry(board, task("a"), mine.id, agent("a"), now)).toThrow(expect.objectContaining({ code: "INVALID_INPUT" }));
+  expect(() => withdrawEntry(board, task("c"), mine.id, agent("c"), now)).toThrow(expect.objectContaining({ code: "NOT_IN_UMBRELLA" }));
+});
+
+test("umbrellaWriteLimiter allows 20 feed writes per session in a rolling hour and gives a refused slot back", async () => {
+  let clock = 0;
+  const limiter = umbrellaWriteLimiter(() => clock);
+  const releases = Array.from({ length: umbrellaLimits.writesPerHour }, () => limiter.take("s1"));
+  expect(() => limiter.take("s1")).toThrow(expect.objectContaining({ code: "UMBRELLA_RATE_LIMIT" }));
+  // Another session has its own budget.
+  expect(() => limiter.take("s2")).not.toThrow();
+  releases[0]!();
+  releases[0]!();
+  expect(() => limiter.take("s1")).not.toThrow();
+  expect(() => limiter.take("s1")).toThrow(expect.objectContaining({ code: "UMBRELLA_RATE_LIMIT" }));
+  clock += 3600000;
+  expect(() => limiter.take("s1")).not.toThrow();
+});
+
+test("newCardUmbrella: follow-ups and member ideas inherit; none opts out; a full, closed or other-group umbrella is skipped with a reason", async () => {
+  const { board, u } = await feedSetup();
+  expect(newCardUmbrella(board, { projectId: "p", followUpOf: "a" })).toEqual({ umbrella: u });
+  expect(newCardUmbrella(board, { projectId: "p", followUpOf: "a", umbrellaId: null })).toEqual({});
+  expect(newCardUmbrella(board, { projectId: "p", followUpOf: "c" })).toEqual({});
+  board.ideas.push(
+    { id: "flagged", projectId: "p", title: "Flagged", detail: "", rationale: "", context: "", status: "open", createdAt: now, updatedAt: now, umbrellaId: u.id },
+    { id: "fromMember", projectId: "p", taskId: "b", title: "From member", detail: "", rationale: "", context: "", status: "open", createdAt: now, updatedAt: now },
+    { id: "plain", projectId: "p", taskId: "c", title: "Plain", detail: "", rationale: "", context: "", status: "open", createdAt: now, updatedAt: now },
+  );
+  expect(newCardUmbrella(board, { projectId: "p", ideaId: "flagged" }).umbrella?.id).toBe(u.id);
+  expect(newCardUmbrella(board, { projectId: "p", ideaId: "fromMember" }).umbrella?.id).toBe(u.id);
+  expect(newCardUmbrella(board, { projectId: "p", ideaId: "plain" })).toEqual({});
+  // Inherit never refuses: it says why the card stays out.
+  expect(newCardUmbrella(board, { projectId: "q", ideaId: "flagged" }).skipped).toMatch(/Feed.*another board group/);
+  u.status = "closed";
+  expect(newCardUmbrella(board, { projectId: "p", followUpOf: "a" }).skipped).toMatch(/Feed.*closed/);
+  // An explicit umbrella (the New task form) is refused instead.
+  expect(() => newCardUmbrella(board, { projectId: "p", umbrellaId: u.id })).toThrow(expect.objectContaining({ code: "UMBRELLA_CLOSED" }));
+  u.status = "open";
+  expect(() => newCardUmbrella(board, { projectId: "q", umbrellaId: u.id })).toThrow(expect.objectContaining({ code: "UMBRELLA_OUT_OF_GROUP" }));
+  expect(() => newCardUmbrella(board, { projectId: "p", umbrellaId: "nope" })).toThrow(expect.objectContaining({ code: "NOT_FOUND" }));
+  expect(newCardUmbrella(board, { projectId: "p", umbrellaId: u.id })).toEqual({ umbrella: u });
+  for (let i = 0; i < umbrellaLimits.members - 2; i++) board.tasks.push(card(`x${i}`, "p", { umbrella: { id: u.id, joinedAt: now, by: human } }));
+  expect(newCardUmbrella(board, { projectId: "p", followUpOf: "a" }).skipped).toMatch(/Feed.*30/);
+  expect(() => newCardUmbrella(board, { projectId: "p", umbrellaId: u.id })).toThrow(expect.objectContaining({ code: "UMBRELLA_LIMIT" }));
 });
