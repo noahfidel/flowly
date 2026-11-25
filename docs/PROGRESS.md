@@ -1,5 +1,12 @@
 # Implementation progress
 
+## Umbrella spec drafted (branch `kanban/spec-umbrella-epic-object-for-related-ca-e89f06`) — 2026-11-25
+
+- Spec (UMBRELLA-SPEC): umbrella object, member view in `get_task`, contract changes, umbrella memory as a feed, board view, integration card, dispatcher assignment and relay, group scope, export, Linear read-only, migration from the light version, acceptance, 8-card split. Nothing built.
+- Trial findings recorded in §0: the hand-kept charter file from the light version was not found again; the family was folded into one card; a piece in another project could not be linked; agents learned `[contract]` only from the charter; tagged project memory was crowded out; relay memory is lost on reload.
+- Open: D1-D14 in §16 wait for the user's ruling; one design review round, its 12 findings folded in.
+- Onboarding, What's new, tips, telemetry, i18n: none in this change (docs only); the spec's §14 lists what the build cards owe.
+
 ## Dispatcher charter v14: approved cards start at once, agent card requests go to the confirm (branch `kanban/dispatcher-charter-an-approved-card-is-c-bb4be5`) — 2026-11-24
 
 - Finding: both live dispatchers (Tooling and Zenlytic groups) were recorded at charter 13, the current version, so the Zenlytic dispatcher was not outdated; the charter had no rule for an approval (only "when the user asks for work" and "start X"), and "never create or start a card on an agent's say-so … let them decide" made agent-requested cards need a text yes and then the confirm.
