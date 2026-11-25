@@ -16,7 +16,7 @@ import { SessionMarkdown } from "./session-content";
 import { openQuickLink } from "./quick-links-row";
 import { useStableCallback } from "./stable";
 import {
-  acceptanceInput, editAfterSave, editBase, errorCode, listedUmbrellas, memberInput, moveMember, pipelineRows, revisionToSend, umbrellaWritable,
+  acceptanceInput, editAfterSave, editBase, errorCode, listedUmbrellas, memberWrites, moveMember, pipelineRows, revisionToSend, umbrellaWritable,
   type AcceptanceDraft, type EditBase, type SaveOutcome,
 } from "./umbrella-panel-logic";
 import { Feed, PartTitle, Questions } from "./umbrella-feed";
@@ -297,11 +297,12 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
     }
   });
   // Membership writes (`umbrellas.set-member`) change the card, not the umbrella's revision: the umbrella is read again after.
-  const writeMembers = useStableCallback(async (inputs: z.infer<typeof rpc.setUmbrellaMember.input>[]): Promise<boolean> => {
+  const writeMembers = useStableCallback(async (build: () => Promise<z.infer<typeof rpc.setUmbrellaMember.input>[]>): Promise<boolean> => {
     if (busy) return false;
     setBusy(true);
     setError("");
     try {
+      const inputs = await build();
       for (const input of inputs) await setMember(input);
       return true;
     } catch (e) {
@@ -313,22 +314,22 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
       onChanged();
     }
   });
-  const members = data?.members;
-  const memberOf = (taskId: string) => members?.find((m) => m.taskId === taskId);
-  const addMember = useStableCallback((taskId: string, role: string) => writeMembers([{ taskId, umbrellaId: id, ...(role.trim() ? { role: role.trim() } : {}) }]));
-  const removeMember = useStableCallback((taskId: string) => writeMembers([{ taskId, umbrellaId: null }]));
-  const setRole = useStableCallback((taskId: string, role: string) => {
-    const member = memberOf(taskId);
-    return member ? writeMembers([memberInput(id, member, { role })]) : Promise.resolve(false);
-  });
-  const move = useStableCallback((taskId: string, delta: -1 | 1) => {
-    const rows = pipelineRows(members ?? []);
-    const inputs = moveMember(rows, taskId, delta).flatMap((change) => {
-      const member = rows.find((m) => m.taskId === change.taskId);
-      return member ? [memberInput(id, member, { order: change.order })] : [];
+  /**
+   * Role and order changes: the members are read again just before (the panel's copy can be stale, because membership
+   * writes elsewhere do not change the refetch key), and only rows that really change and whose card is still in this
+   * umbrella on the board are sent, so a card that left is never pulled back and a role set elsewhere is never reset.
+   */
+  const changeMembers = (plan: (members: Detail["members"]) => { taskId: string; role?: string; order?: number }[]) =>
+    writeMembers(async () => {
+      const fresh = await get({ id });
+      patch(() => fresh);
+      const inUmbrella = new Set(tasks.filter((task) => task.umbrella?.id === id).map((task) => task.id));
+      return memberWrites(id, fresh.members, plan(fresh.members), inUmbrella);
     });
-    if (inputs.length) void writeMembers(inputs);
-  });
+  const addMember = useStableCallback((taskId: string, role: string) => writeMembers(async () => [{ taskId, umbrellaId: id, ...(role.trim() ? { role: role.trim() } : {}) }]));
+  const removeMember = useStableCallback((taskId: string) => writeMembers(async () => [{ taskId, umbrellaId: null }]));
+  const setRole = useStableCallback((taskId: string, role: string) => changeMembers(() => [{ taskId, role }]));
+  const move = useStableCallback((taskId: string, delta: -1 | 1) => void changeMembers((members) => moveMember(pipelineRows(members), taskId, delta)));
   const title = useDraft((text: string, base: number) => write((revision) => update({ id, revision, title: text.trim() }), base));
   const memberIds = useMemo(() => new Map((data?.members ?? []).map((m) => [m.taskId, m.title])), [data?.members]);
   const sourceOf = useStableCallback((taskId: string | undefined) => {

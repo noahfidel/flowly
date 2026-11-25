@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { UmbrellaEntry } from "../shared/model";
 import type { UmbrellaMember, UmbrellaSummary } from "../shared/umbrella";
 import {
-  acceptanceInput, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, moveMember, openQuestions, pickableCards, pipelineRows, revisionToSend, umbrellaWritable,
+  acceptanceInput, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, memberWrites, moveMember, openQuestions, pickableCards, pipelineRows, revisionToSend, umbrellaWritable,
 } from "./umbrella-panel-logic";
 
 const member = (title: string, order?: number): UmbrellaMember => ({
@@ -151,4 +151,31 @@ test("the picker offers the group's live cards not in this umbrella, and says wh
     { taskId: "Scorer", title: "Scorer", projectTitle: "App" },
   ]);
   expect(pickableCards(tasks, projects, umbrellas, "g", "u", " API ").map((c) => c.taskId)).toEqual(["api client"]);
+});
+
+test("member writes are built from the fresh members and send only rows that change", () => {
+  const fresh = [
+    { taskId: "A", role: "map", order: 1 },
+    { taskId: "B", order: 2 },
+    { taskId: "C", role: "scorer", order: 3 },
+  ];
+  const inUmbrella = new Set(["A", "B", "C"]);
+  // Unchanged rows are skipped: A already has order 1, B already has order 2.
+  expect(memberWrites("u", fresh, [{ taskId: "A", order: 1 }, { taskId: "B", order: 2 }, { taskId: "C", order: 4 }], inUmbrella)).toEqual([
+    { taskId: "C", umbrellaId: "u", role: "scorer", order: 4 },
+  ]);
+  // A role-only change sends one row, with the fresh order.
+  expect(memberWrites("u", fresh, [{ taskId: "B", role: "api" }], inUmbrella)).toEqual([{ taskId: "B", umbrellaId: "u", role: "api", order: 2 }]);
+  // The same role (after trimming) is no change.
+  expect(memberWrites("u", fresh, [{ taskId: "A", role: " map " }], inUmbrella)).toEqual([]);
+});
+
+test("member writes never pull back a card that left the umbrella", () => {
+  const fresh = [{ taskId: "A", order: 1 }, { taskId: "C", order: 2 }];
+  // C moved to another umbrella on the board: skipped even though the read still listed it.
+  expect(memberWrites("u", fresh, [{ taskId: "A", order: 2 }, { taskId: "C", order: 1 }], new Set(["A"]))).toEqual([
+    { taskId: "A", umbrellaId: "u", order: 2 },
+  ]);
+  // A card missing from the fresh members is skipped too.
+  expect(memberWrites("u", fresh, [{ taskId: "Z", order: 3 }], new Set(["A", "C", "Z"]))).toEqual([]);
 });

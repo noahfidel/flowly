@@ -84,6 +84,27 @@ export function memberInput(
   return { taskId: member.taskId, umbrellaId, ...(role ? { role } : {}), ...(order !== undefined ? { order } : {}) };
 }
 
+/**
+ * The `set-member` calls for role or order changes, built from members read just before (`fresh`): only rows whose role
+ * or order really changes, and never a card that is no longer a member, neither in that read nor on the board
+ * (`inUmbrella`: cards whose `umbrella.id` is this umbrella). A stale panel can then never pull a departed card back in
+ * or reset a role changed elsewhere.
+ */
+export function memberWrites(
+  umbrellaId: string,
+  fresh: readonly Pick<UmbrellaMember, "taskId" | "role" | "order">[],
+  changes: readonly { taskId: string; role?: string; order?: number }[],
+  inUmbrella: ReadonlySet<string>,
+): ReturnType<typeof memberInput>[] {
+  return changes.flatMap(({ taskId, ...change }) => {
+    const member = fresh.find((m) => m.taskId === taskId);
+    if (!member || !inUmbrella.has(taskId)) return [];
+    const input = memberInput(umbrellaId, member, change);
+    const same = (input.role ?? "") === (member.role ?? "").trim() && input.order === member.order;
+    return same ? [] : [input];
+  });
+}
+
 /** Moving one pipeline row up (-1) or down (1): the rows renumbered 1..n after the swap, only those whose order changes. */
 export function moveMember(rows: readonly Pick<UmbrellaMember, "taskId" | "order">[], taskId: string, delta: -1 | 1): { taskId: string; order: number }[] {
   const from = rows.findIndex((r) => r.taskId === taskId);
