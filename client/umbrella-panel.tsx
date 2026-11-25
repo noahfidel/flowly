@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
@@ -216,10 +216,13 @@ function NewUmbrella({ groupId, onCancel, onCreated }: { groupId: string; onCanc
 /**
  * An editor's draft and the revision it was opened on (`EditBase`): Save sends that revision, so an edit made meanwhile
  * (the dispatcher, another window) is refused instead of overwritten; after the refusal the editor is based on the
- * reloaded revision and Save becomes Replace.
+ * reloaded revision and Save becomes Replace. An umbrella that stops taking edits (closed, archived) closes the editor.
  */
-function useDraft<T>(onSave: (value: T, revision: number) => Promise<SaveOutcome>) {
+function useDraft<T>(writable: boolean, onSave: (value: T, revision: number) => Promise<SaveOutcome>) {
   const [draft, setDraft] = useState<{ value: T; base: EditBase } | null>(null);
+  useEffect(() => {
+    if (!writable) setDraft(null);
+  }, [writable]);
   const start = (value: T, revision: number) => setDraft({ value, base: editBase(revision) });
   const change = (fn: (value: T) => T) => setDraft((d) => d && { ...d, value: fn(d.value) });
   const save = async () => {
@@ -330,7 +333,7 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
   const removeMember = useStableCallback((taskId: string) => writeMembers(async () => [{ taskId, umbrellaId: null }]));
   const setRole = useStableCallback((taskId: string, role: string) => changeMembers(() => [{ taskId, role }]));
   const move = useStableCallback((taskId: string, delta: -1 | 1) => void changeMembers((members) => moveMember(pipelineRows(members), taskId, delta)));
-  const title = useDraft((text: string, base: number) => write((revision) => update({ id, revision, title: text.trim() }), base));
+  const title = useDraft(!!data && umbrellaWritable(data.umbrella), (text: string, base: number) => write((revision) => update({ id, revision, title: text.trim() }), base));
   const memberIds = useMemo(() => new Map((data?.members ?? []).map((m) => [m.taskId, m.title])), [data?.members]);
   const sourceOf = useStableCallback((taskId: string | undefined) => {
     if (!taskId) return "";
@@ -537,7 +540,7 @@ function TextPart({ title, text, empty, changed, source, max, writable, busy, re
   revision: number;
   onSave(text: string, base: number): Promise<SaveOutcome>;
 }) {
-  const editor = useDraft(onSave);
+  const editor = useDraft(writable, onSave);
   const draft = editor.draft?.value ?? null;
   return (
     <View style={{ gap: space[1.5] }}>
@@ -598,7 +601,7 @@ function Acceptance({ items, writable, busy, revision, onTick, onSave }: {
     if (busy) return;
     void onTick(plain(items).map((a) => (a.id === itemId ? { ...a, done: !a.done } : a)));
   });
-  const editor = useDraft((list: DraftItem[], base: number) => onSave(plain(list), base));
+  const editor = useDraft(writable, (list: DraftItem[], base: number) => onSave(plain(list), base));
   const draft = editor.draft?.value ?? null;
   const startEdit = () => editor.start(items.map((a) => ({ key: a.id, id: a.id, text: a.text, done: a.done })), revision);
   const change = (key: string, text: string) => editor.change((d) => d.map((a) => (a.key === key ? { ...a, text } : a)));
