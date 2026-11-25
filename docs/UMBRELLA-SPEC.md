@@ -1,6 +1,6 @@
 # Umbrellas: one brief, contract and decisions feed for a family of cards
 
-Status: **approved by Noah, 2026-11-25 (rulings D1-D22 in §16).** Nothing here is built yet. Contract only; progress goes to `docs/PROGRESS.md`. Amends `docs/CARD-LINKS-SPEC.md` §9 (membership only, ruling D13), `docs/DISPATCHER-SPEC.md` §5.8 (relay targets, and Flowly now tells member agents the `[contract]` rule) and `docs/PROJECT-MEMORY-SPEC.md` (a second, umbrella-scoped feed).
+Status: **approved by Noah, 2026-11-25 (rulings D1-D23 in §16).** Nothing here is built yet. Contract only; progress goes to `docs/PROGRESS.md`. Amends `docs/CARD-LINKS-SPEC.md` §9 (membership only, ruling D13), `docs/DISPATCHER-SPEC.md` §5.8 (relay targets, and Flowly now tells member agents the `[contract]` rule) and `docs/PROJECT-MEMORY-SPEC.md` (a second, umbrella-scoped feed).
 
 An **umbrella** is a named body of work inside one board group: a title, a brief every member card reads, a contract (the handoff shapes between members), a feed of decisions, findings and open questions, an acceptance list for the whole scope, an optional Linear project, and its member cards. A card belongs to at most one umbrella. Membership is a shared context, not a hierarchy: an umbrella never moves, starts, blocks, finishes or wraps up a card.
 
@@ -157,7 +157,7 @@ Errors: `NOT_IN_UMBRELLA`, `UMBRELLA_CLOSED`, `UMBRELLA_KIND`, `UMBRELLA_OUT_OF_
 - `flowly_list_umbrellas {}`: the open umbrellas of the caller's project's group. No `groupId` input; another group is never listed.
 - `flowly_get_umbrella {umbrellaId}`: full brief, contract, feed and members; `answer` is included only on the caller's own card's entries (D19). An umbrella of another group returns `UMBRELLA_OUT_OF_GROUP`. Sibling titles, lanes and project names from other projects of the same group are visible by design.
 - `flowly_create_umbrella {title, brief?, linearProject?, idempotencyKey}`: in the caller's project's group; `brief` is only the initial text.
-- `flowly_set_umbrella {taskId, umbrellaId|null, role?, order?}`: a card of the caller's project; adding an existing card to an umbrella or moving it out follows D11.
+- `flowly_set_umbrella {taskId, umbrellaId|null, role?, order?}`: a card of the caller's project; adding an existing card to an umbrella or moving it out follows D11; in a card session the user's ask in that card's chat counts as the yes, as for `flowly_update_card`, with no permission prompt (D23). The umbrella's integration card cannot be moved or removed by an agent (D5, `INVALID_INPUT`).
 
 Gated by *Agents create and edit cards* (as `flowly_create_card`).
 
@@ -286,6 +286,7 @@ Noah accepted every recommendation of the draft on 2026-11-25. Rejected options 
 - **D20: accepting a proposal on an old revision.** After another change is accepted, a still-pending proposal may rest on an older contract. (a) its accept is refused `CONTRACT_STALE` and the agent proposes again; (b) accept applies `after` anyway, dropping the earlier accepted change; (c) accept after a second confirm. Ruling (Noah, 2026-11-25): (a).
 - **D21: relay budget.** A relay to up to 30 targets would use `flowly_message_card`'s 30 per hour. (a) sibling relays get their own budget, 60 per hour, apart from the 30; (b) relays share the 30; (c) relays are unlimited. Ruling (Noah, 2026-11-25): (a).
 - **D22: who may supersede an entry.** As built, any member agent could supersede any active entry, including a user-quoted ruling and another card's open question. (a) guard rulings and questions: an agent supersedes a `ruling` only with a new `ruling` (which still needs the user's quote), an open `question` only from the card that asked it (otherwise only the user's answer closes it), and any other kind from any member, as with project notes; (b) an agent supersedes only its own card's entries; (c) any member supersedes any entry, as built. The user's own supersede (`umbrellas.entry.update`) is not limited. Ruling (Noah, 2026-11-25): (a).
+- **D23: adding an existing card from a card session.** D11 named the dispatcher chat and the UI as where the user says yes; `flowly_set_umbrella` is also a card-session board tool. (a) the user's ask in that card's chat counts, as for `flowly_update_card`, with no permission prompt; (b) a permission prompt on every call from a card session; (c) card sessions cannot change an existing card's membership. Ruling (Noah, 2026-11-25): (a).
 
 ## 17. Proposed card split
 
