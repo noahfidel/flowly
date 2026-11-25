@@ -427,7 +427,8 @@ describe("contract proposals (UMBRELLA-SPEC §5)", () => {
     batcher.push([f!]);
     const note = batcher.takeProject("p1")[0]!;
     expect(note).toMatchObject({ taskId: "t1", kind: "contract_proposed", proposal: { eventId: e.id, umbrellaId: "u", conflict: true, mentions: ["t1", "t2"] } });
-    expect(note.detail).toMatch(/conflict/i);
+    // The flags ride in `proposal`, which noteMessage renders even after a merge; the detail is the event's own note.
+    expect(note.detail).toBe("contract change on r1: the api adds b");
     // The user's own events are not news; another umbrella action is no proposal.
     expect(isStop(factsFromCommit([event({ taskId: "t1", actor: "human", action: "umbrella_contract_proposed" })], b)[0]!)).toBe(false);
     expect(factsFromCommit([event({ taskId: "t1", action: "umbrella_entry_added" })], b)[0]).not.toHaveProperty("proposal");

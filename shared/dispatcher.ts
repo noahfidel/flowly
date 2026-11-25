@@ -30,11 +30,11 @@ export const dispatcherNoteSchema = z.object({
 });
 export type DispatcherNote = z.infer<typeof dispatcherNoteSchema>;
 
-/** Note kinds that a later plain status change on the same card does not replace. */
-const lasting = new Set(["question", "blocker"]);
+/** Note kinds that a later plain status change on the same card does not replace (a proposal waits on the user, too). */
+const lasting = new Set(["question", "blocker", "contract_proposed"]);
 /**
- * Folds `next` into `prev` for one card (EVENT-BUS-SPEC §3): the newer note wins, except that a question or
- * blocker is kept over a later plain status change, whose detail it then shows as `later`. The count of facts
+ * Folds `next` into `prev` for one card (EVENT-BUS-SPEC §3): the newer note wins, except that a question, blocker or
+ * contract proposal is kept over a later plain status change, whose detail it then shows as `later`. The count of facts
  * not shown carries over, so a card that waits across batches keeps its full "(+N earlier)".
  */
 export function mergeNotes(prev: DispatcherNote, next: DispatcherNote): DispatcherNote {

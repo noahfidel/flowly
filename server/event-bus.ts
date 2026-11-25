@@ -129,11 +129,8 @@ function noteOf(fact: Extract<BusFact, { kind: "board" }>): DispatcherNote {
           ? event.reportKind
           : event.action;
   const move = event.action === "status_changed" && event.to ? `${event.from ?? ""} → ${event.to}`.trim() : "";
-  // The conflict and the mentioned members ride in the line the dispatcher reads, too.
-  const flags = proposal
-    ? [proposal.conflict ? "conflicts with another pending proposal or an older contract" : "", proposal.mentions.length ? `roles mentioned: ${proposal.mentions.map((id) => `[${id}]`).join(", ")}` : ""]
-    : [];
-  const detail = [[move, event.note].filter(Boolean).join(": "), ...flags].filter(Boolean).join("; ");
+  // The conflict and the mentioned members ride in `proposal`, which noteMessage renders even after a merge.
+  const detail = [move, event.note].filter(Boolean).join(": ");
   const news = contractNews(event);
   return {
     taskId: event.taskId,

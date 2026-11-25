@@ -1295,6 +1295,33 @@ test("an unreadable agent list sends the batch without relay lines (§5.8)", asy
   x.dispatcher.dispose();
 });
 
+test("a contract proposal stays visible when later notes on the same card merge into it (UMBRELLA-SPEC §5 step 3)", () => {
+  const proposed: DispatcherNote = {
+    ...note("t1", "contract change on r1: the api adds b"),
+    kind: "contract_proposed",
+    proposal: { eventId: "e1", umbrellaId: "u", conflict: true, mentions: ["t1", "t2"] },
+  };
+  const shown = (n: DispatcherNote) => noteMessage([n], dispatcherCharterVersion).split("\n").slice(1).join("\n");
+  // A later status change does not replace it: the proposal stays the shown kind, the move comes after it.
+  const moved = mergeNotes(proposed, note("t1", "development → in_review"));
+  expect(moved.kind).toBe("contract_proposed");
+  expect(shown(moved)).toContain("then development → in_review");
+  expect(shown(moved)).toMatch(/contract change .*waiting for the user's answer.*umbrella u/i);
+  expect(shown(moved)).toContain("conflicts with another pending proposal or an older contract");
+  expect(shown(moved)).toContain("roles mentioned: [t1], [t2]");
+  // A later question takes over the line; the waiting proposal is still rendered from the carried field.
+  const asked = mergeNotes(proposed, { ...note("t1", "May I delete the old shape?"), kind: "question" });
+  expect(asked.kind).toBe("question");
+  expect(shown(asked)).toMatch(/waiting for the user's answer.*umbrella u/i);
+  expect(shown(asked)).toContain("roles mentioned: [t1], [t2]");
+  // No proposal, no proposal line; a lone proposal without conflict or mentions names only the umbrella.
+  expect(shown(note("t1"))).not.toMatch(/waiting for the user's answer/);
+  const plain = shown({ ...proposed, proposal: { eventId: "e1", umbrellaId: "u", conflict: false, mentions: [] } });
+  expect(plain).toMatch(/waiting for the user's answer/);
+  expect(plain).not.toContain("conflicts");
+  expect(plain).not.toContain("roles mentioned");
+});
+
 test("note batches carry the start and reply rules only for a dispatcher at charter version 0 (§7)", () => {
   const notes = [note("t1")];
   const lines = noteMessage(notes, 0).split("\n");

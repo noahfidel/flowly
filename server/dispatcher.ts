@@ -368,6 +368,15 @@ export function dispatcherSummary(board: Board, groupId: string): string {
  */
 const batchRulesBelow = 1;
 
+/**
+ * The line under a card's note while it has a contract change waiting (UMBRELLA-SPEC §5 step 3): rendered from the
+ * note's `proposal`, so it shows even when a later note on the same card took over the line.
+ */
+function proposalLine(p: NonNullable<DispatcherNote["proposal"]>): string {
+  const flags = [p.conflict ? "conflicts with another pending proposal or an older contract" : "", p.mentions.length ? `roles mentioned: ${p.mentions.map((id) => `[${id}]`).join(", ")}` : ""].filter(Boolean);
+  return `  Contract change waiting for the user's answer (umbrella ${p.umbrellaId})${flags.length ? `: ${flags.join("; ")}` : ""}`;
+}
+
 /** One message for a batch of notes (§7); `charter` is the version of the dispatcher it goes to. */
 export function noteMessage(
   notes: readonly DispatcherNote[],
@@ -382,7 +391,8 @@ export function noteMessage(
       const detail = [n.detail, n.later ? `then ${n.later}` : ""].filter(Boolean).map(oneLine).join("; ");
       const line = `- "${oneLine(n.title)}" [${n.taskId}] in project ${n.projectId}: ${n.kind}${detail ? ` — ${detail}` : ""}${n.earlier ? ` (+${n.earlier} earlier)` : ""}`;
       const targets = charter >= relayCharterVersion ? relays?.get(n.taskId) : undefined;
-      return targets?.length && n.contract ? [line, relayLine(targets, n.contract.text)] : [line];
+      const lines = [line, ...(n.proposal ? [proposalLine(n.proposal)] : [])];
+      return targets?.length && n.contract ? [...lines, relayLine(targets, n.contract.text)] : lines;
     }),
     ...(charter < batchRulesBelow ? [startRule, noteReplyRule] : []),
   ].join("\n");
