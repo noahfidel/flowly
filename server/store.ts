@@ -302,10 +302,13 @@ export class BoardStore {
     }, delay);
     retry.timer.unref?.();
   }
-  /** The board for clients: umbrellas without brief and contract text, and no feed entries (UMBRELLA-SPEC §4.4). */
+  /**
+   * The board for clients: umbrellas without brief and contract text, no feed entries (UMBRELLA-SPEC §4.4) and no relay
+   * memory (§8).
+   */
   async view() {
     const board = boardSchema.parse(await this.read());
-    return { ...board, umbrellas: board.umbrellas.map(umbrellaViewOf), umbrellaEntries: [] };
+    return { ...board, umbrellas: board.umbrellas.map(umbrellaViewOf), umbrellaEntries: [], relayed: [] };
   }
   mutate<T>(operation: (board: Board) => Promise<T> | T): Promise<T> {
     return this.transaction(async (board) => ({

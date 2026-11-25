@@ -33,13 +33,14 @@ import type { Board, Group, GroupRemoval, Task, UmbrellaEntry } from "../shared/
 import { effectiveDispatcherModel, type AgentModel } from "../shared/agent-defaults";
 import type { OutgoingImage } from "../shared/composer";
 import { createDirectoryWorkspace } from "./background-workspace";
-import { contractRelayTargets, relayCharterVersion, relayEchoMs, relayLine, relayedIdLimit } from "../shared/dispatcher-relay";
+import { contractRelayTargets, relayCharterVersion, relayEchoMs, relayLine, relayedIdLimit, rememberRelays } from "../shared/dispatcher-relay";
 import { isSummarizer } from "../shared/summary";
 import { liveAgents } from "./card-chats";
 import { logFailure } from "./error-report";
 import { EventBus, NoteBatcher, isStop, type BusFact } from "./event-bus";
 import type { DispatcherIdentity } from "./tool-context";
 import { ToolError } from "./tool-error";
+import type { BoardStore } from "./store";
 
 /**
  * One dispatcher session per board group (DISPATCHER-SPEC §0): the shared record, workspace and start queue
@@ -291,9 +292,23 @@ export type DispatcherDeps = {
   /** The first message: the group's projects with their ids, open cards and ideas (§6). */
   summary: (groupId: string) => Promise<string>;
   /** The board: its groups (each dispatcher's group, the v1 migration, the group delete's checks). */
-  board: () => Promise<Pick<Board, "groups" | "projects" | "tasks" | "links" | "umbrellaEntries">>;
+  board: () => Promise<Pick<Board, "groups" | "projects" | "tasks" | "links" | "umbrellaEntries" | "umbrellas" | "relayed">>;
+  /** Saves what a sent batch relayed to the board's relay memory (UMBRELLA-SPEC §8); absent, it stays in memory only. */
+  saveRelays?: (groupId: string, records: readonly RelayRecord[]) => Promise<void>;
   now?: () => number;
 };
+
+/** One relayed event in the board's relay memory (`Board.relayed`). */
+export type RelayRecord = Board["relayed"][number];
+
+/** The relay memory write (`DispatcherDeps.saveRelays`): one store transaction per sent batch that relayed (§8). */
+export function saveRelaysTo(store: Pick<BoardStore, "transaction">) {
+  return (groupId: string, records: readonly RelayRecord[]) =>
+    store.transaction((board) => {
+      board.relayed = rememberRelays(board.relayed, records.map((r) => ({ ...r, groupId })), board.groups.map((g) => g.id));
+      return { value: undefined, changed: true };
+    });
+}
 
 type AgentSnapshot = {
   status?: string | null;
@@ -391,8 +406,8 @@ function proposalLine(taskId: string, p: NonNullable<DispatcherNote["proposal"]>
 export function noteMessage(
   notes: readonly DispatcherNote[],
   charter: number,
-  /** The cards to relay each note's contract news to, by the note's card (§5.8); used from charter 7. */
-  relays?: ReadonlyMap<string, readonly Pick<Task, "title" | "id">[]>,
+  /** The cards to relay each note's news to, by the news's event id (§5.8, UMBRELLA-SPEC §8); used from charter 7. */
+  relays?: ReadonlyMap<string, Relay>,
   /** The store's contract change entries at delivery, for the proposal lines (see `proposalLine`); undefined when not read. */
   entries?: readonly ProposalEntry[],
 ): string {
@@ -402,22 +417,31 @@ export function noteMessage(
     ...notes.flatMap((n) => {
       const detail = [n.detail, n.later ? `then ${n.later}` : ""].filter(Boolean).map(oneLine).join("; ");
       const line = `- "${oneLine(n.title)}" [${n.taskId}] in project ${n.projectId}: ${n.kind}${detail ? ` — ${detail}` : ""}${n.earlier ? ` (+${n.earlier} earlier)` : ""}`;
-      const targets = charter >= relayCharterVersion ? relays?.get(n.taskId) : undefined;
       const proposed = n.proposal ? proposalLine(n.taskId, n.proposal, entries) : null;
       const lines = [line, ...(proposed ? [proposed] : [])];
-      return targets?.length && n.contract ? [...lines, relayLine(targets, n.contract.text)] : lines;
+      if (charter < relayCharterVersion || !relays) return lines;
+      for (const [news, label] of [[n.contract, "contract"], [n.umbrellaNews, "umbrella"]] as const) {
+        const relay = news ? relays.get(news.eventId) : undefined;
+        if (news && relay?.targets.length) lines.push(relayLine(relay.targets, news.text, relay.leftOut, label, news.eventId));
+      }
+      return lines;
     }),
     ...(charter < batchRulesBelow ? [startRule, noteReplyRule] : []),
   ].join("\n");
 }
+
+/** One event's relay: the cards the line lists and how many eligible ones were left out past the limit. */
+type Relay = { sourceTaskId: string; targets: readonly Pick<Task, "title" | "id">[]; leftOut: number };
 
 /** What a group's note delivery needs from the shared dispatcher. */
 type GroupHub = {
   /** The group's stored entry (after the v1 migration); undefined when it has none. */
   entry(groupId: string): Promise<DispatcherEntry | undefined>;
   now(): number;
-  /** The board, read once per batch that has contract news to relay (§5.8). */
-  board(): Promise<Pick<Board, "links" | "tasks" | "umbrellaEntries">>;
+  /** The board, read once per batch that has news to relay (§5.8). */
+  board(): Promise<Pick<Board, "links" | "tasks" | "umbrellaEntries" | "umbrellas" | "relayed">>;
+  /** Saves a sent batch's relays to the board (UMBRELLA-SPEC §8); a failure is the caller's to log. */
+  saveRelays(groupId: string, records: readonly RelayRecord[]): Promise<void>;
   /** The batch the group's session received (the chat's note rows, §9.1). */
   sent(groupId: string, agentId: string, notes: readonly DispatcherNote[], at: string): void;
 };
@@ -440,8 +464,12 @@ class GroupDispatcher {
   /** The session id a start has stored but Paseo may not have created yet: notes for it are held, not dropped. */
   starting: string | null = null;
   private deliveries: Promise<unknown> = Promise.resolve();
-  /** Contract news already relayed (event ids, oldest first) and who was relayed to, for the loop guards (§5.8). */
+  /**
+   * News already relayed (event ids, oldest first) and who was relayed to, for the loop guards (§5.8). Seeded once from
+   * the board's relay memory (`Board.relayed`, this group's), so a reload never relays an event twice (UMBRELLA-SPEC §8).
+   */
   private readonly relayed = new Set<string>();
+  private seeded = false;
   private recentRelays: { from: string; to: string; at: number }[] = [];
   disposed = false;
   constructor(
@@ -560,12 +588,15 @@ class GroupDispatcher {
       logFailure("Flowly dispatcher notes not sent:", e, `${notes.length} notes`);
       return;
     }
-    this.recordRelays(notes, relays, sentAt);
+    const records = this.recordRelays(relays, sentAt);
     try {
       this.hub.sent(this.groupId, agentId, notes, new Date(sentAt).toISOString());
     } catch (e) {
       logFailure("Flowly dispatcher chat notes not recorded:", e, `${notes.length} notes`);
     }
+    // After the send: a failed save is logged and never blocks the batch (the in-memory set still holds the ids).
+    if (records.length)
+      await this.hub.saveRelays(this.groupId, records).catch((e) => logFailure("Flowly dispatcher relay memory not saved:", e, `${records.length} relays`));
   }
 
   /** The store's contract change entries, read at delivery when a note carries a proposal; undefined when not read (the line then says "proposed"). */
@@ -579,19 +610,32 @@ class GroupDispatcher {
     }
   }
 
-  /** The live related cards to relay each note's contract news to; empty when none, unread, or already relayed (§5.8). */
+  /**
+   * The live cards to relay each note's news to, by event id: contract news to siblings and related cards, umbrella news
+   * to siblings only (§5.8, UMBRELLA-SPEC §8). Empty when none, unread, or already relayed.
+   */
   private async relayTargets(paseo: PaseoApi, notes: readonly DispatcherNote[], charter: number) {
-    const relays = new Map<string, Pick<Task, "title" | "id">[]>();
-    const fresh = notes.filter((n) => n.contract && !this.relayed.has(n.contract.eventId));
-    if (!fresh.length || charter < relayCharterVersion) return relays;
+    const relays = new Map<string, Relay>();
+    const news = notes.flatMap((n) => [
+      ...(n.contract ? [{ taskId: n.taskId, eventId: n.contract.eventId, siblingsOnly: false }] : []),
+      ...(n.umbrellaNews ? [{ taskId: n.taskId, eventId: n.umbrellaNews.eventId, siblingsOnly: true }] : []),
+    ]);
+    if (!news.some((n) => !this.relayed.has(n.eventId)) || charter < relayCharterVersion) return relays;
+    let fresh = news;
     try {
       const board = await this.hub.board();
+      if (!this.seeded) {
+        this.seeded = true;
+        for (const r of board.relayed) if (r.groupId === this.groupId) this.relayed.add(r.id);
+      }
+      fresh = news.filter((n) => !this.relayed.has(n.eventId));
+      if (!fresh.length) return relays;
       const liveWorkspaceIds = new Set<string>();
       for (const agent of await liveAgents(paseo)) if (!agent.archivedAt && !isSummarizer(agent) && agent.workspaceId) liveWorkspaceIds.add(agent.workspaceId);
       const now = this.hub.now();
       for (const n of fresh) {
-        const targets = contractRelayTargets({ board, sourceTaskId: n.taskId, liveWorkspaceIds, recent: this.recentRelays, now });
-        if (targets.length) relays.set(n.taskId, targets);
+        const { targets, leftOut } = contractRelayTargets({ board, sourceTaskId: n.taskId, liveWorkspaceIds, recent: this.recentRelays, now, siblingsOnly: n.siblingsOnly });
+        if (targets.length) relays.set(n.eventId, { sourceTaskId: n.taskId, targets, leftOut });
       }
     } catch (e) {
       logFailure("Flowly dispatcher contract relay targets unreadable:", e, `${fresh.length} notes`);
@@ -600,19 +644,24 @@ class GroupDispatcher {
     return relays;
   }
 
-  /** Remembers what a sent batch relayed: the event ids (bounded) and who was relayed to, for the echo guard (§5.8). */
-  private recordRelays(notes: readonly DispatcherNote[], relays: ReadonlyMap<string, readonly Pick<Task, "id">[]>, sentAt: number) {
+  /**
+   * Remembers what a sent batch relayed: the event ids (bounded) and who was relayed to, for the echo guard (§5.8).
+   * Returns the records for the board's relay memory.
+   */
+  private recordRelays(relays: ReadonlyMap<string, Relay>, sentAt: number): RelayRecord[] {
     this.recentRelays = this.recentRelays.filter((r) => r.at >= sentAt - relayEchoMs);
-    for (const n of notes) {
-      const targets = relays.get(n.taskId);
-      if (!n.contract || !targets?.length) continue;
-      this.relayed.add(n.contract.eventId);
-      for (const target of targets) this.recentRelays.push({ from: n.taskId, to: target.id, at: sentAt });
+    const at = new Date(sentAt).toISOString();
+    const records: RelayRecord[] = [];
+    for (const [eventId, relay] of relays) {
+      this.relayed.add(eventId);
+      for (const target of relay.targets) this.recentRelays.push({ from: relay.sourceTaskId, to: target.id, at: sentAt });
+      records.push({ id: eventId, groupId: this.groupId, at, targets: relay.targets.map((t) => t.id) });
     }
     for (const id of this.relayed) {
       if (this.relayed.size <= relayedIdLimit) break;
       this.relayed.delete(id);
     }
+    return records;
   }
 
   /** One pending re-check at a time: an earlier one wins, a later one is replaced by a sooner request. */
@@ -1220,6 +1269,7 @@ export class Dispatcher {
         entry: async (id) => (await this.resolvedRecord()).groups[id],
         now: () => this.now(),
         board: () => this.deps.board(),
+        saveRelays: async (id, records) => this.deps.saveRelays?.(id, records),
         sent: (id, agentId, notes, at) => this.onSent?.(notes, at, { groupId: id, agentId }),
       });
       if (this.disposed) group.disposed = true;

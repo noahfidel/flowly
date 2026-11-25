@@ -29,6 +29,7 @@ function board(status: Status, extra: { autoStatus?: boolean; archived?: boolean
     groups: [],
     umbrellas: [],
     umbrellaEntries: [],
+    relayed: [],
     agentReceipts: [],
   } as Board;
 }

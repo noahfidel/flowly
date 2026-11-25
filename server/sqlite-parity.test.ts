@@ -97,6 +97,7 @@ const steps: [string, (s: BoardStore) => Promise<unknown>][] = [
         b.ideas[0].umbrellaId = "u1";
       }),
   ],
+  ["remember relayed events", (s) => s.mutate((b) => void b.relayed.push({ id: "e-r1", groupId: "g1", at, targets: ["t3", "t4"] }, { id: "e-r2", groupId: "g2", at, targets: ["t1"] }))],
   ["answer an umbrella question", (s) => updateEntry(s, { id: "ue1", status: "answered", answer: "Drafts" }, { kind: "human" })],
   ["dismiss an idea", (s) => s.updateIdea({ id: "i1", status: "dismissed" })],
   ["snooze attention", (s) => s.dismissAttention({ taskId: "t1", list: "needs", signals: ["question:1"] })],
@@ -132,6 +133,7 @@ describe("board.json and flowly.sqlite", () => {
     expect(final).not.toContain('"p2"');
     expect(JSON.parse(final).umbrellaEntries.map((e: { status: string }) => e.status)).toEqual(["answered", "proposed"]);
     expect(JSON.parse(final).umbrellas[0].feedRevision).toBe(1);
+    expect(JSON.parse(final).relayed).toEqual([{ id: "e-r1", groupId: "g1", at, targets: ["t3", "t4"] }, { id: "e-r2", groupId: "g2", at, targets: ["t1"] }]);
     expect(JSON.parse(final).attentionDismissals).toEqual([
       { taskId: "t1", needs: { signals: ["question:1"], snoozedAt: expect.any(String) } },
       { taskId: "t2", needs: { signals: ["q:e1"], snoozedAt: at }, updated: { signals: ["u:tok2"], snoozedAt: expect.any(String) } },

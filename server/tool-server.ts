@@ -85,7 +85,7 @@ import { BoardStore } from "./store";
 import { BoardService, paseoHome } from "./service";
 import { ToolSecrets, writePrivate, type ContextMethod } from "./tool-context";
 import { ToolError, toolFailure, toolResult } from "./tool-error";
-import { Dispatcher, dispatcherFolder, dispatcherSummary, type DispatcherMcpServer } from "./dispatcher";
+import { Dispatcher, dispatcherFolder, dispatcherSummary, saveRelaysTo, type DispatcherMcpServer } from "./dispatcher";
 import { DispatcherTools } from "./dispatcher-tools";
 import { DispatcherQueue, DispatcherQueueFile } from "./dispatcher-queue";
 import { DispatcherPeerQueue, DispatcherPeerQueueFile } from "./dispatcher-peer-queue";
@@ -144,6 +144,7 @@ export class ToolServer {
         summary: async (groupId) => dispatcherSummary(await store.read(), groupId),
         mcp: (identity) => this.dispatcherServer(identity),
         board: () => store.read(),
+        saveRelays: saveRelaysTo(store),
       },
       dispatcherPath,
     );

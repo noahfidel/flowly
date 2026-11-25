@@ -1,7 +1,7 @@
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
 import { mergeNotes, type DispatcherNote } from "../shared/dispatcher";
 import type { Board, BoardEvent, Status } from "../shared/model";
-import { contractNews } from "../shared/dispatcher-relay";
+import { contractNews, umbrellaNews } from "../shared/dispatcher-relay";
 import { membersOf, rolesMentioned } from "../shared/umbrella";
 import { logFailure } from "./error-report";
 
@@ -102,6 +102,9 @@ export function isStop(fact: BusFact): boolean {
   if (fact.kind === "permission") return true;
   if (fact.kind !== "board") return false;
   const { event } = fact;
+  // Umbrella news (an accepted contract change, a new ruling) is relayed to siblings whoever made it: the user's accept
+  // in the panel included (UMBRELLA-SPEC §8, D12). Checked before the rule that the user's own moves are not news.
+  if (umbrellaNews(event) !== null) return true;
   if (event.actor === "human") return false;
   if (event.action === "status_changed" && event.rule === "A1r") return false;
   // A member's proposed contract change waits on the user's accept or reject (UMBRELLA-SPEC §5 step 3).
@@ -120,12 +123,15 @@ export function isStopEvent(event: Pick<BoardEvent, "action" | "to" | "reportKin
 function noteOf(fact: Extract<BusFact, { kind: "board" }>): DispatcherNote {
   const { event } = fact;
   const proposal = event.action === contractProposed ? fact.proposal : undefined;
+  const umbrella = umbrellaNews(event);
   const kind =
     event.action === "agent.turn_ended" && event.outcome === "failed"
       ? "turn_failed"
       : proposal
         ? "contract_proposed"
-        : event.reportKind && event.reportKind !== "progress"
+        : umbrella !== null
+          ? "umbrella_news"
+          : event.reportKind && event.reportKind !== "progress"
           ? event.reportKind
           : event.action;
   const move = event.action === "status_changed" && event.to ? `${event.from ?? ""} → ${event.to}`.trim() : "";
@@ -140,6 +146,8 @@ function noteOf(fact: Extract<BusFact, { kind: "board" }>): DispatcherNote {
     detail,
     ...(news !== null ? { contract: { eventId: event.id, text: news } } : {}),
     ...(proposal ? { proposal: { eventId: event.id, ...proposal } } : {}),
+    // Relay only: the charter never puts it to the user as a question (UMBRELLA-SPEC §8).
+    ...(umbrella !== null ? { umbrellaNews: { eventId: event.id, text: umbrella } } : {}),
     at: event.at,
   };
 }
@@ -166,7 +174,8 @@ export class NoteBatcher {
     const notes: DispatcherNote[] = [];
     for (const fact of facts) {
       if (fact.kind !== "board") continue;
-      if (fact.event.agentId && own.has(fact.event.agentId)) continue;
+      // A dispatcher's own accept (flowly_resolve_contract_change) is still news to the siblings it relays to (§8).
+      if (fact.event.agentId && own.has(fact.event.agentId) && umbrellaNews(fact.event) === null) continue;
       notes.push(noteOf(fact));
     }
     this.pushNotes(notes);

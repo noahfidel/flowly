@@ -437,3 +437,64 @@ describe("contract proposals (UMBRELLA-SPEC §5)", () => {
     expect(mergeNotes(note, later).proposal).toEqual(note.proposal);
   });
 });
+
+describe("umbrella news (UMBRELLA-SPEC §8, D12)", () => {
+  const human = { kind: "human" as const };
+  function memberBoard() {
+    const b = board();
+    const t1 = b.tasks[0]!;
+    b.tasks.push({ ...t1, id: "t2", title: "Task two", operationId: "op2" });
+    b.tasks[0]!.umbrella = { id: "u", joinedAt: now, by: human };
+    b.tasks[1]!.umbrella = { id: "u", joinedAt: now, by: human };
+    return b;
+  }
+  const noteFor = (f: BusFact, exclude: string | null = null) => {
+    const batcher = new NoteBatcher({ windowMs: 10_000, maxWaitMs: 60_000, exclude: () => exclude }, () => undefined);
+    batcher.push([f]);
+    return batcher.takeProject("p1")[0];
+  };
+
+  test("a ruling relays by its event action", () => {
+    const b = memberBoard();
+    const ruling = event({ taskId: "t1", action: "umbrella_ruling_added", agentId: "s-t1", note: "ruling: drafts are private" });
+    const [f] = factsFromCommit([ruling], b);
+    expect(isStop(f!)).toBe(true);
+    expect(noteFor(f!)).toMatchObject({ kind: "umbrella_news", umbrellaNews: { eventId: ruling.id, text: "ruling: drafts are private" } });
+    // Another feed entry (a decision) is no stop and no news, whatever its note says.
+    const decision = event({ taskId: "t1", action: "umbrella_entry_added", agentId: "s-t1", note: "ruling: looks like one" });
+    const [g] = factsFromCommit([decision], b);
+    expect(isStop(g!)).toBe(false);
+    expect(noteFor(g!)).not.toHaveProperty("umbrellaNews");
+  });
+
+  test("the user's accept in the panel is an umbrella_news note and the charter never asks about it", () => {
+    const b = memberBoard();
+    const accepted = event({ taskId: "t1", actor: "human", action: "umbrella_contract_accepted", note: "contract r5 accepted: the api adds b" });
+    const [f] = factsFromCommit([accepted], b);
+    // A stop whatever the actor: checked before the rule that the user's own moves are not news.
+    expect(isStop(f!)).toBe(true);
+    const note = noteFor(f!)!;
+    expect(note).toMatchObject({ kind: "umbrella_news", umbrellaNews: { eventId: accepted.id, text: "contract r5 accepted: the api adds b" } });
+    expect(note).not.toHaveProperty("contract");
+    // The dispatcher's own accept (flowly_resolve_contract_change) still relays: it is news to the siblings.
+    const own = event({ taskId: "t1", action: "umbrella_contract_accepted", agentId: "disp", note: "contract r6 accepted: c" });
+    expect(noteFor(factsFromCommit([own], b)[0]!, "disp")).toMatchObject({ kind: "umbrella_news" });
+    // Its other events are still dropped; a rejection is no news.
+    expect(noteFor(fact({ to: "in_review", agentId: "disp" }), "disp")).toBeUndefined();
+    expect(isStop(factsFromCommit([event({ taskId: "t1", actor: "human", action: "umbrella_contract_rejected", note: "x" })], b)[0]!)).toBe(false);
+    // The news survives a later note on the same card.
+    const later: DispatcherNote = { taskId: "t1", projectId: "p1", title: "Task one", kind: "status_changed", detail: "todo → in_review", at: now };
+    expect(mergeNotes(note, later).umbrellaNews).toEqual(note.umbrellaNews);
+  });
+
+  test("a question or blocker on a member is never relayed", () => {
+    const b = memberBoard();
+    for (const reportKind of ["question", "blocker"] as const) {
+      const e = event({ taskId: "t1", action: "progress_reported", reportKind, note: "[contract] ruling: may I?" });
+      const note = noteFor(factsFromCommit([e], b)[0]!)!;
+      expect(note.kind).toBe(reportKind);
+      expect(note).not.toHaveProperty("umbrellaNews");
+      expect(note).not.toHaveProperty("contract");
+    }
+  });
+});

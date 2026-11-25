@@ -19,6 +19,7 @@ import {
   isDeadDispatcher,
   legacyNoteGroup,
   noteMessage,
+  saveRelaysTo,
   wireDispatcher,
 } from "./dispatcher";
 import { dispatcherSessionIds } from "./dispatcher-items";
@@ -26,7 +27,7 @@ import { EventBus, NoteBatcher, type BusFact } from "./event-bus";
 import { BoardService } from "./service";
 import { SessionTailService } from "./session-tail";
 import { SessionSettingsService } from "./session-settings";
-import type { BoardStore } from "./store";
+import { BoardStore } from "./store";
 import { ToolError } from "./tool-error";
 import { agentFixture } from "./agent-fixture";
 import type { DispatcherIdentity } from "./tool-context";
@@ -1231,7 +1232,7 @@ test("the charter has the relay line for contract news (DISPATCHER-SPEC §5.8, �
   expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(7);
   const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("Relay contract news with flowly_message_card to:"))!;
   expect(line).toBeDefined();
-  for (const part of ["for each card listed there, and only those", "information only", "needs no reply", "[contract]", "never message a card that is not listed", "never send the same relay twice", "queued: true", "MESSAGE_LIMIT", "Cards never message each other"])
+  for (const part of ["for each card listed there, and only those", "information only", "needs no reply", "[contract]", "never message a card that is not listed", "never send the same relay twice", "queued: true", "relayOf", "RELAY_LIMIT", "Cards never message each other"])
     expect(line.toLowerCase()).toContain(part.toLowerCase());
 });
 
@@ -1252,7 +1253,7 @@ test("a marked result is relayed to the live related card only, once (DISPATCHER
   await x.dispatcher.deliver([marked("src", "e1")], x.paseo);
   expect(x.sends).toHaveLength(1);
   const lines = x.sends[0].text.split("\n");
-  expect(lines[2]).toBe('  Relay contract news with flowly_message_card to: "Card live" [live]. The news: "shape changed"');
+  expect(lines[2]).toBe('  Relay contract news with flowly_message_card to: "Card live" [live]. Pass relayOf: "e1". The news: "shape changed"');
   expect(lines).toHaveLength(3);
   // The same contract again (same eventId): no relay line.
   vi.advanceTimersByTime(60_000);
@@ -1301,6 +1302,89 @@ test("an unreadable agent list sends the batch without relay lines (§5.8)", asy
   expect(x.sends).toHaveLength(1);
   expect(x.sends[0].text).not.toContain("Relay contract news");
   x.dispatcher.dispose();
+});
+
+/** An umbrella u (open) with src, s1 and s2 as members (s2 first by order), plus the related card "live" from relayBoard. */
+const umbrellaRelayBoard = (x: Awaited<ReturnType<typeof charterDispatcher>>) => {
+  relayBoard(x);
+  const b = x.state.board;
+  const human = { kind: "human" as const };
+  b.umbrellas.push({
+    id: "u", groupId: G, title: "Family", brief: { text: "", revision: 0, updatedAt: T, updatedBy: human }, contract: { text: "", revision: 0, updatedAt: T, updatedBy: human },
+    acceptance: [], status: "open", createdBy: human, createdAt: T, updatedAt: T, revision: 1, feedRevision: 0, archivedAt: null,
+  });
+  for (const [id, order] of [["s1", 2], ["s2", 1]] as const) {
+    b.tasks.push({ ...boardTask(id, "p", "development"), title: `Card ${id}`, umbrella: { id: "u", order, joinedAt: T, by: human } });
+    x.agents.set(`a-${id}`, { id: `a-${id}`, workspaceId: `w-${id}`, status: "idle", archivedAt: null });
+  }
+  b.tasks.find((t) => t.id === "src")!.umbrella = { id: "u", order: 0, joinedAt: T, by: human };
+};
+const news = (taskId: string, eventId: string, text: string): DispatcherNote => ({ ...note(taskId, text), kind: "umbrella_news", umbrellaNews: { eventId, text } });
+
+test("an accepted contract change and a new ruling relay to siblings only (UMBRELLA-SPEC §8, D12)", async () => {
+  vi.useFakeTimers({ now: Date.parse("2026-11-18T10:00:00.000Z") });
+  const x = await charterDispatcher(dispatcherCharterVersion);
+  umbrellaRelayBoard(x);
+  await x.dispatcher.deliver([news("src", "e1", "contract r5 accepted: the api adds b")], x.paseo);
+  const lines = x.sends[0].text.split("\n");
+  expect(lines[2]).toBe('  Relay umbrella news with flowly_message_card to: "Card s2" [s2]; "Card s1" [s1]. Pass relayOf: "e1". The news: "contract r5 accepted: the api adds b"');
+  // [contract] news from a member goes to the siblings first, then the related card.
+  vi.advanceTimersByTime(60_000);
+  await x.dispatcher.deliver([marked("src", "e2")], x.paseo);
+  expect(x.sends[1].text.split("\n")[2]).toContain('to: "Card s2" [s2]; "Card s1" [s1]; "Card live" [live]. Pass relayOf: "e2"');
+  // A note with both kinds of news gets both lines, each with its own event.
+  vi.advanceTimersByTime(60_000);
+  await x.dispatcher.deliver([mergeNotes(marked("s1", "e3"), news("s1", "e4", "ruling: drafts are private"))], x.paseo);
+  const both = x.sends[2].text.split("\n").filter((l) => l.startsWith("  Relay"));
+  expect(both.map((l) => l.match(/relayOf: "(e\d)"/)?.[1])).toEqual(["e3", "e4"]);
+  x.dispatcher.dispose();
+});
+
+test("the user's accept in the panel is an umbrella_news note and the charter never asks about it", () => {
+  const charter = dispatcherCharter({ name: "Projects" });
+  const line = charter.split("\n").find((l) => l.includes("umbrella_news"))!;
+  expect(line).toBeDefined();
+  expect(line).toMatch(/relay only/i);
+  expect(line).toMatch(/never put it to the user as a question/i);
+  expect(line).toContain("Relay umbrella news with flowly_message_card to:");
+  expect(dispatcherCharterVersion).toBe(15);
+});
+
+test("a relay is not sent twice across a plugin reload (UMBRELLA-SPEC §8)", async () => {
+  const x = await charterDispatcher(dispatcherCharterVersion);
+  relayBoard(x);
+  // The fixtures as the store's checks want them: each card in its project's folder, links made by the user.
+  const valid = { ...x.state.board, tasks: x.state.board.tasks.map((t) => ({ ...t, sourcePath: "/r/p", repoPaths: ["/r/p"] })), links: x.state.board.links.filter((l) => l.from !== l.to).map((l) => ({ ...l, createdBy: "human" as const })) };
+  await writeFile(join(x.directory, "board.json"), JSON.stringify(valid));
+  const store = new BoardStore(x.directory);
+  const deps = (saveRelays = saveRelaysTo(store)) => ({ summary: async () => "", mcp: async () => ({ type: "http" as const, url: "", headers: {} }), board: () => store.read(), saveRelays });
+  const first = new Dispatcher(x.directory, deps(), x.folder);
+  dispatchers.push(first);
+  await first.deliver(G, [marked("src", "e1")], x.paseo);
+  expect(x.sends[0].text).toContain('Pass relayOf: "e1"');
+  expect((await store.read()).relayed).toEqual([{ id: "e1", groupId: G, at: expect.any(String), targets: ["live"] }]);
+  // The board view and the overview leave relay memory out.
+  expect((await store.view()).relayed).toEqual([]);
+  first.dispose();
+  // A reload: a new instance over the same store remembers e1.
+  const second = new Dispatcher(x.directory, deps(), x.folder);
+  dispatchers.push(second);
+  await second.deliver(G, [marked("src", "e1")], x.paseo);
+  expect(x.sends).toHaveLength(2);
+  expect(x.sends[1].text).not.toContain("Relay contract news");
+  second.dispose();
+  // A failed save is logged and never blocks the batch.
+  const third = new Dispatcher(x.directory, deps(async () => { throw new Error("disk full"); }), x.folder);
+  dispatchers.push(third);
+  const sent: string[] = [];
+  third.onSent = (notes) => sent.push(...notes.map((n) => n.taskId));
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  await third.deliver(G, [marked("src", "e2")], x.paseo);
+  expect(x.sends[2].text).toContain('Pass relayOf: "e2"');
+  expect(sent).toEqual(["src"]);
+  expect(errors.mock.calls.some((c) => String(c[0]).includes("Flowly dispatcher relay memory not saved:"))).toBe(true);
+  expect((await store.read()).relayed.map((r) => r.id)).toEqual(["e1"]);
+  await store.close();
 });
 
 const pending = (status: "proposed" | "accepted" | "rejected" = "proposed", over: Record<string, unknown> = {}) =>

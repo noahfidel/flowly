@@ -75,7 +75,7 @@ import {
   queuedPeerMessageLimits,
   userSendOptions,
 } from "../shared/dispatcher";
-import { relayEchoMs } from "../shared/dispatcher-relay";
+import { relayEchoMs, relayLimits } from "../shared/dispatcher-relay";
 import { slimTimeline } from "../shared/session-tail";
 import { pendingRequests } from "../shared/permission-question";
 import { rootAvailable, type AgentCards, type CardCaller } from "./agent-cards";
@@ -165,6 +165,12 @@ export const dispatcherInputs = {
       .describe(
         "Only to forward another agent's message to this card under your forward rule: the sender. Flowly labels the text as that agent's, not the user's or yours.",
       ),
+    relayOf: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe('Only for a relay: the event id a board update\'s relay line names ("Pass relayOf: ..."), for a card that line lists. It counts against your relay limit instead of your message limit.'),
   }),
   messageDispatcher: z.strictObject({
     groupId: z.string().min(1).max(200).describe("The other board group's id (the group whose dispatcher you write to)."),
@@ -376,6 +382,8 @@ export class DispatcherTools {
   private projectSlots = new Map<string, number[]>();
   /** The dispatcher's card messages in the last hour, per session (§5.3). */
   private messageSlots = new Map<string, number[]>();
+  /** The dispatcher's relay messages in the last hour, per session: their own bucket (§5.8, UMBRELLA-SPEC D21). */
+  private relaySlots = new Map<string, number[]>();
   /** The dispatcher's forwards of other agents' messages, per session (§5.9): one per source message and card, loop guard, per-sender cap. */
   private forwards = new Map<string, ForwardRecord[]>();
   /** The dispatcher's replies to agents in the last hour, per session and per answered agent (§5.4). */
@@ -738,8 +746,11 @@ export class DispatcherTools {
       // Older messages still queued for it (an ask that ended without a hook yet, or a failed delivery): this one goes
       // behind them, merged in order, never ahead.
       const backlog = !waiting && (await this.queuedFor(target.id));
-      if (waiting || backlog) return await this.queueMessage(caller.agentId, task, target.id, input.text, waiting, paseo, forward?.label);
-      release = this.reserveMessage(caller.agentId);
+      // A relay names an event the board's relay memory lists for this card, in the caller's group (D21).
+      const relay = !!input.relayOf && board.relayed.some((r) => r.id === input.relayOf && r.groupId === caller.groupId && r.targets.includes(task.id));
+      const reserve = () => (relay ? this.reserveRelay(caller.agentId) : this.reserveMessage(caller.agentId));
+      if (waiting || backlog) return await this.queueMessage(caller.agentId, task, target.id, input.text, waiting, paseo, forward?.label, reserve);
+      release = reserve();
     } catch (e) {
       // A refused message is no forward either (§5.9).
       forward?.release();
@@ -842,10 +853,11 @@ export class DispatcherTools {
     waiting: "permission" | "question" | "blocker" | null,
     paseo: PaseoApi,
     forward?: string,
+    reserve: () => () => void = () => this.reserveMessage(from),
   ) {
     const queue = this.queue;
     if (!queue) throw new ToolError("PASEO_UNAVAILABLE", "Flowly is still starting; try again in a moment.", true);
-    const release = this.reserveMessage(from);
+    const release = reserve();
     let queued: { id: string };
     try {
       queued = await queue.enqueue({ taskId: task.id, projectId: task.projectId, agentId, from, text, ...(forward ? { forward } : {}) });
@@ -903,6 +915,17 @@ export class DispatcherTools {
       if (at >= 0) list.splice(at, 1);
       this.messageSlots.set(agentId, list);
     };
+  }
+
+  /** Takes one of the dispatcher session's hourly relay slots, or RELAY_LIMIT (§5.8, UMBRELLA-SPEC D21). */
+  private reserveRelay(agentId: string) {
+    return this.takeSlot(
+      this.relaySlots,
+      agentId,
+      relayLimits.perHour,
+      "RELAY_LIMIT",
+      (limit) => `This dispatcher already relayed news to cards ${limit} times in the last hour. Stop relaying and tell the user.`,
+    );
   }
 
   /**
@@ -1581,7 +1604,7 @@ export class DispatcherTools {
     mcp.registerTool(
       "flowly_message_card",
       {
-        description: `Send a plain instruction to a card's session (for example "integrate" or "finish up"), steered into its running turn. Use only for what the user asked or their standing requests cover. Flowly marks it as coming from the dispatcher. forwardOf { agentId }: forward another agent's message under your forward rule (it messaged you in the last 24 hours; never to its own card, once per message and card); Flowly labels it as that agent's, not the user's. FORWARD_NOT_ALLOWED says why; at most ${dispatcherForwardsPerSenderPerHour} per sender per hour (FORWARD_LIMIT): don't retry, tell the user. It never answers anything: while the session waits on the user (a pending permission, question or blocker that only the user answers), the message is queued instead (queued: true, waitingOn says what) and Flowly delivers it right after the user resolves that; tell the user which card waits and don't send it again. dropped: true (with reason) means it was not delivered and not kept: the card ended or the session is gone; don't resend. At most ${queuedMessageLimits.perSession} queued per session (QUEUE_FULL: stop, tell the user). Default session: the card's only live one, or its only running one; SESSION_AMBIGUOUS lists them, pass sessionId. NO_LIVE_SESSION, SESSION_NOT_FOUND, SEND_FAILED. At most ${dispatcherMessagesPerHour} per hour, queued ones included (MESSAGE_LIMIT). AGENT_CARDS_DISABLED: the user turned this off.`,
+        description: `Send a plain instruction to a card's session (for example "integrate" or "finish up"), steered into its running turn. Use only for what the user asked or their standing requests cover. Flowly marks it as coming from the dispatcher. forwardOf { agentId }: forward another agent's message under your forward rule (it messaged you in the last 24 hours; never to its own card, once per message and card); Flowly labels it as that agent's, not the user's. FORWARD_NOT_ALLOWED says why; at most ${dispatcherForwardsPerSenderPerHour} per sender per hour (FORWARD_LIMIT): don't retry, tell the user. It never answers anything: while the session waits on the user (a pending permission, question or blocker that only the user answers), the message is queued instead (queued: true, waitingOn says what) and Flowly delivers it right after the user resolves that; tell the user which card waits and don't send it again. dropped: true (with reason) means it was not delivered and not kept: the card ended or the session is gone; don't resend. At most ${queuedMessageLimits.perSession} queued per session (QUEUE_FULL: stop, tell the user). Default session: the card's only live one, or its only running one; SESSION_AMBIGUOUS lists them, pass sessionId. NO_LIVE_SESSION, SESSION_NOT_FOUND, SEND_FAILED. At most ${dispatcherMessagesPerHour} per hour, queued ones included (MESSAGE_LIMIT). relayOf: the event id a board update's relay line names, only for a card that line lists; such a relay counts against its own ${relayLimits.perHour} per hour instead (RELAY_LIMIT: stop relaying, tell the user). AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.messageCard,
         outputSchema: messageResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

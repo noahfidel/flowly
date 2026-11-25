@@ -1735,6 +1735,38 @@ test("flowly_message_card: 30 per hour, its own bucket; refusals and failed send
   expect(code(await x.message({}))).toBeUndefined();
 });
 
+test("relay messages use their own 60-per-hour bucket (UMBRELLA-SPEC §8, D21)", async () => {
+  const x = await withSessions();
+  x.agents.s2 = { id: "s2", workspaceId: "w-q2", status: "idle", archivedAt: null };
+  let now = Date.parse("2026-11-10T10:00:00.000Z");
+  x.server.dispatcherTools.clock = () => now;
+  // The dispatcher's batch relayed e1 to q1 (recorded by the delivery); e2 went to q2 only; another group's e3 to q1.
+  await x.store.mutate((b) => {
+    b.relayed.push({ id: "e1", groupId: x.groupId, at: stamp, targets: ["q1"] }, { id: "e2", groupId: x.groupId, at: stamp, targets: ["q2"] }, { id: "e3", groupId: "other", at: stamp, targets: ["q1"] });
+  });
+  for (let i = 0; i < 30; i++) expect(code(await x.message({})), `#${i + 1}`).toBeUndefined();
+  expect(code(await x.message({}))).toBe("MESSAGE_LIMIT");
+  // A relay with a matching relayOf still passes: its own bucket.
+  expect(code(await x.message({ relayOf: "e1" }))).toBeUndefined();
+  // A relayOf naming another card's relay, another group's, or none recorded takes the message bucket.
+  expect(code(await x.message({ relayOf: "e2" }))).toBe("MESSAGE_LIMIT");
+  expect(code(await x.message({ relayOf: "e3" }))).toBe("MESSAGE_LIMIT");
+  expect(code(await x.message({ relayOf: "nope" }))).toBe("MESSAGE_LIMIT");
+  // A failed send gives the relay slot back.
+  x.failSend(true);
+  expect(code(await x.message({ relayOf: "e1" }))).toBe("SEND_FAILED");
+  x.failSend(false);
+  for (let i = 1; i < 60; i++) expect(code(await x.message({ relayOf: "e1" })), `relay #${i + 1}`).toBeUndefined();
+  const over = await x.message({ relayOf: "e1" });
+  expect(code(over)).toBe("RELAY_LIMIT");
+  expect(over.structuredContent.error.message).toContain("60");
+  expect(x.sent.length).toBe(90);
+  // An hour later there is room in both again.
+  now += 3_600_001;
+  expect(code(await x.message({ relayOf: "e1" }))).toBeUndefined();
+  expect(code(await x.message({}))).toBeUndefined();
+});
+
 test("flowly_message_card works per group: another group's card is refused, each session has its own bucket (DISPATCHER-SPEC §5.3)", async () => {
   const x = await setup();
   const { agentId, a, b } = await twoGroups(x);
