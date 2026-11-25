@@ -3112,7 +3112,7 @@ test("resolve_contract_change is preapproved and stays in the dispatcher's group
   // D20: the other proposal now rests on r1, so accepting it is refused; rejecting it still works, with the note.
   expect(code(await a.call("flowly_resolve_contract_change", { id: second.id, decision: "accept" }))).toBe("CONTRACT_STALE");
   const rejected = await a.call("flowly_resolve_contract_change", { id: second.id, decision: "reject", note: "Propose again on r2" });
-  expect(rejected.structuredContent).toMatchObject({ entry: { id: second.id, status: "rejected", answer: "Propose again on r2" } });
+  expect(rejected.structuredContent).toMatchObject({ entry: { id: second.id, status: "rejected", answer: "Propose again on r2" }, contract: { revision: 2 } });
   // A write: refused while Agents create and edit cards is off.
   x.server.cards.on = async () => false;
   expect(code(await a.call("flowly_resolve_contract_change", { id: second.id, decision: "reject" }))).toBe("AGENT_CARDS_DISABLED");

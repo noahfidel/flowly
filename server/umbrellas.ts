@@ -101,6 +101,10 @@ export function updateUmbrella(store: BoardStore, input: UmbrellaUpdateInput, by
     }
     if (input.contract !== undefined && input.contract !== u.contract.text) {
       u.contract = { text: input.contract, revision: u.contract.revision + 1, updatedAt: now, updatedBy: by };
+      // Pending proposals now rest on an older contract (§5, D20): show them as conflicts, and the feed as changed.
+      const entries = board.umbrellaEntries.filter((e) => e.umbrellaId === u.id);
+      markConflicts(entries, u.contract.revision);
+      if (entries.some((e) => e.kind === "contract_change" && e.status === "proposed")) u.feedRevision++;
       changed = true;
     }
     if (input.acceptance !== undefined) {
@@ -266,12 +270,22 @@ export function proposeChange(board: Board, task: Task, input: NewChange, by: Ac
  * (D19). Both bump `feedRevision` and record `umbrella_contract_accepted` / `_rejected` on the proposing card, skipped
  * when that card is gone. `groupId`: the dispatcher's group; an umbrella of another group is UMBRELLA_OUT_OF_GROUP.
  */
-export function resolveChange(
+export async function resolveChange(
   store: BoardStore,
   input: { id: string; decision: "accepted" | "rejected"; answer?: string },
   by: Actor,
   options: { groupId?: string } = {},
 ): Promise<UmbrellaEntry> {
+  return (await resolveChangeAt(store, input, by, options)).entry;
+}
+
+/** `resolveChange`, also returning the contract revision as that same write left it (the dispatcher tool's result). */
+export function resolveChangeAt(
+  store: BoardStore,
+  input: { id: string; decision: "accepted" | "rejected"; answer?: string },
+  by: Actor,
+  options: { groupId?: string } = {},
+): Promise<{ entry: UmbrellaEntry; contractRevision: number }> {
   return store.transaction((board) => {
     const entry = board.umbrellaEntries.find((e) => e.id === input.id);
     if (!entry) throw new ToolError("NOT_FOUND", "No umbrella entry with that id.");
@@ -308,7 +322,7 @@ export function resolveChange(
             ? `contract r${u.contract.revision} accepted: ${entry.change.reason}`
             : `contract change rejected: ${entry.change.reason}${input.answer ? ` (note: ${input.answer})` : ""}`,
       });
-    return { value: entry, changed: true };
+    return { value: { entry, contractRevision: u.contract.revision }, changed: true };
   });
 }
 

@@ -624,6 +624,20 @@ test("two proposals on the same base are both flagged as a conflict", async () =
   expect(entry(second.id).change!.conflict).toBe(true);
 });
 
+test("a direct contract edit flags the proposals it leaves behind as conflicts", async () => {
+  const x = await contractSetup();
+  const lone = await x.propose("a", "shape: {a, b}", 1);
+  expect((await x.read()).entry(lone.id).change!.conflict).toBeUndefined();
+  // A title-only edit leaves the contract, and the flag, as they are.
+  await updateUmbrella(x.store, { id: x.u.id, revision: (await x.read()).u.revision, title: "Renamed" }, human);
+  expect((await x.read()).entry(lone.id).change!.conflict).toBeUndefined();
+  const before = (await x.read()).u;
+  await updateUmbrella(x.store, { id: x.u.id, revision: before.revision, contract: "shape: {a, z}" }, human);
+  const { u, entry } = await x.read();
+  expect(entry(lone.id).change!.conflict).toBe(true);
+  expect(u.feedRevision).toBe(before.feedRevision + 1);
+});
+
 test("a proposal on an old base is refused as stale", async () => {
   const x = await contractSetup();
   const refused = await x.propose("a", "shape: {a, b}", 0).catch((e: unknown) => e);

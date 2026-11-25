@@ -11,7 +11,7 @@ import { workpadEnabled, workpadOf } from "../shared/workpad";
 import { ideaNewestFirst } from "../shared/ideas";
 import { linkFor } from "../shared/links";
 import { artifactLimits, artifactRoles, groupLimits, linkSchema, projectInput, tagLimits, umbrellaLimits, type Idea, type Project, type ProjectInput } from "../shared/model";
-import { resolveChange } from "./umbrellas";
+import { resolveChangeAt } from "./umbrellas";
 import type { GroupWriter } from "./group-writes";
 import { normalizeTag, normalizeTags } from "../shared/tags";
 import {
@@ -1119,16 +1119,15 @@ export class DispatcherTools {
     const input = dispatcherInputs.resolveContractChange.parse(raw);
     const { agentId, groupId } = await this.caller(identity);
     await this.cards.enabled();
-    const entry = await resolveChange(
+    const { entry, contractRevision } = await resolveChangeAt(
       this.store,
       { id: input.id, decision: input.decision === "accept" ? "accepted" : "rejected", ...(input.note !== undefined ? { answer: input.note } : {}) },
       { kind: "dispatcher", agentId },
       { groupId },
     );
-    const umbrella = (await this.store.read()).umbrellas.find((u) => u.id === entry.umbrellaId);
     return {
       entry: { id: entry.id, status: entry.status, ...(entry.answer !== undefined ? { answer: entry.answer } : {}) },
-      contract: { revision: umbrella?.contract.revision ?? 0 },
+      contract: { revision: contractRevision },
     };
   }
 
