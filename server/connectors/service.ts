@@ -25,7 +25,7 @@ import { ExternalError, storedConnection, type Fetch, type StoredConnection } fr
 import { adapterFor } from "./index";
 import type { Fetched, ItemRef, SearchScope } from "./types";
 import { logFailure } from "../error-report";
-import { listScope, listTeams } from "./linear";
+import { listScope, listTeams, readProject } from "./linear";
 import { githubPullReviews } from "./github";
 
 /**
@@ -532,6 +532,19 @@ export class ConnectorService {
   async linearBoard(input: { connectionId: string; teamId?: string; since?: string }) {
     const connection = await this.linear(input.connectionId);
     return this.call(connection.id, (c) => listScope(c, this.fetchImpl, { teamId: input.teamId }, { since: input.since }));
+  }
+
+  /**
+   * A Linear project (UMBRELLA-SPEC §10), read-only: through the named Linear connection, else the first one whose token
+   * works; EXTERNAL_NOT_FOUND when none is set up.
+   */
+  async linearProject(input: { connectionId?: string; url?: string; key?: string }) {
+    const connection = input.connectionId
+      ? await this.linear(input.connectionId)
+      : (await this.connections.all()).find((c) => familyOf(c.provider) === "linear" && !c.authFailed) ??
+        (await this.connections.all()).find((c) => familyOf(c.provider) === "linear");
+    if (!connection) throw new ExternalError("EXTERNAL_NOT_FOUND", "No Linear connection is set up in Flowly.");
+    return { connectionId: connection.id, ...(await this.call(connection.id, (c) => readProject(c, this.fetchImpl, input))) };
   }
 
   /** The teams a Linear connection's key can see. */

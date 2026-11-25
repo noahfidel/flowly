@@ -56,6 +56,8 @@ import {
   umbrellaEntryUpdateInput,
   umbrellaMemberInput,
   umbrellaRevisionInput,
+  linearProjectIssueSchema,
+  suggestedMemberSchema,
   umbrellaSummarySchema,
   umbrellaUpdateInput,
   umbrellaTickInput,
@@ -423,6 +425,18 @@ export const setUmbrellaMember = defineRpc({
   name: "umbrellas.set-member",
   input: umbrellaMemberInput,
   output: taskSchema,
+});
+/** The umbrella's Linear project, read-only (UMBRELLA-SPEC §10): one read when the detail opens. Refusals keep their `EXTERNAL_*` code. */
+export const umbrellaLinearProject = defineRpc({
+  name: "umbrellas.linear-project",
+  input: z.strictObject({ id: z.string().min(1).max(200) }),
+  output: z.object({
+    /** The Linear connection that read it; the panel's Make card attaches issues through it. */
+    connectionId: z.string(),
+    project: z.object({ name: z.string(), state: z.string(), targetDate: z.string().nullable(), url: z.string() }),
+    withoutCard: z.array(linearProjectIssueSchema),
+    suggested: z.array(suggestedMemberSchema),
+  }),
 });
 export const updateUmbrellaEntry = defineRpc({
   name: "umbrellas.entry.update",

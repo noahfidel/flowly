@@ -1930,5 +1930,16 @@ const catalog: Catalog = {
   "Kept": "Сохранено",
   "Ready to close": "Готово к закрытию",
   "This umbrella has no card whose project could keep it.": "В этом зонтике нет карточки, проект которой мог бы это сохранить.",
+  "Linear refused the connection's token. Update it in Flowly settings → Connections.": "Linear отклонил токен подключения. Обнови его в настройках Flowly → Подключения.",
+  "Flowly could not read this Linear project. Check that a Linear connection is set up and can see it.": "Flowly не смог прочитать этот проект Linear. Проверь, что подключение к Linear настроено и видит проект.",
+  "Linear is unreachable right now. Reopen the umbrella to try again.": "Linear сейчас недоступен. Открой зонтичный проект снова, чтобы повторить попытку.",
+  "Flowly could not read this Linear project.": "Flowly не смог прочитать этот проект Linear.",
+  "Create a project first, then make the card again.": "Сначала создай проект, затем снова создай карточку.",
+  "Open {issue} in Linear": "Открыть {issue} в Linear",
+  "no card": "нет карточки",
+  "Make a card for {issue}": "Создать карточку для {issue}",
+  "Make card": "Создать карточку",
+  "Linear issues without a card": "Задачи Linear без карточки",
+  "Cards that may belong here": "Карточки, которые могут относиться сюда",
 };
 export default catalog;

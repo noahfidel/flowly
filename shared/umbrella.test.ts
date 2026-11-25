@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { boardSchema, emptyBoard, type Board, type Group, type Project, type Task, type Umbrella, type UmbrellaEntry } from "./model";
 import {
-  applyGroupMoves, countsTowardLimit, leaveUmbrella, markConflicts, membersOf, rolesMentioned, repairUmbrellaGroups, umbrellaChipText, umbrellaContext, umbrellaLimits, recentEntries, umbrellaRefetchKey, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
+  applyGroupMoves, countsTowardLimit, issuesWithoutCard, parseLinearProject, suggestedMembers, leaveUmbrella, markConflicts, membersOf, rolesMentioned, repairUmbrellaGroups, umbrellaChipText, umbrellaContext, umbrellaLimits, recentEntries, umbrellaRefetchKey, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
 } from "./umbrella";
 
 const at = "2026-11-25T00:00:00.000Z";
@@ -433,4 +433,55 @@ test("the integration card's first instructions ask for the end-to-end check", (
   expect(line).toContain("flowly_update_umbrella_acceptance");
   expect(line).toContain("finding");
   expect(umbrellaStartLine(board, board.tasks.find((t) => t.id === "a")!)).not.toContain("integration card");
+});
+
+test("parseLinearProject reads a project URL and a P- key", () => {
+  expect(parseLinearProject("https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f")).toEqual({ url: "https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f" });
+  expect(parseLinearProject("  https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f/overview ")).toEqual({ url: "https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f/overview" });
+  expect(parseLinearProject("p-zen-391")).toEqual({ key: "P-ZEN-391" });
+  expect(parseLinearProject("P-ZEN-391")).toEqual({ key: "P-ZEN-391" });
+  expect(parseLinearProject("https://linear.app/acme/issue/ZEN-1/x")).toBeNull();
+  expect(parseLinearProject("https://evil.test/acme/project/x-1")).toBeNull();
+  expect(parseLinearProject("ZEN-391")).toBeNull();
+  expect(parseLinearProject("")).toBeNull();
+});
+
+test("issues without a card skip issues linked to members", () => {
+  const issues = [
+    { identifier: "ZEN-1", title: "A", state: "Todo", url: "u1" },
+    { identifier: "ZEN-2", title: "B", state: "Todo", url: "u2" },
+  ];
+  expect(issuesWithoutCard(issues, new Set(["ZEN-1"])).map((i) => i.identifier)).toEqual(["ZEN-2"]);
+  expect(issuesWithoutCard(issues, new Set())).toEqual(issues);
+});
+
+test("suggested members are group cards outside any umbrella whose Linear issue is in the project", () => {
+  const group = (id: string, isDefault = false): Group => ({ id, name: id, position: 0, ...(isDefault ? { isDefault: true as const } : {}), revision: 1, createdAt: at, updatedAt: at });
+  const project = (id: string, groupId: string): Project => ({
+    id, title: `Project ${id}`, description: "", paseoProjectId: `n-${id}`, primaryPath: `/${id}`, repos: [`/${id}`],
+    revision: 1, createdAt: at, updatedAt: at, archivedAt: null, groupId,
+  });
+  const link = (taskId: string, key: string, provider = "linear") => ({
+    id: `a-${taskId}`, taskId, projectId: "p1", role: "input" as const, kind: "url" as const, target: "https://x", title: key, note: "",
+    createdBy: "human" as const, createdAt: at, updatedAt: at, external: { connectionId: "c", provider, itemType: "issue", key, remoteId: key },
+  });
+  const board = {
+    ...emptyBoard(),
+    groups: [group("A", true), group("B")],
+    projects: [project("p1", "A"), project("q", "B")],
+    tasks: [
+      task("ok", { projectId: "p1" }),
+      task("other-group", { projectId: "q" }),
+      task("archived", { projectId: "p1", archivedAt: at }),
+      task("member", { projectId: "p1", umbrella: { id: "u", joinedAt: at, by: human } }),
+      task("elsewhere", { projectId: "p1", umbrella: { id: "other", joinedAt: at, by: human } }),
+      task("not-in-project", { projectId: "p1" }),
+      task("jira", { projectId: "p1" }),
+    ],
+    artifacts: [
+      link("ok", "zen-1"), link("other-group", "ZEN-1"), link("archived", "ZEN-1"), link("member", "ZEN-1"), link("elsewhere", "ZEN-1"),
+      link("not-in-project", "ZEN-7"), link("jira", "ZEN-1", "jira"),
+    ],
+  } as unknown as Board;
+  expect(suggestedMembers(board, umbrella({ groupId: "A" }), new Set(["ZEN-1"]))).toEqual([{ taskId: "ok", title: "OK", projectTitle: "Project p1", issue: "ZEN-1" }]);
 });

@@ -1930,5 +1930,16 @@ const catalog: Catalog = {
   "Kept": "已保留",
   "Ready to close": "可以关闭",
   "This umbrella has no card whose project could keep it.": "此伞形项目没有可保留它的项目所属的卡片。",
+  "Linear refused the connection's token. Update it in Flowly settings → Connections.": "Linear 拒绝了该连接的令牌。请在 Flowly 设置 → 连接中更新。",
+  "Flowly could not read this Linear project. Check that a Linear connection is set up and can see it.": "Flowly 无法读取此 Linear 项目。请检查是否已设置 Linear 连接且该连接能看到它。",
+  "Linear is unreachable right now. Reopen the umbrella to try again.": "Linear 暂时无法访问。请重新打开伞组再试。",
+  "Flowly could not read this Linear project.": "Flowly 无法读取此 Linear 项目。",
+  "Create a project first, then make the card again.": "请先创建项目，然后再次创建卡片。",
+  "Open {issue} in Linear": "在 Linear 中打开 {issue}",
+  "no card": "无卡片",
+  "Make a card for {issue}": "为 {issue} 创建卡片",
+  "Make card": "创建卡片",
+  "Linear issues without a card": "没有卡片的 Linear 事项",
+  "Cards that may belong here": "可能属于这里的卡片",
 };
 export default catalog;

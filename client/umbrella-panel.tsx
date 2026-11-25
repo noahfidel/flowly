@@ -23,6 +23,7 @@ import {
 import { CloseOffer } from "./umbrella-close";
 import { ContractChanges, Feed, PartTitle, Questions, type ResolveOutcome } from "./umbrella-feed";
 import { IntegrationCard, Pipeline } from "./umbrella-members";
+import { LinearIssues } from "./umbrella-linear";
 import {
   Actions, Button, Field, IconButton, Label, Notice, Row, Theme, font, message, noFocusRing, pageBarHeight, radius, relativeTime, space, touch, useTheme, verticalContent, verticalScroll,
 } from "./ui";
@@ -43,6 +44,11 @@ type PanelProps = {
   cardTitle(taskId: string): string | undefined;
   /** After a write: refresh the board overview, whose summary then carries the new revisions. */
   onChanged(): void;
+  /**
+   * Make card on a Linear issue (UMBRELLA-SPEC §10): opens New task with the issue attached and the umbrella set. Resolves
+   * to "" once it opened, else the reason it could not.
+   */
+  onMakeCard(input: { connectionId: string; key: string; umbrellaId: string }): Promise<string>;
   /** The board's cards and projects: the member picker offers the group's live cards from these. */
   tasks: readonly Task[];
   projects: readonly Project[];
@@ -65,6 +71,20 @@ function refusalText(error: unknown, what: "group" | "members" = "group"): strin
       return t("The contract changed since this was proposed, so it can't be accepted. Reject it, and the card can propose again on the current contract.");
     default:
       return message(error);
+  }
+}
+
+/** The Linear project read's refusal in the user's words; the daemon's own text stays English. */
+export function linearProjectErrorText(code: string): string {
+  switch (code) {
+    case "EXTERNAL_AUTH":
+      return t("Linear refused the connection's token. Update it in Flowly settings → Connections.");
+    case "EXTERNAL_NOT_FOUND":
+      return t("Flowly could not read this Linear project. Check that a Linear connection is set up and can see it.");
+    case "EXTERNAL_UNAVAILABLE":
+      return t("Linear is unreachable right now. Reopen the umbrella to try again.");
+    default:
+      return t("Flowly could not read this Linear project.");
   }
 }
 
@@ -238,7 +258,7 @@ function useDraft<T>(writable: boolean, onSave: (value: T, revision: number) => 
   return { draft, start, change, save, cancel: () => setDraft(null) };
 }
 
-function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projects, onSelect, onOpenCard, cardTitle, onChanged }: PanelProps & { id: string; summary?: UmbrellaSummary }) {
+function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projects, onSelect, onOpenCard, cardTitle, onChanged, onMakeCard }: PanelProps & { id: string; summary?: UmbrellaSummary }) {
   const { colors } = useTheme();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -257,6 +277,11 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
   const key = ["flowly", "umbrella", hostId, id, refetchKey];
   const detail = useQuery({ queryKey: key, queryFn: () => get({ id }), staleTime: Infinity, retry: false, placeholderData: keepPreviousData });
   const data = detail.data?.umbrella.id === id ? detail.data : undefined;
+  // The Linear project (§10): one read-only read when the detail opens, none while it is closed; never polled.
+  const readLinear = useRpc(rpc.umbrellaLinearProject);
+  const linearUrl = data?.umbrella.linearProject?.url ?? "";
+  const linearKey = ["flowly", "umbrella-linear", hostId, id, linearUrl];
+  const linearRead = useQuery({ queryKey: linearKey, queryFn: () => readLinear({ id }), enabled: !!linearUrl, staleTime: Infinity, retry: false });
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState<"close" | "reopen" | "archive" | null>(null);
   const [busy, setBusy] = useState(false);
@@ -345,6 +370,22 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
     });
   const addMember = useStableCallback((taskId: string, role: string) => writeMembers(async () => [{ taskId, umbrellaId: id, ...(role.trim() ? { role: role.trim() } : {}) }]));
   const removeMember = useStableCallback((taskId: string) => writeMembers(async () => [{ taskId, umbrellaId: null }]));
+  // Add on a suggested card is the user's yes (D11); the suggestion and its issue leave the lists without another read.
+  const addSuggested = useStableCallback(async (taskId: string) => {
+    const issue = linearRead.data?.suggested.find((s) => s.taskId === taskId)?.issue;
+    if (!(await addMember(taskId, "")) || !issue) return;
+    queryClient.setQueryData<NonNullable<typeof linearRead.data>>(linearKey, (old) =>
+      old ? { ...old, suggested: old.suggested.filter((s) => s.taskId !== taskId), withoutCard: old.withoutCard.filter((i) => i.identifier.toUpperCase() !== issue) } : old,
+    );
+  });
+  const openIssue = useStableCallback((url: string) => openQuickLink(url, toast));
+  const makeCard = useStableCallback(async (issue: { identifier: string }) => {
+    const connectionId = linearRead.data?.connectionId;
+    if (!connectionId) return;
+    setError("");
+    const reason = await onMakeCard({ connectionId, key: issue.identifier, umbrellaId: id });
+    if (reason) setError(reason);
+  });
   const setRole = useStableCallback((taskId: string, role: string) => changeMembers(() => [{ taskId, role }]));
   const move = useStableCallback((taskId: string, delta: -1 | 1) => void changeMembers((members) => moveMember(pipelineRows(members), taskId, delta)));
   const title = useDraft(!!data && umbrellaWritable(data.umbrella), (text: string, base: number) => write((revision) => update({ id, revision, title: text.trim() }), base));
@@ -462,7 +503,7 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
             >
               <Icon name="Link" size={12} color={colors.foregroundMuted} />
               <Label size={font.sm} lines={1} selectable={false}>
-                {linear.name || linear.key || linear.url}
+                {linearRead.data?.project.name || linear.name || linear.key || linear.url}
               </Label>
             </Pressable>
           )}
@@ -515,6 +556,19 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
         busy={busy}
         onChange={(taskId) => void write((revision) => update({ id, revision, integrationTaskId: taskId }))}
       />
+      {!!linear && (
+        <LinearIssues
+          withoutCard={linearRead.data?.withoutCard}
+          suggested={linearRead.data?.suggested ?? []}
+          error={linearRead.isError ? linearProjectErrorText(errorCode(linearRead.error) ?? "") : ""}
+          writable={writable}
+          busy={busy}
+          onOpenIssue={openIssue}
+          onOpenCard={openCard}
+          onMake={makeCard}
+          onAdd={addSuggested}
+        />
+      )}
       <Questions entries={data.entries} writable={writable} sourceOf={sourceOf} onAnswer={answer} />
       <Feed entries={data.entries} writable={writable} sourceOf={sourceOf} onSupersede={supersede} />
       <Acceptance

@@ -1694,6 +1694,33 @@ function BoardContent(
   const linearStartTargetNow = useStableCallback(() =>
     linearStartTarget({ groups: boardGroups, projects: board?.projects ?? noProjects, shownGroupId: group?.id ?? "", filterId: validFilterId, lastQuickProjectId: view.values?.lastQuickProjectId ?? "", settingsLoaded: !!view.values }),
   );
+  // Make card in an umbrella (UMBRELLA-SPEC §10): Quick task opens in the group's quick project with the issue attached
+  // and the umbrella set; the daemon refuses it when the umbrella can't take the card, and the dialog shows why.
+  const makeUmbrellaCard = useStableCallback(async (input: { connectionId: string; key: string; umbrellaId: string }) => {
+    const target = linearStartTargetNow();
+    if (!target.ready || !target.projectId) return t("Create a project first, then make the card again.");
+    try {
+      const found = (await searchLinear({ connectionId: input.connectionId, query: input.key })).results.find((r) => r.key === input.key);
+      if (!found) return t("{key} could not be found in Linear.", { key: input.key });
+      const now = linearStartTargetNow();
+      const projectId = now.ready ? now.projectId : null;
+      if (!projectId) return t("Create a project first, then make the card again.");
+      const open = () => {
+        setPage((current) => (current === "umbrellas" ? null : current));
+        setTask("");
+        setTaskForm(null);
+        setQuickTask({ status: "todo", projectId, seed: { ...linearQuickSeed(found), umbrellaId: input.umbrellaId } });
+      };
+      if (!compact) open();
+      else {
+        setUmbrellaModal(false);
+        afterModalClose(open);
+      }
+      return "";
+    } catch (e) {
+      return externalError(e, "linear");
+    }
+  });
   useEffect(() => {
     if (linearInput.error) return setError(linearInput.error);
     const open = linearInput.open;
@@ -2779,6 +2806,7 @@ function BoardContent(
                     onOpenCard={openUmbrellaCard}
                     cardTitle={umbrellaCardTitle}
                     onChanged={umbrellasChanged}
+                    onMakeCard={makeUmbrellaCard}
                     tasks={board.tasks}
                     projects={board.projects}
                     onBack={closePage}
@@ -3176,6 +3204,7 @@ function BoardContent(
             onOpenCard={openUmbrellaCard}
             cardTitle={umbrellaCardTitle}
             onChanged={umbrellasChanged}
+            onMakeCard={makeUmbrellaCard}
             tasks={board?.tasks ?? noTasks}
             projects={board?.projects ?? noProjects}
             onClose={closeUmbrellas}

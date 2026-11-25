@@ -728,6 +728,8 @@ function LinkList({
 /** A new task prefilled from an idea (IDEAS-SPEC §6) or following up a card (CARD-LINKS-SPEC §5.5). */
 export type TaskSeed = {
   ideaId?: string;
+  /** The umbrella the card joins (UMBRELLA-SPEC §10, Make card). */
+  umbrellaId?: string;
   /** From a workflow-insights suggestion (WORKFLOW-INSIGHTS-SPEC §5.2). */
   insightFindingId?: string;
   followUpOf?: string;
@@ -926,6 +928,7 @@ export function TaskForm({
             baseRef,
             branchName,
             ...(seed?.ideaId ? { ideaId: seed.ideaId } : {}),
+            ...(seed?.umbrellaId ? { umbrellaId: seed.umbrellaId } : {}),
             ...(seed?.insightFindingId ? { insightFindingId: seed.insightFindingId } : {}),
             ...(seed?.followUpOf ? { followUpOf: seed.followUpOf } : {}),
             ...(externals.length

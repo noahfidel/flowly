@@ -56,6 +56,9 @@ const scopeQuery = `query Scope($filter: IssueFilter, $first: Int, $after: Strin
 const statesQuery = "query States($filter: WorkflowStateFilter, $first: Int) { workflowStates(filter: $filter, first: $first) { nodes { id name type position team { id } } } }";
 const teamsQuery = "query Teams($first: Int) { teams(first: $first) { nodes { id key name } } }";
 
+/** One project (UMBRELLA-SPEC §10): read-only, its first 100 issues. */
+const projectQuery = "query Project($id: String!) { project(id: $id) { name state targetDate url issues(first: 100) { nodes { identifier title url state { name } } } } }";
+
 /** Seconds to wait: Retry-After, else the request window's reset (UTC epoch milliseconds). */
 function waitFor(headers: Headers) {
   const after = retryAfter(headers);
@@ -248,6 +251,51 @@ async function scopeStates(connection: StoredConnection, fetchImpl: Fetch, scope
   return (data.workflowStates.nodes || [])
     .filter((s) => s?.id)
     .map((s) => ({ id: text(s.id), name: text(s.name), type: text(s.type).toLowerCase(), position: Number.isFinite(s.position) ? Number(s.position) : 0, teamId: text(s.team?.id) }));
+}
+
+export type LinearProject = {
+  name: string;
+  state: string;
+  targetDate: string | null;
+  url: string;
+  issues: { identifier: string; title: string; state: string; url: string }[];
+};
+
+/** The id Linear takes for a project: the 12-character slug id ending a project URL's slug, or the key as given. */
+function projectId(ref: { url?: string; key?: string }): string | null {
+  if (ref.key) return /^P-[A-Za-z][A-Za-z0-9_]{0,30}-\d{1,9}$/i.test(ref.key.trim()) ? ref.key.trim().toUpperCase() : null;
+  try {
+    const url = new URL(ref.url || "");
+    if (url.protocol !== "https:" || url.hostname !== "linear.app") return null;
+    const slug = /^\/[^/]+\/project\/([^/]+)/.exec(url.pathname)?.[1];
+    return slug ? decodeURIComponent(slug).split("-").pop() || null : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A project's name, state, target date and issues, with one read-only query (UMBRELLA-SPEC §10). */
+export async function readProject(connection: StoredConnection, fetchImpl: Fetch, ref: { url?: string; key?: string }): Promise<LinearProject> {
+  const id = projectId(ref);
+  if (!id) throw new ExternalError("EXTERNAL_INVALID", "That is not a Linear project link or key.");
+  type Reply = { project?: { name?: string; state?: string; targetDate?: string | null; url?: string; issues?: { nodes?: LinearIssue[] } | null } | null };
+  const { data, errors, headers } = await graphql<Reply>(connection, fetchImpl, projectQuery, { id });
+  const project = data?.project;
+  if (!project) throw errors.length ? graphqlError(errors, headers) : new ExternalError("EXTERNAL_NOT_FOUND", "Not found, or this account can't see it.");
+  return {
+    name: text(project.name),
+    state: text(project.state),
+    targetDate: text(project.targetDate) || null,
+    url: text(project.url) || (ref.url ?? ""),
+    issues: (project.issues?.nodes || [])
+      .filter((i) => i?.identifier)
+      .map((i) => ({
+        identifier: text(i.identifier),
+        title: text(i.title),
+        state: text(i.state?.name),
+        url: text(i.url) || linearItemUrl(connection.baseUrl, text(i.identifier)),
+      })),
+  };
 }
 
 /** The teams this key can see, by name. */

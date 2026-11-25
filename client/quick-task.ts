@@ -53,6 +53,8 @@ export type QuickTaskSeed = {
   text?: string;
   /** From an idea: its project is locked and the card is made from it. */
   idea?: QuickIdea;
+  /** The umbrella the card joins (UMBRELLA-SPEC §10, Make card); the daemon refuses the card when it can't take it. */
+  umbrellaId?: string;
 };
 
 /** The idea's title and detail, as the text box's first text. */
@@ -115,6 +117,7 @@ export function quickCreateInput(input: {
     branchName: "",
     ...(items.length ? { externals: items.map((x) => ({ connectionId: x.connectionId, key: x.key, itemType: x.itemType })) } : {}),
     ...(idea ? { ideaId: idea.id } : {}),
+    ...(input.seed?.umbrellaId ? { umbrellaId: input.seed.umbrellaId } : {}),
   };
 }
 
@@ -123,6 +126,7 @@ export function quickMoreSeed(input: { text: string; seed: QuickTaskSeed | undef
   const idea = input.seed?.idea;
   return {
     ...(idea ? { ideaId: idea.id } : {}),
+    ...(input.seed?.umbrellaId ? { umbrellaId: input.seed.umbrellaId } : {}),
     title: quickCard(input.text, input.seed, input.externals.length).title,
     description: idea?.description ?? "",
     ...(idea?.type ? { type: idea.type } : {}),

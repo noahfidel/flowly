@@ -29,7 +29,7 @@ type Options = { status?: number; errors?: { message: string; extensions?: { cod
 const uuid = (key: string) => `uuid-${key.toLowerCase()}`;
 
 /** Linear's GraphQL API as recorded shapes: the operations the adapter sends, answered from `issues`. */
-function linear(issues: Issue[], options: () => Options = () => ({})) {
+function linear(issues: Issue[], options: () => Options = () => ({}), project?: { name: string; state: string; targetDate: string | null; issues: Issue[] }) {
   const summary = (x: Issue) => ({
     id: uuid(x.key),
     identifier: x.key,
@@ -79,6 +79,22 @@ function linear(issues: Issue[], options: () => Options = () => ({})) {
       });
       return { body: { data: { issues: { nodes: matches.map(summary) } } } };
     }
+    if (query.startsWith("query Project(")) {
+      if (!project || (variables.id !== "1a2b3c4d5e6f" && variables.id !== "P-ZEN-391")) return { body: { data: { project: null }, errors: [{ ...notFound, message: "Entity not found: Project" }] } };
+      return {
+        body: {
+          data: {
+            project: {
+              name: project.name,
+              state: project.state,
+              targetDate: project.targetDate,
+              url: `${workspace}/project/${project.name.toLowerCase().replace(/\W+/g, "-")}-1a2b3c4d5e6f`,
+              issues: { nodes: project.issues.map((x) => ({ identifier: x.key, title: x.title, url: `${workspace}/issue/${x.key}`, state: { name: x.state || "In Progress" } })) },
+            },
+          },
+        },
+      };
+    }
     if (query.startsWith("query Batch")) {
       const data: Record<string, unknown> = {};
       const errors: unknown[] = [];
@@ -96,8 +112,8 @@ function linear(issues: Issue[], options: () => Options = () => ({})) {
   return { ...fakeService(route), requests };
 }
 
-async function connected(issues: Issue[], options?: () => Options) {
-  const fake = linear(issues, options);
+async function connected(issues: Issue[], options?: () => Options, project?: Parameters<typeof linear>[2]) {
+  const fake = linear(issues, options, project);
   const service = await env.service(fake.fetchImpl);
   const connection = await service.save({ provider: "linear", secret: "lin_api_secret" });
   return { service, connection, ...fake };
@@ -320,5 +336,40 @@ describe("Linear (CONNECTORS-SPEC §14)", () => {
     expect(x.calls.every((c) => c.method === "POST" && c.url.href === api)).toBe(true);
     expect(x.requests.length).toBeGreaterThanOrEqual(6);
     expect(x.requests.every((r) => /^query \w+/.test(r.query) && !/\bmutation\b/.test(r.query))).toBe(true);
+  });
+
+  test("the project query is read-only and returns name, state, target date and issues", async () => {
+    const x = await connected([], undefined, {
+      name: "Fresh context",
+      state: "started",
+      targetDate: "2026-12-15",
+      issues: [{ key: "ZEN-9301", title: "Correction detector", state: "Todo" }, { key: "ZEN-9302", title: "Context loader" }],
+    });
+    const byUrl = await x.service.linearProject({ url: "https://linear.app/acme/project/fresh-context-1a2b3c4d5e6f" });
+    expect(byUrl).toMatchObject({
+      connectionId: x.connection.id,
+      name: "Fresh context",
+      state: "started",
+      targetDate: "2026-12-15",
+      url: `${workspace}/project/fresh-context-1a2b3c4d5e6f`,
+      issues: [
+        { identifier: "ZEN-9301", title: "Correction detector", state: "Todo", url: `${workspace}/issue/ZEN-9301` },
+        { identifier: "ZEN-9302", title: "Context loader", state: "In Progress", url: `${workspace}/issue/ZEN-9302` },
+      ],
+    });
+    const byKey = await x.service.linearProject({ key: "P-ZEN-391" });
+    expect(byKey.name).toBe("Fresh context");
+    const asked = x.requests.filter((r) => r.query.startsWith("query Project("));
+    expect(asked).toHaveLength(2);
+    expect(asked[0]!.variables).toEqual({ id: "1a2b3c4d5e6f" });
+    expect(asked.every((r) => /^query /.test(r.query) && !/\b(mutation|subscription)\b/.test(r.query))).toBe(true);
+    expect(x.calls.every((c) => c.method === "POST" && c.url.href === api)).toBe(true);
+  });
+
+  test("a project the key can't see is not found; no Linear connection is not found either", async () => {
+    const x = await connected([], undefined, undefined);
+    await expect(x.service.linearProject({ url: "https://linear.app/acme/project/gone-aaaaaaaaaaaa" })).rejects.toMatchObject({ code: "EXTERNAL_NOT_FOUND" });
+    const none = await env.service(linear([]).fetchImpl);
+    await expect(none.linearProject({ key: "P-ZEN-391" })).rejects.toMatchObject({ code: "EXTERNAL_NOT_FOUND" });
   });
 });

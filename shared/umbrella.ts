@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { issueKey } from "./connectors";
 import { groupOfProject } from "./groups";
 import { laneName } from "./lanes";
 import {
@@ -534,4 +535,62 @@ export function umbrellaStartLine(board: Pick<Board, "umbrellas">, task: Task): 
   return umbrella.integrationTaskId === task.id
     ? `${line} You are the integration card: run the umbrella's acceptance end to end against what the sibling cards delivered, tick each item you met with flowly_update_umbrella_acceptance (the evidence goes in its note), and report the result as a finding with flowly_add_umbrella_entry.`
     : line;
+}
+
+/**
+ * A Linear project the user typed (§10): a `https://linear.app/<ws>/project/<slug>` URL or a project key (P-ZEN-391);
+ * null for anything else (an issue link, another host, a bare issue key).
+ */
+export function parseLinearProject(input: string): { url?: string; key?: string } | null {
+  const text = input.trim();
+  if (/^P-[A-Za-z][A-Za-z0-9_]{0,30}-\d{1,9}$/i.test(text)) return { key: text.toUpperCase() };
+  try {
+    const url = new URL(text);
+    if (url.protocol !== "https:" || url.hostname !== "linear.app" || url.username || url.password) return null;
+    return /^\/[^/]+\/project\/[^/]+/.test(url.pathname) ? { url: text } : null;
+  } catch {
+    return null;
+  }
+}
+
+export const linearProjectIssueSchema = z.object({ identifier: z.string(), title: z.string(), state: z.string(), url: z.string() });
+export type LinearProjectIssue = z.infer<typeof linearProjectIssueSchema>;
+
+/** The project's issues that no member of the umbrella references (§10). `linkedKeys` are upper-case issue keys. */
+export function issuesWithoutCard<T extends Pick<LinearProjectIssue, "identifier">>(issues: readonly T[], linkedKeys: ReadonlySet<string>): T[] {
+  return issues.filter((i) => !linkedKeys.has(i.identifier.toUpperCase()));
+}
+
+/** The Linear issue keys (upper case) of the cards' Linear inputs. */
+export function linearKeysOf(board: Pick<Board, "artifacts">, taskIds: ReadonlySet<string>): Set<string> {
+  const keys = new Set<string>();
+  for (const a of board.artifacts) {
+    if (a.external?.provider !== "linear" || !taskIds.has(a.taskId)) continue;
+    keys.add((issueKey(a.external.key) ?? a.external.key).toUpperCase());
+  }
+  return keys;
+}
+
+export const suggestedMemberSchema = z.object({ taskId: z.string(), title: z.string(), projectTitle: z.string(), issue: z.string() });
+export type SuggestedMember = z.infer<typeof suggestedMemberSchema>;
+
+/**
+ * Cards of the umbrella's group that are not archived, in no umbrella, and have a Linear input that is an issue of the
+ * project (§10): suggested to the user, never added. `issueKeys` are upper-case.
+ */
+export function suggestedMembers(
+  board: Pick<Board, "tasks" | "projects" | "groups" | "artifacts">,
+  umbrella: Pick<Umbrella, "groupId">,
+  issueKeys: ReadonlySet<string>,
+): SuggestedMember[] {
+  const projects = new Map(board.projects.map((p) => [p.id, p]));
+  const out: SuggestedMember[] = [];
+  for (const task of board.tasks) {
+    if (task.archivedAt || task.umbrella) continue;
+    const project = projects.get(task.projectId);
+    if (!project || groupOfProject(board, project)?.id !== umbrella.groupId) continue;
+    const link = board.artifacts.find((a) => a.taskId === task.id && a.external?.provider === "linear" && issueKeys.has((issueKey(a.external.key) ?? a.external.key).toUpperCase()));
+    if (link?.external) out.push({ taskId: task.id, title: task.title, projectTitle: project.title, issue: (issueKey(link.external.key) ?? link.external.key).toUpperCase() });
+  }
+  return out.sort((a, b) => a.title.localeCompare(b.title));
 }

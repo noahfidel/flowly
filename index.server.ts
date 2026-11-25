@@ -46,6 +46,7 @@ import {
   updateEntry,
   updateUmbrella,
 } from "./server/umbrellas";
+import { readUmbrellaLinear } from "./server/umbrella-linear";
 import { ArtifactService } from "./server/artifacts";
 import { cardGallery, cardGalleryImage } from "./server/artifact-gallery";
 import { PlanModeWatcher, PlanService } from "./server/plans";
@@ -907,6 +908,7 @@ export default function contribute(host: PluginServerContext) {
   const human = { kind: "human" } as const;
   server.handle(rpc.listUmbrellas, async (input) => listUmbrellas(await store.read(), input.groupId));
   server.handle(rpc.getUmbrella, (input) => coded(async () => getUmbrella(await store.read(), input.id)));
+  server.handle(rpc.umbrellaLinearProject, (input) => coded(async () => readUmbrellaLinear(await store.read(), input.id, (ref) => connectors.linearProject(ref))));
   server.handle(rpc.createUmbrella, (input) => coded(() => createUmbrella(store, input, human)));
   server.handle(rpc.updateUmbrella, (input) => coded(() => updateUmbrella(store, input, human)));
   server.handle(rpc.tickUmbrellaAcceptance, (input) => coded(() => setAcceptanceDone(store, input, human)));

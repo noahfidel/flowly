@@ -1930,5 +1930,16 @@ const catalog: Catalog = {
   "Kept": "보관됨",
   "Ready to close": "닫을 준비 완료",
   "This umbrella has no card whose project could keep it.": "이 엄브렐라에는 이를 보관할 프로젝트의 카드가 없습니다.",
+  "Linear refused the connection's token. Update it in Flowly settings → Connections.": "Linear가 연결의 토큰을 거부했습니다. Flowly 설정 → 연결에서 업데이트하세요.",
+  "Flowly could not read this Linear project. Check that a Linear connection is set up and can see it.": "Flowly가 이 Linear 프로젝트를 읽지 못했습니다. Linear 연결이 설정되어 있고 프로젝트를 볼 수 있는지 확인하세요.",
+  "Linear is unreachable right now. Reopen the umbrella to try again.": "지금은 Linear에 연결할 수 없습니다. 엄브렐라를 다시 열어 다시 시도하세요.",
+  "Flowly could not read this Linear project.": "Flowly가 이 Linear 프로젝트를 읽지 못했습니다.",
+  "Create a project first, then make the card again.": "먼저 프로젝트를 만든 다음 카드를 다시 만드세요.",
+  "Open {issue} in Linear": "{issue}을(를) Linear에서 열기",
+  "no card": "카드 없음",
+  "Make a card for {issue}": "{issue}용 카드 만들기",
+  "Make card": "카드 만들기",
+  "Linear issues without a card": "카드가 없는 Linear 이슈",
+  "Cards that may belong here": "여기에 속할 수 있는 카드",
 };
 export default catalog;

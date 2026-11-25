@@ -1930,5 +1930,16 @@ const catalog: Catalog = {
   "Kept": "Behalten",
   "Ready to close": "Bereit zum Schließen",
   "This umbrella has no card whose project could keep it.": "Zu diesem Dachprojekt gehört keine Karte, deren Projekt es behalten könnte.",
+  "Linear refused the connection's token. Update it in Flowly settings → Connections.": "Linear hat das Token der Verbindung abgelehnt. Aktualisiere es in den Flowly-Einstellungen → Verbindungen.",
+  "Flowly could not read this Linear project. Check that a Linear connection is set up and can see it.": "Flowly konnte dieses Linear-Projekt nicht lesen. Prüfe, ob eine Linear-Verbindung eingerichtet ist und es sehen kann.",
+  "Linear is unreachable right now. Reopen the umbrella to try again.": "Linear ist gerade nicht erreichbar. Öffne das Dachprojekt erneut, um es noch einmal zu versuchen.",
+  "Flowly could not read this Linear project.": "Flowly konnte dieses Linear-Projekt nicht lesen.",
+  "Create a project first, then make the card again.": "Lege zuerst ein Projekt an und erstelle die Karte dann erneut.",
+  "Open {issue} in Linear": "{issue} in Linear öffnen",
+  "no card": "keine Karte",
+  "Make a card for {issue}": "Karte für {issue} erstellen",
+  "Make card": "Karte erstellen",
+  "Linear issues without a card": "Linear-Issues ohne Karte",
+  "Cards that may belong here": "Karten, die hierher gehören könnten",
 };
 export default catalog;
