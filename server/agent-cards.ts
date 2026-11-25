@@ -267,10 +267,12 @@ export class AgentCards {
   /**
    * `fromIdea`: the dispatcher creating the card from an idea of the project (DISPATCHER-SPEC §5.1). A replay
    * returns the card first; otherwise the idea is checked before a slot is taken or anything is made, and the
-   * New card path marks it accepted.
+   * New card path marks it accepted. `umbrellaId`: the dispatcher naming the umbrella the card joins (UMBRELLA-SPEC
+   * §4.3); the umbrella's group and room are checked in the write, which refuses the card when it can't take it.
    */
-  async create(caller: CardCaller, raw: unknown, fromIdea?: { ideaId: string; ideasOn: () => Promise<boolean> }) {
+  async create(caller: CardCaller, raw: unknown, fromIdea?: { ideaId: string; ideasOn: () => Promise<boolean> }, umbrellaId?: string) {
     const input = createCardInputSchema.parse(raw);
+    if (umbrellaId && input.umbrella === "none") throw new ToolError("INVALID_INPUT", 'Pass umbrellaId or umbrella: "none", not both.');
     await this.enabled();
     const board = await this.store.read(),
       project = this.project(board, caller);
@@ -337,7 +339,7 @@ export class AgentCards {
           baseRef: "",
           ...(caller.taskId ? { followUpOf: caller.taskId } : {}),
           ...(fromIdea ? { ideaId: fromIdea.ideaId } : {}),
-          ...(input.umbrella === "none" ? { umbrellaId: null } : {}),
+          ...(umbrellaId ? { umbrellaId } : input.umbrella === "none" ? { umbrellaId: null } : {}),
         },
         this.api(),
         { agentId: caller.agentId, ...(caller.groupId !== undefined ? { groupId: caller.groupId } : {}), ...(caller.dispatcher ? { dispatcher: true } : {}), notices },
@@ -389,15 +391,20 @@ export class AgentCards {
   /** flowly_get_umbrella: one umbrella of the caller's group in full; another group's is UMBRELLA_OUT_OF_GROUP. */
   async getUmbrella(caller: CardCaller, raw: unknown) {
     const { umbrellaId } = getUmbrellaInputSchema.parse(raw);
-    const board = await this.store.read(),
-      groupId = this.umbrellaGroup(board, caller);
+    const board = await this.store.read();
+    return this.umbrellaIn(board, this.umbrellaGroup(board, caller), umbrellaId, caller.taskId);
+  }
+  /**
+   * One umbrella of `groupId` in full (also the dispatcher's flowly_get_umbrella). D19: an answer or reject note
+   * reaches only the card it came from (`ownTaskId`); a caller with no card (the dispatcher) sees none.
+   */
+  umbrellaIn(board: Board, groupId: string, umbrellaId: string, ownTaskId?: string) {
     const found = getUmbrella(board, umbrellaId);
     if (found.umbrella.groupId !== groupId)
       throw new ToolError("UMBRELLA_OUT_OF_GROUP", "That umbrella belongs to another board group than this project. Use an id from flowly_list_umbrellas.");
     const { operationId: _operation, ...umbrella } = found.umbrella;
-    // D19: an answer or reject note reaches only the card it came from.
     const entries = found.entries.map((e): typeof e => {
-      if (e.answer === undefined || (e.sourceTaskId && e.sourceTaskId === caller.taskId)) return e;
+      if (e.answer === undefined || (e.sourceTaskId && e.sourceTaskId === ownTaskId)) return e;
       const { answer: _answer, ...rest } = e;
       return rest;
     });

@@ -56,9 +56,14 @@ const dispatcherTools = [
   "flowly_archive_card",
   "flowly_add_artifact",
   "flowly_resolve_contract_change",
+  "flowly_list_umbrellas",
+  "flowly_get_umbrella",
   // Not preapproved: the user confirms each call (ruling, Noah 2026-11-10).
   "flowly_create_project",
   "flowly_manage_groups",
+  "flowly_create_umbrella",
+  "flowly_set_umbrella",
+  "flowly_update_umbrella",
 ];
 
 async function setup() {
@@ -3116,4 +3121,152 @@ test("resolve_contract_change is preapproved and stays in the dispatcher's group
   // A write: refused while Agents create and edit cards is off.
   x.server.cards.on = async () => false;
   expect(code(await a.call("flowly_resolve_contract_change", { id: second.id, decision: "reject" }))).toBe("AGENT_CARDS_DISABLED");
+});
+
+/** Umbrella tools of the dispatcher (UMBRELLA-SPEC §4.3, rulings D11, D15, D23). */
+const human = { kind: "human" as const };
+async function umbrellaWorld() {
+  const x = await setup();
+  const g = await twoGroups(x);
+  // A card in group Clients' project "r"; the umbrella below is in the default group "Projects".
+  await x.store.mutate((board) => {
+    board.tasks.push({ ...board.tasks.find((t) => t.id === "q1")!, id: "r1", projectId: "r", workspaceId: "w-r1", operationId: "op-r1" });
+  });
+  const u = await createUmbrella(x.store, { groupId: x.groupId, title: "Family" }, human);
+  return { x, ...g, u };
+}
+
+test("a dispatcher cannot see or change an umbrella of another group", async () => {
+  const { x, a, b, u } = await umbrellaWorld();
+  expect(code(await b.call("flowly_get_umbrella", { umbrellaId: u.id }))).toBe("UMBRELLA_OUT_OF_GROUP");
+  expect(code(await a.call("flowly_get_umbrella", { umbrellaId: u.id }))).toBeUndefined();
+  // The other group's list does not name it.
+  expect((await b.call("flowly_list_umbrellas", {})).structuredContent.umbrellas).toEqual([]);
+  expect((await a.call("flowly_list_umbrellas", {})).structuredContent.umbrellas.map((s: { id: string }) => s.id)).toEqual([u.id]);
+  // A card of its own group's project into another group's umbrella.
+  expect(code(await b.call("flowly_set_umbrella", { projectId: "r", taskId: "r1", umbrellaId: u.id }))).toBe("UMBRELLA_OUT_OF_GROUP");
+  // A card of another group's project.
+  expect(code(await b.call("flowly_set_umbrella", { projectId: "q", taskId: "q1", umbrellaId: u.id }))).toBe("PROJECT_OUT_OF_GROUP");
+  expect((await x.store.read()).tasks.filter((t) => t.umbrella)).toEqual([]);
+});
+
+test("umbrella create, join and update are never preapproved", async () => {
+  const tools = ["flowly_create_umbrella", "flowly_set_umbrella", "flowly_update_umbrella"];
+  for (const name of tools) {
+    expect(dispatcherConfirmedToolNames).toContain(name);
+    expect(dispatcherToolNames as readonly string[]).not.toContain(name);
+  }
+  for (const name of ["flowly_list_umbrellas", "flowly_get_umbrella"]) expect(dispatcherToolNames as readonly string[]).toContain(name);
+  const { a, agentId, b, x, u } = await umbrellaWorld();
+  // Only a mode that shows the permission prompt runs them.
+  x.agents.disp.currentModeId = "bypassPermissions";
+  const calls: [string, unknown][] = [
+    ["flowly_create_umbrella", { title: "T", idempotencyKey: "k1" }],
+    ["flowly_set_umbrella", { projectId: "q", taskId: "q1", umbrellaId: u.id }],
+    ["flowly_update_umbrella", { id: u.id, revision: u.revision, title: "New" }],
+  ];
+  for (const [name, args] of calls) expect(code(await a.call(name, args)), name).toBe("CONFIRMATION_UNAVAILABLE");
+  x.agents[agentId].currentModeId = "auto";
+  expect(code(await b.call("flowly_create_umbrella", { title: "T", idempotencyKey: "k2" }))).toBe("CONFIRMATION_UNAVAILABLE");
+  const board = await x.store.read();
+  expect(board.umbrellas).toHaveLength(1);
+  expect(board.umbrellas[0]!.title).toBe("Family");
+  x.agents.disp.currentModeId = "default";
+  for (const [name, args] of calls) expect(code(await a.call(name, args)), name).toBeUndefined();
+});
+
+test("update_umbrella refuses another group's umbrella", async () => {
+  const { x, b, a, u } = await umbrellaWorld();
+  expect(code(await b.call("flowly_update_umbrella", { id: u.id, revision: u.revision, title: "Mine now" }))).toBe("UMBRELLA_OUT_OF_GROUP");
+  expect((await x.store.read()).umbrellas[0]).toMatchObject({ title: "Family", revision: 1 });
+  // Its own group edits, as the dispatcher, bumping the revision; a stale revision is refused.
+  const edited = await a.call("flowly_update_umbrella", {
+    id: u.id, revision: 1, title: "Renamed", brief: "Goal", contract: "shape: {a}", acceptance: [{ text: "It works", done: false }], briefSource: "https://example.test/brief",
+  });
+  expect(code(edited)).toBeUndefined();
+  expect(edited.structuredContent.umbrella).toMatchObject({ title: "Renamed", revision: 2, brief: { text: "Goal", source: "https://example.test/brief" }, contract: { text: "shape: {a}", revision: 1 } });
+  expect((await x.store.read()).umbrellas[0]!.contract.updatedBy).toEqual({ kind: "dispatcher", agentId: "disp" });
+  expect(code(await a.call("flowly_update_umbrella", { id: u.id, revision: 1, title: "Stale" }))).toBe("REVISION_CONFLICT");
+  // null clears the brief source; too long is refused.
+  expect(code(await a.call("flowly_update_umbrella", { id: u.id, revision: 2, briefSource: null }))).toBeUndefined();
+  expect((await x.store.read()).umbrellas[0]!.brief.source).toBeUndefined();
+  const long = await a.call("flowly_update_umbrella", { id: u.id, revision: 3, briefSource: "x".repeat(501) });
+  expect(long.isError).toBe(true);
+  // A write: refused while Agents create and edit cards is off.
+  x.server.cards.on = async () => false;
+  expect(code(await a.call("flowly_update_umbrella", { id: u.id, revision: 3, title: "Off" }))).toBe("AGENT_CARDS_DISABLED");
+});
+
+test("flowly_create_umbrella creates in the dispatcher's own group, with a brief source, and replays its key", async () => {
+  const { x, a, b } = await umbrellaWorld();
+  const made = await a.call("flowly_create_umbrella", { title: "Fresh", brief: "Goal", briefSource: "docs/spec.md", idempotencyKey: "fresh-1" });
+  expect(code(made)).toBeUndefined();
+  expect(made.structuredContent).toMatchObject({ replayed: false, umbrella: { title: "Fresh", groupId: x.groupId, brief: { text: "Goal", source: "docs/spec.md" }, createdBy: { kind: "dispatcher", agentId: "disp" } } });
+  expect(JSON.stringify(made.structuredContent)).not.toContain("operationId");
+  const again = await a.call("flowly_create_umbrella", { title: "Fresh", idempotencyKey: "fresh-1" });
+  expect(again.structuredContent).toMatchObject({ replayed: true, umbrella: { id: made.structuredContent.umbrella.id } });
+  expect((await x.store.read()).umbrellas.filter((u) => u.title === "Fresh")).toHaveLength(1);
+  // The other group's dispatcher makes its own, in its own group.
+  const other = await b.call("flowly_create_umbrella", { title: "Clients work", idempotencyKey: "fresh-1" });
+  expect(other.structuredContent.umbrella.groupId).not.toBe(x.groupId);
+  expect((await a.call("flowly_create_umbrella", { title: "Long", briefSource: "x".repeat(501), idempotencyKey: "k-long" })).isError).toBe(true);
+});
+
+test("every set_umbrella call prompts, a removal included", async () => {
+  const { x, a, agentId, u } = await umbrellaWorld();
+  expect(dispatcherConfirmedToolNames).toContain("flowly_set_umbrella");
+  x.agents.disp.currentModeId = "bypassPermissions";
+  expect(code(await a.call("flowly_set_umbrella", { projectId: "q", taskId: "q1", umbrellaId: null }))).toBe("CONFIRMATION_UNAVAILABLE");
+  x.agents.disp.currentModeId = "default";
+  const joined = await a.call("flowly_set_umbrella", { projectId: "q", taskId: "q1", umbrellaId: u.id, role: "api" });
+  expect(joined.structuredContent).toMatchObject({ taskId: "q1", umbrella: { id: u.id, title: "Family", role: "api" }, changed: true });
+  expect((await x.store.read()).events.at(-1)).toMatchObject({ taskId: "q1", action: "umbrella_joined", actor: "agent", agentId: "disp" });
+  x.agents.disp.currentModeId = "bypassPermissions";
+  expect(code(await a.call("flowly_set_umbrella", { projectId: "q", taskId: "q1", umbrellaId: null }))).toBe("CONFIRMATION_UNAVAILABLE");
+  expect((await x.store.read()).tasks.find((t) => t.id === "q1")!.umbrella?.id).toBe(u.id);
+  x.agents.disp.currentModeId = "default";
+  const left = await a.call("flowly_set_umbrella", { projectId: "q", taskId: "q1", umbrellaId: null });
+  expect(left.structuredContent).toMatchObject({ taskId: "q1", umbrella: null, changed: true });
+  expect(agentId).toBeTruthy();
+});
+
+test("set_umbrella leaves the integration card to the user's flowly_update_umbrella (D5)", async () => {
+  const { x, a, u } = await umbrellaWorld();
+  await setMembership(x.store, { taskId: "q1", umbrellaId: u.id }, human);
+  await updateUmbrella(x.store, { id: u.id, revision: u.revision, integrationTaskId: "q1" }, human);
+  const refused = await a.call("flowly_set_umbrella", { projectId: "q", taskId: "q1", umbrellaId: null });
+  expect(code(refused)).toBe("INVALID_INPUT");
+  expect((await x.store.read()).tasks.find((t) => t.id === "q1")!.umbrella?.id).toBe(u.id);
+  const cleared = await a.call("flowly_update_umbrella", { id: u.id, revision: 2, integrationTaskId: null });
+  expect(code(cleared)).toBeUndefined();
+  expect(code(await a.call("flowly_set_umbrella", { projectId: "q", taskId: "q1", umbrellaId: null }))).toBeUndefined();
+});
+
+test("flowly_create_card takes an umbrellaId, checked in the write", async () => {
+  const { x, a, b, u } = await umbrellaWorld();
+  const made = await a.call("flowly_create_card", { projectId: "q", title: "Member", idempotencyKey: "m1", umbrellaId: u.id });
+  expect(code(made)).toBeUndefined();
+  const board = await x.store.read();
+  expect(board.tasks.find((t) => t.title === "Member")!.umbrella?.id).toBe(u.id);
+  // Another group's umbrella: the card is refused, nothing is made.
+  const before = board.tasks.length;
+  expect(code(await b.call("flowly_create_card", { projectId: "r", title: "Stray", idempotencyKey: "m2", umbrellaId: u.id }))).toBe("UMBRELLA_OUT_OF_GROUP");
+  expect(code(await a.call("flowly_create_card", { projectId: "q", title: "Both", idempotencyKey: "m3", umbrellaId: u.id, umbrella: "none" }))).toBe("INVALID_INPUT");
+  expect((await x.store.read()).tasks.length).toBe(before);
+});
+
+test("flowly_manage_groups names the umbrellas its change split", async () => {
+  const { x, a, u, clients } = await umbrellaWorld();
+  await x.store.mutate((board) => void board.tasks.push({ ...board.tasks.find((t) => t.id === "q1")!, id: "g1", projectId: "gone", workspaceId: "w-g1", operationId: "op-g1", sourcePath: join(x.root, "missing") }));
+  for (const taskId of ["q1", "q2", "g1"]) await setMembership(x.store, { taskId, umbrellaId: u.id }, human);
+  // Moving project q to Clients leaves the umbrella's other member behind: q's two cards drop out.
+  const current = (await x.store.read()).groups.find((g) => g.id === clients.id)!;
+  const moved = await a.call("flowly_manage_groups", { action: "set_members", groupId: clients.id, revision: current.revision, projectIds: ["r", "q"] });
+  expect(code(moved)).toBeUndefined();
+  expect(moved.structuredContent).toMatchObject({ action: "set_members", umbrellasLosingMembers: [{ umbrellaId: u.id, title: "Family", cards: 2 }] });
+  expect((await x.store.read()).tasks.filter((t) => t.umbrella).map((t) => t.id)).toEqual(["g1"]);
+  // A change that splits nothing names nothing.
+  const next = (await x.store.read()).groups.find((g) => g.id === clients.id)!;
+  const plain = await a.call("flowly_manage_groups", { action: "rename", groupId: clients.id, revision: next.revision, name: "Clients 2" });
+  expect(plain.structuredContent).not.toHaveProperty("umbrellasLosingMembers");
 });

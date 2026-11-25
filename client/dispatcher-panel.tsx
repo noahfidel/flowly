@@ -24,8 +24,8 @@ import { useDispatcherItemsQuery, useLiveAgents } from "./queries";
 import { useStableCallback } from "./stable";
 import { chatRows, discussFill, outdatedNotice, replaceOffer, sameItem, type ChatExtra } from "./dispatcher-panel-logic";
 import { ComposerChips, useSessionConfig, type ChipMenuId } from "./session-settings";
-import { CardConfirm, type CardConfirmProject } from "./card-confirm";
-import { isCardConfirm } from "../shared/card-confirm";
+import { CardConfirm, UmbrellaConfirm, type CardConfirmProject } from "./card-confirm";
+import { isCardConfirm, isUmbrellaConfirm, type UmbrellaConfirmBoard } from "../shared/card-confirm";
 
 /**
  * The dispatcher chat next to the board (DISPATCHER-SPEC §9.3), on the card session view's own parts: the session
@@ -57,6 +57,8 @@ type Props = {
   projectOf?(projectId: string): CardConfirmProject;
   /** Changes when the board's projects change, so an open card confirm refreshes. */
   projectsVersion?: unknown;
+  /** What the umbrella and board group confirms read (UMBRELLA-SPEC §4.3): the overview's groups, projects, cards and umbrella summaries; changes with them. */
+  confirmBoard?: UmbrellaConfirmBoard;
   /** The board's groups: names the other dispatchers in the rows of messages between dispatchers (§5.5). */
   groups?: readonly { id: string; name: string }[];
   /** Discuss on an idea (§9.5): text for the message box, after what is typed; never sent. A new `key` adds it again. */
@@ -77,7 +79,7 @@ type Props = {
   onSession?(agentId: string | null): void;
 };
 
-export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, resolveCard, cardsVersion, projectOf, projectsVersion, groups, fill, onFilled, focusRequest = 0, onEscape, onBoxFocus, groupId, onOpenInPaseo, onSession }: Props) {
+export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact = false, laneOf, onOpenCard, resolveCard, cardsVersion, projectOf, projectsVersion, confirmBoard, groups, fill, onFilled, focusRequest = 0, onEscape, onBoxFocus, groupId, onOpenInPaseo, onSession }: Props) {
   const { colors } = useTheme();
   const paseo = usePaseo();
   const client = useQueryClient();
@@ -221,12 +223,17 @@ export const DispatcherPanel = memo(function DispatcherPanel({ visible, compact 
   });
 
   // Its flowly_create_card waits as a permission request: shown as the card confirm, one settings line and buttons (§5.2).
+  // Its umbrella tools and flowly_manage_groups wait the same way: what they change, one line each, and buttons.
   const renderRequest = useCallback(
-    (request: PendingRequest, disabled: boolean, onRespond: (request: PendingRequest, reply: PermissionReply) => void) =>
-      isCardConfirm(request) ? (
-        <CardConfirm request={request} project={projectOf?.(String(request.input?.projectId ?? "")) ?? null} disabled={disabled} onRespond={onRespond} />
-      ) : null,
-    [projectOf, projectsVersion],
+    (request: PendingRequest, disabled: boolean, onRespond: (request: PendingRequest, reply: PermissionReply) => void) => {
+      if (isCardConfirm(request)) {
+        const umbrellaId = request.input?.umbrellaId;
+        const umbrella = typeof umbrellaId === "string" ? confirmBoard?.umbrellas.find((u) => u.id === umbrellaId) : undefined;
+        return <CardConfirm request={request} project={projectOf?.(String(request.input?.projectId ?? "")) ?? null} umbrella={umbrella} disabled={disabled} onRespond={onRespond} />;
+      }
+      return confirmBoard && isUmbrellaConfirm(request) ? <UmbrellaConfirm request={request} board={confirmBoard} disabled={disabled} onRespond={onRespond} /> : null;
+    },
+    [projectOf, projectsVersion, confirmBoard],
   );
 
   // The message box: the card session view's, with the text kept here. Sends always steer (§9.3).

@@ -1,5 +1,7 @@
 import { dispatcherServerName } from "./dispatcher";
-import { taskTypes, type TaskType } from "./model";
+import { t, tn } from "./i18n";
+import { taskTypes, type Group, type Project, type Task, type TaskType, type Umbrella } from "./model";
+import { umbrellasLosingMembers } from "./umbrella";
 import { linearTicketTypeDefault, linearTicketWanted } from "./linear-ticket";
 import type { PendingRequest, PermissionReply } from "./permission-question";
 
@@ -35,6 +37,8 @@ export type CardConfirmLinear = "ask" | "skip" | "linked" | "off";
 
 export interface CardConfirmFacts {
   title: string;
+  /** The umbrella the card would join (`umbrellaId`): its title, or its id when the board does not know it. */
+  umbrella?: string;
   /** The project's title, or its id when the board does not know it. */
   project: string;
   type?: string;
@@ -47,13 +51,17 @@ export interface CardConfirmFacts {
 export function cardConfirmFacts(
   input: Record<string, unknown>,
   project: CardConfirmProject,
+  /** The umbrella named by `input.umbrellaId`, as the board knows it; null or left out when it does not. */
+  umbrella?: { title: string } | null,
 ): CardConfirmFacts {
   const card = { linearTicket: typeof input.linearTicket === "boolean" ? input.linearTicket : undefined, type: typeOf(input.type) };
   const linear: CardConfirmLinear =
     !project || project.linearTicket !== true ? "off" : text(input.linear)?.trim() ? "linked" : linearTicketWanted(project, card, []) ? "ask" : "skip";
   const type = text(input.type);
+  const umbrellaId = text(input.umbrellaId);
   return {
     title: (text(input.title) ?? "").trim(),
+    ...(umbrellaId ? { umbrella: umbrella?.title ?? umbrellaId } : {}),
     project: project?.title ?? text(input.projectId) ?? "",
     ...(type ? { type } : {}),
     priority: text(input.priority) ?? "normal",
@@ -82,4 +90,133 @@ export function cardConfirmReply(request: PendingRequest, choice: CardConfirmCho
   const typeDefault = project ? linearTicketTypeDefault(project, typeOf(input.type)) : true;
   const want = choice === "with-linear";
   return { behavior: "allow", updatedInput: want === typeDefault ? rest : { ...rest, linearTicket: want } };
+}
+
+/**
+ * The dispatcher's umbrella tools and flowly_manage_groups are not preapproved either: each call waits on a permission
+ * request, shown as a title, what it changes and Cancel / Confirm (UMBRELLA-SPEC §4.3, DISPATCHER-SPEC §5.2).
+ */
+const confirmedTools = ["flowly_create_umbrella", "flowly_set_umbrella", "flowly_update_umbrella", "flowly_manage_groups"] as const;
+const requestName = (tool: (typeof confirmedTools)[number]) => `mcp__${dispatcherServerName}__${tool}`;
+
+/** What the dispatcher reads when the user cancels one of those calls: a refusal, so it stops. Agent-facing. */
+export const changeRefusedMessage =
+  "REFUSED: the user cancelled this change in the chat. Do not make it, and do not ask again unless the user does.";
+
+/** Whether a pending request is one of the umbrella or board group calls that gets the change confirm. */
+export function isUmbrellaConfirm(request: PendingRequest) {
+  return request.kind !== "question" && record(request.input) && confirmedTools.some((tool) => request.name === requestName(tool));
+}
+
+export type UmbrellaConfirmAction = "create" | "join" | "leave" | "update" | "manage_groups";
+
+/** What the confirm reads of the board; umbrella summaries from the overview serve as well as full umbrellas. */
+export type UmbrellaConfirmBoard = {
+  umbrellas: readonly Pick<Umbrella, "id" | "groupId" | "title">[];
+  tasks: readonly Task[];
+  projects: readonly Project[];
+  groups: readonly Group[];
+};
+
+const linearName = (v: unknown) => (record(v) ? (text(v.name)?.trim() || text(v.key)?.trim() || text(v.url)?.trim() || "") : "");
+
+/**
+ * The project moves a flowly_manage_groups call would make, for the umbrellas they would split (UMBRELLA-SPEC §9):
+ * `set_members` moves the listed projects in and sends a current member left out to the default group; `delete` sends
+ * the group's projects to the default group. Other actions move nothing.
+ */
+export function manageGroupsMoves(
+  board: Pick<UmbrellaConfirmBoard, "projects" | "groups">,
+  input: { action?: unknown; groupId?: unknown; projectIds?: unknown },
+): { projectId: string; groupId: string }[] {
+  const group = board.groups.find((g) => g.id === text(input.groupId));
+  const target = board.groups.find((g) => g.isDefault);
+  const moves: { projectId: string; groupId: string }[] = [];
+  if (!group) return moves;
+  if (input.action === "set_members") {
+    const listed = Array.isArray(input.projectIds) ? input.projectIds.filter((id): id is string => typeof id === "string") : [];
+    for (const id of listed) if (board.projects.find((p) => p.id === id)?.groupId !== group.id) moves.push({ projectId: id, groupId: group.id });
+    if (target) for (const p of board.projects) if (p.groupId === group.id && !listed.includes(p.id)) moves.push({ projectId: p.id, groupId: target.id });
+  } else if (input.action === "delete" && target) {
+    for (const p of board.projects) if (p.groupId === group.id) moves.push({ projectId: p.id, groupId: target.id });
+  }
+  return moves;
+}
+
+/** The umbrellas a flowly_manage_groups call would split, as `umbrellasLosingMembers` reads the board. */
+export function manageGroupsLosses(board: UmbrellaConfirmBoard, input: { action?: unknown; groupId?: unknown; projectIds?: unknown }) {
+  const moves = manageGroupsMoves(board, input);
+  return moves.length ? umbrellasLosingMembers(board, moves) : [];
+}
+
+/** The lines of a manage_groups call, with one per umbrella its move would split. */
+function groupLines(input: Record<string, unknown>, board: UmbrellaConfirmBoard): string[] {
+  const group = board.groups.find((g) => g.id === text(input.groupId));
+  const groupName = group?.name ?? text(input.groupId) ?? "";
+  const action = text(input.action);
+  let line = "";
+  if (action === "create") line = t("Create board group {name}", { name: text(input.name) ?? "" });
+  else if (action === "rename") line = t("Rename board group {from} to {to}", { from: groupName, to: text(input.name) ?? "" });
+  else if (action === "set_default") line = t("Make {group} the default group", { group: groupName });
+  else if (action === "set_members") line = t("Set the projects of board group {group}", { group: groupName });
+  else if (action === "delete") line = t("Delete board group {group}; its projects move to the default group", { group: groupName });
+  const lost = manageGroupsLosses(board, input);
+  return [line, ...lost.map((u) => tn(u.cards, "{title} loses {n} card", "{title} loses {n} cards", { title: u.title }))].filter(Boolean);
+}
+
+/**
+ * The change confirm's content for one of the umbrella tools or flowly_manage_groups (`null` for any other request):
+ * the action and one line per thing it does. `update` names the umbrella and one line per field the call changes;
+ * `manage_groups` adds a line per umbrella whose members a project move would split.
+ */
+export function umbrellaConfirmFacts(request: PendingRequest, board: UmbrellaConfirmBoard): { action: UmbrellaConfirmAction; lines: string[] } | null {
+  if (!isUmbrellaConfirm(request) || !record(request.input)) return null;
+  const input = request.input;
+  const umbrellaOf = (id: unknown) => board.umbrellas.find((u) => u.id === id)?.title ?? text(id) ?? "";
+  const cardOf = (id: unknown) => board.tasks.find((c) => c.id === id)?.title ?? text(id) ?? "";
+  if (request.name === requestName("flowly_manage_groups")) return { action: "manage_groups", lines: groupLines(input, board) };
+  if (request.name === requestName("flowly_create_umbrella")) {
+    const source = text(input.briefSource)?.trim();
+    const linear = linearName(input.linearProject);
+    return {
+      action: "create",
+      lines: [
+        (text(input.title) ?? "").trim(),
+        ...(text(input.brief)?.trim() ? [t("With a brief")] : []),
+        ...(source ? [t("Brief source: {source}", { source })] : []),
+        ...(linear ? [t("Linear project: {name}", { name: linear })] : []),
+      ].filter(Boolean),
+    };
+  }
+  if (request.name === requestName("flowly_set_umbrella")) {
+    const card = cardOf(input.taskId);
+    const current = board.tasks.find((c) => c.id === input.taskId)?.umbrella;
+    if (input.umbrellaId === null) return { action: "leave", lines: [t("{card} leaves {umbrella}", { card, umbrella: current ? umbrellaOf(current.id) : "" }).trim()] };
+    const role = text(input.role)?.trim();
+    return {
+      action: "join",
+      lines: [
+        t("{card} joins {umbrella}", { card, umbrella: umbrellaOf(input.umbrellaId) }),
+        ...(role ? [t("Role: {role}", { role })] : []),
+        ...(current && current.id !== input.umbrellaId ? [t("Leaves {umbrella}", { umbrella: umbrellaOf(current.id) })] : []),
+      ],
+    };
+  }
+  const lines = [umbrellaOf(input.id)];
+  if (text(input.title) !== undefined && text(input.title) !== umbrellaOf(input.id)) lines.push(t("Title: {title}", { title: text(input.title) ?? "" }));
+  if (input.brief !== undefined) lines.push(t("Brief changes"));
+  if (input.briefSource === null) lines.push(t("Brief source cleared"));
+  else if (input.briefSource !== undefined) lines.push(t("Brief source: {source}", { source: text(input.briefSource) ?? "" }));
+  if (input.contract !== undefined) lines.push(t("Contract changes"));
+  if (input.acceptance !== undefined) lines.push(t("Acceptance list changes"));
+  if (input.integrationTaskId === null) lines.push(t("Integration card cleared"));
+  else if (input.integrationTaskId !== undefined) lines.push(t("Integration card: {card}", { card: cardOf(input.integrationTaskId) }));
+  if (input.linearProject === null) lines.push(t("Linear project cleared"));
+  else if (input.linearProject !== undefined) lines.push(t("Linear project: {name}", { name: linearName(input.linearProject) }));
+  return { action: "update", lines };
+}
+
+/** Confirm allows the call as written; Cancel denies it with a refusal the dispatcher reads as stop. */
+export function umbrellaConfirmReply(choice: "confirm" | "cancel"): PermissionReply {
+  return choice === "confirm" ? { behavior: "allow" } : { behavior: "deny", message: changeRefusedMessage };
 }

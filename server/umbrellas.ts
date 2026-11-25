@@ -18,7 +18,7 @@ import {
   type UmbrellaUpdateInput,
 } from "../shared/umbrella";
 import type { BoardStore } from "./store";
-import { ToolError } from "./tool-error";
+import { checkGroup, ToolError } from "./tool-error";
 
 /**
  * Umbrella writes (UMBRELLA-SPEC §2, §4.4): each one is one store transaction. The user's and the dispatcher's edits
@@ -79,9 +79,16 @@ export function createUmbrella(store: BoardStore, input: UmbrellaCreateInput & {
   });
 }
 
-export function updateUmbrella(store: BoardStore, input: UmbrellaUpdateInput, by: Actor): Promise<Umbrella> {
+/** `options.groupId`: the dispatcher's board group; an umbrella of another group is UMBRELLA_OUT_OF_GROUP, checked in the write. */
+const requireGroup = (u: Umbrella, groupId: string | undefined) => {
+  if (groupId !== undefined && u.groupId !== groupId)
+    throw new ToolError("UMBRELLA_OUT_OF_GROUP", "This umbrella belongs to another board group; its own dispatcher handles it. Tell the user.");
+};
+
+export function updateUmbrella(store: BoardStore, input: UmbrellaUpdateInput, by: Actor, options: { groupId?: string } = {}): Promise<Umbrella> {
   return store.transaction((board) => {
     const u = find(board, input.id);
+    requireGroup(u, options.groupId);
     requireRevision(u, input.revision);
     requireOpen(u);
     const now = new Date().toISOString();
@@ -142,10 +149,12 @@ export function updateUmbrella(store: BoardStore, input: UmbrellaUpdateInput, by
  * Puts a card in an umbrella, moves it from another one, changes its role or order, or (umbrellaId null) takes it out.
  * The card's revision stays; joining and leaving record `umbrella_joined` / `umbrella_left` on the card.
  */
-export function setMembership(store: BoardStore, input: UmbrellaMemberInput, by: Actor): Promise<Task> {
+export function setMembership(store: BoardStore, input: UmbrellaMemberInput, by: Actor, options: { groupId?: string } = {}): Promise<Task> {
   return store.transaction((board) => {
     const task = board.tasks.find((t) => t.id === input.taskId);
     if (!task) throw new ToolError("NOT_FOUND", "No card with that id.");
+    // The dispatcher's group (checked in this write): the card's project, then the umbrella it joins.
+    checkGroup(board.projects.find((p) => p.id === task.projectId), options.groupId);
     const current = task.umbrella;
     const leave = () => {
       // The integration card must be a member (§11): leaving drops the role, as an edit of the umbrella.
@@ -158,6 +167,7 @@ export function setMembership(store: BoardStore, input: UmbrellaMemberInput, by:
       return { value: task, changed: true };
     }
     const u = find(board, input.umbrellaId);
+    requireGroup(u, options.groupId);
     const role = input.role || undefined;
     if (current?.id === u.id) {
       // A role or order change; allowed while the umbrella is closed only if nothing changes.

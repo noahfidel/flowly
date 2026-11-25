@@ -29,7 +29,7 @@ import {
 } from "../shared/dispatcher";
 import { exportMarkdown } from "../shared/board-export";
 import { dispatcherTarget } from "../shared/groups";
-import type { Board, Group, GroupRemoval, Task } from "../shared/model";
+import type { Board, Group, GroupRemoval, Task, UmbrellaEntry } from "../shared/model";
 import { effectiveDispatcherModel, type AgentModel } from "../shared/agent-defaults";
 import type { OutgoingImage } from "../shared/composer";
 import { createDirectoryWorkspace } from "./background-workspace";
@@ -291,7 +291,7 @@ export type DispatcherDeps = {
   /** The first message: the group's projects with their ids, open cards and ideas (§6). */
   summary: (groupId: string) => Promise<string>;
   /** The board: its groups (each dispatcher's group, the v1 migration, the group delete's checks). */
-  board: () => Promise<Pick<Board, "groups" | "projects" | "tasks" | "links">>;
+  board: () => Promise<Pick<Board, "groups" | "projects" | "tasks" | "links" | "umbrellaEntries">>;
   now?: () => number;
 };
 
@@ -368,13 +368,23 @@ export function dispatcherSummary(board: Board, groupId: string): string {
  */
 const batchRulesBelow = 1;
 
+/** What the proposal line reads of the store: a contract change entry's umbrella, source card, status and age. */
+export type ProposalEntry = Pick<UmbrellaEntry, "umbrellaId" | "kind" | "status" | "sourceTaskId" | "createdAt">;
+
 /**
  * The line under a card's note while it has a contract change waiting (UMBRELLA-SPEC §5 step 3): rendered from the
- * note's `proposal`, so it shows even when a later note on the same card took over the line.
+ * note's `proposal`, so it shows even when a later note on the same card took over the line. A held note is checked
+ * against the store at delivery: the note names the umbrella and the card, so the entry is the card's newest contract
+ * change there. Gone from `proposed` (the user answered it, or the card withdrew it) the line is dropped; with no
+ * such entry to look at (store not read, entry deleted) the wording says "proposed", never "waiting".
  */
-function proposalLine(p: NonNullable<DispatcherNote["proposal"]>): string {
+function proposalLine(taskId: string, p: NonNullable<DispatcherNote["proposal"]>, entries: readonly ProposalEntry[] | undefined): string | null {
+  let entry: ProposalEntry | undefined;
+  for (const e of entries ?? [])
+    if (e.kind === "contract_change" && e.umbrellaId === p.umbrellaId && e.sourceTaskId === taskId && (!entry || e.createdAt >= entry.createdAt)) entry = e;
+  if (entry && entry.status !== "proposed") return null;
   const flags = [p.conflict ? "conflicts with another pending proposal or an older contract" : "", p.mentions.length ? `roles mentioned: ${p.mentions.map((id) => `[${id}]`).join(", ")}` : ""].filter(Boolean);
-  return `  Contract change waiting for the user's answer (umbrella ${p.umbrellaId})${flags.length ? `: ${flags.join("; ")}` : ""}`;
+  return `  Contract change ${entry ? "waiting for the user's answer" : "proposed"} (umbrella ${p.umbrellaId})${flags.length ? `: ${flags.join("; ")}` : ""}`;
 }
 
 /** One message for a batch of notes (§7); `charter` is the version of the dispatcher it goes to. */
@@ -383,6 +393,8 @@ export function noteMessage(
   charter: number,
   /** The cards to relay each note's contract news to, by the note's card (§5.8); used from charter 7. */
   relays?: ReadonlyMap<string, readonly Pick<Task, "title" | "id">[]>,
+  /** The store's contract change entries at delivery, for the proposal lines (see `proposalLine`); undefined when not read. */
+  entries?: readonly ProposalEntry[],
 ): string {
   const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
   return [
@@ -391,7 +403,8 @@ export function noteMessage(
       const detail = [n.detail, n.later ? `then ${n.later}` : ""].filter(Boolean).map(oneLine).join("; ");
       const line = `- "${oneLine(n.title)}" [${n.taskId}] in project ${n.projectId}: ${n.kind}${detail ? ` — ${detail}` : ""}${n.earlier ? ` (+${n.earlier} earlier)` : ""}`;
       const targets = charter >= relayCharterVersion ? relays?.get(n.taskId) : undefined;
-      const lines = [line, ...(n.proposal ? [proposalLine(n.proposal)] : [])];
+      const proposed = n.proposal ? proposalLine(n.taskId, n.proposal, entries) : null;
+      const lines = [line, ...(proposed ? [proposed] : [])];
       return targets?.length && n.contract ? [...lines, relayLine(targets, n.contract.text)] : lines;
     }),
     ...(charter < batchRulesBelow ? [startRule, noteReplyRule] : []),
@@ -404,7 +417,7 @@ type GroupHub = {
   entry(groupId: string): Promise<DispatcherEntry | undefined>;
   now(): number;
   /** The board, read once per batch that has contract news to relay (§5.8). */
-  board(): Promise<Pick<Board, "links" | "tasks">>;
+  board(): Promise<Pick<Board, "links" | "tasks" | "umbrellaEntries">>;
   /** The batch the group's session received (the chat's note rows, §9.1). */
   sent(groupId: string, agentId: string, notes: readonly DispatcherNote[], at: string): void;
 };
@@ -539,8 +552,9 @@ class GroupDispatcher {
     let sentAt: number;
     const charter = charterVersion(entry ?? {});
     const relays = await this.relayTargets(paseo, notes, charter);
+    const entries = await this.proposalEntries(notes);
     try {
-      await paseo.agents.ref(agentId).send(noteMessage(notes, charter, relays));
+      await paseo.agents.ref(agentId).send(noteMessage(notes, charter, relays, entries));
       sentAt = this.lastSent = this.hub.now();
     } catch (e) {
       logFailure("Flowly dispatcher notes not sent:", e, `${notes.length} notes`);
@@ -551,6 +565,17 @@ class GroupDispatcher {
       this.hub.sent(this.groupId, agentId, notes, new Date(sentAt).toISOString());
     } catch (e) {
       logFailure("Flowly dispatcher chat notes not recorded:", e, `${notes.length} notes`);
+    }
+  }
+
+  /** The store's contract change entries, read at delivery when a note carries a proposal; undefined when not read (the line then says "proposed"). */
+  private async proposalEntries(notes: readonly DispatcherNote[]): Promise<ProposalEntry[] | undefined> {
+    if (!notes.some((n) => n.proposal)) return undefined;
+    try {
+      return (await this.hub.board()).umbrellaEntries.filter((e) => e.kind === "contract_change");
+    } catch (e) {
+      logFailure("Flowly dispatcher contract proposals unreadable:", e, `${notes.length} notes`);
+      return undefined;
     }
   }
 

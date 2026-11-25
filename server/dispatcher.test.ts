@@ -1219,6 +1219,14 @@ test("Replace also takes a guarded dispatcher with every tool whose charter is o
   await expect(x.dispatcher.replace(x.paseo, { agentId })).rejects.toMatchObject({ code: "DISPATCHER_GUARDED" });
 });
 
+test("the charter covers umbrellas, versioned 15", () => {
+  expect(dispatcherCharterVersion).toBe(15);
+  const charter = dispatcherCharter({ name: "Projects" });
+  expect(charter).toContain("flowly_get_umbrella");
+  expect(charter).toMatch(/never accept or reject a contract change, nor record a ruling, without the user's answer/i);
+  for (const tool of ["flowly_create_umbrella", "flowly_set_umbrella", "flowly_update_umbrella"]) expect(charter).toContain(tool);
+});
+
 test("the charter has the relay line for contract news (DISPATCHER-SPEC §5.8, §6)", () => {
   expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(7);
   const line = dispatcherCharter({ name: "Projects" }).split("\n").find((l) => l.includes("Relay contract news with flowly_message_card to:"))!;
@@ -1295,13 +1303,16 @@ test("an unreadable agent list sends the batch without relay lines (§5.8)", asy
   x.dispatcher.dispose();
 });
 
+const pending = (status: "proposed" | "accepted" | "rejected" = "proposed", over: Record<string, unknown> = {}) =>
+  [{ umbrellaId: "u", kind: "contract_change", status, sourceTaskId: "t1", createdAt: "2026-11-25T10:00:00.000Z", ...over }] as unknown as NonNullable<Parameters<typeof noteMessage>[3]>;
+
 test("a contract proposal stays visible when later notes on the same card merge into it (UMBRELLA-SPEC §5 step 3)", () => {
   const proposed: DispatcherNote = {
     ...note("t1", "contract change on r1: the api adds b"),
     kind: "contract_proposed",
     proposal: { eventId: "e1", umbrellaId: "u", conflict: true, mentions: ["t1", "t2"] },
   };
-  const shown = (n: DispatcherNote) => noteMessage([n], dispatcherCharterVersion).split("\n").slice(1).join("\n");
+  const shown = (n: DispatcherNote) => noteMessage([n], dispatcherCharterVersion, undefined, pending()).split("\n").slice(1).join("\n");
   // A later status change does not replace it: the proposal stays the shown kind, the move comes after it.
   const moved = mergeNotes(proposed, note("t1", "development → in_review"));
   expect(moved.kind).toBe("contract_proposed");
@@ -1320,6 +1331,48 @@ test("a contract proposal stays visible when later notes on the same card merge 
   expect(plain).toMatch(/waiting for the user's answer/);
   expect(plain).not.toContain("conflicts");
   expect(plain).not.toContain("roles mentioned");
+});
+
+test("a held note's proposal line is dropped once its entry is no longer proposed, and says proposed when the entry can't be found (UMBRELLA-SPEC §5)", () => {
+  const proposed: DispatcherNote = {
+    ...note("t1", "contract change on r1: the api adds b"),
+    kind: "contract_proposed",
+    proposal: { eventId: "e1", umbrellaId: "u", conflict: false, mentions: [] },
+  };
+  const lines = (entries?: Parameters<typeof noteMessage>[3]) => noteMessage([proposed], dispatcherCharterVersion, undefined, entries).split("\n").slice(1);
+  expect(lines(pending())[1]).toMatch(/^ {2}Contract change waiting for the user's answer \(umbrella u\)/);
+  // Accepted or rejected meanwhile: the line goes, the note stays.
+  for (const status of ["accepted", "rejected"] as const) {
+    const out = lines(pending(status));
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('"Card t1" [t1]');
+  }
+  // The card's newest change in that umbrella decides, not an older one.
+  expect(lines([...pending("accepted"), ...pending("proposed", { createdAt: "2026-11-25T11:00:00.000Z" })])[1]).toContain("waiting for the user's answer");
+  // The entry can't be identified (store not read, entry deleted, another card's): never "waiting".
+  for (const entries of [undefined, [], pending("proposed", { sourceTaskId: "other" })]) {
+    const out = lines(entries);
+    expect(out[1]).toMatch(/^ {2}Contract change proposed \(umbrella u\)/);
+    expect(out[1]).not.toContain("waiting");
+  }
+});
+
+test("a held proposal is checked against the store at delivery (UMBRELLA-SPEC §5)", async () => {
+  const x = await charterDispatcher(dispatcherCharterVersion);
+  const entry = { id: "en1", umbrellaId: "u", kind: "contract_change", status: "proposed", sourceTaskId: "t1", createdAt: "2026-11-25T10:00:00.000Z" };
+  x.state.board.umbrellaEntries.push(entry as never);
+  const proposed: DispatcherNote = { ...note("t1", "contract change on r1: x"), kind: "contract_proposed", proposal: { eventId: "e1", umbrellaId: "u", conflict: false, mentions: [] } };
+  x.agents.get("old")!.status = "running";
+  await x.dispatcher.deliver([proposed], x.paseo);
+  expect(x.sends).toHaveLength(0);
+  // The user answers it in the panel while the note is held.
+  entry.status = "accepted";
+  x.agents.get("old")!.status = "idle";
+  await x.dispatcher.turnEnded("old", x.paseo);
+  expect(x.sends).toHaveLength(1);
+  expect(x.sends[0].text).toContain('"Card t1" [t1]');
+  expect(x.sends[0].text).not.toContain("Contract change");
+  x.dispatcher.dispose();
 });
 
 test("note batches carry the start and reply rules only for a dispatcher at charter version 0 (§7)", () => {
@@ -1797,7 +1850,7 @@ test("the charter finds another group's id with flowly_list_groups first, versio
   expect(line).toMatch(/none or unguarded, tell the user/);
 });
 
-test("the charter starts an approved card and leaves an agent-requested one in Todo, versioned 14 (user request 2026-11-24)", () => {
+test("the charter starts an approved card and leaves an agent-requested one in Todo, version 14 and later (user request 2026-11-24)", () => {
   const charter = dispatcherCharter({ name: "Projects" });
   const lines = charter.split("\n");
   const approval = lines.find((l) => l.startsWith("- An approval starts the card:"))!;
@@ -1816,7 +1869,7 @@ test("the charter starts an approved card and leaves an agent-requested one in T
   expect(peer).toBeDefined();
   expect(peer).not.toContain("create and start a card in its group");
   expect(peer).toContain("waits in Todo there");
-  expect(dispatcherCharterVersion).toBe(14);
+  expect(dispatcherCharterVersion).toBeGreaterThanOrEqual(14);
   expect(dispatcherGuardVersion).toBe(2);
 });
 

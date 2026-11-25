@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { cardConfirmFacts, cardConfirmChoices, cardConfirmReply, cardRefusedMessage, isCardConfirm } from "./card-confirm";
+import { cardConfirmFacts, cardConfirmChoices, cardConfirmReply, cardRefusedMessage, changeRefusedMessage, isCardConfirm, isUmbrellaConfirm, umbrellaConfirmFacts, umbrellaConfirmReply } from "./card-confirm";
+import { emptyBoard, type Board } from "./model";
 import type { PendingRequest } from "./permission-question";
 
 const input = { projectId: "p1", title: "Fix login", description: "Long brief", idempotencyKey: "fix-login", workspace: "worktree", priority: "high", type: "bugfix" };
@@ -118,5 +119,78 @@ describe("the buttons and their answers", () => {
   test("Cancel denies with a refusal the dispatcher reads as stop", () => {
     expect(cardConfirmReply(request(), "cancel", asks)).toEqual({ behavior: "deny", message: cardRefusedMessage });
     expect(cardRefusedMessage).toMatch(/^CARD_REFUSED: /);
+  });
+});
+
+describe("the card confirm shows the proposed umbrella", () => {
+  test("the title when the board knows it, else the id; nothing without umbrellaId", () => {
+    expect(cardConfirmFacts({ ...input, umbrellaId: "u1" }, asks, { title: "Fresh context" }).umbrella).toBe("Fresh context");
+    expect(cardConfirmFacts({ ...input, umbrellaId: "u1" }, asks, null).umbrella).toBe("u1");
+    expect(cardConfirmFacts({ ...input, umbrellaId: "u1" }, asks).umbrella).toBe("u1");
+    expect(cardConfirmFacts(input, asks)).not.toHaveProperty("umbrella");
+  });
+});
+
+const board = (): Pick<Board, "umbrellas" | "tasks" | "projects" | "groups"> => {
+  const b = emptyBoard();
+  const at = "2026-11-25T00:00:00.000Z";
+  const project = (id: string, groupId: string) => ({ id, groupId, title: id, description: "", primaryPath: `/${id}`, repos: [`/${id}`], revision: 1, createdAt: at, updatedAt: at, archivedAt: null }) as unknown as Board["projects"][number];
+  const task = (id: string, projectId: string, umbrella?: string) =>
+    ({ id, projectId, title: `Card ${id}`, umbrella: umbrella ? { id: umbrella, joinedAt: at, by: { kind: "human" } } : undefined }) as unknown as Board["tasks"][number];
+  b.groups = [
+    { id: "A", name: "Projects", revision: 1, position: 0, isDefault: true },
+    { id: "B", name: "Clients", revision: 1, position: 1 },
+  ] as Board["groups"];
+  b.projects = [project("p1", "A"), project("p2", "A"), project("p3", "B")];
+  b.tasks = [task("t1", "p1", "u"), task("t2", "p2", "u"), task("t3", "p1")];
+  b.umbrellas = [{ id: "u", groupId: "A", title: "Fresh context" }] as unknown as Board["umbrellas"];
+  return b;
+};
+const call = (tool: string, args: Record<string, unknown>): PendingRequest => ({ id: "r2", name: `mcp__flowly-dispatcher__${tool}`, kind: "tool", input: args });
+
+describe("the manage_groups confirm names each umbrella that would lose members", () => {
+  test("set_members and delete list every umbrella they would split, one line each", () => {
+    const b = board();
+    const moved = umbrellaConfirmFacts(call("flowly_manage_groups", { action: "set_members", groupId: "B", revision: 1, projectIds: ["p3", "p1"] }), b)!;
+    expect(moved.action).toBe("manage_groups");
+    expect(moved.lines).toEqual(["Set the projects of board group Clients", "Fresh context loses 1 card"]);
+    // Leaving p1 out of B sends it to the default group: nothing is split.
+    const kept = umbrellaConfirmFacts(call("flowly_manage_groups", { action: "set_members", groupId: "A", revision: 1, projectIds: ["p1", "p2", "p3"] }), b)!;
+    expect(kept.lines).toEqual(["Set the projects of board group Projects"]);
+    // Deleting the group that holds p3: it goes to the default group, no umbrella of A has a member there.
+    expect(umbrellaConfirmFacts(call("flowly_manage_groups", { action: "delete", groupId: "B", revision: 1 }), b)!.lines).toEqual([
+      "Delete board group Clients; its projects move to the default group",
+    ]);
+    expect(umbrellaConfirmFacts(call("flowly_manage_groups", { action: "create", name: "New" }), b)!.lines).toEqual(["Create board group New"]);
+  });
+});
+
+describe("the update_umbrella confirm names the umbrella and each changed field", () => {
+  test("one line per field the call passes, the title only when it changes", () => {
+    const b = board();
+    const facts = umbrellaConfirmFacts(
+      call("flowly_update_umbrella", { id: "u", revision: 1, title: "Renamed", brief: "x", contract: "y", acceptance: [], integrationTaskId: "t1", linearProject: { url: "https://linear.app/p", name: "Roadmap" } }),
+      b,
+    )!;
+    expect(facts.action).toBe("update");
+    expect(facts.lines).toEqual(["Fresh context", "Title: Renamed", "Brief changes", "Contract changes", "Acceptance list changes", "Integration card: Card t1", "Linear project: Roadmap"]);
+    expect(umbrellaConfirmFacts(call("flowly_update_umbrella", { id: "u", revision: 1, title: "Fresh context", integrationTaskId: null, linearProject: null, briefSource: null }), b)!.lines).toEqual([
+      "Fresh context", "Brief source cleared", "Integration card cleared", "Linear project cleared",
+    ]);
+  });
+});
+
+describe("the create and set_umbrella confirms", () => {
+  test("create names the title and what comes with it; join and leave name the card and the umbrella", () => {
+    const b = board();
+    expect(umbrellaConfirmFacts(call("flowly_create_umbrella", { title: "Fresh", brief: "Goal", briefSource: "docs/x.md", idempotencyKey: "k" }), b)).toEqual({ action: "create", lines: ["Fresh", "With a brief", "Brief source: docs/x.md"] });
+    expect(umbrellaConfirmFacts(call("flowly_set_umbrella", { projectId: "p1", taskId: "t3", umbrellaId: "u", role: "api" }), b)).toEqual({ action: "join", lines: ["Card t3 joins Fresh context", "Role: api"] });
+    expect(umbrellaConfirmFacts(call("flowly_set_umbrella", { projectId: "p1", taskId: "t1", umbrellaId: null }), b)).toEqual({ action: "leave", lines: ["Card t1 leaves Fresh context"] });
+  });
+  test("only those tools, and Cancel denies as a refusal", () => {
+    expect(isUmbrellaConfirm(call("flowly_create_project", { path: "/x" }))).toBe(false);
+    expect(umbrellaConfirmFacts(request(), board())).toBeNull();
+    expect(umbrellaConfirmReply("confirm")).toEqual({ behavior: "allow" });
+    expect(umbrellaConfirmReply("cancel")).toEqual({ behavior: "deny", message: changeRefusedMessage });
   });
 });

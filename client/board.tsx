@@ -1598,6 +1598,11 @@ function BoardContent(
       ? { title: owner.title, ...(owner.linearTicket ? { linearTicket: true } : {}), ...(owner.linearSkipTypes ? { linearSkipTypes: owner.linearSkipTypes } : {}) }
       : null;
   });
+  // What the dispatcher's umbrella and board group confirms read (UMBRELLA-SPEC §4.3).
+  const confirmBoard = useMemo(
+    () => ({ groups: serverGroups, projects: board?.projects ?? noProjects, tasks: board?.tasks ?? noTasks, umbrellas: projected?.umbrellas ?? noUmbrellas }),
+    [serverGroups, board?.projects, board?.tasks, projected?.umbrellas],
+  );
   const chatLaneOf = useStableCallback((projectId: string, status: string) =>
     laneName(board?.projects.find((p) => p.id === projectId) ?? null, status as Status),
   );
@@ -1652,7 +1657,7 @@ function BoardContent(
       }
     >
       <LeftDock compact={compact} expanded={chatExpanded} onToggleSize={toggleChatSize} onClose={closeChat} onOpenInPaseo={canOpenAgent && dispatcherSession ? openDispatcherHere : undefined} groupName={dispatcherGroupName}>
-        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} resolveCard={resolveCard} cardsVersion={board?.tasks} projectOf={chatProjectOf} projectsVersion={board?.projects} groups={serverGroups} groupId={dispatcherGroupId} onOpenInPaseo={canOpenAgent ? openDispatcherSession : undefined} onSession={setDispatcherSession} />
+        <DispatcherPanel visible={chatOpen} compact={compact} laneOf={chatLaneOf} fill={chatDraft} onFilled={draftFilled} focusRequest={chatFocus} onEscape={dockBoxEscape} onBoxFocus={markDockActive} onOpenCard={openTaskById} resolveCard={resolveCard} cardsVersion={board?.tasks} projectOf={chatProjectOf} projectsVersion={board?.projects} confirmBoard={confirmBoard} groups={serverGroups} groupId={dispatcherGroupId} onOpenInPaseo={canOpenAgent ? openDispatcherSession : undefined} onSession={setDispatcherSession} />
       </LeftDock>
       {chatGrip}
     </Animated.View>
