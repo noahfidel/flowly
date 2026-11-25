@@ -20,6 +20,7 @@
 - Tests: `shared/umbrella.test.ts` (+12), new `server/umbrella-reads.test.ts` (4), `server/agent-service.test.ts` (+6), `server/service.test.ts` (+1). Focused (`npx vitest run shared/umbrella.test.ts server/umbrella-reads.test.ts server/agent-service.test.ts server/service.test.ts server/skill-source.test.ts server/tool-server.test.ts`): 6 files, 131 passed. `npm run typecheck` exit 0; `npm test -- --maxWorkers=3` exit 0, 247 files passed, 1 skipped; 3124 tests passed, 7 skipped.
 - Onboarding, What's new, tips, telemetry, i18n: none (agent-facing text only, English; no switch or counted action).
 - Not run: a live session on the installed plugin reading `flowly_get_task.umbrella`.
+- Fix (review of 76c215e, coordinator ruling): a D19 entry's `answer` counts toward the 6,000-character feed budget; an entry it pushes out is counted and stays unread. Test in `shared/umbrella.test.ts` (RED: 4 shown instead of 3). Focused 132 passed; typecheck exit 0; full suite exit 0, 3125 passed, 7 skipped.
 
 ## Umbrellas, task 2: lifecycle — delete, remove, group moves, repair, export (branch `kanban/spec-umbrella-epic-object-for-related-ca-e89f06`) — 2026-11-25
 

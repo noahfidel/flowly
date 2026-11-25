@@ -112,7 +112,7 @@ umbrella: {
   brief: { text, revision, updatedAt, unread: boolean, truncated: boolean },
   contract: { text, revision, updatedAt, unread: boolean },
   feed: { id, kind, title, body, status, sourceTaskId, sourceTitle, quote?, by, at, unread, answer? }[],
-                                                           // answer: only on an entry returned under D19; quote: a ruling's
+                                                           // answer: only on an entry returned under D19 (counted in the budget); quote: a ruling's
                                                            // quoted words (counted in the budget); sourceTaskId/sourceTitle
                                                            // null when no card wrote it; a contract change's body is its reason
   openQuestions: number, pendingContractChanges: number,

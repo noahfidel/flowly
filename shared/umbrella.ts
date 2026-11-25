@@ -356,7 +356,8 @@ export function umbrellaContext(input: {
   const shown: UmbrellaEntry[] = [];
   let size = 0;
   for (const e of ordered) {
-    const next = size + e.title.length + entryBody(e).length + (e.quote?.length ?? 0);
+    // A D19 answer is sent with the entry, so it counts too (coordinator ruling 2026-11-25).
+    const next = size + e.title.length + entryBody(e).length + (e.quote?.length ?? 0) + (returned(e) ? (e.answer?.length ?? 0) : 0);
     if (next > umbrellaLimits.feedBudget) break;
     size = next;
     shown.push(e);

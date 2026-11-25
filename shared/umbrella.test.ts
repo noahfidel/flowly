@@ -348,3 +348,16 @@ test("the start line names the umbrella, the role and the [contract] rule", () =
     'Umbrella "Fresh context" (your role: feature map): the brief, contract and feed are in flowly_get_task.umbrella. Start a report\'s note with [contract] only when it changes a handoff shape or decision your siblings depend on.',
   );
 });
+
+test("a returned answer counts toward the 6,000 budget; the one left out stays unread and returns later", () => {
+  const asker = { kind: "agent" as const, agentId: "me", taskId: "a" };
+  const answered = (id: string, minute: number) =>
+    fed(id, "question", "answered", minute, { sourceTaskId: "a", by: asker, body: "b".repeat(100), answer: "y".repeat(1500) });
+  const board = contextBoard({ entries: [1, 2, 3, 4].map((m) => answered(`q${m}`, m)) });
+  const first = ctxOf(board, "a", { brief: 1, contract: 0, entries: [] })!;
+  // Each returned entry costs about 1,602 characters with its answer: three fit, the fourth would pass 6,000.
+  expect(first.value.feed.map((e) => e.id)).toEqual(["q4", "q3", "q2"]);
+  expect(first.value).toMatchObject({ truncatedFeed: 1, unreadLeftOut: 1 });
+  const next = ctxOf(board, "a", { brief: 1, contract: 0, entries: first.shown.entries })!;
+  expect(next.value.feed.map((e) => [e.id, e.unread, e.answer?.length])).toEqual([["q1", true, 1500]]);
+});
