@@ -698,3 +698,30 @@ test("board tools are refused when agent card edits are off", async () => {
     expect(await x.failure(call)).toBe("AGENT_CARDS_DISABLED");
   expect((await x.store.read()).umbrellas.map((u) => u.title)).toEqual(["Mine", "Other"]);
 });
+
+test("flowly_set_umbrella refuses to move or remove the integration card (D5)", async () => {
+  const x = await umbrellaSetup();
+  await x.store.mutate((board) => {
+    board.umbrellas.find((u) => u.id === x.mine.id)!.integrationTaskId = "t";
+  });
+  const revision = (await x.store.read()).umbrellas.find((u) => u.id === x.mine.id)!.revision;
+  expect(await x.failure(x.cards.setUmbrella(x.card, { taskId: "t", umbrellaId: null }))).toBe("INVALID_INPUT");
+  expect(await x.failure(x.cards.setUmbrella(x.card, { taskId: "t", umbrellaId: x.other.id }))).toBe("INVALID_INPUT");
+  const after = (await x.store.read()).umbrellas.find((u) => u.id === x.mine.id)!;
+  expect(after).toMatchObject({ integrationTaskId: "t", revision });
+  // A role change keeps it a member and stays allowed.
+  expect((await x.cards.setUmbrella(x.card, { taskId: "t", umbrellaId: x.mine.id, role: "lead" })).changed).toBe(true);
+});
+
+test("flowly_get_umbrella returns an answer only on the caller's own card's entries (D19)", async () => {
+  const x = await umbrellaSetup();
+  const at = new Date().toISOString();
+  await x.store.mutate((board) => {
+    for (const [id, sourceTaskId] of [["e1", "t"], ["e2", "tq"]] as const)
+      board.umbrellaEntries.push({ id, umbrellaId: x.mine.id, kind: "question", title: id, body: "", status: "answered", answer: `answer ${id}`, sourceTaskId, by: { kind: "agent", agentId: "a" }, createdAt: at, updatedAt: at });
+  });
+  const own = await x.cards.getUmbrella(x.card, { umbrellaId: x.mine.id });
+  expect(own.entries.map((e) => [e.id, e.answer])).toEqual([["e1", "answer e1"], ["e2", undefined]]);
+  const outside = await x.cards.getUmbrella(x.board, { umbrellaId: x.mine.id });
+  expect(outside.entries.every((e) => e.answer === undefined)).toBe(true);
+});

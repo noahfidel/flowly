@@ -155,7 +155,7 @@ Errors: `NOT_IN_UMBRELLA`, `UMBRELLA_CLOSED`, `UMBRELLA_KIND`, `UMBRELLA_OUT_OF_
 `registerCardTools` gives board tools to card sessions and sessions outside cards alike, so these tools are what a member agent can do beyond §4.1. Rule: **no agent tool edits an existing brief, contract, acceptance list or integration card**; those change only in the UI, or through the dispatcher after the user's yes in its chat (D5). A member changes the contract only by proposing (§5).
 
 - `flowly_list_umbrellas {}`: the open umbrellas of the caller's project's group. No `groupId` input; another group is never listed.
-- `flowly_get_umbrella {umbrellaId}`: full brief, contract, feed and members. An umbrella of another group returns `UMBRELLA_OUT_OF_GROUP`. Sibling titles, lanes and project names from other projects of the same group are visible by design.
+- `flowly_get_umbrella {umbrellaId}`: full brief, contract, feed and members; `answer` is included only on the caller's own card's entries (D19). An umbrella of another group returns `UMBRELLA_OUT_OF_GROUP`. Sibling titles, lanes and project names from other projects of the same group are visible by design.
 - `flowly_create_umbrella {title, brief?, linearProject?, idempotencyKey}`: in the caller's project's group; `brief` is only the initial text.
 - `flowly_set_umbrella {taskId, umbrellaId|null, role?, order?}`: a card of the caller's project; adding an existing card to an umbrella or moving it out follows D11.
 

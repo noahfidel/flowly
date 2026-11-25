@@ -395,7 +395,13 @@ export class AgentCards {
     if (found.umbrella.groupId !== groupId)
       throw new ToolError("UMBRELLA_OUT_OF_GROUP", "That umbrella belongs to another board group than this project. Use an id from flowly_list_umbrellas.");
     const { operationId: _operation, ...umbrella } = found.umbrella;
-    return { ...found, umbrella };
+    // D19: an answer or reject note reaches only the card it came from.
+    const entries = found.entries.map((e): typeof e => {
+      if (e.answer === undefined || (e.sourceTaskId && e.sourceTaskId === caller.taskId)) return e;
+      const { answer: _answer, ...rest } = e;
+      return rest;
+    });
+    return { ...found, entries, umbrella };
   }
   /**
    * flowly_create_umbrella: in the caller's group; the key replays it (a replay takes no hourly slot). Counts with card
@@ -433,6 +439,9 @@ export class AgentCards {
     if (project.archivedAt) throw new ToolError("ARCHIVED", "The Flowly project is archived.");
     const before = board.tasks.find((t) => t.id === input.taskId && t.projectId === project.id);
     if (!before) throw new ToolError("CARD_NOT_FOUND", "No card with that id in this project. Use an id from flowly_list_cards.");
+    // D5: no agent tool changes the integration card; leaving would clear it and bump the umbrella's revision.
+    if (before.umbrella && input.umbrellaId !== before.umbrella.id && board.umbrellas.find((u) => u.id === before.umbrella!.id)?.integrationTaskId === before.id)
+      throw new ToolError("INVALID_INPUT", "This card is its umbrella's integration card. The user changes the integration card in Flowly first; then it can leave or move.");
     const release = this.reserve(caller.agentId, caller.dispatcher);
     try {
       const was = JSON.stringify(before.umbrella ?? null);
