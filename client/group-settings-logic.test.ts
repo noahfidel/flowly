@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Group, Project } from "../shared/model";
-import { agentModelText, autoReviewMoveNote, autoReviewText, inheritedAutoReviewText, currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, afterDiscard, lanesDirtyKey, needsDiscardConfirm, shownGroup, withDirty } from "./group-settings-logic";
+import { umbrellaLossLines, umbrellaLossLinesForDelete, agentModelText, autoReviewMoveNote, autoReviewText, inheritedAutoReviewText, currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, afterDiscard, lanesDirtyKey, needsDiscardConfirm, shownGroup, withDirty } from "./group-settings-logic";
 
 const at = "2026-11-10T00:00:00.000Z";
 const group = (id: string, position: number, defaults?: Group["defaults"]): Group => ({ id, name: id.toUpperCase(), position, revision: 1, createdAt: at, updatedAt: at, ...(defaults ? { defaults } : {}) });
@@ -99,5 +99,30 @@ describe("auto review at the group level (BOARD-GROUPS-SPEC §5; ruling, Noah 20
     expect(autoReviewMoveNote(inherits, off, on)).toBe("Auto review will follow ON: On, 2 rounds.");
     expect(autoReviewMoveNote(inherits, off, unset)).toBeNull();
     expect(autoReviewMoveNote({ autoReview: { enabled: true, maxRounds: 2 } }, on, off)).toBeNull();
+  });
+});
+
+describe("umbrella warnings on a group move (UMBRELLA-SPEC §9)", () => {
+  const project = (id: string, groupId: string) => ({ id, groupId, title: id, position: 0, createdAt: at }) as unknown as Project;
+  const member = (id: string, projectId: string) => ({ id, projectId, title: id, umbrella: { id: "u1" } }) as never;
+  const summary = { id: "u1", groupId: "g1", title: "Fresh context" } as never;
+  const board = {
+    groups: [group("g1", 0), group("g2", 1)],
+    projects: [project("a", "g1"), project("b", "g1")],
+    tasks: [member("t1", "a"), member("t2", "a"), member("t3", "b")],
+    umbrellas: [summary],
+  };
+  test("moving one project of a split umbrella names how many cards leave it", () => {
+    expect(umbrellaLossLines(board, [{ projectId: "a", groupId: "g2" }])).toEqual(["Fresh context loses 2 cards"]);
+    expect(umbrellaLossLines(board, [{ projectId: "b", groupId: "g2" }])).toEqual(["Fresh context loses 1 card"]);
+  });
+  test("moving every member's project together loses nothing", () => {
+    expect(umbrellaLossLines(board, [{ projectId: "a", groupId: "g2" }, { projectId: "b", groupId: "g2" }])).toEqual([]);
+  });
+  test("deleting a group sends all its projects to the default group", () => {
+    expect(umbrellaLossLinesForDelete(board, "g1", "g2")).toEqual([]);
+    // Project b is in a third group: the default group cannot hold every member, so all three cards leave.
+    expect(umbrellaLossLinesForDelete({ ...board, projects: [project("a", "g1"), project("b", "g3")] }, "g1", "g2")).toEqual(["Fresh context loses 3 cards"]);
+    expect(umbrellaLossLinesForDelete(board, "g1", undefined)).toEqual([]);
   });
 });

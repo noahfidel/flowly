@@ -40,6 +40,7 @@ const fieldText: Record<CardField, { title: string; detail: string }> = {
   sessions: { title: msg("Session activity"), detail: msg("Running and unread sessions. Approvals and errors always show.") },
   workpad: { title: msg("Workpad checks"), detail: msg("How many of the agent's checks passed.") },
   ideas: { title: msg("Ideas"), detail: msg("How many ideas agents proposed on the card.") },
+  umbrella: { title: msg("Umbrella"), detail: msg("The card's umbrella and its role in it.") },
 };
 
 const sectionText: Record<AnyDrawerSection, string> = {
@@ -50,6 +51,7 @@ const sectionText: Record<AnyDrawerSection, string> = {
   sessions: msg("Sessions"),
   ideas: msg("Ideas"),
   links: msg("Links"),
+  umbrella: msg("Umbrella"),
   details: msg("Details & workspace"),
   usage: msg("Usage"),
   activity: msg("Activity"),
@@ -255,6 +257,7 @@ function CardPreview({ display }: { display: ReturnType<typeof cardDisplay> }) {
           progress={sample.progress}
           ideas={1}
           externalKey="SHOP-142"
+          umbrella={t("Checkout rework")}
           workpad={{ kind: "acceptance", done: 2, total: 3 }}
           display={display}
           onOpen={noop}

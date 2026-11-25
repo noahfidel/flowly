@@ -1,7 +1,7 @@
 /** What a board card shows (CARD-DISPLAY-SPEC). Pure; the values live in the host-scoped board-view settings. */
 
 /** Fields the user can hide. Signals that ask the user to act are not in this list: they always show. */
-export const cardFields = ["workspace", "priority", "type", "external", "tags", "sessions", "workpad", "ideas"] as const;
+export const cardFields = ["workspace", "priority", "type", "external", "tags", "sessions", "workpad", "ideas", "umbrella"] as const;
 export type CardField = (typeof cardFields)[number];
 
 /** The activity line: `auto` shows the progress summary, else the latest output. */
@@ -20,6 +20,7 @@ export const defaultCardDisplay: CardDisplay = {
   sessions: true,
   workpad: true,
   ideas: true,
+  umbrella: true,
 };
 
 /** Visibility per field from the stored values; unknown hidden ids are ignored. */

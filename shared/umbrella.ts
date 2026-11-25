@@ -24,8 +24,26 @@ export { umbrellaLimits };
 /** Entries that count toward the 300 per umbrella: `active` and `open`; `proposed` counts only against the pending changes. */
 export const countsTowardLimit = (e: UmbrellaEntry) => e.status === "active" || e.status === "open";
 
+/** The card face's umbrella chip text (§7): the title cut to 20 characters (an ellipsis counts), ` · role` when the card has one. */
+export function umbrellaChipText(title: string, role?: string): string {
+  const chars = [...title];
+  const cut = chars.length > 20 ? `${chars.slice(0, 19).join("")}…` : title;
+  return role ? `${cut} · ${role}` : cut;
+}
+
+/** Changes when the umbrella is edited (`revision`) or its feed is written (`feedRevision`); the drawer refetches the feed on it. */
+export const umbrellaRefetchKey = (s: Pick<UmbrellaSummary, "revision" | "feedRevision">): string => `${s.revision}:${s.feedRevision}`;
+
+/** The newest `limit` feed entries, newest first; withdrawn ones are left out (the drawer section's list, §7). */
+export function recentEntries<E extends Pick<UmbrellaEntry, "status" | "createdAt" | "id">>(entries: readonly E[], limit = 5): E[] {
+  return entries
+    .filter((e) => e.status !== "withdrawn")
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+    .slice(0, limit);
+}
+
 /** The umbrella's member cards (archived ones included), by `order` then title; a card without `order` comes after those with one. */
-export function membersOf(board: Pick<Board, "tasks">, umbrellaId: string): Task[] {
+export function membersOf(board: { tasks: readonly Task[] }, umbrellaId: string): Task[] {
   const rank = (t: Task) => t.umbrella?.order ?? Number.POSITIVE_INFINITY;
   return board.tasks
     .filter((t) => t.umbrella?.id === umbrellaId)
@@ -56,6 +74,14 @@ export function leaveUmbrella(board: Pick<Board, "umbrellas">, task: Task, now: 
   return umbrella;
 }
 
+/** What the move rule reads of an umbrella: a summary from the board overview has it too (the confirm's preview). */
+type UmbrellaIdentity = Pick<Umbrella, "id" | "groupId" | "title">;
+type MoveReadBoard<U extends UmbrellaIdentity> = {
+  groups: readonly Board["groups"][number][];
+  projects: readonly Board["projects"][number][];
+  tasks: readonly Task[];
+  umbrellas: readonly U[];
+};
 type GroupMovesBoard = Pick<Board, "groups" | "projects" | "tasks" | "umbrellas">;
 
 /**
@@ -63,8 +89,8 @@ type GroupMovesBoard = Pick<Board, "groups" | "projects" | "tasks" | "umbrellas"
  * (`groupIdOf`): `follow` is the one group all members are in when it differs from the umbrella's; otherwise
  * `leaving` are the members whose project is no longer in the umbrella's group.
  */
-function groupMovePlan(board: GroupMovesBoard, projectIds: readonly string[], groupIdOf: (projectId: string) => string | null) {
-  const plan: { umbrella: Umbrella; follow?: string; leaving: Task[] }[] = [];
+function groupMovePlan<U extends UmbrellaIdentity>(board: MoveReadBoard<U>, projectIds: readonly string[], groupIdOf: (projectId: string) => string | null) {
+  const plan: { umbrella: U; follow?: string; leaving: Task[] }[] = [];
   for (const umbrella of board.umbrellas) {
     const members = membersOf(board, umbrella.id);
     if (!members.some((t) => projectIds.includes(t.projectId))) continue;
@@ -113,7 +139,7 @@ export function applyGroupMoves(
 
 /** What `moves` would do, without changing anything: the umbrellas that would lose members, for a confirm (§9). */
 export function umbrellasLosingMembers(
-  board: GroupMovesBoard,
+  board: MoveReadBoard<UmbrellaIdentity>,
   moves: readonly { projectId: string; groupId: string }[],
 ): { umbrellaId: string; title: string; cards: number }[] {
   const target = new Map(moves.map((m) => [m.projectId, m.groupId]));

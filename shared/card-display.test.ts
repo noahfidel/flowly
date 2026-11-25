@@ -1,11 +1,18 @@
 import { expect, test } from "vitest";
-import { activityLines, cardDisplay, cardWorkspace, withCardField } from "./card-display";
+import { activityLines, cardDisplay, cardFields, cardWorkspace, withCardField } from "./card-display";
 
 test("everything shows by default; hidden ids hide their field and unknown ids are ignored", () => {
   expect(cardDisplay(null)).toMatchObject({ activity: "auto", priority: true, type: true, external: true, workspace: true, tags: true, sessions: true, workpad: true, ideas: true });
   expect(cardDisplay({ cardHidden: ["workspace"] }).workspace).toBe(false);
   expect(cardDisplay({ cardHidden: ["tags", "ideas", "later"], cardActivity: "none" })).toMatchObject({ activity: "none", tags: false, ideas: false, type: true });
   expect(cardDisplay({ cardActivity: "bogus" }).activity).toBe("auto");
+});
+
+test("umbrella is a hideable card field", () => {
+  expect(cardFields).toContain("umbrella");
+  expect(cardDisplay(null).umbrella).toBe(true);
+  expect(cardDisplay({ cardHidden: ["umbrella"] }).umbrella).toBe(false);
+  expect(withCardField([], "umbrella", false)).toEqual(["umbrella"]);
 });
 
 test("the ticket field's old id still hides the external key (CONNECTORS-SPEC §3.3)", () => {

@@ -1,7 +1,8 @@
 /** Pure parts of the group settings page and the inherited defaults (BOARD-GROUPS-SPEC §5). No React. */
 import { t, tn } from "../shared/i18n";
 import { orderedGroups } from "../shared/groups";
-import { projectOrder, type Group, type Project } from "../shared/model";
+import { projectOrder, type Group, type Project, type Task } from "../shared/model";
+import { umbrellasLosingMembers, type UmbrellaSummary } from "../shared/umbrella";
 import { effectiveDispatcherModel, type AgentModel } from "../shared/agent-defaults";
 import { deliveryModeLabels, resolveDeliveryMode } from "../shared/delivery-mode";
 import { effectiveAutoReview, type ReviewConfig } from "../shared/auto-review";
@@ -99,3 +100,20 @@ export function shownGroup(listed: Group | undefined, written: Group | undefined
 
 /** The revision a project write must send: the newest of the overview's and the last one a section save returned. */
 export const currentRevision = (project: Pick<Project, "revision">, saved: number | undefined): number => Math.max(project.revision, saved ?? 0);
+
+/** What the confirm of a project move or a Delete group reads: the overview's groups, projects, cards and umbrella summaries. */
+export type UmbrellaMoveBoard = { groups: readonly Group[]; projects: readonly Project[]; tasks: readonly Task[]; umbrellas: readonly UmbrellaSummary[] };
+
+/** One line per umbrella a move would split, "<title> loses N cards" (UMBRELLA-SPEC §9); none when nothing is lost. */
+export function umbrellaLossLines(board: UmbrellaMoveBoard, moves: readonly { projectId: string; groupId: string }[]): string[] {
+  return umbrellasLosingMembers(board, moves).map((u) => tn(u.cards, "{title} loses {n} card", "{title} loses {n} cards", { title: u.title }));
+}
+
+/** The lines for deleting a group: every project in it goes to the default group. */
+export function umbrellaLossLinesForDelete(board: UmbrellaMoveBoard, groupId: string, defaultGroupId: string | undefined): string[] {
+  if (!defaultGroupId) return [];
+  return umbrellaLossLines(
+    board,
+    board.projects.filter((p) => p.groupId === groupId).map((p) => ({ projectId: p.id, groupId: defaultGroupId })),
+  );
+}

@@ -21,6 +21,8 @@ const groupFilterSchema = z.object({
   search: z.string().max(200).catch("").default(""),
   priority: z.enum(["all", ...priorities]).catch("all").default("all"),
   type: z.enum(["all", ...taskTypes]).catch("all").default("all"),
+  /** "" all, "none" cards with no umbrella, else an umbrella id (UMBRELLA-SPEC §7). */
+  umbrella: z.string().max(200).catch("").default(""),
   tags: z.array(z.string().max(80)).max(20).catch([]).default([]),
   archived: z.boolean().catch(false).default(false),
 });
@@ -64,6 +66,8 @@ export const boardViewSettings = defineSettings({
     filterSearch: z.string().max(200).default(""),
     filterPriority: z.enum(["all", ...priorities]).default("all"),
     filterType: z.enum(["all", ...taskTypes]).default("all"),
+    /** Umbrella filter: "" all, "none" no umbrella, else an umbrella id (UMBRELLA-SPEC §7). */
+    filterUmbrella: z.string().max(200).catch("").default(""),
     /** Tags shown (any matches); a value ending in "/" matches by prefix (CARD-TAGS-SPEC §6.4). */
     filterTags: z.array(z.string().max(80)).max(20).default([]),
     showArchived: z.boolean().default(false),
@@ -141,6 +145,7 @@ export function groupFilterOf(values: BoardView, groupId: string): GroupFilter {
       search: values.filterSearch,
       priority: values.filterPriority,
       type: values.filterType,
+      umbrella: values.filterUmbrella,
       tags: values.filterTags,
       archived: values.showArchived,
     }
@@ -152,7 +157,7 @@ export function groupFilterOf(values: BoardView, groupId: string): GroupFilter {
  * show-archived turned on when the card or its project is archived, else the group's own value.
  */
 export function linkedCardFilter(current: GroupFilter, cardArchived: boolean): GroupFilter {
-  return { search: "", priority: "all", type: "all", tags: [], archived: current.archived || cardArchived };
+  return { search: "", priority: "all", type: "all", umbrella: "", tags: [], archived: current.archived || cardArchived };
 }
 
 /** A group's collapsed lanes: its own entry, else the global set saved before per-group lanes (the seed). */

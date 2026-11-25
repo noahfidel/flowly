@@ -23,6 +23,7 @@ import { Collapse } from "./disclosure";
 import { reviewIcon, reviewLabel } from "./task-review";
 import { reviewProgress } from "../shared/auto-review";
 import type { ConnectorFamily } from "../shared/connectors";
+import { umbrellaChipText } from "../shared/umbrella";
 
 export type CardDrag = {
   start(task: Task, point: Point): void;
@@ -116,6 +117,7 @@ export function TaskCard({
   ideas = 0,
   externalKey = "",
   externalFamily,
+  umbrella = "",
   workpad = null,
   waiting = 0,
   waitingTitles = "",
@@ -159,6 +161,8 @@ export function TaskCard({
   externalKey?: string;
   /** The first item's service, for its logo (CONNECTORS-SPEC §8.3). */
   externalFamily?: ConnectorFamily;
+  /** The title of the card's umbrella ("" none, or not known yet); the chip shows it with the card's role (UMBRELLA-SPEC §7). */
+  umbrella?: string;
   /** The workpad's checks or delivery state (WORKPAD-SPEC §6.1). */
   workpad?: WorkpadSignal | null;
   /** Unresolved cards this one is blocked by, and their titles (CARD-LINKS-SPEC §5.1). */
@@ -356,7 +360,7 @@ export function TaskCard({
           outlineStyle: "none",
         }) as never}
       >
-        <CardMeta task={task} project={projectLabel} externalKey={externalKey} externalFamily={externalFamily} workspace={workspace} display={display} />
+        <CardMeta task={task} project={projectLabel} externalKey={externalKey} externalFamily={externalFamily} umbrella={umbrella} workspace={workspace} display={display} />
         <Label medium size={font.base} lines={3} selectable={false}>
           {task.title}
         </Label>
@@ -692,15 +696,16 @@ function CardSignals({
  * What the card is: workspace, priority, type, ticket and tags as one quiet row above the
  * title (CARD-DISPLAY-SPEC §2). Plain text with icons; only Urgent/High keep colour.
  */
-function CardMeta({ task, project, externalKey, externalFamily, workspace, display }: { task: Task; project: string; externalKey: string; externalFamily?: ConnectorFamily; workspace: CardWorkspace | null; display: CardDisplay }) {
+function CardMeta({ task, project, externalKey, externalFamily, umbrella, workspace, display }: { task: Task; project: string; externalKey: string; externalFamily?: ConnectorFamily; umbrella: string; workspace: CardWorkspace | null; display: CardDisplay }) {
   const { colors } = useTheme();
   const priority = display.priority && task.priority !== "normal";
   const accent = priorityAccent(colors, task.priority);
   const type = display.type && !!task.type;
   const ticket = display.external && !!externalKey;
   const place = display.workspace ? workspace : null;
+  const umbrellaText = display.umbrella && umbrella ? umbrellaChipText(umbrella, task.umbrella?.role) : "";
   const tags = display.tags ? task.tags || [] : [];
-  if (!project && !priority && !type && !ticket && !place && !tags.length) return null;
+  if (!project && !priority && !type && !ticket && !place && !umbrellaText && !tags.length) return null;
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: space[2]+2, rowGap: 2, minWidth: 0 }}>
       {!!project && (
@@ -717,6 +722,7 @@ function CardMeta({ task, project, externalKey, externalFamily, workspace, displ
         <Meta label={t("{priority} priority", { priority: priorityLabels[task.priority] })} icon={<PriorityIcon priority={task.priority} size={12} />} text={priorityLabels[task.priority]} color={accent} />
       )}
       {type && <Meta label={t("Type: {type}", { type: taskTypeLabels[task.type!] })} icon={<TypeIcon type={task.type!} size={12} />} text={taskTypeLabels[task.type!]} />}
+      {!!umbrellaText && <UmbrellaMeta label={t("Umbrella: {title}", { title: umbrella })} text={umbrellaText} />}
       {ticket && <Meta label={externalKey} icon={externalFamily ? <BrandIcon family={externalFamily} size={12} /> : <Icon name="Ticket" size={12} color={colors.foregroundMuted} />} text={externalKey} />}
       {!!tags.length && (
         // Custom tags (CARD-TAGS-SPEC §6.2): the first two, then a count.
@@ -732,6 +738,19 @@ function CardMeta({ task, project, externalKey, externalFamily, workspace, displ
           {tags.length > 2 && <Label size={font.xs} muted selectable={false}>{`+${tags.length - 2}`}</Label>}
         </View>
       )}
+    </View>
+  );
+}
+
+/** The umbrella chip: quiet text after the type, cut so it never takes the row (UMBRELLA-SPEC §7). */
+function UmbrellaMeta({ label, text }: { label: string; text: string }) {
+  const { colors } = useTheme();
+  return (
+    <View accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 3, flexShrink: 1, minWidth: 0 }}>
+      <Icon name="Umbrella" size={12} color={colors.foregroundMuted} />
+      <View style={{ flexShrink: 1, minWidth: 0 }}>
+        <Label size={font.xs} muted lines={1} selectable={false}>{text}</Label>
+      </View>
     </View>
   );
 }

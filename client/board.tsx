@@ -1,4 +1,5 @@
 import type { BoardOverview } from "../shared/overview";
+import type { UmbrellaSummary } from "../shared/umbrella";
 import { CardDetailProvider, detailQueryOptions, detailUnavailable, invalidateCardViews, useCardDetailQuery, useProjectsIdeasQuery } from "./card-detail-query";
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Platform, Pressable, View, useWindowDimensions, type GestureResponderEvent } from "react-native";
@@ -142,6 +143,7 @@ import { boardProject, boardScope, defaultGroup, focusProject, mobileLane, group
 import { boardLanes, dropAllowed, includedProjects, matchesFilters, newTaskOpen, reorderAllowed, scopeTasks, sortAllColumn } from "./all-projects";
 import { GroupTabs, needLabel } from "./project-tabs";
 import { DeleteGroupDialog, GroupNameDialog } from "./group-dialogs";
+import { umbrellaLossLinesForDelete } from "./group-settings-logic";
 import { RemoveProjectDialog } from "./project-remove";
 import { boardOverview, mergeRunning, runningRows, sameRunningRows, type RunningRow } from "./overview";
 import { enabledStatuses, laneName } from "../shared/lanes";
@@ -248,7 +250,8 @@ const noGroups: Group[] = [];
 const noProjects: Project[] = [];
 const noRunning: RunningRow[] = [];
 const noIds: string[] = [];
-const noGroupFilter: GroupFilter = { search: "", priority: "all", type: "all", tags: [], archived: false };
+const noUmbrellas: UmbrellaSummary[] = [];
+const noGroupFilter: GroupFilter = { search: "", priority: "all", type: "all", umbrella: "", tags: [], archived: false };
 const noAgents: PaseoAgent[] = [];
 const noTurnFacts: ReadonlyMap<string, { latestTurn?: { action: string; at: string } }> = new Map();
 const noProviderRunning: ProviderRunning = { running: {} };
@@ -643,9 +646,11 @@ function BoardContent(
   const shownFilter = ownFilters[shownGroupId] ?? (view.values ? groupFilterOf(view.values, shownGroupId) : noGroupFilter);
   const { search, priority, tags: tagFilter, archived } = shownFilter;
   const taskType = shownFilter.type;
+  const umbrellaFilter = shownFilter.umbrella;
   const setSearch = (next: string) => writeGroupFilter(shownGroupId, { search: next.slice(0, 200) }, 500);
   const setPriority = (next: string) => writeGroupFilter(shownGroupId, { priority: next as GroupFilter["priority"] });
   const setTaskType = (next: string) => writeGroupFilter(shownGroupId, { type: next as GroupFilter["type"] });
+  const setUmbrellaFilter = (next: string) => writeGroupFilter(shownGroupId, { umbrella: next });
   const setTagFilter = (next: string[]) => writeGroupFilter(shownGroupId, { tags: next.slice(0, 20) });
   // Clicking a tag in the drawer adds it to the filter (CARD-TAGS-SPEC §6.3).
   const filterByTag = useStableCallback((tag: string) => {
@@ -830,7 +835,7 @@ function BoardContent(
     allView ? { all: true, projectIds: includedIds } : { all: false, projectId: project?.id || "" },
     archived,
   );
-  const visible = tasks.filter((t) => matchesFilters(t, { search, priority, taskType, tags: tagFilter }));
+  const visible = tasks.filter((t) => matchesFilters(t, { search, priority, taskType, umbrella: umbrellaFilter, tags: tagFilter }));
   // Lanes are the group's (BOARD-GROUPS-SPEC §4): its enabled lanes in its order and names, filtered or not.
   const lanesShown = boardLanes(group, project, liveProjects);
   const shownStatuses = lanesShown.statuses;
@@ -1146,10 +1151,22 @@ function BoardContent(
     const all = [...new Set([...tagPrefixes(projectTags), ...projectTags, ...tagFilter])];
     return all;
   }, [projectTags, tagFilter]);
+  // The Umbrella filter's choices (UMBRELLA-SPEC §7): the shown group's open umbrellas, plus the chosen one if it has since closed.
+  const umbrellaById = useMemo(() => new Map((projected?.umbrellas ?? noUmbrellas).map((u) => [u.id, u])), [projected?.umbrellas]);
+  const umbrellaChoices = useMemo(
+    () =>
+      (projected?.umbrellas ?? noUmbrellas)
+        .filter((u) => !!group && u.groupId === group.id && ((u.status === "open" && !u.archivedAt) || u.id === umbrellaFilter))
+        .map((u) => ({ value: u.id, label: u.title })),
+    [projected?.umbrellas, group?.id, umbrellaFilter],
+  );
+  // Task 7 fills this in with the umbrella panel; until then the drawer shows no Open umbrella link.
+  const openUmbrellaPanel: ((id: string) => void) | undefined = undefined;
   const filterCount =
     Number(!!search) +
     Number(priority !== "all") +
     Number(taskType !== "all") +
+    Number(!!umbrellaFilter) +
     Number(tagFilter.length > 0) +
     Number(!!validFilterId);
   const refresh = () => {
@@ -1956,7 +1973,7 @@ function BoardContent(
   // card of the lane in the same frame as its animation.
   const cardDerived = useMemo(
     () => new WeakMap<Task, Omit<LiveTaskCardProps, "selected" | "flash" | "drag" | "dragging" | "disabled" | "display" | "onOpen" | "onOpenSession" | "onActions" | "menuFor">>(),
-    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, projectById, allView, waitingIndex, factsByTask, sessionFacts, activityByWorkspace],
+    [cardIndex, receipts, summaryState, attentionByTask, managedIds, summaries.data, !!board, openIdeaCount, externalKeys, projectById, umbrellaById, allView, waitingIndex, factsByTask, sessionFacts, activityByWorkspace],
   );
   const derivedFor = (t: Task) => {
     let derived = cardDerived.get(t);
@@ -1987,6 +2004,7 @@ function BoardContent(
       waiting: waitingIndex.get(t.id)?.count || 0,
       waitingTitles: waitingIndex.get(t.id)?.titles || "",
       projectLabel: allView ? own?.title : undefined,
+      umbrella: t.umbrella ? umbrellaById.get(t.umbrella.id)?.title : undefined,
     };
     cardDerived.set(t, derived);
     return derived;
@@ -2367,6 +2385,8 @@ function BoardContent(
         onLink={linkFrom}
         onFollowUp={followUp}
         onOpenTask={openTaskById}
+        umbrella={drawer.item.task.umbrella ? umbrellaById.get(drawer.item.task.umbrella.id) : undefined}
+        onOpenUmbrella={openUmbrellaPanel}
         onStatusChanged={drawerStatusChanged}
         refresh={stableRefresh}
         sessionDefaults={sessionDefaults}
@@ -2750,7 +2770,7 @@ function BoardContent(
                     statuses={shownStatuses}
                     tasks={visible}
                     disabled={pending || !!project?.archivedAt}
-                    cancelKey={`${viewKey}|${search}|${priority}|${taskType}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${projectForm}|${!!groupSettings}|${!!taskForm}|${!!quickTask}`}
+                    cancelKey={`${viewKey}|${search}|${priority}|${taskType}|${umbrellaFilter}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${projectForm}|${!!groupSettings}|${!!taskForm}|${!!quickTask}`}
                     sortColumn={sortColumn}
                     manualOrder={reorderAllowed(allView, boardSort, !!group)}
                     collapsed={collapsedColumns}
@@ -2931,6 +2951,14 @@ function BoardContent(
                 ]}
                 onChange={setTaskType}
               />
+              {umbrellaChoices.length > 0 && (
+                <Choices
+                  title={t("Umbrella")}
+                  value={umbrellaFilter}
+                  options={[{ value: "", label: t("All") }, { value: "none", label: t("No umbrella") }, ...umbrellaChoices]}
+                  onChange={setUmbrellaFilter}
+                />
+              )}
               <Choices
                 title={t("Priority")}
                 value={priority}
@@ -2971,7 +2999,7 @@ function BoardContent(
                   disabled={!filterCount}
                   onPress={() => {
                     if (group) setGroupFilter(group.id, null);
-                    writeGroupFilter(shownGroupId, { search: "", priority: "all", type: "all", tags: [] });
+                    writeGroupFilter(shownGroupId, { search: "", priority: "all", type: "all", umbrella: "", tags: [] });
                   }}
                 >
                   {t("Reset filters")}</Button>
@@ -3102,6 +3130,7 @@ function BoardContent(
           <DeleteGroupDialog
             name={dialogGroup.name}
             defaultName={defaultGroup(boardGroups)?.name ?? ""}
+            umbrellaLoss={umbrellaLossLinesForDelete({ groups: boardGroups, projects: board?.projects ?? noProjects, tasks: board?.tasks ?? noTasks, umbrellas: projected?.umbrellas ?? noUmbrellas }, dialogGroup.id, defaultGroup(boardGroups)?.id)}
             theme={props.theme}
             onClose={() => setGroupDialog(null)}
             onDelete={async () => {
@@ -3194,11 +3223,12 @@ function BoardContent(
             groupId={groupSettings.groupId}
             groups={boardGroups}
             projects={board?.projects || noProjects}
+            tasks={board?.tasks ?? noTasks}
+            umbrellas={projected?.umbrellas ?? noUmbrellas}
             laneCounts={laneCountsOf}
             focusProjectId={groupSettings.projectId}
             reviewOn={groupSettings.reviewOn}
             hostId={props.host.id}
-            tasks={board?.tasks || noTasks}
             onClose={() => setGroupSettings(null)}
             onChanged={refresh}
             onRemoveProject={(p) => {

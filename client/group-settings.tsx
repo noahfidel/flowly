@@ -4,6 +4,7 @@ import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc";
 import { groupLimits, type AutoReviewInput, type Group, type Lane, type Project, type Status, type Task } from "../shared/model";
+import type { UmbrellaSummary } from "../shared/umbrella";
 import { projectLanes } from "../shared/lanes";
 import { laneKey } from "../shared/group-lanes";
 import { laneEdit, laneEditDirty, laneEditSave, laneEditServer, type LaneEditState } from "./group-lanes-logic";
@@ -21,7 +22,8 @@ import { ModelDefaultGroup } from "./model-default";
 import { ProjectSettingsFields, useProjectSettings } from "./forms";
 import { AutoReviewSection, reviewEditOf } from "./review-settings";
 import { useStableCallback } from "./stable";
-import { autoReviewMoveNote, currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, afterDiscard, lanesDirtyKey, needsDiscardConfirm, shownGroup, withDirty } from "./group-settings-logic";
+import { autoReviewMoveNote, currentRevision, groupChoices, groupMembersOf, inheritLabel, inheritedDeliveryText, inheritedDispatcherText, inheritedModelText, afterDiscard, lanesDirtyKey, needsDiscardConfirm, shownGroup, umbrellaLossLines, umbrellaLossLinesForDelete, withDirty } from "./group-settings-logic";
+import { UmbrellaLossNotes } from "./group-dialogs";
 
 type GroupDefaultsEdit = { agentModel?: AgentModel | null; deliveryMode?: DeliveryMode | null; dispatcherModel?: AgentModel | null; autoReview?: AutoReviewInput | null };
 
@@ -35,22 +37,25 @@ export function GroupSettings({
   groupId: initialId,
   groups,
   projects,
+  tasks,
+  umbrellas,
   laneCounts,
   focusProjectId,
   reviewOn,
   hostId,
-  tasks,
   onClose,
   onChanged,
   onRemoveProject,
 }: {
   groupId: string | null;
-  /** The host and the board's cards, for each project's Start prompt preview (START-PROMPT-TEMPLATE-SPEC §5). */
+  /** The host, for each project's Start prompt preview (START-PROMPT-TEMPLATE-SPEC §5). */
   hostId?: string;
-  tasks?: readonly Task[];
   /** The board's groups and projects (archived ones too), from the overview. */
   groups: readonly Group[];
   projects: readonly Project[];
+  /** The board's cards and umbrella summaries: each project's Start prompt preview (START-PROMPT-TEMPLATE-SPEC §5), and the umbrellas a move or Delete group would split (UMBRELLA-SPEC §9). */
+  tasks: readonly Task[];
+  umbrellas: readonly UmbrellaSummary[];
   /** Live cards per lane over a group's live members, so lanes in use can't be turned off. */
   laneCounts(groupId: string): Partial<Record<Status, number>>;
   /** A project whose section opens expanded (from its tab menu, the toolbar or What's new). */
@@ -91,6 +96,8 @@ export function GroupSettings({
   // Projects with unsaved edits, and the leave (close, move, delete) waiting for the user's answer.
   const [dirty, setDirty] = useState<ReadonlySet<string>>(new Set());
   const [leave, setLeave] = useState<(() => void) | null>(null);
+  // A project move that would split umbrellas, waiting for the user's answer (UMBRELLA-SPEC §9).
+  const [splitMove, setSplitMove] = useState<{ project: Project; to: string; lines: string[] } | null>(null);
   // Bumped by Discard: remounts the lane editor and every project section, so each unsaved draft goes back to what is
   // stored (ruling, Noah 2026-11-11).
   const [discardEpoch, setDiscardEpoch] = useState(0);
@@ -113,6 +120,11 @@ export function GroupSettings({
       const note = target && autoReviewMoveNote(live, from, target);
       if (note) toast.show(note);
     });
+  const requestMove = (p: Project, to: string) => {
+    const lines = umbrellaLossLines({ groups, projects, tasks, umbrellas }, [{ projectId: p.id, groupId: to }]);
+    if (lines.length) setSplitMove({ project: p, to, lines });
+    else moveProject(p, to);
+  };
   // Restore, as the project switcher does: archiving was folded into Remove; older archived projects can still come back.
   const restoreProject = (p: Project) =>
     write(async () => {
@@ -247,7 +259,7 @@ export function GroupSettings({
                         placeholder={group.name}
                         disabled={busy}
                         options={choices}
-                        onChange={(to) => to !== group.id && guard(() => moveProject(p, to))}
+                        onChange={(to) => to !== group.id && guard(() => requestMove(p, to))}
                       />
                     ))}
                   </SettingsGroup>
@@ -272,6 +284,28 @@ export function GroupSettings({
               </>
             )}
             {!!error && <Notice>{error}</Notice>}
+            {splitMove && (
+              <View style={{ gap: space[3] }}>
+                <Notice tone="warning">{t("Moving {project} takes cards out of these umbrellas.", { project: splitMove.project.title })}</Notice>
+                <UmbrellaLossNotes lines={splitMove.lines} />
+                <Actions>
+                  <Button quiet disabled={busy} onPress={() => setSplitMove(null)}>
+                    {t("Cancel")}
+                  </Button>
+                  <Button
+                    danger
+                    disabled={busy}
+                    onPress={() => {
+                      const { project, to } = splitMove;
+                      setSplitMove(null);
+                      moveProject(project, to);
+                    }}
+                  >
+                    {t("Move project")}
+                  </Button>
+                </Actions>
+              </View>
+            )}
             {leave && (
               <View style={{ gap: space[3] }}>
                 <Notice tone="warning">{t("Discard unsaved changes?")}</Notice>
@@ -324,6 +358,7 @@ export function GroupSettings({
                     <Notice tone="warning">
                       {t("Delete {name}? Its projects move to {group}. Its dispatcher, if it has one, is archived.", { name: group.name, group: fallback?.name ?? t("the default group") })}
                     </Notice>
+                    <UmbrellaLossNotes lines={umbrellaLossLinesForDelete({ groups, projects, tasks, umbrellas }, group.id, fallback?.id)} />
                     <Actions>
                       <Button quiet disabled={busy} onPress={() => setDeleting(false)}>
                         {t("Cancel")}

@@ -92,12 +92,23 @@ describe("card list (§3, §6)", () => {
     expect(scopeTasks(tasks, { all: false, projectId: "b" }, true).map((t) => t.id)).toEqual(["b1"]);
   });
   test("filters apply across projects", () => {
-    const none = { search: "", priority: "all", taskType: "all", tags: [] };
+    const none = { search: "", priority: "all", taskType: "all", umbrella: "", tags: [] };
     const shown = scopeTasks(tasks, all, false);
     expect(shown.filter((t) => matchesFilters(t, { ...none, priority: "urgent" })).map((t) => t.id)).toEqual(["b1"]);
     expect(shown.filter((t) => matchesFilters(t, { ...none, search: "login" })).map((t) => t.id)).toEqual(["b1"]);
     expect(shown.filter((t) => matchesFilters(t, { ...none, tags: ["ui"] })).map((t) => t.id)).toEqual(["a1"]);
   });
+});
+
+test("the umbrella filter keeps members, none keeps non-members, all keeps both", () => {
+  const none = { search: "", priority: "all", taskType: "all", tags: [] };
+  const member = card("m", "a", { umbrella: { id: "u1" } as Task["umbrella"] });
+  const other = card("o", "a", { umbrella: { id: "u2" } as Task["umbrella"] });
+  const loose = card("l", "a");
+  const ids = (umbrella: string) => [member, other, loose].filter((t) => matchesFilters(t, { ...none, umbrella })).map((t) => t.id);
+  expect(ids("u1")).toEqual(["m"]);
+  expect(ids("none")).toEqual(["l"]);
+  expect(ids("")).toEqual(["m", "o", "l"]);
 });
 
 describe("order within a column (§4)", () => {

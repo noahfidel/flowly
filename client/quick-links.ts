@@ -19,6 +19,7 @@ export type QuickSession = { id: string; title: string; createdAt: string; state
 
 export type QuickChip =
   | { kind: "linear"; id: string; key: string; url: string | null; title: string }
+  | { kind: "umbrella"; id: string; title: string; role?: string }
   | { kind: "pr"; id: string; url: string; number: string; state: PrState; title: string }
   | { kind: "session"; id: string; title: string; number: number; state: QuickSessionState }
   | { kind: "output"; id: string; title: string; file: boolean; artifact: Artifact }
@@ -65,7 +66,7 @@ function httpUrlOf(target: string): string | null {
 
 /**
  * The chips, in order: the card's Linear issue (`linear`, its first Linear issue input, never limited and not counted
- * in "+N more"; its chip has no URL when the stored target is not an http(s) URL), every PR output (newest first, one per URL), then up to QUICK_LIMIT sessions
+ * in "+N more"; then the umbrella chip when the card has one; its chip has no URL when the stored target is not an http(s) URL), every PR output (newest first, one per URL), then up to QUICK_LIMIT sessions
  * (waiting, running, error, done; newest first within each) and "+N more", then up to QUICK_LIMIT other
  * outputs (newest first) and "+N more". `outputs` are the card's artifacts newest first; inputs and the
  * plan are skipped. `prStatus` maps an artifact id to its connector status. Empty when there is nothing.
@@ -75,11 +76,14 @@ export function quickLinks({
   sessions,
   prStatus,
   linear,
+  umbrella,
 }: {
   outputs: readonly Artifact[];
   sessions: readonly QuickSession[];
   prStatus?: ReadonlyMap<string, string | undefined>;
   linear?: Artifact;
+  /** The card's umbrella (UMBRELLA-SPEC §7): its chip follows the Linear issue. */
+  umbrella?: { id: string; title: string; role?: string };
 }): QuickChip[] {
   const prs: QuickChip[] = [];
   const others: Artifact[] = [];
@@ -102,6 +106,7 @@ export function quickLinks({
   const shown = orderQuickSessions(sessions);
   const chips: QuickChip[] = [];
   if (linear?.external) chips.push({ kind: "linear", id: linear.id, key: linear.external.key, url: httpUrlOf(linear.target), title: linear.title });
+  if (umbrella) chips.push({ kind: "umbrella", id: umbrella.id, title: umbrella.title, ...(umbrella.role ? { role: umbrella.role } : {}) });
   chips.push(...prs);
   for (const s of shown.slice(0, QUICK_LIMIT)) chips.push({ kind: "session", id: s.id, title: s.title, number: numberOf.get(s.id)!, state: s.state });
   if (shown.length > QUICK_LIMIT) chips.push({ kind: "more", section: "sessions", count: shown.length - QUICK_LIMIT });

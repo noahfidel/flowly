@@ -28,7 +28,7 @@ Host-scoped (`board-view` settings), so every board on this device uses them.
 | Option | Values | Default |
 | --- | --- | --- |
 | Activity line (`cardActivity`) | `auto`: progress summary, else latest output · `progress` · `output` · `both` · `none` | `auto` |
-| Workspace, Priority, Type, Ticket, Tags, Session activity, Workpad checks, Ideas | shown / hidden (`cardHidden`: list of hidden field ids) | all shown |
+| Workspace, Priority, Type, Ticket, Tags, Session activity, Workpad checks, Ideas, Umbrella (a quiet chip after the type: title cut to 20 characters, ` · role` when set; UMBRELLA-SPEC §7) | shown / hidden (`cardHidden`: list of hidden field ids) | all shown |
 
 - Session activity covers running, starting, unread, session count, Loading… and Last known. Approvals and errors are always shown.
 - Always shown, not configurable: Needs you, waiting on cards, approvals, errors, Workspace unavailable, Wrapped up, Archived, Legacy. They tell the user to act or explain why the card behaves differently.

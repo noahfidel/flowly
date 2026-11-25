@@ -68,6 +68,8 @@ import { openNativeSession, openNativeWorkspace, sessionState } from "./session-
 import { artifactsOf } from "../shared/artifacts";
 import { withoutPlan } from "../shared/plans";
 import { QuickLinks, openQuickLink } from "./quick-links-row";
+import { UmbrellaSection } from "./umbrella-section";
+import type { UmbrellaSummary } from "../shared/umbrella";
 import { activeQuickSession, newestPrUrl, quickSessionState, type QuickSession } from "./quick-links";
 import { cardQuestions, openReport } from "../shared/progress";
 import { QueuedMessages, queuedFor, sameQueued } from "./queued-messages";
@@ -120,6 +122,8 @@ function TaskDrawerView({
   onLink,
   onFollowUp,
   onOpenTask,
+  umbrella,
+  onOpenUmbrella,
   onStatusChanged,
   refresh,
   sessionEntry,
@@ -166,6 +170,10 @@ function TaskDrawerView({
   onLink?(task: Task): void;
   /** Opens the new-task form as a follow-up of this card (CARD-LINKS-SPEC §5.5). */
   onFollowUp?(task: Task): void;
+  /** The card's umbrella as the overview summarizes it (UMBRELLA-SPEC §7); absent when the card has none. */
+  umbrella?: UmbrellaSummary;
+  /** Opens the umbrella panel (the Umbrella section's link and its Quick links chip). */
+  onOpenUmbrella?(id: string): void;
   /** Opens another card's drawer (idea source or result). */
   onOpenTask?(id: string): void;
   /** After this drawer changed the card's status (the board may ask to wrap up). */
@@ -271,6 +279,10 @@ function TaskDrawerView({
     if (active) setOpened(openDefaults);
   }, [active, openDefaults]);
   const sectionStates = useSectionStates(opened, setOpened);
+  const quickUmbrella = useMemo(
+    () => (umbrella && task.umbrella ? { id: umbrella.id, title: umbrella.title, ...(task.umbrella.role ? { role: task.umbrella.role } : {}) } : undefined),
+    [umbrella?.id, umbrella?.title, task.umbrella?.role, !!task.umbrella],
+  );
   // Focus from search: open the section for this opening only (never the stored choice), let it render the
   // target, scroll there and ring it; without a rendered target in time, the section itself is the target.
   const reduced = useReducedMotion();
@@ -955,7 +967,7 @@ function TaskDrawerView({
       </View>
       <TaskTags task={task} active={active} readOnly={!!project.archivedAt} onFilterTag={onFilterTag} />
       {/* PRs, sessions and outputs one click away (DRAWER-SPEC "Quick links"); nothing when there are none. */}
-      <QuickLinks taskId={task.id} sessions={quickSessions} onOpenSession={openSession} onMore={jumpTo} />
+      <QuickLinks taskId={task.id} sessions={quickSessions} onOpenSession={openSession} onMore={jumpTo} umbrella={quickUmbrella} onOpenUmbrella={onOpenUmbrella} />
       {!!error && <Notice>{error}</Notice>}
     </>
   );
@@ -1072,6 +1084,10 @@ function TaskDrawerView({
           )}
           </>
         );
+      case "umbrella":
+        return umbrella && task.umbrella ? (
+          <UmbrellaSection hostId={hostId} taskId={task.id} summary={umbrella} role={task.umbrella.role} section={sectionStates.umbrella} onOpenUmbrella={onOpenUmbrella} />
+        ) : null;
       case "links":
         return (
           onOpenTask && onLink && onFollowUp && (
@@ -1642,6 +1658,11 @@ const activityText: Record<string, string> = localizedLabels({
   plan_approved: msg("Approved the plan"),
   plan_cleared: msg("Removed the plan"),
   dispatcher_message_dropped: msg("Dropped a queued dispatcher message"),
+  umbrella_joined: msg("Joined an umbrella"),
+  umbrella_left: msg("Left an umbrella"),
+  umbrella_entry_added: msg("Added an umbrella entry"),
+  umbrella_ruling_added: msg("Added an umbrella ruling"),
+  umbrella_entry_withdrawn: msg("Withdrew an umbrella entry"),
   "agent.turn_started": msg("Started a turn"),
   "agent.turn_ended": msg("Finished a turn"),
 });

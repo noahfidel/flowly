@@ -173,6 +173,18 @@ test("Linear issue: the first chip, ahead of PRs, with its key and the stored UR
   expect(kinds(quickLinks({ outputs: [], sessions: many, linear: issue })).filter((k) => k.startsWith("more"))).toEqual(["more:sessions:1"]);
 });
 
+test("the umbrella chip follows the Linear issue in quick links", () => {
+  const issue = linearInput("ZEN-1", "https://linear.app/z/issue/ZEN-1/x");
+  const pr = artifact({ target: "https://github.com/o/r/pull/12" });
+  const umbrella = { id: "u1", title: "Fresh context", role: "feature map" };
+  const chips = quickLinks({ outputs: [pr], sessions: [session("s1", 1)], linear: issue, umbrella });
+  expect(kinds(chips)).toEqual([`linear:${issue.id}`, "umbrella:u1", `pr:${pr.id}`, "session:s1"]);
+  expect(chips[1]).toEqual({ kind: "umbrella", id: "u1", title: "Fresh context", role: "feature map" });
+  // Without a Linear issue it leads; without an umbrella there is none.
+  expect(kinds(quickLinks({ outputs: [], sessions: [], umbrella }))).toEqual(["umbrella:u1"]);
+  expect(quickLinks({ outputs: [], sessions: [] }).some((c) => c.kind === "umbrella")).toBe(false);
+});
+
 test("Linear issue: without one there is no chip and an empty card stays empty", () => {
   expect(quickLinks({ outputs: [], sessions: [] })).toEqual([]);
   expect(quickLinks({ outputs: [], sessions: [], linear: undefined })).toEqual([]);

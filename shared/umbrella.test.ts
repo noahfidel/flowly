@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { boardSchema, emptyBoard, type Board, type Group, type Project, type Task, type Umbrella, type UmbrellaEntry } from "./model";
 import {
-  applyGroupMoves, countsTowardLimit, leaveUmbrella, membersOf, repairUmbrellaGroups, umbrellaContext, umbrellaLimits, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
+  applyGroupMoves, countsTowardLimit, leaveUmbrella, membersOf, repairUmbrellaGroups, umbrellaChipText, umbrellaContext, umbrellaLimits, recentEntries, umbrellaRefetchKey, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
 } from "./umbrella";
 
 const at = "2026-11-25T00:00:00.000Z";
@@ -360,4 +360,27 @@ test("a returned answer counts toward the 6,000 budget; the one left out stays u
   expect(first.value).toMatchObject({ truncatedFeed: 1, unreadLeftOut: 1 });
   const next = ctxOf(board, "a", { brief: 1, contract: 0, entries: first.shown.entries })!;
   expect(next.value.feed.map((e) => [e.id, e.unread, e.answer?.length])).toEqual([["q1", true, 1500]]);
+});
+
+test("umbrellaChipText cuts at 20 and adds the role", () => {
+  expect(umbrellaChipText("Fresh context")).toBe("Fresh context");
+  expect(umbrellaChipText("A".repeat(25))).toBe(`${"A".repeat(19)}…`);
+  expect(umbrellaChipText("A".repeat(20))).toBe("A".repeat(20));
+  expect(umbrellaChipText("Fresh context", "feature map")).toBe("Fresh context · feature map");
+  expect(umbrellaChipText("Fresh context", "")).toBe("Fresh context");
+});
+
+test("the refetch key changes on a feed write and on an edit", () => {
+  const base = { revision: 2, feedRevision: 3 };
+  expect(umbrellaRefetchKey(base)).toBe("2:3");
+  expect(umbrellaRefetchKey({ ...base, feedRevision: 4 })).not.toBe(umbrellaRefetchKey(base));
+  expect(umbrellaRefetchKey({ ...base, revision: 3 })).not.toBe(umbrellaRefetchKey(base));
+  expect(umbrellaRefetchKey({ ...base })).toBe(umbrellaRefetchKey(base));
+});
+
+test("recentEntries returns the newest five without withdrawn ones", () => {
+  const entries = Array.from({ length: 7 }, (_, i) => ({ ...entry(`e${i}`, "decision", i === 6 ? "withdrawn" : "active"), createdAt: `2026-11-25T00:00:0${i}.000Z` }));
+  expect(recentEntries(entries).map((e) => e.id)).toEqual(["e5", "e4", "e3", "e2", "e1"]);
+  expect(recentEntries(entries, 2)).toHaveLength(2);
+  expect(entries[0]!.id).toBe("e0");
 });

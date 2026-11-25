@@ -34,14 +34,15 @@ export function boardLanes(
   };
 }
 
-export type BoardFilters = { search: string; priority: string; taskType: string; tags: readonly string[] };
+export type BoardFilters = { search: string; priority: string; taskType: string; umbrella: string; tags: readonly string[] };
 
-/** A card passes the board filters (search, priority, type, tags). */
+/** A card passes the board filters (search, priority, type, umbrella, tags). `umbrella`: "" all, "none" no umbrella, else an id. */
 export function matchesFilters(task: Task, f: BoardFilters) {
   return (
     taskMatchesSearch(task, f.search) &&
     (f.priority === "all" || task.priority === f.priority) &&
     (f.taskType === "all" || task.type === f.taskType) &&
+    (!f.umbrella || (f.umbrella === "none" ? !task.umbrella : task.umbrella?.id === f.umbrella)) &&
     taskMatchesTagFilter(task, f.tags)
   );
 }

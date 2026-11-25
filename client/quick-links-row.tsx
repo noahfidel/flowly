@@ -12,6 +12,7 @@ import { ArtifactPreview, useExternalStatuses } from "./task-artifacts";
 import { ExternalPreview } from "./connectors";
 import { BrandIcon } from "./brand-icons";
 import { Label, font, radius, space, tint, touch, useTheme, noFocusRing } from "./ui";
+import { umbrellaChipText } from "../shared/umbrella";
 import { stateColors } from "./state-colors";
 import { quickLinks, type PrState, type QuickChip, type QuickSession, type QuickSessionState } from "./quick-links";
 
@@ -43,6 +44,8 @@ export const QuickLinks = memo(
     sessions,
     onOpenSession,
     onMore,
+    umbrella,
+    onOpenUmbrella,
   }: {
     taskId: string;
     /** The card's main, non-archived sessions. Compared by content. */
@@ -50,6 +53,10 @@ export const QuickLinks = memo(
     onOpenSession(id: string): void;
     /** Opens and scrolls to that section. */
     onMore(section: "sessions" | "artifacts"): void;
+    /** The card's umbrella (UMBRELLA-SPEC §7); its chip follows the Linear issue. Compared by content. */
+    umbrella?: { id: string; title: string; role?: string };
+    /** Opens the umbrella panel; without it the chip is plain text. */
+    onOpenUmbrella?(id: string): void;
   }) {
     const { detail } = useTaskDetail();
     const toast = useToast();
@@ -58,12 +65,13 @@ export const QuickLinks = memo(
     const external = useExternalStatuses(taskId, list);
     const prStatus = useMemo(() => new Map((external.data?.items || []).map((x) => [x.artifactId, x.summary.status])), [external.data]);
     const linear = useMemo(() => linearIssueOf(list, taskId), [list, taskId]);
-    const chips = useMemo(() => quickLinks({ outputs: list.filter((a) => a.role === "output"), sessions, prStatus, linear }), [list, sessions, prStatus, linear]);
+    const chips = useMemo(() => quickLinks({ outputs: list.filter((a) => a.role === "output"), sessions, prStatus, linear, umbrella }), [list, sessions, prStatus, linear, umbrella?.id, umbrella?.title, umbrella?.role]);
     if (!chips.length) return null;
     const openUrl = (url: string) => openQuickLink(url, toast);
     const press = (chip: QuickChip) => {
       if (chip.kind === "pr") return openUrl(chip.url);
       if (chip.kind === "linear") return chip.url ? openUrl(chip.url) : undefined;
+      if (chip.kind === "umbrella") return onOpenUmbrella?.(chip.id);
       if (chip.kind === "session") return onOpenSession(chip.id);
       if (chip.kind === "more") return onMore(chip.section);
       const a = chip.artifact;
@@ -74,7 +82,7 @@ export const QuickLinks = memo(
       <>
         <View testID="quick-links" accessibilityLabel={t("Quick links")} style={{ flexDirection: "row", flexWrap: "wrap", gap: space[1.5] }}>
           {chips.map((chip) => (
-            <Chip key={chip.kind === "more" ? `more:${chip.section}` : `${chip.kind}:${chip.id}`} chip={chip} onPress={press} />
+            <Chip key={chip.kind === "more" ? `more:${chip.section}` : `${chip.kind}:${chip.id}`} chip={chip} onPress={press} noPanel={!onOpenUmbrella} />
           ))}
         </View>
         {previewing &&
@@ -90,6 +98,10 @@ export const QuickLinks = memo(
     a.taskId === b.taskId &&
     a.onOpenSession === b.onOpenSession &&
     a.onMore === b.onMore &&
+    a.onOpenUmbrella === b.onOpenUmbrella &&
+    a.umbrella?.id === b.umbrella?.id &&
+    a.umbrella?.title === b.umbrella?.title &&
+    a.umbrella?.role === b.umbrella?.role &&
     a.sessions.length === b.sessions.length &&
     a.sessions.every((s, i) => {
       const o = b.sessions[i]!;
@@ -101,6 +113,8 @@ function chipText(chip: QuickChip): string {
   switch (chip.kind) {
     case "linear":
       return chip.key;
+    case "umbrella":
+      return umbrellaChipText(chip.title, chip.role);
     case "pr":
       return chip.state ? t(prText[chip.state], { number: chip.number }) : chip.number;
     case "session":
@@ -120,6 +134,8 @@ function chipLabel(chip: QuickChip, text: string): string {
         : chip.title
           ? t("Open Linear issue {key}: {title}", { key: chip.key, title: chip.title })
           : t("Open Linear issue {key}", { key: chip.key });
+    case "umbrella":
+      return t("Umbrella: {title}", { title: chip.role ? `${chip.title} · ${chip.role}` : chip.title });
     case "pr":
       return chip.title ? t("Open pull request {label}: {title}", { label: text, title: chip.title }) : t("Open pull request {label}", { label: text });
     case "session":
@@ -133,7 +149,7 @@ function chipLabel(chip: QuickChip, text: string): string {
   }
 }
 
-function Chip({ chip, onPress }: { chip: QuickChip; onPress(chip: QuickChip): void }) {
+function Chip({ chip, onPress, noPanel }: { chip: QuickChip; onPress(chip: QuickChip): void; noPanel?: boolean }) {
   const { colors } = useTheme();
   const tones = stateColors(colors);
   // A session waiting on the user gets the card's Needs-you colour (UI-REFRESH-SPEC status colours).
@@ -155,7 +171,9 @@ function Chip({ chip, onPress }: { chip: QuickChip; onPress(chip: QuickChip): vo
             : colors.foregroundMuted
         : colors.foregroundMuted;
   const icon =
-    chip.kind === "pr"
+    chip.kind === "umbrella"
+      ? "Umbrella"
+      : chip.kind === "pr"
       ? chip.state === "merged"
         ? "GitMerge"
         : chip.state === "closed"
@@ -173,7 +191,7 @@ function Chip({ chip, onPress }: { chip: QuickChip; onPress(chip: QuickChip): vo
             : "Link"
           : "ChevronDown";
   const text = chipText(chip);
-  const noLink = chip.kind === "linear" && !chip.url;
+  const noLink = (chip.kind === "linear" && !chip.url) || (chip.kind === "umbrella" && !!noPanel);
   const external = chip.kind === "pr" || (chip.kind === "linear" && !!chip.url) || (chip.kind === "output" && !chip.file && !chip.artifact.external);
   return (
     <Pressable
