@@ -193,7 +193,7 @@ function transaction<T>(db: DatabaseSync, run: () => T): T {
   }
 }
 /** The highest revision a client or agent can hold for this board. */
-const maxRevision = (board: Board) => Math.max(board.revision, ...board.projects.map((p) => p.revision), ...board.tasks.map((t) => t.revision), ...board.workpads.map((w) => w.revision), ...board.groups.map((g) => g.revision));
+const maxRevision = (board: Board) => Math.max(board.revision, ...board.projects.map((p) => p.revision), ...board.tasks.map((t) => t.revision), ...board.workpads.map((w) => w.revision), ...board.groups.map((g) => g.revision), ...board.umbrellas.flatMap((u) => [u.revision, u.feedRevision]));
 /** Moves every revision past `offset` so edits and agent requests made against other data are refused (§7). */
 function bumpRevisions(board: Board, offset: number) {
   board.revision += offset;
@@ -201,6 +201,11 @@ function bumpRevisions(board: Board, offset: number) {
   for (const t of board.tasks) t.revision += offset;
   for (const w of board.workpads) w.revision += offset;
   for (const g of board.groups) g.revision += offset;
+  // Umbrellas too (UMBRELLA-SPEC §4.4): a stale panel edit is refused, and the moved feedRevision makes the panel re-read.
+  for (const u of board.umbrellas) {
+    u.revision += offset;
+    u.feedRevision += offset;
+  }
 }
 
 /** The open database and its cached board; only this process writes it (owner lock). */

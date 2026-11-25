@@ -12,6 +12,7 @@ import { readDatabaseFile, sqliteVersionOk, type StorageOptions } from "./sqlite
 import { agentFixture } from "./agent-fixture";
 import { AgentService } from "./agent-service";
 import { ToolSecrets } from "./tool-context";
+import { updateUmbrella } from "./umbrellas";
 import { emptyBoard, type Board } from "../shared/model";
 
 const directories: string[] = [];
@@ -39,6 +40,10 @@ function content(board: Board) {
   const copy = structuredClone(board);
   copy.revision = 0;
   for (const x of [...copy.projects, ...copy.tasks, ...copy.workpads]) x.revision = 0;
+  for (const u of copy.umbrellas) {
+    u.revision = 0;
+    u.feedRevision = 0;
+  }
   return text(copy);
 }
 function fixture(): Board {
@@ -414,7 +419,15 @@ describe("backups, restore and the way back to JSON", () => {
   test("restore brings back a backup, moves every revision past the old ones and keeps the replaced database", async () => {
     let now = Date.parse("2026-10-26T00:00:00Z");
     const d = await directory();
-    await writeBoard(d, fixture());
+    const board = fixture(),
+      human = { kind: "human" as const },
+      at = "2026-10-20T10:00:00.000Z";
+    board.umbrellas.push({
+      id: "u1", groupId: "g1", title: "Umbrella", brief: { text: "Before", revision: 1, updatedAt: at, updatedBy: human },
+      contract: { text: "", revision: 0, updatedAt: at, updatedBy: human }, acceptance: [], status: "open",
+      createdBy: human, createdAt: at, updatedAt: at, revision: 3, feedRevision: 2, archivedAt: null,
+    });
+    await writeBoard(d, board);
     const s = open(d, { now: () => new Date(now) });
     const original = await s.read();
     const [backup] = (await s.storageStatus()).backups;
@@ -428,6 +441,10 @@ describe("backups, restore and the way back to JSON", () => {
     expect(restored.revision).toBeGreaterThan(edited.revision);
     expect(restored.tasks[0].revision).toBeGreaterThan(edited.tasks[0].revision);
     expect(restored.projects[0].revision).toBeGreaterThan(edited.projects[0].revision);
+    // A panel holding the umbrella from before the restore is refused and sees a new feedRevision.
+    expect(restored.umbrellas[0].revision).toBeGreaterThan(edited.umbrellas[0].revision);
+    expect(restored.umbrellas[0].feedRevision).toBeGreaterThan(edited.umbrellas[0].feedRevision);
+    await expect(updateUmbrella(s, { id: "u1", revision: edited.umbrellas[0].revision, brief: "Stale" }, { kind: "human" })).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
     await expect(s.editTask({ id: "t1", revision: edited.tasks[0].revision, title: "Stale", actor: "human" })).rejects.toThrow(/Revision conflict/);
     expect(aside).toMatch(/^flowly\.sqlite\.before-restore-/);
     expect(readDatabaseFile(sqlite, join(d, aside!)).tasks[0].title).toBe("After the backup");
