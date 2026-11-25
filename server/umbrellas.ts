@@ -290,7 +290,7 @@ export function memberUmbrella(board: Board, task: Task): Umbrella {
 /**
  * Appends a member's entry to its card's umbrella feed (pure; the caller's transaction records the card's event). A
  * question starts `open`, every other kind `active`; `supersedes` names an active entry or open question of the same
- * umbrella and marks it superseded. At most 300 counted entries (superseding one frees its place). Bumps the
+ * umbrella and marks it superseded (D22: a ruling only by a ruling, an open question only by the card that asked it). At most 300 counted entries (superseding one frees its place). Bumps the
  * umbrella's `feedRevision`, never its `revision`.
  */
 export function addEntry(board: Board, task: Task, input: NewEntry, by: Actor, now: string): UmbrellaEntry {
@@ -301,6 +301,12 @@ export function addEntry(board: Board, task: Task, input: NewEntry, by: Actor, n
   if (input.supersedes && !replaced) throw new ToolError("NOT_FOUND", "No entry with that id in this card's umbrella. Use an id from get_task umbrella.feed.");
   if (replaced && !countsTowardLimit(replaced))
     throw new ToolError("INVALID_INPUT", `That entry is ${replaced.status}; only an active entry or an open question can be superseded.`);
+  // D22: a user's ruling gives way only to another ruling (with the user's words); an open question only to the card
+  // that asked it, otherwise only the user's answer closes it. Other kinds: any member, as with project notes.
+  if (replaced?.kind === "ruling" && input.kind !== "ruling")
+    throw new ToolError("UMBRELLA_KIND", "A ruling can only be superseded by a new ruling with the user's own words in quote.");
+  if (replaced?.kind === "question" && replaced.status === "open" && replaced.sourceTaskId !== task.id)
+    throw new ToolError("INVALID_INPUT", "Another card asked this open question; only the user's answer closes it. Add your own entry instead of superseding it.");
   const counted = board.umbrellaEntries.filter((e) => e.umbrellaId === u.id && countsTowardLimit(e)).length - (replaced ? 1 : 0);
   if (counted >= umbrellaLimits.activeEntries)
     throw new ToolError(

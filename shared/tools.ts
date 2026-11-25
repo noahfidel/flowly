@@ -297,7 +297,7 @@ export const umbrellaEntryInputSchema = z
       .max(umbrellaLimits.quote)
       .optional()
       .describe("kind=ruling only, and required there: the user's own words from this chat, quoted exactly."),
-    supersedes: z.string().min(1).max(200).optional().describe("The id of an active entry of this umbrella that this one replaces (get_task umbrella.feed)."),
+    supersedes: z.string().min(1).max(200).optional().describe("The id of an active entry of this umbrella that this one replaces (get_task umbrella.feed). A ruling only by a new ruling; an open question only by the card that asked it."),
   })
   .refine((v) => v.kind !== "ruling" || !!v.quote, { message: "A ruling needs quote: the user's own words from this chat.", path: ["quote"] })
   .refine((v) => v.kind === "ruling" || v.quote === undefined, { message: "quote is only for kind=ruling.", path: ["quote"] });

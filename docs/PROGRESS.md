@@ -24,6 +24,7 @@
 - Tests: `server/umbrellas.test.ts` (+6), `server/agent-service.test.ts` (+12), `server/agent-cards.test.ts` (+2), `server/tool-server.test.ts` (+1, list updated). Focused (`npx vitest run server/umbrellas.test.ts server/agent-service.test.ts server/agent-cards.test.ts server/tool-server.test.ts`): RED 22 failed / 117 passed; GREEN 4 files, 139 passed. `npm run typecheck` exit 0; `npm test -- --maxWorkers=3` exit 0, 247 files passed, 1 skipped; 3146 tests passed, 7 skipped.
 - Onboarding, What's new, tips, telemetry, i18n: none (agent-facing tools and English text only; no UI string, switch or counted action). The skill text comes with Task 5.
 - Not run: the new tools from a live session on the installed plugin; the CLI `/api` route has no `umbrella_entry` / `umbrella_withdraw` actions (MCP only).
+- Fix (ruling D22, Noah 2026-11-25): an agent supersedes a `ruling` only with a new `ruling` (`UMBRELLA_KIND`), and an open `question` only from the card that asked it (`INVALID_INPUT`); other kinds stay open to any member, and the user's `umbrellas.entry.update` is unchanged. Same guard for `flowly_remember scope=umbrella`. Tests: +2 in `server/umbrellas.test.ts`, +1 in `server/agent-service.test.ts` (RED: 2 failed). Focused 4 files 142 passed; typecheck exit 0; `npm test -- --maxWorkers=3` exit 0, 3149 passed, 7 skipped.
 
 ## Umbrellas, task 3: agent read surface — `flowly_get_task.umbrella`, unread marks, first instructions (branch `kanban/spec-umbrella-epic-object-for-related-ca-e89f06`) — 2026-11-25
 

@@ -541,3 +541,45 @@ test("newCardUmbrella: follow-ups and member ideas inherit; none opts out; a ful
   expect(newCardUmbrella(board, { projectId: "p", followUpOf: "a" }).skipped).toMatch(/Feed.*30/);
   expect(() => newCardUmbrella(board, { projectId: "p", umbrellaId: u.id })).toThrow(expect.objectContaining({ code: "UMBRELLA_LIMIT" }));
 });
+
+test("D22: a ruling is superseded only by a ruling, an open question only by the card that asked it", async () => {
+  const { board, task, u } = await feedSetup();
+  const ruling = addEntry(board, task("a"), { kind: "ruling", title: "No PRs", body: "", quote: "never open PRs" }, agent("a"), now);
+  const asked = addEntry(board, task("a"), { kind: "question", title: "Drafts?", body: "" }, agent("a"), now);
+  const pitfall = addEntry(board, task("a"), { kind: "pitfall", title: "Slow fixture", body: "" }, agent("a"), now);
+  const refused = (fn: () => unknown) => {
+    try {
+      fn();
+    } catch (e) {
+      return (e as { code?: string }).code;
+    }
+    return "none";
+  };
+  // (1) A decision can't replace a ruling; a ruling with the user's quote can.
+  expect(refused(() => addEntry(board, task("b"), { kind: "decision", title: "PRs ok", body: "", supersedes: ruling.id }, agent("b"), now))).toBe("UMBRELLA_KIND");
+  expect(ruling.status).toBe("active");
+  expect(addEntry(board, task("b"), { kind: "ruling", title: "Drafts only", body: "", quote: "drafts, not PRs", supersedes: ruling.id }, agent("b"), now).supersedes).toBe(ruling.id);
+  expect(ruling.status).toBe("superseded");
+  // (2) Another card can't close the open question; the card that asked it can.
+  expect(refused(() => addEntry(board, task("b"), { kind: "decision", title: "Drafts", body: "", supersedes: asked.id }, agent("b"), now))).toBe("INVALID_INPUT");
+  expect(asked.status).toBe("open");
+  addEntry(board, task("a"), { kind: "question", title: "Drafts or PRs?", body: "", supersedes: asked.id }, agent("a"), now);
+  expect(asked.status).toBe("superseded");
+  // (3) Any member supersedes the other kinds.
+  addEntry(board, task("b"), { kind: "pitfall", title: "Slow fixture, use the cache", body: "", supersedes: pitfall.id }, agent("b"), now);
+  expect(pitfall.status).toBe("superseded");
+  expect(u.feedRevision).toBe(6);
+});
+
+test("D22 does not limit the user's own supersede", async () => {
+  const { store, board, task } = await feedSetup();
+  const ruling = addEntry(board, task("a"), { kind: "ruling", title: "No PRs", body: "", quote: "never open PRs" }, agent("a"), now);
+  const asked = addEntry(board, task("a"), { kind: "question", title: "Drafts?", body: "" }, agent("a"), now);
+  await store.mutate((b) => {
+    b.umbrellaEntries = board.umbrellaEntries;
+    b.umbrellas = board.umbrellas;
+  });
+  await updateEntry(store, { id: ruling.id, status: "superseded" }, human);
+  await updateEntry(store, { id: asked.id, status: "superseded" }, human);
+  expect((await store.read()).umbrellaEntries.map((e) => e.status)).toEqual(["superseded", "superseded"]);
+});

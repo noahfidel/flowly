@@ -1,6 +1,6 @@
 # Umbrellas: one brief, contract and decisions feed for a family of cards
 
-Status: **approved by Noah, 2026-11-25 (rulings D1-D21 in §16).** Nothing here is built yet. Contract only; progress goes to `docs/PROGRESS.md`. Amends `docs/CARD-LINKS-SPEC.md` §9 (membership only, ruling D13), `docs/DISPATCHER-SPEC.md` §5.8 (relay targets, and Flowly now tells member agents the `[contract]` rule) and `docs/PROJECT-MEMORY-SPEC.md` (a second, umbrella-scoped feed).
+Status: **approved by Noah, 2026-11-25 (rulings D1-D22 in §16).** Nothing here is built yet. Contract only; progress goes to `docs/PROGRESS.md`. Amends `docs/CARD-LINKS-SPEC.md` §9 (membership only, ruling D13), `docs/DISPATCHER-SPEC.md` §5.8 (relay targets, and Flowly now tells member agents the `[contract]` rule) and `docs/PROJECT-MEMORY-SPEC.md` (a second, umbrella-scoped feed).
 
 An **umbrella** is a named body of work inside one board group: a title, a brief every member card reads, a contract (the handoff shapes between members), a feed of decisions, findings and open questions, an acceptance list for the whole scope, an optional Linear project, and its member cards. A card belongs to at most one umbrella. Membership is a shared context, not a hierarchy: an umbrella never moves, starts, blocks, finishes or wraps up a card.
 
@@ -183,7 +183,7 @@ Every change needs the user's accept, additive ones included (D6); the dispatche
 
 ## 6. Umbrella memory
 
-`flowly_remember scope=umbrella` (and `flowly_add_umbrella_entry`) write a feed entry, shown to every member through `get_task.umbrella.feed`, never to cards outside the umbrella. They stay out of project memory's 200-note cap and `memoryForTask` budget, so the trial's crowding-out (failure 5) cannot happen. Superseding works as for project notes. When the umbrella closes, its `decision`, `convention` and `pitfall` entries are offered to the user as project memory ("keep these for the repo?"), each one ticked off by the user; nothing moves silently. Umbrella memory is the feed, one store with its own budget, not tagged project notes (D7).
+`flowly_remember scope=umbrella` (and `flowly_add_umbrella_entry`) write a feed entry, shown to every member through `get_task.umbrella.feed`, never to cards outside the umbrella. They stay out of project memory's 200-note cap and `memoryForTask` budget, so the trial's crowding-out (failure 5) cannot happen. Superseding works as for project notes, with two guards (D22): an agent supersedes a `ruling` only with a new `ruling` carrying the user's quote (`UMBRELLA_KIND` otherwise), and an open `question` only from the card that asked it (`INVALID_INPUT` otherwise; the user's answer closes it); the user's own supersede in the panel is not limited. When the umbrella closes, its `decision`, `convention` and `pitfall` entries are offered to the user as project memory ("keep these for the repo?"), each one ticked off by the user; nothing moves silently. Umbrella memory is the feed, one store with its own budget, not tagged project notes (D7).
 
 ## 7. Board
 
@@ -285,6 +285,7 @@ Noah accepted every recommendation of the draft on 2026-11-25. Rejected options 
 - **D19: answers and rejections reaching the asker.** §3 left answered and rejected entries out of the feed while §5 promised the proposer the note. (a) the asking or proposing card's next `get_task` returns that entry once, with `answer` (the answer or the reject note), then it counts as read; other members don't get it; (b) every member sees answered and rejected entries; (c) only `flowly_get_umbrella` shows them. Ruling (Noah, 2026-11-25): (a).
 - **D20: accepting a proposal on an old revision.** After another change is accepted, a still-pending proposal may rest on an older contract. (a) its accept is refused `CONTRACT_STALE` and the agent proposes again; (b) accept applies `after` anyway, dropping the earlier accepted change; (c) accept after a second confirm. Ruling (Noah, 2026-11-25): (a).
 - **D21: relay budget.** A relay to up to 30 targets would use `flowly_message_card`'s 30 per hour. (a) sibling relays get their own budget, 60 per hour, apart from the 30; (b) relays share the 30; (c) relays are unlimited. Ruling (Noah, 2026-11-25): (a).
+- **D22: who may supersede an entry.** As built, any member agent could supersede any active entry, including a user-quoted ruling and another card's open question. (a) guard rulings and questions: an agent supersedes a `ruling` only with a new `ruling` (which still needs the user's quote), an open `question` only from the card that asked it (otherwise only the user's answer closes it), and any other kind from any member, as with project notes; (b) an agent supersedes only its own card's entries; (c) any member supersedes any entry, as built. The user's own supersede (`umbrellas.entry.update`) is not limited. Ruling (Noah, 2026-11-25): (a).
 
 ## 17. Proposed card split
 

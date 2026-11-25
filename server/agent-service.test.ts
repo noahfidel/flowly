@@ -1570,3 +1570,15 @@ test("AGENT_CARDS_DISABLED refuses umbrella writes", async () => {
   expect(await x.code(x.service.write(x.identity, "idea", { ...(await x.signed()), title: "Plain", detail: "D", rationale: "R" }))).toBe("none");
   expect((await x.store.read()).umbrellaEntries).toHaveLength(1);
 });
+
+test("D22: remember scope=umbrella can't supersede a ruling or another card's open question", async () => {
+  const x = await memberSetup();
+  await x.entry(x.sibling, { kind: "ruling", title: "No PRs", quote: "never open PRs" });
+  await x.entry(x.sibling, { kind: "question", title: "Drafts?" });
+  const [ruling, asked] = (await x.store.read()).umbrellaEntries;
+  const remember = async (supersedes: string) =>
+    x.code(x.service.write(x.identity, "remember", { ...(await x.signed()), scope: "umbrella", kind: "decision", title: `Replace ${supersedes}`, supersedes }));
+  expect(await remember(ruling!.id)).toBe("UMBRELLA_KIND");
+  expect(await remember(asked!.id)).toBe("INVALID_INPUT");
+  expect((await x.store.read()).umbrellaEntries.map((e) => e.status)).toEqual(["active", "open"]);
+});
