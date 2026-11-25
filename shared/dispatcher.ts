@@ -28,26 +28,33 @@ export const dispatcherNoteSchema = z.object({
   proposal: z.object({ eventId: z.string(), umbrellaId: z.string(), conflict: z.boolean(), mentions: z.array(z.string()) }).optional(),
   /**
    * Umbrella news (kind `umbrella_news`, UMBRELLA-SPEC §8, D12): an accepted contract change or a new ruling, relayed to
-   * the card's live siblings only; never put to the user as a question.
+   * the card's live siblings only; never put to the user as a question. Each item is relayed on its own line, oldest
+   * first; at most `umbrellaNewsLimit` per note (`mergeNotes` drops the oldest past it).
    */
-  umbrellaNews: z.object({ eventId: z.string(), text: z.string() }).optional(),
+  umbrellaNews: z.array(z.object({ eventId: z.string(), text: z.string() })).optional(),
   at: z.string(),
 });
 export type DispatcherNote = z.infer<typeof dispatcherNoteSchema>;
+
+/** At most this many umbrella news items ride on one card's note; past it the oldest are dropped (and logged by the caller). */
+export const umbrellaNewsLimit = 5;
 
 /** Note kinds that a later plain status change on the same card does not replace (a proposal waits on the user, too). */
 const lasting = new Set(["question", "blocker", "contract_proposed"]);
 /**
  * Folds `next` into `prev` for one card (EVENT-BUS-SPEC §3): the newer note wins, except that a question, blocker or
  * contract proposal is kept over a later plain status change, whose detail it then shows as `later`. The count of facts
- * not shown carries over, so a card that waits across batches keeps its full "(+N earlier)".
+ * not shown carries over, so a card that waits across batches keeps its full "(+N earlier)". Umbrella news items add
+ * up, oldest first, once per event id, at most `umbrellaNewsLimit`: `onDropped` gets each older event id dropped past it.
  */
-export function mergeNotes(prev: DispatcherNote, next: DispatcherNote): DispatcherNote {
+export function mergeNotes(prev: DispatcherNote, next: DispatcherNote, onDropped?: (eventId: string) => void): DispatcherNote {
   const hidden = (prev.earlier ?? 0) + (next.earlier ?? 0);
   const contract = next.contract ?? prev.contract;
   const proposal = next.proposal ?? prev.proposal;
-  const news = next.umbrellaNews ?? prev.umbrellaNews;
-  const carried = { ...(contract ? { contract } : {}), ...(proposal ? { proposal } : {}), ...(news ? { umbrellaNews: news } : {}) };
+  const news: NonNullable<DispatcherNote["umbrellaNews"]> = [];
+  for (const item of [...(prev.umbrellaNews ?? []), ...(next.umbrellaNews ?? [])]) if (!news.some((n) => n.eventId === item.eventId)) news.push(item);
+  for (const dropped of news.splice(0, Math.max(0, news.length - umbrellaNewsLimit))) onDropped?.(dropped.eventId);
+  const carried = { ...(contract ? { contract } : {}), ...(proposal ? { proposal } : {}), ...(news.length ? { umbrellaNews: news } : {}) };
   if (lasting.has(prev.kind) && next.kind === "status_changed") {
     const replaced = next.detail ? (prev.later ? 1 : 0) : 1;
     const later = next.detail || prev.later;

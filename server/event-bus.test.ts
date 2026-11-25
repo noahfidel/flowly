@@ -459,7 +459,7 @@ describe("umbrella news (UMBRELLA-SPEC §8, D12)", () => {
     const ruling = event({ taskId: "t1", action: "umbrella_ruling_added", agentId: "s-t1", note: "ruling: drafts are private" });
     const [f] = factsFromCommit([ruling], b);
     expect(isStop(f!)).toBe(true);
-    expect(noteFor(f!)).toMatchObject({ kind: "umbrella_news", umbrellaNews: { eventId: ruling.id, text: "ruling: drafts are private" } });
+    expect(noteFor(f!)).toMatchObject({ kind: "umbrella_news", umbrellaNews: [{ eventId: ruling.id, text: "ruling: drafts are private" }] });
     // Another feed entry (a decision) is no stop and no news, whatever its note says.
     const decision = event({ taskId: "t1", action: "umbrella_entry_added", agentId: "s-t1", note: "ruling: looks like one" });
     const [g] = factsFromCommit([decision], b);
@@ -474,7 +474,7 @@ describe("umbrella news (UMBRELLA-SPEC §8, D12)", () => {
     // A stop whatever the actor: checked before the rule that the user's own moves are not news.
     expect(isStop(f!)).toBe(true);
     const note = noteFor(f!)!;
-    expect(note).toMatchObject({ kind: "umbrella_news", umbrellaNews: { eventId: accepted.id, text: "contract r5 accepted: the api adds b" } });
+    expect(note).toMatchObject({ kind: "umbrella_news", umbrellaNews: [{ eventId: accepted.id, text: "contract r5 accepted: the api adds b" }] });
     expect(note).not.toHaveProperty("contract");
     // The dispatcher's own accept (flowly_resolve_contract_change) still relays: it is news to the siblings.
     const own = event({ taskId: "t1", action: "umbrella_contract_accepted", agentId: "disp", note: "contract r6 accepted: c" });
@@ -496,5 +496,27 @@ describe("umbrella news (UMBRELLA-SPEC §8, D12)", () => {
       expect(note).not.toHaveProperty("umbrellaNews");
       expect(note).not.toHaveProperty("contract");
     }
+  });
+
+  test("umbrella news items on one card add up oldest first, once each; a 6th drops the oldest, logged", () => {
+    const b = memberBoard();
+    const rulings = Array.from({ length: 6 }, (_, i) => event({ taskId: "t1", action: "umbrella_ruling_added", agentId: "s-t1", note: `ruling: r${i + 1}` }));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const batcher = new NoteBatcher({ windowMs: 10_000, maxWaitMs: 60_000, exclude: () => null }, () => undefined);
+    batcher.push(factsFromCommit(rulings.slice(0, 2), b));
+    // The same event again is kept once.
+    batcher.push(factsFromCommit([rulings[1]!], b));
+    const two = batcher.takeProject("p1")[0]!;
+    expect(two.umbrellaNews!.map((n) => n.text)).toEqual(["ruling: r1", "ruling: r2"]);
+    expect(errors).not.toHaveBeenCalled();
+    batcher.push(factsFromCommit(rulings, b));
+    const five = batcher.takeProject("p1")[0]!;
+    expect(five.umbrellaNews!.map((n) => n.text)).toEqual(["ruling: r2", "ruling: r3", "ruling: r4", "ruling: r5", "ruling: r6"]);
+    expect(errors).toHaveBeenCalledWith("Flowly dispatcher umbrella news dropped:", rulings[0]!.id, expect.stringContaining("more than 5"));
+    // Merging keeps the order across notes, and a note with none keeps them.
+    const later: DispatcherNote = { taskId: "t1", projectId: "p1", title: "Task one", kind: "status_changed", detail: "todo → in_review", at: now };
+    expect(mergeNotes(two, later).umbrellaNews).toEqual(two.umbrellaNews);
+    errors.mockRestore();
+    batcher.dispose();
   });
 });

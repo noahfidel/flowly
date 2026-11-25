@@ -37,7 +37,7 @@ import { contractRelayTargets, relayCharterVersion, relayEchoMs, relayLine, rela
 import { isSummarizer } from "../shared/summary";
 import { liveAgents } from "./card-chats";
 import { logFailure } from "./error-report";
-import { EventBus, NoteBatcher, isStop, type BusFact } from "./event-bus";
+import { EventBus, NoteBatcher, isStop, newsDropped, type BusFact } from "./event-bus";
 import type { DispatcherIdentity } from "./tool-context";
 import { ToolError } from "./tool-error";
 import type { BoardStore } from "./store";
@@ -420,9 +420,11 @@ export function noteMessage(
       const proposed = n.proposal ? proposalLine(n.taskId, n.proposal, entries) : null;
       const lines = [line, ...(proposed ? [proposed] : [])];
       if (charter < relayCharterVersion || !relays) return lines;
-      for (const [news, label] of [[n.contract, "contract"], [n.umbrellaNews, "umbrella"]] as const) {
-        const relay = news ? relays.get(news.eventId) : undefined;
-        if (news && relay?.targets.length) lines.push(relayLine(relay.targets, news.text, relay.leftOut, label, news.eventId));
+      // One line per news item: the contract news first, then each umbrella news item, oldest first.
+      const items = [...(n.contract ? [{ ...n.contract, label: "contract" as const }] : []), ...(n.umbrellaNews ?? []).map((u) => ({ ...u, label: "umbrella" as const }))];
+      for (const news of items) {
+        const relay = relays.get(news.eventId);
+        if (relay?.targets.length) lines.push(relayLine(relay.targets, news.text, relay.leftOut, news.label, news.eventId));
       }
       return lines;
     }),
@@ -484,7 +486,7 @@ class GroupDispatcher {
       for (const note of notes) {
         const prev = this.held.get(note.taskId);
         this.held.delete(note.taskId);
-        this.held.set(note.taskId, prev ? mergeNotes(prev, note) : note);
+        this.held.set(note.taskId, prev ? mergeNotes(prev, note, newsDropped) : note);
       }
       await this.flush(paseo, false);
     });
@@ -618,7 +620,7 @@ class GroupDispatcher {
     const relays = new Map<string, Relay>();
     const news = notes.flatMap((n) => [
       ...(n.contract ? [{ taskId: n.taskId, eventId: n.contract.eventId, siblingsOnly: false }] : []),
-      ...(n.umbrellaNews ? [{ taskId: n.taskId, eventId: n.umbrellaNews.eventId, siblingsOnly: true }] : []),
+      ...(n.umbrellaNews ?? []).map((u) => ({ taskId: n.taskId, eventId: u.eventId, siblingsOnly: true })),
     ]);
     if (!news.some((n) => !this.relayed.has(n.eventId)) || charter < relayCharterVersion) return relays;
     let fresh = news;

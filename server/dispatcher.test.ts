@@ -1319,7 +1319,30 @@ const umbrellaRelayBoard = (x: Awaited<ReturnType<typeof charterDispatcher>>) =>
   }
   b.tasks.find((t) => t.id === "src")!.umbrella = { id: "u", order: 0, joinedAt: T, by: human };
 };
-const news = (taskId: string, eventId: string, text: string): DispatcherNote => ({ ...note(taskId, text), kind: "umbrella_news", umbrellaNews: { eventId, text } });
+const news = (taskId: string, eventId: string, text: string): DispatcherNote => ({ ...note(taskId, text), kind: "umbrella_news", umbrellaNews: [{ eventId, text }] });
+
+test("two rulings held on one card while the dispatcher runs get two relay lines, both recorded (UMBRELLA-SPEC §8)", async () => {
+  const x = await charterDispatcher(dispatcherCharterVersion);
+  umbrellaRelayBoard(x);
+  const saved: { groupId: string; id: string }[] = [];
+  const hub = new Dispatcher(
+    x.directory,
+    { summary: async () => "", mcp: async () => ({ type: "http", url: "", headers: {} }), board: async () => x.state.board, saveRelays: async (groupId, records) => void saved.push(...records.map((r) => ({ groupId, id: r.id }))) },
+    x.folder,
+  );
+  dispatchers.push(hub);
+  // Mid-turn: both notes are held and merge on the card.
+  x.agents.get("old")!.status = "running";
+  await hub.deliver(G, [news("src", "e1", "ruling: one")], x.paseo);
+  await hub.deliver(G, [news("src", "e2", "ruling: two")], x.paseo);
+  expect(x.sends).toHaveLength(0);
+  x.agents.get("old")!.status = "idle";
+  await hub.turnEnded("old", x.paseo);
+  const relays = x.sends[0].text.split("\n").filter((l) => l.startsWith("  Relay umbrella news"));
+  expect(relays.map((l) => l.match(/relayOf: "(e\d)"/)?.[1])).toEqual(["e1", "e2"]);
+  expect(relays[0]).toContain('The news: "ruling: one"');
+  expect(saved).toEqual([{ groupId: G, id: "e1" }, { groupId: G, id: "e2" }]);
+});
 
 test("an accepted contract change and a new ruling relay to siblings only (UMBRELLA-SPEC §8, D12)", async () => {
   vi.useFakeTimers({ now: Date.parse("2026-11-18T10:00:00.000Z") });

@@ -21,6 +21,7 @@
 - Onboarding, What's new, telemetry, i18n: none (no UI or user-visible string; no heartbeat field: relays are dispatcher-internal).
 - Tests: RED first (`npx vitest run shared/dispatcher-relay.test.ts server/dispatcher.test.ts server/event-bus.test.ts server/dispatcher-tools.test.ts server/sqlite-parity.test.ts`: 15 failed, 282 passed). GREEN: same command 297 passed; `npm run typecheck` exit 0; `npm test -- --maxWorkers=3` exit 0 (248 files passed, 1 skipped; 3239 tests passed, 7 skipped).
 - Not run: a live dispatcher receiving relay lines and calling `flowly_message_card` with `relayOf` (no install/reload allowed).
+- Fix round 1 (review): `umbrellaNews` is an array (`mergeNotes` adds items oldest first, once per event id, at most 5, `umbrellaNewsLimit`; the oldest past that is dropped and logged `Flowly dispatcher umbrella news dropped:` with its event id), so two rulings held on one card while the dispatcher runs each get a relay line and a `Board.relayed` record; `[contract]` news stays newest-wins. DISPATCHER-SPEC §5.8 also says a relay whose record is not saved (yet) takes the message bucket. Tests: red first (`npx vitest run server/dispatcher.test.ts server/event-bus.test.ts` against the old code: 5 failed, 164 passed); green: the 5 focused files 299 passed; `npm run typecheck` exit 0.
 
 ## Umbrellas, task 9: dispatcher umbrella tools, confirms and charter 15 (branch `kanban/spec-umbrella-epic-object-for-related-ca-e89f06`) — 2026-11-25
 

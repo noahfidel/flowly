@@ -1,5 +1,5 @@
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
-import { mergeNotes, type DispatcherNote } from "../shared/dispatcher";
+import { mergeNotes, umbrellaNewsLimit, type DispatcherNote } from "../shared/dispatcher";
 import type { Board, BoardEvent, Status } from "../shared/model";
 import { contractNews, umbrellaNews } from "../shared/dispatcher-relay";
 import { membersOf, rolesMentioned } from "../shared/umbrella";
@@ -147,9 +147,14 @@ function noteOf(fact: Extract<BusFact, { kind: "board" }>): DispatcherNote {
     ...(news !== null ? { contract: { eventId: event.id, text: news } } : {}),
     ...(proposal ? { proposal: { eventId: event.id, ...proposal } } : {}),
     // Relay only: the charter never puts it to the user as a question (UMBRELLA-SPEC §8).
-    ...(umbrella !== null ? { umbrellaNews: { eventId: event.id, text: umbrella } } : {}),
+    ...(umbrella !== null ? { umbrellaNews: [{ eventId: event.id, text: umbrella }] } : {}),
     at: event.at,
   };
+}
+
+/** `mergeNotes`' drop hook: an umbrella news item pushed out past `umbrellaNewsLimit` is logged, never relayed (UMBRELLA-SPEC §8). */
+export function newsDropped(eventId: string) {
+  logFailure("Flowly dispatcher umbrella news dropped:", new Error(`more than ${umbrellaNewsLimit} umbrella news items on one card`), eventId);
 }
 
 /** Collects board facts for a window, then hands them over as one note per card (EVENT-BUS-SPEC §3). */
@@ -186,7 +191,7 @@ export class NoteBatcher {
     if (!notes.length) return;
     for (const note of notes) {
       const prev = this.pending.get(note.taskId);
-      this.pending.set(note.taskId, prev ? mergeNotes(prev, note) : note);
+      this.pending.set(note.taskId, prev ? mergeNotes(prev, note, newsDropped) : note);
     }
     const now = Date.now();
     if (this.firstAt === null) this.firstAt = now;
