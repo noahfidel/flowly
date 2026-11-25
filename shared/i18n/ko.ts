@@ -1943,5 +1943,7 @@ const catalog: Catalog = {
   "Cards that may belong here": "여기에 속할 수 있는 카드",
   "Showing the first {n} issues": "처음 {n}개의 이슈를 표시합니다",
   "This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).": "이 엄브렐라의 Linear 프로젝트가 프로젝트 URL도 프로젝트 키(P-<TEAM>-<number>)도 아닙니다.",
+  "Group by umbrella": "엄브렐라별로 묶기",
+  "{name}, {n} tasks": "{name}, 작업 {n}개",
 };
 export default catalog;

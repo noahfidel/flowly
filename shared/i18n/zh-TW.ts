@@ -1943,5 +1943,7 @@ const catalog: Catalog = {
   "Cards that may belong here": "可能屬於這裡的卡片",
   "Showing the first {n} issues": "顯示前 {n} 個項目",
   "This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).": "此傘組的 Linear 專案既不是專案 URL，也不是專案鍵（P-<TEAM>-<number>）。",
+  "Group by umbrella": "按傘組分組",
+  "{name}, {n} tasks": "{name}，{n} 個任務",
 };
 export default catalog;

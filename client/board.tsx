@@ -46,7 +46,7 @@ import {
   touch,
   useTheme,
   verticalScroll,
-  verticalContent, noFocusRing, CountPill, Dot } from "./ui";
+  verticalContent, noFocusRing, CountPill, Dot, Toggle } from "./ui";
 import { StatusIcon, priorityLabels } from "./status";
 import { AttentionButton } from "./attention-button";
 import { DispatcherPanel } from "./dispatcher-panel";
@@ -118,7 +118,8 @@ import { pickOutputSession } from "./card-output";
 import { statusChanges } from "./changes";
 import { ContextMenuProvider, eventPoint, menuHandlers, suppressNativeMenu, useMenuControl, useMenuOpener, type MenuEntry, type Point } from "./context-menu";
 import { boardCardMenu } from "./card-menu";
-import { DesktopColumns, OlderToggle, type BoardScroll, type Placement } from "./columns";
+import { BandHeader, DesktopColumns, OlderToggle, type BoardScroll, type LaneBands, type Placement } from "./columns";
+import { bandRows, bandedOrder, umbrellaBands } from "./umbrella-bands";
 import { olderFinishedFromDates } from "./finished-cards";
 import { ResizeGrip } from "./resize";
 import { chatWidth, defaultDrawerShare, minChatWidth, drawerShare, drawerWidth, isCompactLayout } from "./geometry";
@@ -253,7 +254,7 @@ const noProjects: Project[] = [];
 const noRunning: RunningRow[] = [];
 const noIds: string[] = [];
 const noUmbrellas: UmbrellaSummary[] = [];
-const noGroupFilter: GroupFilter = { search: "", priority: "all", type: "all", umbrella: "", tags: [], archived: false };
+const noGroupFilter: GroupFilter = { search: "", priority: "all", type: "all", umbrella: "", tags: [], archived: false, groupByUmbrella: false };
 const noAgents: PaseoAgent[] = [];
 const noTurnFacts: ReadonlyMap<string, { latestTurn?: { action: string; at: string } }> = new Map();
 const noProviderRunning: ProviderRunning = { running: {} };
@@ -656,6 +657,9 @@ function BoardContent(
   const setPriority = (next: string) => writeGroupFilter(shownGroupId, { priority: next as GroupFilter["priority"] });
   const setTaskType = (next: string) => writeGroupFilter(shownGroupId, { type: next as GroupFilter["type"] });
   const setUmbrellaFilter = (next: string) => writeGroupFilter(shownGroupId, { umbrella: next });
+  // Group by umbrella (UMBRELLA-SPEC §7): the group's own choice, kept with its filters but not counted as one.
+  const groupByUmbrella = shownFilter.groupByUmbrella;
+  const setGroupByUmbrella = (next: boolean) => writeGroupFilter(shownGroupId, { groupByUmbrella: next });
   const setTagFilter = (next: string[]) => writeGroupFilter(shownGroupId, { tags: next.slice(0, 20) });
   // Clicking a tag in the drawer adds it to the filter (CARD-TAGS-SPEC §6.3).
   const filterByTag = useStableCallback((tag: string) => {
@@ -913,10 +917,28 @@ function BoardContent(
   const toggleOlder = (status: Status) =>
     setOlderShown((lanes) => (lanes.includes(status) ? lanes.filter((s) => s !== status) : [...lanes, status]));
   const onScreen = visible.filter((t) => !older.has(t.id) || olderShown.includes(t.status));
+  // Group by umbrella (UMBRELLA-SPEC §7): each lane's cards in bands, one per umbrella with a shown card by title, then
+  // "No umbrella"; derived from the cards on screen and the overview's umbrellas, no extra read. Folded bands live for
+  // this run only.
+  const bandUmbrellas = projected?.umbrellas ?? noUmbrellas;
+  const [collapsedBands, setCollapsedBands] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleBand = useStableCallback((key: string) =>
+    setCollapsedBands((was) => {
+      const next = new Set(was);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    }),
+  );
+  const laneBands = useMemo<LaneBands | null>(
+    () => (groupByUmbrella ? { umbrellas: bandUmbrellas, collapsed: collapsedBands, onToggle: toggleBand } : null),
+    [groupByUmbrella, bandUmbrellas, collapsedBands],
+  );
   // Within a lane the older cards always come last, under their toggle. A group board's Manual is the group's one order
-  // (BOARD-GROUPS-SPEC §4); filtered, it is that order restricted to the project, i.e. plain position order.
+  // (BOARD-GROUPS-SPEC §4); filtered, it is that order restricted to the project, i.e. plain position order. With bands
+  // on, a lane's order (keyboard moves too) is its bands' cards in turn, each band in the board's sort.
   const sortColumn = (column: Task[]) => {
-    const sorted = allView ? sortAllColumn(column, boardSort, taskActivity, projectRank, !!group) : sortTasks(column, boardSort, taskActivity);
+    const ordered = allView ? sortAllColumn(column, boardSort, taskActivity, projectRank, !!group) : sortTasks(column, boardSort, taskActivity);
+    const sorted = groupByUmbrella ? bandedOrder(ordered, bandUmbrellas) : ordered;
     return older.size ? [...sorted.filter((t) => !older.has(t.id)), ...sorted.filter((t) => older.has(t.id))] : sorted;
   };
   // The phone's lanes: the selected one, plus its neighbours in the native lane pager (UI-UX-SPEC §5).
@@ -928,7 +950,8 @@ function BoardContent(
     const all = sortColumn(visible.filter((t) => t.status === status));
     const recent = all.filter((t) => !older.has(t.id));
     const olderCards = all.filter((t) => older.has(t.id));
-    const rows = sameRows(laneRowsRef.current.get(status), laneRows(recent, olderCards, olderShown.includes(status)));
+    const banded = laneBands ? bandRows(umbrellaBands(recent, laneBands.umbrellas), laneBands.collapsed) : undefined;
+    const rows = sameRows(laneRowsRef.current.get(status), laneRows(recent, olderCards, olderShown.includes(status), banded));
     laneRowsRef.current.set(status, rows);
     const lane = { count: all.length, olderCount: olderCards.length, rows };
     lanesNow.set(status, lane);
@@ -2100,6 +2123,8 @@ function BoardContent(
       renderItem={(row) =>
         row.kind === "task" ? (
           renderCard(row.task)
+        ) : row.kind === "band" ? (
+          <BandHeader id={row.id} title={row.title} count={row.count} collapsed={row.collapsed} onToggle={toggleBand} />
         ) : row.kind === "older" ? (
           <OlderToggle count={laneOf(status).olderCount} shown={olderShown.includes(status)} onPress={() => toggleOlder(status)} />
         ) : row.hasOlder ? (
@@ -2597,6 +2622,9 @@ function BoardContent(
             {!!group && (!!project || allView) && (
               <IconButton icon="Umbrella" label={t("Umbrellas")} active={page === "umbrellas" || umbrellaModal} onPress={() => (page === "umbrellas" ? closeUmbrellas() : showUmbrellas(null))} />
             )}
+            {!compact && !!group && (!!project || allView) && (
+              <IconButton icon="Rows3" label={t("Group by umbrella")} active={groupByUmbrella} onPress={() => setGroupByUmbrella(!groupByUmbrella)} />
+            )}
             <FilterButton
               count={filterCount}
               // Phones sort from the Filters dialog, so a non-manual sort lights its icon too.
@@ -2853,8 +2881,9 @@ function BoardContent(
                     statuses={shownStatuses}
                     tasks={visible}
                     disabled={pending || !!project?.archivedAt}
-                    cancelKey={`${viewKey}|${search}|${priority}|${taskType}|${umbrellaFilter}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${projectForm}|${!!groupSettings}|${!!taskForm}|${!!quickTask}`}
+                    cancelKey={`${viewKey}|${search}|${priority}|${taskType}|${umbrellaFilter}|${groupByUmbrella}|${tagFilter.join(",")}|${archived}|${shownStatuses.join(",")}|${taskId}|${menu}|${projectForm}|${!!groupSettings}|${!!taskForm}|${!!quickTask}`}
                     sortColumn={sortColumn}
+                    bands={laneBands}
                     manualOrder={reorderAllowed(allView, boardSort, !!group)}
                     collapsed={collapsedColumns}
                     older={older}
@@ -3041,6 +3070,9 @@ function BoardContent(
                   options={[{ value: "", label: t("All") }, { value: "none", label: t("No umbrella") }, ...umbrellaChoices]}
                   onChange={setUmbrellaFilter}
                 />
+              )}
+              {compact && !!group && (umbrellaChoices.length > 0 || groupByUmbrella) && (
+                <Toggle title={t("Group by umbrella")} value={groupByUmbrella} onChange={setGroupByUmbrella} />
               )}
               <Choices
                 title={t("Priority")}

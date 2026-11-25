@@ -147,7 +147,7 @@ test("groupFilters and groupCollapsed: per-group maps, bad data falls back, capp
     groupFilters: { g1: { search: "bug", priority: "all", type: "feature", tags: [], archived: true } },
     lastQuickProjectId: "q",
   });
-  expect(boardViewValues({ groupFilters: { g1: {} } }).groupFilters).toEqual({ g1: { search: "", priority: "all", type: "all", umbrella: "", tags: [], archived: false } });
+  expect(boardViewValues({ groupFilters: { g1: {} } }).groupFilters).toEqual({ g1: { search: "", priority: "all", type: "all", umbrella: "", tags: [], archived: false, groupByUmbrella: false } });
   expect(boardViewValues({ groupCollapsed: { g1: ["nope"] } }).groupCollapsed).toEqual({ g1: [] });
   // A bad map: none.
   expect(boardViewValues({ groupFilters: "x", groupCollapsed: 4, lastQuickProjectId: "q" })).toMatchObject({ groupFilters: {}, groupCollapsed: {}, lastQuickProjectId: "q" });
@@ -159,8 +159,8 @@ test("groupFilters and groupCollapsed: per-group maps, bad data falls back, capp
 
 test("a group with no entry starts from the global filters and collapsed lanes saved before per-group ones", () => {
   const values = boardViewValues({ filterSearch: "old", filterPriority: "low", filterType: "bugfix", filterTags: ["x"], showArchived: true, collapsedColumns: ["blocked"], groupFilters: { g1: { search: "mine" } }, groupCollapsed: { g1: ["done"] } });
-  expect(groupFilterOf(values, "g2")).toEqual({ search: "old", priority: "low", type: "bugfix", tags: ["x"], archived: true, umbrella: "" });
-  expect(groupFilterOf(values, "g1")).toEqual({ search: "mine", priority: "all", type: "all", umbrella: "", tags: [], archived: false });
+  expect(groupFilterOf(values, "g2")).toEqual({ search: "old", priority: "low", type: "bugfix", tags: ["x"], archived: true, umbrella: "", groupByUmbrella: false });
+  expect(groupFilterOf(values, "g1")).toEqual({ search: "mine", priority: "all", type: "all", umbrella: "", tags: [], archived: false, groupByUmbrella: false });
   expect(groupCollapsedOf(values, "g2")).toEqual(["blocked"]);
   expect(groupCollapsedOf(values, "g1")).toEqual(["done"]);
 });
@@ -171,14 +171,26 @@ test("a group filter without umbrella reads as all", () => {
   expect(groupFilterOf(boardViewValues({ filterUmbrella: "u1" }), "g9").umbrella).toBe("u1");
 });
 
+test("group by umbrella is off by default per group", () => {
+  expect(groupFilterOf(boardViewValues({}), "g1").groupByUmbrella).toBe(false);
+  expect(boardViewValues({ groupFilters: { g1: { search: "x" } } }).groupFilters.g1!.groupByUmbrella).toBe(false);
+  // Each group keeps its own; a bad value reads as off and keeps the rest of the entry.
+  const values = boardViewValues({ groupFilters: { g1: { groupByUmbrella: true }, g2: { groupByUmbrella: "yes", search: "s" } } });
+  expect(groupFilterOf(values, "g1").groupByUmbrella).toBe(true);
+  expect(groupFilterOf(values, "g2")).toMatchObject({ groupByUmbrella: false, search: "s" });
+  expect(groupFilterOf(values, "g3").groupByUmbrella).toBe(false);
+  // A card link and its filter reset leave it as it was.
+  expect(linkedCardFilter(groupFilterOf(values, "g1"), false).groupByUmbrella).toBe(true);
+});
+
 test("a card link clears the umbrella filter", () => {
-  const saved = { search: "", priority: "all" as const, type: "all" as const, umbrella: "u1", tags: [], archived: false };
+  const saved = { search: "", priority: "all" as const, type: "all" as const, umbrella: "u1", tags: [], archived: false, groupByUmbrella: false };
   expect(linkedCardFilter(saved, false).umbrella).toBe("");
 });
 
 test("a card link clears search, priority, type and tags; show-archived turns on only for an archived card or project", () => {
-  const saved = { search: "x", priority: "high" as const, type: "bugfix" as const, umbrella: "u1", tags: ["t"], archived: true };
-  expect(linkedCardFilter(saved, false)).toEqual({ search: "", priority: "all", type: "all", umbrella: "", tags: [], archived: true });
+  const saved = { search: "x", priority: "high" as const, type: "bugfix" as const, umbrella: "u1", tags: ["t"], archived: true, groupByUmbrella: false };
+  expect(linkedCardFilter(saved, false)).toEqual({ search: "", priority: "all", type: "all", umbrella: "", tags: [], archived: true, groupByUmbrella: false });
   expect(linkedCardFilter({ ...saved, archived: false }, false).archived).toBe(false);
   expect(linkedCardFilter({ ...saved, archived: false }, true).archived).toBe(true);
 });

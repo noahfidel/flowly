@@ -25,6 +25,8 @@ const groupFilterSchema = z.object({
   umbrella: z.string().max(200).catch("").default(""),
   tags: z.array(z.string().max(80)).max(20).catch([]).default([]),
   archived: z.boolean().catch(false).default(false),
+  /** The board draws each lane's cards in one band per umbrella, then "No umbrella" (UMBRELLA-SPEC §7); a view choice, not a filter. */
+  groupByUmbrella: z.boolean().catch(false).default(false),
 });
 export type GroupFilter = z.infer<typeof groupFilterSchema>;
 
@@ -72,7 +74,7 @@ export const boardViewSettings = defineSettings({
     filterTags: z.array(z.string().max(80)).max(20).default([]),
     showArchived: z.boolean().default(false),
     /**
-     * The search, priority, type, tag and show-archived filters of each group, by group id (BOARD-GROUPS-SPEC §3,
+     * The search, priority, type, umbrella, tag and show-archived filters and the group-by-umbrella choice of each group, by group id (BOARD-GROUPS-SPEC §3,
      * ruling 2026-11-23); a group with no entry starts from the global `filter*` / `showArchived` values above
      * (`groupFilterOf`). A bad field falls back to its default, a bad map to none.
      */
@@ -148,16 +150,17 @@ export function groupFilterOf(values: BoardView, groupId: string): GroupFilter {
       umbrella: values.filterUmbrella,
       tags: values.filterTags,
       archived: values.showArchived,
+      groupByUmbrella: false,
     }
   );
 }
 
 /**
  * A group's filters after a card link opens one of its cards: search, priority, type and tags cleared so the card shows;
- * show-archived turned on when the card or its project is archived, else the group's own value.
+ * show-archived turned on when the card or its project is archived, else the group's own value. Group by umbrella stays.
  */
 export function linkedCardFilter(current: GroupFilter, cardArchived: boolean): GroupFilter {
-  return { search: "", priority: "all", type: "all", umbrella: "", tags: [], archived: current.archived || cardArchived };
+  return { search: "", priority: "all", type: "all", umbrella: "", tags: [], archived: current.archived || cardArchived, groupByUmbrella: current.groupByUmbrella };
 }
 
 /** A group's collapsed lanes: its own entry, else the global set saved before per-group lanes (the seed). */

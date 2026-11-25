@@ -1943,5 +1943,7 @@ const catalog: Catalog = {
   "Cards that may belong here": "Cartes qui pourraient appartenir ici",
   "Showing the first {n} issues": "Affichage des {n} premiers tickets",
   "This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).": "Le projet Linear de ce parapluie n'est ni une URL de projet ni une clé de projet (P-<TEAM>-<number>).",
+  "Group by umbrella": "Regrouper par parapluie",
+  "{name}, {n} tasks": {"one": "{name}, {n} tâche", "other": "{name}, {n} tâches"},
 };
 export default catalog;

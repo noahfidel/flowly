@@ -3,10 +3,13 @@ export type LaneRow<T> =
   | { key: string; kind: "task"; task: T }
   /** No recent cards: the lane is empty, or only older finished cards remain. */
   | { key: "empty"; kind: "empty"; hasOlder: boolean }
-  | { key: "older"; kind: "older" };
+  | { key: "older"; kind: "older" }
+  /** An umbrella band's header (UMBRELLA-SPEC §7, group by umbrella); `id` null is "No umbrella". */
+  | { key: string; kind: "band"; id: string | null; title: string; count: number; collapsed: boolean };
 
-export function laneRows<T extends { id: string }>(recent: readonly T[], older: readonly T[], showOlder: boolean): LaneRow<T>[] {
-  const rows: LaneRow<T>[] = recent.map((task) => ({ key: task.id, kind: "task", task }));
+/** `recentRows`: the recent cards' rows when they are drawn in bands (`bandRows`), else one row per recent card. */
+export function laneRows<T extends { id: string }>(recent: readonly T[], older: readonly T[], showOlder: boolean, recentRows?: LaneRow<T>[]): LaneRow<T>[] {
+  const rows: LaneRow<T>[] = recentRows ? [...recentRows] : recent.map((task) => ({ key: task.id, kind: "task", task }));
   if (!recent.length) rows.push({ key: "empty", kind: "empty", hasOlder: older.length > 0 });
   if (older.length) rows.push({ key: "older", kind: "older" });
   if (older.length && showOlder) for (const task of older) rows.push({ key: task.id, kind: "task", task });
@@ -22,6 +25,7 @@ export function sameRows<T>(prev: readonly LaneRow<T>[] | undefined, next: LaneR
     if (a.key !== b.key || a.kind !== b.kind) return next;
     if (a.kind === "task" && b.kind === "task" && a.task !== b.task) return next;
     if (a.kind === "empty" && b.kind === "empty" && a.hasOlder !== b.hasOlder) return next;
+    if (a.kind === "band" && b.kind === "band" && (a.title !== b.title || a.count !== b.count || a.collapsed !== b.collapsed)) return next;
   }
   return prev as LaneRow<T>[];
 }

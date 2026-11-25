@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { sortTasks } from "../shared/sort";
+import type { UmbrellaSummary } from "../shared/umbrella";
+import { bandKey, umbrellaBands } from "./umbrella-bands";
 import { animatesCollapse } from "./collapsed-columns";
 import { Animated, PanResponder, Pressable, View, type ScrollView as NativeScrollView } from "react-native";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import type { Status, Task } from "../shared/model";
 import { statusLabels } from "../shared/model";
-import { IconButton, Label, font, noFocusRing, radius, space, touch, useTheme, verticalScroll, verticalContent } from "./ui";
+import { IconButton, Label, TurnChevron, font, noFocusRing, radius, space, touch, useTheme, verticalScroll, verticalContent } from "./ui";
 import { menuHandlers, useMenuOpener, useOnMenuChange } from "./context-menu";
 import { StatusIcon } from "./status";
 import type { CardDrag } from "./card";
@@ -107,6 +109,45 @@ export function OlderToggle({ count, shown, onPress }: { count: number; shown: b
   );
 }
 
+/**
+ * An umbrella band's header inside a lane (UMBRELLA-SPEC §7, group by umbrella; also used by the phone list): pressing
+ * it folds or opens that umbrella's band in every lane. `id` null is "No umbrella".
+ */
+export const BandHeader = memo(function BandHeader({ id, title, count, collapsed, onToggle }: { id: string | null; title: string; count: number; collapsed: boolean; onToggle(key: string): void }) {
+  const { colors } = useTheme();
+  const name = id === null ? t("No umbrella") : title;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={tn(count, "{name}, {n} task", "{name}, {n} tasks", { name })}
+      accessibilityState={{ expanded: !collapsed }}
+      onPress={() => onToggle(bandKey(id))}
+      style={(state) => {
+        const { pressed, hovered, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
+        return {
+          ...noFocusRing,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space[1.5],
+          minHeight: touch ? 36 : 26,
+          paddingHorizontal: space[1],
+          borderRadius: radius.md,
+          backgroundColor: hovered || pressed || focused ? colors.surface2 : "transparent",
+        };
+      }}
+    >
+      <TurnChevron open={!collapsed} size={12} color={colors.foregroundMuted} />
+      <View style={{ flexShrink: 1, minWidth: 0 }}>
+        <Label medium muted size={font.sm} lines={1} selectable={false}>{name}</Label>
+      </View>
+      <Label muted size={font.sm} selectable={false}>{count}</Label>
+    </Pressable>
+  );
+});
+
+/** Group by umbrella on the desktop lanes (UMBRELLA-SPEC §7): the umbrellas, the folded bands' keys and the fold toggle. */
+export type LaneBands = { umbrellas: readonly UmbrellaSummary[]; collapsed: ReadonlySet<string>; onToggle(key: string): void };
+
 /** Insertion line positioned absolutely in the column content, so showing it never shifts cards. */
 function InsertLine({ y }: { y: number | null }) {
   const { colors } = useTheme();
@@ -144,6 +185,7 @@ export function DesktopColumns({
   older = noOlder,
   olderShown = [],
   onToggleOlder,
+  bands = null,
   reveal,
   initialScroll,
   onScrollChange,
@@ -171,6 +213,11 @@ export function DesktopColumns({
   /** Lanes whose older cards are shown. */
   olderShown?: readonly Status[];
   onToggleOlder?(status: Status): void;
+  /**
+   * Group by umbrella (UMBRELLA-SPEC §7): each lane's recent cards drawn in umbrella bands, a header each; null: off.
+   * A drop only changes the lane: the card stays in its own band, and a manual-order slot is picked among its band's cards.
+   */
+  bands?: LaneBands | null;
   /**
    * Scrolls this lane into view each time `n` changes: to the left edge (a lane jump),
    * or with `center` centred, only when not fully visible (the open card's lane beside the drawer). A request older
@@ -203,6 +250,8 @@ export function DesktopColumns({
     contentWidth = useRef(0);
   const cards = useRef<Record<string, { y: number; height: number }>>({}),
     order = useRef<Partial<Record<Status, string[]>>>({}),
+    // With bands on: each drawn card's band key (older finished cards apart), so a drop slot is picked within its band.
+    bandOf = useRef<Record<string, string>>({}),
     lists = useRef<Partial<Record<Status, View | null>>>({}),
     frames = useRef<Partial<Record<Status, View | null>>>({}),
     toggled = useRef(new Set<Status>()),
@@ -270,8 +319,15 @@ export function DesktopColumns({
       onPanResponderTerminate: endPan,
     }),
   );
-  const current = useRef({ disabled, onDrop, manualOrder, onReorderBlocked });
-  current.current = { disabled, onDrop, manualOrder, onReorderBlocked };
+  const current = useRef({ disabled, onDrop, manualOrder, onReorderBlocked, banded: !!bands });
+  current.current = { disabled, onDrop, manualOrder, onReorderBlocked, banded: !!bands };
+  // The lane's drawn cards a drop of `taskId` is placed among: all of them, or with bands on only those of its band.
+  const dropIds = (status: Status, taskId: string) => {
+    const ids = order.current[status] || [];
+    if (!current.current.banded) return ids;
+    const key = bandOf.current[taskId];
+    return ids.filter((id) => bandOf.current[id] === key);
+  };
   const target = (point: Point) =>
     columnAtPoint(
       point,
@@ -282,7 +338,7 @@ export function DesktopColumns({
   const slot = (task: Task, status: Status | null, point: Point) => {
     const top = status ? listTops.current[status] : undefined;
     if (!status || top === undefined || !current.current.manualOrder) return null;
-    const bounds = (order.current[status] || []).flatMap((id) =>
+    const bounds = dropIds(status, task.id).flatMap((id) =>
       cards.current[id] ? [{ id, ...cards.current[id] }] : [],
     );
     return dropSlot(contentY(point.y, top, scrollY.current[status] || 0), bounds, task.id, cardGap);
@@ -337,7 +393,7 @@ export function DesktopColumns({
         snapshot.task,
         status,
         slot(snapshot.task, status, point),
-        status ? order.current[status] || [] : [],
+        status ? dropIds(status, snapshot.task.id) : [],
       );
       if (input) current.current.onDrop(input);
     },
@@ -506,14 +562,21 @@ export function DesktopColumns({
           const recent = column.filter((t) => !older.has(t.id)),
             past = column.filter((t) => older.has(t.id)),
             pastShown = olderShown.includes(status);
-          const shown = pastShown ? [...recent, ...past] : recent;
+          // Group by umbrella: the recent cards in bands; a folded band draws its header only.
+          const laneBands = bands ? umbrellaBands(recent, bands.umbrellas) : null;
+          const drawn = laneBands && bands ? laneBands.flatMap((b) => (bands.collapsed.has(bandKey(b.id)) ? [] : b.tasks)) : recent;
+          if (laneBands) {
+            laneBands.forEach((b) => b.tasks.forEach((t) => (bandOf.current[t.id] = bandKey(b.id))));
+            past.forEach((t) => (bandOf.current[t.id] = "\u0000older"));
+          }
+          const shown = pastShown ? [...drawn, ...past] : drawn;
           // Drop slots follow the cards actually on screen.
           order.current[status] = shown.map((t) => t.id);
           const highlighted =
             dragging?.target === status && dragging.task.status !== status;
           const line =
             dragging?.target === status &&
-            placementUpdate(dragging.task, status, dragging.slot, order.current[status])
+            placementUpdate(dragging.task, status, dragging.slot, dropIds(status, dragging.task.id))
               ? (dragging.slot?.lineY ?? null)
               : null;
           const headerMenu = menuHandlers(openMenu, nameOf(status), () => [
@@ -687,7 +750,13 @@ export function DesktopColumns({
                   gap: cardGap,
                 }}
               >
-                {recent.map(cardSlot)}
+                {laneBands && bands
+                  ? laneBands.flatMap((b) => {
+                      const folded = bands.collapsed.has(bandKey(b.id));
+                      const header = <BandHeader key={`band:${bandKey(b.id)}`} id={b.id} title={b.title} count={b.tasks.length} collapsed={folded} onToggle={bands.onToggle} />;
+                      return folded ? [header] : [header, ...b.tasks.map(cardSlot)];
+                    })
+                  : recent.map(cardSlot)}
                 {!recent.length && (
                   // Same box idle and while dragging, so starting a drag never shifts the lane.
                   <View
@@ -763,7 +832,7 @@ export function DesktopColumns({
             {ghost.item.target && ghost.item.target !== ghost.item.task.status
               ? t("Move to {name}", { name: nameOf(ghost.item.target) })
               : ghost.item.target &&
-                  placementUpdate(ghost.item.task, ghost.item.target, ghost.item.slot, order.current[ghost.item.target] || [])
+                  placementUpdate(ghost.item.task, ghost.item.target, ghost.item.slot, dropIds(ghost.item.target, ghost.item.task.id))
                 ? t("Reorder in {name}", { name: nameOf(ghost.item.target) })
                 : t("Drag to reorder or move")}
           </Label>
