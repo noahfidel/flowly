@@ -15,7 +15,9 @@ import { Enter } from "./motion";
 import { SessionMarkdown } from "./session-content";
 import { openQuickLink } from "./quick-links-row";
 import { useStableCallback } from "./stable";
-import { acceptanceInput, errorCode, feedRows, listedUmbrellas, openQuestions, pipelineRows, umbrellaWritable, type AcceptanceDraft } from "./umbrella-panel-logic";
+import {
+  acceptanceInput, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, openQuestions, pipelineRows, revisionToSend, umbrellaWritable, type AcceptanceDraft, type EditBase, type SaveOutcome,
+} from "./umbrella-panel-logic";
 import {
   Actions, Button, Choices, Field, IconButton, Label, Notice, Row, Theme, font, message, noFocusRing, pageBarHeight, radius, relativeTime, space, touch, useTheme, verticalContent, verticalScroll,
 } from "./ui";
@@ -206,7 +208,23 @@ function NewUmbrella({ groupId, onCancel, onCreated }: { groupId: string; onCanc
   );
 }
 
-type Saved = "saved" | "conflict" | "failed";
+/**
+ * An editor's draft and the revision it was opened on (`EditBase`): Save sends that revision, so an edit made meanwhile
+ * (the dispatcher, another window) is refused instead of overwritten; after the refusal the editor is based on the
+ * reloaded revision and Save becomes Replace.
+ */
+function useDraft<T>(onSave: (value: T, revision: number) => Promise<SaveOutcome>) {
+  const [draft, setDraft] = useState<{ value: T; base: EditBase } | null>(null);
+  const start = (value: T, revision: number) => setDraft({ value, base: editBase(revision) });
+  const change = (fn: (value: T) => T) => setDraft((d) => d && { ...d, value: fn(d.value) });
+  const save = async () => {
+    if (!draft) return;
+    const base = editAfterSave(draft.base, await onSave(draft.value, revisionToSend(draft.base)));
+    // Keep the text typed since Save was pressed; only the base moves.
+    setDraft((d) => (base && d ? { ...d, base } : null));
+  };
+  return { draft, start, change, save, cancel: () => setDraft(null) };
+}
 
 function UmbrellaDetail({ hostId, id, summary, onSelect, onOpenCard, cardTitle, onChanged }: PanelProps & { id: string; summary?: UmbrellaSummary }) {
   const { colors } = useTheme();
@@ -228,26 +246,34 @@ function UmbrellaDetail({ hostId, id, summary, onSelect, onOpenCard, cardTitle, 
   const [busy, setBusy] = useState(false);
   const patch = (fn: (old: Detail) => Detail) => queryClient.setQueryData<Detail>(key, (old) => (old ? fn(old) : old));
   const reload = () => void queryClient.invalidateQueries({ queryKey: ["flowly", "umbrella", hostId, id] });
-  // One write at a time; a stale revision reloads the umbrella and leaves the caller's typed text where it is.
-  const write = useStableCallback(async (run: (revision: number) => Promise<Umbrella>): Promise<Saved> => {
-    if (!data || busy) return "failed";
+  // One write at a time. `base`: an editor's revision (never the current one, so a concurrent edit is refused); without
+  // it, the revision shown (ticks, close). A refusal reloads the umbrella and leaves the caller's typed text where it is.
+  const write = useStableCallback(async (run: (revision: number) => Promise<Umbrella>, base?: number): Promise<SaveOutcome> => {
+    if (!data || busy) return { status: "failed" };
     setBusy(true);
     setError("");
     try {
-      const umbrella = await run(data.umbrella.revision);
+      const umbrella = await run(base ?? data.umbrella.revision);
       patch((old) => ({ ...old, umbrella }));
       onChanged();
-      return "saved";
+      return { status: "saved" };
     } catch (e) {
       const code = errorCode(e);
       if (code === "REVISION_CONFLICT") {
-        reload();
-        setError(t("This umbrella changed since you opened it. It has been reloaded; your text is kept, so save again to replace it."));
-        return "conflict";
+        try {
+          const fresh = await get({ id });
+          patch(() => fresh);
+          onChanged();
+          setError(t("This umbrella changed since you opened it. It has been reloaded; your text is kept, so save again to replace it."));
+          return { status: "conflict", revision: fresh.umbrella.revision };
+        } catch (reloadError) {
+          setError(message(reloadError));
+          return { status: "failed" };
+        }
       }
       setError(code === "UMBRELLA_CLOSED" ? t("This umbrella is closed. Reopen it to change it.") : message(e));
       if (code === "UMBRELLA_CLOSED") reload();
-      return "failed";
+      return { status: "failed" };
     } finally {
       setBusy(false);
     }
@@ -327,7 +353,8 @@ function UmbrellaDetail({ hostId, id, summary, onSelect, onOpenCard, cardTitle, 
         max={umbrellaLimits.brief}
         writable={writable}
         busy={busy}
-        onSave={(text) => write((revision) => update({ id, revision, brief: text }))}
+        revision={u.revision}
+        onSave={(text, base) => write((revision) => update({ id, revision, brief: text }), base)}
       />
       <TextPart
         title={t("Contract")}
@@ -337,7 +364,8 @@ function UmbrellaDetail({ hostId, id, summary, onSelect, onOpenCard, cardTitle, 
         max={umbrellaLimits.contract}
         writable={writable}
         busy={busy}
-        onSave={(text) => write((revision) => update({ id, revision, contract: text }))}
+        revision={u.revision}
+        onSave={(text, base) => write((revision) => update({ id, revision, contract: text }), base)}
       />
       <Pipeline members={data.members} onOpen={openCard} />
       <Questions entries={data.entries} writable={writable} sourceOf={sourceOf} onAnswer={answer} />
@@ -346,7 +374,9 @@ function UmbrellaDetail({ hostId, id, summary, onSelect, onOpenCard, cardTitle, 
         items={u.acceptance}
         writable={writable}
         busy={busy}
-        onSave={(items) => write((revision) => update({ id, revision, acceptance: acceptanceInput(items) }))}
+        revision={u.revision}
+        onTick={(items) => write((revision) => update({ id, revision, acceptance: acceptanceInput(items) }))}
+        onSave={(items, base) => write((revision) => update({ id, revision, acceptance: acceptanceInput(items) }), base)}
       />
       {!u.archivedAt && (
         <View style={{ gap: space[2] }}>
@@ -371,7 +401,7 @@ function UmbrellaDetail({ hostId, id, summary, onSelect, onOpenCard, cardTitle, 
                     const action = confirm;
                     setConfirm(null);
                     void write((revision) => (action === "close" ? close : action === "reopen" ? reopen : archive)({ id, revision })).then((result) => {
-                      if (result === "saved" && action === "archive") {
+                      if (result.status === "saved" && action === "archive") {
                         toast.show(t("Umbrella archived"), { variant: "success" });
                         onSelect(null);
                       }
@@ -422,7 +452,7 @@ function PartTitle({ title, count, trailing }: { title: string; count?: number; 
 }
 
 /** The brief or the contract: markdown, and while editing a multiline Field whose text survives a conflict. */
-function TextPart({ title, text, empty, changed, source, max, writable, busy, onSave }: {
+function TextPart({ title, text, empty, changed, source, max, writable, busy, revision, onSave }: {
   title: string;
   text: string;
   empty: string;
@@ -432,21 +462,19 @@ function TextPart({ title, text, empty, changed, source, max, writable, busy, on
   max: number;
   writable: boolean;
   busy: boolean;
-  onSave(text: string): Promise<Saved>;
+  /** The umbrella's revision now; Edit records it as the draft's base. */
+  revision: number;
+  onSave(text: string, base: number): Promise<SaveOutcome>;
 }) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const save = async () => {
-    if (draft === null) return;
-    // On a conflict the editor stays open with the typed text; the reloaded umbrella brings the new revision.
-    if ((await onSave(draft)) === "saved") setDraft(null);
-  };
+  const editor = useDraft(onSave);
+  const draft = editor.draft?.value ?? null;
   return (
     <View style={{ gap: space[1.5] }}>
       <PartTitle
         title={title}
         trailing={
           writable && draft === null ? (
-            <Button small quiet icon="Pencil" label={t("Edit {part}", { part: title })} onPress={() => setDraft(text)}>
+            <Button small quiet icon="Pencil" label={t("Edit {part}", { part: title })} onPress={() => editor.start(text, revision)}>
               {t("Edit")}
             </Button>
           ) : undefined
@@ -454,13 +482,13 @@ function TextPart({ title, text, empty, changed, source, max, writable, busy, on
       />
       {draft !== null ? (
         <View style={{ gap: space[2] }}>
-          <Field title={title} value={draft} onChange={setDraft} multiline maxLength={max} autoFocus />
+          <Field title={title} value={draft} onChange={(next) => editor.change(() => next)} multiline maxLength={max} autoFocus />
           <Actions>
-            <Button quiet disabled={busy} onPress={() => setDraft(null)}>
+            <Button quiet disabled={busy} onPress={editor.cancel}>
               {t("Cancel")}
             </Button>
-            <Button primary disabled={busy} onPress={() => void save()}>
-              {t("Save")}
+            <Button primary disabled={busy} onPress={() => void editor.save()}>
+              {editor.draft?.base.replace ? t("Replace") : t("Save")}
             </Button>
           </Actions>
         </View>
@@ -655,22 +683,28 @@ const FeedRow = memo(function FeedRow({ entry, source, writable, onSupersede }: 
 type DraftItem = AcceptanceDraft & { key: string };
 
 /** The acceptance list (§11): ticks save at once; Edit list changes, adds and removes items (at most 20) in one save. */
-function Acceptance({ items, writable, busy, onSave }: { items: Umbrella["acceptance"]; writable: boolean; busy: boolean; onSave(items: AcceptanceDraft[]): Promise<Saved> }) {
-  const [draft, setDraft] = useState<DraftItem[] | null>(null);
+function Acceptance({ items, writable, busy, revision, onTick, onSave }: {
+  items: Umbrella["acceptance"];
+  writable: boolean;
+  busy: boolean;
+  revision: number;
+  /** A tick: the list as shown, against the revision shown. */
+  onTick(items: AcceptanceDraft[]): Promise<SaveOutcome>;
+  /** Edit list: against the revision it was opened on. */
+  onSave(items: AcceptanceDraft[], base: number): Promise<SaveOutcome>;
+}) {
   const next = useRef(0);
   const plain = (list: readonly { id?: string; text: string; done: boolean }[]): AcceptanceDraft[] => list.map((a) => ({ ...(a.id ? { id: a.id } : {}), text: a.text, done: a.done }));
   const toggle = useStableCallback((itemId: string) => {
     if (busy) return;
-    void onSave(plain(items).map((a) => (a.id === itemId ? { ...a, done: !a.done } : a)));
+    void onTick(plain(items).map((a) => (a.id === itemId ? { ...a, done: !a.done } : a)));
   });
-  const startEdit = () => setDraft(items.map((a) => ({ key: a.id, id: a.id, text: a.text, done: a.done })));
-  const change = (key: string, text: string) => setDraft((d) => d && d.map((a) => (a.key === key ? { ...a, text } : a)));
-  const remove = (key: string) => setDraft((d) => d && d.filter((a) => a.key !== key));
-  const add = () => setDraft((d) => d && (d.length >= umbrellaLimits.acceptance ? d : [...d, { key: `new-${next.current++}`, text: "", done: false }]));
-  const save = async () => {
-    if (!draft) return;
-    if ((await onSave(plain(draft))) === "saved") setDraft(null);
-  };
+  const editor = useDraft((list: DraftItem[], base: number) => onSave(plain(list), base));
+  const draft = editor.draft?.value ?? null;
+  const startEdit = () => editor.start(items.map((a) => ({ key: a.id, id: a.id, text: a.text, done: a.done })), revision);
+  const change = (key: string, text: string) => editor.change((d) => d.map((a) => (a.key === key ? { ...a, text } : a)));
+  const remove = (key: string) => editor.change((d) => d.filter((a) => a.key !== key));
+  const add = () => editor.change((d) => (d.length >= umbrellaLimits.acceptance ? d : [...d, { key: `new-${next.current++}`, text: "", done: false }]));
   const done = items.filter((a) => a.done).length;
   return (
     <View style={{ gap: space[1.5] }}>
@@ -705,11 +739,11 @@ function Acceptance({ items, writable, busy, onSave }: { items: Umbrella["accept
             </Button>
           </View>
           <Actions>
-            <Button quiet disabled={busy} onPress={() => setDraft(null)}>
+            <Button quiet disabled={busy} onPress={editor.cancel}>
               {t("Cancel")}
             </Button>
-            <Button primary disabled={busy} onPress={() => void save()}>
-              {t("Save")}
+            <Button primary disabled={busy} onPress={() => void editor.save()}>
+              {editor.draft?.base.replace ? t("Replace") : t("Save")}
             </Button>
           </Actions>
         </View>

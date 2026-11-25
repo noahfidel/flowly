@@ -1,7 +1,9 @@
 import { expect, test } from "vitest";
 import type { UmbrellaEntry } from "../shared/model";
 import type { UmbrellaMember, UmbrellaSummary } from "../shared/umbrella";
-import { acceptanceInput, errorCode, feedRows, listedUmbrellas, openQuestions, pipelineRows, umbrellaWritable } from "./umbrella-panel-logic";
+import {
+  acceptanceInput, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, openQuestions, pipelineRows, revisionToSend, umbrellaWritable,
+} from "./umbrella-panel-logic";
 
 const member = (title: string, order?: number): UmbrellaMember => ({
   taskId: title, projectId: "p", projectTitle: "P", title, status: "todo", laneName: "Todo", archived: false, ...(order === undefined ? {} : { order }),
@@ -86,3 +88,17 @@ test("acceptance edits send the whole list, trimmed, without empty items", () =>
     { text: "New item", done: false },
   ]);
 });
+
+test("an editor sends the revision it was opened on, not the umbrella's current one", () => {
+  // Edit opened on revision 3; the dispatcher's edit moved the umbrella to 4 meanwhile: the save still sends 3, so it is refused.
+  const base = editBase(3);
+  expect(revisionToSend(base)).toBe(3);
+  // Refused: the editor stays open, now based on the reloaded revision, so a second Save replaces the other edit on purpose.
+  const after = editAfterSave(base, { status: "conflict", revision: 4 });
+  expect(after).toEqual({ revision: 4, replace: true });
+  expect(revisionToSend(after!)).toBe(4);
+  // Saved: the editor closes. Failed for another reason: unchanged.
+  expect(editAfterSave(after!, { status: "saved" })).toBeNull();
+  expect(editAfterSave(base, { status: "failed" })).toBe(base);
+});
+

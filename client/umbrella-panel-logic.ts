@@ -50,3 +50,23 @@ export function acceptanceInput(items: readonly AcceptanceDraft[]): AcceptanceDr
     return [{ ...(item.id ? { id: item.id } : {}), text, done: item.done }];
   });
 }
+
+/**
+ * What an editor (title, brief, contract, acceptance list) saves against: the umbrella revision it was opened on, so a
+ * concurrent edit (the dispatcher, another window) is refused `REVISION_CONFLICT` instead of silently overwritten.
+ * `replace`: the editor was refused once and is now based on the reloaded revision, so the next Save replaces on purpose.
+ */
+export type EditBase = { revision: number; replace: boolean };
+export const editBase = (revision: number): EditBase => ({ revision, replace: false });
+export type SaveOutcome = { status: "saved" } | { status: "conflict"; revision: number } | { status: "failed" };
+
+/** The revision a save sends: always the editor's base, never the umbrella's current revision. */
+export const revisionToSend = (base: EditBase) => base.revision;
+
+/** The editor after a save: null (closed) when saved; rebased on the reloaded revision after a conflict; unchanged otherwise. */
+export function editAfterSave(base: EditBase, outcome: SaveOutcome): EditBase | null {
+  if (outcome.status === "saved") return null;
+  if (outcome.status === "conflict") return { revision: outcome.revision, replace: true };
+  return base;
+}
+
