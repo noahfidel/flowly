@@ -49,3 +49,10 @@ test("a stored project key is read as a key; stored text that parses as neither 
   keyed.umbrellas[0]!.linearProject = { url: "foo" };
   await expect(readUmbrellaLinear(keyed, "u", async () => { throw new Error("never"); })).rejects.toMatchObject({ code: "EXTERNAL_INVALID" });
 });
+
+test("a Linear refusal keeps its code; an umbrella without a project is not found", async () => {
+  await expect(readUmbrellaLinear(board(), "u", async () => { throw new ExternalError("EXTERNAL_AUTH", "Linear refused the token."); })).rejects.toMatchObject({ code: "EXTERNAL_AUTH" });
+  const none = board();
+  delete none.umbrellas[0]!.linearProject;
+  await expect(readUmbrellaLinear(none, "u", async () => { throw new Error("never"); })).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
