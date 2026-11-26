@@ -861,3 +861,49 @@ test("set-member in the same umbrella: an omitted role or order keeps it, null c
   expect(moved.umbrella).not.toHaveProperty("role");
   expect(moved.umbrella).not.toHaveProperty("order");
 });
+
+test("§15: umbrella writes never change a member card's lane, session or workspace fields", async () => {
+  const store = await setup();
+  await store.mutate((board) => {
+    const a = board.tasks.find((t) => t.id === "a")!;
+    Object.assign(a, { status: "development", ownsWorkspace: true });
+    board.tasks.find((t) => t.id === "b")!.status = "in_review";
+  });
+  // Everything on the card but its own membership.
+  const cardFields = async () =>
+    (await store.read()).tasks
+      .filter((t) => t.id === "a" || t.id === "b")
+      .map(({ umbrella: _umbrella, ...rest }) => rest);
+  const before = await cardFields();
+  const u = await createUmbrella(store, { groupId: "A", title: "U", brief: "Goal" }, human);
+  await setMembership(store, { taskId: "a", umbrellaId: u.id, role: "map", order: 1 }, human);
+  await setMembership(store, { taskId: "b", umbrellaId: u.id }, agent("b"));
+  await setMembership(store, { taskId: "a", umbrellaId: u.id, role: "api" }, human);
+  let rev = (await store.read()).umbrellas[0]!.revision;
+  await updateUmbrella(store, { id: u.id, revision: rev, contract: "shape: {a}", acceptance: [{ text: "End to end" }], integrationTaskId: "a" }, human);
+  await store.transaction((board) => {
+    const a = board.tasks.find((t) => t.id === "a")!;
+    return { value: addEntry(board, a, { kind: "decision", title: "Drafts", body: "" }, agent("a"), now), changed: true };
+  });
+  await addUserEntry(store, { umbrellaId: u.id, kind: "finding", title: "Seen", body: "" }, human);
+  const proposal = await store.transaction((board) => {
+    const b = board.tasks.find((t) => t.id === "b")!;
+    return { value: proposeChange(board, b, { after: "shape: {a, b}", reason: "b needs it", baseRevision: 1 }, agent("b"), now), changed: true };
+  });
+  await resolveChange(store, { id: proposal.id, decision: "accepted" }, human);
+  const item = (await store.read()).umbrellas[0]!.acceptance[0]!.id;
+  await store.transaction((board) => {
+    const a = board.tasks.find((t) => t.id === "a")!;
+    return { value: tickAcceptance(board, a, { acceptance: [{ id: item, done: true }], note: "ran it" }, agent("a"), now), changed: true };
+  });
+  await setAcceptanceDone(store, { id: u.id, itemId: item, done: false }, human);
+  rev = (await store.read()).umbrellas[0]!.revision;
+  await closeUmbrella(store, { id: u.id, revision: rev }, human);
+  rev = (await store.read()).umbrellas[0]!.revision;
+  await reopenUmbrella(store, { id: u.id, revision: rev }, human);
+  rev = (await store.read()).umbrellas[0]!.revision;
+  await archiveUmbrella(store, { id: u.id, revision: rev }, human);
+  expect(await cardFields()).toEqual(before);
+  // Both are still members of the archived umbrella: archiving never removes or moves a card.
+  expect((await store.read()).tasks.filter((t) => t.umbrella?.id === u.id).map((t) => t.id).sort()).toEqual(["a", "b"]);
+});
