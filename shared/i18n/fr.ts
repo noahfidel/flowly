@@ -1954,5 +1954,9 @@ const catalog: Catalog = {
   "Notes to copy": "Notes à copier",
   "Role cleared": "Rôle retiré",
   "Order cleared": "Ordre retiré",
+  "Change the Linear project": "Changer le projet Linear",
+  "Link a Linear project": "Lier un projet Linear",
+  "Linear project": "Projet Linear",
+  "Enter a Linear project URL (https://linear.app/<workspace>/project/<name>) or a project key (P-<TEAM>-<number>).": "Saisissez l’URL d’un projet Linear (https://linear.app/<workspace>/project/<name>) ou une clé de projet (P-<TEAM>-<number>).",
 };
 export default catalog;

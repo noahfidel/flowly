@@ -1954,5 +1954,9 @@ const catalog: Catalog = {
   "Notes to copy": "コピーするメモ",
   "Role cleared": "役割を解除",
   "Order cleared": "順序を解除",
+  "Change the Linear project": "Linear プロジェクトを変更",
+  "Link a Linear project": "Linear プロジェクトをリンク",
+  "Linear project": "Linear プロジェクト",
+  "Enter a Linear project URL (https://linear.app/<workspace>/project/<name>) or a project key (P-<TEAM>-<number>).": "Linear プロジェクトの URL（https://linear.app/<workspace>/project/<name>）またはプロジェクトキー（P-<TEAM>-<number>）を入力してください。",
 };
 export default catalog;

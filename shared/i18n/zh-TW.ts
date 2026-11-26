@@ -1954,5 +1954,9 @@ const catalog: Catalog = {
   "Notes to copy": "要複製的筆記",
   "Role cleared": "角色已清除",
   "Order cleared": "順序已清除",
+  "Change the Linear project": "變更 Linear 專案",
+  "Link a Linear project": "連結 Linear 專案",
+  "Linear project": "Linear 專案",
+  "Enter a Linear project URL (https://linear.app/<workspace>/project/<name>) or a project key (P-<TEAM>-<number>).": "請輸入 Linear 專案 URL（https://linear.app/<workspace>/project/<name>）或專案鍵（P-<TEAM>-<number>）。",
 };
 export default catalog;

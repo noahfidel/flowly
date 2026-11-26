@@ -17,7 +17,7 @@ import { SessionMarkdown } from "./session-content";
 import { openQuickLink } from "./quick-links-row";
 import { useStableCallback } from "./stable";
 import {
-  acceptanceInput, alreadyKept, closeOffer, linearChipUrl, editAfterSave, editBase, errorCode, listedUmbrellas, memberWrites, moveMember, offerProject, pipelineRows, readyToClose, revisionToSend, umbrellaWritable,
+  acceptanceInput, alreadyKept, closeOffer, linearChipUrl, linearProjectEdit, editAfterSave, editBase, errorCode, listedUmbrellas, memberWrites, moveMember, offerProject, pipelineRows, readyToClose, revisionToSend, umbrellaWritable,
   type AcceptanceDraft, type EditBase, type SaveOutcome,
 } from "./umbrella-panel-logic";
 import { CloseOffer } from "./umbrella-close";
@@ -76,6 +76,9 @@ function refusalText(error: unknown, what: "group" | "members" = "group"): strin
       return message(error);
   }
 }
+
+/** The Linear field's refusal of text that is not a project link (§10). */
+const linearLinkInvalid = () => t("Enter a Linear project URL (https://linear.app/<workspace>/project/<name>) or a project key (P-<TEAM>-<number>).");
 
 /** The Linear project read's refusal in the user's words; the daemon's own text stays English. */
 export function linearProjectErrorText(code: string): string {
@@ -327,7 +330,8 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
   const reload = () => void queryClient.invalidateQueries({ queryKey: ["flowly", "umbrella", hostId, id] });
   // One write at a time. `base`: an editor's revision (never the current one, so a concurrent edit is refused); without
   // it, the revision shown (ticks, close). A refusal reloads the umbrella and leaves the caller's typed text where it is.
-  const write = useStableCallback(async (run: (revision: number) => Promise<Umbrella>, base?: number): Promise<SaveOutcome> => {
+  // `explain`: the caller's own words for a refusal it knows (else `refusalText`).
+  const write = useStableCallback(async (run: (revision: number) => Promise<Umbrella>, base?: number, explain?: (error: unknown) => string | null): Promise<SaveOutcome> => {
     if (!data || busy) return { status: "failed" };
     setBusy(true);
     setError("");
@@ -350,7 +354,7 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
           return { status: "failed" };
         }
       }
-      setError(refusalText(e));
+      setError(explain?.(e) ?? refusalText(e));
       if (code === "UMBRELLA_CLOSED") reload();
       return { status: "failed" };
     } finally {
@@ -432,6 +436,17 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
   const setRole = useStableCallback((taskId: string, role: string) => changeMembers(() => [{ taskId, role }]));
   const move = useStableCallback((taskId: string, delta: -1 | 1) => void changeMembers((members) => moveMember(pipelineRows(members), taskId, delta)));
   const title = useDraft(!!data && umbrellaWritable(data.umbrella), (text: string, base: number) => write((revision) => update({ id, revision, title: text.trim() }), base));
+  // The Linear link (§10): a project URL or key sets it, empty clears it; other text is refused here and by the daemon.
+  const linearLink = useDraft(!!data && umbrellaWritable(data.umbrella), async (text: string, base: number): Promise<SaveOutcome> => {
+    const linearProject = linearProjectEdit(text);
+    if (linearProject === "invalid") {
+      setError(linearLinkInvalid());
+      return { status: "failed" };
+    }
+    return write((revision) => update({ id, revision, linearProject }), base, (e) =>
+      errorCode(e) === "INVALID_INPUT" || (e instanceof Error && e.message.includes("Linear project URL")) ? linearLinkInvalid() : null,
+    );
+  });
   const memberIds = useMemo(() => new Map((data?.members ?? []).map((m) => [m.taskId, m.title])), [data?.members]);
   const sourceOf = useStableCallback((taskId: string | undefined) => {
     if (!taskId) return "";
@@ -550,7 +565,38 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
               </Label>
             </Pressable>
           )}
+          {writable && !linearLink.draft && (
+            <IconButton
+              icon="Link"
+              size={28}
+              label={linear ? t("Change the Linear project") : t("Link a Linear project")}
+              disabled={busy}
+              onPress={() => linearLink.start(linear ? (linear.key ?? linear.url) : "", u.revision)}
+            />
+          )}
         </View>
+        {linearLink.draft && (
+          <View style={{ gap: space[2] }}>
+            <Field
+              title={t("Linear project")}
+              value={linearLink.draft.value}
+              onChange={(next) => linearLink.change(() => next)}
+              placeholder="https://linear.app/…/project/…"
+              plain
+              maxLength={2000}
+              autoFocus
+              onSubmit={() => void linearLink.save()}
+            />
+            <Actions>
+              <Button quiet disabled={busy} onPress={linearLink.cancel}>
+                {t("Cancel")}
+              </Button>
+              <Button primary disabled={busy} onPress={() => void linearLink.save()}>
+                {linearLink.draft.base.replace ? t("Replace") : t("Save")}
+              </Button>
+            </Actions>
+          </View>
+        )}
       </View>
       {!!error && <Notice tone="warning">{error}</Notice>}
       <TextPart

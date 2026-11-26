@@ -1,6 +1,6 @@
 /** Pure rules of the umbrella panel (UMBRELLA-SPEC §7). No React, no RPC. */
 import type { Umbrella, UmbrellaEntry } from "../shared/model";
-import type { UmbrellaMember, UmbrellaSummary } from "../shared/umbrella";
+import { parseLinearProject, type UmbrellaMember, type UmbrellaSummary } from "../shared/umbrella";
 
 /** The pipeline: members by `order`, then title; a member without `order` comes after those with one. */
 export function pipelineRows(members: readonly UmbrellaMember[]): UmbrellaMember[] {
@@ -77,6 +77,18 @@ export function acceptanceInput(items: readonly Pick<AcceptanceDraft, "id" | "te
 export type EditBase = { revision: number; replace: boolean };
 export const editBase = (revision: number): EditBase => ({ revision, replace: false });
 export type SaveOutcome = { status: "saved" } | { status: "conflict"; revision: number } | { status: "failed" };
+
+/**
+ * `umbrellas.update`'s `linearProject` from the panel's Linear field (§10): empty clears it (null), a project URL or a
+ * P-<TEAM>-<n> key sets it (a key also kept as `key`), other text is "invalid" and never sent.
+ */
+export function linearProjectEdit(text: string): { url: string; key?: string } | null | "invalid" {
+  const value = text.trim();
+  if (!value) return null;
+  const parsed = parseLinearProject(value);
+  if (!parsed) return "invalid";
+  return { url: value, ...(parsed.key ? { key: parsed.key } : {}) };
+}
 
 /** The Linear chip's target (§10): the project URL the read returned (a stored key is no URL), else the stored link. */
 export const linearChipUrl = (stored: string, read: string | undefined): string => read || stored;

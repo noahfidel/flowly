@@ -1954,5 +1954,9 @@ const catalog: Catalog = {
   "Notes to copy": "복사할 메모",
   "Role cleared": "역할 해제",
   "Order cleared": "순서 해제",
+  "Change the Linear project": "Linear 프로젝트 변경",
+  "Link a Linear project": "Linear 프로젝트 연결",
+  "Linear project": "Linear 프로젝트",
+  "Enter a Linear project URL (https://linear.app/<workspace>/project/<name>) or a project key (P-<TEAM>-<number>).": "Linear 프로젝트 URL(https://linear.app/<workspace>/project/<name>) 또는 프로젝트 키(P-<TEAM>-<number>)를 입력하세요.",
 };
 export default catalog;
