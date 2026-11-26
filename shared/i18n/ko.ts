@@ -1945,5 +1945,12 @@ const catalog: Catalog = {
   "This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).": "이 엄브렐라의 Linear 프로젝트가 프로젝트 URL도 프로젝트 키(P-<TEAM>-<number>)도 아닙니다.",
   "Group by umbrella": "엄브렐라별로 묶기",
   "{name}, {n} tasks": "{name}, 작업 {n}개",
+  "Created, but not everything was added: {error}": "만들었지만 모두 추가되지는 않았습니다: {error}",
+  "Cards not added: {titles}": "추가되지 않은 카드: {titles}",
+  "Notes not copied: {titles}": "복사되지 않은 메모: {titles}",
+  "Create from related cards": "관련 카드로 만들기",
+  "Change start card": "시작 카드 변경",
+  "No related cards share a tag with this card. The umbrella starts with this card alone.": "이 카드와 태그를 공유하는 관련 카드가 없습니다. 엄브렐라는 이 카드만으로 시작합니다.",
+  "Notes to copy": "복사할 메모",
 };
 export default catalog;

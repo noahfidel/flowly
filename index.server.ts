@@ -35,6 +35,7 @@ import { ComposerService, ComposerStore } from "./server/composer";
 import { adoptIdea } from "./server/ideas";
 import { createLink, deleteLink } from "./server/links";
 import {
+  addUserEntry,
   archiveUmbrella,
   closeUmbrella,
   createUmbrella,
@@ -913,6 +914,7 @@ export default function contribute(host: PluginServerContext) {
   server.handle(rpc.updateUmbrella, (input) => coded(() => updateUmbrella(store, input, human)));
   server.handle(rpc.tickUmbrellaAcceptance, (input) => coded(() => setAcceptanceDone(store, input, human)));
   server.handle(rpc.setUmbrellaMember, (input) => coded(() => setMembership(store, input, human)));
+  server.handle(rpc.createUmbrellaEntry, (input) => coded(() => addUserEntry(store, input, human)));
   server.handle(rpc.updateUmbrellaEntry, (input) => coded(() => updateEntry(store, input, human)));
   server.handle(rpc.closeUmbrella, (input) => coded(() => closeUmbrella(store, input, human)));
   server.handle(rpc.reopenUmbrella, (input) => coded(() => reopenUmbrella(store, input, human)));

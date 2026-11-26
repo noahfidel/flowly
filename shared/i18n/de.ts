@@ -1945,5 +1945,12 @@ const catalog: Catalog = {
   "This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).": "Das Linear-Projekt dieses Dachprojekts ist weder eine Projekt-URL noch ein Projektschlüssel (P-<TEAM>-<number>).",
   "Group by umbrella": "Nach Dachprojekt gruppieren",
   "{name}, {n} tasks": {"one": "{name}, {n} Aufgabe", "other": "{name}, {n} Aufgaben"},
+  "Created, but not everything was added: {error}": "Erstellt, aber nicht alles wurde hinzugefügt: {error}",
+  "Cards not added: {titles}": "Nicht hinzugefügte Karten: {titles}",
+  "Notes not copied: {titles}": "Nicht kopierte Notizen: {titles}",
+  "Create from related cards": "Aus verwandten Karten erstellen",
+  "Change start card": "Startkarte ändern",
+  "No related cards share a tag with this card. The umbrella starts with this card alone.": "Keine verwandten Karten teilen einen Tag mit dieser Karte. Das Dachprojekt beginnt nur mit dieser Karte.",
+  "Notes to copy": "Zu kopierende Notizen",
 };
 export default catalog;

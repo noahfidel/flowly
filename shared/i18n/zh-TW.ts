@@ -1945,5 +1945,12 @@ const catalog: Catalog = {
   "This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).": "此傘組的 Linear 專案既不是專案 URL，也不是專案鍵（P-<TEAM>-<number>）。",
   "Group by umbrella": "按傘組分組",
   "{name}, {n} tasks": "{name}，{n} 個任務",
+  "Created, but not everything was added: {error}": "已建立，但並非全部加入成功：{error}",
+  "Cards not added: {titles}": "未加入的卡片：{titles}",
+  "Notes not copied: {titles}": "未複製的筆記：{titles}",
+  "Create from related cards": "從相關卡片建立",
+  "Change start card": "更換起始卡片",
+  "No related cards share a tag with this card. The umbrella starts with this card alone.": "沒有與此卡片共用標籤的相關卡片。傘組將只包含此卡片。",
+  "Notes to copy": "要複製的筆記",
 };
 export default catalog;

@@ -1945,5 +1945,12 @@ const catalog: Catalog = {
   "This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).": "O projeto do Linear deste guarda-chuva não é uma URL de projeto nem uma chave de projeto (P-<TEAM>-<number>).",
   "Group by umbrella": "Agrupar por guarda-chuva",
   "{name}, {n} tasks": {"one": "{name}, {n} tarefa", "other": "{name}, {n} tarefas"},
+  "Created, but not everything was added: {error}": "Criado, mas nem tudo foi adicionado: {error}",
+  "Cards not added: {titles}": "Cartões não adicionados: {titles}",
+  "Notes not copied: {titles}": "Notas não copiadas: {titles}",
+  "Create from related cards": "Criar a partir de cartões relacionados",
+  "Change start card": "Mudar o cartão inicial",
+  "No related cards share a tag with this card. The umbrella starts with this card alone.": "Nenhum cartão relacionado compartilha uma etiqueta com este cartão. O guarda-chuva começa só com este cartão.",
+  "Notes to copy": "Notas para copiar",
 };
 export default catalog;

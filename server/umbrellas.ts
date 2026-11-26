@@ -10,6 +10,7 @@ import {
   umbrellaLimits,
   umbrellaSummary,
   type UmbrellaCreateInput,
+  type UmbrellaEntryCreateInput,
   type UmbrellaEntryUpdateInput,
   type UmbrellaMember,
   type UmbrellaMemberInput,
@@ -242,6 +243,26 @@ export function updateEntry(store: BoardStore, input: UmbrellaEntryUpdateInput, 
     const now = new Date().toISOString();
     entry.status = input.status;
     entry.updatedAt = now;
+    u.feedRevision++;
+    return { value: entry, changed: true };
+  });
+}
+
+/**
+ * The user's own feed entry (UMBRELLA-SPEC §4.4, §12): recorded by the user, no source card, active at once. Refuses a
+ * closed or archived umbrella (UMBRELLA_CLOSED) and the 301st counted entry (UMBRELLA_LIMIT); bumps `feedRevision`, never `revision`.
+ */
+export function addUserEntry(store: BoardStore, input: UmbrellaEntryCreateInput, by: Actor): Promise<UmbrellaEntry> {
+  return store.transaction((board) => {
+    const u = find(board, input.umbrellaId);
+    requireOpen(u);
+    if (board.umbrellaEntries.filter((e) => e.umbrellaId === u.id && countsTowardLimit(e)).length >= umbrellaLimits.activeEntries)
+      throw new ToolError("UMBRELLA_LIMIT", `This umbrella already has ${umbrellaLimits.activeEntries} active entries and open questions. Supersede one first.`);
+    const now = new Date().toISOString();
+    const entry: UmbrellaEntry = {
+      id: randomUUID(), umbrellaId: u.id, kind: input.kind, title: input.title, body: input.body, status: "active", by, createdAt: now, updatedAt: now,
+    };
+    board.umbrellaEntries.push(entry);
     u.feedRevision++;
     return { value: entry, changed: true };
   });

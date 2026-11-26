@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { boardSchema, emptyBoard, type Board, type Group, type Project, type Task, type Umbrella, type UmbrellaEntry } from "./model";
 import {
-  applyGroupMoves, countsTowardLimit, issuesWithoutCard, linearWorkspaceOf, memberSignature, parseLinearProject, suggestedMembers, umbrellaCreateInput, umbrellaUpdateInput, leaveUmbrella, markConflicts, membersOf, rolesMentioned, repairUmbrellaGroups, umbrellaChipText, umbrellaContext, umbrellaLimits, recentEntries, umbrellaRefetchKey, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
+  applyGroupMoves, countsTowardLimit, relatedComponent, noteEntryInput, notesToOffer, umbrellaEntryCreateInput, issuesWithoutCard, linearWorkspaceOf, memberSignature, parseLinearProject, suggestedMembers, umbrellaCreateInput, umbrellaUpdateInput, leaveUmbrella, markConflicts, membersOf, rolesMentioned, repairUmbrellaGroups, umbrellaChipText, umbrellaContext, umbrellaLimits, recentEntries, umbrellaRefetchKey, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
 } from "./umbrella";
 
 const at = "2026-11-25T00:00:00.000Z";
@@ -509,4 +509,74 @@ test("suggested members are group cards outside any umbrella whose Linear issue 
     ],
   } as unknown as Board;
   expect(suggestedMembers(board, umbrella({ groupId: "A" }), new Set(["ZEN-1"]))).toEqual([{ taskId: "ok", title: "OK", projectTitle: "Project p1", issue: "ZEN-1" }]);
+});
+
+const relatedBoard = () => {
+  const group = (id: string, isDefault = false): Group => ({ id, name: id, position: 0, ...(isDefault ? { isDefault: true as const } : {}), revision: 1, createdAt: at, updatedAt: at });
+  const project = (id: string, groupId: string): Project => ({
+    id, title: `Project ${id}`, description: "", paseoProjectId: `n-${id}`, primaryPath: `/${id}`, repos: [`/${id}`],
+    revision: 1, createdAt: at, updatedAt: at, archivedAt: null, groupId,
+  });
+  const tags = (...t: string[]) => ({ tags: t.map((tag) => ({ tag, by: "human" as const, at })) });
+  const rel = (from: string, to: string) => ({ id: `${from}-${to}`, projectId: "p1", kind: "related" as const, from, to, createdBy: "human" as const, createdAt: at });
+  return {
+    ...emptyBoard(),
+    groups: [group("A", true), group("B")],
+    projects: [project("p1", "A"), project("p2", "A"), project("q", "B")],
+    tasks: [
+      task("start", { projectId: "p1", ...tags("search") }),
+      task("b", { projectId: "p2", ...tags("search", "x") }),
+      task("c", { projectId: "p1", ...tags("search") }),
+      task("no-tag", { projectId: "p1", ...tags("billing") }),
+      task("far", { projectId: "p1", ...tags("search") }),
+      task("other-group", { projectId: "q", ...tags("search") }),
+      task("archived", { projectId: "p1", archivedAt: at, ...tags("search") }),
+      task("member", { projectId: "p1", umbrella: { id: "u", joinedAt: at, by: human }, ...tags("search") }),
+    ],
+    links: [
+      rel("start", "b"), rel("c", "b"), rel("c", "far"), rel("start", "no-tag"), rel("no-tag", "far"),
+      rel("start", "other-group"), rel("start", "archived"), rel("start", "member"),
+      { ...rel("start", "ignored-blocks"), kind: "blocks" as const },
+    ],
+  } as unknown as Board;
+};
+
+test("relatedComponent follows related links within the group and the shared tag", () => {
+  const board = relatedBoard();
+  // b is linked to start, c to b (breadth first, either direction); far is behind c; no-tag shares no tag so it is not followed through.
+  expect(relatedComponent(board, "start").map((t) => t.id)).toEqual(["b", "c", "far"]);
+  expect(relatedComponent(board, "missing")).toEqual([]);
+});
+
+test("relatedComponent skips archived cards and cards already in an umbrella", () => {
+  const ids = relatedComponent(relatedBoard(), "start").map((t) => t.id);
+  expect(ids).not.toContain("archived");
+  expect(ids).not.toContain("member");
+  expect(ids).not.toContain("other-group");
+  expect(ids).not.toContain("start");
+});
+
+test("relatedComponent is capped at 30", () => {
+  const board = relatedBoard();
+  for (let i = 0; i < 40; i++) {
+    board.tasks.push(task(`n${i}`, { projectId: "p1", tags: [{ tag: "search", by: "human", at }] }));
+    board.links.push({ id: `l${i}`, projectId: "p1", kind: "related", from: "start", to: `n${i}`, createdBy: "human", createdAt: at });
+  }
+  expect(relatedComponent(board, "start")).toHaveLength(30);
+});
+
+test("notes are offered when they share a tag with a proposed member, and map to feed kinds", () => {
+  const n = (id: string, projectId: string, noteKind: string, tags: string[], state = "active") => ({ id, projectId, kind: "note", noteKind, text: id, body: "b", tags, state });
+  const notes = [n("a", "p1", "decision", ["search"]), n("b", "p2", "contact", ["x"]), n("c", "p1", "pitfall", ["billing"]), n("d", "q", "decision", ["search"]), n("e", "p1", "convention", ["search"], "archived"), { ...n("f", "p1", "decision", ["search"]), kind: "guideline" }];
+  const members = [{ projectId: "p1", tags: ["search"] }, { projectId: "p2", tags: ["x"] }];
+  expect(notesToOffer(notes, members).map((x) => x.id)).toEqual(["a", "b"]);
+  expect(noteEntryInput({ noteKind: "contact", text: "T".repeat(200), body: "B".repeat(3000) })).toEqual({ kind: "finding", title: "T".repeat(120), body: "B".repeat(2000) });
+  expect(noteEntryInput({ noteKind: "pitfall", text: "t" }).kind).toBe("pitfall");
+  expect(noteEntryInput({ noteKind: "decision", text: "t" }).body).toBe("");
+});
+
+test("entry.create input takes the four user kinds only", () => {
+  expect(umbrellaEntryCreateInput.safeParse({ umbrellaId: "u", kind: "decision", title: "t", body: "b" }).success).toBe(true);
+  expect(umbrellaEntryCreateInput.safeParse({ umbrellaId: "u", kind: "ruling", title: "t", body: "b" }).success).toBe(false);
+  expect(umbrellaEntryCreateInput.safeParse({ umbrellaId: "u", kind: "finding", title: "", body: "b" }).success).toBe(false);
 });

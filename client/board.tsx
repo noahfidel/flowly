@@ -23,6 +23,7 @@ import {
   type Task,
   type Project,
   type Group,
+  type Link,
   type BoardEvent,
   type Idea,
   projectOrder,
@@ -251,6 +252,7 @@ const noTasks: Task[] = [];
 // board-groups 3/7: the overview's groups, empty until it loads.
 const noGroups: Group[] = [];
 const noProjects: Project[] = [];
+const noLinks: Link[] = [];
 const noRunning: RunningRow[] = [];
 const noIds: string[] = [];
 const noUmbrellas: UmbrellaSummary[] = [];
@@ -2843,6 +2845,8 @@ function BoardContent(
                     onMakeCard={makeUmbrellaCard}
                     tasks={board.tasks}
                     projects={board.projects}
+                    links={board.links}
+                    groups={serverGroups}
                     onBack={closePage}
                   />
                 ) : page === "guardrails" && board && project ? (
@@ -3245,6 +3249,8 @@ function BoardContent(
             onMakeCard={makeUmbrellaCard}
             tasks={board?.tasks ?? noTasks}
             projects={board?.projects ?? noProjects}
+            links={board?.links ?? noLinks}
+            groups={serverGroups}
             onClose={closeUmbrellas}
           />
         )}

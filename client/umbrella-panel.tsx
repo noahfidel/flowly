@@ -7,7 +7,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import type { z } from "zod";
 import * as rpc from "../shared/rpc";
 import { memoryLimits } from "../shared/memory";
-import type { Project, Task, Umbrella, UmbrellaEntry } from "../shared/model";
+import type { Group, Link, Project, Task, Umbrella, UmbrellaEntry } from "../shared/model";
 import { t, tn } from "../shared/i18n";
 import { memberSignature, umbrellaLimits, umbrellaRefetchKey, type UmbrellaSummary } from "../shared/umbrella";
 import { Modal } from "./modal";
@@ -24,6 +24,7 @@ import { CloseOffer } from "./umbrella-close";
 import { ContractChanges, Feed, PartTitle, Questions, type ResolveOutcome } from "./umbrella-feed";
 import { IntegrationCard, Pipeline } from "./umbrella-members";
 import { LinearIssues } from "./umbrella-linear";
+import { MigrateUmbrella } from "./umbrella-migrate";
 import {
   Actions, Button, Field, IconButton, Label, Notice, Row, Theme, font, message, noFocusRing, pageBarHeight, radius, relativeTime, space, touch, useTheme, verticalContent, verticalScroll,
 } from "./ui";
@@ -52,6 +53,9 @@ type PanelProps = {
   /** The board's cards and projects: the member picker offers the group's live cards from these. */
   tasks: readonly Task[];
   projects: readonly Project[];
+  /** The board's links and groups: *Create from related cards* follows `related` links inside the group. */
+  links: Link[];
+  groups: Group[];
 };
 
 /** A daemon refusal in the user's words; `what` says which limit UMBRELLA_LIMIT hit. */
@@ -147,20 +151,41 @@ export function UmbrellaModal({ open, theme, onClose, ...props }: PanelProps & {
   );
 }
 
-function UmbrellaList({ groupId, umbrellas, onSelect, onChanged }: PanelProps) {
+function UmbrellaList({ groupId, umbrellas, tasks, projects, links, groups, onSelect, onChanged }: PanelProps) {
   const { open, closed } = useMemo(() => listedUmbrellas(umbrellas, groupId), [umbrellas, groupId]);
   const [closedOpen, setClosedOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [migrating, setMigrating] = useState(false);
   const select = useStableCallback((id: string) => onSelect(id));
   return (
     <View style={{ gap: space[3] }}>
-      <View style={{ flexDirection: "row" }}>
-        {!creating && (
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space[1] }}>
+        {!creating && !migrating && (
           <Button small quiet icon="Plus" onPress={() => setCreating(true)}>
             {t("New umbrella")}
           </Button>
         )}
+        {!creating && !migrating && (
+          <Button small quiet icon="GitMerge" onPress={() => setMigrating(true)}>
+            {t("Create from related cards")}
+          </Button>
+        )}
       </View>
+      {migrating && (
+        <MigrateUmbrella
+          groupId={groupId}
+          tasks={tasks}
+          projects={projects}
+          links={links}
+          groups={groups}
+          onCancel={() => setMigrating(false)}
+          onOpen={(id) => {
+            setMigrating(false);
+            onChanged();
+            onSelect(id);
+          }}
+        />
+      )}
       {creating && (
         <NewUmbrella
           groupId={groupId}
@@ -172,7 +197,7 @@ function UmbrellaList({ groupId, umbrellas, onSelect, onChanged }: PanelProps) {
           }}
         />
       )}
-      {open.length === 0 && !creating && (
+      {open.length === 0 && !creating && !migrating && (
         <View style={{ alignItems: "center", paddingVertical: space[6] }}>
           <Label muted size={font.md}>
             {t("No open umbrellas in this group.")}

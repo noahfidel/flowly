@@ -161,6 +161,73 @@ export function pickableCards(
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
+/** The migration's start-card picker (§12): live cards of the group's live projects that are in no umbrella, by title. */
+export function startCards(
+  tasks: Parameters<typeof pickableCards>[0],
+  projects: Parameters<typeof pickableCards>[1],
+  groupId: string,
+  query: string,
+): PickableCard[] {
+  return pickableCards(tasks, projects, [], groupId, "", query).filter((c) => c.moveFrom === undefined);
+}
+
+/** The members *Create from related cards* proposes, all ticked: the start card first, then the component in order, within the member limit. */
+export function proposedMembers(startId: string, component: readonly { id: string }[], limit: number): string[] {
+  return [startId, ...component.map((c) => c.id).filter((id) => id !== startId)].slice(0, limit);
+}
+
+export type MigrationPlan = {
+  groupId: string;
+  title: string;
+  brief: string;
+  /** The ticked cards, the start card first. */
+  memberIds: string[];
+  /** The ticked notes as feed entries. */
+  notes: { kind: "decision" | "convention" | "pitfall" | "finding"; title: string; body: string }[];
+};
+export type MigrationResult = {
+  umbrellaId: string;
+  /** Ids of the cards not added and titles of the notes not copied; both empty when everything was made. */
+  missedMembers: string[];
+  missedNotes: string[];
+  /** The first failure, when one stopped the run. */
+  error?: unknown;
+};
+
+/**
+ * Create from related cards (§12): the umbrella, then each member (role empty), then each note, in that order. The first
+ * failure stops the run and keeps what was made (no rollback); the result names what was not added. A failure creating the
+ * umbrella itself throws: nothing was made.
+ */
+export async function runMigration(
+  plan: MigrationPlan,
+  calls: {
+    create(input: { groupId: string; title: string; brief?: string }): Promise<{ id: string }>;
+    setMember(input: { taskId: string; umbrellaId: string }): Promise<unknown>;
+    addEntry(input: { umbrellaId: string; kind: MigrationPlan["notes"][number]["kind"]; title: string; body: string }): Promise<unknown>;
+  },
+): Promise<MigrationResult> {
+  const made = await calls.create({ groupId: plan.groupId, title: plan.title.trim(), ...(plan.brief.trim() ? { brief: plan.brief } : {}) });
+  const result: MigrationResult = { umbrellaId: made.id, missedMembers: [], missedNotes: [] };
+  const members = [...plan.memberIds];
+  const notes = [...plan.notes];
+  try {
+    while (members.length) {
+      await calls.setMember({ taskId: members[0]!, umbrellaId: made.id });
+      members.shift();
+    }
+    while (notes.length) {
+      await calls.addEntry({ umbrellaId: made.id, ...notes[0]! });
+      notes.shift();
+    }
+  } catch (error) {
+    result.error = error;
+  }
+  result.missedMembers = members;
+  result.missedNotes = notes.map((n) => n.title);
+  return result;
+}
+
 /**
  * Ready to close (§11): there is at least one member (archived ones are ignored), every member is Done or Cancelled and every acceptance item is
  * ticked (an empty list is met). Close stays the user's action; an umbrella with no member has nothing to finish.

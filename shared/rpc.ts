@@ -53,6 +53,7 @@ import {
 } from "./model";
 import {
   umbrellaCreateInput,
+  umbrellaEntryCreateInput,
   umbrellaEntryUpdateInput,
   umbrellaMemberInput,
   umbrellaRevisionInput,
@@ -442,6 +443,11 @@ export const umbrellaLinearProject = defineRpc({
 export const updateUmbrellaEntry = defineRpc({
   name: "umbrellas.entry.update",
   input: umbrellaEntryUpdateInput,
+  output: umbrellaEntrySchema,
+});
+export const createUmbrellaEntry = defineRpc({
+  name: "umbrellas.entry.create",
+  input: umbrellaEntryCreateInput,
   output: umbrellaEntrySchema,
 });
 export const closeUmbrella = defineRpc({

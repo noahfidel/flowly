@@ -330,6 +330,14 @@ export const umbrellaEntryUpdateInput = z.strictObject({
   answer: z.string().trim().min(1).max(umbrellaLimits.entryBody).optional(),
 });
 export type UmbrellaEntryUpdateInput = z.infer<typeof umbrellaEntryUpdateInput>;
+/** The user's own feed entry (§4.4), used by *Create from related cards* (§12): the four kinds a note can map to. */
+export const umbrellaEntryCreateInput = z.strictObject({
+  umbrellaId: z.string().min(1).max(200),
+  kind: z.enum(["decision", "convention", "pitfall", "finding"]),
+  title: z.string().trim().min(1).max(umbrellaLimits.entryTitle),
+  body: z.string().trim().max(umbrellaLimits.entryBody),
+});
+export type UmbrellaEntryCreateInput = z.infer<typeof umbrellaEntryCreateInput>;
 export const umbrellaRevisionInput = z.strictObject({ id: z.string().min(1).max(200), revision: z.number().int() });
 export type UmbrellaRevisionInput = z.infer<typeof umbrellaRevisionInput>;
 
@@ -616,4 +624,65 @@ export function suggestedMembers(
     if (link?.external) out.push({ taskId: task.id, title: task.title, projectTitle: project.title, issue: (issueKey(link.external.key) ?? link.external.key).toUpperCase() });
   }
   return out.sort((a, b) => a.title.localeCompare(b.title));
+}
+
+/** The most cards *Create from related cards* proposes (§12). */
+export const relatedComponentLimit = 30;
+
+/**
+ * The cards connected to `taskId` through `related` links (either direction, breadth first) that share at least one tag
+ * with it, are in its group, are not archived and are in no umbrella (§12). Only a kept card is followed on. The start
+ * card is not in the result. At most 30.
+ */
+export function relatedComponent(board: Pick<Board, "tasks" | "links" | "projects" | "groups">, taskId: string): Task[] {
+  const start = board.tasks.find((t) => t.id === taskId);
+  if (!start) return [];
+  const byId = new Map(board.tasks.map((t) => [t.id, t]));
+  const projects = new Map(board.projects.map((p) => [p.id, p]));
+  const groupOf = (t: Task) => groupOfProject(board, projects.get(t.projectId))?.id ?? null;
+  const group = groupOf(start);
+  const tags = new Set((start.tags ?? []).map((t) => t.tag));
+  const neighbours = new Map<string, string[]>();
+  for (const l of board.links) {
+    if (l.kind !== "related") continue;
+    neighbours.set(l.from, [...(neighbours.get(l.from) ?? []), l.to]);
+    neighbours.set(l.to, [...(neighbours.get(l.to) ?? []), l.from]);
+  }
+  const seen = new Set([start.id]);
+  const out: Task[] = [];
+  const queue = [start.id];
+  while (queue.length && out.length < relatedComponentLimit) {
+    for (const id of neighbours.get(queue.shift()!) ?? []) {
+      if (seen.has(id) || out.length >= relatedComponentLimit) continue;
+      seen.add(id);
+      const t = byId.get(id);
+      if (!t || t.archivedAt || t.umbrella || group === null || groupOf(t) !== group) continue;
+      if (!(t.tags ?? []).some((x) => tags.has(x.tag))) continue;
+      out.push(t);
+      queue.push(id);
+    }
+  }
+  return out;
+}
+
+/** The memory note fields the migration reads (a `GuardrailEntry` fits). */
+type OfferNote = { id: string; projectId: string; kind: string; noteKind?: string; text: string; body?: string; tags?: readonly string[]; state: string };
+
+/**
+ * Active memory notes of the proposed members' projects that carry a tag one of those members' cards shares (§12, D-ruling):
+ * a note counts when a proposed member in the note's project has that tag. Offered unticked; nothing is copied unasked.
+ */
+export function notesToOffer<N extends OfferNote>(notes: readonly N[], members: readonly { projectId: string; tags: readonly string[] }[]): N[] {
+  return notes.filter(
+    (n) =>
+      n.kind === "note" &&
+      n.state === "active" &&
+      (n.tags ?? []).some((tag) => members.some((m) => m.projectId === n.projectId && m.tags.includes(tag))),
+  );
+}
+
+/** A note as a feed entry: decision, convention and pitfall keep their kind, any other (a contact) becomes a finding. */
+export function noteEntryInput(note: Pick<OfferNote, "noteKind" | "text" | "body">): { kind: UmbrellaEntryCreateInput["kind"]; title: string; body: string } {
+  const kind = note.noteKind === "decision" || note.noteKind === "convention" || note.noteKind === "pitfall" ? note.noteKind : "finding";
+  return { kind, title: note.text.slice(0, umbrellaLimits.entryTitle), body: (note.body ?? "").slice(0, umbrellaLimits.entryBody) };
 }

@@ -1945,5 +1945,12 @@ const catalog: Catalog = {
   "This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).": "Проект Linear этого зонтичного проекта не является ни URL проекта, ни ключом проекта (P-<TEAM>-<number>).",
   "Group by umbrella": "Группировать по зонтичным проектам",
   "{name}, {n} tasks": {"one": "{name}, {n} задача", "few": "{name}, {n} задачи", "many": "{name}, {n} задач", "other": "{name}, {n} задачи"},
+  "Created, but not everything was added: {error}": "Создано, но добавлено не всё: {error}",
+  "Cards not added: {titles}": "Не добавленные карточки: {titles}",
+  "Notes not copied: {titles}": "Не скопированные заметки: {titles}",
+  "Create from related cards": "Создать из связанных карточек",
+  "Change start card": "Сменить начальную карточку",
+  "No related cards share a tag with this card. The umbrella starts with this card alone.": "Нет связанных карточек с общим тегом. Зонтичный проект начнётся только с этой карточки.",
+  "Notes to copy": "Заметки для копирования",
 };
 export default catalog;

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoardStore } from "./store";
 import {
-  addEntry, archiveUmbrella, closeUmbrella, createUmbrella, getUmbrella, listUmbrellas, newCardUmbrella, proposeChange, reopenUmbrella, resolveChange, setMembership,
+  addEntry, addUserEntry, archiveUmbrella, closeUmbrella, createUmbrella, getUmbrella, listUmbrellas, newCardUmbrella, proposeChange, reopenUmbrella, resolveChange, setMembership,
   setAcceptanceDone, tickAcceptance, umbrellaWriteLimiter, updateEntry, updateUmbrella, withdrawEntry,
 } from "./umbrellas";
 import { createUmbrella as createRpc, updateUmbrella as updateRpc } from "../shared/rpc";
@@ -798,4 +798,27 @@ test("a stale Edit-list save never undoes an agent's tick, and a quick toggle le
   await expect(setAcceptanceDone(store, { id: u.id, itemId: "nope", done: true }, human)).rejects.toMatchObject({ code: "NOT_FOUND" });
   await closeUmbrella(store, { id: u.id, revision: saved.revision }, human);
   await expect(setAcceptanceDone(store, { id: u.id, itemId: first!, done: false }, human)).rejects.toMatchObject({ code: "UMBRELLA_CLOSED" });
+});
+
+test("the user can add a feed entry; a closed umbrella refuses it", async () => {
+  const store = await setup();
+  const u = await createUmbrella(store, { groupId: "A", title: "U" }, human);
+  const made = await addUserEntry(store, { umbrellaId: u.id, kind: "decision", title: "Use SSE", body: "Because" }, human);
+  expect(made).toMatchObject({ kind: "decision", status: "active", by: human, umbrellaId: u.id });
+  expect(made.sourceTaskId).toBeUndefined();
+  const board = await store.read();
+  expect(board.umbrellas[0]).toMatchObject({ revision: 1, feedRevision: 1 });
+  expect(board.umbrellaEntries).toHaveLength(1);
+  await closeUmbrella(store, { id: u.id, revision: 1 }, human);
+  await expect(addUserEntry(store, { umbrellaId: u.id, kind: "finding", title: "t", body: "" }, human)).rejects.toMatchObject({ code: "UMBRELLA_CLOSED" });
+  await expect(addUserEntry(store, { umbrellaId: "missing", kind: "finding", title: "t", body: "" }, human)).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("the user's entry counts toward the 300 limit", async () => {
+  const store = await setup();
+  const u = await createUmbrella(store, { groupId: "A", title: "U" }, human);
+  await store.mutate((board) => {
+    for (let i = 0; i < umbrellaLimits.activeEntries; i++) board.umbrellaEntries.push(entry(`e${i}`, "finding", "active", u.id));
+  });
+  await expect(addUserEntry(store, { umbrellaId: u.id, kind: "finding", title: "t", body: "" }, human)).rejects.toMatchObject({ code: "UMBRELLA_LIMIT" });
 });

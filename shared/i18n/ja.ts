@@ -1945,5 +1945,12 @@ const catalog: Catalog = {
   "This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).": "このアンブレラの Linear プロジェクトは、プロジェクトの URL でもプロジェクトキー（P-<TEAM>-<number>）でもありません。",
   "Group by umbrella": "アンブレラでグループ化",
   "{name}, {n} tasks": "{name}、{n} 件のタスク",
+  "Created, but not everything was added: {error}": "作成しましたが、すべては追加されませんでした: {error}",
+  "Cards not added: {titles}": "追加されなかったカード: {titles}",
+  "Notes not copied: {titles}": "コピーされなかったメモ: {titles}",
+  "Create from related cards": "関連カードから作成",
+  "Change start card": "開始カードを変更",
+  "No related cards share a tag with this card. The umbrella starts with this card alone.": "このカードとタグを共有する関連カードはありません。アンブレラはこのカードだけで始まります。",
+  "Notes to copy": "コピーするメモ",
 };
 export default catalog;

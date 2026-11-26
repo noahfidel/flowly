@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { UmbrellaEntry } from "../shared/model";
 import type { UmbrellaMember, UmbrellaSummary } from "../shared/umbrella";
 import {
-  acceptanceInput, changedLines, alreadyKept, closeOffer, offerProject, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, memberWrites, moveMember, openQuestions, pendingChanges, pickableCards, pipelineRows, readyToClose, revisionToSend, umbrellaWritable,
+  acceptanceInput, changedLines, alreadyKept, closeOffer, offerProject, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, memberWrites, moveMember, openQuestions, pendingChanges, pickableCards, pipelineRows, proposedMembers, runMigration, startCards, readyToClose, revisionToSend, umbrellaWritable,
 } from "./umbrella-panel-logic";
 
 const member = (title: string, order?: number): UmbrellaMember => ({
@@ -242,4 +242,54 @@ test("an entry already kept in the project is recognised by kind and title", () 
   expect(alreadyKept(existing, { kind: "convention", title: "Use drafts" }, 120)).toBe(false);
   expect(alreadyKept(existing, { kind: "pitfall", title: "Old pitfall" }, 120)).toBe(false);
   expect(alreadyKept(existing, { kind: "decision", title: "Use drafts and more".padEnd(130, "x") }, 120)).toBe(false);
+});
+
+test("start cards are the group's live cards in no umbrella, by title", () => {
+  const tasks = [
+    { id: "b", title: "Beta", projectId: "p", archivedAt: null },
+    { id: "a", title: "Alpha", projectId: "p", archivedAt: null },
+    { id: "in", title: "In umbrella", projectId: "p", archivedAt: null, umbrella: { id: "u" } },
+    { id: "gone", title: "Gone", projectId: "p", archivedAt: "x" },
+    { id: "far", title: "Far", projectId: "q", archivedAt: null },
+  ];
+  const projects = [{ id: "p", title: "P", groupId: "g", archivedAt: null }, { id: "q", title: "Q", groupId: "h", archivedAt: null }];
+  expect(startCards(tasks, projects, "g", "").map((c) => c.taskId)).toEqual(["a", "b"]);
+  expect(startCards(tasks, projects, "g", "bet").map((c) => c.taskId)).toEqual(["b"]);
+});
+
+test("proposed members put the start card first and stay within the limit", () => {
+  expect(proposedMembers("s", [{ id: "a" }, { id: "b" }], 30)).toEqual(["s", "a", "b"]);
+  expect(proposedMembers("s", [{ id: "a" }, { id: "b" }, { id: "c" }], 3)).toEqual(["s", "a", "b"]);
+});
+
+test("the migration creates the umbrella, the members, then the notes, and stops at the first failure", async () => {
+  const log: string[] = [];
+  const plan = {
+    groupId: "g", title: " T ", brief: "  ", memberIds: ["s", "a", "b"],
+    notes: [{ kind: "decision" as const, title: "n1", body: "" }, { kind: "finding" as const, title: "n2", body: "" }],
+  };
+  const ok = await runMigration(plan, {
+    create: async (i) => (log.push(`create ${i.title}${i.brief ? " brief" : ""}`), { id: "u" }),
+    setMember: async (i) => void log.push(`member ${i.taskId}`),
+    addEntry: async (i) => void log.push(`note ${i.title}`),
+  });
+  expect(log).toEqual(["create T", "member s", "member a", "member b", "note n1", "note n2"]);
+  expect(ok).toEqual({ umbrellaId: "u", missedMembers: [], missedNotes: [] });
+  const boom = new Error("UMBRELLA_OUT_OF_GROUP: no");
+  const partial = await runMigration(plan, {
+    create: async () => ({ id: "u" }),
+    setMember: async (i) => {
+      if (i.taskId === "a") throw boom;
+    },
+    addEntry: async () => undefined,
+  });
+  expect(partial).toEqual({ umbrellaId: "u", missedMembers: ["a", "b"], missedNotes: ["n1", "n2"], error: boom });
+  const noteFail = await runMigration(plan, {
+    create: async () => ({ id: "u" }), setMember: async () => undefined,
+    addEntry: async (i) => {
+      if (i.title === "n2") throw boom;
+    },
+  });
+  expect(noteFail).toMatchObject({ missedMembers: [], missedNotes: ["n2"] });
+  await expect(runMigration(plan, { create: async () => Promise.reject(boom), setMember: async () => undefined, addEntry: async () => undefined })).rejects.toBe(boom);
 });

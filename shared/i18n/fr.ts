@@ -1945,5 +1945,12 @@ const catalog: Catalog = {
   "This umbrella's Linear project is not a project URL or a project key (P-<TEAM>-<number>).": "Le projet Linear de ce parapluie n'est ni une URL de projet ni une clé de projet (P-<TEAM>-<number>).",
   "Group by umbrella": "Regrouper par parapluie",
   "{name}, {n} tasks": {"one": "{name}, {n} tâche", "other": "{name}, {n} tâches"},
+  "Created, but not everything was added: {error}": "Créé, mais tout n'a pas été ajouté : {error}",
+  "Cards not added: {titles}": "Cartes non ajoutées : {titles}",
+  "Notes not copied: {titles}": "Notes non copiées : {titles}",
+  "Create from related cards": "Créer à partir de cartes liées",
+  "Change start card": "Changer la carte de départ",
+  "No related cards share a tag with this card. The umbrella starts with this card alone.": "Aucune carte liée ne partage une étiquette avec cette carte. Le parapluie commence avec cette seule carte.",
+  "Notes to copy": "Notes à copier",
 };
 export default catalog;
