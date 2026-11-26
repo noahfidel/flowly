@@ -66,3 +66,28 @@ test("an invalid file is preserved and reported", async () => {
   await expect(store.mark("s", "u", { brief: 1, contract: 1, entries: [] })).rejects.toThrow(/invalid/);
   expect(await readFile(path, "utf8")).toBe("{not json");
 });
+
+test("a read that shows nothing new does not write; a change writes compact JSON", async () => {
+  let now = Date.parse("2026-11-25T00:00:00.000Z");
+  const root = await directory();
+  const path = join(root, "umbrella-reads.json");
+  const store = new UmbrellaReadStore(root, () => now);
+  await store.mark("s", "u", { brief: 2, contract: 1, entries: ["e1", "e2"] });
+  const written = await readFile(path, "utf8");
+  expect(written).not.toContain("\n");
+  // A marker the store would drop on its next write: it survives while nothing changes.
+  await writeFile(path, JSON.stringify({ ...JSON.parse(written), marker: 1 }));
+  now += 60_000;
+  await store.mark("s", "u", { brief: 2, contract: 1, entries: ["e1", "e2"] });
+  await store.mark("s", "u", { brief: null, contract: 0, entries: ["e2"] });
+  expect(JSON.parse(await readFile(path, "utf8")).marker).toBe(1);
+  // Something new is written (and the marker goes).
+  await store.mark("s", "u", { brief: 2, contract: 1, entries: ["e3"] });
+  expect(JSON.parse(await readFile(path, "utf8")).marker).toBeUndefined();
+  expect(await store.seen("s", "u")).toEqual({ brief: 2, contract: 1, entries: ["e1", "e2", "e3"] });
+  // An hour on, the same read refreshes the session's `at` once (the order sessions drop in past 2,000).
+  const before = JSON.parse(await readFile(path, "utf8")).sessions.s.at;
+  now += 2 * 60 * 60_000;
+  await store.mark("s", "u", { brief: 2, contract: 1, entries: ["e3"] });
+  expect(JSON.parse(await readFile(path, "utf8")).sessions.s.at).not.toBe(before);
+});

@@ -17,6 +17,7 @@ const stateSchema = z.object({
 type State = z.infer<typeof stateSchema>;
 const MAX_SESSIONS = 2000;
 const MAX_ENTRIES = 1000;
+const AT_REFRESH = 60 * 60 * 1000;
 
 /**
  * What each session last got of its card's umbrella through flowly_get_task (UMBRELLA-SPEC §3, R4): the brief and
@@ -46,7 +47,8 @@ export class UmbrellaReadStore {
   }
   /**
    * Records what one read showed. Never moves a revision backwards; a truncated brief (null) keeps the last one read
-   * in full. Entry ids keep the 1,000 newest per umbrella; the oldest sessions drop past 2,000.
+   * in full. Entry ids keep the 1,000 newest per umbrella; the oldest sessions drop past 2,000. A read that shows
+   * nothing new writes nothing (within an hour of the session's last write); the file is compact JSON.
    */
   mark(agentId: string, umbrellaId: string, shown: UmbrellaShown): Promise<void> {
     const job = this.tail.then(async () => {
@@ -54,19 +56,23 @@ export class UmbrellaReadStore {
       const session = (state.sessions[agentId] ??= { at: "", umbrellas: {} });
       const old = session.umbrellas[umbrellaId];
       const ids = (old?.entries ?? []).filter((id) => !shown.entries.includes(id));
-      session.umbrellas[umbrellaId] = {
+      const next = {
         brief: Math.max(old?.brief ?? 0, shown.brief ?? 0),
         contract: Math.max(old?.contract ?? 0, shown.contract),
         entries: [...ids, ...shown.entries].slice(-MAX_ENTRIES),
       };
-      session.at = new Date(this.clock()).toISOString();
+      const now = this.clock();
+      // Nothing new: no write. `at` (which sessions drop first past 2,000) is refreshed at most once an hour.
+      if (old && JSON.stringify(old) === JSON.stringify(next) && now - Date.parse(session.at) < AT_REFRESH) return;
+      session.umbrellas[umbrellaId] = next;
+      session.at = new Date(now).toISOString();
       const sessions = Object.entries(state.sessions);
       if (sessions.length > MAX_SESSIONS)
         state.sessions = Object.fromEntries(sessions.sort((a, b) => b[1].at.localeCompare(a[1].at)).slice(0, MAX_SESSIONS));
       await mkdir(this.directory, { recursive: true, mode: 0o700 });
       const temporary = `${this.path}.${randomUUID()}.tmp`;
       try {
-        await writeFile(temporary, JSON.stringify(state, null, 2), { mode: 0o600 });
+        await writeFile(temporary, JSON.stringify(state), { mode: 0o600 });
         try {
           await copyFile(this.path, `${this.path}.bak`);
         } catch (error) {
