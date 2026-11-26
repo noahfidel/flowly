@@ -1,5 +1,5 @@
 import type { BoardOverview } from "../shared/overview";
-import type { UmbrellaSummary } from "../shared/umbrella";
+import { memberRoleSignature, type UmbrellaSummary } from "../shared/umbrella";
 import { CardDetailProvider, detailQueryOptions, detailUnavailable, invalidateCardViews, useCardDetailQuery, useProjectsIdeasQuery } from "./card-detail-query";
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Platform, Pressable, View, useWindowDimensions, type GestureResponderEvent } from "react-native";
@@ -2484,6 +2484,7 @@ function BoardContent(
         onFollowUp={followUp}
         onOpenTask={openTaskById}
         umbrella={drawer.item.task.umbrella ? umbrellaById.get(drawer.item.task.umbrella.id) : undefined}
+        umbrellaMembers={drawer.item.task.umbrella ? memberRoleSignature(board?.tasks ?? noTasks, drawer.item.task.umbrella.id) : ""}
         onOpenUmbrella={openUmbrellaPanel}
         onStatusChanged={drawerStatusChanged}
         refresh={stableRefresh}

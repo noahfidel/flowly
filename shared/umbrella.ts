@@ -73,8 +73,21 @@ export function umbrellaChipText(title: string, role?: string): string {
   return role ? `${cut} · ${role}` : cut;
 }
 
-/** Changes when the umbrella is edited (`revision`) or its feed is written (`feedRevision`); the drawer refetches the feed on it. */
-export const umbrellaRefetchKey = (s: Pick<UmbrellaSummary, "revision" | "feedRevision">): string => `${s.revision}:${s.feedRevision}`;
+/**
+ * Changes when the umbrella is edited (`revision`), its feed is written (`feedRevision`) or its membership changes
+ * (`members`, `memberRoleSignature` of the overview's tasks: membership writes bump neither revision); the open panel
+ * and the drawer section read the umbrella again on it.
+ */
+export const umbrellaRefetchKey = (s: Pick<UmbrellaSummary, "revision" | "feedRevision">, members: string): string => `${s.revision}:${s.feedRevision}:${members}`;
+
+/** The umbrella's members with their role and order, in a stable order: changes on a join, a leave, a role or an order change. */
+export const memberRoleSignature = (tasks: readonly Pick<Task, "id" | "umbrella">[], umbrellaId: string): string =>
+  JSON.stringify(
+    tasks
+      .filter((t) => t.umbrella?.id === umbrellaId)
+      .map((t) => [t.id, t.umbrella!.role ?? null, t.umbrella!.order ?? null])
+      .sort((a, b) => (a[0] as string).localeCompare(b[0] as string)),
+  );
 
 /** The newest `limit` feed entries, newest first; withdrawn ones are left out (the drawer section's list, §7). */
 export function recentEntries<E extends Pick<UmbrellaEntry, "status" | "createdAt" | "id">>(entries: readonly E[], limit = 5): E[] {

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { boardSchema, emptyBoard, type Board, type Group, type Project, type Task, type Umbrella, type UmbrellaEntry } from "./model";
 import {
-  applyGroupMoves, countsTowardLimit, relatedComponent, noteEntryInput, notesToOffer, umbrellaEntryCreateInput, issuesWithoutCard, linearWorkspaceOf, memberSignature, parseLinearProject, suggestedMembers, umbrellaCreateInput, umbrellaUpdateInput, leaveUmbrella, markConflicts, membersOf, rolesMentioned, repairUmbrellaGroups, umbrellaChipText, umbrellaContext, umbrellaLimits, recentEntries, umbrellaRefetchKey, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
+  applyGroupMoves, countsTowardLimit, relatedComponent, noteEntryInput, notesToOffer, umbrellaEntryCreateInput, issuesWithoutCard, linearWorkspaceOf, memberRoleSignature, memberSignature, parseLinearProject, suggestedMembers, umbrellaCreateInput, umbrellaUpdateInput, leaveUmbrella, markConflicts, membersOf, rolesMentioned, repairUmbrellaGroups, umbrellaChipText, umbrellaContext, umbrellaLimits, recentEntries, umbrellaRefetchKey, umbrellaStartLine, umbrellaSummary, umbrellasLosingMembers, umbrellaViewOf,
 } from "./umbrella";
 
 const at = "2026-11-25T00:00:00.000Z";
@@ -384,12 +384,22 @@ test("umbrellaChipText cuts at 20 and adds the role", () => {
   expect(umbrellaChipText("Fresh context", "")).toBe("Fresh context");
 });
 
-test("the refetch key changes on a feed write and on an edit", () => {
+test("the refetch key changes on a feed write, on an edit and on a membership change", () => {
   const base = { revision: 2, feedRevision: 3 };
-  expect(umbrellaRefetchKey(base)).toBe("2:3");
-  expect(umbrellaRefetchKey({ ...base, feedRevision: 4 })).not.toBe(umbrellaRefetchKey(base));
-  expect(umbrellaRefetchKey({ ...base, revision: 3 })).not.toBe(umbrellaRefetchKey(base));
-  expect(umbrellaRefetchKey({ ...base })).toBe(umbrellaRefetchKey(base));
+  expect(umbrellaRefetchKey(base, "")).toBe("2:3:");
+  expect(umbrellaRefetchKey({ ...base, feedRevision: 4 }, "")).not.toBe(umbrellaRefetchKey(base, ""));
+  expect(umbrellaRefetchKey({ ...base, revision: 3 }, "")).not.toBe(umbrellaRefetchKey(base, ""));
+  expect(umbrellaRefetchKey({ ...base }, "")).toBe(umbrellaRefetchKey(base, ""));
+  // Membership writes bump neither revision: the member signature (ids, roles, orders) moves the key instead.
+  const m = (role?: string, order?: number) => ({ id: "u", joinedAt: at, by: human, ...(role ? { role } : {}), ...(order !== undefined ? { order } : {}) });
+  const tasks = [task("a", { umbrella: m("map", 1) }), task("b", { umbrella: m() }), task("c")];
+  const sig = memberRoleSignature(tasks, "u");
+  expect(memberRoleSignature([tasks[1]!, tasks[0]!, tasks[2]!], "u")).toBe(sig);
+  expect(memberRoleSignature([task("a", { umbrella: m("api", 1) }), tasks[1]!], "u")).not.toBe(sig);
+  expect(memberRoleSignature([task("a", { umbrella: m("map", 2) }), tasks[1]!], "u")).not.toBe(sig);
+  expect(memberRoleSignature([tasks[0]!], "u")).not.toBe(sig);
+  expect(memberRoleSignature(tasks, "other")).toBe(memberRoleSignature([], "u"));
+  expect(umbrellaRefetchKey(base, sig)).not.toBe(umbrellaRefetchKey(base, memberRoleSignature([tasks[0]!], "u")));
 });
 
 test("recentEntries returns the newest five without withdrawn ones", () => {

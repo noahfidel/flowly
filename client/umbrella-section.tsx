@@ -22,12 +22,13 @@ const kindText: Record<UmbrellaEntry["kind"], string> = {
 /**
  * Drawer "Umbrella" (UMBRELLA-SPEC §7): the card's role, a link to the panel, when the brief and contract last
  * changed, and the last 5 feed entries. The feed is read when the section opens and again when the umbrella's
- * `umbrellaRefetchKey` changes (an edit or a feed write); never polled. Unread is per agent session, so no unread marker.
+ * `umbrellaRefetchKey` changes (an edit, a feed write or a membership change); never polled. Unread is per agent session, so no unread marker.
  */
 export const UmbrellaSection = memo(function UmbrellaSection({
   hostId,
   taskId,
   summary,
+  members,
   role,
   section,
   onOpenUmbrella,
@@ -35,13 +36,15 @@ export const UmbrellaSection = memo(function UmbrellaSection({
   hostId: string;
   taskId: string;
   summary: UmbrellaSummary;
+  /** `memberRoleSignature` of this umbrella: a membership change reads the umbrella again. */
+  members: string;
   role?: string;
   section: SectionState;
   /** Opens the umbrella panel; the link is left out without it. */
   onOpenUmbrella?(id: string): void;
 }) {
   const get = useRpc(rpc.getUmbrella);
-  const refetchKey = umbrellaRefetchKey(summary);
+  const refetchKey = umbrellaRefetchKey(summary, members);
   const detail = useQuery({
     queryKey: ["flowly", "umbrella", hostId, summary.id, refetchKey],
     queryFn: () => get({ id: summary.id }),

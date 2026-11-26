@@ -9,7 +9,7 @@ import * as rpc from "../shared/rpc";
 import { memoryLimits } from "../shared/memory";
 import type { Link, Project, Task, Umbrella, UmbrellaEntry } from "../shared/model";
 import { t, tn } from "../shared/i18n";
-import { memberSignature, umbrellaLimits, umbrellaRefetchKey, type UmbrellaSummary } from "../shared/umbrella";
+import { memberRoleSignature, memberSignature, umbrellaLimits, umbrellaRefetchKey, type UmbrellaSummary } from "../shared/umbrella";
 import { Modal } from "./modal";
 import { Disclosure } from "./disclosure";
 import { Enter } from "./motion";
@@ -301,7 +301,8 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
   const readGuardrails = useRpc(rpc.readGuardrails);
   const tick = useRpc(rpc.tickUmbrellaAcceptance);
   // The drawer section reads the same key, so the two share one cached read.
-  const refetchKey = summary ? umbrellaRefetchKey(summary) : "";
+  const memberRoles = useMemo(() => memberRoleSignature(tasks, id), [tasks, id]);
+  const refetchKey = summary ? umbrellaRefetchKey(summary, memberRoles) : "";
   const key = ["flowly", "umbrella", hostId, id, refetchKey];
   const detail = useQuery({ queryKey: key, queryFn: () => get({ id }), staleTime: Infinity, retry: false, placeholderData: keepPreviousData });
   const data = detail.data?.umbrella.id === id ? detail.data : undefined;

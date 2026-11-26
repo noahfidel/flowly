@@ -123,6 +123,7 @@ function TaskDrawerView({
   onFollowUp,
   onOpenTask,
   umbrella,
+  umbrellaMembers = "",
   onOpenUmbrella,
   onStatusChanged,
   refresh,
@@ -172,6 +173,8 @@ function TaskDrawerView({
   onFollowUp?(task: Task): void;
   /** The card's umbrella as the overview summarizes it (UMBRELLA-SPEC §7); absent when the card has none. */
   umbrella?: UmbrellaSummary;
+  /** `memberRoleSignature` of the card's umbrella from the overview's tasks: the section reads it again when it changes. */
+  umbrellaMembers?: string;
   /** Opens the umbrella panel (the Umbrella section's link and its Quick links chip). */
   onOpenUmbrella?(id: string): void;
   /** Opens another card's drawer (idea source or result). */
@@ -1086,7 +1089,7 @@ function TaskDrawerView({
         );
       case "umbrella":
         return umbrella && task.umbrella ? (
-          <UmbrellaSection hostId={hostId} taskId={task.id} summary={umbrella} role={task.umbrella.role} section={sectionStates.umbrella} onOpenUmbrella={onOpenUmbrella} />
+          <UmbrellaSection hostId={hostId} taskId={task.id} summary={umbrella} members={umbrellaMembers} role={task.umbrella.role} section={sectionStates.umbrella} onOpenUmbrella={onOpenUmbrella} />
         ) : null;
       case "links":
         return (
