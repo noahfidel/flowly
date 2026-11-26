@@ -144,7 +144,7 @@ test("archived cards cannot join", async () => {
   await store.mutate((board) => {
     board.tasks.find((t) => t.id === "a")!.archivedAt = now;
   });
-  await expect(setMembership(store, { taskId: "a", umbrellaId: u.id }, human)).rejects.toThrow("Archived cards");
+  await expect(setMembership(store, { taskId: "a", umbrellaId: u.id }, human)).rejects.toMatchObject({ code: "ARCHIVED", message: "Archived cards can't join an umbrella." });
 });
 
 test("a closed umbrella refuses members and stays readable", async () => {

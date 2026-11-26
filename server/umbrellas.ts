@@ -211,7 +211,7 @@ export function setMembership(store: BoardStore, input: UmbrellaMemberInput, by:
     const role = input.role || undefined;
     const order = input.order ?? undefined;
     requireOpen(u);
-    if (task.archivedAt) throw new Error("Archived cards can't join an umbrella.");
+    if (task.archivedAt) throw new ToolError("ARCHIVED", "Archived cards can't join an umbrella.");
     if (umbrellaGroupOf(board, task) !== u.groupId)
       throw new ToolError("UMBRELLA_OUT_OF_GROUP", "This card's project is in another board group than the umbrella.");
     if (membersOf(board, u.id).length >= umbrellaLimits.members)

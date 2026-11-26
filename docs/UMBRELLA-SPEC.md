@@ -64,7 +64,7 @@ Actor = { kind: "human" } | { kind: "agent"; agentId: string; taskId?: string } 
 task.umbrella?: { id: string; role?: string /* ≤ 40, e.g. "feature map" */; order?: number; joinedAt: string; by: Actor }
 ```
 
-`role` is the member's owned pipeline stage ("feature map → harness verification → evidence gallery → Linear comment"); `order` sorts the pipeline. A card in another group than its umbrella is refused (`UMBRELLA_OUT_OF_GROUP`); a project moved to another group drops its cards' membership after a confirm that names the umbrellas affected (§9).
+`role` is the member's owned pipeline stage ("feature map → harness verification → evidence gallery → Linear comment"); `order` sorts the pipeline. A card in another group than its umbrella is refused (`UMBRELLA_OUT_OF_GROUP`), and an archived card cannot join one (`ARCHIVED`); a project moved to another group drops its cards' membership after a confirm that names the umbrellas affected (§9).
 
 ### 2.3 Feed entries
 
