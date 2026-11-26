@@ -1283,7 +1283,10 @@ export default function contribute(host: PluginServerContext) {
         store
           .read()
           .then((full) => (full.umbrellaEntries ?? []).map((e) => e.createdAt))
-          .catch(() => []),
+          .catch((e: unknown) => {
+            logFailure("Flowly umbrella activity not read:", e);
+            return [];
+          }),
       ]);
       return { events, memoryConfirmedAt: (state?.entries ?? []).flatMap((e) => (e.confirmedAt ? [e.confirmedAt] : [])), umbrellaEntriesAt };
     },

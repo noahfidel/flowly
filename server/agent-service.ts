@@ -379,7 +379,12 @@ export class AgentService {
     }
     const revision = { task: r.task.revision, project: r.project.revision };
     // The card's umbrella (UMBRELLA-SPEC §3); unreadable marks read as nothing read yet.
-    const umbrellaSeen = r.task.umbrella ? await this.umbrellaReads.seen(identity.agentId, r.task.umbrella.id).catch(() => null) : null;
+    const umbrellaSeen = r.task.umbrella
+      ? await this.umbrellaReads.seen(identity.agentId, r.task.umbrella.id).catch((e: unknown) => {
+          logFailure("Flowly umbrella reads not read:", e, `agent ${identity.agentId} umbrella ${r.task.umbrella!.id}`);
+          return null;
+        })
+      : null;
     const umbrella = r.task.umbrella ? umbrellaContext({ board: r.board, task: r.task, agentId: identity.agentId, seen: umbrellaSeen }) : null;
     const finished = ["done", "cancelled"].includes(r.task.status);
     // The project's paseo.json scripts, so agents run them instead of retyping (WORKFLOW-INSIGHTS-SPEC §5.4).
