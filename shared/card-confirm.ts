@@ -211,12 +211,17 @@ function umbrellaFacts(request: PendingRequest, board: UmbrellaConfirmBoard): { 
     if (input.umbrellaId === null) return { action: "leave", lines: [t("{card} leaves {umbrella}", { card, umbrella: current ? umbrellaOf(current.id) : "" }).trim()] };
     const role = oneLine(input.role, umbrellaLimits.role);
     if (current && current.id === input.umbrellaId)
+      // Omitted keeps the stored role or order, null (or an empty role) clears it (UMBRELLA-SPEC §4.2).
       return {
         action: "member",
         lines: [
           t("{card} stays in {umbrella}", { card, umbrella: umbrellaOf(input.umbrellaId) }),
-          ...(role ? [t("Role: {role}", { role })] : []),
-          ...(typeof input.order === "number" ? [t("Order: {order}", { order: String(input.order) })] : []),
+          ...(role ? [t("Role: {role}", { role })] : input.role !== undefined && current.role ? [t("Role cleared")] : []),
+          ...(typeof input.order === "number"
+            ? [t("Order: {order}", { order: String(input.order) })]
+            : input.order === null && current.order !== undefined
+              ? [t("Order cleared")]
+              : []),
         ],
       };
     return {

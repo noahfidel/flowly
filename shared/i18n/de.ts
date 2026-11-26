@@ -1952,5 +1952,7 @@ const catalog: Catalog = {
   "Change start card": "Startkarte ändern",
   "No related cards share a tag with this card. The umbrella starts with this card alone.": "Keine verwandten Karten teilen einen Tag mit dieser Karte. Das Dachprojekt beginnt nur mit dieser Karte.",
   "Notes to copy": "Zu kopierende Notizen",
+  "Role cleared": "Rolle entfernt",
+  "Order cleared": "Reihenfolge entfernt",
 };
 export default catalog;

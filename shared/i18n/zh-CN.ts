@@ -1952,5 +1952,7 @@ const catalog: Catalog = {
   "Change start card": "更换起始卡片",
   "No related cards share a tag with this card. The umbrella starts with this card alone.": "没有与此卡片共享标签的相关卡片。伞组将只包含此卡片。",
   "Notes to copy": "要复制的笔记",
+  "Role cleared": "角色已清除",
+  "Order cleared": "顺序已清除",
 };
 export default catalog;

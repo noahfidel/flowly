@@ -89,17 +89,22 @@ export function editAfterSave(base: EditBase, outcome: SaveOutcome): EditBase | 
 }
 
 /**
- * `umbrellas.set-member` for a card already in the umbrella. The server replaces both role and order with what it is
- * sent, so the ones not being changed are sent as they are; an empty role clears it.
+ * `umbrellas.set-member` for a card already in the umbrella. The server keeps an omitted role or order and clears one
+ * sent as null; both are sent as read (the changed one as edited), and an empty role is sent as null to clear it.
  */
 export function memberInput(
   umbrellaId: string,
   member: Pick<UmbrellaMember, "taskId" | "role" | "order">,
   change: { role?: string; order?: number },
-): { taskId: string; umbrellaId: string; role?: string; order?: number } {
+): { taskId: string; umbrellaId: string; role?: string | null; order?: number } {
   const role = (change.role ?? member.role ?? "").trim();
   const order = change.order ?? member.order;
-  return { taskId: member.taskId, umbrellaId, ...(role ? { role } : {}), ...(order !== undefined ? { order } : {}) };
+  return {
+    taskId: member.taskId,
+    umbrellaId,
+    ...(role ? { role } : change.role !== undefined ? { role: null } : {}),
+    ...(order !== undefined ? { order } : {}),
+  };
 }
 
 /**

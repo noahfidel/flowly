@@ -727,8 +727,19 @@ export const createUmbrellaInputSchema = z.strictObject({
 export const setUmbrellaInputSchema = z.strictObject({
   taskId: z.string().min(1).max(200).describe("A card of this Flowly project."),
   umbrellaId: z.string().min(1).max(200).nullable().describe("The umbrella to join or move to; null takes the card out of its umbrella."),
-  role: z.string().trim().max(umbrellaLimits.role).optional().describe("What this card owns in the umbrella, for example api or ui."),
-  order: z.number().finite().optional().describe("Where the card sorts among the members (lower first)."),
+  role: z
+    .string()
+    .trim()
+    .max(umbrellaLimits.role)
+    .nullable()
+    .optional()
+    .describe("What this card owns in the umbrella, for example api or ui. For a card already in this umbrella, omitted keeps its role and null clears it."),
+  order: z
+    .number()
+    .finite()
+    .nullable()
+    .optional()
+    .describe("Where the card sorts among the members (lower first). For a card already in this umbrella, omitted keeps its order and null clears it."),
 });
 const umbrellaMemberResultSchema = z.object({
   taskId: z.string(),

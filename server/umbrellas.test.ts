@@ -835,3 +835,29 @@ test("set-member with onlyIfFree refuses a card that is in another umbrella and 
   await expect(setMembership(store, { taskId: "a", umbrellaId: x.id, onlyIfFree: true }, human)).resolves.toMatchObject({ umbrella: { id: x.id } });
   await expect(setMembership(store, { taskId: "b", umbrellaId: y.id, onlyIfFree: true }, human)).resolves.toMatchObject({ umbrella: { id: y.id } });
 });
+
+test("set-member in the same umbrella: an omitted role or order keeps it, null clears it; joining another starts fresh", async () => {
+  const store = await setup();
+  const u = await createUmbrella(store, { groupId: "A", title: "U" }, human);
+  const v = await createUmbrella(store, { groupId: "A", title: "V" }, human);
+  await setMembership(store, { taskId: "a", umbrellaId: u.id, role: "feature map", order: 2 }, human);
+  const agent: Actor = { kind: "agent", agentId: "s1" };
+  // An agent's call that names only the umbrella changes nothing.
+  const kept = await setMembership(store, { taskId: "a", umbrellaId: u.id }, agent);
+  expect(kept.umbrella).toMatchObject({ id: u.id, role: "feature map", order: 2 });
+  // One field at a time.
+  await setMembership(store, { taskId: "a", umbrellaId: u.id, order: 5 }, human);
+  expect((await store.read()).tasks.find((t) => t.id === "a")!.umbrella).toMatchObject({ role: "feature map", order: 5 });
+  // An explicit null clears it.
+  const cleared = await setMembership(store, { taskId: "a", umbrellaId: u.id, role: null }, human);
+  expect(cleared.umbrella?.role).toBeUndefined();
+  expect(cleared.umbrella?.order).toBe(5);
+  const noOrder = await setMembership(store, { taskId: "a", umbrellaId: u.id, order: null }, human);
+  expect(noOrder.umbrella).not.toHaveProperty("order");
+  // Joining another umbrella starts fresh: nothing carries over.
+  await setMembership(store, { taskId: "b", umbrellaId: u.id, role: "api", order: 1 }, human);
+  const moved = await setMembership(store, { taskId: "b", umbrellaId: v.id }, human);
+  expect(moved.umbrella).toMatchObject({ id: v.id });
+  expect(moved.umbrella).not.toHaveProperty("role");
+  expect(moved.umbrella).not.toHaveProperty("order");
+});

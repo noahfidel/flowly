@@ -316,8 +316,10 @@ export const umbrellaMemberInput = z.strictObject({
   taskId: z.string().min(1).max(200),
   /** null: leave the umbrella. */
   umbrellaId: z.string().min(1).max(200).nullable(),
-  role: z.string().trim().max(umbrellaLimits.role).optional(),
-  order: z.number().finite().optional(),
+  /** For a card already in this umbrella: omitted keeps the stored role, null (or empty) clears it. Joining starts fresh. */
+  role: z.string().trim().max(umbrellaLimits.role).nullable().optional(),
+  /** As `role`: omitted keeps it, null clears it. */
+  order: z.number().finite().nullable().optional(),
   /** Join only a card that is in no umbrella (the migration's stale proposal); in this umbrella already is a no-op. */
   onlyIfFree: z.boolean().optional(),
 });

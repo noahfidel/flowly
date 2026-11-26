@@ -193,18 +193,23 @@ export function setMembership(store: BoardStore, input: UmbrellaMemberInput, by:
     }
     const u = find(board, input.umbrellaId);
     requireGroup(u, options.groupId);
-    const role = input.role || undefined;
     if (input.onlyIfFree && current && current.id !== u.id) throw new ToolError("REVISION_CONFLICT", "The card is already in an umbrella.", true);
     if (current?.id === u.id) {
       if (input.onlyIfFree) return { value: task, changed: false };
-      // A role or order change; allowed while the umbrella is closed only if nothing changes.
-      if (role === current.role && input.order === current.order) return { value: task, changed: false };
+      // A role or order change: an omitted field keeps the stored value, null (or an empty role) clears it.
+      const role = input.role === undefined ? current.role : input.role || undefined;
+      const order = input.order === undefined ? current.order : (input.order ?? undefined);
+      // Allowed while the umbrella is closed only if nothing changes.
+      if (role === current.role && order === current.order) return { value: task, changed: false };
       requireOpen(u);
-      task.umbrella = { ...current, role, order: input.order };
+      task.umbrella = { ...current, role, order };
       if (role === undefined) delete task.umbrella.role;
-      if (input.order === undefined) delete task.umbrella.order;
+      if (order === undefined) delete task.umbrella.order;
       return { value: task, changed: true };
     }
+    // Joining (or moving to) this umbrella starts fresh: only what this call sends.
+    const role = input.role || undefined;
+    const order = input.order ?? undefined;
     requireOpen(u);
     if (task.archivedAt) throw new Error("Archived cards can't join an umbrella.");
     if (umbrellaGroupOf(board, task) !== u.groupId)
@@ -215,7 +220,7 @@ export function setMembership(store: BoardStore, input: UmbrellaMemberInput, by:
     task.umbrella = {
       id: u.id,
       ...(role !== undefined ? { role } : {}),
-      ...(input.order !== undefined ? { order: input.order } : {}),
+      ...(order !== undefined ? { order } : {}),
       joinedAt: new Date().toISOString(),
       by,
     };

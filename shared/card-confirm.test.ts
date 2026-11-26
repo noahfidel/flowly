@@ -229,6 +229,16 @@ describe("a set_umbrella call on a card already in the umbrella", () => {
       lines: ["Card t1 stays in Fresh context", "Order: 0"],
     });
   });
+  test("an omitted role or order keeps it and is not named; null clears it and says so", () => {
+    const b = board();
+    b.tasks[0]!.umbrella = { ...b.tasks[0]!.umbrella!, role: "map", order: 3 };
+    expect(umbrellaConfirmFacts(call("flowly_set_umbrella", { projectId: "p1", taskId: "t1", umbrellaId: "u" }), b)!.lines).toEqual(["Card t1 stays in Fresh context"]);
+    expect(umbrellaConfirmFacts(call("flowly_set_umbrella", { projectId: "p1", taskId: "t1", umbrellaId: "u", role: null, order: null }), b)!.lines).toEqual([
+      "Card t1 stays in Fresh context",
+      "Role cleared",
+      "Order cleared",
+    ]);
+  });
 });
 
 describe("the create and set_umbrella confirms", () => {

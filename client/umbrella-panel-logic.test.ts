@@ -103,8 +103,8 @@ test("a member change keeps the role and order it does not change", () => {
   const m = { taskId: "t", role: "map", order: 2 };
   expect(memberInput("u", m, {})).toEqual({ taskId: "t", umbrellaId: "u", role: "map", order: 2 });
   expect(memberInput("u", m, { role: " scorer " })).toEqual({ taskId: "t", umbrellaId: "u", role: "scorer", order: 2 });
-  // An empty role clears it; an order change keeps the role.
-  expect(memberInput("u", m, { role: "  " })).toEqual({ taskId: "t", umbrellaId: "u", order: 2 });
+  // An empty role is sent as null, which clears it (an omitted one would be kept); an order change keeps the role.
+  expect(memberInput("u", m, { role: "  " })).toEqual({ taskId: "t", umbrellaId: "u", role: null, order: 2 });
   expect(memberInput("u", { taskId: "t" }, { order: 1 })).toEqual({ taskId: "t", umbrellaId: "u", order: 1 });
 });
 

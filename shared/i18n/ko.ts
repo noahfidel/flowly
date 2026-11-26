@@ -1952,5 +1952,7 @@ const catalog: Catalog = {
   "Change start card": "시작 카드 변경",
   "No related cards share a tag with this card. The umbrella starts with this card alone.": "이 카드와 태그를 공유하는 관련 카드가 없습니다. 엄브렐라는 이 카드만으로 시작합니다.",
   "Notes to copy": "복사할 메모",
+  "Role cleared": "역할 해제",
+  "Order cleared": "순서 해제",
 };
 export default catalog;

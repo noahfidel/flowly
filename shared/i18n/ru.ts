@@ -1952,5 +1952,7 @@ const catalog: Catalog = {
   "Change start card": "Сменить начальную карточку",
   "No related cards share a tag with this card. The umbrella starts with this card alone.": "Нет связанных карточек с общим тегом. Зонтичный проект начнётся только с этой карточки.",
   "Notes to copy": "Заметки для копирования",
+  "Role cleared": "Роль снята",
+  "Order cleared": "Порядок снят",
 };
 export default catalog;

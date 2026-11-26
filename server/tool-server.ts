@@ -335,7 +335,7 @@ export class ToolServer {
       "flowly_set_umbrella",
       {
         description:
-          "Put a card of this Flowly project in an umbrella, move it to another one, change its role or order, or take it out (umbrellaId null), only when the user asked you to. Joining needs an open umbrella of the card's board group with room (UMBRELLA_CLOSED, UMBRELLA_OUT_OF_GROUP, UMBRELLA_LIMIT). It never moves, starts or finishes the card, and never edits the umbrella. Counts against the 20-per-hour limit (CARD_LIMIT). CARD_NOT_FOUND, AGENT_CARDS_DISABLED.",
+          "Put a card of this Flowly project in an umbrella, move it to another one, change its role or order, or take it out (umbrellaId null), only when the user asked you to. For a card already in that umbrella, an omitted role or order keeps it and null clears it; joining another umbrella starts with only the role and order you send. Joining needs an open umbrella of the card's board group with room (UMBRELLA_CLOSED, UMBRELLA_OUT_OF_GROUP, UMBRELLA_LIMIT). It never moves, starts or finishes the card, and never edits the umbrella. Counts against the 20-per-hour limit (CARD_LIMIT). CARD_NOT_FOUND, AGENT_CARDS_DISABLED.",
         inputSchema: setUmbrellaInputSchema,
         outputSchema: setUmbrellaResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
