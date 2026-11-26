@@ -87,6 +87,9 @@ const requireGroup = (u: Umbrella, groupId: string | undefined) => {
     throw new ToolError("UMBRELLA_OUT_OF_GROUP", "This umbrella belongs to another board group; its own dispatcher handles it. Tell the user.");
 };
 
+/** An acceptance item's text compared for D25: whitespace trimmed and collapsed, letter case ignored. */
+const normalizeAcceptance = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+
 export function updateUmbrella(store: BoardStore, input: UmbrellaUpdateInput, by: Actor, options: { groupId?: string } = {}): Promise<Umbrella> {
   return store.transaction((board) => {
     const u = find(board, input.id);
@@ -118,10 +121,15 @@ export function updateUmbrella(store: BoardStore, input: UmbrellaUpdateInput, by
     }
     if (input.acceptance !== undefined) {
       // Text and order only: an existing item keeps the `done`, `by` and `at` the server has (a tick made meanwhile
-      // survives), a new one starts not done (§11).
+      // survives) unless its text changed beyond whitespace and letter case, which clears the tick (§11, D25); a new
+      // one starts not done.
+      const same = (a: string, b: string) => normalizeAcceptance(a) === normalizeAcceptance(b);
       const next = input.acceptance.map((item) => {
         const old = item.id ? u.acceptance.find((a) => a.id === item.id) : undefined;
-        if (old) return old.text === item.text ? old : { ...old, text: item.text };
+        if (old) {
+          if (old.text === item.text) return old;
+          return same(old.text, item.text) ? { ...old, text: item.text } : { ...old, text: item.text, done: false, by, at: now };
+        }
         return { id: randomUUID(), text: item.text, done: false, by, at: now };
       });
       if (JSON.stringify(next) !== JSON.stringify(u.acceptance)) {

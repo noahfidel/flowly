@@ -180,6 +180,33 @@ test("archiving closes the umbrella, keeps its members and hides it from the lis
   await expect(reopenUmbrella(store, { id: u.id, revision: 2 }, human)).rejects.toMatchObject({ code: "UMBRELLA_CLOSED" });
 });
 
+test("editing a ticked acceptance item's text clears its tick; whitespace or case changes and untouched items keep it (D25)", async () => {
+  const store = await setup();
+  const u0 = await createUmbrella(store, { groupId: "A", title: "U" }, human);
+  const agent: Actor = { kind: "agent", agentId: "ag" };
+  const listed = await updateUmbrella(store, { id: u0.id, revision: 1, acceptance: [{ text: "Works end to end" }, { text: "No duplicates" }, { text: "Fast" }] }, human);
+  const [a, b, c] = listed.acceptance;
+  for (const item of [a, b, c]) await setAcceptanceDone(store, { id: u0.id, itemId: item!.id, done: true }, agent);
+  const ticked = (await store.read()).umbrellas.find((x) => x.id === u0.id)!;
+  expect(ticked.acceptance.every((i) => i.done && i.by.kind === "agent")).toBe(true);
+  const edited = await updateUmbrella(
+    store,
+    {
+      id: u0.id,
+      revision: ticked.revision,
+      acceptance: [
+        { id: a!.id, text: "Works end to end, on the staging data" },
+        { id: b!.id, text: "  no   DUPLICATES " },
+        { id: c!.id, text: "Fast" },
+      ],
+    },
+    human,
+  );
+  expect(edited.acceptance[0]).toMatchObject({ id: a!.id, text: "Works end to end, on the staging data", done: false, by: human });
+  expect(edited.acceptance[1]).toMatchObject({ id: b!.id, text: "  no   DUPLICATES ", done: true, by: agent });
+  expect(edited.acceptance[2]).toEqual(ticked.acceptance[2]);
+});
+
 test("update checks the umbrella revision and bumps brief and contract revisions", async () => {
   const store = await setup();
   const u = await createUmbrella(store, { groupId: "A", title: "U" }, human);
