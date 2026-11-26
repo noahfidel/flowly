@@ -370,7 +370,7 @@ export const umbrellaContextSchema = z.object({
   /** Up to 8,000 characters; `truncated`: the full text is in flowly_get_umbrella. */
   brief: z.object({ text: z.string(), revision: z.number(), updatedAt: z.string(), unread: z.boolean(), truncated: z.boolean() }),
   contract: z.object({ text: z.string(), revision: z.number(), updatedAt: z.string(), unread: z.boolean() }),
-  /** Unread first, then active rulings, then open questions and proposed contract changes, then the rest newest first, up to 6,000 characters. */
+  /** Unread active rulings first (D26), then other unread entries, then active rulings, then open questions and proposed contract changes, then the rest newest first, up to 6,000 characters. */
   feed: z.array(
     z.object({
       id: z.string(),
@@ -457,6 +457,7 @@ export function umbrellaContext(input: {
   const live = entries.filter((e) => !leftOut.includes(e.status) || returned(e));
   const unread = (e: UmbrellaEntry) => returned(e) || (!byAgent(e.by, agentId) && !read.has(e.id));
   const tiers = [
+    live.filter((e) => e.kind === "ruling" && e.status === "active" && unread(e)),
     live.filter(unread),
     live.filter((e) => e.kind === "ruling" && e.status === "active"),
     live.filter((e) => (e.kind === "question" && e.status === "open") || (e.kind === "contract_change" && e.status === "proposed")),

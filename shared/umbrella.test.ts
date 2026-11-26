@@ -264,6 +264,26 @@ test("the feed puts unread first, then active rulings, then open questions and p
   expect(value).toMatchObject({ openQuestions: 1, pendingContractChanges: 1 });
 });
 
+test("an unseen active ruling comes first and is never cut by newer unread entries (D26)", () => {
+  const long = "x".repeat(2000);
+  const board = contextBoard({
+    entries: [
+      fed("ruling-old", "ruling", "active", 1),
+      fed("ruling-mid", "ruling", "active", 2),
+      fed("ruling-seen", "ruling", "active", 3),
+      ...[4, 5, 6, 7].map((m) => fed(`d${m}`, "decision", "active", m, { body: long })),
+    ],
+  });
+  const { value, shown } = ctxOf(board, "a", allSeen(["ruling-seen"]))!;
+  // Both unseen rulings are listed first, newest first; the budget then cuts the newer decisions, not them.
+  expect(value.feed.slice(0, 2).map((e) => e.id)).toEqual(["ruling-mid", "ruling-old"]);
+  expect(value.feed.map((e) => e.id)).toEqual(["ruling-mid", "ruling-old", "d7", "d6"]);
+  expect(shown.entries).toEqual(["ruling-mid", "ruling-old", "d7", "d6"]);
+  // A seen ruling does not jump ahead of unread entries.
+  const seenRulings = ctxOf(board, "a", allSeen(["ruling-old", "ruling-mid", "ruling-seen"]))!.value;
+  expect(seenRulings.feed.map((e) => e.id)).toEqual(["d7", "d6"]);
+});
+
 test("the feed stops at 6,000 characters and counts the rest", () => {
   const long = "x".repeat(2000);
   const board = contextBoard({ entries: [1, 2, 3, 4].map((m) => fed(`d${m}`, "decision", "active", m, { body: long })) });
