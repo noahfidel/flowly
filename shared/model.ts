@@ -419,6 +419,7 @@ export const umbrellaLimits = {
   briefBudget: 8000,
   feedBudget: 6000,
   siblings: 30,
+  ideas: 30,
 } as const;
 /** A card's umbrella (UMBRELLA-SPEC §2.2); at most one per card. */
 export const umbrellaMembershipSchema = z.object({

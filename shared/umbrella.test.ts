@@ -34,7 +34,7 @@ test("limits match the spec", () => {
     openPerGroup: 50, members: 30, activeEntries: 300, writesPerHour: 20, relaysPerHour: 60,
     brief: 20000, contract: 10000, pendingChanges: 10,
     title: 120, role: 40, acceptance: 20, acceptanceText: 300, entryTitle: 120, entryBody: 2000, quote: 500,
-    briefBudget: 8000, feedBudget: 6000, siblings: 30,
+    briefBudget: 8000, feedBudget: 6000, siblings: 30, ideas: 30,
   });
 });
 
@@ -225,6 +225,20 @@ test("a member sees brief, contract, rulings first, siblings with lanes and role
   ]);
   expect(ctxOf(board, "b")!.value.integration).toBe(true);
   expect(shown).toEqual({ brief: 1, contract: 2, entries: ["r1", "d1"] });
+});
+
+test("ideas are capped at 30, newest first, and the rest are counted", () => {
+  const board = contextBoard();
+  board.ideas = Array.from({ length: 33 }, (_, i) => ({
+    id: `i${i}`, taskId: "b", projectId: "q", title: `Idea ${i}`, detail: "", rationale: "", context: "", status: "open" as const, umbrellaId: "u",
+    createdAt: `2026-11-25T01:${String(i).padStart(2, "0")}:00.000Z`, updatedAt: at,
+  }));
+  const { value } = ctxOf(board)!;
+  expect(value.ideas).toHaveLength(umbrellaLimits.ideas);
+  expect(value.ideas[0]!.id).toBe("i32");
+  expect(value.ideas.at(-1)!.id).toBe("i3");
+  expect(value.ideasMore).toBe(3);
+  expect(ctxOf(contextBoard())!.value.ideasMore).toBe(0);
 });
 
 test("the feed puts unread first, then active rulings, then open questions and proposals, then the rest newest first", () => {

@@ -395,8 +395,10 @@ export const umbrellaContextSchema = z.object({
     }),
   ),
   acceptance: z.array(z.object({ id: z.string(), text: z.string(), done: z.boolean() })),
-  /** The umbrella's open ideas. */
+  /** The umbrella's open ideas, newest first, at most 30. */
   ideas: z.array(z.object({ id: z.string(), title: z.string(), status: z.enum(ideaStatuses), sourceTaskId: z.string().nullable() })),
+  /** Open ideas left out by the cap of 30. */
+  ideasMore: z.number(),
   linearProject: z.object({ url: z.string(), name: z.string().optional() }).optional(),
   /** Feed entries left out by the budget. */
   truncatedFeed: z.number(),
@@ -465,6 +467,9 @@ export function umbrellaContext(input: {
     part.revision > 0 && part.revision > (readRevision ?? 0) && !byAgent(part.updatedBy, agentId);
   const truncated = umbrella.brief.text.length > umbrellaLimits.briefBudget;
   const projectOf = (projectId: string) => board.projects.find((p) => p.id === projectId);
+  const ideas = board.ideas
+    .filter((i) => i.umbrellaId === umbrella.id && i.status === "open")
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
   let openQuestions = 0,
     pendingContractChanges = 0;
   for (const e of entries) {
@@ -524,9 +529,8 @@ export function umbrellaContext(input: {
         };
       }),
     acceptance: umbrella.acceptance.map((a) => ({ id: a.id, text: a.text, done: a.done })),
-    ideas: board.ideas
-      .filter((i) => i.umbrellaId === umbrella.id && i.status === "open")
-      .map((i) => ({ id: i.id, title: i.title, status: i.status, sourceTaskId: i.taskId ?? null })),
+    ideas: ideas.slice(0, umbrellaLimits.ideas).map((i) => ({ id: i.id, title: i.title, status: i.status, sourceTaskId: i.taskId ?? null })),
+    ideasMore: Math.max(0, ideas.length - umbrellaLimits.ideas),
     ...(umbrella.linearProject
       ? { linearProject: { url: umbrella.linearProject.url, ...(umbrella.linearProject.name ? { name: umbrella.linearProject.name } : {}) } }
       : {}),
