@@ -7,7 +7,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import type { z } from "zod";
 import * as rpc from "../shared/rpc";
 import { memoryLimits } from "../shared/memory";
-import type { Group, Link, Project, Task, Umbrella, UmbrellaEntry } from "../shared/model";
+import type { Link, Project, Task, Umbrella, UmbrellaEntry } from "../shared/model";
 import { t, tn } from "../shared/i18n";
 import { memberSignature, umbrellaLimits, umbrellaRefetchKey, type UmbrellaSummary } from "../shared/umbrella";
 import { Modal } from "./modal";
@@ -55,7 +55,6 @@ type PanelProps = {
   projects: readonly Project[];
   /** The board's links and groups: *Create from related cards* follows `related` links inside the group. */
   links: Link[];
-  groups: Group[];
 };
 
 /** A daemon refusal in the user's words; `what` says which limit UMBRELLA_LIMIT hit. */
@@ -151,7 +150,7 @@ export function UmbrellaModal({ open, theme, onClose, ...props }: PanelProps & {
   );
 }
 
-function UmbrellaList({ groupId, umbrellas, tasks, projects, links, groups, onSelect, onChanged }: PanelProps) {
+function UmbrellaList({ groupId, umbrellas, tasks, projects, links, onSelect, onChanged }: PanelProps) {
   const { open, closed } = useMemo(() => listedUmbrellas(umbrellas, groupId), [umbrellas, groupId]);
   const [closedOpen, setClosedOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -177,7 +176,6 @@ function UmbrellaList({ groupId, umbrellas, tasks, projects, links, groups, onSe
           tasks={tasks}
           projects={projects}
           links={links}
-          groups={groups}
           onCancel={() => setMigrating(false)}
           onOpen={(id) => {
             setMigrating(false);
@@ -235,8 +233,10 @@ function NewUmbrella({ groupId, onCancel, onCreated }: { groupId: string; onCanc
   const [brief, setBrief] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const inFlight = useRef(false);
   const submit = async () => {
-    if (!title.trim() || busy) return;
+    if (!title.trim() || inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError("");
     try {
@@ -244,6 +244,7 @@ function NewUmbrella({ groupId, onCancel, onCreated }: { groupId: string; onCanc
       onCreated(made.id);
     } catch (e) {
       setError(refusalText(e));
+      inFlight.current = false;
       setBusy(false);
     }
   };

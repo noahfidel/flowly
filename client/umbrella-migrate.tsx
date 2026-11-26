@@ -1,9 +1,9 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc";
-import type { Group, Link, Project, Task } from "../shared/model";
+import type { Link, Project, Task } from "../shared/model";
 import { msg, t } from "../shared/i18n";
 import { noteEntryInput, notesToOffer, relatedComponent, umbrellaLimits } from "../shared/umbrella";
 import { useGuardrailsQueries } from "./queries";
@@ -29,12 +29,11 @@ const kindText = {
 /** The most start-card rows drawn at once; search narrows the rest. */
 const shownStarts = 20;
 
-export function MigrateUmbrella({ groupId, tasks, projects, links, groups, onCancel, onOpen }: {
+export function MigrateUmbrella({ groupId, tasks, projects, links, onCancel, onOpen }: {
   groupId: string;
   tasks: readonly Task[];
   projects: readonly Project[];
   links: Link[];
-  groups: Group[];
   onCancel(): void;
   /** Opens the new umbrella in the panel. */
   onOpen(id: string): void;
@@ -52,31 +51,34 @@ export function MigrateUmbrella({ groupId, tasks, projects, links, groups, onCan
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<MigrationResult | null>(null);
+  const inFlight = useRef(false);
 
   const picks = useMemo(() => startCards(tasks, projects, groupId, query), [tasks, projects, groupId, query]);
   const start = tasks.find((x) => x.id === startId);
-  const component = useMemo(() => (start ? relatedComponent({ tasks: [...tasks], links, projects: [...projects], groups }, start.id) : []), [start, tasks, links, projects, groups]);
+  const component = useMemo(() => (start ? relatedComponent({ tasks: [...tasks], links, projects: [...projects] }, start.id) : []), [start, tasks, links, projects]);
   const proposed = useMemo(() => (start ? proposedMembers(start.id, component, umbrellaLimits.members) : []), [start, component]);
   const byId = useMemo(() => new Map(tasks.map((x) => [x.id, x])), [tasks]);
   const projectTitle = useMemo(() => new Map(projects.map((p) => [p.id, p.title])), [projects]);
   const ticked = proposed.filter((id) => id === startId || !unticked.has(id));
   const tooMany = ticked.length > umbrellaLimits.members;
 
-  // Project notes that share a tag with a ticked member, read per project through the shared guardrail queries.
-  const noteProjects = useMemo(() => [...new Set(ticked.flatMap((id) => byId.get(id)?.projectId ?? []))], [ticked.join(","), byId]);
+  // Project notes of the proposal (not of what is ticked, so an unticked card never drops a ticked note), read per project.
+  const noteProjects = useMemo(() => [...new Set(proposed.flatMap((id) => byId.get(id)?.projectId ?? []))], [proposed.join(","), byId]);
   const queries = useGuardrailsQueries(noteProjects, !!start);
   const stamp = queries.map((q) => q.dataUpdatedAt).join(",");
-  const offered = useMemo(
-    () =>
-      notesToOffer(
-        queries.flatMap((q) => q.data?.entries ?? []),
-        ticked.flatMap((id) => {
-          const card = byId.get(id);
-          return card ? [{ projectId: card.projectId, tags: (card.tags ?? []).map((x) => x.tag) }] : [];
-        }),
-      ),
-    [stamp, ticked.join(","), byId],
-  );
+  const offered = useMemo(() => {
+    const facts = (id: string) => {
+      const card = byId.get(id);
+      return card ? { projectId: card.projectId, tags: (card.tags ?? []).map((x) => x.tag) } : undefined;
+    };
+    const first = start ? facts(start.id) : undefined;
+    if (!first) return [];
+    return notesToOffer(
+      queries.flatMap((q) => q.data?.entries ?? []),
+      first,
+      proposed.filter((id) => id !== start!.id).flatMap((id) => facts(id) ?? []),
+    );
+  }, [stamp, proposed.join(","), byId]);
   const chosenNotes = offered.filter((n) => notePicks.has(n.id));
 
   const pickStart = useStableCallback((id: string) => {
@@ -102,7 +104,8 @@ export function MigrateUmbrella({ groupId, tasks, projects, links, groups, onCan
   );
 
   const submit = async () => {
-    if (!start || !title.trim() || busy || tooMany) return;
+    if (!start || !title.trim() || inFlight.current || tooMany) return;
+    inFlight.current = true;
     setBusy(true);
     setError("");
     try {
@@ -119,6 +122,7 @@ export function MigrateUmbrella({ groupId, tasks, projects, links, groups, onCan
     } catch (e) {
       setError(errorCode(e) === "UMBRELLA_LIMIT" ? t("This group already has 50 open umbrellas. Close one first.") : message(e));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   };

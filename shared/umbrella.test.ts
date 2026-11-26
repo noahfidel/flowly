@@ -565,14 +565,29 @@ test("relatedComponent is capped at 30", () => {
   expect(relatedComponent(board, "start")).toHaveLength(30);
 });
 
-test("notes are offered when they share a tag with a proposed member, and map to feed kinds", () => {
+test("notes are offered when their project is a proposed member's and they carry a tag the start card shares with another proposed member", () => {
   const n = (id: string, projectId: string, noteKind: string, tags: string[], state = "active") => ({ id, projectId, kind: "note", noteKind, text: id, body: "b", tags, state });
-  const notes = [n("a", "p1", "decision", ["search"]), n("b", "p2", "contact", ["x"]), n("c", "p1", "pitfall", ["billing"]), n("d", "q", "decision", ["search"]), n("e", "p1", "convention", ["search"], "archived"), { ...n("f", "p1", "decision", ["search"]), kind: "guideline" }];
-  const members = [{ projectId: "p1", tags: ["search"] }, { projectId: "p2", tags: ["x"] }];
-  expect(notesToOffer(notes, members).map((x) => x.id)).toEqual(["a", "b"]);
+  const notes = [
+    n("a", "p1", "decision", ["search"]), n("b", "p2", "contact", ["x"]), n("c", "p1", "pitfall", ["billing"]), n("d", "q", "decision", ["search"]),
+    n("e", "p1", "convention", ["search"], "archived"), { ...n("f", "p1", "decision", ["search"]), kind: "guideline" }, n("g", "p2", "decision", ["search"]),
+  ];
+  const start = { projectId: "p1", tags: ["search", "solo"] };
+  const others = [{ projectId: "p2", tags: ["search", "x"] }];
+  // Shared set is {search}: x is the other card's own tag and solo the start's own; a note in p2 with the shared tag is offered.
+  expect(notesToOffer(notes, start, others).map((x) => x.id)).toEqual(["a", "g"]);
+  expect(notesToOffer(notes, start, [])).toEqual([]);
   expect(noteEntryInput({ noteKind: "contact", text: "T".repeat(200), body: "B".repeat(3000) })).toEqual({ kind: "finding", title: "T".repeat(120), body: "B".repeat(2000) });
   expect(noteEntryInput({ noteKind: "pitfall", text: "t" }).kind).toBe("pitfall");
   expect(noteEntryInput({ noteKind: "decision", text: "t" }).body).toBe("");
+});
+
+test("relatedComponent skips cards of archived projects and reads the group from the project", () => {
+  const board = relatedBoard();
+  board.projects.find((p) => p.id === "p2")!.archivedAt = at;
+  expect(relatedComponent(board, "start").map((t) => t.id)).toEqual([]);
+  const fresh = relatedBoard();
+  fresh.groups = [];
+  expect(relatedComponent(fresh, "start").map((t) => t.id)).toEqual(["b", "c", "far"]);
 });
 
 test("entry.create input takes the four user kinds only", () => {

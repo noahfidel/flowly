@@ -318,6 +318,8 @@ export const umbrellaMemberInput = z.strictObject({
   umbrellaId: z.string().min(1).max(200).nullable(),
   role: z.string().trim().max(umbrellaLimits.role).optional(),
   order: z.number().finite().optional(),
+  /** Join only a card that is in no umbrella (the migration's stale proposal); in this umbrella already is a no-op. */
+  onlyIfFree: z.boolean().optional(),
 });
 export type UmbrellaMemberInput = z.infer<typeof umbrellaMemberInput>;
 /**
@@ -634,12 +636,12 @@ export const relatedComponentLimit = 30;
  * with it, are in its group, are not archived and are in no umbrella (§12). Only a kept card is followed on. The start
  * card is not in the result. At most 30.
  */
-export function relatedComponent(board: Pick<Board, "tasks" | "links" | "projects" | "groups">, taskId: string): Task[] {
+export function relatedComponent(board: Pick<Board, "tasks" | "links" | "projects">, taskId: string): Task[] {
   const start = board.tasks.find((t) => t.id === taskId);
   if (!start) return [];
   const byId = new Map(board.tasks.map((t) => [t.id, t]));
   const projects = new Map(board.projects.map((p) => [p.id, p]));
-  const groupOf = (t: Task) => groupOfProject(board, projects.get(t.projectId))?.id ?? null;
+  const groupOf = (t: Task) => umbrellaGroupOf(board, t);
   const group = groupOf(start);
   const tags = new Set((start.tags ?? []).map((t) => t.tag));
   const neighbours = new Map<string, string[]>();
@@ -656,7 +658,7 @@ export function relatedComponent(board: Pick<Board, "tasks" | "links" | "project
       if (seen.has(id) || out.length >= relatedComponentLimit) continue;
       seen.add(id);
       const t = byId.get(id);
-      if (!t || t.archivedAt || t.umbrella || group === null || groupOf(t) !== group) continue;
+      if (!t || t.archivedAt || t.umbrella || projects.get(t.projectId)?.archivedAt || group === null || groupOf(t) !== group) continue;
       if (!(t.tags ?? []).some((x) => tags.has(x.tag))) continue;
       out.push(t);
       queue.push(id);
@@ -669,16 +671,19 @@ export function relatedComponent(board: Pick<Board, "tasks" | "links" | "project
 type OfferNote = { id: string; projectId: string; kind: string; noteKind?: string; text: string; body?: string; tags?: readonly string[]; state: string };
 
 /**
- * Active memory notes of the proposed members' projects that carry a tag one of those members' cards shares (§12, D-ruling):
- * a note counts when a proposed member in the note's project has that tag. Offered unticked; nothing is copied unasked.
+ * Active memory notes offered for copying (§12): the note's project is one of the proposed members' (the start card's
+ * included) and it carries a tag from the shared set, the start card's tags that at least one other proposed member also
+ * has. Based on the proposal, not on what is ticked. No other proposed member: no notes. Offered unticked.
  */
-export function notesToOffer<N extends OfferNote>(notes: readonly N[], members: readonly { projectId: string; tags: readonly string[] }[]): N[] {
-  return notes.filter(
-    (n) =>
-      n.kind === "note" &&
-      n.state === "active" &&
-      (n.tags ?? []).some((tag) => members.some((m) => m.projectId === n.projectId && m.tags.includes(tag))),
-  );
+export function notesToOffer<N extends OfferNote>(
+  notes: readonly N[],
+  start: { projectId: string; tags: readonly string[] },
+  others: readonly { projectId: string; tags: readonly string[] }[],
+): N[] {
+  const theirs = new Set(others.flatMap((m) => m.tags));
+  const shared = new Set(start.tags.filter((tag) => theirs.has(tag)));
+  const projects = new Set([start.projectId, ...others.map((m) => m.projectId)]);
+  return notes.filter((n) => n.kind === "note" && n.state === "active" && projects.has(n.projectId) && (n.tags ?? []).some((tag) => shared.has(tag)));
 }
 
 /** A note as a feed entry: decision, convention and pitfall keep their kind, any other (a contact) becomes a finding. */

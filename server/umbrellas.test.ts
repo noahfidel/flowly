@@ -822,3 +822,16 @@ test("the user's entry counts toward the 300 limit", async () => {
   });
   await expect(addUserEntry(store, { umbrellaId: u.id, kind: "finding", title: "t", body: "" }, human)).rejects.toMatchObject({ code: "UMBRELLA_LIMIT" });
 });
+
+test("set-member with onlyIfFree refuses a card that is in another umbrella and leaves it there", async () => {
+  const store = await setup();
+  const x = await createUmbrella(store, { groupId: "A", title: "X" }, human);
+  const y = await createUmbrella(store, { groupId: "A", title: "Y" }, human);
+  await setMembership(store, { taskId: "a", umbrellaId: x.id }, human);
+  const refused = await setMembership(store, { taskId: "a", umbrellaId: y.id, onlyIfFree: true }, human).catch((e: unknown) => e);
+  expect(refused).toMatchObject({ code: "REVISION_CONFLICT", message: "The card is already in an umbrella." });
+  expect((await store.read()).tasks.find((t) => t.id === "a")?.umbrella?.id).toBe(x.id);
+  // Already in the target umbrella: a no-op success; a free card joins.
+  await expect(setMembership(store, { taskId: "a", umbrellaId: x.id, onlyIfFree: true }, human)).resolves.toMatchObject({ umbrella: { id: x.id } });
+  await expect(setMembership(store, { taskId: "b", umbrellaId: y.id, onlyIfFree: true }, human)).resolves.toMatchObject({ umbrella: { id: y.id } });
+});

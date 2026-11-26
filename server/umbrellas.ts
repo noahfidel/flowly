@@ -194,7 +194,9 @@ export function setMembership(store: BoardStore, input: UmbrellaMemberInput, by:
     const u = find(board, input.umbrellaId);
     requireGroup(u, options.groupId);
     const role = input.role || undefined;
+    if (input.onlyIfFree && current && current.id !== u.id) throw new ToolError("REVISION_CONFLICT", "The card is already in an umbrella.", true);
     if (current?.id === u.id) {
+      if (input.onlyIfFree) return { value: task, changed: false };
       // A role or order change; allowed while the umbrella is closed only if nothing changes.
       if (role === current.role && input.order === current.order) return { value: task, changed: false };
       requireOpen(u);

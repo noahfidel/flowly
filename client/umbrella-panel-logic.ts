@@ -203,7 +203,7 @@ export async function runMigration(
   plan: MigrationPlan,
   calls: {
     create(input: { groupId: string; title: string; brief?: string }): Promise<{ id: string }>;
-    setMember(input: { taskId: string; umbrellaId: string }): Promise<unknown>;
+    setMember(input: { taskId: string; umbrellaId: string; onlyIfFree: true }): Promise<unknown>;
     addEntry(input: { umbrellaId: string; kind: MigrationPlan["notes"][number]["kind"]; title: string; body: string }): Promise<unknown>;
   },
 ): Promise<MigrationResult> {
@@ -213,7 +213,7 @@ export async function runMigration(
   const notes = [...plan.notes];
   try {
     while (members.length) {
-      await calls.setMember({ taskId: members[0]!, umbrellaId: made.id });
+      await calls.setMember({ taskId: members[0]!, umbrellaId: made.id, onlyIfFree: true });
       members.shift();
     }
     while (notes.length) {

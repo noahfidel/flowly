@@ -2846,7 +2846,6 @@ function BoardContent(
                     tasks={board.tasks}
                     projects={board.projects}
                     links={board.links}
-                    groups={serverGroups}
                     onBack={closePage}
                   />
                 ) : page === "guardrails" && board && project ? (
@@ -3250,7 +3249,6 @@ function BoardContent(
             tasks={board?.tasks ?? noTasks}
             projects={board?.projects ?? noProjects}
             links={board?.links ?? noLinks}
-            groups={serverGroups}
             onClose={closeUmbrellas}
           />
         )}
