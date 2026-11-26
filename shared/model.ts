@@ -839,9 +839,10 @@ export const boardSchema = z.object({
   umbrellaEntries: z.array(umbrellaEntrySchema).default([]),
   /**
    * The dispatcher's relayed events (UMBRELLA-SPEC §8): per group, the last 500 (DISPATCHER-SPEC §5.8), so a reload
-   * never relays one twice, and its targets, for the relay bucket of `flowly_message_card` (D21). Never in the view.
+   * never relays one twice, its targets, for the relay bucket of `flowly_message_card` (D21), and the cards a relay
+   * message was already sent or queued to (`sent`, D27: one relay per item and card). Never in the view.
    */
-  relayed: z.array(z.object({ id: z.string(), groupId: z.string(), at: z.string(), targets: z.array(z.string()) })).default([]),
+  relayed: z.array(z.object({ id: z.string(), groupId: z.string(), at: z.string(), targets: z.array(z.string()), sent: z.array(z.string()).optional() })).default([]),
   /**
    * Set once the start collapse of project Auto review values into group values has run (BOARD-GROUPS-SPEC §7 step 9),
    * or by the first write after a start that found no projects; never cleared, so the collapse never runs twice.

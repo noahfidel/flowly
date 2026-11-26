@@ -10,7 +10,7 @@ import { openReport } from "../shared/progress";
 import { workpadEnabled, workpadOf } from "../shared/workpad";
 import { ideaNewestFirst } from "../shared/ideas";
 import { linkFor } from "../shared/links";
-import { artifactLimits, artifactRoles, groupLimits, linkSchema, projectInput, tagLimits, umbrellaLimits, type Idea, type Project, type ProjectInput } from "../shared/model";
+import { artifactLimits, artifactRoles, groupLimits, linkSchema, projectInput, tagLimits, umbrellaLimits, type Board, type Idea, type Project, type ProjectInput } from "../shared/model";
 import { umbrellaUpdateInput } from "../shared/umbrella";
 import { manageGroupsLosses } from "../shared/card-confirm";
 import { createUmbrella, listUmbrellas, resolveChangeAt, setMembership, updateUmbrella } from "./umbrellas";
@@ -741,15 +741,23 @@ export class DispatcherTools {
     // Never sidestep a request: while a pending permission or question, or an open question or blocker report, waits on
     // the user, the message is queued and delivered once the user resolved it (ruling, Noah 2026-11-16).
     let release: () => void;
+    let relayRecord: Board["relayed"][number] | undefined;
     try {
       const waiting = waitingOn(board, task.id, target);
       // Older messages still queued for it (an ask that ended without a hook yet, or a failed delivery): this one goes
       // behind them, merged in order, never ahead.
       const backlog = !waiting && (await this.queuedFor(target.id));
       // A relay names an event the board's relay memory lists for this card, in the caller's group (D21).
-      const relay = !!input.relayOf && board.relayed.some((r) => r.id === input.relayOf && r.groupId === caller.groupId && r.targets.includes(task.id));
-      const reserve = () => (relay ? this.reserveRelay(caller.agentId) : this.reserveMessage(caller.agentId));
-      if (waiting || backlog) return await this.queueMessage(caller.agentId, task, target.id, input.text, waiting, paseo, forward?.label, reserve);
+      const record = input.relayOf ? board.relayed.find((r) => r.id === input.relayOf && r.groupId === caller.groupId && r.targets.includes(task.id)) : undefined;
+      // D27: an item is relayed to a card once; refused before any slot is taken. A correction is a new entry.
+      if (record?.sent?.includes(task.id)) throw new ToolError("INVALID_INPUT", "This item was already relayed to that card.");
+      relayRecord = record;
+      const reserve = () => (record ? this.reserveRelay(caller.agentId) : this.reserveMessage(caller.agentId));
+      if (waiting || backlog) {
+        const queued = await this.queueMessage(caller.agentId, task, target.id, input.text, waiting, paseo, forward?.label, reserve);
+        if (record && (queued.sent || ("queued" in queued && queued.queued))) await this.markRelayed(record.groupId, record.id, task.id);
+        return queued;
+      }
       release = reserve();
     } catch (e) {
       // A refused message is no forward either (§5.9).
@@ -765,7 +773,20 @@ export class DispatcherTools {
       forward?.release();
       throw new ToolError("SEND_FAILED", `Paseo could not deliver the message: ${e instanceof Error ? e.message : String(e)}`, true);
     }
+    if (relayRecord) await this.markRelayed(relayRecord.groupId, relayRecord.id, task.id);
     return { sent: true as const, sessionId: target.id };
+  }
+
+  /** Records on the board's relay memory that the item went to the card (D27); a failed write is logged, never fails the send. */
+  private async markRelayed(groupId: string, id: string, taskId: string) {
+    try {
+      await this.store.mutate((b) => {
+        const r = b.relayed.find((x) => x.id === id && x.groupId === groupId);
+        if (r && !r.sent?.includes(taskId)) r.sent = [...(r.sent ?? []), taskId];
+      });
+    } catch (e) {
+      logFailure("Flowly dispatcher relay not recorded:", e, id);
+    }
   }
 
   /** The source message of a forward: the newest prompt from `sender` the dispatcher received in the window, else FORWARD_NOT_ALLOWED (§5.9). */
@@ -1604,7 +1625,7 @@ export class DispatcherTools {
     mcp.registerTool(
       "flowly_message_card",
       {
-        description: `Send a plain instruction to a card's session (for example "integrate" or "finish up"), steered into its running turn. Use only for what the user asked or their standing requests cover. Flowly marks it as coming from the dispatcher. forwardOf { agentId }: forward another agent's message under your forward rule (it messaged you in the last 24 hours; never to its own card, once per message and card); Flowly labels it as that agent's, not the user's. FORWARD_NOT_ALLOWED says why; at most ${dispatcherForwardsPerSenderPerHour} per sender per hour (FORWARD_LIMIT): don't retry, tell the user. It never answers anything: while the session waits on the user (a pending permission, question or blocker that only the user answers), the message is queued instead (queued: true, waitingOn says what) and Flowly delivers it right after the user resolves that; tell the user which card waits and don't send it again. dropped: true (with reason) means it was not delivered and not kept: the card ended or the session is gone; don't resend. At most ${queuedMessageLimits.perSession} queued per session (QUEUE_FULL: stop, tell the user). Default session: the card's only live one, or its only running one; SESSION_AMBIGUOUS lists them, pass sessionId. NO_LIVE_SESSION, SESSION_NOT_FOUND, SEND_FAILED. At most ${dispatcherMessagesPerHour} per hour, queued ones included (MESSAGE_LIMIT). relayOf: the event id a board update's relay line names, only for a card that line lists; such a relay counts against its own ${relayLimits.perHour} per hour instead (RELAY_LIMIT: stop relaying, tell the user). AGENT_CARDS_DISABLED: the user turned this off.`,
+        description: `Send a plain instruction to a card's session (for example "integrate" or "finish up"), steered into its running turn. Use only for what the user asked or their standing requests cover. Flowly marks it as coming from the dispatcher. forwardOf { agentId }: forward another agent's message under your forward rule (it messaged you in the last 24 hours; never to its own card, once per message and card); Flowly labels it as that agent's, not the user's. FORWARD_NOT_ALLOWED says why; at most ${dispatcherForwardsPerSenderPerHour} per sender per hour (FORWARD_LIMIT): don't retry, tell the user. It never answers anything: while the session waits on the user (a pending permission, question or blocker that only the user answers), the message is queued instead (queued: true, waitingOn says what) and Flowly delivers it right after the user resolves that; tell the user which card waits and don't send it again. dropped: true (with reason) means it was not delivered and not kept: the card ended or the session is gone; don't resend. At most ${queuedMessageLimits.perSession} queued per session (QUEUE_FULL: stop, tell the user). Default session: the card's only live one, or its only running one; SESSION_AMBIGUOUS lists them, pass sessionId. NO_LIVE_SESSION, SESSION_NOT_FOUND, SEND_FAILED. At most ${dispatcherMessagesPerHour} per hour, queued ones included (MESSAGE_LIMIT). relayOf: the event id a board update's relay line names, only for a card that line lists; such a relay counts against its own ${relayLimits.perHour} per hour instead (RELAY_LIMIT: stop relaying, tell the user). An item is relayed to a card once: a repeat is INVALID_INPUT ("already relayed"), so don't resend it; a correction is a new entry and relays on its own. AGENT_CARDS_DISABLED: the user turned this off.`,
         inputSchema: dispatcherInputs.messageCard,
         outputSchema: messageResultSchema,
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

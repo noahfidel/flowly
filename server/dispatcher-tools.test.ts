@@ -26,6 +26,7 @@ import {
 } from "../shared/dispatcher";
 import { relayEchoMs } from "../shared/dispatcher-relay";
 import { linkLimits } from "../shared/model";
+import { BoardStore } from "./store";
 import { closeUmbrella, createUmbrella, proposeChange, setMembership, updateUmbrella } from "./umbrellas";
 
 const cleanups: (() => Promise<unknown>)[] = [];
@@ -1753,18 +1754,47 @@ test("relay messages use their own 60-per-hour bucket (UMBRELLA-SPEC §8, D21)",
   expect(code(await x.message({ relayOf: "e3" }))).toBe("MESSAGE_LIMIT");
   expect(code(await x.message({ relayOf: "nope" }))).toBe("MESSAGE_LIMIT");
   // A failed send gives the relay slot back.
+  await x.store.mutate((b) => {
+    b.relayed.push({ id: "f1", groupId: x.groupId, at: stamp, targets: ["q1"] });
+  });
   x.failSend(true);
-  expect(code(await x.message({ relayOf: "e1" }))).toBe("SEND_FAILED");
+  expect(code(await x.message({ relayOf: "f1" }))).toBe("SEND_FAILED");
   x.failSend(false);
-  for (let i = 1; i < 60; i++) expect(code(await x.message({ relayOf: "e1" })), `relay #${i + 1}`).toBeUndefined();
-  const over = await x.message({ relayOf: "e1" });
+  // D27: each item relays to a card once, so the rest of the budget goes to new items.
+  await x.store.mutate((b) => {
+    for (let i = 1; i < 61; i++) b.relayed.push({ id: `n${i}`, groupId: x.groupId, at: stamp, targets: ["q1"], sent: [] });
+  });
+  for (let i = 1; i < 60; i++) expect(code(await x.message({ relayOf: `n${i}` })), `relay #${i + 1}`).toBeUndefined();
+  const over = await x.message({ relayOf: "n60" });
   expect(code(over)).toBe("RELAY_LIMIT");
   expect(over.structuredContent.error.message).toContain("60");
   expect(x.sent.length).toBe(90);
   // An hour later there is room in both again.
   now += 3_600_001;
-  expect(code(await x.message({ relayOf: "e1" }))).toBeUndefined();
+  expect(code(await x.message({ relayOf: "f1" }))).toBeUndefined();
   expect(code(await x.message({}))).toBeUndefined();
+});
+
+test("a relayed item goes to a card once; another card or a new item still relays, and it survives a reload (UMBRELLA-SPEC §8, D27)", async () => {
+  const x = await withSessions();
+  x.agents.s2 = { id: "s2", workspaceId: "w-q2", status: "idle", archivedAt: null };
+  await x.store.mutate((b) => {
+    b.relayed.push({ id: "e1", groupId: x.groupId, at: stamp, targets: ["q1", "q2"], sent: [] }, { id: "e2", groupId: x.groupId, at: stamp, targets: ["q1"], sent: [] });
+  });
+  expect(code(await x.message({ relayOf: "e1" }))).toBeUndefined();
+  const again = await x.message({ relayOf: "e1" });
+  expect(code(again)).toBe("INVALID_INPUT");
+  expect(again.structuredContent.error.message).toBe("This item was already relayed to that card.");
+  expect(x.sent.length).toBe(1);
+  // The refusal spent no slot: 30 plain messages still fit, and another sibling or a new item relays.
+  for (let i = 0; i < 30; i++) expect(code(await x.message({})), `#${i + 1}`).toBeUndefined();
+  expect(code(await x.message({ relayOf: "e1", taskId: "q2" }))).toBeUndefined();
+  expect(code(await x.message({ relayOf: "e2" }))).toBeUndefined();
+  // The record is on the board, so a reload (fresh store on the same data) still refuses the repeat.
+  const reloaded = await new BoardStore(x.store.directory).read();
+  expect(reloaded.relayed.find((r) => r.id === "e1")?.sent).toEqual(["q1", "q2"]);
+  expect(code(await x.message({ relayOf: "e1" }))).toBe("INVALID_INPUT");
+  expect(code(await x.message({ relayOf: "e1", taskId: "q2" }))).toBe("INVALID_INPUT");
 });
 
 test("flowly_message_card works per group: another group's card is refused, each session has its own bucket (DISPATCHER-SPEC §5.3)", async () => {
