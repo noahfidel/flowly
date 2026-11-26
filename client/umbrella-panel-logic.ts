@@ -78,6 +78,9 @@ export type EditBase = { revision: number; replace: boolean };
 export const editBase = (revision: number): EditBase => ({ revision, replace: false });
 export type SaveOutcome = { status: "saved" } | { status: "conflict"; revision: number } | { status: "failed" };
 
+/** The Linear chip's target (§10): the project URL the read returned (a stored key is no URL), else the stored link. */
+export const linearChipUrl = (stored: string, read: string | undefined): string => read || stored;
+
 /** The revision a save sends: always the editor's base, never the umbrella's current revision. */
 export const revisionToSend = (base: EditBase) => base.revision;
 

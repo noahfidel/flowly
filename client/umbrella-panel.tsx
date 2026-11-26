@@ -17,7 +17,7 @@ import { SessionMarkdown } from "./session-content";
 import { openQuickLink } from "./quick-links-row";
 import { useStableCallback } from "./stable";
 import {
-  acceptanceInput, alreadyKept, closeOffer, editAfterSave, editBase, errorCode, listedUmbrellas, memberWrites, moveMember, offerProject, pipelineRows, readyToClose, revisionToSend, umbrellaWritable,
+  acceptanceInput, alreadyKept, closeOffer, linearChipUrl, editAfterSave, editBase, errorCode, listedUmbrellas, memberWrites, moveMember, offerProject, pipelineRows, readyToClose, revisionToSend, umbrellaWritable,
   type AcceptanceDraft, type EditBase, type SaveOutcome,
 } from "./umbrella-panel-logic";
 import { CloseOffer } from "./umbrella-close";
@@ -541,7 +541,7 @@ function UmbrellaDetail({ hostId, groupId, id, summary, umbrellas, tasks, projec
             <Pressable
               accessibilityRole="link"
               accessibilityLabel={t("Open the Linear project")}
-              onPress={() => openQuickLink(linear.url, toast)}
+              onPress={() => openQuickLink(linearChipUrl(linear.url, linearRead.isPlaceholderData ? undefined : linearRead.data?.project.url), toast)}
               style={({ pressed }) => ({ ...noFocusRing, flexDirection: "row", alignItems: "center", gap: space[1], paddingHorizontal: space[2], paddingVertical: 2, borderRadius: radius.full, borderWidth: 1, borderColor: colors.border, opacity: pressed ? 0.7 : 1 })}
             >
               <Icon name="Link" size={12} color={colors.foregroundMuted} />

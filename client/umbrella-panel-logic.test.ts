@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { UmbrellaEntry } from "../shared/model";
 import type { UmbrellaMember, UmbrellaSummary } from "../shared/umbrella";
 import {
-  acceptanceInput, changedLines, alreadyKept, closeOffer, offerProject, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, memberWrites, moveMember, openQuestions, pendingChanges, pickableCards, pipelineRows, proposedMembers, runMigration, startCards, readyToClose, revisionToSend, umbrellaWritable,
+  acceptanceInput, changedLines, linearChipUrl, alreadyKept, closeOffer, offerProject, editAfterSave, editBase, errorCode, feedRows, listedUmbrellas, memberInput, memberWrites, moveMember, openQuestions, pendingChanges, pickableCards, pipelineRows, proposedMembers, runMigration, startCards, readyToClose, revisionToSend, umbrellaWritable,
 } from "./umbrella-panel-logic";
 
 const member = (title: string, order?: number): UmbrellaMember => ({
@@ -292,4 +292,10 @@ test("the migration creates the umbrella, the members, then the notes, and stops
   });
   expect(noteFail).toMatchObject({ missedMembers: [], missedNotes: ["n2"] });
   await expect(runMigration(plan, { create: async () => Promise.reject(boom), setMember: async () => undefined, addEntry: async () => undefined })).rejects.toBe(boom);
+});
+
+test("the Linear chip opens the URL the read returned, else the stored link", () => {
+  expect(linearChipUrl("P-ZEN-391", "https://linear.app/acme/project/fresh-1a2b")).toBe("https://linear.app/acme/project/fresh-1a2b");
+  expect(linearChipUrl("https://linear.app/acme/project/fresh-1a2b", undefined)).toBe("https://linear.app/acme/project/fresh-1a2b");
+  expect(linearChipUrl("https://linear.app/acme/project/fresh-1a2b", "")).toBe("https://linear.app/acme/project/fresh-1a2b");
 });
