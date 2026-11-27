@@ -88,6 +88,7 @@ The template is used only when the first message would otherwise be a built-in d
 | … first session of a card branched from its parent | the rebase line is appended | the rebase line is appended |
 | **New task** / **Quick task** → start an agent, empty box | From… default, else Create is blocked | the rendered template (Create is not blocked) |
 | … with typed text | the text | the text |
+| Quick task, empty box and no From… item to name the card | Create is blocked | Create stays blocked (a card needs a title) |
 
 On New task and Quick task the card does not exist yet. The state is built from the form:
 
@@ -112,7 +113,7 @@ A stored template that does not parse (it should not happen, since saving valida
 - UI (Edit project, and each project section of Group settings):
   - the multiline field is labelled **Start prompt**;
   - under it, one hint line: "Use {{title}}, {{#if planApproved}}…{{else}}…{{/if}}. Variables: …" listing the variable names;
-  - when the text does not parse, the error with its line is shown in place of the preview and Save is disabled;
+  - when the text does not parse, the error with its line is shown in place of the preview; Save is disabled only when the Start prompt was changed in this edit (an untouched stored text that does not parse never blocks saving other fields);
   - **Preview**: a card picker (the project's live cards outside Done/Cancelled, newest first; none selected → the first) and, below it, the template rendered for that card in a read-only monospace block. When the field is empty, the preview shows what that card would get today on the drawer path. The preview updates as the user types (debounced, ~250 ms).
 - No group or host level.
 
