@@ -26,6 +26,7 @@ export function SessionCreate({
   defaults,
   seed,
   startText,
+  startReady = true,
 }: {
   task: Task;
   open: boolean;
@@ -36,6 +37,8 @@ export function SessionCreate({
    * text (START-PROMPT-TEMPLATE-SPEC §4). An idea's seed wins over it.
    */
   startText(): string;
+  /** False while what `startText` renders from is still loading: the box is seeded once it is ready, unless typed in. */
+  startReady?: boolean;
   /** The New task defaults (MODEL-DEFAULTS-SPEC §2), this form's starting point; none leaves the picker empty. */
   defaults?: { provider: string; model: string; mode: string } | null;
   workspaceDirectory?: string;
@@ -55,7 +58,9 @@ export function SessionCreate({
     [newPrompt, setPrompt] = useState(""),
     [sending, setSending] = useState(false),
     [error, setError] = useState(""),
-    [creationPending, setCreationPending] = useState(false);
+    [creationPending, setCreationPending] = useState(false),
+    // Opened before the Start prompt could render: the box waits empty and is seeded once `startReady`.
+    [awaitingStart, setAwaitingStart] = useState(false);
   // Images with the first message (web: paste, drop or Add images).
   const attachments = useImageAttachments();
   // Reset each time the form opens, from the defaults only (MODEL-DEFAULTS-SPEC §2). The instruction opens with the
@@ -64,13 +69,21 @@ export function SessionCreate({
   useEffect(() => {
     if (open && !wasOpen.current) {
       choice.reset(defaults);
-      setPrompt(seed?.prompt || startText());
+      const waits = !seed?.prompt && !startReady;
+      setAwaitingStart(waits);
+      setPrompt(seed?.prompt || (waits ? "" : startText()));
       setTitle(seed?.title || "");
       attachments.clear();
       setError("");
     }
     wasOpen.current = open;
   }, [open]);
+  useEffect(() => {
+    if (!open || !awaitingStart || !startReady) return;
+    setAwaitingStart(false);
+    // Text typed meanwhile is the user's: it is never replaced (and the box never remounted under it).
+    if (!newPrompt) setPrompt(startText());
+  }, [open, awaitingStart, startReady]);
   const attempt = useRef<
     | { operationId: string; messageId: string; fingerprint: string; prepared?: ToolPreparation }
     | undefined
@@ -83,7 +96,8 @@ export function SessionCreate({
     refetchInterval: open ? 5000 : false,
   });
   // An empty box sends the card's title and description (SESSION-START-TEXT-SPEC).
-  const canCreate = !sending && !unavailable && choice.ready;
+  // While the box waits for the Start prompt, an empty box must not send the title and description instead.
+  const canCreate = !sending && !unavailable && choice.ready && !(awaitingStart && !newPrompt.trim());
   async function perform(action: () => Promise<unknown>) {
     if (lock.current) return;
     lock.current = true;
@@ -230,7 +244,7 @@ export function SessionCreate({
             value={newPrompt}
             onChange={setPrompt}
             multiline
-            placeholder={t("Empty sends the card's title and description")}
+            placeholder={awaitingStart ? t("Loading…") : t("Empty sends the card's title and description")}
             editable={!sending}
             onSubmit={submit}
           />

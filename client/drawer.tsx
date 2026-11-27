@@ -93,7 +93,7 @@ import { TaskTags } from "./task-tags";
 import { ReleaseModal, ReleaseNotice, SwitchModal, type SwitchDirection } from "./workspace-switch";
 import { drawerSectionOrder, drawerSectionsOpen, type AnyDrawerSection, type DrawerSection } from "../shared/drawer-sections";
 import { ideaInstruction } from "../shared/ideas";
-import { cardPromptState, drawerStartText } from "./start-prompt-logic";
+import { cardPromptState, drawerStartReady, drawerStartText } from "./start-prompt-logic";
 import { deliverySettings, deliverySettingsValues } from "../shared/settings";
 import { resolveDeliveryMode } from "../shared/delivery-mode";
 import { prReviewCardUrl } from "../shared/pr-review";
@@ -476,6 +476,12 @@ function TaskDrawerView({
       }),
     ),
   );
+  // With a template, the form waits for the card's detail and sessions before it seeds the box, so a card menu Start
+  // on a cold drawer never opens with a plan or session state it has not read yet.
+  const startReady = drawerStartReady(project, {
+    detail: detailState.detail ? "loaded" : detailState.error ? "failed" : "loading",
+    sessions: sessions.data ? "loaded" : sessions.error ? "failed" : "loading",
+  });
   // Worktree or local, from the workspace read above (CARD-DISPLAY-SPEC §8, DRAWER-SPEC Workspace kind).
   const place = cardWorkspace(workspace.data?.workspaceKind);
   const unavailable =
@@ -1410,6 +1416,7 @@ function TaskDrawerView({
         defaults={startDefaults}
         seed={ideaSession ? { title: ideaSession.title, prompt: ideaInstruction(ideaSession) } : null}
         startText={startText}
+        startReady={startReady}
       />
       <WrapupModal
         task={task}

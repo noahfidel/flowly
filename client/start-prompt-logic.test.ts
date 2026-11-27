@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { cardPromptState, drawerStartText, previewCardId, previewCards, previewPromptState, startPromptPreview } from "./start-prompt-logic";
+import { cardPromptState, drawerStartReady, drawerStartText, previewCardId, previewCards, previewPromptState, startPromptBlocksSave, startPromptPreview } from "./start-prompt-logic";
 import { defaultSessionStartText } from "../shared/session-start";
 import type { Artifact, Project, Task } from "../shared/model";
 
@@ -104,5 +104,47 @@ describe("drawer New session text (START-PROMPT-TEMPLATE-SPEC §4)", () => {
   test("a template that does not parse or renders empty falls back to the built-in text", () => {
     expect(drawerStartText({ sessionStartText: "{{#if plan}}" }, state)).toBe(defaultSessionStartText);
     expect(drawerStartText({ sessionStartText: "{{#if plan}}x{{/if}}" }, state)).toBe(defaultSessionStartText);
+  });
+});
+
+describe("when the drawer may render the Start prompt (START-PROMPT-TEMPLATE-SPEC §4)", () => {
+  const loaded = { detail: "loaded", sessions: "loaded" } as const;
+  test("no template: at once, as today", () => {
+    expect(drawerStartReady({}, { detail: "loading", sessions: "loading" })).toBe(true);
+    expect(drawerStartReady({ sessionStartText: " " }, { detail: "loading", sessions: "loading" })).toBe(true);
+  });
+  test("a template waits for the card's detail and its sessions", () => {
+    expect(drawerStartReady({ sessionStartText: template }, { detail: "loading", sessions: "loaded" })).toBe(false);
+    expect(drawerStartReady({ sessionStartText: template }, { detail: "loaded", sessions: "loading" })).toBe(false);
+    expect(drawerStartReady({ sessionStartText: template }, loaded)).toBe(true);
+  });
+  test("a failed read does not block: the template renders without it", () => {
+    expect(drawerStartReady({ sessionStartText: template }, { detail: "failed", sessions: "loaded" })).toBe(true);
+    expect(drawerStartReady({ sessionStartText: template }, { detail: "loaded", sessions: "failed" })).toBe(true);
+  });
+  test("an approved plan is only seen once the detail is loaded", () => {
+    const approved = "{{#if planApproved}}Run {{plan}}{{else}}Design first{{/if}}";
+    const task = card("a");
+    const detail = { artifacts: [planArtifact("a", true)], links: [], relatedTasks: [], events: [] };
+    const before = cardPromptState({ project, task, detail: undefined, deliveryMode: "branch", firstSession: true });
+    const after = cardPromptState({ project, task, detail, deliveryMode: "branch", firstSession: false, workspaceDir: "/repo" });
+    expect(drawerStartReady({ sessionStartText: approved }, { detail: "loading", sessions: "loading" })).toBe(false);
+    expect(drawerStartText({ sessionStartText: approved }, before)).toBe("Design first");
+    expect(drawerStartText({ sessionStartText: approved }, after)).toBe("Run /repo/plan.md");
+  });
+});
+
+describe("Save and an invalid Start prompt (START-PROMPT-TEMPLATE-SPEC §5)", () => {
+  test("an edited template that does not parse blocks Save", () => {
+    expect(startPromptBlocksSave("{{#if plan}}", "")).toBe(true);
+    expect(startPromptBlocksSave("{{nope}}", "Old text")).toBe(true);
+  });
+  test("a valid or cleared template does not", () => {
+    expect(startPromptBlocksSave(template, "")).toBe(false);
+    expect(startPromptBlocksSave("", "{{#if plan}}")).toBe(false);
+  });
+  test("an untouched stored text that does not parse never blocks saving other fields", () => {
+    expect(startPromptBlocksSave("{{legacy}}", "{{legacy}}")).toBe(false);
+    expect(startPromptBlocksSave("  {{legacy}}\n", "{{legacy}}")).toBe(false);
   });
 });

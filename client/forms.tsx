@@ -1,6 +1,6 @@
 import { baseRefMax, baseRefProblem, baseRefValue } from "../shared/worktree-base";
 import { linearSkipTypesOf, linearSkipTypesValue, linearTeamValue, linearTicketPatch, linearTicketTypeDefault } from "../shared/linear-ticket";
-import { defaultSessionStartText, sessionStartMax, sessionStartProblem, sessionStartValue } from "../shared/session-start";
+import { defaultSessionStartText, sessionStartMax, sessionStartValue } from "../shared/session-start";
 import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
 import { useBoardView } from "./board-view";
@@ -15,7 +15,7 @@ import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
 import { useResourcesQuery } from "./queries";
 import { useCardDetailQuery, useProjectIndexQuery } from "./card-detail-query";
 import { PickerGroup, PickerRow } from "./picker";
-import { previewCardId, previewCards, previewPromptState, startPromptPreview } from "./start-prompt-logic";
+import { previewCardId, previewCards, previewPromptState, startPromptBlocksSave, startPromptPreview } from "./start-prompt-logic";
 import * as rpc from "../shared/rpc";
 import {
   priorities,
@@ -114,8 +114,9 @@ export function useProjectSettings(project: Project, withLanes = false, group: G
   const linksChanged = !!project.links && !sameList(links, storedLinks);
   const dirty = Object.keys(patch).length > 0 || linksChanged;
   const baseRefError = baseRefProblem(baseRef);
-  // A Start prompt that does not parse cannot be saved (START-PROMPT-TEMPLATE-SPEC §5); the preview shows why.
-  const sessionStartInvalid = useMemo(() => !!sessionStartProblem(sessionStartValue(sessionStart)), [sessionStart]);
+  // A Start prompt changed here that does not parse cannot be saved (START-PROMPT-TEMPLATE-SPEC §5); the preview shows
+  // why. An untouched stored one is not sent, so it never blocks the other fields.
+  const sessionStartInvalid = useMemo(() => startPromptBlocksSave(sessionStart, project.sessionStartText), [sessionStart, project.sessionStartText]);
   const valid = !!title.trim() && (!project.links || links.length > 0) && !baseRefError && !sessionStartInvalid;
   /** The saved project, or null when the save failed (the error is in `error`). */
   async function save(): Promise<Project | null> {

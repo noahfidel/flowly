@@ -4,7 +4,7 @@
  */
 import type { CardDetail } from "../shared/card-detail";
 import type { Project, Task } from "../shared/model";
-import { defaultSessionStartText } from "../shared/session-start";
+import { defaultSessionStartText, sessionStartProblem, sessionStartValue } from "../shared/session-start";
 import { parseTemplate, promptState, renderStartPrompt, renderTemplate, type StartPromptState } from "../shared/start-prompt";
 
 type Detail = Pick<CardDetail, "artifacts" | "links" | "relatedTasks">;
@@ -42,6 +42,27 @@ export function previewPromptState(input: {
 /** What the drawer's New session box opens with: the template rendered for the card, else the built-in text (§4). */
 export function drawerStartText(project: Pick<Project, "sessionStartText">, state: StartPromptState): string {
   return renderStartPrompt(project.sessionStartText, state) ?? defaultSessionStartText;
+}
+
+export type ReadState = "loading" | "loaded" | "failed";
+
+/**
+ * Whether the drawer may render the New session text now (§4): at once without a template; with one, only once the
+ * card's detail (plan, spec, inputs) and its sessions are read, so it never opens with a state it lacks. A failed
+ * read does not hold it: the template then renders without that part.
+ */
+export function drawerStartReady(project: Pick<Project, "sessionStartText">, reads: { detail: ReadState; sessions: ReadState }): boolean {
+  if (!project.sessionStartText?.trim()) return true;
+  return reads.detail !== "loading" && reads.sessions !== "loading";
+}
+
+/**
+ * Whether the Start prompt field blocks Save (§5): only a text changed in this edit that does not parse. An untouched
+ * stored text is not sent, so it never blocks saving the other fields.
+ */
+export function startPromptBlocksSave(edited: string, stored: string | undefined): boolean {
+  const value = sessionStartValue(edited);
+  return value !== (stored ?? "") && !!sessionStartProblem(value);
 }
 
 /** The cards the preview may show (§5): the project's live cards outside Done and Cancelled, newest first. */
