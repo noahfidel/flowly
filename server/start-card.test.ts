@@ -1351,3 +1351,56 @@ test("a restore that throws is WORKSPACE_ARCHIVED and closes the connection; sum
   x.recover.archivedSessions = [{ id: "sum", archivedAt: new Date().toISOString(), labels: { flowly: "summarizer" } }];
   expect(await restoreOwnWorkspace(x.store, x.recovery, x.paseo, "c", true)).toEqual({ restored: true });
 });
+
+/** The project's Start prompt (START-PROMPT-TEMPLATE-SPEC §4). */
+async function withTemplate(text: string) {
+  const x = await followUps();
+  await x.store.updateProject({ id: "p", revision: (await x.store.read()).projects[0].revision, sessionStartText: text });
+  return x;
+}
+
+test("a project's Start prompt is sent rendered for the card as it was before the move, when the caller gives no prompt (START-PROMPT-TEMPLATE-SPEC §4)", async () => {
+  const x = await withTemplate("[{{lane}}] {{title}} ({{deliveryMode}}){{#if firstSession}} first{{/if}}{{#if planApproved}} plan {{plan}}{{/if}}");
+  x.starter.deliveryDefault = async () => "draft_pr";
+  await x.card("c", { ownsWorkspace: true, status: "backlog" });
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[0].prompt).toBe("[backlog] Card c (draft_pr) first");
+  // The card's own delivery mode wins over the host's.
+  await x.card("d", { ownsWorkspace: true, status: "design", deliveryMode: "ship_main" });
+  await x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go2" }, x.paseo);
+  expect(x.createdSessions[1].prompt).toBe("[design] Card d (ship_main) first");
+});
+
+test("a caller's own prompt wins over the Start prompt, and a template that renders empty falls back to the default prompt", async () => {
+  const x = await withTemplate("{{#if planApproved}}never{{/if}}");
+  await x.card("c", { ownsWorkspace: true });
+  await x.starter.start(x.caller, { taskId: "c", prompt: "Only the tests.", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[0].prompt).toBe("Only the tests.");
+  await x.card("d", { ownsWorkspace: true });
+  await x.starter.start(x.caller, { taskId: "d", idempotencyKey: "go2" }, x.paseo);
+  expect(x.createdSessions[1].prompt).toBe("Card d\n\nDo d.");
+});
+
+test("a rendered Start prompt on a branched first session still carries the rebase line (START-PROMPT-TEMPLATE-SPEC §4)", async () => {
+  const x = await withTemplate("Work on {{title}}.");
+  const { tip } = await x.parent("par", "feature/par", 1);
+  await x.card("c", { ownsWorkspace: true });
+  await x.follow("c", "par");
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[0].prompt).toBe(
+    `Work on Card c.\n\nThis card branched from feature/par (card "Card par"), which has 1 commit not in main. Before shipping, rebase onto main once the parent has landed: git rebase --onto main ${tip}.`,
+  );
+});
+
+test("a stored Start prompt that does not parse is logged and the default prompt is sent", async () => {
+  const x = await withTemplate("Go.");
+  // Stored text is validated on save, so write the broken one past it.
+  await x.store.mutate((board) => {
+    board.projects[0].sessionStartText = "{{#if planApproved}}open";
+  });
+  await x.card("c", { ownsWorkspace: true });
+  const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[0].prompt).toBe("Card c\n\nDo c.");
+  expect(logged).toHaveBeenCalled();
+});

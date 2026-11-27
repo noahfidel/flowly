@@ -8,6 +8,8 @@ import { effectiveAgentModel, providerBase, startingAgent, suggestedMode, type A
 import { linearIssueOf } from "../shared/linear-ticket";
 import { absoluteTarget } from "../shared/artifacts";
 import { planApproved, planOf, suggestPlanAwareMode } from "../shared/plans";
+import { defaultDeliveryMode, resolveDeliveryMode, type DeliveryMode } from "../shared/delivery-mode";
+import { parseTemplate, promptState, renderStartPrompt } from "../shared/start-prompt";
 import { startCardInputSchema, type StartCardInput, type StartCardResult, type ToolPreparation, type WorktreeBase } from "../shared/tools";
 import type { AgentCards, CardCaller } from "./agent-cards";
 import type { ConnectorService } from "./connectors/service";
@@ -212,6 +214,8 @@ export class CardStarter {
   connectors?: Pick<ConnectorService, "resolve" | "cached">;
   /** The global default model (Settings → Models); set by the plugin entry. */
   modelDefault: () => Promise<AgentModel | null> = async () => null;
+  /** The host's delivery mode default (Settings), the last level `{{deliveryMode}}` resolves to; set by the plugin entry. */
+  deliveryDefault: () => Promise<DeliveryMode> = async () => defaultDeliveryMode;
   /** One queue per project root: starts in one root run one at a time; other roots do not wait. */
   private chains = new Map<string, Promise<unknown>>();
   /** Root lookups run in call order, so two starts join their root's queue in the order they were asked. */
@@ -321,11 +325,11 @@ export class CardStarter {
       }
       const after = await this.store.read();
       checkGroup(after.projects.find((p) => p.id === project.id), caller.groupId);
-      const own = input.prompt?.trim() ? input.prompt : defaultPrompt(task, planTarget);
       const started = after.tasks.find((t) => t.id === task.id);
+      const firstSession = move || !sessions.length;
+      const own = input.prompt?.trim() ? input.prompt : await this.startPrompt(task, after, project, firstSession, planTarget, workspace.workspaceDirectory || task.sourcePath);
       // A card branched from its parent's branch is told how to land (§11.4), also after a caller's own prompt: at its
       // first session, whether the worktree was made now, by flowly_create_card, or by an earlier try of this start.
-      const firstSession = move || !sessions.length;
       const branched = firstSession && started?.branchedFrom && started.workspaceId === workspaceId ? started.branchedFrom : null;
       const prompt = branched
         ? `${own}\n\n${rebaseLine(branched, after.tasks.find((t) => t.id === branched.taskId)?.title ?? branched.taskId, started?.baseRef ?? "")}`
@@ -338,6 +342,31 @@ export class CardStarter {
       release();
       throw e;
     }
+  }
+
+  /**
+   * The first message when the caller gives none: the project's Start prompt rendered for the card as it is before
+   * the move (START-PROMPT-TEMPLATE-SPEC §4), else the default. `task` is the card as read at the start, so its lane
+   * is the one before `moveStartedCard`.
+   */
+  private async startPrompt(task: Task, board: Board, project: Project, firstSession: boolean, planTarget: string | null, workspaceDir: string) {
+    const text = project.sessionStartText;
+    if (!text?.trim()) return defaultPrompt(task, planTarget);
+    const parsed = parseTemplate(text);
+    if (!parsed.ok) {
+      logFailure("Flowly start_card Start prompt does not parse:", new Error(`${parsed.error} (line ${parsed.line})`), `project ${project.id} card ${task.id}`);
+      return defaultPrompt(task, planTarget);
+    }
+    const state = promptState({
+      project,
+      task,
+      board,
+      deliveryMode: resolveDeliveryMode({ card: task.deliveryMode, project: project.deliveryMode, group: groupOfProject(board, project)?.defaults?.deliveryMode, host: await this.deliveryDefault() }).mode,
+      firstSession,
+      planTarget,
+      workspaceDir,
+    });
+    return renderStartPrompt(text, state) ?? defaultPrompt(task, planTarget);
   }
 
   /**

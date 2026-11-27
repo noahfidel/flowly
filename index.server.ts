@@ -384,6 +384,7 @@ export default function contribute(host: PluginServerContext) {
     const state = await modelPrefs.read().catch(() => null);
     return agentModelFromValues(modelSettingsValues(state?.status === "ready" ? state.values : {}));
   };
+  tools.starter.deliveryDefault = () => tools.agents.deliveryDefault();
   // Project memory (PROJECT-MEMORY-SPEC): confirmed knowledge shared across a project's cards.
   const memory = new MemoryService(store, summaries.store, summaries.settings, aiLanguage, (taskId) => summaries.settled(taskId));
   memoryRunning = () => memory.runningTasks();

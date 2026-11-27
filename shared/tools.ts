@@ -634,7 +634,7 @@ export const startCardInputSchema = z.strictObject({
     .string()
     .max(20000)
     .optional()
-    .describe("The session's first message; default the card's title and description, plus its approved plan when it has one."),
+    .describe("The session's first message. Absent or blank sends the project's Start prompt rendered for the card when the project has one, else the card's title and description plus its approved plan."),
   mode: z
     .string()
     .trim()

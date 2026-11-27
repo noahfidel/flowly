@@ -25,7 +25,7 @@ import {
 import { hiddenPrLimits, hidePrInput, restorePrInput, type HidePrInput, type RestorePrInput } from "../shared/hidden-prs";
 import type { FlowLog } from "./flow-log";
 import { linearSkipTypesValue, linearTeamValue } from "../shared/linear-ticket";
-import { sessionStartValue } from "../shared/session-start";
+import { sessionStartMax, sessionStartProblem } from "../shared/session-start";
 import { baseRefProblem, baseRefValue } from "../shared/worktree-base";
 import type { ProjectSnapshot } from "./project-folder";
 import {
@@ -615,7 +615,11 @@ export class BoardStore {
         else delete p.deliveryMode;
       }
       if (input.sessionStartText !== undefined) {
-        const text = sessionStartValue(input.sessionStartText);
+        // Refused, never truncated: a cut template can leave an {{#if}} open (START-PROMPT-TEMPLATE-SPEC §5).
+        const text = input.sessionStartText.trim();
+        if (text.length > sessionStartMax) throw new Error(`Start prompt: at most ${sessionStartMax} characters.`);
+        const problem = sessionStartProblem(text);
+        if (problem) throw new Error(`Start prompt: ${problem}`);
         if (text) p.sessionStartText = text;
         else delete p.sessionStartText;
       }

@@ -6,6 +6,7 @@ import { deliveryModes } from "./delivery-mode";
 import { attentionDismissLimits, attentionDismissalSchema } from "./attention-dismiss";
 import { hiddenPrLimits, hiddenPrSchema } from "./hidden-prs";
 import { baseRefProblem } from "./worktree-base";
+import { sessionStartProblem } from "./session-start";
 
 export const statuses = [
   "backlog",
@@ -322,7 +323,7 @@ export const projectSchema = z.object({
   /** Delivery mode override for its cards (BOARD-GROUPS-SPEC §5); a plain string, as the card's. Absent: inherit. */
   deliveryMode: z.string().optional(),
   /** The text a card's New session box opens with (SESSION-START-TEXT-SPEC); absent: the built-in default. */
-  sessionStartText: z.string().max(2000).optional(),
+  sessionStartText: z.string().max(4000).optional(),
   /** Base branch new worktrees branch off, e.g. `origin/dev` (START-CARD-SPEC §4.1); absent: the main checkout's current branch. */
   baseRef: z.string().optional(),
   /** Where a follow-up's new worktree branches from (START-CARD-SPEC §11.1); absent reads as "parent". */
@@ -846,7 +847,14 @@ export const projectEdit = z.strictObject({
   /** The project's delivery mode override (BOARD-GROUPS-SPEC §5); null removes it (the group's or host's applies again). */
   deliveryMode: z.enum(deliveryModes).nullable().optional(),
   /** The New session starting text (SESSION-START-TEXT-SPEC); "" removes it (the built-in default applies again). */
-  sessionStartText: z.string().max(4000).optional(),
+  sessionStartText: z
+    .string()
+    .max(4000)
+    .superRefine((v, ctx) => {
+      const problem = sessionStartProblem(v);
+      if (problem) ctx.addIssue({ code: "custom", message: `Start prompt: ${problem}` });
+    })
+    .optional(),
   /** The base branch for new worktrees (START-CARD-SPEC §4.1); "" removes it (the main checkout's current branch again). */
   baseRef: z
     .string()
