@@ -3,7 +3,7 @@ import { View } from "react-native";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc";
-import { groupLimits, type AutoReviewInput, type Group, type Lane, type Project, type Status } from "../shared/model";
+import { groupLimits, type AutoReviewInput, type Group, type Lane, type Project, type Status, type Task } from "../shared/model";
 import { projectLanes } from "../shared/lanes";
 import { laneKey } from "../shared/group-lanes";
 import { laneEdit, laneEditDirty, laneEditSave, laneEditServer, type LaneEditState } from "./group-lanes-logic";
@@ -38,11 +38,16 @@ export function GroupSettings({
   laneCounts,
   focusProjectId,
   reviewOn,
+  hostId,
+  tasks,
   onClose,
   onChanged,
   onRemoveProject,
 }: {
   groupId: string | null;
+  /** The host and the board's cards, for each project's Start prompt preview (START-PROMPT-TEMPLATE-SPEC §5). */
+  hostId?: string;
+  tasks?: readonly Task[];
   /** The board's groups and projects (archived ones too), from the overview. */
   groups: readonly Group[];
   projects: readonly Project[];
@@ -254,6 +259,8 @@ export function GroupSettings({
                     group={group}
                     initiallyOpen={p.id === focusProjectId}
                     reviewOn={reviewOn && p.id === focusProjectId}
+                    hostId={hostId}
+                    tasks={tasks}
                     busy={busy}
                     onSaved={projectSaved}
                     onDirty={reportDirty}
@@ -470,6 +477,8 @@ function ProjectSection({
   group,
   initiallyOpen,
   reviewOn,
+  hostId,
+  tasks,
   busy,
   onSaved,
   onDirty,
@@ -479,6 +488,8 @@ function ProjectSection({
 }: {
   project: Project;
   group: Group;
+  hostId?: string;
+  tasks?: readonly Task[];
   /** Bumped by the page's Discard: the section's unsaved edits go back to the stored project. */
   discardEpoch: number;
   initiallyOpen: boolean;
@@ -514,6 +525,8 @@ function ProjectSection({
       latestRevision={latest.revision}
       group={group}
       reviewOn={reviewOn && epoch === 0}
+      hostId={hostId}
+      tasks={tasks}
       open={open}
       onOpen={setOpen}
       onSaved={(saved) => {
@@ -536,6 +549,8 @@ function ProjectEditor({
   latestRevision,
   group,
   reviewOn,
+  hostId,
+  tasks,
   open,
   onOpen,
   onSaved,
@@ -551,6 +566,8 @@ function ProjectEditor({
   latestRevision: number;
   group: Group;
   reviewOn?: boolean;
+  hostId?: string;
+  tasks?: readonly Task[];
   open: boolean;
   onOpen(open: boolean): void;
   onSaved(project: Project): void;
@@ -573,7 +590,7 @@ function ProjectEditor({
   return (
     <Disclosure title={title} summary={archived ? t("Archived") : undefined} open={open} onChange={onOpen}>
       <View style={{ gap: 16 }}>
-        <ProjectSettingsFields project={project} state={state} group={group} reviewOn={reviewOn} />
+        <ProjectSettingsFields project={project} state={state} group={group} reviewOn={reviewOn} hostId={hostId} tasks={tasks} />
         <Actions>
           <Button quiet disabled={state.pending || !state.dirty} onPress={onReseed}>
             {t("Cancel")}

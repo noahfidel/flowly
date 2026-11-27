@@ -1695,7 +1695,6 @@ const catalog: Catalog = {
   "A card's plan": "카드의 계획",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "카드 세션에서 승인된 계획이나 직접 설정한 계획은 카드에 남고, 새 세션은 다시 계획하지 않고 그 계획에서 시작합니다.",
   "Empty sends the card's title and description": "비워 두면 카드의 제목과 설명을 보냅니다",
-  "New session starting text": "새 세션 시작 텍스트",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "기본 모델 {model}을(를) {provider}에서 제공하지 않습니다. 설정 → 모델에서 다른 기본 모델을 선택하세요.",
   "Running now": "실행 중",
   "Nothing is running": "실행 중인 항목이 없습니다",
@@ -1785,5 +1784,10 @@ const catalog: Catalog = {
   "Previous image": "이전 이미지",
   "Next image": "다음 이미지",
   "{n} subagents working": "하위 에이전트 {n}개 작업 중",
+  "Start prompt": "시작 프롬프트",
+  "Use {variable}, {condition}. Variables: {names}": "{variable}, {condition}를 사용하세요. 변수: {names}",
+  "Line {line}: {error}": "{line}번째 줄: {error}",
+  "Optional: the agent starts with the project's Start prompt": "선택: 에이전트가 프로젝트의 시작 프롬프트로 시작합니다",
+  "Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.": "프로젝트 편집 → 시작 프롬프트가 카드에서 새 세션의 첫 메시지를 만듭니다: 레인, 계획, 스펙, 리뷰 지적. 미리보기로 아무 카드에서나 확인할 수 있습니다.",
 };
 export default catalog;

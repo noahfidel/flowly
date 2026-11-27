@@ -434,6 +434,7 @@ function MoreFeatures() {
     { icon: "GitMerge", title: t("Pull requests"), text: t("Every PR on the board in one list, under N PRs above the board; each row opens its card or the PR.") },
     { icon: "Layers", title: t("Board groups"), text: t("Projects sit in boards. Each group has its own tab, dispatcher and defaults; add a group from the project switcher.") },
     { icon: "Bot", title: t("Dispatcher"), text: t("One agent for all your projects, in a chat next to the board. It hears when cards stop, makes and starts cards for what you ask, and tells you what needs you.") },
+    { icon: "FileText", title: t("Start prompt"), text: t("Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.") },
     { icon: "BookMarked", title: t("Memory"), text: t("Agents remember the project's decisions, pitfalls and conventions; new sessions see them. Open Memory to pin, edit or archive them.") },
     { icon: "Search", title: t("Search"), text: t("Search past cards, summaries, notes and deliverables.") },
     { icon: "Wrench", title: t("Tool call details"), text: t("In a card's chat, expand a tool step to see its arguments; its result sits under its own toggle.") },

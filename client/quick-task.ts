@@ -4,6 +4,7 @@ import type { ConnectorProvider, ExternalSummary } from "../shared/connectors";
 import { provisionalTitle } from "../shared/quick-task";
 import { ideaDescription } from "../shared/ideas";
 import { firstMessage } from "./first-message";
+import { newCardPromptState, renderStartPrompt } from "../shared/start-prompt";
 import type { TaskSeed } from "./forms";
 
 /** Quick task defaults (docs/QUICK-TASK-SPEC.md §3). Pure, so the dialog and the board agree. */
@@ -134,5 +135,36 @@ export function quickMoreSeed(input: { text: string; seed: QuickTaskSeed | undef
   };
 }
 
-/** The agent's first message: the typed text, else the default that points at the attached items, else null (cannot send). */
-export const quickPrompt = (text: string, items: Parameters<typeof firstMessage>[1]) => firstMessage(text, items);
+/**
+ * The project's Start prompt rendered for the card a quick task makes (START-PROMPT-TEMPLATE-SPEC §4); null without a
+ * template, when it renders empty, or when nothing names the card yet (an empty box with no idea or attached item).
+ */
+export function quickStartPrompt(input: {
+  project: Pick<Project, "lanes" | "sessionStartText">;
+  text: string;
+  seed: QuickTaskSeed | undefined;
+  externals: Externals;
+  status: Status;
+  /** Resolved as the card will get it: the project's, its group's, then the host default. */
+  deliveryMode: string;
+}): string | null {
+  if (!input.project.sessionStartText?.trim()) return null;
+  const title = quickCard(input.text, input.seed, input.externals.length).title;
+  if (!title.trim()) return null;
+  const idea = input.seed?.idea;
+  return renderStartPrompt(
+    input.project.sessionStartText,
+    newCardPromptState({
+      project: input.project,
+      title,
+      description: idea?.description ?? "",
+      lane: input.status,
+      type: idea?.type ?? null,
+      deliveryMode: input.deliveryMode,
+      items: input.externals.map((x) => x.item),
+    }),
+  );
+}
+
+/** The agent's first message: the typed text, else the rendered Start prompt, else the default that points at the attached items, else null (cannot send). */
+export const quickPrompt = (text: string, items: Parameters<typeof firstMessage>[1], startPrompt?: string | null) => firstMessage(text, items, startPrompt);

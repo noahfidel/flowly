@@ -1695,7 +1695,6 @@ const catalog: Catalog = {
   "A card's plan": "卡片的计划",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "在卡片会话中批准的计划，或你设置的计划，会保留在卡片上；新会话直接从它开始，不再重新规划。",
   "Empty sends the card's title and description": "留空则发送卡片的标题和描述",
-  "New session starting text": "新会话的起始文本",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "{provider} 不提供默认模型 {model}。请在设置 → 模型中另选一个。",
   "Running now": "正在运行",
   "Nothing is running": "没有正在运行的任务",
@@ -1785,5 +1784,10 @@ const catalog: Catalog = {
   "Previous image": "上一张图片",
   "Next image": "下一张图片",
   "{n} subagents working": "{n} 个子智能体正在工作",
+  "Start prompt": "开始提示词",
+  "Use {variable}, {condition}. Variables: {names}": "可使用 {variable}、{condition}。变量：{names}",
+  "Line {line}: {error}": "第 {line} 行：{error}",
+  "Optional: the agent starts with the project's Start prompt": "可选：代理将以项目的开始提示词开始",
+  "Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.": "编辑项目 → 开始提示词根据卡片写出每个新会话的第一条消息：所在列、计划、规格、评审意见。预览可查看任意卡片的结果。",
 };
 export default catalog;

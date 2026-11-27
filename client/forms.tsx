@@ -1,10 +1,10 @@
 import { baseRefMax, baseRefProblem, baseRefValue } from "../shared/worktree-base";
 import { linearSkipTypesOf, linearSkipTypesValue, linearTeamValue, linearTicketPatch, linearTicketTypeDefault } from "../shared/linear-ticket";
-import { defaultSessionStartText, sessionStartMax, sessionStartValue } from "../shared/session-start";
+import { defaultSessionStartText, sessionStartMax, sessionStartProblem, sessionStartValue } from "../shared/session-start";
 import { enabledStatuses, laneName, projectLanes } from "../shared/lanes";
 import { LaneEditor } from "./lane-editor";
 import { useBoardView } from "./board-view";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { View } from "react-native";
 import { useToast } from "@getpaseo/plugin/client/react-native";
@@ -13,7 +13,9 @@ import { perfLap } from "./perf";
 import { Modal } from "./modal";
 import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
 import { useResourcesQuery } from "./queries";
-import { useProjectIndexQuery } from "./card-detail-query";
+import { useCardDetailQuery, useProjectIndexQuery } from "./card-detail-query";
+import { PickerGroup, PickerRow } from "./picker";
+import { previewCardId, previewCards, previewPromptState, startPromptPreview } from "./start-prompt-logic";
 import * as rpc from "../shared/rpc";
 import {
   priorities,
@@ -48,6 +50,7 @@ import { useStableCallback } from "./stable";
 import { ExternalChip, ExternalPicker, connectionsByFamily, familyNames, pickKey, useConnections } from "./connectors";
 import { BrandIcon } from "./brand-icons";
 import { firstMessage } from "./first-message";
+import { newCardPromptState, renderStartPrompt, startPromptVariables } from "../shared/start-prompt";
 import { startStatus } from "./quick-task";
 import type { Attachment } from "./web-images";
 import { connectorFamilies, connectorLimits, familyOf, type ConnectorFamily, type ConnectorProvider, type ExternalSummary } from "../shared/connectors";
@@ -111,7 +114,9 @@ export function useProjectSettings(project: Project, withLanes = false, group: G
   const linksChanged = !!project.links && !sameList(links, storedLinks);
   const dirty = Object.keys(patch).length > 0 || linksChanged;
   const baseRefError = baseRefProblem(baseRef);
-  const valid = !!title.trim() && (!project.links || links.length > 0) && !baseRefError;
+  // A Start prompt that does not parse cannot be saved (START-PROMPT-TEMPLATE-SPEC §5); the preview shows why.
+  const sessionStartInvalid = useMemo(() => !!sessionStartProblem(sessionStartValue(sessionStart)), [sessionStart]);
+  const valid = !!title.trim() && (!project.links || links.length > 0) && !baseRefError && !sessionStartInvalid;
   /** The saved project, or null when the save failed (the error is in `error`). */
   async function save(): Promise<Project | null> {
     setPending(true);
@@ -146,9 +151,14 @@ export function ProjectSettingsFields({
   group,
   reviewOn,
   laneCounts,
+  hostId,
+  tasks,
 }: {
   project: Project;
   state: ProjectSettingsState;
+  /** The host and the board's cards, for the Start prompt preview (START-PROMPT-TEMPLATE-SPEC §5); none: no preview. */
+  hostId?: string;
+  tasks?: readonly Task[];
   /** The project's group, for what an empty default inherits. */
   group: Group | null;
   /** Opened from What's new to turn Auto review on: the section first, its switch on (GUARDRAILS-SPEC §10). */
@@ -193,14 +203,26 @@ export function ProjectSettingsFields({
         onChange={(next) => s.setDeliveryMode(next || null)}
       />
       <Field
-        title={t("New session starting text")}
+        title={t("Start prompt")}
         value={s.sessionStart}
         onChange={s.setSessionStart}
         placeholder={defaultSessionStartText}
         maxLength={sessionStartMax}
         multiline
         editable={!s.pending}
+        hint={t("Use {variable}, {condition}. Variables: {names}", { variable: "{{title}}", condition: "{{#if planApproved}}…{{else}}…{{/if}}", names: startPromptVariables.join(", ") })}
       />
+      {hostId && tasks && (
+        <StartPromptPreviewBlock
+          hostId={hostId}
+          tasks={tasks}
+          project={project}
+          text={s.sessionStart}
+          deliveryMode={s.deliveryMode}
+          groupDelivery={group?.defaults?.deliveryMode}
+          hostDelivery={hostDelivery}
+        />
+      )}
       {!project.links && (
         <Field
           title={t("Base branch for new worktrees")}
@@ -280,6 +302,78 @@ export function ProjectSettingsFields({
 
 const noop = () => {};
 
+/**
+ * The Start prompt preview (START-PROMPT-TEMPLATE-SPEC §5): a card picker over the project's live cards and the
+ * template rendered for the chosen one, or the parse error with its line. Follows the field after a short pause; only
+ * the chosen card's detail is read (its artifacts), once, not polled.
+ */
+const StartPromptPreviewBlock = memo(function StartPromptPreviewBlock({
+  hostId,
+  tasks,
+  project,
+  text,
+  deliveryMode,
+  groupDelivery,
+  hostDelivery,
+}: {
+  hostId: string;
+  tasks: readonly Task[];
+  project: Project;
+  text: string;
+  /** The delivery mode being edited here; null follows the group and the host. */
+  deliveryMode: DeliveryMode | null;
+  groupDelivery?: string;
+  hostDelivery?: string;
+}) {
+  const { colors } = useTheme();
+  const cards = useMemo(() => previewCards(tasks, project.id), [tasks, project.id]);
+  const [chosen, setChosen] = useState(""),
+    [open, setOpen] = useState(false);
+  const id = previewCardId(cards, chosen);
+  const card = cards.find((c) => c.id === id);
+  const options = useMemo(() => cards.map((c) => ({ value: c.id, label: c.title })), [cards]);
+  const typed = useDebounced(text, 250);
+  // The card's artifacts (plan, spec, inputs) are only in its detail; an empty field needs none.
+  const detail = useCardDetailQuery(hostId, card?.id ?? "", card?.workspaceId ?? "", !!card && !!typed.trim());
+  const loaded = detail.data?.task.id === card?.id ? detail.data : undefined;
+  const preview = useMemo(() => {
+    const state = card
+      ? previewPromptState({
+          project,
+          task: loaded?.task ?? card,
+          detail: loaded,
+          deliveryMode: resolveDeliveryMode({ card: card.deliveryMode, project: deliveryMode, group: groupDelivery, host: hostDelivery }).mode,
+        })
+      : null;
+    return startPromptPreview(typed, state);
+  }, [typed, card, loaded, project, deliveryMode, groupDelivery, hostDelivery]);
+  if (!preview) return null;
+  if (preview.kind === "error") return <Notice tone="warning">{t("Line {line}: {error}", { line: preview.line, error: preview.error })}</Notice>;
+  return (
+    <PickerGroup>
+      <PickerRow
+        first
+        title={t("Preview")}
+        icon="Eye"
+        value={id}
+        placeholder={t("Card")}
+        open={open}
+        options={options}
+        onToggle={() => setOpen(!open)}
+        onChange={(next) => {
+          setChosen(next);
+          setOpen(false);
+        }}
+      />
+      <View style={{ borderTopWidth: 1, borderColor: colors.border, backgroundColor: colors.surface1, padding: space[3] }}>
+        <Label mono size={font.sm} selectable>
+          {preview.text}
+        </Label>
+      </View>
+    </PickerGroup>
+  );
+});
+
 export function ProjectForm(props: {
   project?: Project;
   /** The group a new project is created in (BOARD-GROUPS-SPEC §2); the default group when absent. */
@@ -293,6 +387,9 @@ export function ProjectForm(props: {
   /** The board's Show archived view setting; edited here, stored with Save. */
   showArchived?: boolean;
   onShowArchived?: (next: boolean) => void;
+  /** The host and the board's cards, for Edit project's Start prompt preview (START-PROMPT-TEMPLATE-SPEC §5). */
+  hostId?: string;
+  tasks?: readonly Task[];
   onClose: () => void;
   /** `restored`: the project came back from its folder's saved board. */
   onSaved: (id: string, restored?: { restored: number; title: string }) => void;
@@ -312,10 +409,14 @@ function EditProjectForm({
   onClose,
   onSaved,
   reviewOn,
+  hostId,
+  tasks,
 }: {
   project: Project;
   group?: Group | null;
   reviewOn?: boolean;
+  hostId?: string;
+  tasks?: readonly Task[];
   laneCounts?: Partial<Record<Status, number>>;
   showArchived?: boolean;
   onShowArchived?: (next: boolean) => void;
@@ -342,7 +443,7 @@ function EditProjectForm({
       <Modal.Content>
         <Theme.Provider value={theme}>
         <View style={{ gap: 16 }}>
-          <ProjectSettingsFields project={project} state={state} group={group} reviewOn={reviewOn} laneCounts={laneCounts} />
+          <ProjectSettingsFields project={project} state={state} group={group} reviewOn={reviewOn} laneCounts={laneCounts} hostId={hostId} tasks={tasks} />
           {onShowArchived && <Toggle title={t("Show archived")} value={archivedShown} onChange={setArchivedShown} />}
           <Actions>
             <Button quiet disabled={state.pending} onPress={onClose}>
@@ -753,8 +854,17 @@ export function TaskForm({
   // The agent's first message; never prefilled from the title or description (they already reach it as context), only
   // with the text typed in Quick task when its More options opened this form. Required
   // unless items from a service are attached: then an empty box sends a default that points at them (UI-REFRESH-SPEC §7s).
+  // With the project's Start prompt, an empty box sends it rendered for the new card instead (START-PROMPT-TEMPLATE-SPEC §4).
   const [prompt, setPrompt] = useState(seed?.prompt ?? "");
-  const firstText = firstMessage(prompt, externals.map((x) => x.item));
+  const template = project.sessionStartText;
+  const startPrompt = useMemo(
+    () =>
+      !task && template?.trim() && !prompt.trim()
+        ? renderStartPrompt(template, newCardPromptState({ project, title, description, lane: status, type: type || null, deliveryMode: delivery, items: externals.map((x) => x.item) }))
+        : null,
+    [task, template, prompt, project, title, description, status, type, delivery, externals],
+  );
+  const firstText = firstMessage(prompt, externals.map((x) => x.item), startPrompt);
   // Images with the agent's first message (web: paste, drop or Add images).
   const attachments = useImageAttachments(seed?.images);
   const [firstMessageId] = useState(newMessageId);
@@ -1051,7 +1161,7 @@ export function TaskForm({
                       value={prompt}
                       onChange={setPrompt}
                       multiline
-                      placeholder={externals.length ? t("Optional: the agent starts with the attached items") : t("What should the agent do first?")}
+                      placeholder={startPrompt ? t("Optional: the agent starts with the project's Start prompt") : externals.length ? t("Optional: the agent starts with the attached items") : t("What should the agent do first?")}
                       onSubmit={submit}                    />
                   </ImageAttachments>
                 </>

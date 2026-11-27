@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { ideaQuickSeed, ideaQuickText, quickCard, quickCreateInput, quickMode, quickMoreSeed, quickProject, quickProjects, quickPrompt, startStatus } from "./quick-task";
+import { ideaQuickSeed, ideaQuickText, quickCard, quickCreateInput, quickMode, quickMoreSeed, quickProject, quickProjects, quickPrompt, quickStartPrompt, startStatus } from "./quick-task";
 import { ideaDescription } from "../shared/ideas";
 import type { Idea } from "../shared/model";
 import { defaultFirstMessage } from "./first-message";
@@ -166,6 +166,39 @@ describe("a Quick task seeded from an idea (QUICK-TASK-SPEC §10)", () => {
       startAgent: true,
       mode: "worktree",
     });
+  });
+});
+
+describe("a Quick task with the project's Start prompt (START-PROMPT-TEMPLATE-SPEC §4)", () => {
+  const template = "Card: {{title}} [{{lane}}, {{type}}, {{deliveryMode}}]{{#if externalInputs}} from {{externalInputs}}{{/if}}{{#if description}}\n{{description}}{{/if}}";
+  const withTemplate = project("t", { sessionStartText: template });
+  const item = { connectionId: "c1", itemType: "issue", key: "ENG-42", remoteId: "u", url: "", summary: "Login retry loops", status: "", statusCategory: "new", type: "", priority: "", assignee: "", container: "", updated: "" } as const;
+  const base = { project: withTemplate, status: "todo" as const, deliveryMode: "draft_pr" };
+
+  test("no template: nothing is rendered and the first message is today's", () => {
+    expect(quickStartPrompt({ ...base, project: project("a"), text: "", seed: undefined, externals: [] })).toBeNull();
+    expect(quickPrompt("", [], null)).toBeNull();
+  });
+  test("an empty box with an attached issue renders the template for the card it makes", () => {
+    const seed = { title: "ENG-42: Login retry loops", externals: [{ item, provider: "linear" as const }] };
+    const rendered = quickStartPrompt({ ...base, text: "", seed, externals: seed.externals });
+    expect(rendered).toBe("Card: ENG-42: Login retry loops [todo, , draft_pr] from ENG-42");
+    // The template wins over the From… default, and typed text still wins over both.
+    expect(quickPrompt("", [item], rendered)).toBe(rendered);
+    expect(quickPrompt(" only this ", [item], rendered)).toBe("only this");
+  });
+  test("an idea's empty box renders with its title, description and type, so Create is not blocked", () => {
+    const idea = { id: "i1", projectId: "t", description: "Wrap the fetch in a retry.", type: "feature" as const };
+    const rendered = quickStartPrompt({ ...base, text: "", seed: { title: "Add retry", externals: [], idea }, externals: [] });
+    expect(rendered).toBe("Card: Add retry [todo, feature, draft_pr]\nWrap the fetch in a retry.");
+    expect(quickPrompt("", [], rendered)).toBe(rendered);
+  });
+  test("an empty box with nothing to name the card still cannot be sent", () => {
+    expect(quickStartPrompt({ ...base, text: "  ", seed: undefined, externals: [] })).toBeNull();
+  });
+  test("a template that renders empty counts as none", () => {
+    const empty = project("e", { sessionStartText: "{{#if plan}}x{{/if}}" });
+    expect(quickStartPrompt({ ...base, project: empty, text: "Fix it", seed: undefined, externals: [] })).toBeNull();
   });
 });
 

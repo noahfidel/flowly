@@ -10,6 +10,7 @@ import {
   openExternalUrl,
   usePaseo,
   useRpc,
+  useSettings,
   type PluginSurfaceProps,
 } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
@@ -92,7 +93,9 @@ import { TaskTags } from "./task-tags";
 import { ReleaseModal, ReleaseNotice, SwitchModal, type SwitchDirection } from "./workspace-switch";
 import { drawerSectionOrder, drawerSectionsOpen, type AnyDrawerSection, type DrawerSection } from "../shared/drawer-sections";
 import { ideaInstruction } from "../shared/ideas";
-import { sessionStartText } from "../shared/session-start";
+import { cardPromptState, drawerStartText } from "./start-prompt-logic";
+import { deliverySettings, deliverySettingsValues } from "../shared/settings";
+import { resolveDeliveryMode } from "../shared/delivery-mode";
 import { prReviewCardUrl } from "../shared/pr-review";
 import { getLocale, localizedLabels, msg, t, tn } from "../shared/i18n";
 
@@ -129,6 +132,7 @@ function TaskDrawerView({
   onAllIdeas,
   guardrails = false,
   autoReview = false,
+  groupDeliveryMode,
   onFilterTag,
   escapeRequest,
   prRequest,
@@ -183,6 +187,8 @@ function TaskDrawerView({
   guardrails?: boolean;
   /** The project's effective Auto review (BOARD-GROUPS-SPEC §5): the Workpad offers Rerun only while it is on. */
   autoReview?: boolean;
+  /** The project's group's delivery mode default, for the Start prompt's `deliveryMode` (START-PROMPT-TEMPLATE-SPEC §4). */
+  groupDeliveryMode?: string;
   /** Adds a tag to the board filter (CARD-TAGS-SPEC §6.3). */
   onFilterTag?(tag: string): void;
   /** Changes on each board Esc shortcut: leave the session preview, else close. */
@@ -449,6 +455,27 @@ function TaskDrawerView({
     isPending: sessionsData === undefined && (liveAgents.isPending || workspaceSessions.isPending),
     refetch: () => Promise.all([liveAgents.refetch(), workspaceSessions.refetch()]),
   };
+  // The New session box's first text, read when the form opens: the project's Start prompt rendered for this card,
+  // else the built-in text (START-PROMPT-TEMPLATE-SPEC §4). Delivery mode resolves as the session context does.
+  const deliveryPrefs = useSettings(deliverySettings);
+  const startText = useStableCallback(() =>
+    drawerStartText(
+      project,
+      cardPromptState({
+        project,
+        task,
+        detail: detailState.detail,
+        deliveryMode: resolveDeliveryMode({
+          card: task.deliveryMode,
+          project: project.deliveryMode,
+          group: groupDeliveryMode,
+          host: deliveryPrefs.status === "ready" ? deliverySettingsValues(deliveryPrefs.values).defaultMode : undefined,
+        }).mode,
+        firstSession: !sessions.data?.length,
+        workspaceDir: workspace.data?.workspaceDirectory,
+      }),
+    ),
+  );
   // Worktree or local, from the workspace read above (CARD-DISPLAY-SPEC §8, DRAWER-SPEC Workspace kind).
   const place = cardWorkspace(workspace.data?.workspaceKind);
   const unavailable =
@@ -1382,7 +1409,7 @@ function TaskDrawerView({
         refresh={refreshAll}
         defaults={startDefaults}
         seed={ideaSession ? { title: ideaSession.title, prompt: ideaInstruction(ideaSession) } : null}
-        startText={sessionStartText(project)}
+        startText={startText}
       />
       <WrapupModal
         task={task}

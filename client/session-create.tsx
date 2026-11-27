@@ -31,8 +31,11 @@ export function SessionCreate({
   open: boolean;
   /** Prefill for a session started from an idea (IDEAS-SPEC §6.3); read when the form opens. */
   seed?: { title: string; prompt: string } | null;
-  /** The project's New session starting text (SESSION-START-TEXT-SPEC); the box opens with it unless an idea seeds it. */
-  startText: string;
+  /**
+   * The box's first text, read when the form opens: the project's Start prompt rendered for the card, else the built-in
+   * text (START-PROMPT-TEMPLATE-SPEC §4). An idea's seed wins over it.
+   */
+  startText(): string;
   /** The New task defaults (MODEL-DEFAULTS-SPEC §2), this form's starting point; none leaves the picker empty. */
   defaults?: { provider: string; model: string; mode: string } | null;
   workspaceDirectory?: string;
@@ -56,12 +59,12 @@ export function SessionCreate({
   // Images with the first message (web: paste, drop or Add images).
   const attachments = useImageAttachments();
   // Reset each time the form opens, from the defaults only (MODEL-DEFAULTS-SPEC §2). The instruction opens with the
-  // project's starting text, or an idea's own prompt (SESSION-START-TEXT-SPEC).
+  // project's Start prompt for this card, or an idea's own prompt (SESSION-START-TEXT-SPEC, START-PROMPT-TEMPLATE-SPEC).
   const wasOpen = useRef(false);
   useEffect(() => {
     if (open && !wasOpen.current) {
       choice.reset(defaults);
-      setPrompt(seed?.prompt || startText);
+      setPrompt(seed?.prompt || startText());
       setTitle(seed?.title || "");
       attachments.clear();
       setError("");

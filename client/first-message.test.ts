@@ -21,4 +21,13 @@ describe("New task first message", () => {
     expect(firstMessage(" \n\t ", [])).toBeNull();
     expect(firstMessage(" \n\t ", [ticket])).toBe("Start on this card: read its inputs, including ZEN-8658, then begin.");
   });
+  test("a rendered Start prompt replaces the default and unblocks Create; typed text still wins (START-PROMPT-TEMPLATE-SPEC §4)", () => {
+    expect(firstMessage("", [], "Design the card first.")).toBe("Design the card first.");
+    expect(firstMessage("", [ticket], "Design the card first.")).toBe("Design the card first.");
+    expect(firstMessage(" Only fix Safari ", [ticket], "Design the card first.")).toBe("Only fix Safari");
+  });
+  test("no rendered Start prompt behaves as today", () => {
+    expect(firstMessage("", [], null)).toBeNull();
+    expect(firstMessage("", [ticket], null)).toBe("Start on this card: read its inputs, including ZEN-8658, then begin.");
+  });
 });

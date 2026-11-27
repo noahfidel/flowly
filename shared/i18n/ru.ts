@@ -1695,7 +1695,6 @@ const catalog: Catalog = {
   "A card's plan": "План карточки",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "План, утверждённый в сессии карточки или заданный вами, остаётся на карточке; новые сессии начинают с него, а не планируют заново.",
   "Empty sends the card's title and description": "Если пусто, отправляются название и описание карточки",
-  "New session starting text": "Начальный текст новой сессии",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "{provider} не предлагает модель по умолчанию {model}. Выберите другую в Настройки → Модели.",
   "Running now": "Выполняется",
   "Nothing is running": "Ничего не выполняется",
@@ -1785,5 +1784,10 @@ const catalog: Catalog = {
   "Previous image": "Предыдущее изображение",
   "Next image": "Следующее изображение",
   "{n} subagents working": {"one": "{n} субагент работает", "few": "{n} субагента работают", "many": "{n} субагентов работают", "other": "{n} субагента работают"},
+  "Start prompt": "Стартовый промпт",
+  "Use {variable}, {condition}. Variables: {names}": "Используйте {variable}, {condition}. Переменные: {names}",
+  "Line {line}: {error}": "Строка {line}: {error}",
+  "Optional: the agent starts with the project's Start prompt": "Необязательно: агент начнёт со стартового промпта проекта",
+  "Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.": "Изменить проект → Стартовый промпт составляет первое сообщение каждой новой сессии по её карточке: колонка, план, спецификация, замечания ревью. Предпросмотр показывает его для любой карточки.",
 };
 export default catalog;

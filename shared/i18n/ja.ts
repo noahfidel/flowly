@@ -1695,7 +1695,6 @@ const catalog: Catalog = {
   "A card's plan": "カードの計画",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "カードのセッションで承認された計画や自分で設定した計画はカードに残り、新しいセッションは計画し直さずそこから始めます。",
   "Empty sends the card's title and description": "空のときはカードのタイトルと説明を送信します",
-  "New session starting text": "新しいセッションの開始テキスト",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "デフォルトのモデル {model} は {provider} で提供されていません。設定 → モデルで別のモデルを選んでください。",
   "Running now": "実行中",
   "Nothing is running": "実行中のものはありません",
@@ -1785,5 +1784,10 @@ const catalog: Catalog = {
   "Previous image": "前の画像",
   "Next image": "次の画像",
   "{n} subagents working": "サブエージェント {n} 件が作業中",
+  "Start prompt": "開始プロンプト",
+  "Use {variable}, {condition}. Variables: {names}": "{variable}、{condition} を使えます。変数: {names}",
+  "Line {line}: {error}": "{line} 行目: {error}",
+  "Optional: the agent starts with the project's Start prompt": "任意: エージェントはプロジェクトの開始プロンプトで始めます",
+  "Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.": "プロジェクトを編集 → 開始プロンプトで、新しいセッションの最初のメッセージをカードから作成します: レーン、プラン、スペック、レビュー指摘。プレビューで任意のカードの結果を確認できます。",
 };
 export default catalog;

@@ -2381,6 +2381,7 @@ function BoardContent(
         onAllIdeas={showCardIdeas}
         guardrails={features.memory && drawer.item.project.memory !== false}
         autoReview={projectAutoReview({ groups: projected?.groups ?? noGroups }, drawer.item.project).enabled}
+        groupDeliveryMode={groupOf(drawer.item.project)?.defaults?.deliveryMode}
         sessionEntry={
           sessionEntry?.taskId === drawer.item.task.id && drawer.active ? sessionEntry : undefined
         }
@@ -3171,6 +3172,8 @@ function BoardContent(
             groupId={projectForm === "new" ? group?.id : undefined}
             showArchived={archived}
             onShowArchived={setArchived}
+            hostId={props.host.id}
+            tasks={board?.tasks || noTasks}
             onClose={() => {
               setProjectForm(null);
               setReviewOn(false);
@@ -3194,6 +3197,8 @@ function BoardContent(
             laneCounts={laneCountsOf}
             focusProjectId={groupSettings.projectId}
             reviewOn={groupSettings.reviewOn}
+            hostId={props.host.id}
+            tasks={board?.tasks || noTasks}
             onClose={() => setGroupSettings(null)}
             onChanged={refresh}
             onRemoveProject={(p) => {

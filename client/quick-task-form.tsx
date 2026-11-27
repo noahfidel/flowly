@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { View } from "react-native";
-import { usePaseo, useRpc } from "@getpaseo/plugin/client";
+import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc";
 import type { Group, Project, Status } from "../shared/model";
 import { t } from "../shared/i18n";
@@ -15,7 +15,10 @@ import { ImageAttachments, useImageAttachments } from "./image-attach";
 import { newMessageId, rememberSentImages } from "./sent-images";
 import { useBoardView } from "./board-view";
 import { quickGroupOf, quickGroupProject, quickGroupProjects, quickGroups } from "./board-groups";
-import { quickCard, quickCreateInput, quickMode, quickMoreSeed, quickPrompt, startStatus, type QuickMode, type QuickTaskSeed } from "./quick-task";
+import { quickCard, quickCreateInput, quickMode, quickMoreSeed, quickPrompt, quickStartPrompt, startStatus, type QuickMode, type QuickTaskSeed } from "./quick-task";
+import { deliverySettings, deliverySettingsValues } from "../shared/settings";
+import { resolveDeliveryMode } from "../shared/delivery-mode";
+import { groupOfProject } from "../shared/groups";
 import type { OtherOption } from "./idea-choice";
 import { cardBlockLabel, ideaStepIcon, ideaStepLabel } from "./task-ideas";
 import { ExternalChip } from "./connectors";
@@ -107,7 +110,26 @@ export function QuickTaskForm({
     choice.reset(agentDefaultsFor(next));
   };
   const items = externals.map((x) => x.item);
-  const firstText = quickPrompt(text, items);
+  // An empty box sends the project's Start prompt rendered for the new card (START-PROMPT-TEMPLATE-SPEC §4). The card
+  // is created without its own delivery mode, so it gets the project's, its group's, then the host default.
+  const deliveryPrefs = useSettings(deliverySettings);
+  const hostDelivery = deliveryPrefs.status === "ready" ? deliverySettingsValues(deliveryPrefs.values).defaultMode : undefined;
+  const groupDelivery = groupOfProject({ groups }, project)?.defaults?.deliveryMode;
+  const startPrompt = useMemo(
+    () =>
+      project && !text.trim()
+        ? quickStartPrompt({
+            project,
+            text,
+            seed,
+            externals,
+            status: startStatus(project, defaultStatus),
+            deliveryMode: resolveDeliveryMode({ project: project.deliveryMode, group: groupDelivery, host: hostDelivery }).mode,
+          })
+        : null,
+    [project, text, seed, externals, defaultStatus, groupDelivery, hostDelivery],
+  );
+  const firstText = quickPrompt(text, items, startPrompt);
   const modelName = (choice.models.data?.models || []).find((m) => m.id === choice.chosenModel)?.label || choice.chosenModel;
   const modeLabel = choice.chosenMode ? (choice.modes.data?.modes || []).find((m) => m.id === choice.chosenMode)?.label || choice.chosenMode : "";
   const agentText = [choice.provider, modelName, modeLabel].filter(Boolean).join(" · ") || t("Choose a model");
@@ -180,7 +202,7 @@ export function QuickTaskForm({
                 onChange={setText}
                 multiline
                 autoFocus
-                placeholder={externals.length ? t("Optional: the agent starts with the attached issue") : ""}
+                placeholder={startPrompt ? t("Optional: the agent starts with the project's Start prompt") : externals.length ? t("Optional: the agent starts with the attached issue") : ""}
                 onSubmit={submit}
               />
             </ImageAttachments>

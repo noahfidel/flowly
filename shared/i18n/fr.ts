@@ -1695,7 +1695,6 @@ const catalog: Catalog = {
   "A card's plan": "Le plan d'une carte",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "Un plan approuvé dans la session d'une carte, ou que vous définissez, reste sur la carte ; les nouvelles sessions partent de lui au lieu de replanifier.",
   "Empty sends the card's title and description": "Vide : envoie le titre et la description de la carte",
-  "New session starting text": "Texte de départ des nouvelles sessions",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "{provider} ne propose pas le modèle par défaut {model}. Choisissez-en un autre dans Paramètres → Modèles.",
   "Running now": "En cours",
   "Nothing is running": "Rien n’est en cours",
@@ -1785,5 +1784,10 @@ const catalog: Catalog = {
   "Previous image": "Image précédente",
   "Next image": "Image suivante",
   "{n} subagents working": {"one": "{n} sous-agent au travail", "other": "{n} sous-agents au travail"},
+  "Start prompt": "Prompt de départ",
+  "Use {variable}, {condition}. Variables: {names}": "Utilisez {variable}, {condition}. Variables : {names}",
+  "Line {line}: {error}": "Ligne {line} : {error}",
+  "Optional: the agent starts with the project's Start prompt": "Facultatif : l'agent commence avec le prompt de départ du projet",
+  "Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.": "Modifier le projet → Prompt de départ rédige le premier message de chaque nouvelle session à partir de sa carte : colonne, plan, spec, notes de revue. Un aperçu le montre pour n'importe quelle carte.",
 };
 export default catalog;

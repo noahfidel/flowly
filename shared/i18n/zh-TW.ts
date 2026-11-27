@@ -1695,7 +1695,6 @@ const catalog: Catalog = {
   "A card's plan": "卡片的計畫",
   "A plan approved in a card's session, or one you set, stays on the card; new sessions start from it instead of planning again.": "在卡片工作階段中核准的計畫，或你設定的計畫，會保留在卡片上；新工作階段直接從它開始，不再重新規劃。",
   "Empty sends the card's title and description": "留空則傳送卡片的標題與描述",
-  "New session starting text": "新工作階段的起始文字",
   "Default model {model} is not offered by {provider}. Choose another default in Settings → Models.": "{provider} 不提供預設模型 {model}。請在設定 → 模型中另選一個。",
   "Running now": "正在執行",
   "Nothing is running": "沒有正在執行的任務",
@@ -1785,5 +1784,10 @@ const catalog: Catalog = {
   "Previous image": "上一張圖片",
   "Next image": "下一張圖片",
   "{n} subagents working": "{n} 個子智慧體正在工作",
+  "Start prompt": "開始提示詞",
+  "Use {variable}, {condition}. Variables: {names}": "可使用 {variable}、{condition}。變數：{names}",
+  "Line {line}: {error}": "第 {line} 行：{error}",
+  "Optional: the agent starts with the project's Start prompt": "選填：代理將以專案的開始提示詞開始",
+  "Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.": "編輯專案 → 開始提示詞依卡片寫出每個新工作階段的第一則訊息：所在欄、計畫、規格、審查意見。預覽可查看任意卡片的結果。",
 };
 export default catalog;
