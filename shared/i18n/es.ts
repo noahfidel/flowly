@@ -1787,6 +1787,7 @@ const catalog: Catalog = {
   "Start prompt": "Prompt inicial",
   "Use {variable}, {condition}. Variables: {names}": "Usa {variable}, {condition}. Variables: {names}",
   "Line {line}: {error}": "Línea {line}: {error}",
+  "Could not read this card.": "No se pudo leer esta tarjeta.",
   "Optional: the agent starts with the project's Start prompt": "Opcional: el agente empieza con el prompt inicial del proyecto",
   "Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.": "Editar proyecto → Prompt inicial escribe el primer mensaje de cada sesión nueva a partir de su tarjeta: columna, plan, spec, notas de revisión. Una vista previa lo muestra para cualquier tarjeta.",
 };

@@ -350,6 +350,8 @@ const StartPromptPreviewBlock = memo(function StartPromptPreviewBlock({
   }, [typed, card, loaded, project, deliveryMode, groupDelivery, hostDelivery]);
   if (!preview) return null;
   if (preview.kind === "error") return <Notice tone="warning">{t("Line {line}: {error}", { line: preview.line, error: preview.error })}</Notice>;
+  // The rendered text needs the card's artifacts: until they are read (or when that failed) it would show the wrong branch.
+  const incomplete = !!card && !loaded ? (detail.isError ? t("Could not read this card.") : t("Loading…")) : null;
   return (
     <PickerGroup>
       <PickerRow
@@ -367,9 +369,15 @@ const StartPromptPreviewBlock = memo(function StartPromptPreviewBlock({
         }}
       />
       <View style={{ borderTopWidth: 1, borderColor: colors.border, backgroundColor: colors.surface1, padding: space[3] }}>
-        <Label mono size={font.sm} selectable>
-          {preview.text}
-        </Label>
+        {incomplete ? (
+          <Label muted size={font.sm}>
+            {incomplete}
+          </Label>
+        ) : (
+          <Label mono size={font.sm} selectable>
+            {preview.text}
+          </Label>
+        )}
       </View>
     </PickerGroup>
   );

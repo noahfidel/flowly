@@ -1787,6 +1787,7 @@ const catalog: Catalog = {
   "Start prompt": "시작 프롬프트",
   "Use {variable}, {condition}. Variables: {names}": "{variable}, {condition}를 사용하세요. 변수: {names}",
   "Line {line}: {error}": "{line}번째 줄: {error}",
+  "Could not read this card.": "이 카드를 읽을 수 없습니다.",
   "Optional: the agent starts with the project's Start prompt": "선택: 에이전트가 프로젝트의 시작 프롬프트로 시작합니다",
   "Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.": "프로젝트 편집 → 시작 프롬프트가 카드에서 새 세션의 첫 메시지를 만듭니다: 레인, 계획, 스펙, 리뷰 지적. 미리보기로 아무 카드에서나 확인할 수 있습니다.",
 };

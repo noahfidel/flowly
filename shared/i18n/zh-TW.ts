@@ -1787,6 +1787,7 @@ const catalog: Catalog = {
   "Start prompt": "開始提示詞",
   "Use {variable}, {condition}. Variables: {names}": "可使用 {variable}、{condition}。變數：{names}",
   "Line {line}: {error}": "第 {line} 行：{error}",
+  "Could not read this card.": "無法讀取此卡片。",
   "Optional: the agent starts with the project's Start prompt": "選填：代理將以專案的開始提示詞開始",
   "Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.": "編輯專案 → 開始提示詞依卡片寫出每個新工作階段的第一則訊息：所在欄、計畫、規格、審查意見。預覽可查看任意卡片的結果。",
 };

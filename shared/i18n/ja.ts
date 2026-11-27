@@ -1787,6 +1787,7 @@ const catalog: Catalog = {
   "Start prompt": "開始プロンプト",
   "Use {variable}, {condition}. Variables: {names}": "{variable}、{condition} を使えます。変数: {names}",
   "Line {line}: {error}": "{line} 行目: {error}",
+  "Could not read this card.": "このカードを読み込めませんでした。",
   "Optional: the agent starts with the project's Start prompt": "任意: エージェントはプロジェクトの開始プロンプトで始めます",
   "Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.": "プロジェクトを編集 → 開始プロンプトで、新しいセッションの最初のメッセージをカードから作成します: レーン、プラン、スペック、レビュー指摘。プレビューで任意のカードの結果を確認できます。",
 };

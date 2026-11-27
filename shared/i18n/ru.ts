@@ -1787,6 +1787,7 @@ const catalog: Catalog = {
   "Start prompt": "Стартовый промпт",
   "Use {variable}, {condition}. Variables: {names}": "Используйте {variable}, {condition}. Переменные: {names}",
   "Line {line}: {error}": "Строка {line}: {error}",
+  "Could not read this card.": "Не удалось прочитать эту карточку.",
   "Optional: the agent starts with the project's Start prompt": "Необязательно: агент начнёт со стартового промпта проекта",
   "Edit project → Start prompt writes each new session's first message from its card: lane, plan, spec, review notes. A preview shows it for any card.": "Изменить проект → Стартовый промпт составляет первое сообщение каждой новой сессии по её карточке: колонка, план, спецификация, замечания ревью. Предпросмотр показывает его для любой карточки.",
 };
