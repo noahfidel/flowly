@@ -3,12 +3,9 @@
  * Pure: no React, no i18n. The message is agent-facing, so it stays English.
  */
 
-type Attached = { key: string; itemType: string; summary?: string };
+import { itemName, type AttachedItem as Attached } from "../shared/start-prompt";
 
-/** A page's key is an opaque id, so a page is named by its title; tickets, issues and PRs by their key. */
-const nameOf = (item: Attached) => (item.itemType === "page" ? item.summary || item.key : item.key);
-
-export const defaultFirstMessage = (items: readonly Attached[]) => `Start on this card: read its inputs, including ${items.map(nameOf).join(", ")}, then begin.`;
+export const defaultFirstMessage = (items: readonly Attached[]) => `Start on this card: read its inputs, including ${items.map(itemName).join(", ")}, then begin.`;
 
 /**
  * What to send: the user's text when there is any; with items attached from a service, a default that
