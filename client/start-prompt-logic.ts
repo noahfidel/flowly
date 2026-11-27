@@ -47,6 +47,17 @@ export function drawerStartText(project: Pick<Project, "sessionStartText">, stat
 export type ReadState = "loading" | "loaded" | "failed";
 
 /**
+ * The sessions read for the Start prompt's first-session state (§4). The server counts archived sessions too, so the
+ * streamed live list alone is not enough: it is loaded only once the archived read is in, failed when that read failed
+ * (or when the live list failed and no archived read arrived).
+ */
+export function drawerSessionsRead(read: { live: boolean; archived: boolean; liveError: boolean; archivedError: boolean }): ReadState {
+  if (read.archived) return "loaded";
+  if (read.archivedError || read.liveError) return "failed";
+  return "loading";
+}
+
+/**
  * Whether the drawer may render the New session text now (§4): at once without a template; with one, only once the
  * card's detail (plan, spec, inputs) and its sessions are read, so it never opens with a state it lacks. A failed
  * read does not hold it: the template then renders without that part.

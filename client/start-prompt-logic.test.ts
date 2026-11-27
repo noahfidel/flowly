@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { cardPromptState, drawerStartReady, drawerStartText, previewCardId, previewCards, previewPromptState, startPromptBlocksSave, startPromptPreview } from "./start-prompt-logic";
+import { cardPromptState, drawerSessionsRead, drawerStartReady, drawerStartText, previewCardId, previewCards, previewPromptState, startPromptBlocksSave, startPromptPreview } from "./start-prompt-logic";
 import { defaultSessionStartText } from "../shared/session-start";
 import type { Artifact, Project, Task } from "../shared/model";
 
@@ -131,6 +131,23 @@ describe("when the drawer may render the Start prompt (START-PROMPT-TEMPLATE-SPE
     expect(drawerStartReady({ sessionStartText: approved }, { detail: "loading", sessions: "loading" })).toBe(false);
     expect(drawerStartText({ sessionStartText: approved }, before)).toBe("Design first");
     expect(drawerStartText({ sessionStartText: approved }, after)).toBe("Run /repo/plan.md");
+  });
+});
+
+describe("The drawer's sessions read for the Start prompt (START-PROMPT-TEMPLATE-SPEC §4)", () => {
+  test("the live list alone is not enough: archived sessions still count for a first session", () => {
+    expect(drawerSessionsRead({ live: true, archived: false, liveError: false, archivedError: false })).toBe("loading");
+  });
+  test("loaded once the archived read is in", () => {
+    expect(drawerSessionsRead({ live: false, archived: true, liveError: false, archivedError: false })).toBe("loaded");
+    expect(drawerSessionsRead({ live: true, archived: true, liveError: false, archivedError: false })).toBe("loaded");
+  });
+  test("failed when the archived read failed, or when both reads are missing and one failed", () => {
+    expect(drawerSessionsRead({ live: true, archived: false, liveError: false, archivedError: true })).toBe("failed");
+    expect(drawerSessionsRead({ live: false, archived: false, liveError: true, archivedError: false })).toBe("failed");
+  });
+  test("nothing read yet is loading", () => {
+    expect(drawerSessionsRead({ live: false, archived: false, liveError: false, archivedError: false })).toBe("loading");
   });
 });
 

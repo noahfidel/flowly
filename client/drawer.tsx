@@ -93,7 +93,7 @@ import { TaskTags } from "./task-tags";
 import { ReleaseModal, ReleaseNotice, SwitchModal, type SwitchDirection } from "./workspace-switch";
 import { drawerSectionOrder, drawerSectionsOpen, type AnyDrawerSection, type DrawerSection } from "../shared/drawer-sections";
 import { ideaInstruction } from "../shared/ideas";
-import { cardPromptState, drawerStartReady, drawerStartText } from "./start-prompt-logic";
+import { cardPromptState, drawerSessionsRead, drawerStartReady, drawerStartText } from "./start-prompt-logic";
 import { deliverySettings, deliverySettingsValues } from "../shared/settings";
 import { resolveDeliveryMode } from "../shared/delivery-mode";
 import { prReviewCardUrl } from "../shared/pr-review";
@@ -480,7 +480,12 @@ function TaskDrawerView({
   // on a cold drawer never opens with a plan or session state it has not read yet.
   const startReady = drawerStartReady(project, {
     detail: detailState.detail ? "loaded" : detailState.error ? "failed" : "loading",
-    sessions: sessions.data ? "loaded" : sessions.error ? "failed" : "loading",
+    sessions: drawerSessionsRead({
+      live: !!liveHere,
+      archived: !!workspaceSessions.data,
+      liveError: !!liveAgents.error,
+      archivedError: !!workspaceSessions.error,
+    }),
   });
   // Worktree or local, from the workspace read above (CARD-DISPLAY-SPEC §8, DRAWER-SPEC Workspace kind).
   const place = cardWorkspace(workspace.data?.workspaceKind);
