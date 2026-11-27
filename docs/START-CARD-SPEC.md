@@ -17,7 +17,7 @@ Input (`startCardInputSchema`):
 | Field | Rule |
 |---|---|
 | `taskId` | the card to start |
-| `prompt` | optional, up to 20000 characters: the session's first message. Absent or blank: the card's title and description (its work instructions) |
+| `prompt` | optional, up to 20000 characters: the session's first message. Absent or blank: the project's Start prompt rendered for the card when the project has one ([START-PROMPT-TEMPLATE-SPEC](START-PROMPT-TEMPLATE-SPEC.md) §4), else the card's title and description (its work instructions) |
 | `idempotencyKey` | 1–200 characters, chosen by the agent; the same key retries the same start |
 
 Output (`startCardResultSchema`): `{ taskId, workspaceId, agentId, replayed, warnings? }`. `workspaceId` is the card's workspace after the call; `agentId` the session's id; `warnings` lists what could not be cleaned up (§4.3).

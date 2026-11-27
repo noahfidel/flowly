@@ -154,7 +154,7 @@ Quick task can open with an external item attached (LINEAR-BOARD-SPEC §5). Only
 
 - The item shows under the box as a removable chip (the full form's chip). The card is created with it through `tasks.create` `externals`, so it becomes an input artifact, as in the full form.
 - **Title**: the seed's title, `<KEY>: <issue title>`, replaces the provisional title, and **no `tasks.quick-title` call is made** (§4), since the issue already names the card. Removing the chip turns it back into an ordinary quick task: provisional title from the text, AI title per the setting.
-- **Text** is optional while an item is attached: empty sends the same default first message as the full form (`firstMessage`, UI-REFRESH-SPEC §7s, which names the attached item); typed text is sent as typed. Enter submits either way. Without an attached item the text is required (§1).
+- **Text** is optional while an item is attached: empty sends the same default first message as the full form (`firstMessage`, UI-REFRESH-SPEC §7s, which names the attached item); typed text is sent as typed. Enter submits either way. Without an attached item the text is required (§1). Amended 2026-11-27: when the project has a Start prompt, empty text sends it rendered for the new card and is not required ([START-PROMPT-TEMPLATE-SPEC](START-PROMPT-TEMPLATE-SPEC.md) §4).
 - Agent, workspace, project and **More options…** work as in §1; More options… hands the item, the title and the typed text to the full form.
 - Tests: `client/quick-task.test.ts` (`quickCard`, `quickPrompt`), `client/linear-start.test.ts` (`linearQuickSeed`).
 

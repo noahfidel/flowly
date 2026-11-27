@@ -1,6 +1,6 @@
 # New session starting text
 
-Status: implemented on Noah's request (2026-11-12).
+Status: implemented on Noah's request (2026-11-12). Extended 2026-11-27: the setting is now the project's **Start prompt** template, rendered from the card's state and used on every start path; see [START-PROMPT-TEMPLATE-SPEC](START-PROMPT-TEMPLATE-SPEC.md), which wins where they differ (label, 4000-character cap, validation).
 
 ## 1. What it is
 
