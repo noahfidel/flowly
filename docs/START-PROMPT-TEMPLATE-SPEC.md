@@ -12,7 +12,7 @@ The template is the project's own text. Flowly names no skills or tools; a proje
 
 ## 2. Template language
 
-Pure module `shared/start-prompt.ts`; no React, no i18n, no Node.
+Pure module `shared/start-prompt.ts`; no React, no Node. Its only i18n use is reading lane labels in English (`withLocale("en", …)` around `laneName`), since the built-in labels are translated lazily.
 
 - `{{name}}` inserts a variable's value. A list is joined with ", ". A boolean is `true` or `false`. A number is printed in decimal.
 - `{{#if cond}} … {{else if cond}} … {{else}} … {{/if}}`. Blocks can nest. `{{else if}}` and `{{else}}` are optional, and `{{else}}` must come last.
@@ -25,6 +25,8 @@ Pure module `shared/start-prompt.ts`; no React, no i18n, no Node.
   - a line that holds only one block tag (`#if`, `else if`, `else`, `/if`) plus spaces is removed with its line break;
   - after rendering, runs of three or more line breaks collapse to two (one blank line);
   - the result is trimmed.
+  - a line holding only spaces or tabs counts as blank for that collapse.
+- `}}` always ends a tag, also inside a quoted value.
 - Errors make a template invalid:
   - an unknown variable name, in a value or a condition;
   - an unclosed `{{#if}}`, or a stray `{{else}}`, `{{else if}}` or `{{/if}}`;
