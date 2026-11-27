@@ -38,3 +38,8 @@ test("the projects.update schema refuses a Start prompt that does not parse, nam
   expect(bad.success ? "" : bad.error.issues[0].message).toBe('Start prompt: Unknown variable "nope" (line 1)');
   expect(projectEdit.safeParse({ id: "p", revision: 1, sessionStartText: "{{title}}" }).success).toBe(true);
 });
+
+test("the projects.update schema caps the trimmed Start prompt, as the store does", () => {
+  expect(projectEdit.safeParse({ id: "p", revision: 1, sessionStartText: `  ${"x".repeat(4000)}\n` }).success).toBe(true);
+  expect(projectEdit.safeParse({ id: "p", revision: 1, sessionStartText: "x".repeat(4001) }).success).toBe(false);
+});

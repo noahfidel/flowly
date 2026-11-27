@@ -6,6 +6,7 @@ import { deliveryModes } from "./delivery-mode";
 import { attentionDismissLimits, attentionDismissalSchema } from "./attention-dismiss";
 import { hiddenPrLimits, hiddenPrSchema } from "./hidden-prs";
 import { baseRefProblem } from "./worktree-base";
+// Import cycle model <-> session-start <-> start-prompt <-> lanes: safe only while none of them reads the others' values at module load.
 import { sessionStartProblem } from "./session-start";
 
 export const statuses = [
@@ -849,6 +850,7 @@ export const projectEdit = z.strictObject({
   /** The New session starting text (SESSION-START-TEXT-SPEC); "" removes it (the built-in default applies again). */
   sessionStartText: z
     .string()
+    .trim()
     .max(4000)
     .superRefine((v, ctx) => {
       const problem = sessionStartProblem(v);

@@ -1404,3 +1404,13 @@ test("a stored Start prompt that does not parse is logged and the default prompt
   expect(x.createdSessions[0].prompt).toBe("Card c\n\nDo c.");
   expect(logged).toHaveBeenCalled();
 });
+
+test("an unreadable host delivery default does not fail the start: the template renders with branch mode", async () => {
+  const x = await withTemplate("{{title}} ({{deliveryMode}})");
+  x.starter.deliveryDefault = async () => {
+    throw new Error("settings unreadable");
+  };
+  await x.card("c", { ownsWorkspace: true });
+  await x.starter.start(x.caller, { taskId: "c", idempotencyKey: "go" }, x.paseo);
+  expect(x.createdSessions[0].prompt).toBe("Card c (branch)");
+});

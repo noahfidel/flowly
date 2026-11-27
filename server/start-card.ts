@@ -361,7 +361,7 @@ export class CardStarter {
       project,
       task,
       board,
-      deliveryMode: resolveDeliveryMode({ card: task.deliveryMode, project: project.deliveryMode, group: groupOfProject(board, project)?.defaults?.deliveryMode, host: await this.deliveryDefault() }).mode,
+      deliveryMode: resolveDeliveryMode({ card: task.deliveryMode, project: project.deliveryMode, group: groupOfProject(board, project)?.defaults?.deliveryMode, host: await this.deliveryDefault().catch(() => defaultDeliveryMode) }).mode,
       firstSession,
       planTarget,
       workspaceDir,
