@@ -419,6 +419,7 @@ export function newCardPromptState(form: NewCardPromptInput): StartPromptState {
     deliveryMode: form.deliveryMode,
     plan: "",
     planApproved: false,
+    // From… items carry no file target, so only the title rule of isSpecInput can match here.
     spec: inputs.filter((title) => isSpecInput({ role: "input", target: "", title })),
     inputs,
     externalInputs: form.items.map(itemName),

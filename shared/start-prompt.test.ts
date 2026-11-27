@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { getLocale, setLocale, t } from "./i18n";
+import { registerAllCatalogs } from "./i18n-all";
 import type { Artifact, Link, Review, Task } from "./model";
 import {
   isSpecInput,
@@ -307,9 +309,20 @@ describe("promptState (§3)", () => {
       firstSession: false,
     } satisfies StartPromptState);
   });
-  it("names a built-in lane in English and leaves an untyped card's type empty", () => {
+  it("names a built-in lane in English even when the UI language is another, and restores it", () => {
+    registerAllCatalogs();
+    setLocale("de");
+    try {
+      expect(t("In review")).toBe("In Prüfung");
+      expect(cardState(card({ status: "in_review" })).laneName).toBe("In review");
+      expect(newCardPromptState({ project: null, title: "x", description: "", lane: "design", deliveryMode: "branch", items: [] }).laneName).toBe("Design");
+      expect(getLocale()).toBe("de");
+    } finally {
+      setLocale("en");
+    }
+  });
+  it("leaves an untyped card's type, plan and links empty", () => {
     const s = cardState(card({ status: "in_review" }));
-    expect(s.laneName).toBe("In review");
     expect(s.type).toBe("");
     expect(s.plan).toBe("");
     expect(s.links).toEqual([]);
