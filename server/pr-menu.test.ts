@@ -21,22 +21,22 @@ const gitlab: Connection = { id: "gl", provider: "gitlab", baseUrl: "https://git
 
 function fakeReads(
   connections: Connection[],
-  states: Record<string, { status: string; stale?: boolean; author?: string }>,
+  states: Record<string, { status: string; stale?: boolean; author?: string; summary?: string }>,
   calls: ExternalRef[][] = [],
-  cache: Record<string, { status: string; expired: boolean; author?: string }> = {},
+  cache: Record<string, { status: string; expired: boolean; author?: string; summary?: string }> = {},
   viewers: Record<string, string> = {},
 ): PrMenuReads {
   return {
     list: async () => connections,
     viewers: async () => new Map(Object.entries(viewers)),
-    cached: async (refs) => new Map(refs.flatMap((ref) => (cache[ref.key] ? [[refKey(ref), { summary: { status: cache[ref.key].status, author: cache[ref.key].author } as never, expired: cache[ref.key].expired }] as const] : []))),
+    cached: async (refs) => new Map(refs.flatMap((ref) => (cache[ref.key] ? [[refKey(ref), { summary: { status: cache[ref.key].status, author: cache[ref.key].author, summary: cache[ref.key].summary } as never, expired: cache[ref.key].expired }] as const] : []))),
     locate: async (list) => new Map(list.filter((a) => a.external).map((a) => [a.id, connections.some((c) => c.id === a.external!.connectionId) ? a.external! : null])),
     badges: async (refs) => {
       calls.push([...refs]);
       const out: Summaries = new Map();
       for (const ref of refs) {
         const hit = states[ref.key];
-        if (hit) out.set(refKey(ref), { summary: { status: hit.status, author: hit.author } as never, fingerprint: "", stale: !!hit.stale });
+        if (hit) out.set(refKey(ref), { summary: { status: hit.status, author: hit.author, summary: hit.summary } as never, fingerprint: "", stale: !!hit.stale });
       }
       return out;
     },
@@ -150,7 +150,7 @@ test("hidden: a hidden PR that has merged stays hidden", async () => {
 });
 
 /** The `gh` fallback (PR-MENU-SPEC §3.2): github.com PRs no GitHub connection reads. */
-const ghSetup = (words: Record<string, "merged" | "open" | "closed" | "draft" | null | "throw"> = {}, authors: Record<string, string> = {}) => {
+const ghSetup = (words: Record<string, "merged" | "open" | "closed" | "draft" | null | "throw"> = {}, authors: Record<string, string> = {}, titles: Record<string, string> = {}) => {
   const asked: string[] = [];
   const cache = { now: 0 };
   const ghCache = new GhPrCache(() => cache.now);
@@ -158,7 +158,7 @@ const ghSetup = (words: Record<string, "merged" | "open" | "closed" | "draft" | 
     asked.push(`${pr.repo}#${pr.number}`);
     const word = words[`${pr.repo}#${pr.number}`] ?? "open";
     if (word === "throw") throw new Error("gh missing");
-    return word ? { state: word, author: authors[`${pr.repo}#${pr.number}`] ?? "" } : null;
+    return word ? { state: word, author: authors[`${pr.repo}#${pr.number}`] ?? "", title: titles[`${pr.repo}#${pr.number}`] ?? "" } : null;
   };
   return { asked, clock: cache, ghCache, gh };
 };
@@ -244,13 +244,13 @@ test("gh: a throwing gh gives no state, caches nothing, logs once, and leaves co
 test("ghPrMenuState: maps gh's answer and passes an argument array", async () => {
   const seen: (readonly string[])[] = [];
   const answer = async (json: string) => ghPrMenuState(async (file, args) => { expect(file).toBe("gh"); seen.push(args); return json; })({ repo: "o/r", number: 7 });
-  expect(await answer('{"state":"MERGED","isDraft":false,"mergedAt":"2026-11-20T10:00:00Z"}')).toEqual({ state: "merged", author: "" });
+  expect(await answer('{"state":"MERGED","isDraft":false,"mergedAt":"2026-11-20T10:00:00Z"}')).toEqual({ state: "merged", author: "", title: "" });
   expect(await answer('{"state":"CLOSED","isDraft":false,"mergedAt":"2026-11-20T10:00:00Z"}')).toMatchObject({ state: "merged" });
   expect(await answer('{"state":"CLOSED","isDraft":false,"mergedAt":null}')).toMatchObject({ state: "closed" });
   expect(await answer('{"state":"OPEN","isDraft":true,"mergedAt":null}')).toMatchObject({ state: "draft" });
-  expect(await answer('{"state":"OPEN","isDraft":false,"mergedAt":null,"author":{"login":"ada"}}')).toEqual({ state: "open", author: "ada" });
+  expect(await answer('{"state":"OPEN","isDraft":false,"mergedAt":null,"author":{"login":"ada"},"title":"  Fix #7 now "}')).toEqual({ state: "open", author: "ada", title: "Fix #7 now" });
   expect(await answer('{"state":"WAT"}')).toBeNull();
-  expect(seen[0]).toEqual(["pr", "view", "7", "--repo", "o/r", "--json", "state,isDraft,mergedAt,author"]);
+  expect(seen[0]).toEqual(["pr", "view", "7", "--repo", "o/r", "--json", "state,isDraft,mergedAt,author,title"]);
 });
 
 /** "My PRs" (PR-MENU-SPEC D16): `mine` compares the PR's author with the login of the connection or gh that read it. */
@@ -384,4 +384,16 @@ test("mine index: hidden rows are recorded too; listPrs works without an index",
   await listPrs(board, ["p"], { ...fakeReads([github], {}, [], { "o/r#1": { status: "Open", expired: false, author: "ada" } }, { gh: "ada" }), mineIndex: index });
   expect(index.has("a", a.target)).toBe(true);
   await expect(listPrs(board, ["p"], fakeReads([github], {}))).resolves.toBeTruthy();
+});
+
+/** The PR's own title (PR-MENU-SPEC D25): from the connector summary (fetched or cached) or gh; "" when not read. */
+test("prTitle: a fetched summary, a cached summary and gh give the title trimmed; a failed read gives none", async () => {
+  const board = { projects: [project("p")], tasks: [task("a")], artifacts: [artifact("a", "https://github.com/o/r/pull/1"), artifact("a", "https://github.com/o/r/pull/2")] };
+  const fetched = await listPrs(board, ["p"], fakeReads([github], { "o/r#1": { status: "Open", summary: " Fix the menu " } }, [], { "o/r#2": { status: "Open", expired: false, summary: "From cache" } }), () => {});
+  expect(Object.fromEntries(fetched.rows.map((r) => [r.number, r.prTitle]))).toEqual({ "#1": "Fix the menu", "#2": "From cache" });
+  const g = ghSetup({}, {}, { "o/r#1": "From gh" });
+  const viaGh = await listPrs(plainBoard(), ["p"], { ...fakeReads([], {}), gh: g.gh, ghCache: g.ghCache });
+  expect(viaGh.rows[0].prTitle).toBe("From gh");
+  const failing: PrMenuReads = { ...fakeReads([github], {}), badges: async () => { throw new Error("offline"); } };
+  expect((await listPrs(plainBoard(), ["p"], failing, () => {})).rows[0].prTitle).toBe("");
 });

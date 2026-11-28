@@ -15,7 +15,7 @@ export type PrMenuReads = {
   /** The stored login of each working GitHub connection by connection id; no network (for `mine`, D16). */
   viewers(): Promise<Map<string, string>>;
   /** Cache only, no network; `expired` once older than the badge TTL. */
-  cached(refs: readonly ExternalRef[]): Promise<Map<string, { summary: { status?: string; author?: string }; expired: boolean }>>;
+  cached(refs: readonly ExternalRef[]): Promise<Map<string, { summary: { status?: string; author?: string; summary?: string }; expired: boolean }>>;
   badges(refs: readonly ExternalRef[]): Promise<Summaries>;
   /** The `gh` CLI fallback for github.com PRs no GitHub connection reads (§3.2); with `ghCache`. */
   gh?: (pr: { repo: string; number: number }) => Promise<GhPr | null>;
@@ -45,34 +45,35 @@ export class PrMineIndex {
   }
 }
 
-/** What `gh pr view` tells: the state word and the author's login ("" when none). */
-export type GhPr = { state: PrState; author: string };
+/** What `gh pr view` tells: the state word, the author's login and the title ("" when none). */
+export type GhPr = { state: PrState; author: string; title: string };
 
 /** How long a `gh` answer is fresh, as long as the badge cache. */
 export const ghPrTtlMs = 30 * 60_000;
 
 /** Daemon-memory cache of `gh` PR states, keyed by lower-case `owner/repo#n`; lost on restart. */
 export class GhPrCache {
-  private readonly entries = new Map<string, { state: PrState; author: string; at: number }>();
+  private readonly entries = new Map<string, { state: PrState; author: string; title: string; at: number }>();
   constructor(private readonly now: () => number = Date.now) {}
-  get(key: string): { state: PrState; author: string; expired: boolean } | undefined {
+  get(key: string): { state: PrState; author: string; title: string; expired: boolean } | undefined {
     const hit = this.entries.get(key.toLowerCase());
-    return hit ? { state: hit.state, author: hit.author, expired: this.now() - hit.at > ghPrTtlMs } : undefined;
+    return hit ? { state: hit.state, author: hit.author, title: hit.title, expired: this.now() - hit.at > ghPrTtlMs } : undefined;
   }
-  set(key: string, state: PrState, author = ""): void {
-    this.entries.set(key.toLowerCase(), { state, author, at: this.now() });
+  set(key: string, state: PrState, author = "", title = ""): void {
+    this.entries.set(key.toLowerCase(), { state, author, title, at: this.now() });
   }
 }
 
 /** One PR through the GitHub CLI (`gh pr view`), with an argument array, never a shell. */
 export function ghPrMenuState(run: Run = runFile): (pr: { repo: string; number: number }) => Promise<GhPr | null> {
   return async (pr) => {
-    const out = await run("gh", ["pr", "view", String(pr.number), "--repo", pr.repo, "--json", "state,isDraft,mergedAt,author"]);
-    const parsed = JSON.parse(out) as { state?: unknown; isDraft?: unknown; mergedAt?: unknown; author?: { login?: unknown } | null };
+    const out = await run("gh", ["pr", "view", String(pr.number), "--repo", pr.repo, "--json", "state,isDraft,mergedAt,author,title"]);
+    const parsed = JSON.parse(out) as { state?: unknown; isDraft?: unknown; mergedAt?: unknown; author?: { login?: unknown } | null; title?: unknown };
     const author = typeof parsed.author?.login === "string" ? parsed.author.login : "";
-    if (parsed.state === "MERGED" || (typeof parsed.mergedAt === "string" && parsed.mergedAt)) return { state: "merged", author };
-    if (parsed.state === "CLOSED") return { state: "closed", author };
-    if (parsed.state === "OPEN") return { state: parsed.isDraft === true ? "draft" : "open", author };
+    const title = typeof parsed.title === "string" ? parsed.title.trim() : "";
+    if (parsed.state === "MERGED" || (typeof parsed.mergedAt === "string" && parsed.mergedAt)) return { state: "merged", author, title };
+    if (parsed.state === "CLOSED") return { state: "closed", author, title };
+    if (parsed.state === "OPEN") return { state: parsed.isDraft === true ? "draft" : "open", author, title };
     return null;
   };
 }
@@ -101,7 +102,7 @@ async function inParallel<T>(items: readonly T[], work: (item: T) => Promise<voi
   );
 }
 
-export type PrMenuRow = BoardPr & { state: PrState; mine: boolean | null };
+export type PrMenuRow = BoardPr & { state: PrState; mine: boolean | null; prTitle: string };
 
 const sameLogin = (author: string | undefined, login: string | null | undefined) => (author && login ? author.toLowerCase() === login.toLowerCase() : null);
 
@@ -163,7 +164,7 @@ export async function listPrs(
       else if (reads.gh && reads.ghCache) ghRows.set(i, key);
     }
     const unique = [...new Map([...refs.values()].map((ref) => [refKey(ref), ref])).values()];
-    const cached = unique.length ? await reads.cached(unique) : new Map<string, { summary: { status?: string; author?: string }; expired: boolean }>();
+    const cached = unique.length ? await reads.cached(unique) : new Map<string, { summary: { status?: string; author?: string; summary?: string }; expired: boolean }>();
     // Hidden PRs never use the fetch budget: they read the cache only, unless a visible row names the same PR (PR-MENU-SPEC D14).
     const visibleKeys = new Set([...refs].filter(([i]) => !rows[i].hidden).map(([, ref]) => refKey(ref)));
     const candidates = unique.filter((ref) => visibleKeys.has(refKey(ref)));
@@ -185,11 +186,11 @@ export async function listPrs(
         const ghKey = ghRows.get(i);
         if (ghKey) {
           const hit = ghStates.get(ghKey.toLowerCase());
-          return { ...r, state: hit?.state ?? "", mine: sameLogin(hit?.author, ghLogin) };
+          return { ...r, prTitle: hit?.title ?? "", state: hit?.state ?? "", mine: sameLogin(hit?.author, ghLogin) };
         }
         const ref = refs.get(i);
         const summary = ref ? (found.get(refKey(ref)) ?? cached.get(refKey(ref)))?.summary : undefined;
-        return { ...r, state: prStateOf(summary?.status), mine: ref ? sameLogin(summary?.author, logins.get(ref.connectionId)) : null };
+        return { ...r, prTitle: summary?.summary?.trim() ?? "", state: prStateOf(summary?.status), mine: ref ? sameLogin(summary?.author, logins.get(ref.connectionId)) : null };
       }),
     };
     reads.mineIndex?.record(result.rows);
@@ -197,7 +198,7 @@ export async function listPrs(
   } catch (error) {
     log("Flowly pull request states failed:", error, `${rows.length} rows`);
     // A failed read learns nothing about authors, so the "yours" index keeps what the last good read found (D20).
-    return { rows: rows.map((r) => ({ ...r, state: "" as const, mine: null })) };
+    return { rows: rows.map((r) => ({ ...r, prTitle: "", state: "" as const, mine: null })) };
   }
 }
 
@@ -218,7 +219,7 @@ async function ghStatesOf(
     const id = key.toLowerCase();
     const hit = ghCache.get(id);
     if (hit) {
-      states.set(id, { state: hit.state, author: hit.author });
+      states.set(id, { state: hit.state, author: hit.author, title: hit.title });
       if (hit.expired) expired.add(id);
     }
     if (!rows[i].hidden) visible.set(id, key);
@@ -232,7 +233,7 @@ async function ghStatesOf(
     try {
       const answer = await gh({ repo: key.slice(0, at), number: Number(key.slice(at + 1)) });
       if (answer) {
-        ghCache.set(id, answer.state, answer.author);
+        ghCache.set(id, answer.state, answer.author, answer.title);
         states.set(id, answer);
       }
     } catch (error) {

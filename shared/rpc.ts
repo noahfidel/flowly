@@ -512,6 +512,8 @@ export const listPrs = defineRpc({
         number: z.string(),
         repo: z.string(),
         title: z.string(),
+        /** The PR's own title from GitHub, trimmed; "" when not known (PR-MENU-SPEC D25). */
+        prTitle: z.string(),
         createdAt: z.string(),
         state: z.enum(["draft", "open", "merged", "closed", ""]),
         hidden: z.boolean(),

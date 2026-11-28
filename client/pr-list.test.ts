@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Status } from "../shared/model";
-import { hiddenPrRows, isOwnPr, mineNote, prChipText, prCount, prListRead, prRowTitle, prRowDetail, prSections, type PrListRow } from "./pr-list";
+import { hiddenPrRows, isOwnPr, mineNote, prChipText, prCount, prListRead, prRowTitle, prRowDetail, prSections, prStateCue, type PrListRow } from "./pr-list";
 
 /** The pull requests menu (PR-MENU-SPEC §1 D5, §2.3): sections, their order and each row's text. */
 
@@ -14,6 +14,7 @@ const row = (taskId: string, number: string, s: number, over: Partial<PrListRow>
   number,
   repo: "o/r",
   title: "",
+  prTitle: "",
   createdAt: at(s),
   state: "open",
   hidden: false,
@@ -53,11 +54,11 @@ test("within a section: lane furthest along first, then newest PR first", () => 
 
 test("row title: the number, then the artifact title unless it only repeats the number", () => {
   expect(prRowTitle(row("t", "#42", 0, { title: "Fix the menu" }), "Card")).toBe("#42 Fix the menu");
-  expect(prRowTitle(row("t", "#42", 0, { title: "#42" }), "Card")).toBe("#42");
-  expect(prRowTitle(row("t", "#42", 0, { title: "PR #42" }), "Card")).toBe("#42");
+  expect(prRowTitle(row("t", "#42", 0, { title: "#42" }), "Card")).toBe("#42 Card");
+  expect(prRowTitle(row("t", "#42", 0, { title: "PR #42" }), "Card")).toBe("#42 Card");
   expect(prRowTitle(row("t", "#42", 0, { title: "#42: Fix the menu" }), "Card")).toBe("#42 Fix the menu");
-  expect(prRowTitle(row("t", "!7", 0, { title: "https://gitlab.com/g/r/-/merge_requests/7" , url: "https://gitlab.com/g/r/-/merge_requests/7" }), "Card")).toBe("!7");
-  expect(prRowTitle(row("t", "#42", 0, { title: "" }), "Card")).toBe("#42");
+  expect(prRowTitle(row("t", "!7", 0, { title: "https://gitlab.com/g/r/-/merge_requests/7" , url: "https://gitlab.com/g/r/-/merge_requests/7" }), "Card")).toBe("!7 Card");
+  expect(prRowTitle(row("t", "#42", 0, { title: "" }), "Card")).toBe("#42 Card");
   // A PR review card's row uses the card title.
   expect(prRowTitle(row("t", "#5", 0, { kind: "review", title: "PR review: o/r#5" }), "Review the API change")).toBe("#5 Review the API change");
 });
@@ -146,4 +147,28 @@ test("prListRead reads while closed only when the board shows a visible PR", () 
   expect(prListRead({ open: false, prs: 3 })).toEqual({ enabled: true, refreshOnArrival: true });
   expect(prListRead({ open: false, prs: 0 })).toEqual({ enabled: false, refreshOnArrival: false });
   expect(prListRead({ open: true, prs: 0 })).toEqual({ enabled: true, refreshOnArrival: true });
+});
+
+test("row title: the PR's own title is shown verbatim after the number (D25)", () => {
+  expect(prRowTitle(row("t", "#42", 0, { prTitle: "  Fix the menu " , title: "PR #42" }), "Card")).toBe("#42 Fix the menu");
+  expect(prRowTitle(row("t", "#42", 0, { prTitle: "#42 fix the menu" }), "Card")).toBe("#42 #42 fix the menu");
+  expect(prRowTitle(row("t", "#2024", 0, { prTitle: "2024 roadmap" }), "Card")).toBe("#2024 2024 roadmap");
+  expect(prRowTitle(row("t", "#5", 0, { kind: "review", prTitle: "Add the API" }), "Review the API change")).toBe("#5 Add the API");
+  expect(prRowTitle(row("t", "#5", 0, { kind: "review" }), "PR review: o/r#5 Review the API change")).toBe("#5 Review the API change");
+});
+
+test("row title: with no PR title the artifact title, then the card title when that leaves only the number", () => {
+  expect(prRowTitle(row("t", "#42", 0, { title: "Fix the menu" }), "Card")).toBe("#42 Fix the menu");
+  expect(prRowTitle(row("t", "#42", 0, { title: "" }), "Card title")).toBe("#42 Card title");
+  expect(prRowTitle(row("t", "#42", 0, { title: "https://github.com/o/r/pull/42" }), "Card title")).toBe("#42 Card title");
+  expect(prRowTitle(row("t", "#42", 0, { title: "PR #42" }), "Card title")).toBe("#42 Card title");
+  expect(prRowTitle(row("t", "#42", 0, { title: "PR #42" }), "")).toBe("#42");
+});
+
+test("state cue: a distinct icon, tone and word per state; none when unknown (D26)", () => {
+  expect(prStateCue("open")).toEqual({ icon: "GitPullRequest", tone: "running", word: "Open" });
+  expect(prStateCue("draft")).toEqual({ icon: "GitPullRequestDraft", tone: "muted", word: "Draft" });
+  expect(prStateCue("merged")).toEqual({ icon: "GitMerge", tone: "success", word: "Merged" });
+  expect(prStateCue("closed")).toEqual({ icon: "GitPullRequestClosed", tone: "danger", word: "Closed" });
+  expect(prStateCue("")).toBeNull();
 });

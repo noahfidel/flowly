@@ -15,7 +15,7 @@ import { Button, IconButton, Label, Row, Theme, Toggle, font, noFocusRing, space
 import { stateColors } from "./state-colors";
 import { openQuickLink } from "./quick-links-row";
 import { usePrListQuery } from "./queries";
-import { hiddenPrRows, isOwnPr, mineNote, prListRead, prRowDetail, prRowTitle, prSections, type PrListRow, type PrSectionId } from "./pr-list";
+import { hiddenPrRows, isOwnPr, mineNote, prListRead, prRowDetail, prRowTitle, prSections, prStateCue, type PrListRow, type PrSectionId } from "./pr-list";
 import { useStableCallback } from "./stable";
 import { useBoardView } from "./board-view";
 import { prMenuClosesOn } from "./shortcuts";
@@ -24,7 +24,6 @@ import { prMenuClosesOn } from "./shortcuts";
 const maxProjects = 20;
 const noRows: PrListRow[] = [];
 const sectionTitles: Record<PrSectionId, string> = { open: msg("Open"), reviewing: msg("Reviewing"), closed: msg("Merged or closed"), unknown: msg("Author not known") };
-const stateWords: Record<Exclude<PrState, "">, string> = { draft: msg("Draft"), open: msg("Open"), merged: msg("Merged"), closed: msg("Closed") };
 
 /** RN-Web forwards React keyboard events on View; React Native's types omit them. */
 type WebKeyEvent = {
@@ -108,7 +107,8 @@ export function PrMenu({
       const project = byProject.get(r.projectId);
       const cardTitle = card?.title ?? "";
       const title = prRowTitle(r, cardTitle);
-      const word = r.state ? t(stateWords[r.state]) : "";
+      const cue = prStateCue(r.state);
+      const word = cue ? t(cue.word) : "";
       return {
         hidden: r.hidden,
         key: `${r.taskId}|${r.artifactId ?? r.kind}|${r.url}`,
@@ -255,23 +255,20 @@ const PrRow = memo(function PrRow({ row, onClose, onOpenCard, onToggle, disabled
   const { colors } = useTheme();
   const toast = useToast();
   const tones = stateColors(colors);
-  // As the Quick links chip colours a PR: open the running colour, merged the success colour, others muted.
-  const tone = row.state === "open" ? tones.running : row.state === "merged" ? tones.unread : colors.foregroundMuted;
+  const cue = prStateCue(row.state);
+  const cueColor = cue ? { running: tones.running, success: colors.statusSuccess, danger: colors.statusDanger, muted: colors.foregroundMuted }[cue.tone] : "";
   return (
     <Row
       title={row.title}
+      titleHint={row.title}
       detail={row.detail}
       detailLines={touch ? 3 : 1}
       label={row.label}
       testID={`pr-row-${row.taskId}`}
       trailing={
         <View style={{ flexDirection: "row", alignItems: "center", gap: space[1] }}>
-          {row.mine && <OwnMark />}
-          {!!row.state && (
-            <Label size={font.sm} color={tone} selectable={false}>
-              {t(stateWords[row.state])}
-            </Label>
-          )}
+          {row.mine && <HoverMark icon="User" color={colors.foregroundMuted} label={t("Your PR")} />}
+          {cue && <HoverMark icon={cue.icon} color={cueColor} label={t(cue.word)} />}
           <IconButton
             icon={row.hidden ? "Eye" : "EyeOff"}
             label={row.hidden ? t("Show in list again") : t("Hide from this list")}
@@ -299,20 +296,19 @@ const PrRow = memo(function PrRow({ row, onClose, onOpenCard, onToggle, disabled
 });
 
 /**
- * The person icon on the user's own PRs (D19). Touch relies on the accessibility label; on web a hover shows the same
- * words in a small label placed over the row's edge, so the row never shifts.
+ * A small icon with a word (the person icon on the user's own PRs, D19; the state icon, D26). Touch relies on the
+ * accessibility label; on web a hover shows the same words in a small label placed over the row's edge, so the row never shifts.
  */
-function OwnMark() {
-  const { colors } = useTheme();
+function HoverMark({ icon: name, color, label }: { icon: string; color: string; label: string }) {
   const [hover, setHover] = useState(false);
-  const icon = <Icon name="User" size={14} color={colors.foregroundMuted} />;
+  const icon = <Icon name={name} size={14} color={color} />;
   // On touch a plain View, so a tap on the icon still opens the row's card; only web hovers.
-  if (touch) return <View accessible accessibilityRole="image" accessibilityLabel={t("Your PR")}>{icon}</View>;
+  if (touch) return <View accessible accessibilityRole="image" accessibilityLabel={label}>{icon}</View>;
   return (
     <Pressable
       accessible
       accessibilityRole="image"
-      accessibilityLabel={t("Your PR")}
+      accessibilityLabel={label}
       focusable={false}
       style={noFocusRing}
       onHoverIn={() => setHover(true)}
@@ -321,7 +317,7 @@ function OwnMark() {
       {icon}
       {hover && (
         <View pointerEvents="none" style={{ position: "absolute", right: 0, bottom: 18 }}>
-          <Label muted size={font.sm} selectable={false} lines={1}>{t("Your PR")}</Label>
+          <Label muted size={font.sm} selectable={false} lines={1}>{label}</Label>
         </View>
       )}
     </Pressable>

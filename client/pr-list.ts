@@ -1,7 +1,8 @@
 import type { z } from "zod";
 import type { Status } from "../shared/model";
 import type { listPrs } from "../shared/rpc";
-import { t, tn } from "../shared/i18n";
+import type { PrState } from "../shared/pr-rows";
+import { msg, t, tn } from "../shared/i18n";
 
 /** The board's pull requests menu (PR-MENU-SPEC): pure rules for its chip count, sections, order and row text. */
 
@@ -82,13 +83,22 @@ export function prSections(allRows: readonly PrListRow[], statusOf: (taskId: str
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
- * `#n` / `!n`, then the artifact title unless it is empty, the URL or only the number; a review row uses the card title
+ * `#n` / `!n`, then the PR's own title exactly as the host has it when known (D25); otherwise the artifact title unless it is empty, the URL or only the number; a review row uses the card title
  * without its "PR review:" lead (§2.3). The row's own number is dropped from the front only when written as a number
  * (`#42`, `!7`, `PR #42`, or on a review row `owner/repo#42`) and followed by the end, a separator or a space; a bare
- * leading number ("2024 roadmap" on #2024) is part of the title and stays.
+ * leading number ("2024 roadmap" on #2024) is part of the title and stays. When that leaves only the number, the card
+ * title (cleaned the same way) follows it.
  */
 export function prRowTitle(row: PrListRow, cardTitle: string): string {
-  let rest = (row.kind === "review" ? cardTitle : row.title).trim();
+  const exact = row.prTitle.trim();
+  if (exact) return `${row.number} ${exact}`;
+  const own = cleanTitle(row, row.kind === "review" ? cardTitle : row.title);
+  if (own !== row.number || row.kind === "review") return own;
+  return cleanTitle(row, cardTitle);
+}
+
+function cleanTitle(row: PrListRow, title: string): string {
+  let rest = title.trim();
   if (!rest || rest === row.url) return row.number;
   const number = `${escape(row.number)}(?!\\d)(?:\\s*[:·\\-–—]\\s*|\\s+|$)`;
   if (row.kind === "review") {
@@ -97,6 +107,19 @@ export function prRowTitle(row: PrListRow, cardTitle: string): string {
   }
   rest = rest.replace(new RegExp(`^(?:(?:PR|MR|Pull request|Merge request)\\s*)?${number}`, "i"), "").trim();
   return rest ? `${row.number} ${rest}` : row.number;
+}
+
+const stateWords: Record<Exclude<PrState, "">, string> = { draft: msg("Draft"), open: msg("Open"), merged: msg("Merged"), closed: msg("Closed") };
+const stateCues: Record<Exclude<PrState, "">, { icon: "GitPullRequest" | "GitPullRequestDraft" | "GitMerge" | "GitPullRequestClosed"; tone: "running" | "muted" | "success" | "danger" }> = {
+  open: { icon: "GitPullRequest", tone: "running" },
+  draft: { icon: "GitPullRequestDraft", tone: "muted" },
+  merged: { icon: "GitMerge", tone: "success" },
+  closed: { icon: "GitPullRequestClosed", tone: "danger" },
+};
+
+/** The state icon of a row (D26): its shape, colour tone and English word (the caller translates it with `t()`); null when the state is unknown. */
+export function prStateCue(state: PrState): { icon: (typeof stateCues)[Exclude<PrState, "">]["icon"]; tone: (typeof stateCues)[Exclude<PrState, "">]["tone"]; word: string } | null {
+  return state ? { ...stateCues[state], word: stateWords[state] } : null;
 }
 
 /** `project · owner/repo · card · lane` (§2.3): the project only when several are shown, the repo when known, no card on a review row. */

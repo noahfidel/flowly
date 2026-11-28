@@ -645,8 +645,11 @@ export function Row({
   menu,
   testID,
   detailLines = 1,
+  titleHint,
 }: {
   title: string;
+  /** Web only: shown over the row while it is hovered, e.g. the full text of a truncated title; never shifts the layout. */
+  titleHint?: string;
   detail?: string;
   /** Lines the detail may take before it truncates; 1 by default. */
   detailLines?: number;
@@ -664,6 +667,8 @@ export function Row({
   testID?: string;
 }) {
   const { colors } = useTheme();
+  const [titleHover, setHover] = useState(false);
+  const hint = !touch && !!titleHint;
   return (
     <Pressable
       accessibilityRole="button"
@@ -672,6 +677,7 @@ export function Row({
       accessibilityState={{ selected, disabled }}
       disabled={disabled}
       onPress={onPress}
+      {...(hint ? { onHoverIn: () => setHover(true), onHoverOut: () => setHover(false) } : {})}
       {...(menu || {})}
       style={(state) => {
         const { pressed, hovered: hover, focused } = state as typeof state & { hovered?: boolean; focused?: boolean };
@@ -706,6 +712,26 @@ export function Row({
           <Label muted size={font.sm} lines={detailLines} selectable={false}>
             {detail}
           </Label>
+        )}
+        {hint && titleHover && (
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              top: 22,
+              left: 0,
+              right: 0,
+              zIndex: 10,
+              backgroundColor: colors.surface2,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: radius.md,
+              paddingHorizontal: space[2],
+              paddingVertical: space[1],
+            }}
+          >
+            <Label size={font.sm} lines={3} selectable={false}>{titleHint}</Label>
+          </View>
         )}
       </View>
       {/* The check sits before the trailing value so trailing values stay in one column. */}
